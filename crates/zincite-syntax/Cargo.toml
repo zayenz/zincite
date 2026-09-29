@@ -1,0 +1,6 @@
+[package]
+name = "zincite-syntax"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Lossless source tokenization for MiniZinc tooling"

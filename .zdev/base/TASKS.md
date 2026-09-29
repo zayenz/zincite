@@ -4,13 +4,13 @@
 
 - Total: 21
 - Ready: 1
-- Blocked: 20
-- Done: 0
+- Blocked: 19
+- Done: 1
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
-| [base-001](tasks/001-establish-lossless-source-tokenization.md) | Establish lossless source tokenization | ready | — |
-| [base-002](tasks/002-parse-and-format-a-minimal-scalar-model.md) | Parse and format a minimal scalar model | blocked | base-001 |
+| [base-001](tasks/001-establish-lossless-source-tokenization.md) | Establish lossless source tokenization | done | — |
+| [base-002](tasks/002-parse-and-format-a-minimal-scalar-model.md) | Parse and format a minimal scalar model | ready | base-001 |
 | [base-003](tasks/003-add-operator-precedence-calls-and-annotations.md) | Add operator precedence, calls and annotations | blocked | base-002 |
 | [base-004](tasks/004-add-basic-collection-types-literals-and-indexing.md) | Add basic collection types, literals and indexing | blocked | base-003 |
 | [base-005](tasks/005-add-indexed-arrays-matrix-syntax-and-dependent-indices.md) | Add indexed arrays, matrix syntax and dependent indices | blocked | base-004 |

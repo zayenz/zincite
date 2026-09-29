@@ -5,9 +5,22 @@ Zincite is a Rust project for MiniZinc source tooling. The planned tools are
 a parser and concrete syntax tree that retain source spelling, comments,
 whitespace and locations.
 
-The project is at the implementation-planning stage. This repository contains
-the agreed design and task backlog; there is no Cargo workspace or runnable
-tool yet.
+The Cargo workspace currently contains `zincite-syntax`, a lossless lexical
+library. There is no parser, concrete syntax tree or runnable formatter/linter
+yet.
+
+`zincite_syntax::lex` owns UTF-8 source text and exposes read-only source,
+tokens and lexical diagnostics. Token ranges cover every byte exactly once,
+including comments, whitespace and erroneous input. Slice the source with a
+token's half-open byte range to read its original spelling.
+
+The lexer recognizes the lexical forms in the
+[MiniZinc 2.10.1 specification](https://docs.minizinc.dev/en/2.10.1/spec.html),
+including quoted names, numerals, plain strings and Unicode operators. It
+reports malformed lexical input and resumes at a reliable boundary. Strings
+containing interpolation are retained as single tokens with an explicit
+unsupported diagnostic. Their expressions are not tokenized yet. Lexing does
+not validate model/data grammar, resolve includes or check semantic validity.
 
 ## Scope
 
@@ -39,7 +52,7 @@ zdev status base
 zdev check base --format json
 ```
 
-Once the Cargo workspace exists, the standard checks will be:
+Run the standard Cargo checks:
 
 ```sh
 cargo fmt --all -- --check
