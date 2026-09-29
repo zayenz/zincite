@@ -75,8 +75,13 @@ impl Formatter<'_> {
     }
 
     fn expression(&mut self, node: &SyntaxNode, leading_space: bool) {
+        if node.kind() == NodeKind::MatrixLiteral {
+            self.matrix(node, leading_space);
+            return;
+        }
         let delimiters = match node.kind() {
             NodeKind::CallExpression => Some((TokenKind::LeftParen, TokenKind::RightParen)),
+            NodeKind::IndexTuple => Some((TokenKind::LeftParen, TokenKind::RightParen)),
             NodeKind::ArrayLiteral | NodeKind::ArrayAccessExpression | NodeKind::ArrayType => {
                 Some((TokenKind::LeftBracket, TokenKind::RightBracket))
             }
@@ -96,7 +101,8 @@ impl Formatter<'_> {
                         leading_space
                     } else {
                         match node.kind() {
-                            NodeKind::ParenthesizedExpression => false,
+                            NodeKind::ParenthesizedExpression | NodeKind::SetCardinality => false,
+                            NodeKind::SetType if child.kind() == NodeKind::SetCardinality => false,
                             NodeKind::UnaryExpression => {
                                 previous == Some(TokenKind::Not)
                                     || child.kind() == NodeKind::UnaryExpression
@@ -118,13 +124,54 @@ impl Formatter<'_> {
                     } else {
                         !matches!(
                             kind,
-                            TokenKind::RightParen | TokenKind::Colon | TokenKind::Inverse
+                            TokenKind::RightParen
+                                | TokenKind::Comma
+                                | TokenKind::Colon
+                                | TokenKind::Inverse
                         )
                     };
                     self.token_with_space(*index, space);
                     first = false;
                     previous = Some(kind);
                 }
+            }
+        }
+    }
+
+    fn matrix(&mut self, node: &SyntaxNode, leading_space: bool) {
+        let multiline = node.child_nodes().next().is_some();
+        let mut after_pipe = false;
+        for child in node.children() {
+            match child {
+                SyntaxElement::Node(row) => {
+                    if !after_pipe {
+                        self.newlines(self.pending_breaks.max(1));
+                        self.pending_breaks = 0;
+                    }
+                    self.expression(row, after_pipe);
+                    after_pipe = false;
+                }
+                SyntaxElement::Token(index) => match self.parsed.tokens()[*index].kind {
+                    TokenKind::MatrixStart => {
+                        self.token_with_space(*index, leading_space);
+                        self.indent += 1;
+                    }
+                    TokenKind::Pipe => {
+                        self.newlines(self.pending_breaks.max(1));
+                        self.pending_breaks = 0;
+                        self.token_with_space(*index, false);
+                        after_pipe = true;
+                    }
+                    TokenKind::MatrixEnd => {
+                        self.indent -= 1;
+                        if multiline || self.line_comment || self.pending_breaks > 0 {
+                            self.newlines(self.pending_breaks.max(1));
+                            self.pending_breaks = 0;
+                        }
+                        self.token_with_space(*index, false);
+                    }
+                    _ => self.token(*index),
+                },
             }
         }
     }

@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 21
-- Ready: 8
-- Blocked: 9
-- Done: 4
+- Ready: 9
+- Blocked: 7
+- Done: 5
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -13,11 +13,11 @@
 | [base-002](tasks/002-parse-and-format-a-minimal-scalar-model.md) | Parse and format a minimal scalar model | done | base-001 |
 | [base-003](tasks/003-add-operator-precedence-calls-and-annotations.md) | Add operator precedence, calls and annotations | done | base-002 |
 | [base-004](tasks/004-add-basic-collection-types-literals-and-indexing.md) | Add basic collection types, literals and indexing | done | base-003 |
-| [base-005](tasks/005-add-indexed-arrays-matrix-syntax-and-dependent-indices.md) | Add indexed arrays, matrix syntax and dependent indices | ready | base-004 |
-| [base-006](tasks/006-add-comprehensions-and-generator-call-layouts.md) | Add comprehensions and generator-call layouts | blocked | base-005 |
+| [base-005](tasks/005-add-indexed-arrays-matrix-syntax-and-dependent-indices.md) | Add indexed arrays, matrix syntax and dependent indices | done | base-004 |
+| [base-006](tasks/006-add-comprehensions-and-generator-call-layouts.md) | Add comprehensions and generator-call layouts | ready | base-005 |
 | [base-007](tasks/007-add-conditional-and-let-expressions.md) | Add conditional and let expressions | ready | base-004 |
 | [base-008](tasks/008-parse-expressions-inside-interpolated-strings.md) | Parse expressions inside interpolated strings | ready | base-003 |
-| [base-009](tasks/009-add-callable-and-annotation-declarations.md) | Add callable and annotation declarations | blocked | base-005 |
+| [base-009](tasks/009-add-callable-and-annotation-declarations.md) | Add callable and annotation declarations | ready | base-005 |
 | [base-010](tasks/010-add-includes-output-and-optimization-items.md) | Add includes, output and optimization items | ready | base-003 |
 | [base-011](tasks/011-add-enum-definitions-and-type-aliases.md) | Add enum definitions and type aliases | ready | base-004 |
 | [base-012](tasks/012-add-tuple-and-record-types-and-values.md) | Add tuple and record types and values | ready | base-004 |

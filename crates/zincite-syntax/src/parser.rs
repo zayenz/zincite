@@ -150,12 +150,7 @@ impl Parser<'_> {
                 }
                 loop {
                     self.trivia(&mut children);
-                    if matches!(self.peek(), Some(Identifier | QuotedIdentifier))
-                        && self.peek_after(1) == Some(In)
-                    {
-                        return Err("index-dependent array declarations are unsupported");
-                    }
-                    children.push(SyntaxElement::Node(self.type_inst()?));
+                    children.push(SyntaxElement::Node(self.array_index()?));
                     if self.peek() != Some(Comma) {
                         break;
                     }
@@ -192,7 +187,8 @@ impl Parser<'_> {
                 if self.peek() == Some(Set) {
                     self.bump(&mut children);
                     if self.peek() == Some(LeftParen) {
-                        return Err("set cardinalities are unsupported");
+                        self.trivia(&mut children);
+                        children.push(SyntaxElement::Node(self.set_cardinality()?));
                     }
                     self.expect(Of, &mut children, "expected 'of' after 'set'")?;
                     children.push(SyntaxElement::Node(
@@ -205,6 +201,34 @@ impl Parser<'_> {
             }
         };
         Ok(self.node(kind, start, children))
+    }
+
+    fn array_index(&mut self) -> Result<SyntaxNode, &'static str> {
+        use TokenKind::*;
+        if !matches!(self.peek(), Some(Identifier | QuotedIdentifier))
+            || self.peek_after(1) != Some(In)
+        {
+            return self.type_inst();
+        }
+        let start = self.position;
+        let mut children = Vec::new();
+        self.bump(&mut children);
+        self.bump(&mut children);
+        children.push(SyntaxElement::Node(self.type_inst()?));
+        Ok(self.node(NodeKind::ArrayIndexBinding, start, children))
+    }
+
+    fn set_cardinality(&mut self) -> Result<SyntaxNode, &'static str> {
+        let start = self.position;
+        let mut children = Vec::new();
+        self.bump(&mut children);
+        self.expression(&mut children)?;
+        self.expect(
+            TokenKind::RightParen,
+            &mut children,
+            "expected ')' after set cardinality",
+        )?;
+        Ok(self.node(NodeKind::SetCardinality, start, children))
     }
 
     fn base_type(
@@ -393,18 +417,17 @@ impl Parser<'_> {
                 self.bump(&mut children);
                 NodeKind::Expression
             }
-            Some(LeftBracket | LeftBrace) if grammar != Grammar::Numeric => {
-                let set = self.peek() == Some(LeftBrace);
-                self.collection_entries(
-                    &mut children,
-                    if set { RightBrace } else { RightBracket },
-                    false,
-                )?;
-                if set {
-                    NodeKind::SetLiteral
-                } else {
-                    NodeKind::ArrayLiteral
-                }
+            Some(LeftBrace) if grammar != Grammar::Numeric => {
+                self.collection_entries(&mut children, RightBrace, false)?;
+                NodeKind::SetLiteral
+            }
+            Some(LeftBracket) if grammar != Grammar::Numeric => {
+                self.array_entries(&mut children)?;
+                NodeKind::ArrayLiteral
+            }
+            Some(MatrixStart) if grammar != Grammar::Numeric => {
+                self.matrix(&mut children)?;
+                NodeKind::MatrixLiteral
             }
             token => return Err(unsupported_expression(token).unwrap_or(
                 if grammar == Grammar::Numeric {
@@ -463,6 +486,162 @@ impl Parser<'_> {
             children,
             "expected ',' or closing collection delimiter",
         )
+    }
+
+    fn array_entries(&mut self, children: &mut Vec<SyntaxElement>) -> Result<(), &'static str> {
+        use TokenKind::*;
+        self.bump(children);
+        let mut keyed_entries = 0;
+        let mut has_bare_entries = false;
+        while self.peek() != Some(RightBracket) {
+            self.trivia(children);
+            let start = self.position;
+            let key = self.array_entry_head()?;
+            if self.peek() == Some(Colon) {
+                if has_bare_entries {
+                    return Err(
+                        "written indices must occur on every entry or only the first entry",
+                    );
+                }
+                let mut entry = vec![SyntaxElement::Node(key)];
+                self.bump(&mut entry);
+                self.expression(&mut entry)?;
+                children.push(SyntaxElement::Node(self.node(
+                    NodeKind::IndexedArrayEntry,
+                    start,
+                    entry,
+                )));
+                keyed_entries += 1;
+            } else {
+                if keyed_entries > 1 {
+                    return Err("expected a written index on this array entry");
+                }
+                children.push(SyntaxElement::Node(key));
+                has_bare_entries = true;
+            }
+            match self.peek() {
+                Some(Pipe) => return Err("collection comprehensions are unsupported"),
+                Some(Comma) => self.bump(children),
+                _ => break,
+            }
+        }
+        self.expect(
+            RightBracket,
+            children,
+            "expected ',' or ']' after array entry",
+        )
+    }
+
+    fn array_entry_head(&mut self) -> Result<SyntaxNode, &'static str> {
+        use TokenKind::*;
+        if !self.starts_index_tuple() {
+            return self.precedence(Grammar::General, 1600);
+        }
+        let start = self.position;
+        let mut children = Vec::new();
+        self.bump(&mut children);
+        while self.peek() != Some(RightParen) {
+            self.expression(&mut children)?;
+            if self.peek() != Some(Comma) {
+                break;
+            }
+            self.bump(&mut children);
+        }
+        self.expect(RightParen, &mut children, "expected ')' after index tuple")?;
+        Ok(self.node(NodeKind::IndexTuple, start, children))
+    }
+
+    // The tuple-key alternative applies only when the matching ')' is followed
+    // by ':'. Other parentheses keep the ordinary expression grammar.
+    // https://docs.minizinc.dev/en/2.10.1/spec.html#indexed-array-literals
+    fn starts_index_tuple(&self) -> bool {
+        if self.peek() != Some(TokenKind::LeftParen) {
+            return false;
+        }
+        let mut depth = 0;
+        for index in self.position..self.tokens.len() {
+            match self.tokens[index].kind {
+                TokenKind::LeftParen => depth += 1,
+                TokenKind::RightParen => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return self
+                            .significant(index + 1)
+                            .is_some_and(|next| self.tokens[next].kind == TokenKind::Colon);
+                    }
+                }
+                TokenKind::Semicolon => break,
+                _ => {}
+            }
+        }
+        false
+    }
+
+    fn matrix(&mut self, children: &mut Vec<SyntaxElement>) -> Result<(), &'static str> {
+        use TokenKind::*;
+        self.bump(children);
+        while self.peek() != Some(MatrixEnd) {
+            self.trivia(children);
+            let first = !children
+                .iter()
+                .any(|child| matches!(child, SyntaxElement::Node(_)));
+            children.push(SyntaxElement::Node(self.matrix_row_or_header(first)?));
+            if self.peek() != Some(Pipe) {
+                break;
+            }
+            self.bump(children);
+        }
+        self.expect(MatrixEnd, children, "expected '|' or '|]' after matrix row")
+    }
+
+    fn matrix_row_or_header(&mut self, first: bool) -> Result<SyntaxNode, &'static str> {
+        use TokenKind::*;
+        let start = self.position;
+        let mut children = Vec::new();
+        if self.peek() != Some(Pipe) {
+            self.expression(&mut children)?;
+            if self.peek() == Some(Colon) {
+                self.bump(&mut children);
+                if matches!(self.peek(), Some(Pipe | MatrixEnd)) {
+                    if !first {
+                        return Err("expected a cell after matrix row index");
+                    }
+                    return Ok(self.node(NodeKind::MatrixColumnIndices, start, children));
+                }
+                self.expression(&mut children)?;
+                if self.peek() == Some(Colon) {
+                    if !first {
+                        return Err("column indices must precede matrix rows");
+                    }
+                    loop {
+                        self.bump(&mut children);
+                        if matches!(self.peek(), Some(Pipe | MatrixEnd)) {
+                            return Ok(self.node(NodeKind::MatrixColumnIndices, start, children));
+                        }
+                        self.expression(&mut children)?;
+                        if self.peek() != Some(Colon) {
+                            return Err("expected ':' after matrix column index");
+                        }
+                    }
+                }
+            }
+            while self.peek() == Some(Comma) {
+                self.bump(&mut children);
+                if matches!(self.peek(), Some(Pipe | MatrixEnd)) {
+                    break;
+                }
+                self.expression(&mut children)?;
+            }
+        }
+        // An empty written row has a zero-width range at its pipe delimiter.
+        if children.is_empty() {
+            return Ok(SyntaxNode {
+                kind: NodeKind::MatrixRow,
+                range: self.tokens[start].range.start..self.tokens[start].range.start,
+                children,
+            });
+        }
+        Ok(self.node(NodeKind::MatrixRow, start, children))
     }
 
     fn annotation(&mut self) -> Result<SyntaxNode, &'static str> {
@@ -537,6 +716,8 @@ impl Parser<'_> {
                     | TokenKind::RightParen
                     | TokenKind::RightBracket
                     | TokenKind::RightBrace
+                    | TokenKind::Pipe
+                    | TokenKind::MatrixEnd
             )
         ) || self
             .peek()
@@ -623,10 +804,14 @@ impl Parser<'_> {
         let mut depth = self.tokens[start..self.position]
             .iter()
             .fold(0usize, |depth, token| match token.kind {
-                TokenKind::LeftParen | TokenKind::LeftBracket | TokenKind::LeftBrace => depth + 1,
-                TokenKind::RightParen | TokenKind::RightBracket | TokenKind::RightBrace => {
-                    depth.saturating_sub(1)
-                }
+                TokenKind::LeftParen
+                | TokenKind::LeftBracket
+                | TokenKind::LeftBrace
+                | TokenKind::MatrixStart => depth + 1,
+                TokenKind::RightParen
+                | TokenKind::RightBracket
+                | TokenKind::RightBrace
+                | TokenKind::MatrixEnd => depth.saturating_sub(1),
                 _ => depth,
             });
         while self.position < self.tokens.len() {
@@ -639,8 +824,14 @@ impl Parser<'_> {
                 break;
             }
             match kind {
-                TokenKind::LeftParen | TokenKind::LeftBracket | TokenKind::LeftBrace => depth += 1,
-                TokenKind::RightParen | TokenKind::RightBracket | TokenKind::RightBrace => {
+                TokenKind::LeftParen
+                | TokenKind::LeftBracket
+                | TokenKind::LeftBrace
+                | TokenKind::MatrixStart => depth += 1,
+                TokenKind::RightParen
+                | TokenKind::RightBracket
+                | TokenKind::RightBrace
+                | TokenKind::MatrixEnd => {
                     depth = depth.saturating_sub(1);
                 }
                 _ => {}

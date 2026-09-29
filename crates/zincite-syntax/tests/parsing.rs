@@ -291,6 +291,99 @@ fn collection_types_entries_and_indices_share_the_lossless_tree() {
             .collect::<Vec<_>>(),
         ["grid", "..", "2"]
     );
+    let keyed = nodes[10].child_nodes().nth(1).unwrap();
+    assert_eq!(
+        keyed
+            .child_nodes()
+            .map(SyntaxNode::kind)
+            .collect::<Vec<_>>(),
+        [NodeKind::IndexedArrayEntry, NodeKind::IndexedArrayEntry]
+    );
+    assert_eq!(
+        keyed
+            .child_nodes()
+            .next()
+            .unwrap()
+            .child_nodes()
+            .map(|child| &source[child.range()])
+            .collect::<Vec<_>>(),
+        ["3", "7"]
+    );
+    let stepped = nodes[11].child_nodes().nth(1).unwrap();
+    assert_eq!(
+        stepped
+            .child_nodes()
+            .map(SyntaxNode::kind)
+            .collect::<Vec<_>>(),
+        [
+            NodeKind::IndexedArrayEntry,
+            NodeKind::Expression,
+            NodeKind::Expression
+        ]
+    );
+    let tuple = nodes[12]
+        .child_nodes()
+        .nth(1)
+        .unwrap()
+        .child_nodes()
+        .next()
+        .unwrap()
+        .child_nodes()
+        .next()
+        .unwrap();
+    assert_eq!(tuple.kind(), NodeKind::IndexTuple);
+    assert_eq!(
+        tuple
+            .child_nodes()
+            .map(|child| &source[child.range()])
+            .collect::<Vec<_>>(),
+        ["1", "2"]
+    );
+    let matrix = nodes[16].child_nodes().nth(1).unwrap();
+    assert_eq!(matrix.kind(), NodeKind::MatrixLiteral);
+    assert_eq!(
+        matrix
+            .child_nodes()
+            .map(SyntaxNode::kind)
+            .collect::<Vec<_>>(),
+        [
+            NodeKind::MatrixColumnIndices,
+            NodeKind::MatrixRow,
+            NodeKind::MatrixRow
+        ]
+    );
+    assert_eq!(
+        matrix
+            .child_nodes()
+            .map(|row| row
+                .child_nodes()
+                .map(|child| &source[child.range()])
+                .collect::<Vec<_>>())
+            .collect::<Vec<_>>(),
+        [vec!["5", "6"], vec!["3", "0x1", "2"], vec!["4", "3", "0o4"]]
+    );
+    let dependent = nodes[17].child_nodes().next().unwrap();
+    let binding = dependent.child_nodes().next().unwrap();
+    assert_eq!(binding.kind(), NodeKind::ArrayIndexBinding);
+    assert_eq!(operator_text(binding, &parsed), ["c", "in"]);
+    let name = binding
+        .children()
+        .iter()
+        .find_map(|child| match child {
+            SyntaxElement::Token(index)
+                if parsed.tokens()[*index].kind == zincite_syntax::TokenKind::Identifier =>
+            {
+                Some(parsed.tokens()[*index].range.clone())
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(&source[name], "c");
+    let set = dependent.child_nodes().nth(1).unwrap();
+    assert_eq!(set.kind(), NodeKind::SetType);
+    let cardinality = set.child_nodes().next().unwrap();
+    assert_eq!(cardinality.kind(), NodeKind::SetCardinality);
+    assert_eq!(&source[cardinality.range()], "(c)");
     let mut leaves = Vec::new();
     collect_leaves(parsed.tree(), &parsed, &mut leaves);
     assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
@@ -305,10 +398,21 @@ fn collection_types_entries_and_indices_share_the_lossless_tree() {
 fn malformed_and_excluded_collections_recover_to_the_next_item() {
     for source in [
         "array[] of int: bad;",
-        "array[i in 1..3] of int: bad;",
-        "set(2) of int: bad;",
-        "any: bad=[1:2];",
-        "any: bad=[|1,2|];",
+        "array[i in ] of int: bad;",
+        "array[i in 1..3 where true] of int: bad;",
+        "set() of int: bad;",
+        "set(2 of int: bad;",
+        "any: bad=[1:];",
+        "any: bad=[1,2:3];",
+        "any: bad=[1:2,3,4:5];",
+        "any: bad=[1:2,3:4,5];",
+        "any: bad=[(1,,2):3];",
+        "any: bad=[(1,2)];",
+        "any: bad=[1:2 | i in 1..3];",
+        "any: bad=[|1,,2|];",
+        "any: bad=[|1,2];",
+        "any: bad=[|1|2:|];",
+        "any: bad=[|1:2:3|];",
         "any: bad={i | i in 1..3};",
         "any: bad=[i | i in 1..3];",
         "any: bad=forall(i in 1..3)(true);",
@@ -332,11 +436,14 @@ fn malformed_and_excluded_collections_recover_to_the_next_item() {
         assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
     }
     let parsed = parse(
-        "any: empty_sets={}; any: empty_arrays=[]; array[1..2, 1..3,] of var opt 1..9: a; any: sliced=a[..2, 1..]; any: whole=a[..,<..,..<,<..<]; any: tagged=x::tag[1];",
+        "any: empty_sets={}; any: empty_arrays=[]; array[1..2, 1..3,] of var opt 1..9: a; any: sliced=a[..2, 1..]; any: whole=a[..,<..,..<,<..<]; any: tagged=x::tag[1]; any: empty_matrix=[||]; any: empty_rows=[| | |]; any: empty_cols=[|1:2:|]; any: single_key=[(1,):2]; any: empty_key=[():2]; any: tuple_key=[(\n1,\n2,\n):3]; array[i in 1..2, 1..3] of int: mixed; array[1..2, j in 1..3] of int: reverse;",
     );
     assert!(
         parsed.diagnostics().is_empty(),
         "{:?}",
         parsed.diagnostics()
     );
+    let mut leaves = Vec::new();
+    collect_leaves(parsed.tree(), &parsed, &mut leaves);
+    assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
 }

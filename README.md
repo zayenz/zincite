@@ -27,7 +27,9 @@ an erroneous item so callers can inspect subsequent items.
 
 `SyntaxNode::child_nodes` borrows direct child nodes in source order. Declaration
 types, collection entries, array index types and access expressions have distinct
-node kinds in this same tree.
+node kinds in this same tree. Indexed entries expose their key and value; matrix
+nodes expose column indices and rows in written order. Array index bindings retain
+their name tokens and index type, and set cardinalities retain their expression.
 
 ## Formatter usage
 
@@ -56,7 +58,13 @@ The temporary grammar supports:
   bounds.
 - Ordinary `set of`, `array[...] of` and `list of` declarations, including
   multiple array dimensions and nested arrays/lists.
-- Unindexed set and array literals, including empty literals and trailing commas.
+- Set cardinalities such as `var set(n) of 1..10`, and index-dependent arrays such
+  as `array[i in 1..n] of var 1..(i+2)`, including mixed index types and nested arrays.
+- Set and array literals, including empty literals and trailing commas. Indexed
+  arrays support a key on each entry or a starting key followed by bare values;
+  keys may use parenthesized index tuples.
+- Two-dimensional literals with optional column and row indices, including empty
+  forms and written row delimiters.
 - Array indexing after atoms, calls and parentheses, including repeated indexing,
   multiple indices and range slices with either, both or neither bound.
 - Assignments to ordinary or quoted identifiers.
@@ -76,12 +84,12 @@ Comments may occur between tokens. Formatting preserves comment, literal and
 operator spelling and explicit parentheses. It puts a labelled constraint's
 expression on the following line and retains explicitly multiline comma-separated
 lists with one entry per line and a trailing comma. A multiline nested entry does
-not expand its enclosing list. It normalizes editable spacing and line
-endings to LF, adds a final newline and preserves blank-line groups while
+not expand its enclosing list. Matrices use one logical row per line; column
+alignment and width-based row wrapping are not implemented yet. It normalizes
+editable spacing and line endings to LF, adds a final newline and preserves blank-line groups while
 collapsing excess blank layout lines.
 
-Indexed and matrix literals, set cardinalities, index-dependent array declarations,
-comprehensions, field access, structured types/values, generic type-inst variables,
+Comprehensions, field access, structured types/values, generic type-inst variables,
 control expressions, generators, interpolated strings and other item families
 remain unsupported and produce diagnostics. Range-type bounds follow the
 numeric-expression grammar: their parentheses may contain numeric operators,
@@ -92,6 +100,11 @@ Parsing checks syntax only: it does not resolve includes or names, require a
 solve item, infer types or check semantic validity. For example, accepting a
 named argument does not establish that a callable has that parameter, and
 accepting a range expression does not establish that its bounds have valid types.
+Written indices and cardinalities are retained without evaluation, domain inference,
+contiguity checks or rectangularity checks. The pinned grammar permits an empty
+index tuple `()` as a key, although the installed MiniZinc 2.10.1 compiler rejects
+it. That compiler also crashes on a mixed binder/plain-index declaration during
+`--model-check-only`; Zincite accepts these forms from the specification.
 
 Use the libraries independently of the command:
 

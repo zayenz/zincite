@@ -105,6 +105,19 @@ fn formats_collection_lists_and_preserves_comments_and_structure() {
         "list of int: values = [\n    0o7, % Keep  spelling\n    /* Next  entry */ 2,\n];"
     ));
     assert!(formatted.contains("nested[1][2] + (values)[1] + array1d(1 .. 2, [5, 6])[1]"));
+    assert!(formatted.contains("keyed = [3: 7, 4: 8];"));
+    assert!(formatted.contains("stepped = [0: 5, 6, 7];"));
+    assert!(formatted.contains("tupled = [(1, 2): 9, (1, 3): 10];"));
+    assert!(formatted.contains("plain = [|\n    1, 2\n    | 3, 4\n|];"));
+    assert!(formatted.contains("rows = [|\n    3: 1, 2\n    | 4: 3, 4\n|];"));
+    assert!(formatted.contains("cols = [|\n    5: 6:\n    | 1, 2\n    | 3, 4\n|];"));
+    assert!(formatted.contains("both = [|\n    5: 6: % Keep  column indices\n    | 3: 0x1, 2 % Keep  row comment\n    | 4: 3, 0o4\n|];"));
+    assert!(formatted.contains("array[c in 1 .. 3] of var set(c) of 1 .. 5: dependent_sets;"));
+    assert!(formatted.contains("array[i in 1 .. 2, j in 1 .. 3] of var 1 .. (i + j): dependent;"));
+    assert!(formatted.contains(
+        "array[i in 1 .. 2] of array[j in 1 .. 2] of var 1 .. (i + j): dependent_nested;"
+    ));
+    assert!(formatted.contains("var set(1 .. 3) of 1 .. 5: cardinality;"));
     let reparsed = parse(formatted.clone());
     assert!(
         reparsed.diagnostics().is_empty(),
@@ -117,12 +130,15 @@ fn formats_collection_lists_and_preserves_comments_and_structure() {
     );
     assert_eq!(format(&reparsed).unwrap(), formatted);
 
-    let source = "array[\n 1..2,\n 1..3\n] of int: a; any: x=f([\n1,\n2\n],{3,4}); any: y=a[\n1, % index\n2\n];";
+    let source = "array[\n 1..2,\n 1..3\n] of int: a; any: x=f([\n1,\n2\n],{3,4}); any: y=a[\n1, % index\n2\n]; any: keyed=[(\n1, % component\n2\n):3]; any: empty=[||]; any: empty_rows=[| | |]; any: empty_cols=[|1:2:|]; any: empty_key=[():3]; any: row=[|f(\n1,\n2\n),3,|4,5,||]; array[i in 1..2, 1..3] of int: mixed;";
     let parsed = parse(source);
     let formatted = format(&parsed).unwrap();
     assert!(formatted.contains("array[\n    1 .. 2,\n    1 .. 3,\n] of int"));
     assert!(formatted.contains("f([\n    1,\n    2,\n], {3, 4})"));
     assert!(formatted.contains("a[\n    1, % index\n    2,\n]"));
+    assert!(formatted.contains("keyed = [(\n    1, % component\n    2,\n): 3];"));
+    assert!(formatted.contains("empty = [||];"));
+    assert!(formatted.contains("empty_key = [(): 3];"));
     let reparsed = parse(formatted.clone());
     assert_eq!(
         structure(parsed.tree(), &parsed),

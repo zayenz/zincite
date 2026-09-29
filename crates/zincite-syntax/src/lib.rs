@@ -4,10 +4,11 @@
 //! grammar, resolve names, or evaluate literals. String interpolation is retained
 //! as a single unsupported token until expression tokenization is implemented.
 //! Parsing supports scalar and ordinary collection declarations, domains,
-//! unindexed literals and array access, operator expressions, calls, annotations,
-//! constraints with optional string labels, and `solve satisfy`.
-//! Indexed/matrix literals, dependent indices, cardinalities, comprehensions,
-//! structured values, control expressions and other items remain unsupported.
+//! indexed and matrix literals, dependent indices, cardinalities, array access,
+//! operator expressions, calls, annotations, constraints with optional string
+//! labels, and `solve satisfy`.
+//! Comprehensions, structured values, control expressions and other items remain
+//! unsupported.
 
 use std::ops::Range;
 
@@ -95,10 +96,15 @@ pub enum NodeKind {
     ScalarType,
     /// Contains one domain expression, with any qualifiers retained as tokens.
     DomainType,
-    /// Contains the element type, with qualifiers and `set of` retained as tokens.
+    /// Contains an optional cardinality followed by the element type.
+    /// Qualifiers and `set of` remain tokens.
     SetType,
-    /// Child nodes are index types followed by the element type.
+    /// Parentheses containing the written cardinality expression.
+    SetCardinality,
+    /// Child nodes are index types or bindings followed by the element type.
     ArrayType,
+    /// Direct tokens retain the binding name and `in`; the child is its index type.
+    ArrayIndexBinding,
     /// Contains the element type.
     ListType,
     Assignment,
@@ -112,8 +118,19 @@ pub enum NodeKind {
     CallExpression,
     /// Child nodes are the entries; empty literals have no child nodes.
     SetLiteral,
-    /// Child nodes are the entries; empty literals have no child nodes.
+    /// Child nodes are bare expressions or indexed entries, in written order.
     ArrayLiteral,
+    /// Child nodes are the written key and value, separated by a colon token.
+    IndexedArrayEntry,
+    /// Parenthesized key components; only supported in indexed-entry keys.
+    IndexTuple,
+    /// Contains an optional column header and rows, with written pipe delimiters.
+    MatrixLiteral,
+    /// Child nodes are column indices, each followed by a colon token.
+    MatrixColumnIndices,
+    /// Child nodes are cells, preceded by an index child when a colon is present.
+    /// Empty written rows have a zero-width range at their pipe delimiter.
+    MatrixRow,
     /// Child nodes are the subject followed by one or more index expressions.
     ArrayAccessExpression,
     NamedArgument,
