@@ -59,24 +59,22 @@ impl Parser<'_> {
                 NodeKind::Assignment
             }
             Some(Any) => {
-                self.bump(children);
+                let start = self.position;
+                let mut type_children = Vec::new();
+                self.bump(&mut type_children);
+                if self.peek() == Some(TypeInstVariable) {
+                    return Err("generic type-inst variables are unsupported");
+                }
+                children.push(SyntaxElement::Node(self.node(
+                    NodeKind::ScalarType,
+                    start,
+                    type_children,
+                )));
                 self.declaration_tail(children)?;
                 NodeKind::Declaration
             }
-            Some(Var | Par | Bool | Int | Float | String | Ann) => {
-                if matches!(self.peek(), Some(Var | Par)) {
-                    self.bump(children);
-                }
-                if matches!(self.peek(), Some(Bool | Int | Float | String | Ann)) {
-                    self.bump(children);
-                } else {
-                    self.range_type(children)?;
-                }
-                self.declaration_tail(children)?;
-                NodeKind::Declaration
-            }
-            token if token.is_some_and(starts_numeric) || token.is_some_and(is_range) => {
-                self.range_type(children)?;
+            token if token.is_some_and(starts_type) => {
+                children.push(SyntaxElement::Node(self.type_inst()?));
                 self.declaration_tail(children)?;
                 NodeKind::Declaration
             }
@@ -100,7 +98,7 @@ impl Parser<'_> {
             }
             _ => {
                 return Err(
-                    "unsupported top-level item; expected a scalar declaration, assignment, constraint or solve satisfy",
+                    "unsupported top-level item; expected a declaration, assignment, constraint or solve satisfy",
                 );
             }
         };
@@ -126,7 +124,7 @@ impl Parser<'_> {
     }
 
     fn declaration_tail(&mut self, children: &mut Vec<SyntaxElement>) -> Result<(), &'static str> {
-        self.expect(TokenKind::Colon, children, "expected ':' after scalar type")?;
+        self.expect(TokenKind::Colon, children, "expected ':' after type")?;
         self.name(children)?;
         while self.peek() == Some(TokenKind::AnnotationMarker) {
             self.trivia(children);
@@ -139,32 +137,93 @@ impl Parser<'_> {
         Ok(())
     }
 
-    fn range_type(&mut self, children: &mut Vec<SyntaxElement>) -> Result<(), &'static str> {
-        self.trivia(children);
+    fn type_inst(&mut self) -> Result<SyntaxNode, &'static str> {
+        use TokenKind::*;
         let start = self.position;
-        let mut bounds = Vec::new();
-        if !self.peek().is_some_and(is_range) {
-            bounds.push(SyntaxElement::Node(
-                self.precedence(Grammar::Numeric, 1600)?,
-            ));
-        }
-        if !self.peek().is_some_and(is_range) {
-            return Err("unsupported type; expected a scalar type or numeric range");
-        }
-        self.bump(&mut bounds);
-        if self.peek() != Some(TokenKind::Colon) {
-            bounds.push(SyntaxElement::Node(
-                self.precedence(Grammar::Numeric, 1600)?,
-            ));
-        } else if bounds.len() == 1 {
-            return Err("expected at least one range bound");
-        }
-        children.push(SyntaxElement::Node(self.node(
-            NodeKind::RangeExpression,
-            start,
-            bounds,
-        )));
-        Ok(())
+        let mut children = Vec::new();
+        let kind = match self.peek() {
+            Some(Array) => {
+                self.bump(&mut children);
+                self.expect(LeftBracket, &mut children, "expected '[' after 'array'")?;
+                if self.peek() == Some(RightBracket) {
+                    return Err("expected at least one array index type");
+                }
+                loop {
+                    self.trivia(&mut children);
+                    if matches!(self.peek(), Some(Identifier | QuotedIdentifier))
+                        && self.peek_after(1) == Some(In)
+                    {
+                        return Err("index-dependent array declarations are unsupported");
+                    }
+                    children.push(SyntaxElement::Node(self.type_inst()?));
+                    if self.peek() != Some(Comma) {
+                        break;
+                    }
+                    self.bump(&mut children);
+                    if self.peek() == Some(RightBracket) {
+                        break;
+                    }
+                }
+                self.expect(
+                    RightBracket,
+                    &mut children,
+                    "expected ',' or ']' after array index type",
+                )?;
+                self.expect(Of, &mut children, "expected 'of' after array index types")?;
+                children.push(SyntaxElement::Node(self.type_inst()?));
+                NodeKind::ArrayType
+            }
+            Some(List) => {
+                self.bump(&mut children);
+                self.expect(Of, &mut children, "expected 'of' after 'list'")?;
+                children.push(SyntaxElement::Node(self.type_inst()?));
+                NodeKind::ListType
+            }
+            Some(Any) => {
+                return Err("generic type-inst variables are unsupported");
+            }
+            _ => {
+                if matches!(self.peek(), Some(Var | Par)) {
+                    self.bump(&mut children);
+                }
+                if self.peek() == Some(Opt) {
+                    self.bump(&mut children);
+                }
+                if self.peek() == Some(Set) {
+                    self.bump(&mut children);
+                    if self.peek() == Some(LeftParen) {
+                        return Err("set cardinalities are unsupported");
+                    }
+                    self.expect(Of, &mut children, "expected 'of' after 'set'")?;
+                    children.push(SyntaxElement::Node(
+                        self.base_type(self.position, Vec::new())?,
+                    ));
+                    NodeKind::SetType
+                } else {
+                    return self.base_type(start, children);
+                }
+            }
+        };
+        Ok(self.node(kind, start, children))
+    }
+
+    fn base_type(
+        &mut self,
+        start: usize,
+        mut children: Vec<SyntaxElement>,
+    ) -> Result<SyntaxNode, &'static str> {
+        use TokenKind::*;
+        let kind = if matches!(self.peek(), Some(Bool | Int | Float | String | Ann)) {
+            self.bump(&mut children);
+            NodeKind::ScalarType
+        } else {
+            if matches!(self.peek(), Some(Tuple | Record | TypeInstVariable)) {
+                return Err("structured types and generic type-inst variables are unsupported");
+            }
+            children.push(SyntaxElement::Node(self.precedence(Grammar::Domain, 1600)?));
+            NodeKind::DomainType
+        };
+        Ok(self.node(kind, start, children))
     }
 
     fn expression(&mut self, children: &mut Vec<SyntaxElement>) -> Result<(), &'static str> {
@@ -180,7 +239,7 @@ impl Parser<'_> {
     // https://docs.minizinc.dev/en/2.10.1/spec.html#operators
     fn precedence(&mut self, grammar: Grammar, loosest: u16) -> Result<SyntaxNode, &'static str> {
         let start = self.position;
-        let mut left = if grammar == Grammar::General && self.peek().is_some_and(is_range) {
+        let mut left = if grammar != Grammar::Numeric && self.peek().is_some_and(is_range) {
             if loosest < 700 {
                 return Err("parentheses are required around this open-ended range");
             }
@@ -189,7 +248,12 @@ impl Parser<'_> {
             if self.range_end() {
                 return Err("expected at least one range bound");
             }
-            bounds.push(SyntaxElement::Node(self.precedence(grammar, 699)?));
+            let bounds_grammar = if grammar == Grammar::Domain {
+                Grammar::Numeric
+            } else {
+                grammar
+            };
+            bounds.push(SyntaxElement::Node(self.precedence(bounds_grammar, 699)?));
             self.node(NodeKind::RangeExpression, start, bounds)
         } else {
             self.atom_head(grammar, false)?
@@ -228,6 +292,9 @@ impl Parser<'_> {
                 return Err("non-associative operators require parentheses");
             }
             let range = self.peek().is_some_and(is_range);
+            if range && grammar == Grammar::Domain && !is_numeric_expression(&left, self.tokens) {
+                return Err("expected a numeric expression for range type bound");
+            }
             let mut children = vec![SyntaxElement::Node(left)];
             self.bump(&mut children);
             let right_limit = if associativity == Associativity::Right {
@@ -236,7 +303,14 @@ impl Parser<'_> {
                 precedence - 1
             };
             if !range || !self.range_end() {
-                children.push(SyntaxElement::Node(self.precedence(grammar, right_limit)?));
+                let right_grammar = if range && grammar == Grammar::Domain {
+                    Grammar::Numeric
+                } else {
+                    grammar
+                };
+                children.push(SyntaxElement::Node(
+                    self.precedence(right_grammar, right_limit)?,
+                ));
             }
             left = self.node(
                 if range {
@@ -261,7 +335,7 @@ impl Parser<'_> {
         let start = self.position;
         let mut children = Vec::new();
         let kind = match self.peek() {
-            Some(Plus | Minus | Not) if grammar == Grammar::General || self.peek() != Some(Not) => {
+            Some(Plus | Minus | Not) if grammar != Grammar::Numeric || self.peek() != Some(Not) => {
                 let limit = if self.peek() == Some(Not) { 349 } else { 499 };
                 self.bump(&mut children);
                 let operand = if annotation_head {
@@ -314,10 +388,23 @@ impl Parser<'_> {
                 NodeKind::Expression
             }
             Some(StringLiteral | True | False | Infinity | Anonymous | Absent)
-                if grammar == Grammar::General =>
+                if grammar != Grammar::Numeric =>
             {
                 self.bump(&mut children);
                 NodeKind::Expression
+            }
+            Some(LeftBracket | LeftBrace) if grammar != Grammar::Numeric => {
+                let set = self.peek() == Some(LeftBrace);
+                self.collection_entries(
+                    &mut children,
+                    if set { RightBrace } else { RightBracket },
+                    false,
+                )?;
+                if set {
+                    NodeKind::SetLiteral
+                } else {
+                    NodeKind::ArrayLiteral
+                }
             }
             token => return Err(unsupported_expression(token).unwrap_or(
                 if grammar == Grammar::Numeric {
@@ -327,7 +414,55 @@ impl Parser<'_> {
                 },
             )),
         };
-        Ok(self.node(kind, start, children))
+        let mut node = self.node(kind, start, children);
+        while self.peek() == Some(LeftBracket) {
+            let mut access = vec![SyntaxElement::Node(node)];
+            self.collection_entries(&mut access, RightBracket, true)?;
+            node = self.node(NodeKind::ArrayAccessExpression, start, access);
+        }
+        Ok(node)
+    }
+
+    fn collection_entries(
+        &mut self,
+        children: &mut Vec<SyntaxElement>,
+        closing: TokenKind,
+        access: bool,
+    ) -> Result<(), &'static str> {
+        use TokenKind::*;
+        self.bump(children);
+        if access && self.peek() == Some(closing) {
+            return Err("expected at least one array index expression");
+        }
+        while self.peek() != Some(closing) {
+            if access
+                && self.peek().is_some_and(is_range)
+                && matches!(self.peek_after(1), Some(Comma | RightBracket))
+            {
+                self.trivia(children);
+                let start = self.position;
+                let mut slice = Vec::new();
+                self.bump(&mut slice);
+                children.push(SyntaxElement::Node(self.node(
+                    NodeKind::RangeExpression,
+                    start,
+                    slice,
+                )));
+            } else {
+                self.expression(children)?;
+            }
+            match self.peek() {
+                Some(Pipe) => return Err("collection comprehensions are unsupported"),
+                Some(Colon) => return Err("indexed collection literals are unsupported"),
+                Some(Comma) => self.bump(children),
+                _ => break,
+            }
+        }
+        self.expect(
+            closing,
+            children,
+            "expected ',' or closing collection delimiter",
+        )
     }
 
     fn annotation(&mut self) -> Result<SyntaxNode, &'static str> {
@@ -396,7 +531,12 @@ impl Parser<'_> {
         matches!(
             self.peek(),
             None | Some(
-                TokenKind::Semicolon | TokenKind::Comma | TokenKind::Colon | TokenKind::RightParen
+                TokenKind::Semicolon
+                    | TokenKind::Comma
+                    | TokenKind::Colon
+                    | TokenKind::RightParen
+                    | TokenKind::RightBracket
+                    | TokenKind::RightBrace
             )
         ) || self
             .peek()
@@ -472,13 +612,23 @@ impl Parser<'_> {
     }
 
     fn recover(&mut self, start: usize) {
-        // Do not mistake the scalar tail of an unsupported type for a new item.
-        let can_find_next_item = self.position > start
-            && !matches!(
-                self.tokens[self.position - 1].kind,
-                TokenKind::Var | TokenKind::Par
-            );
-        let mut depth = 0usize;
+        // Before the declaration name, scalar tokens may still belong to an
+        // unsupported type. Do not recover to one of those as a new item.
+        let can_find_next_item = matches!(
+            self.tokens[start].kind,
+            TokenKind::Constraint | TokenKind::Solve
+        ) || self.tokens[start..self.position]
+            .iter()
+            .any(|token| matches!(token.kind, TokenKind::Colon | TokenKind::Equal));
+        let mut depth = self.tokens[start..self.position]
+            .iter()
+            .fold(0usize, |depth, token| match token.kind {
+                TokenKind::LeftParen | TokenKind::LeftBracket | TokenKind::LeftBrace => depth + 1,
+                TokenKind::RightParen | TokenKind::RightBracket | TokenKind::RightBrace => {
+                    depth.saturating_sub(1)
+                }
+                _ => depth,
+            });
         while self.position < self.tokens.len() {
             let kind = self.tokens[self.position].kind;
             if depth == 0 && can_find_next_item && self.starts_item(self.position) {
@@ -501,7 +651,10 @@ impl Parser<'_> {
     fn starts_item(&self, position: usize) -> bool {
         use TokenKind::*;
         let mut index = position;
-        if matches!(self.tokens[index].kind, Constraint | Solve) {
+        if matches!(
+            self.tokens[index].kind,
+            Constraint | Solve | Array | List | Set | Opt
+        ) {
             return true;
         }
         if matches!(self.tokens[index].kind, Var | Par) {
@@ -510,9 +663,12 @@ impl Parser<'_> {
             };
             index = next;
         }
+        if matches!(self.tokens[index].kind, Set | Opt) {
+            return true;
+        }
         if !matches!(
             self.tokens[index].kind,
-            Bool | Int | Float | String | Ann | Any
+            Bool | Int | Float | String | Ann | Any | Identifier | QuotedIdentifier
         ) {
             return false;
         }
@@ -532,6 +688,7 @@ fn is_trivia(kind: TokenKind) -> bool {
 enum Grammar {
     General,
     Numeric,
+    Domain,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -586,12 +743,64 @@ fn is_numeric_operator(kind: TokenKind) -> bool {
     )
 }
 
-fn starts_numeric(kind: TokenKind) -> bool {
+fn starts_type(kind: TokenKind) -> bool {
     use TokenKind::*;
     matches!(
         kind,
-        Identifier | QuotedIdentifier | IntegerLiteral | FloatLiteral | LeftParen | Plus | Minus
-    )
+        Identifier
+            | QuotedIdentifier
+            | IntegerLiteral
+            | FloatLiteral
+            | LeftParen
+            | Plus
+            | Minus
+            | Var
+            | Par
+            | Opt
+            | Bool
+            | Int
+            | Float
+            | String
+            | Ann
+            | Any
+            | Array
+            | List
+            | Set
+            | LeftBrace
+            | Anonymous
+    ) || is_range(kind)
+}
+
+fn is_numeric_expression(node: &SyntaxNode, tokens: &[Token]) -> bool {
+    match node.kind {
+        NodeKind::CallExpression => true,
+        NodeKind::ArrayAccessExpression | NodeKind::AnnotatedExpression => node
+            .child_nodes()
+            .next()
+            .is_some_and(|child| is_numeric_expression(child, tokens)),
+        NodeKind::Expression
+        | NodeKind::UnaryExpression
+        | NodeKind::BinaryExpression
+        | NodeKind::ParenthesizedExpression => node.children.iter().all(|child| match child {
+            SyntaxElement::Node(child) => is_numeric_expression(child, tokens),
+            SyntaxElement::Token(index) => {
+                let kind = tokens[*index].kind;
+                is_trivia(kind)
+                    || matches!(
+                        kind,
+                        TokenKind::Identifier
+                            | TokenKind::QuotedIdentifier
+                            | TokenKind::IntegerLiteral
+                            | TokenKind::FloatLiteral
+                            | TokenKind::LeftParen
+                            | TokenKind::RightParen
+                            | TokenKind::Inverse
+                    )
+                    || is_numeric_operator(kind)
+            }
+        }),
+        _ => false,
+    }
 }
 
 fn is_range(kind: TokenKind) -> bool {

@@ -93,12 +93,7 @@ fn syntax_errors_retain_ranges_and_a_following_declaration() {
 
 #[test]
 fn unsupported_expressions_are_diagnosed_and_anonymous_atoms_parse() {
-    for source in [
-        "int: x = f([1]);",
-        "int: x = a[1];",
-        "int: x = if true then 1 else 2 endif;",
-        "int: x = f(1)(2);",
-    ] {
+    for source in ["int: x = if true then 1 else 2 endif;", "int: x = f(1)(2);"] {
         let parsed = parse(source);
         assert!(
             parsed
@@ -199,8 +194,8 @@ fn calls_annotations_and_ranges_retain_all_tokens_and_bounds() {
         parsed.diagnostics()
     );
     let nodes = items(&parsed);
-    assert_eq!(nested(nodes[0])[0].kind(), NodeKind::Annotation);
-    let annotated_call = nested(nodes[0])[1];
+    assert_eq!(nested(nodes[0])[1].kind(), NodeKind::Annotation);
+    let annotated_call = nested(nodes[0])[2];
     assert_eq!(annotated_call.kind(), NodeKind::AnnotatedExpression);
     let call = nested(annotated_call)[0];
     assert_eq!(call.kind(), NodeKind::CallExpression);
@@ -242,6 +237,103 @@ fn numeric_type_bounds_check_grammar_without_inference() {
         );
     }
     let parsed = parse("var f(true)::tag(<>)+n `combine` m..'+'(1,2): x; any: y=true..false;");
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+}
+
+#[test]
+fn collection_types_entries_and_indices_share_the_lossless_tree() {
+    let source = include_str!("../../../tests/fixtures/collections.mzn");
+    let parsed = parse(source);
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    let nodes = items(&parsed);
+    let set_type = nodes[0].child_nodes().next().unwrap();
+    assert_eq!(set_type.kind(), NodeKind::SetType);
+    assert_eq!(
+        set_type.child_nodes().next().unwrap().kind(),
+        NodeKind::ScalarType
+    );
+    let array_type = nodes[2].child_nodes().next().unwrap();
+    assert_eq!(array_type.kind(), NodeKind::ArrayType);
+    assert_eq!(
+        array_type
+            .child_nodes()
+            .map(SyntaxNode::kind)
+            .collect::<Vec<_>>(),
+        [NodeKind::DomainType, NodeKind::ScalarType]
+    );
+    let literal = nodes[2].child_nodes().nth(1).unwrap();
+    assert_eq!(literal.kind(), NodeKind::ArrayLiteral);
+    assert_eq!(
+        literal
+            .child_nodes()
+            .map(|entry| &source[entry.range()])
+            .collect::<Vec<_>>(),
+        ["0x2a", "<>"]
+    );
+    assert_eq!(
+        nodes[3].child_nodes().next().unwrap().kind(),
+        NodeKind::ListType
+    );
+    let access = nodes[6].child_nodes().nth(1).unwrap();
+    assert_eq!(access.kind(), NodeKind::ArrayAccessExpression);
+    assert_eq!(
+        access
+            .child_nodes()
+            .map(|entry| &source[entry.range()])
+            .collect::<Vec<_>>(),
+        ["grid", "..", "2"]
+    );
+    let mut leaves = Vec::new();
+    collect_leaves(parsed.tree(), &parsed, &mut leaves);
+    assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+    let reconstructed = leaves
+        .iter()
+        .map(|&index| &source[parsed.tokens()[index].range.clone()])
+        .collect::<String>();
+    assert_eq!(reconstructed, source);
+}
+
+#[test]
+fn malformed_and_excluded_collections_recover_to_the_next_item() {
+    for source in [
+        "array[] of int: bad;",
+        "array[i in 1..3] of int: bad;",
+        "set(2) of int: bad;",
+        "any: bad=[1:2];",
+        "any: bad=[|1,2|];",
+        "any: bad={i | i in 1..3};",
+        "any: bad=[i | i in 1..3];",
+        "any: bad=forall(i in 1..3)(true);",
+        "any: bad=a[];",
+        "any: bad=[1,,2];",
+        "any: bad=a.field;",
+    ] {
+        let parsed = parse(format!("{source} int: after=7;"));
+        assert!(!parsed.diagnostics().is_empty(), "{source}");
+        assert_eq!(
+            items(&parsed).last().unwrap().kind(),
+            NodeKind::Declaration,
+            "{source}"
+        );
+        assert_eq!(
+            &parsed.source()[items(&parsed).last().unwrap().range()],
+            "int: after=7;"
+        );
+        let mut leaves = Vec::new();
+        collect_leaves(parsed.tree(), &parsed, &mut leaves);
+        assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+    }
+    let parsed = parse(
+        "any: empty_sets={}; any: empty_arrays=[]; array[1..2, 1..3,] of var opt 1..9: a; any: sliced=a[..2, 1..]; any: whole=a[..,<..,..<,<..<]; any: tagged=x::tag[1];",
+    );
     assert!(
         parsed.diagnostics().is_empty(),
         "{:?}",

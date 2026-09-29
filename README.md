@@ -1,9 +1,10 @@
 # Zincite
 
 Zincite is a Rust project for MiniZinc source tooling. `zincite-fmt` formats a
-small scalar model subset using the shared `zincite-syntax` parser and concrete
-syntax tree. The tree retains source spelling, comments, whitespace and byte
-ranges. `zincite-lint`, the planned static analyser, is not implemented yet.
+scalar and ordinary collection model subset using the shared `zincite-syntax`
+parser and concrete syntax tree. The tree retains source spelling, comments,
+whitespace and byte ranges. `zincite-lint`, the planned static analyser, is not
+implemented yet.
 
 `zincite_syntax::lex` owns UTF-8 source text and exposes read-only source,
 tokens and lexical diagnostics. Token ranges cover every byte exactly once,
@@ -23,6 +24,10 @@ combined lexical/parser diagnostics. The tree exposes ordered children, item
 and expression kinds, and half-open byte ranges. Its token leaves cover the
 whole source, including malformed input in error nodes. Parsing resumes after
 an erroneous item so callers can inspect subsequent items.
+
+`SyntaxNode::child_nodes` borrows direct child nodes in source order. Declaration
+types, collection entries, array index types and access expressions have distinct
+node kinds in this same tree.
 
 ## Formatter usage
 
@@ -45,9 +50,15 @@ Syntax diagnostics include the path, line/column and byte range.
 The temporary grammar supports:
 
 - `bool`, `int`, `float`, `string` and `ann` declarations, with optional `var`
-  or `par`, annotations and an optional initializer; `any` declarations are also
-  accepted.
-- Scalar range types with numeric-expression bounds.
+  or `par` and `opt`, annotations and an optional initializer; `any` declarations
+  are also accepted.
+- Named and expression domains, including scalar ranges with numeric-expression
+  bounds.
+- Ordinary `set of`, `array[...] of` and `list of` declarations, including
+  multiple array dimensions and nested arrays/lists.
+- Unindexed set and array literals, including empty literals and trailing commas.
+- Array indexing after atoms, calls and parentheses, including repeated indexing,
+  multiple indices and range slices with either, both or neither bound.
 - Assignments to ordinary or quoted identifiers.
 - Atom values: identifiers, quoted identifiers, integer/float/string literals,
   `true`, `false`, `infinity`, anonymous `_` and absent `<>`.
@@ -63,16 +74,18 @@ The temporary grammar supports:
 Items use semicolon separators; the last semicolon is optional on input.
 Comments may occur between tokens. Formatting preserves comment, literal and
 operator spelling and explicit parentheses. It puts a labelled constraint's
-expression on the following line and retains explicitly multiline argument
-lists with one argument per line. It normalizes editable spacing and line
+expression on the following line and retains explicitly multiline comma-separated
+lists with one entry per line and a trailing comma. A multiline nested entry does
+not expand its enclosing list. It normalizes editable spacing and line
 endings to LF, adds a final newline and preserves blank-line groups while
 collapsing excess blank layout lines.
 
-Collections, indexing and field access, control expressions, generators,
-interpolated strings, other types and other item families remain unsupported
-and produce diagnostics. Bare range markers used for array slicing are also
-unsupported. Range-type bounds follow the numeric-expression grammar: their
-parentheses may contain numeric operators, identifiers and calls; call
+Indexed and matrix literals, set cardinalities, index-dependent array declarations,
+comprehensions, field access, structured types/values, generic type-inst variables,
+control expressions, generators, interpolated strings and other item families
+remain unsupported and produce diagnostics. Range-type bounds follow the
+numeric-expression grammar: their parentheses may contain numeric operators,
+identifiers and calls; call
 arguments and annotations use the general expression grammar.
 
 Parsing checks syntax only: it does not resolve includes or names, require a

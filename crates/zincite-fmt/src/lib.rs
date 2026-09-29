@@ -1,4 +1,4 @@
-//! Formatting for Zincite's supported scalar model syntax.
+//! Formatting for Zincite's supported scalar and collection model syntax.
 
 use zincite_syntax::{Diagnostic, NodeKind, ParsedFile, SyntaxElement, SyntaxNode, TokenKind};
 
@@ -75,8 +75,16 @@ impl Formatter<'_> {
     }
 
     fn expression(&mut self, node: &SyntaxNode, leading_space: bool) {
-        if node.kind() == NodeKind::CallExpression {
-            self.call(node, leading_space);
+        let delimiters = match node.kind() {
+            NodeKind::CallExpression => Some((TokenKind::LeftParen, TokenKind::RightParen)),
+            NodeKind::ArrayLiteral | NodeKind::ArrayAccessExpression | NodeKind::ArrayType => {
+                Some((TokenKind::LeftBracket, TokenKind::RightBracket))
+            }
+            NodeKind::SetLiteral => Some((TokenKind::LeftBrace, TokenKind::RightBrace)),
+            _ => None,
+        };
+        if let Some((opening, closing)) = delimiters {
+            self.comma_list(node, leading_space, opening, closing);
             return;
         }
         let mut first = true;
@@ -121,15 +129,24 @@ impl Formatter<'_> {
         }
     }
 
-    fn call(&mut self, node: &SyntaxNode, leading_space: bool) {
-        let mut in_arguments = false;
+    fn comma_list(
+        &mut self,
+        node: &SyntaxNode,
+        leading_space: bool,
+        opening: TokenKind,
+        closing: TokenKind,
+    ) {
+        let mut in_list = false;
         let multiline = node.children().iter().any(|child| {
             if let SyntaxElement::Token(index) = child {
                 let token = &self.parsed.tokens()[*index];
-                if token.kind == TokenKind::LeftParen {
-                    in_arguments = true;
+                if token.kind == closing {
+                    in_list = false;
                 }
-                in_arguments
+                if token.kind == opening {
+                    in_list = true;
+                }
+                in_list
                     && token.kind == TokenKind::Whitespace
                     && self.parsed.source()[token.range.clone()].contains(['\r', '\n'])
             } else {
@@ -137,16 +154,41 @@ impl Formatter<'_> {
             }
         });
         let mut first = true;
-        let mut first_argument = true;
-        for child in node.children() {
+        let mut first_entry = true;
+        let mut previous_entry_end = self.output.len();
+        in_list = false;
+        for (position, child) in node.children().iter().enumerate() {
             match child {
-                SyntaxElement::Node(argument) => {
-                    if multiline {
+                SyntaxElement::Node(entry) => {
+                    let comment_before_entry = self.last_was_comment
+                        && !self.line_comment
+                        && self.pending_breaks == 0
+                        && self.output[previous_entry_end..].contains('\n');
+                    if in_list && multiline && !comment_before_entry {
                         self.newlines(1);
                         self.pending_breaks = 0;
                     }
-                    self.expression(argument, !first_argument && !multiline);
-                    first_argument = false;
+                    let space = if in_list {
+                        !first_entry && !multiline
+                    } else {
+                        first && leading_space || !first
+                    };
+                    self.expression(entry, space);
+                    if in_list {
+                        first_entry = false;
+                        // All supported comma lists permit a trailing comma.
+                        // Insert it before trivia so a following comment stays attached.
+                        if multiline
+                            && !node.children()[position + 1..].iter().any(|child| {
+                                matches!(child, SyntaxElement::Token(index)
+                                if self.parsed.tokens()[*index].kind == TokenKind::Comma)
+                            })
+                        {
+                            self.code_with_space(",", false);
+                        }
+                        previous_entry_end = self.output.len();
+                    }
+                    first = false;
                 }
                 SyntaxElement::Token(index) => {
                     let kind = self.parsed.tokens()[*index].kind;
@@ -154,13 +196,25 @@ impl Formatter<'_> {
                         self.token(*index);
                         continue;
                     }
-                    if kind == TokenKind::RightParen && multiline {
+                    if kind == closing && multiline {
                         self.indent -= 1;
                         self.newlines(1);
                     }
-                    self.token_with_space(*index, first && leading_space);
-                    if kind == TokenKind::LeftParen && multiline {
-                        self.indent += 1;
+                    let space =
+                        if in_list || kind == opening || node.kind() == NodeKind::CallExpression {
+                            first && leading_space
+                        } else {
+                            kind != TokenKind::Colon
+                        };
+                    self.token_with_space(*index, space);
+                    if kind == opening {
+                        in_list = true;
+                        previous_entry_end = self.output.len();
+                        if multiline {
+                            self.indent += 1;
+                        }
+                    } else if kind == closing {
+                        in_list = false;
                     }
                     first = false;
                 }

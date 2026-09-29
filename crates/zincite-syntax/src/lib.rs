@@ -3,8 +3,11 @@
 //! Lexing retains trivia and erroneous input. It does not check model or data
 //! grammar, resolve names, or evaluate literals. String interpolation is retained
 //! as a single unsupported token until expression tokenization is implemented.
-//! Parsing supports scalar declarations and ranges, operator expressions,
-//! calls, annotations, constraints with optional string labels, and `solve satisfy`.
+//! Parsing supports scalar and ordinary collection declarations, domains,
+//! unindexed literals and array access, operator expressions, calls, annotations,
+//! constraints with optional string labels, and `solve satisfy`.
+//! Indexed/matrix literals, dependent indices, cardinalities, comprehensions,
+//! structured values, control expressions and other items remain unsupported.
 
 use std::ops::Range;
 
@@ -67,6 +70,14 @@ impl SyntaxNode {
     pub fn children(&self) -> &[SyntaxElement] {
         &self.children
     }
+
+    /// Borrow the direct child nodes in source order, excluding token leaves.
+    pub fn child_nodes(&self) -> impl Iterator<Item = &SyntaxNode> {
+        self.children.iter().filter_map(|child| match child {
+            SyntaxElement::Node(node) => Some(node),
+            SyntaxElement::Token(_) => None,
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -79,7 +90,17 @@ pub enum SyntaxElement {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeKind {
     Root,
+    /// The first child node is the type; later nodes are annotations/initializer.
     Declaration,
+    ScalarType,
+    /// Contains one domain expression, with any qualifiers retained as tokens.
+    DomainType,
+    /// Contains the element type, with qualifiers and `set of` retained as tokens.
+    SetType,
+    /// Child nodes are index types followed by the element type.
+    ArrayType,
+    /// Contains the element type.
+    ListType,
     Assignment,
     Constraint,
     Solve,
@@ -89,6 +110,12 @@ pub enum NodeKind {
     BinaryExpression,
     ParenthesizedExpression,
     CallExpression,
+    /// Child nodes are the entries; empty literals have no child nodes.
+    SetLiteral,
+    /// Child nodes are the entries; empty literals have no child nodes.
+    ArrayLiteral,
+    /// Child nodes are the subject followed by one or more index expressions.
+    ArrayAccessExpression,
     NamedArgument,
     AnnotatedExpression,
     /// An annotation marker and its atom; distinct from the annotated subject.
