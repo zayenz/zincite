@@ -542,7 +542,6 @@ fn malformed_and_excluded_collections_recover_to_the_next_item() {
         "any: bad=[1:2,3,4:5];",
         "any: bad=[1:2,3:4,5];",
         "any: bad=[(1,,2):3];",
-        "any: bad=[(1,2)];",
         "any: bad=[1:2, 3:4 | i in 1..3];",
         "any: bad=[|1,,2|];",
         "any: bad=[|1,2];",
@@ -560,7 +559,7 @@ fn malformed_and_excluded_collections_recover_to_the_next_item() {
         "any: bad=C^-1(i in 1..3)(i);",
         "any: bad=a[];",
         "any: bad=[1,,2];",
-        "any: bad=a.field;",
+        "any: bad=a.;",
     ] {
         let parsed = parse(format!("{source} int: after=7;"));
         assert!(!parsed.diagnostics().is_empty(), "{source}");
@@ -686,7 +685,7 @@ fn malformed_local_blocks_recover_to_following_items() {
         "any: x=let {bad=1;} in bad;",
         "any: x=let {solve satisfy;} in 1;",
         "any: x=let {} in 1;",
-        "any: x=let {tuple(int): t=(1,);} in t;",
+        "any: x=let {tuple(): t=(1,);} in t;",
         "any: x=if true 1 else 2 endif;",
         "any: x=if true then 1 elseif false then endif;",
     ] {
@@ -1071,5 +1070,130 @@ fn shared_type_inst_concatenation_and_malformed_enum_items() {
         let mut leaves = Vec::new();
         collect_leaves(parsed.tree(), &parsed, &mut leaves);
         assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+    }
+}
+
+#[test]
+fn structured_values_expose_field_bindings_and_access_references_losslessly() {
+    let source = include_str!("../../../tests/fixtures/structured.mzn");
+    let parsed = parse(source);
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    let mut leaves = Vec::new();
+    collect_leaves(parsed.tree(), &parsed, &mut leaves);
+    assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+    fn fields<'a>(node: &'a SyntaxNode, kind: NodeKind, result: &mut Vec<&'a SyntaxNode>) {
+        if node.kind() == kind {
+            result.push(node);
+        }
+        for child in node.child_nodes() {
+            fields(child, kind, result);
+        }
+    }
+    let mut bindings = Vec::new();
+    fields(parsed.tree(), NodeKind::RecordField, &mut bindings);
+    let names = bindings
+        .iter()
+        .map(|node| {
+            let token = node
+                .children()
+                .iter()
+                .filter_map(|child| match child {
+                    SyntaxElement::Token(index)
+                        if matches!(
+                            parsed.tokens()[*index].kind,
+                            zincite_syntax::TokenKind::Identifier
+                                | zincite_syntax::TokenKind::QuotedIdentifier
+                        ) =>
+                    {
+                        Some(&parsed.tokens()[*index])
+                    }
+                    _ => None,
+                })
+                .next()
+                .unwrap();
+            &source[token.range.clone()]
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        [
+            "coordinates",
+            "samples",
+            "details",
+            "z",
+            "value",
+            "choice",
+            "extra",
+            "'quoted field'",
+            "details",
+            "z"
+        ]
+    );
+    let mut accesses = Vec::new();
+    fields(
+        parsed.tree(),
+        NodeKind::FieldAccessExpression,
+        &mut accesses,
+    );
+    assert!(
+        accesses
+            .iter()
+            .any(|node| &source[node.range()] == "nested.1.2")
+    );
+    let quoted = accesses
+        .iter()
+        .find(|node| source[node.range()].trim() == "quoted.'quoted field'")
+        .unwrap();
+    let reference = quoted
+        .children()
+        .iter()
+        .filter_map(|child| match child {
+            SyntaxElement::Token(index)
+                if parsed.tokens()[*index].kind == zincite_syntax::TokenKind::QuotedIdentifier =>
+            {
+                Some(&parsed.tokens()[*index])
+            }
+            _ => None,
+        })
+        .next()
+        .unwrap();
+    let start = source.find("quoted.'quoted field'").unwrap() + "quoted.".len();
+    assert_eq!(reference.range, start..start + "'quoted field'".len());
+    assert_eq!(quoted.child_nodes().count(), 1);
+}
+
+#[test]
+fn structured_grammar_forms_and_malformed_fields_use_shared_parsing() {
+    // The grammar permits unary tuple syntax, despite the specification prose.
+    let parsed = parse(
+        "tuple(int,): singleton=(1,); record(int: x,): single=(x:1,); array[1..2] of record(tuple(int,int): x): values; any: accessed=values[1].x.0x1; var set of tuple(int,int): pairs; function tuple($T, $T): generic(tuple($T,$T): p)=p;",
+    );
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    for bad in [
+        "record(): r;",
+        "tuple(): t;",
+        "any: r=(x:1);",
+        "any: r=(x:1, 2);",
+        "any: t=();",
+        "any: x=t.true;",
+        "variant_record(int:x): r;",
+        "function int: f(record(set(2) of int: x): r)=1;",
+        "function int: f(tuple(array[i in 1..2] of int,int): p)=1;",
+    ] {
+        let source = format!("{bad} int: after=7;");
+        let parsed = parse(source.clone());
+        assert!(!parsed.diagnostics().is_empty(), "{source}");
+        assert_eq!(
+            &source[items(&parsed).last().unwrap().range()],
+            "int: after=7;"
+        );
     }
 }

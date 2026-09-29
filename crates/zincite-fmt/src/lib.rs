@@ -1,4 +1,4 @@
-//! Formatting for Zincite's supported scalar and collection model syntax.
+//! Formatting for Zincite's supported MiniZinc model syntax.
 
 use zincite_syntax::{Diagnostic, NodeKind, ParsedFile, SyntaxElement, SyntaxNode, TokenKind};
 
@@ -114,7 +114,11 @@ impl Formatter<'_> {
             NodeKind::CallExpression | NodeKind::ParameterList => {
                 Some((TokenKind::LeftParen, TokenKind::RightParen))
             }
-            NodeKind::IndexTuple => Some((TokenKind::LeftParen, TokenKind::RightParen)),
+            NodeKind::IndexTuple
+            | NodeKind::TupleLiteral
+            | NodeKind::RecordLiteral
+            | NodeKind::TupleType
+            | NodeKind::RecordType => Some((TokenKind::LeftParen, TokenKind::RightParen)),
             NodeKind::ArrayLiteral | NodeKind::ArrayAccessExpression | NodeKind::ArrayType => {
                 Some((TokenKind::LeftBracket, TokenKind::RightBracket))
             }
@@ -158,6 +162,8 @@ impl Formatter<'_> {
                     }
                     let space = if first {
                         leading_space
+                    } else if node.kind() == NodeKind::FieldAccessExpression {
+                        false
                     } else {
                         !matches!(
                             kind,

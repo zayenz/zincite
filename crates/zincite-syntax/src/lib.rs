@@ -10,8 +10,8 @@
 //! expressions, callable/annotation declarations with generic types and parameter
 //! defaults, enums and constructors, type aliases and type-inst concatenation,
 //! includes, output items and all solve modes.
-//! Structured values, case expressions and other items remain
-//! unsupported.
+//! Tuple/record types and literals and chained field access share the CST.
+//! Reserved variant_record/case syntax and other items remain unsupported.
 
 use std::ops::Range;
 
@@ -126,6 +126,20 @@ pub enum NodeKind {
     /// Generic variable spelling, with any/var/par/opt qualifiers retained.
     TypeInstVariable,
     ScalarType,
+    /// Ordered type children within written tuple parentheses.
+    TupleType,
+    /// Ordered RecordField children within written record parentheses.
+    RecordType,
+    /// Type child and direct declaration name token with its precise range.
+    RecordField,
+    /// Parentheses and ordered value children; the first comma is required.
+    TupleLiteral,
+    /// Ordered RecordLiteralField children; the first comma is required.
+    RecordLiteral,
+    /// Direct field name token and value child; names label values, not declarations.
+    RecordLiteralField,
+    /// Subject child followed by a dot and direct reference name or integer token.
+    FieldAccessExpression,
     /// Contains one domain expression, with any qualifiers retained as tokens.
     DomainType,
     /// Contains an optional cardinality followed by the element type.

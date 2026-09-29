@@ -442,12 +442,14 @@ impl Parser<'_> {
                         children.push(SyntaxElement::Node(self.set_cardinality()?));
                     }
                     self.expect(Of, &mut children, "expected 'of' after 'set'")?;
-                    children.push(SyntaxElement::Node(
-                        self.base_type(self.position, Vec::new())?,
-                    ));
+                    children.push(SyntaxElement::Node(self.base_type(
+                        self.position,
+                        Vec::new(),
+                        parameter,
+                    )?));
                     NodeKind::SetType
                 } else {
-                    return self.base_type(start, children);
+                    return self.base_type(start, children, parameter);
                 }
             }
         };
@@ -489,6 +491,7 @@ impl Parser<'_> {
         &mut self,
         start: usize,
         mut children: Vec<SyntaxElement>,
+        parameter: bool,
     ) -> Result<SyntaxNode, &'static str> {
         use TokenKind::*;
         let kind = if matches!(self.peek(), Some(Bool | Int | Float | String | Ann)) {
@@ -497,10 +500,49 @@ impl Parser<'_> {
         } else if self.peek() == Some(TypeInstVariable) {
             self.bump(&mut children);
             NodeKind::TypeInstVariable
-        } else {
-            if matches!(self.peek(), Some(Tuple | Record)) {
-                return Err("structured types are unsupported");
+        } else if matches!(self.peek(), Some(Tuple | Record)) {
+            let record = self.peek() == Some(Record);
+            self.bump(&mut children);
+            self.expect(
+                LeftParen,
+                &mut children,
+                "expected '(' after structured type",
+            )?;
+            loop {
+                self.trivia(&mut children);
+                let field_start = self.position;
+                let ty = self.type_inst_context(parameter)?;
+                if record {
+                    let mut field = vec![SyntaxElement::Node(ty)];
+                    self.expect(Colon, &mut field, "expected ':' before record field name")?;
+                    self.name(&mut field)?;
+                    children.push(SyntaxElement::Node(self.node(
+                        NodeKind::RecordField,
+                        field_start,
+                        field,
+                    )));
+                } else {
+                    children.push(SyntaxElement::Node(ty));
+                }
+                if self.peek() != Some(Comma) {
+                    break;
+                }
+                self.bump(&mut children);
+                if self.peek() == Some(RightParen) {
+                    break;
+                }
             }
+            self.expect(
+                RightParen,
+                &mut children,
+                "expected ')' after structured type fields",
+            )?;
+            if record {
+                NodeKind::RecordType
+            } else {
+                NodeKind::TupleType
+            }
+        } else {
             children.push(SyntaxElement::Node(
                 self.precedence(Grammar::TypeDomain, 1600)?,
             ));
@@ -657,23 +699,7 @@ impl Parser<'_> {
                 self.let_expression(&mut children)?;
                 NodeKind::LetExpression
             }
-            Some(LeftParen) => {
-                self.bump(&mut children);
-                children.push(SyntaxElement::Node(self.precedence(
-                    if grammar == Grammar::TypeDomain {
-                        Grammar::Domain
-                    } else {
-                        grammar
-                    },
-                    1600,
-                )?));
-                self.expect(
-                    RightParen,
-                    &mut children,
-                    "expected ')' after expression; tuple and record literals are unsupported",
-                )?;
-                NodeKind::ParenthesizedExpression
-            }
+            Some(LeftParen) => self.parenthesized(&mut children, grammar)?,
             Some(Identifier | QuotedIdentifier) => {
                 self.bump(&mut children);
                 let inverse_tokens = self.inverse_call_tokens();
@@ -731,12 +757,86 @@ impl Parser<'_> {
             )),
         };
         let mut node = self.node(kind, start, children);
-        while self.peek() == Some(LeftBracket) {
+        while matches!(self.peek(), Some(LeftBracket | Dot)) {
             let mut access = vec![SyntaxElement::Node(node)];
-            self.collection_entries(&mut access, RightBracket, true)?;
-            node = self.node(NodeKind::ArrayAccessExpression, start, access);
+            let kind = if self.peek() == Some(LeftBracket) {
+                self.collection_entries(&mut access, RightBracket, true)?;
+                NodeKind::ArrayAccessExpression
+            } else {
+                self.bump(&mut access);
+                if !matches!(
+                    self.peek(),
+                    Some(Identifier | QuotedIdentifier | IntegerLiteral)
+                ) {
+                    return Err("expected record field name or tuple index after '.'");
+                }
+                self.bump(&mut access);
+                NodeKind::FieldAccessExpression
+            };
+            node = self.node(kind, start, access);
         }
         Ok(node)
+    }
+
+    fn parenthesized(
+        &mut self,
+        children: &mut Vec<SyntaxElement>,
+        grammar: Grammar,
+    ) -> Result<NodeKind, &'static str> {
+        use TokenKind::*;
+        self.bump(children);
+        let record = grammar != Grammar::Numeric
+            && matches!(self.peek(), Some(Identifier | QuotedIdentifier))
+            && self.peek_after(1) == Some(Colon);
+        let inner_grammar = if grammar == Grammar::TypeDomain {
+            Grammar::Domain
+        } else {
+            grammar
+        };
+        let mut literal = false;
+        loop {
+            self.trivia(children);
+            if record {
+                let start = self.position;
+                let mut field = Vec::new();
+                self.name(&mut field)?;
+                self.expect(Colon, &mut field, "expected ':' after record literal field")?;
+                self.expression(&mut field)?;
+                children.push(SyntaxElement::Node(self.node(
+                    NodeKind::RecordLiteralField,
+                    start,
+                    field,
+                )));
+            } else {
+                children.push(SyntaxElement::Node(self.precedence(inner_grammar, 1600)?));
+            }
+            if self.peek() != Some(Comma) {
+                if record && !literal {
+                    return Err("expected ',' after first record literal field");
+                }
+                break;
+            }
+            if grammar == Grammar::Numeric {
+                return Err("tuple literals are not numeric expressions");
+            }
+            literal = true;
+            self.bump(children);
+            if self.peek() == Some(RightParen) {
+                break;
+            }
+        }
+        self.expect(
+            RightParen,
+            children,
+            "expected ')' after parenthesized expression or literal",
+        )?;
+        Ok(if record {
+            NodeKind::RecordLiteral
+        } else if literal {
+            NodeKind::TupleLiteral
+        } else {
+            NodeKind::ParenthesizedExpression
+        })
     }
 
     fn interpolated_string(
@@ -1572,6 +1672,8 @@ fn starts_type(kind: TokenKind) -> bool {
             | Array
             | List
             | Set
+            | Tuple
+            | Record
             | LeftBrace
             | Anonymous
     ) || is_range(kind)
@@ -1583,7 +1685,9 @@ fn is_numeric_expression(node: &SyntaxNode, tokens: &[Token]) -> bool {
         | NodeKind::GeneratorCallExpression
         | NodeKind::ConditionalExpression
         | NodeKind::LetExpression => true,
-        NodeKind::ArrayAccessExpression | NodeKind::AnnotatedExpression => node
+        NodeKind::ArrayAccessExpression
+        | NodeKind::FieldAccessExpression
+        | NodeKind::AnnotatedExpression => node
             .child_nodes()
             .next()
             .is_some_and(|child| is_numeric_expression(child, tokens)),

@@ -153,7 +153,6 @@ and bodies, using Unicode scalar columns and four-column tab stops. General
 expression wrapping and configurable layout settings remain unimplemented.
 Conditional branch bodies and `let` blocks/bodies use block indentation;
 local item order, separators, parentheses and annotation attachment are retained.
-Local structured types remain excluded alongside their top-level equivalents.
 Generic type-inst syntax is shared by local, top-level and callable declarations.
 No local name resolution or checks of branch types or declaration initializers are
 performed. Includes retain their written order and paths; they are neither loaded
@@ -163,9 +162,20 @@ alignment and width-based row wrapping are not implemented yet. It normalizes
 editable spacing and line endings to LF, adds a final newline and preserves blank-line groups while
 collapsing excess blank layout lines.
 
-Field access, structured types/values,
-case expressions and other item families
-remain unsupported and produce diagnostics. Range-type bounds follow the
+Tuple and record types, literals and chained field/tuple access are supported,
+including nested types, `var`/`par`/`opt` qualifiers, array fields, aliases, callable
+signatures and local declarations. Field order and spelling are preserved.
+The CST distinguishes record type field declarations, literal field labels and
+access references; parsing does not resolve them. Types require at least one
+field and accept a trailing comma. Tuple literals and record literals require
+their first comma, including `(value,)` and `(field: value,)`. These follow the
+pinned grammar: unary tuple syntax parses despite the specification prose
+excluding it. MiniZinc 2.10.1 accepts unary tuples and also accepts singleton
+record literals without the comma. Zincite follows the written grammar.
+The structured fixture and its formatted output pass MiniZinc 2.10.1 model checks.
+`variant_record` and `case` are reserved keywords without productions in the
+pinned grammar; they remain unsupported and produce diagnostics. Other
+unimplemented item families also produce diagnostics. Range-type bounds follow the
 numeric-expression grammar: their parentheses may contain numeric operators,
 identifiers and calls; call
 arguments and annotations use the general expression grammar.

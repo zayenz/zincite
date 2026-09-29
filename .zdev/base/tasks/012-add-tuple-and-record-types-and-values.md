@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-012"
 key = "structured-values"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -26,11 +26,22 @@ Read the pinned MiniZinc 2.10.1 grammar for this family and the current supporte
 
 ## Done when
 
-- [ ] Every tuple/record type, literal and access form defined by the pinned grammar parses and formats, including nested forms and required variant forms.
-- [ ] Record-field bindings and access expressions retain precise ranges and distinct roles so naming checks do not flag references as declarations.
-- [ ] Structured types work wherever the existing shared type parser is used, including parameters and local declarations once those consumers exist.
+- [x] Every tuple/record type, literal and access form defined by the pinned grammar parses and formats, including nested forms and required variant forms.
+- [x] Record-field bindings and access expressions retain precise ranges and distinct roles so naming checks do not flag references as declarations.
+- [x] Structured types work wherever the existing shared type parser is used, including parameters and local declarations once those consumers exist.
 
 ## Validation
 
 - Run the area Cargo checks from brief.md. Reuse existing fixtures; add only the focused behavior evidence named here.
 - Use a nested tuple/record declaration and value with field access and comments; check tree roles, coverage and idempotence. Check representative valid structured syntax with MiniZinc 2.10.1.
+
+## Result
+
+Added nested tuple/record types, literals and chained access with distinct field binding/label/reference roles and shared type consumers.
+
+Validation:
+
+- Independent verifier PASS against Wb833f47b1ce72137; unchanged snapshot.
+- Cargo fmt, Clippy with denied warnings and all 34 behavior tests passed.
+- Coverage/ranges, field roles, parameter restrictions, numeric/access regression, recovery, comments and idempotence passed.
+- MiniZinc 2.10.1 model-check-only accepted original and independently formatted structured fixture.

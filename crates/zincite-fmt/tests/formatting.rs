@@ -412,3 +412,20 @@ fn enum_and_alias_layout_preserves_names_comments_and_type_structure() {
     );
     assert_eq!(format(&reparsed).unwrap(), formatted);
 }
+
+#[test]
+fn structured_layout_preserves_field_order_comments_and_access_chains() {
+    let source = include_str!("../../../tests/fixtures/structured.mzn");
+    let parsed = parse(source);
+    let formatted = format(&parsed).unwrap();
+    assert!(formatted.contains("tuple(int, int): coordinates, array[1 .. 2] of int: samples"));
+    assert!(formatted.contains("nested.1.2 + entry.details.samples[1] + nested.2.coordinates.1"));
+    assert!(formatted.contains("% Keep  field comment\n"));
+    assert!(formatted.contains("quoted.'quoted field'"));
+    let reparsed = parse(formatted.clone());
+    assert_eq!(
+        structure(parsed.tree(), &parsed),
+        structure(reparsed.tree(), &reparsed)
+    );
+    assert_eq!(format(&reparsed).unwrap(), formatted);
+}

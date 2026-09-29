@@ -7,11 +7,18 @@ pub(super) fn scan(source: &str) -> (Vec<Token>, Vec<Diagnostic>) {
         position: 0,
         diagnostics: Vec::new(),
         interpolations: Vec::new(),
+        after_field_dot: false,
     };
     let mut tokens = Vec::new();
     while scanner.position < source.len() {
         let start = scanner.position;
         let kind = scanner.next_kind();
+        if !matches!(
+            kind,
+            TokenKind::Whitespace | TokenKind::LineComment | TokenKind::BlockComment
+        ) {
+            scanner.after_field_dot = kind == TokenKind::Dot;
+        }
         debug_assert!(scanner.position > start);
         tokens.push(Token {
             kind,
@@ -32,6 +39,7 @@ struct Scanner<'a> {
     position: usize,
     diagnostics: Vec<Diagnostic>,
     interpolations: Vec<Interpolation>,
+    after_field_dot: bool,
 }
 
 impl Scanner<'_> {
@@ -224,6 +232,11 @@ impl Scanner<'_> {
             return TokenKind::IntegerLiteral;
         }
         self.consume_while(|c| c.is_ascii_digit());
+        // After a field-access dot, consecutive selectors such as .1.2 are
+        // integer tokens separated by dots, rather than a float literal.
+        if self.after_field_dot {
+            return TokenKind::IntegerLiteral;
+        }
         let mut kind = TokenKind::IntegerLiteral;
         // A decimal point needs a following digit; otherwise it belongs to a
         // range or field access. Signs belong to separate operator tokens.
@@ -248,6 +261,9 @@ impl Scanner<'_> {
         let digits = self.position;
         self.consume_while(|c| c.is_ascii_hexdigit());
         let integer_end = self.position;
+        if self.after_field_dot && integer_end > digits && !uppercase_prefix {
+            return TokenKind::IntegerLiteral;
+        }
         let mut has_digits = self.position > digits;
         let has_dot = self.current() == Some('.') && !self.remaining().starts_with("..");
         if has_dot {
