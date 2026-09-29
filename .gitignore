@@ -1,0 +1,5 @@
+# Cargo workspace build output. Keep Cargo.lock tracked.
+/target/
+
+# macOS metadata
+.DS_Store

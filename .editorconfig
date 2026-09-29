@@ -1,0 +1,19 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+trim_trailing_whitespace = false
+
+# MiniZinc inputs may be whitespace-sensitive formatter fixtures.
+[*.{mzn,dzn}]
+max_line_length = 120
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = false
