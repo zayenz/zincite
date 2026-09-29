@@ -1,0 +1,6 @@
+schema_version = 1
+tag = "base"
+title = "MiniZinc tooling foundations"
+objective = "Establish the Rust syntax foundation shared by zincite-fmt and zincite-lint."
+mode = "trunk"
+lifecycle = "open"
