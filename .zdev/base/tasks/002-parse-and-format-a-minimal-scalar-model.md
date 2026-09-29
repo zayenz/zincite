@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-002"
 key = "scalar-path"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -26,13 +26,24 @@ Read the token API, brief Implementation direction and formatting examples, and 
 
 ## Done when
 
-- [ ] Primitive scalar declarations/assignments with var/par modifiers and literal or identifier values, anonymous atoms, direct string-labelled constraints and solve satisfy parse into a source-preserving tree. Calls, general annotations and operators are explicitly unsupported until scalar-expressions.
-- [ ] Recoverable syntax errors retain precise diagnostics and permit a subsequent valid top-level item to be inspected; tree traversal exposes items, expressions and ranges.
-- [ ] Formatting retains comments and atom spelling, applies constraint-label layout, and reaches a stable second pass for this minimal subset.
-- [ ] The CLI reads UTF-8 stdin or one file, reports located errors with status 2 and emits formatted source only on success; usage and the temporary grammar subset are documented.
+- [x] Primitive scalar declarations/assignments with var/par modifiers and literal or identifier values, anonymous atoms, direct string-labelled constraints and solve satisfy parse into a source-preserving tree. Calls, general annotations and operators are explicitly unsupported until scalar-expressions.
+- [x] Recoverable syntax errors retain precise diagnostics and permit a subsequent valid top-level item to be inspected; tree traversal exposes items, expressions and ranges.
+- [x] Formatting retains comments and atom spelling, applies constraint-label layout, and reaches a stable second pass for this minimal subset.
+- [x] The CLI reads UTF-8 stdin or one file, reports located errors with status 2 and emits formatted source only on success; usage and the temporary grammar subset are documented.
 
 ## Validation
 
 - Run the area Cargo checks from brief.md. Reuse existing fixtures; add only the focused behavior evidence named here.
 - Use one complete minimal model for token/tree coverage, comment preservation and idempotence, plus malformed input followed by a valid declaration to check recovery.
 - Run stdin/file CLI checks and supplement the valid model with MiniZinc 2.10.1 acceptance.
+
+## Result
+
+Added a source-preserving scalar CST/parser and zincite-fmt library/CLI with recovery, comment-preserving stable formatting, and explicit unsupported syntax diagnostics.
+
+Validation:
+
+- Independent verifier PASS against Wa64f52a764daffcb; unchanged snapshot.
+- Cargo fmt, Clippy with denied warnings, and all 8 workspace tests passed.
+- Stdin/dash/file CLI, status-2 failure behavior, input preservation, and idempotence passed.
+- MiniZinc 2.10.1 model-check-only accepted shared fixture and formatted result.

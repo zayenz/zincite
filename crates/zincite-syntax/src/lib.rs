@@ -1,12 +1,91 @@
-//! Source-preserving tokenization for MiniZinc 2.10.1.
+//! Source-preserving syntax for MiniZinc 2.10.1.
 //!
 //! Lexing retains trivia and erroneous input. It does not check model or data
 //! grammar, resolve names, or evaluate literals. String interpolation is retained
 //! as a single unsupported token until expression tokenization is implemented.
+//! Parsing currently supports scalar declarations and assignments, atom
+//! expressions, constraints with optional string labels, and `solve satisfy`.
 
 use std::ops::Range;
 
 mod lexer;
+mod parser;
+
+/// Parse the supported model subset, retaining all tokens even after an error.
+///
+/// This checks syntax only: it does not resolve names, require a solve item, or
+/// check types. Unsupported syntax produces diagnostics rather than opaque items.
+pub fn parse(source: impl Into<String>) -> ParsedFile {
+    let mut lexed = lex(source);
+    let (tree, diagnostics) = parser::parse(&lexed.tokens, lexed.source.len());
+    lexed.diagnostics.extend(diagnostics);
+    ParsedFile { lexed, tree }
+}
+
+/// Owned source, its lossless tree, and lexical/parser diagnostics.
+#[derive(Debug)]
+pub struct ParsedFile {
+    lexed: LexedSource,
+    tree: SyntaxNode,
+}
+
+impl ParsedFile {
+    pub fn source(&self) -> &str {
+        self.lexed.source()
+    }
+
+    pub fn tokens(&self) -> &[Token] {
+        self.lexed.tokens()
+    }
+
+    pub fn tree(&self) -> &SyntaxNode {
+        &self.tree
+    }
+
+    pub fn diagnostics(&self) -> &[Diagnostic] {
+        self.lexed.diagnostics()
+    }
+}
+
+/// A node's children retain source order. Each token occurs in exactly one leaf.
+#[derive(Debug)]
+pub struct SyntaxNode {
+    kind: NodeKind,
+    range: Range<usize>,
+    children: Vec<SyntaxElement>,
+}
+
+impl SyntaxNode {
+    pub fn kind(&self) -> NodeKind {
+        self.kind
+    }
+
+    pub fn range(&self) -> Range<usize> {
+        self.range.clone()
+    }
+
+    pub fn children(&self) -> &[SyntaxElement] {
+        &self.children
+    }
+}
+
+#[derive(Debug)]
+pub enum SyntaxElement {
+    Node(SyntaxNode),
+    /// Index into the parse result's retained token buffer.
+    Token(usize),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeKind {
+    Root,
+    Declaration,
+    Assignment,
+    Constraint,
+    Solve,
+    Expression,
+    Error,
+}
 
 /// Tokenize an owned UTF-8 source, retaining every byte in source order.
 ///
@@ -51,7 +130,7 @@ pub struct Token {
     pub range: Range<usize>,
 }
 
-/// A lexical error or an explicitly unsupported lexical form.
+/// A lexical/parser error or an explicitly unsupported syntax form.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     pub range: Range<usize>,

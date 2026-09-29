@@ -3,5 +3,12 @@
 version = 4
 
 [[package]]
+name = "zincite-fmt"
+version = "0.1.0"
+dependencies = [
+ "zincite-syntax",
+]
+
+[[package]]
 name = "zincite-syntax"
 version = "0.1.0"

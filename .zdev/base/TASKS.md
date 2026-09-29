@@ -3,15 +3,15 @@
 # Tasks: base
 
 - Total: 21
-- Ready: 1
-- Blocked: 19
-- Done: 1
+- Ready: 2
+- Blocked: 17
+- Done: 2
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
 | [base-001](tasks/001-establish-lossless-source-tokenization.md) | Establish lossless source tokenization | done | — |
-| [base-002](tasks/002-parse-and-format-a-minimal-scalar-model.md) | Parse and format a minimal scalar model | ready | base-001 |
-| [base-003](tasks/003-add-operator-precedence-calls-and-annotations.md) | Add operator precedence, calls and annotations | blocked | base-002 |
+| [base-002](tasks/002-parse-and-format-a-minimal-scalar-model.md) | Parse and format a minimal scalar model | done | base-001 |
+| [base-003](tasks/003-add-operator-precedence-calls-and-annotations.md) | Add operator precedence, calls and annotations | ready | base-002 |
 | [base-004](tasks/004-add-basic-collection-types-literals-and-indexing.md) | Add basic collection types, literals and indexing | blocked | base-003 |
 | [base-005](tasks/005-add-indexed-arrays-matrix-syntax-and-dependent-indices.md) | Add indexed arrays, matrix syntax and dependent indices | blocked | base-004 |
 | [base-006](tasks/006-add-comprehensions-and-generator-call-layouts.md) | Add comprehensions and generator-call layouts | blocked | base-005 |
@@ -24,7 +24,7 @@
 | [base-013](tasks/013-select-data-file-mode-and-check-grammar-integration.md) | Select data-file mode and check grammar integration | blocked | base-006, base-007, base-008, base-009, base-010, base-011, base-012 |
 | [base-014](tasks/014-finish-ordinary-width-aware-formatting.md) | Finish ordinary width-aware formatting | blocked | base-013 |
 | [base-015](tasks/015-align-and-wrap-two-dimensional-literals.md) | Align and wrap two-dimensional literals | blocked | base-014 |
-| [base-016](tasks/016-preserve-skipped-items-and-formatting-off-regions.md) | Preserve skipped items and formatting-off regions | blocked | base-002 |
+| [base-016](tasks/016-preserve-skipped-items-and-formatting-off-regions.md) | Preserve skipped items and formatting-off regions | ready | base-002 |
 | [base-017](tasks/017-sort-include-groups-without-moving-directive-targets.md) | Sort include groups without moving directive targets | blocked | base-010, base-016 |
 | [base-018](tasks/018-add-formatter-check-and-safe-write-modes.md) | Add formatter check and safe write modes | blocked | base-013, base-017 |
 | [base-019](tasks/019-resolve-editorconfig-and-explicit-formatter-overrides.md) | Resolve EditorConfig and explicit formatter overrides | blocked | base-018, base-015 |
