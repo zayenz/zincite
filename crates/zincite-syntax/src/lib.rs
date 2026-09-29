@@ -1,12 +1,12 @@
 //! Source-preserving syntax for MiniZinc 2.10.1.
 //!
 //! Lexing retains trivia and erroneous input. It does not check model or data
-//! grammar, resolve names, or evaluate literals. String interpolation is retained
-//! as a single unsupported token until expression tokenization is implemented.
+//! grammar, resolve names, or evaluate literals. Interpolated strings retain
+//! literal chunks and embedded expression tokens in the same source buffer.
 //! Parsing supports scalar and ordinary collection declarations, domains,
 //! indexed and matrix literals, dependent indices, cardinalities, array access,
-//! operator expressions, calls, annotations, constraints with optional string
-//! labels, comprehensions, generator calls, conditional and let expressions,
+//! operator expressions, calls, interpolated strings, annotations, constraints
+//! with optional string labels, comprehensions, generator calls, conditional and let expressions,
 //! and `solve satisfy`.
 //! Structured values, case expressions and other items remain
 //! unsupported.
@@ -113,6 +113,8 @@ pub enum NodeKind {
     Solve,
     /// A literal or identifier atom, including anonymous and absent values.
     Expression,
+    /// Exact string chunks alternate with embedded expression child nodes.
+    InterpolatedString,
     UnaryExpression,
     BinaryExpression,
     ParenthesizedExpression,
@@ -234,7 +236,12 @@ pub enum TokenKind {
     IntegerLiteral,
     FloatLiteral,
     StringLiteral,
-    UnsupportedString,
+    /// Opening quote, literal contents and the first written `\(` delimiter.
+    StringHead,
+    /// Written `)`, literal contents and the next written `\(` delimiter.
+    StringMiddle,
+    /// Written `)`, remaining literal contents and closing quote.
+    StringTail,
     Error,
 
     Ann,

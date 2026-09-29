@@ -94,11 +94,21 @@ impl Parser<'_> {
                 self.bump(children);
                 if self.peek() == Some(AnnotationMarker) {
                     self.bump(children);
-                    self.expect(
-                        StringLiteral,
-                        children,
-                        "only direct string constraint labels are supported",
-                    )?;
+                    match self.peek() {
+                        Some(StringLiteral) => self.bump(children),
+                        Some(StringHead) => {
+                            self.trivia(children);
+                            let start = self.position;
+                            let mut label = Vec::new();
+                            self.interpolated_string(&mut label)?;
+                            children.push(SyntaxElement::Node(self.node(
+                                NodeKind::InterpolatedString,
+                                start,
+                                label,
+                            )));
+                        }
+                        _ => return Err("only direct string constraint labels are supported"),
+                    }
                 }
                 self.expression(children)?;
                 NodeKind::Constraint
@@ -436,6 +446,10 @@ impl Parser<'_> {
                 self.bump(&mut children);
                 NodeKind::Expression
             }
+            Some(StringHead) if grammar != Grammar::Numeric => {
+                self.interpolated_string(&mut children)?;
+                NodeKind::InterpolatedString
+            }
             Some(LeftBrace) if grammar != Grammar::Numeric => {
                 if self.collection_entries(&mut children, RightBrace, false)? {
                     NodeKind::SetComprehension
@@ -465,6 +479,24 @@ impl Parser<'_> {
             node = self.node(NodeKind::ArrayAccessExpression, start, access);
         }
         Ok(node)
+    }
+
+    fn interpolated_string(
+        &mut self,
+        children: &mut Vec<SyntaxElement>,
+    ) -> Result<(), &'static str> {
+        self.bump(children); // head, including the first written \(
+        loop {
+            self.expression(children)?;
+            match self.peek() {
+                Some(TokenKind::StringMiddle) => self.bump(children),
+                Some(TokenKind::StringTail) => {
+                    self.bump(children);
+                    return Ok(());
+                }
+                _ => return Err("expected ')' after string interpolation expression"),
+            }
+        }
     }
 
     // Both productions use general expressions even within numeric atoms.
@@ -694,8 +726,13 @@ impl Parser<'_> {
             return None;
         }
         let mut depth = 0;
+        let mut strings = 0;
         for index in self.position..self.tokens.len() {
             match self.tokens[index].kind {
+                TokenKind::StringHead => strings += 1,
+                TokenKind::StringTail if strings > 0 => strings -= 1,
+                TokenKind::StringMiddle | TokenKind::StringTail if strings == 0 => break,
+                _ if strings > 0 => {}
                 TokenKind::LeftParen => depth += 1,
                 TokenKind::RightParen => {
                     depth -= 1;
@@ -945,6 +982,8 @@ impl Parser<'_> {
                     | TokenKind::ElseIf
                     | TokenKind::Else
                     | TokenKind::EndIf
+                    | TokenKind::StringMiddle
+                    | TokenKind::StringTail
             )
         ) || self
             .peek()
@@ -1028,64 +1067,34 @@ impl Parser<'_> {
         ) || self.tokens[start..self.position]
             .iter()
             .any(|token| matches!(token.kind, TokenKind::Colon | TokenKind::Equal));
-        let mut depth = self.tokens[start..self.position]
+        let (mut depth, mut strings) = self.tokens[start..self.position]
             .iter()
-            .fold(0usize, |depth, token| match token.kind {
-                TokenKind::LeftParen
-                | TokenKind::LeftBracket
-                | TokenKind::LeftBrace
-                | TokenKind::MatrixStart => depth + 1,
-                TokenKind::RightParen
-                | TokenKind::RightBracket
-                | TokenKind::RightBrace
-                | TokenKind::MatrixEnd => depth.saturating_sub(1),
-                _ => depth,
-            });
-        // A closed malformed let block may contain item separators. Consume
-        // those until the enclosing delimiters close; for unmatched delimiters,
-        // retain the ordinary semicolon fallback so later items remain reachable.
-        let recover_local_block = self.tokens[start..self.position]
+            .fold((0, 0), |depth, token| recovery_depth(depth, token.kind));
+        // Closed malformed let blocks and interpolations may contain item
+        // separators. Consume those until enclosing delimiters close; unmatched
+        // delimiters retain the semicolon fallback to reach later items.
+        let recover_closed_delimiters = self.tokens[start..self.position]
             .iter()
-            .any(|token| token.kind == TokenKind::Let)
+            .any(|token| matches!(token.kind, TokenKind::Let | TokenKind::StringHead))
             && self.tokens[self.position..]
                 .iter()
-                .scan(depth, |remaining, token| {
-                    match token.kind {
-                        TokenKind::LeftParen
-                        | TokenKind::LeftBracket
-                        | TokenKind::LeftBrace
-                        | TokenKind::MatrixStart => *remaining += 1,
-                        TokenKind::RightParen
-                        | TokenKind::RightBracket
-                        | TokenKind::RightBrace
-                        | TokenKind::MatrixEnd => *remaining = remaining.saturating_sub(1),
-                        _ => {}
-                    }
+                .scan((depth, strings), |remaining, token| {
+                    *remaining = recovery_depth(*remaining, token.kind);
                     Some(*remaining)
                 })
-                .any(|remaining| remaining == 0);
+                .any(|remaining| remaining == (0, 0));
         while self.position < self.tokens.len() {
             let kind = self.tokens[self.position].kind;
-            if depth == 0 && can_find_next_item && self.starts_item(self.position) {
+            if depth == 0 && strings == 0 && can_find_next_item && self.starts_item(self.position) {
                 break;
             }
             self.position += 1;
-            if kind == TokenKind::Semicolon && (depth == 0 || !recover_local_block) {
+            if kind == TokenKind::Semicolon
+                && ((depth == 0 && strings == 0) || !recover_closed_delimiters)
+            {
                 break;
             }
-            match kind {
-                TokenKind::LeftParen
-                | TokenKind::LeftBracket
-                | TokenKind::LeftBrace
-                | TokenKind::MatrixStart => depth += 1,
-                TokenKind::RightParen
-                | TokenKind::RightBracket
-                | TokenKind::RightBrace
-                | TokenKind::MatrixEnd => {
-                    depth = depth.saturating_sub(1);
-                }
-                _ => {}
-            }
+            (depth, strings) = recovery_depth((depth, strings), kind);
         }
     }
 
@@ -1115,6 +1124,20 @@ impl Parser<'_> {
         }
         self.significant(index + 1)
             .is_some_and(|next| self.tokens[next].kind == Colon)
+    }
+}
+
+fn recovery_depth((depth, strings): (usize, usize), kind: TokenKind) -> (usize, usize) {
+    use TokenKind::*;
+    match kind {
+        StringHead => (depth, strings + 1),
+        StringTail => (depth, strings.saturating_sub(1)),
+        // The scanner identifies complete string boundaries even when the
+        // embedded expression has mismatched delimiters or item separators.
+        _ if strings > 0 => (depth, strings),
+        LeftParen | LeftBracket | LeftBrace | MatrixStart => (depth + 1, 0),
+        RightParen | RightBracket | RightBrace | MatrixEnd => (depth.saturating_sub(1), 0),
+        _ => (depth, 0),
     }
 }
 

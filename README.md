@@ -13,10 +13,10 @@ token's half-open byte range to read its original spelling.
 
 The lexer recognizes the lexical forms in the
 [MiniZinc 2.10.1 specification](https://docs.minizinc.dev/en/2.10.1/spec.html),
-including quoted names, numerals, plain strings and Unicode operators. It
-reports malformed lexical input and resumes at a reliable boundary. Strings
-containing interpolation are retained as single tokens with an explicit
-unsupported diagnostic. Their expressions are not tokenized yet. Lexing does
+including quoted names, numerals, strings and Unicode operators. It
+reports malformed lexical input and resumes at a reliable boundary. Interpolated
+strings retain exact literal/delimiter chunks and embedded expression tokens in
+the same token buffer, including nested strings and written escapes. Lexing does
 not validate model/data grammar, resolve includes or check semantic validity.
 
 `zincite_syntax::parse` owns source text, tokens, a concrete syntax tree and
@@ -34,6 +34,8 @@ Comprehensions expose their head and ordered generator list; indexed heads reuse
 the key/value entry nodes. Each generator retains its written binding names and
 `in` or `=` token, its source/value expression and its optional `where` filter.
 Generator calls expose that same list followed by a parenthesized body.
+Interpolated strings expose their embedded expressions as ordered child nodes,
+with literal chunks retained as token leaves in the same tree.
 
 ## Formatter usage
 
@@ -78,6 +80,10 @@ The temporary grammar supports:
 - Assignments to ordinary or quoted identifiers.
 - Atom values: identifiers, quoted identifiers, integer/float/string literals,
   `true`, `false`, `infinity`, anonymous `_` and absent `<>`.
+- Interpolated strings with one or more `\(expression)` segments, including nested
+  interpolated strings. Embedded expressions use the currently supported expression
+  families; literal segments, escapes and interpolation delimiters retain their
+  exact spelling while embedded expression layout is formatted.
 - All unary and binary operators from the pinned specification, including
   backtick operators, Unicode spellings and half-open or one-sided ranges.
 - Parenthesized expressions and ordinary or quoted calls, including nested calls,
@@ -93,7 +99,8 @@ The temporary grammar supports:
   token leaves as top-level names.
 - Declaration and expression annotations. Annotation literals use the same
   identifier and call syntax as other expressions.
-- Constraints with an expression and an optional direct `:: "label"`.
+- Constraints with an expression and an optional direct `:: "label"`, including
+  interpolated labels.
 - `solve satisfy`.
 
 Items use semicolon separators; the last semicolon is optional on input.
@@ -121,7 +128,7 @@ editable spacing and line endings to LF, adds a final newline and preserves blan
 collapsing excess blank layout lines.
 
 Field access, structured types/values, generic type-inst variables,
-case expressions, interpolated strings and other item families
+case expressions and other item families
 remain unsupported and produce diagnostics. Range-type bounds follow the
 numeric-expression grammar: their parentheses may contain numeric operators,
 identifiers and calls; call

@@ -6,6 +6,7 @@ pub(super) fn scan(source: &str) -> (Vec<Token>, Vec<Diagnostic>) {
         source,
         position: 0,
         diagnostics: Vec::new(),
+        interpolations: Vec::new(),
     };
     let mut tokens = Vec::new();
     while scanner.position < source.len() {
@@ -17,6 +18,12 @@ pub(super) fn scan(source: &str) -> (Vec<Token>, Vec<Diagnostic>) {
             range: start..scanner.position,
         });
     }
+    for interpolation in &scanner.interpolations {
+        scanner.diagnostics.push(Diagnostic {
+            range: interpolation.start..source.len(),
+            message: "unterminated string interpolation".to_owned(),
+        });
+    }
     (tokens, scanner.diagnostics)
 }
 
@@ -24,11 +31,20 @@ struct Scanner<'a> {
     source: &'a str,
     position: usize,
     diagnostics: Vec<Diagnostic>,
+    interpolations: Vec<Interpolation>,
 }
 
 impl Scanner<'_> {
     fn next_kind(&mut self) -> TokenKind {
         let character = self.current().unwrap();
+        if let Some(interpolation) = self.interpolations.last_mut() {
+            match character {
+                ')' if interpolation.parentheses == 0 => return self.string_chunk(false),
+                ')' => interpolation.parentheses -= 1,
+                '(' => interpolation.parentheses += 1,
+                _ => {}
+            }
+        }
         if is_whitespace(character) {
             self.consume_while(is_whitespace);
             return TokenKind::Whitespace;
@@ -47,7 +63,7 @@ impl Scanner<'_> {
             return self.infix_identifier();
         }
         if character == '"' {
-            return self.string();
+            return self.string_chunk(true);
         }
         if character == '$' {
             return self.type_inst_variable();
@@ -286,78 +302,49 @@ impl Scanner<'_> {
         }
     }
 
-    fn string(&mut self) -> TokenKind {
+    fn string_chunk(&mut self, first: bool) -> TokenKind {
         let start = self.position;
         let diagnostics_before = self.diagnostics.len();
-        let mut interpolated = false;
         self.advance();
-        // Keep delimiter state together so nested strings and comments cannot
-        // terminate an unsupported interpolation early. This skips expressions;
-        // it does not tokenize or parse them, and uses no recursive calls.
-        let mut modes = vec![StringMode::Text];
-        while let Some(mode) = modes.last_mut() {
-            let Some(character) = self.current() else {
-                break;
-            };
-            match mode {
-                StringMode::Text => match character {
-                    '"' => {
-                        self.advance();
-                        modes.pop();
+        while let Some(character) = self.current() {
+            match character {
+                '"' => {
+                    self.advance();
+                    if !first {
+                        self.interpolations.pop();
                     }
-                    '\r' | '\n' => break,
-                    '\\' if self.following() == Some('(') => {
-                        interpolated = true;
-                        self.position += 2;
-                        modes.push(StringMode::Expression(1));
+                    return if !first {
+                        TokenKind::StringTail
+                    } else if self.diagnostics.len() > diagnostics_before {
+                        TokenKind::Error
+                    } else {
+                        TokenKind::StringLiteral
+                    };
+                }
+                '\r' | '\n' => break,
+                '\\' if self.following() == Some('(') => {
+                    self.position += 2;
+                    if first {
+                        self.interpolations.push(Interpolation {
+                            start,
+                            parentheses: 0,
+                        });
                     }
-                    '\\' => self.string_escape(),
-                    _ => self.advance(),
-                },
-                StringMode::Expression(depth) => match character {
-                    '(' => {
-                        *depth += 1;
-                        self.advance();
-                    }
-                    ')' => {
-                        *depth -= 1;
-                        self.advance();
-                        if *depth == 0 {
-                            modes.pop();
-                        }
-                    }
-                    '"' => {
-                        self.advance();
-                        modes.push(StringMode::Text);
-                    }
-                    '\'' => {
-                        self.quoted_identifier();
-                    }
-                    '%' => self.line_comment(),
-                    '/' if self.remaining().starts_with("/*") => {
-                        self.block_comment();
-                    }
-                    _ => self.advance(),
-                },
+                    return if first {
+                        TokenKind::StringHead
+                    } else {
+                        TokenKind::StringMiddle
+                    };
+                }
+                '\\' => self.string_escape(),
+                _ => self.advance(),
             }
         }
-        if !modes.is_empty() {
-            self.diagnose(
-                start..self.position,
-                "unterminated string literal or interpolation",
-            );
+        if !first {
+            self.interpolations.pop();
         }
-        if interpolated {
-            self.diagnose(
-                start..self.position,
-                "string interpolation is not supported yet",
-            );
-            TokenKind::UnsupportedString
-        } else if self.diagnostics.len() > diagnostics_before {
-            TokenKind::Error
-        } else {
-            TokenKind::StringLiteral
-        }
+        self.diagnose(start..self.position, "unterminated string literal");
+        TokenKind::Error
     }
 
     fn string_escape(&mut self) {
@@ -400,9 +387,9 @@ impl Scanner<'_> {
     }
 }
 
-enum StringMode {
-    Text,
-    Expression(usize),
+struct Interpolation {
+    start: usize,
+    parentheses: usize,
 }
 
 fn is_whitespace(character: char) -> bool {

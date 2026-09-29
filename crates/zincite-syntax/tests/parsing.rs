@@ -69,6 +69,58 @@ fn scalar_tree_retains_every_token_and_exposes_items_and_atoms() {
         .unwrap();
     let start = MODEL.find("0x2a").unwrap();
     assert_eq!(atom.range(), start..start + 4);
+    let string = nodes[7].child_nodes().nth(1).unwrap();
+    assert_eq!(string.kind(), NodeKind::InterpolatedString);
+    let embedded = string.child_nodes().collect::<Vec<_>>();
+    assert_eq!(
+        embedded.iter().map(|node| node.kind()).collect::<Vec<_>>(),
+        [
+            NodeKind::BinaryExpression,
+            NodeKind::InterpolatedString,
+            NodeKind::Expression,
+        ]
+    );
+    assert_eq!(
+        &MODEL[embedded[0].range()],
+        "count+1::doc_comment(\"hello\")"
+    );
+    let annotated = embedded[0].child_nodes().nth(1).unwrap();
+    assert_eq!(annotated.kind(), NodeKind::AnnotatedExpression);
+    assert_eq!(
+        annotated.child_nodes().nth(1).unwrap().kind(),
+        NodeKind::Annotation
+    );
+    let inner = embedded[1].child_nodes().next().unwrap();
+    let start = MODEL.find("extra*2").unwrap();
+    assert_eq!(inner.kind(), NodeKind::BinaryExpression);
+    assert_eq!(inner.range(), start..start + 7);
+}
+
+#[test]
+fn malformed_interpolation_retains_coverage_and_recovers_after_its_closing_delimiter() {
+    let source = r#"string: bad="value \(1+[; int: hidden; 2) end"; int: after=7;"#;
+    let parsed = parse(source);
+    assert_eq!(parsed.diagnostics().len(), 1);
+    let bad = source.find(';').unwrap();
+    assert_eq!(parsed.diagnostics()[0].range, bad..bad + 1);
+    assert_eq!(parsed.diagnostics()[0].message, "expected an expression");
+    let nodes = items(&parsed);
+    assert_eq!(nodes.len(), 2);
+    assert_eq!(nodes[0].kind(), NodeKind::Error);
+    assert_eq!(&source[nodes[1].range()], "int: after=7;");
+    let mut leaves = Vec::new();
+    collect_leaves(parsed.tree(), &parsed, &mut leaves);
+    assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+    assert_eq!(
+        leaves
+            .iter()
+            .map(|&index| &source[parsed.tokens()[index].range.clone()])
+            .collect::<String>(),
+        source
+    );
+    for source in [r#"string: bad="\()"; int: after=7;"#, r#"string: bad="\(1"#] {
+        assert!(!parse(source).diagnostics().is_empty());
+    }
 }
 
 #[test]

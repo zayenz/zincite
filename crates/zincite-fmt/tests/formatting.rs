@@ -34,15 +34,72 @@ fn formats_a_complete_model_and_preserves_spelling_on_a_stable_second_pass() {
             .collect::<Vec<_>>()
     };
     assert_eq!(protected(&parsed), protected(&reparsed));
+    assert!(formatted.contains(r#"first \(count + 1 :: doc_comment("hello")) nested \("inner \(extra * 2)") last \(count) end""#));
+    let string = |parsed: &zincite_syntax::ParsedFile| {
+        structure(
+            parsed
+                .tree()
+                .child_nodes()
+                .nth(7)
+                .unwrap()
+                .child_nodes()
+                .nth(1)
+                .unwrap(),
+            parsed,
+        )
+    };
+    assert_eq!(string(&parsed), string(&reparsed));
     assert_eq!(format(&reparsed).unwrap(), formatted);
 }
 
 #[test]
 fn errors_produce_no_formatted_source() {
-    for source in ["int: bad = ; int: after = 7;", "constraint f(1 + );"] {
+    for source in [
+        "int: bad = ; int: after = 7;",
+        "constraint f(1 + );",
+        r#"string: bad="value \(1+[; int: hidden; 2) end"; int: after=7;"#,
+        r#"string: bad="\()";"#,
+        r#"string: bad="\(1"#,
+    ] {
         let parsed = parse(source);
         assert_eq!(format(&parsed).unwrap_err(), parsed.diagnostics());
     }
+}
+
+#[test]
+fn interpolated_labels_and_expression_layout_preserve_chunks_and_structure() {
+    let source = "constraint::\"Count \\(1+2)\" true; string:s=\"value \\(if true then let {int:n=1; constraint::\"n \\(n)\" n>0;} in n+1 else 0 endif) after \\(sum(i in {1,2})(i)) done \\(1.. /* Keep  delimiter comment */)\"; string:t=\"line \\(1 % Keep  line comment\n) literal\"; any: calls=f(\"\\(let {int:n=1;} in n)\"); any: keyed=[(\"\\(1)\", 2):3];";
+    let parsed = parse(source);
+    let formatted = format(&parsed).unwrap();
+    assert!(formatted.contains("constraint :: \"Count \\(1 + 2)\"\ntrue;"));
+    assert!(formatted.contains("constraint :: \"n \\(n)\"\n        n > 0;"));
+    assert!(formatted.contains("% Keep  line comment\n) literal\";"));
+    assert!(formatted.contains("/* Keep  delimiter comment */)\";"));
+    let chunks = |parsed: &zincite_syntax::ParsedFile| {
+        parsed
+            .tokens()
+            .iter()
+            .filter(|token| {
+                matches!(
+                    token.kind,
+                    TokenKind::StringHead | TokenKind::StringMiddle | TokenKind::StringTail
+                )
+            })
+            .map(|token| parsed.source()[token.range.clone()].to_owned())
+            .collect::<Vec<_>>()
+    };
+    let reparsed = parse(formatted.clone());
+    assert!(
+        reparsed.diagnostics().is_empty(),
+        "{:?}",
+        reparsed.diagnostics()
+    );
+    assert_eq!(chunks(&parsed), chunks(&reparsed));
+    assert_eq!(
+        structure(parsed.tree(), &parsed),
+        structure(reparsed.tree(), &reparsed)
+    );
+    assert_eq!(format(&reparsed).unwrap(), formatted);
 }
 
 // Child boundaries retain list entries; formatting may add trailing commas.

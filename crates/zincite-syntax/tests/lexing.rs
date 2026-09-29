@@ -118,14 +118,33 @@ fn distinguishes_numeral_and_operator_boundaries() {
 }
 
 #[test]
-fn retains_unsupported_interpolation_through_nested_delimiters() {
+fn tokenizes_interpolation_through_nested_delimiters() {
     let source = r#""value \(f("inner \(g(1))", 'odd)name', /* ) " */ (2))) end"; int: next = 1;"#;
     let lexed = lex(source);
     assert_coverage(&lexed);
-    assert_eq!(lexed.tokens()[0].kind, TokenKind::UnsupportedString);
-    assert_eq!(lexed.tokens()[0].range, 0..source.find(';').unwrap());
-    assert_eq!(lexed.diagnostics().len(), 1);
-    assert!(lexed.diagnostics()[0].message.contains("interpolation"));
+    assert_eq!(lexed.tokens()[0].kind, TokenKind::StringHead);
+    assert_eq!(lexed.tokens()[0].range, 0..source.find("f(").unwrap());
+    assert!(lexed.diagnostics().is_empty());
+    let chunks = lexed
+        .tokens()
+        .iter()
+        .filter(|token| {
+            matches!(
+                token.kind,
+                TokenKind::StringHead | TokenKind::StringMiddle | TokenKind::StringTail
+            )
+        })
+        .map(|token| (token.kind, &source[token.range.clone()]))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        chunks,
+        [
+            (TokenKind::StringHead, r#""value \("#),
+            (TokenKind::StringHead, r#""inner \("#),
+            (TokenKind::StringTail, r#")""#),
+            (TokenKind::StringTail, r#") end""#),
+        ]
+    );
     assert!(
         lexed
             .tokens()

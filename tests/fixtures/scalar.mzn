@@ -8,7 +8,7 @@ var int: choice =count;
 float: ratio=1.25e-2;
 float: upper = infinity;
 bool : ready=true;
-string: message="raw \\ slash and \n";
+string: message="café \"quote\" \\(literal) \n \t \101 \x41 first \(count+1::doc_comment("hello")) nested \("inner \(extra*2)") last \(count) end";
 int: 'quoted name'=extra;
 
 

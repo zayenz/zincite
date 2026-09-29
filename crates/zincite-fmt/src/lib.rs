@@ -64,22 +64,31 @@ impl Formatter<'_> {
                 matches!(child, SyntaxElement::Token(index)
                     if self.parsed.tokens()[*index].kind == TokenKind::AnnotationMarker)
             });
+        let mut label_pending = labelled;
         for child in item.children() {
             match child {
                 SyntaxElement::Node(expression) => {
-                    if labelled {
+                    if labelled && !label_pending {
                         self.newlines(self.pending_breaks.max(1));
                     }
                     self.expression(expression, true);
+                    label_pending = false;
                 }
                 SyntaxElement::Token(index) => {
                     self.token(*index);
+                    if self.parsed.tokens()[*index].kind == TokenKind::StringLiteral {
+                        label_pending = false;
+                    }
                 }
             }
         }
     }
 
     fn expression(&mut self, node: &SyntaxNode, leading_space: bool) {
+        if node.kind() == NodeKind::InterpolatedString {
+            self.interpolated_string(node, leading_space);
+            return;
+        }
         if matches!(
             node.kind(),
             NodeKind::ConditionalExpression | NodeKind::LetExpression
@@ -155,6 +164,35 @@ impl Formatter<'_> {
                     self.token_with_space(*index, space);
                     first = false;
                     previous = Some(kind);
+                }
+            }
+        }
+    }
+
+    fn interpolated_string(&mut self, node: &SyntaxNode, leading_space: bool) {
+        for child in node.children() {
+            match child {
+                SyntaxElement::Node(expression) => self.expression(expression, false),
+                SyntaxElement::Token(index) => {
+                    let token = &self.parsed.tokens()[*index];
+                    match token.kind {
+                        TokenKind::StringHead => self.token_with_space(*index, leading_space),
+                        TokenKind::StringMiddle | TokenKind::StringTail => {
+                            if self.line_comment || self.pending_breaks > 0 {
+                                self.newlines(self.pending_breaks.max(1));
+                                self.indent_line();
+                            }
+                            // Chunks contain delimiters and literal bytes. Resolve
+                            // expression trivia before them without adding spacing
+                            // inside the string or leaking comment state past it.
+                            self.output
+                                .push_str(&self.parsed.source()[token.range.clone()]);
+                            self.pending_breaks = 0;
+                            self.line_comment = false;
+                            self.last_was_comment = false;
+                        }
+                        _ => self.token(*index),
+                    }
                 }
             }
         }

@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-008"
 key = "string-interpolation"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -26,11 +26,22 @@ Read the pinned MiniZinc 2.10.1 grammar for this family and the current supporte
 
 ## Done when
 
-- [ ] Interpolated strings expose embedded syntax and precise ranges while leaf/source coverage remains exact with no duplicate or missing bytes.
-- [ ] Embedded expressions format with their original literal segments, nesting and annotation attachment intact.
-- [ ] Malformed interpolation reports an error and cannot produce successful partial formatting; supported-syntax notes remove the interpolation exclusion.
+- [x] Interpolated strings expose embedded syntax and precise ranges while leaf/source coverage remains exact with no duplicate or missing bytes.
+- [x] Embedded expressions format with their original literal segments, nesting and annotation attachment intact.
+- [x] Malformed interpolation reports an error and cannot produce successful partial formatting; supported-syntax notes remove the interpolation exclusion.
 
 ## Validation
 
 - Run the area Cargo checks from brief.md. Reuse existing fixtures; add only the focused behavior evidence named here.
 - Use one escaped string with multiple or nested interpolations and one malformed interpolation; check literal bytes, embedded structure, coverage and second-pass stability. Supplement the valid example with compiler acceptance.
+
+## Result
+
+Added source-preserving interpolated string chunks and embedded expression CST nodes using the existing parser and formatter.
+
+Validation:
+
+- Independent verifier PASS against W4196f5dd3f2da6f2; unchanged snapshot.
+- Cargo fmt, Clippy with denied warnings, and all 22 integration tests passed.
+- Exact token/leaf coverage, literal bytes, ranges, nesting, annotations, labels, malformed recovery/refusal and idempotence passed.
+- MiniZinc 2.10.1 model-check-only accepted original scalar fixture and independently formatted output.
