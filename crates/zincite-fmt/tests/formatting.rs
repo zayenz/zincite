@@ -213,3 +213,40 @@ fn generator_layout_keeps_nested_expansion_and_comments_attached() {
     );
     assert_eq!(format(&reparsed).unwrap(), formatted);
 }
+
+#[test]
+fn nested_control_layout_preserves_scope_comments_annotations_and_stability() {
+    let source = include_str!("../../../tests/fixtures/control.mzn");
+    let parsed = parse(source);
+    let formatted = format(&parsed).unwrap();
+    let reparsed = parse(formatted.clone());
+    assert!(
+        reparsed.diagnostics().is_empty(),
+        "{:?}",
+        reparsed.diagnostics()
+    );
+    assert_eq!(
+        structure(parsed.tree(), &parsed),
+        structure(reparsed.tree(), &reparsed)
+    );
+    assert_eq!(format(&reparsed).unwrap(), formatted);
+    assert!(formatted.contains("int: local_value = count + 1; % Keep  local spelling\n"));
+    assert!(formatted.contains("constraint :: \"Local bound\"\n        local_value > 0;"));
+    assert!(formatted.contains("elseif count = 0 then\n    0\nelse\n    -1\nendif)"));
+    let source = "any: r=if true then 1.. elseif false then ..3 else 2..< endif; any: x=(let {int: n::tag=1, constraint::\"label\" n>0,} in (if true then % Branch  comment\n n::a else 0 endif)::b)::c;";
+    let parsed = parse(source);
+    let formatted = format(&parsed).unwrap();
+    let reparsed = parse(formatted.clone());
+    assert_eq!(
+        structure(parsed.tree(), &parsed),
+        structure(reparsed.tree(), &reparsed)
+    );
+    assert_eq!(format(&reparsed).unwrap(), formatted);
+    assert!(formatted.contains("then % Branch  comment\n"));
+    assert!(
+        format(&parse(
+            "any: x=let {int: bad=; constraint true;} in 1; int: after=7;"
+        ))
+        .is_err()
+    );
+}

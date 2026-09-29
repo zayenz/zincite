@@ -93,18 +93,13 @@ fn syntax_errors_retain_ranges_and_a_following_declaration() {
 
 #[test]
 fn unsupported_expressions_are_diagnosed_and_anonymous_atoms_parse() {
-    for source in [
-        "int: x = if true then 1 else 2 endif;",
-        "int: x = let {} in 2;",
-    ] {
-        let parsed = parse(source);
-        assert!(
-            parsed
-                .diagnostics()
-                .iter()
-                .any(|diagnostic| { diagnostic.message.contains("unsupported") })
-        );
-    }
+    let parsed = parse("int: x = case x of 1: 2 endcase;");
+    assert!(
+        parsed
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("unsupported"))
+    );
     let parsed = parse("var int: x = _;");
     assert!(parsed.diagnostics().is_empty());
     let node = items(&parsed)[0];
@@ -541,4 +536,116 @@ fn malformed_and_excluded_collections_recover_to_the_next_item() {
     let mut leaves = Vec::new();
     collect_leaves(parsed.tree(), &parsed, &mut leaves);
     assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+}
+
+#[test]
+fn control_expressions_retain_branches_local_bindings_and_greedy_bodies() {
+    let source = include_str!("../../../tests/fixtures/control.mzn");
+    let parsed = parse(source);
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    let mut leaves = Vec::new();
+    collect_leaves(parsed.tree(), &parsed, &mut leaves);
+    assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+    let reconstructed: String = leaves
+        .iter()
+        .map(|&i| &source[parsed.tokens()[i].range.clone()])
+        .collect();
+    assert_eq!(reconstructed, source);
+    let parenthesized = items(&parsed)[1].child_nodes().nth(1).unwrap();
+    assert_eq!(parenthesized.kind(), NodeKind::ParenthesizedExpression);
+    let conditional = parenthesized.child_nodes().next().unwrap();
+    assert_eq!(conditional.kind(), NodeKind::ConditionalExpression);
+    assert_eq!(
+        conditional
+            .child_nodes()
+            .map(SyntaxNode::kind)
+            .collect::<Vec<_>>(),
+        [
+            NodeKind::ConditionalBranch,
+            NodeKind::ConditionalBranch,
+            NodeKind::ElseBranch
+        ]
+    );
+    let local = conditional
+        .child_nodes()
+        .next()
+        .unwrap()
+        .child_nodes()
+        .nth(1)
+        .unwrap();
+    assert_eq!(local.kind(), NodeKind::LetExpression);
+    let block = local.child_nodes().next().unwrap();
+    assert_eq!(block.kind(), NodeKind::LetBlock);
+    assert_eq!(
+        block
+            .child_nodes()
+            .map(SyntaxNode::kind)
+            .collect::<Vec<_>>(),
+        [
+            NodeKind::Declaration,
+            NodeKind::Declaration,
+            NodeKind::Constraint
+        ]
+    );
+    let declaration = block.child_nodes().next().unwrap();
+    let name = declaration
+        .children()
+        .iter()
+        .find_map(|child| match child {
+            SyntaxElement::Token(i)
+                if parsed.tokens()[*i].kind == zincite_syntax::TokenKind::Identifier =>
+            {
+                Some(&parsed.tokens()[*i])
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(&source[name.range.clone()], "local_value");
+    assert_eq!(name.range.start, source.find("local_value=count").unwrap());
+    let greedy = parse(
+        "any: x=2*let {any: y=3,} in y+4::tag; var (if true then 1 else 2 endif)..(let {int: n=5;} in n+1): v;",
+    );
+    assert!(
+        greedy.diagnostics().is_empty(),
+        "{:?}",
+        greedy.diagnostics()
+    );
+    let product = items(&greedy)[0].child_nodes().nth(1).unwrap();
+    assert_eq!(product.kind(), NodeKind::BinaryExpression);
+    let local = product.child_nodes().nth(1).unwrap();
+    assert_eq!(local.kind(), NodeKind::LetExpression);
+    assert_eq!(
+        local.child_nodes().nth(1).unwrap().kind(),
+        NodeKind::BinaryExpression
+    );
+}
+
+#[test]
+fn malformed_local_blocks_recover_to_following_items() {
+    for source in [
+        "any: x=let {int: bad=; int: later=2; constraint true;} in later;",
+        "any: x=let {int: bad=1; constraint ;} in bad;",
+        "any: x=let {int: bad=1; constraint true; in bad;",
+        "any: x=let {int: bad=1;} bad;",
+        "any: x=let {bad=1;} in bad;",
+        "any: x=let {solve satisfy;} in 1;",
+        "any: x=let {} in 1;",
+        "any: x=let {tuple(int): t=(1,);} in t;",
+        "any: x=if true 1 else 2 endif;",
+        "any: x=if true then 1 elseif false then endif;",
+    ] {
+        let source = format!("{source}\nint: after=7;");
+        let parsed = parse(source.clone());
+        assert!(!parsed.diagnostics().is_empty(), "{source}");
+        let last = items(&parsed).last().copied().unwrap();
+        assert_eq!(last.kind(), NodeKind::Declaration, "{source}");
+        assert_eq!(&source[last.range()], "int: after=7;");
+        let mut leaves = Vec::new();
+        collect_leaves(parsed.tree(), &parsed, &mut leaves);
+        assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+    }
 }

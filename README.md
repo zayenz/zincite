@@ -84,6 +84,13 @@ The temporary grammar supports:
   named arguments, empty argument lists and trailing commas.
 - Generator calls such as `forall(i in Indices)(i > 0)` and `sum(i in Indices)(i)`,
   including supported nested expressions, annotations and array access.
+- Conditional expressions with ordered `if`/`elseif` branches and an optional
+  `else`, including nested bodies and numeric-expression positions.
+- `let` expressions with local declarations using the supported types, local
+  constraints and greedy bodies. Blocks contain at least one item; both semicolon
+  and comma separators and a trailing separator are retained. Local declaration
+  names and byte ranges are exposed by the same declaration nodes and direct
+  token leaves as top-level names.
 - Declaration and expression annotations. Annotation literals use the same
   identifier and call syntax as other expressions.
 - Constraints with an expression and an optional direct `:: "label"`.
@@ -103,13 +110,18 @@ Expanded headers have a trailing comma; bodies contain a single expression witho
 an added comma. These width decisions currently apply only to generator headers
 and bodies, using Unicode scalar columns and four-column tab stops. General
 expression wrapping and configurable layout settings remain unimplemented.
+Conditional branch bodies and `let` blocks/bodies use block indentation;
+local item order, separators, parentheses and annotation attachment are retained.
+Local structured types and generic type-inst variables remain excluded alongside
+their top-level equivalents. No local name resolution or checks of
+branch types or declaration initializers are performed.
 Matrices use one logical row per line; column
 alignment and width-based row wrapping are not implemented yet. It normalizes
 editable spacing and line endings to LF, adds a final newline and preserves blank-line groups while
 collapsing excess blank layout lines.
 
 Field access, structured types/values, generic type-inst variables,
-control expressions, interpolated strings and other item families
+case expressions, interpolated strings and other item families
 remain unsupported and produce diagnostics. Range-type bounds follow the
 numeric-expression grammar: their parentheses may contain numeric operators,
 identifiers and calls; call

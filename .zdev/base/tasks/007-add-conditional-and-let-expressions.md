@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-007"
 key = "control-expressions"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -26,11 +26,22 @@ Read the pinned MiniZinc 2.10.1 grammar for this family and the current supporte
 
 ## Done when
 
-- [ ] The pinned conditional and let productions, including local declarations, local constraints and nested bodies, parse and format.
-- [ ] Local declaration/binding ranges are available to naming checks; parentheses, comments and annotation attachment are preserved.
-- [ ] Recovery from a malformed local block progresses to following items, and temporary type exclusions remain documented.
+- [x] The pinned conditional and let productions, including local declarations, local constraints and nested bodies, parse and format.
+- [x] Local declaration/binding ranges are available to naming checks; parentheses, comments and annotation attachment are preserved.
+- [x] Recovery from a malformed local block progresses to following items, and temporary type exclusions remain documented.
 
 ## Validation
 
 - Run the area Cargo checks from brief.md. Reuse existing fixtures; add only the focused behavior evidence named here.
 - Use a nested conditional/let example with a local constraint and comments, plus one malformed block; check structure, recovery and format stability. Check a complete valid model with MiniZinc 2.10.1.
+
+## Result
+
+Added conditional branches and let blocks with local declaration traversal, preserved expression structure and block formatting.
+
+Validation:
+
+- Independent verifier PASS against Wac02f6482680b74c; unchanged snapshot.
+- Cargo fmt, Clippy with denied warnings, and all 20 integration tests passed.
+- Nested branches/local blocks, source coverage, binding ranges, comments, annotations, recovery and idempotence passed.
+- MiniZinc 2.10.1 model-check-only accepted original and independently formatted complete fixture.

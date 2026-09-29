@@ -50,6 +50,18 @@ struct Parser<'a> {
 
 impl Parser<'_> {
     fn item(&mut self, children: &mut Vec<SyntaxElement>) -> Result<NodeKind, &'static str> {
+        let kind = self.item_body(children)?;
+        match self.peek() {
+            Some(TokenKind::Semicolon) => self.bump(children),
+            // The pinned model grammar permits the last item without a separator.
+            // https://docs.minizinc.dev/en/2.10.1/spec.html#high-level-model-structure
+            None => {}
+            token => return Err(unsupported_expression(token).unwrap_or("expected ';' after item")),
+        }
+        Ok(kind)
+    }
+
+    fn item_body(&mut self, children: &mut Vec<SyntaxElement>) -> Result<NodeKind, &'static str> {
         use TokenKind::*;
         let kind = match self.peek() {
             Some(Identifier | QuotedIdentifier) if self.peek_after(1) == Some(Equal) => {
@@ -102,13 +114,6 @@ impl Parser<'_> {
                 );
             }
         };
-        match self.peek() {
-            Some(Semicolon) => self.bump(children),
-            // The pinned model grammar permits the last item without a separator.
-            // https://docs.minizinc.dev/en/2.10.1/spec.html#high-level-model-structure
-            None => {}
-            token => return Err(unsupported_expression(token).unwrap_or("expected ';' after item")),
-        }
         Ok(kind)
     }
 
@@ -383,6 +388,14 @@ impl Parser<'_> {
                 children.push(SyntaxElement::Node(operand));
                 NodeKind::UnaryExpression
             }
+            Some(If) => {
+                self.conditional(&mut children)?;
+                NodeKind::ConditionalExpression
+            }
+            Some(Let) => {
+                self.let_expression(&mut children)?;
+                NodeKind::LetExpression
+            }
             Some(LeftParen) => {
                 self.bump(&mut children);
                 children.push(SyntaxElement::Node(self.precedence(grammar, 1600)?));
@@ -452,6 +465,85 @@ impl Parser<'_> {
             node = self.node(NodeKind::ArrayAccessExpression, start, access);
         }
         Ok(node)
+    }
+
+    // Both productions use general expressions even within numeric atoms.
+    // The let body consumes the full expression after `in`.
+    // https://docs.minizinc.dev/en/2.10.1/spec.html#let-expressions
+    fn conditional(&mut self, children: &mut Vec<SyntaxElement>) -> Result<(), &'static str> {
+        use TokenKind::*;
+        loop {
+            self.trivia(children);
+            let start = self.position;
+            let mut branch = Vec::new();
+            self.bump(&mut branch); // if or elseif
+            self.expression(&mut branch)?;
+            self.expect(Then, &mut branch, "expected 'then' after condition")?;
+            self.expression(&mut branch)?;
+            children.push(SyntaxElement::Node(self.node(
+                NodeKind::ConditionalBranch,
+                start,
+                branch,
+            )));
+            if self.peek() != Some(ElseIf) {
+                break;
+            }
+        }
+        if self.peek() == Some(Else) {
+            self.trivia(children);
+            let start = self.position;
+            let mut branch = Vec::new();
+            self.bump(&mut branch);
+            self.expression(&mut branch)?;
+            children.push(SyntaxElement::Node(self.node(
+                NodeKind::ElseBranch,
+                start,
+                branch,
+            )));
+        }
+        self.expect(
+            EndIf,
+            children,
+            "expected 'elseif', 'else' or 'endif' after branch",
+        )
+    }
+
+    fn let_expression(&mut self, children: &mut Vec<SyntaxElement>) -> Result<(), &'static str> {
+        use TokenKind::*;
+        self.bump(children);
+        self.trivia(children);
+        let start = self.position;
+        let mut block = Vec::new();
+        self.expect(LeftBrace, &mut block, "expected '{' after 'let'")?;
+        loop {
+            self.trivia(&mut block);
+            let item_start = self.position;
+            if self.peek() != Some(Constraint) && !self.peek().is_some_and(starts_type) {
+                return Err("unsupported local item; expected a declaration or constraint");
+            }
+            let mut item = Vec::new();
+            let kind = self.item_body(&mut item)?;
+            if !matches!(kind, NodeKind::Declaration | NodeKind::Constraint) {
+                return Err("only declarations and constraints are allowed in a let block");
+            }
+            block.push(SyntaxElement::Node(self.node(kind, item_start, item)));
+            match self.peek() {
+                Some(Semicolon | Comma) => self.bump(&mut block),
+                Some(RightBrace) => break,
+                _ => return Err("expected ';', ',' or '}' after local item"),
+            }
+            if self.peek() == Some(RightBrace) {
+                break;
+            }
+        }
+        self.expect(RightBrace, &mut block, "expected '}' after local items")?;
+        children.push(SyntaxElement::Node(self.node(
+            NodeKind::LetBlock,
+            start,
+            block,
+        )));
+        self.expect(In, children, "expected 'in' after let block")?;
+        self.expression(children)
     }
 
     fn collection_entries(
@@ -849,6 +941,10 @@ impl Parser<'_> {
                     | TokenKind::Pipe
                     | TokenKind::MatrixEnd
                     | TokenKind::Where
+                    | TokenKind::Then
+                    | TokenKind::ElseIf
+                    | TokenKind::Else
+                    | TokenKind::EndIf
             )
         ) || self
             .peek()
@@ -945,13 +1041,36 @@ impl Parser<'_> {
                 | TokenKind::MatrixEnd => depth.saturating_sub(1),
                 _ => depth,
             });
+        // A closed malformed let block may contain item separators. Consume
+        // those until the enclosing delimiters close; for unmatched delimiters,
+        // retain the ordinary semicolon fallback so later items remain reachable.
+        let recover_local_block = self.tokens[start..self.position]
+            .iter()
+            .any(|token| token.kind == TokenKind::Let)
+            && self.tokens[self.position..]
+                .iter()
+                .scan(depth, |remaining, token| {
+                    match token.kind {
+                        TokenKind::LeftParen
+                        | TokenKind::LeftBracket
+                        | TokenKind::LeftBrace
+                        | TokenKind::MatrixStart => *remaining += 1,
+                        TokenKind::RightParen
+                        | TokenKind::RightBracket
+                        | TokenKind::RightBrace
+                        | TokenKind::MatrixEnd => *remaining = remaining.saturating_sub(1),
+                        _ => {}
+                    }
+                    Some(*remaining)
+                })
+                .any(|remaining| remaining == 0);
         while self.position < self.tokens.len() {
             let kind = self.tokens[self.position].kind;
             if depth == 0 && can_find_next_item && self.starts_item(self.position) {
                 break;
             }
             self.position += 1;
-            if kind == TokenKind::Semicolon {
+            if kind == TokenKind::Semicolon && (depth == 0 || !recover_local_block) {
                 break;
             }
             match kind {
@@ -1074,6 +1193,8 @@ fn starts_type(kind: TokenKind) -> bool {
             | IntegerLiteral
             | FloatLiteral
             | LeftParen
+            | If
+            | Let
             | Plus
             | Minus
             | Var
@@ -1095,7 +1216,10 @@ fn starts_type(kind: TokenKind) -> bool {
 
 fn is_numeric_expression(node: &SyntaxNode, tokens: &[Token]) -> bool {
     match node.kind {
-        NodeKind::CallExpression | NodeKind::GeneratorCallExpression => true,
+        NodeKind::CallExpression
+        | NodeKind::GeneratorCallExpression
+        | NodeKind::ConditionalExpression
+        | NodeKind::LetExpression => true,
         NodeKind::ArrayAccessExpression | NodeKind::AnnotatedExpression => node
             .child_nodes()
             .next()
@@ -1136,7 +1260,7 @@ fn is_range(kind: TokenKind) -> bool {
 fn unsupported_expression(kind: Option<TokenKind>) -> Option<&'static str> {
     use TokenKind::*;
     match kind? {
-        LeftBracket | LeftBrace | MatrixStart | Dot | Pipe | If | Let | Case | LeftParen => {
+        LeftBracket | LeftBrace | MatrixStart | Dot | Pipe | Case | LeftParen => {
             Some("this expression syntax is unsupported")
         }
         _ => None,

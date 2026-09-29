@@ -48,12 +48,22 @@ impl Formatter<'_> {
         }
         self.pending_breaks = 0;
         self.between_items = false;
+        self.item_contents(item);
+        if !item.children().iter().any(|child| {
+            matches!(child, SyntaxElement::Token(index)
+                if self.parsed.tokens()[*index].kind == TokenKind::Semicolon)
+        }) {
+            self.code(TokenKind::Semicolon, ";");
+        }
+        self.between_items = true;
+    }
+
+    fn item_contents(&mut self, item: &SyntaxNode) {
         let labelled = item.kind() == NodeKind::Constraint
             && item.children().iter().any(|child| {
                 matches!(child, SyntaxElement::Token(index)
                     if self.parsed.tokens()[*index].kind == TokenKind::AnnotationMarker)
             });
-        let mut has_semicolon = false;
         for child in item.children() {
             match child {
                 SyntaxElement::Node(expression) => {
@@ -63,18 +73,20 @@ impl Formatter<'_> {
                     self.expression(expression, true);
                 }
                 SyntaxElement::Token(index) => {
-                    has_semicolon |= self.parsed.tokens()[*index].kind == TokenKind::Semicolon;
                     self.token(*index);
                 }
             }
         }
-        if !has_semicolon {
-            self.code(TokenKind::Semicolon, ";");
-        }
-        self.between_items = true;
     }
 
     fn expression(&mut self, node: &SyntaxNode, leading_space: bool) {
+        if matches!(
+            node.kind(),
+            NodeKind::ConditionalExpression | NodeKind::LetExpression
+        ) {
+            self.control_expression(node, leading_space);
+            return;
+        }
         if matches!(
             node.kind(),
             NodeKind::GeneratorCallExpression
@@ -143,6 +155,91 @@ impl Formatter<'_> {
                     self.token_with_space(*index, space);
                     first = false;
                     previous = Some(kind);
+                }
+            }
+        }
+    }
+
+    fn control_expression(&mut self, node: &SyntaxNode, leading_space: bool) {
+        let mut first = true;
+        for child in node.children() {
+            match child {
+                SyntaxElement::Node(branch)
+                    if matches!(
+                        branch.kind(),
+                        NodeKind::ConditionalBranch | NodeKind::ElseBranch
+                    ) =>
+                {
+                    if !first {
+                        self.newlines(self.pending_breaks.max(1));
+                    }
+                    let mut body = false;
+                    for part in branch.children() {
+                        match part {
+                            SyntaxElement::Node(expression) => {
+                                if body {
+                                    self.newlines(self.pending_breaks.max(1));
+                                }
+                                self.expression(expression, true);
+                            }
+                            SyntaxElement::Token(index) => {
+                                let kind = self.parsed.tokens()[*index].kind;
+                                self.token_with_space(*index, !first || leading_space);
+                                if !is_trivia(kind) {
+                                    first = false;
+                                }
+                                if matches!(kind, TokenKind::Then | TokenKind::Else) {
+                                    body = true;
+                                    self.indent += 1;
+                                }
+                            }
+                        }
+                    }
+                    self.indent -= 1;
+                }
+                SyntaxElement::Node(block) if block.kind() == NodeKind::LetBlock => {
+                    self.local_block(block);
+                }
+                SyntaxElement::Node(body) => {
+                    self.indent += 1;
+                    self.newlines(self.pending_breaks.max(1));
+                    self.expression(body, true);
+                    self.indent -= 1;
+                }
+                SyntaxElement::Token(index) => {
+                    let kind = self.parsed.tokens()[*index].kind;
+                    if kind == TokenKind::EndIf {
+                        self.newlines(self.pending_breaks.max(1));
+                    }
+                    self.token_with_space(*index, !first || leading_space);
+                    if !is_trivia(kind) {
+                        first = false;
+                    }
+                }
+            }
+        }
+    }
+
+    fn local_block(&mut self, block: &SyntaxNode) {
+        for child in block.children() {
+            match child {
+                SyntaxElement::Node(item) => {
+                    self.newlines(self.pending_breaks.max(1));
+                    self.item_contents(item);
+                }
+                SyntaxElement::Token(index) => {
+                    let kind = self.parsed.tokens()[*index].kind;
+                    if kind == TokenKind::RightBrace {
+                        self.indent -= 1;
+                        self.newlines(self.pending_breaks.max(1));
+                    }
+                    self.token_with_space(
+                        *index,
+                        !matches!(kind, TokenKind::Comma | TokenKind::Semicolon),
+                    );
+                    if kind == TokenKind::LeftBrace {
+                        self.indent += 1;
+                    }
                 }
             }
         }
