@@ -118,6 +118,31 @@ fn formats_collection_lists_and_preserves_comments_and_structure() {
         "array[i in 1 .. 2] of array[j in 1 .. 2] of var 1 .. (i + j): dependent_nested;"
     ));
     assert!(formatted.contains("var set(1 .. 3) of 1 .. 5: cardinality;"));
+    assert!(
+        formatted
+            .contains("generated = {i + j | i, j in Indices where i < j, k = i + j where k > 0};")
+    );
+    assert!(formatted.contains(
+        "filtered = [sum (j in {k | k in Indices where k <= i}) (j) | i in Indices where i > 0];"
+    ));
+    assert!(formatted.contains("indexed_comp = [i: i * 2 | i in Indices];"));
+    assert!(formatted.contains("tuple_comp = [(i, j): i + j | i, j in Indices];"));
+    assert!(formatted.contains("short_sum = sum (i in Indices) (i);"));
+    assert!(
+        formatted.contains("expanded_sum = sum (i in Indices) (\n    i % Keep  body comment\n);")
+    );
+    assert!(formatted.contains("constraint forall (i in Indices) (\n    i > 0\n);"));
+    assert!(formatted.contains("constraint 'forall' (i in Indices /* Keep  binding comment */ where i > 0) (\n    /* Keep  body start */ i > 0\n);"));
+    assert!(formatted.contains("long_sum = sum (\n    first_index in Indices\n        where first_index > 0,\n    second_index in Indices\n        where second_index > first_index,\n    combined_index = first_index + second_index\n        where combined_index > 0,\n) (combined_index);"));
+    assert!(formatted.contains("constraint forall (\n    first_index in Indices\n        where first_index > 0,\n    second_index in Indices\n        where second_index > first_index,\n) (\n    first_index < second_index\n);"));
+    let comments = |parsed: &zincite_syntax::ParsedFile| {
+        parsed
+            .tokens()
+            .iter()
+            .filter(|token| matches!(token.kind, TokenKind::LineComment | TokenKind::BlockComment))
+            .map(|token| parsed.source()[token.range.clone()].to_owned())
+            .collect::<Vec<_>>()
+    };
     let reparsed = parse(formatted.clone());
     assert!(
         reparsed.diagnostics().is_empty(),
@@ -128,6 +153,7 @@ fn formats_collection_lists_and_preserves_comments_and_structure() {
         structure(parsed.tree(), &parsed),
         structure(reparsed.tree(), &reparsed)
     );
+    assert_eq!(comments(&parsed), comments(&reparsed));
     assert_eq!(format(&reparsed).unwrap(), formatted);
 
     let source = "array[\n 1..2,\n 1..3\n] of int: a; any: x=f([\n1,\n2\n],{3,4}); any: y=a[\n1, % index\n2\n]; any: keyed=[(\n1, % component\n2\n):3]; any: empty=[||]; any: empty_rows=[| | |]; any: empty_cols=[|1:2:|]; any: empty_key=[():3]; any: row=[|f(\n1,\n2\n),3,|4,5,||]; array[i in 1..2, 1..3] of int: mixed;";
@@ -139,6 +165,47 @@ fn formats_collection_lists_and_preserves_comments_and_structure() {
     assert!(formatted.contains("keyed = [(\n    1, % component\n    2,\n): 3];"));
     assert!(formatted.contains("empty = [||];"));
     assert!(formatted.contains("empty_key = [(): 3];"));
+    let reparsed = parse(formatted.clone());
+    assert_eq!(
+        structure(parsed.tree(), &parsed),
+        structure(reparsed.tree(), &reparsed)
+    );
+    assert_eq!(format(&reparsed).unwrap(), formatted);
+}
+
+#[test]
+fn generator_layout_keeps_nested_expansion_and_comments_attached() {
+    let source = "any: a=sum(i in [\n1,\n2\n])(f(\n1,\n2\n)); any: b=[\ni | i in {1,2}\n]; any: c=sum(\n/* Before  binding */ i, % Binding  comment\nj in {1,2} % Source  comment\nwhere i<j, % Filter  comment\nk=i+j % Final  comment\n)(/* Body  comment */ k); any: d=[first_index+second_index | first_index in VeryLongDomainNameWithRepeatedCharacters where first_index>0, second_index in VeryLongDomainNameWithRepeatedCharacters where second_index>0]; any: e=sum(i in {1})(sum(\nj in {1,2} where j>0\n)(i+j));";
+    let parsed = parse(source);
+    let formatted = format(&parsed).unwrap();
+    assert!(formatted.contains("a = sum (i in [\n    1,\n    2,\n]) (f(\n    1,\n    2,\n));"));
+    assert!(formatted.contains("b = [\n    i |\n    i in {1, 2},\n];"));
+    assert!(formatted.contains("/* Before  binding */ i, % Binding  comment\n    j in {1, 2} % Source  comment\n        where i < j, % Filter  comment\n    k = i + j, % Final  comment\n) ( /* Body  comment */ k);"));
+    assert!(formatted.contains("d = [first_index + second_index |\n    first_index in VeryLongDomainNameWithRepeatedCharacters\n        where first_index > 0,\n    second_index in VeryLongDomainNameWithRepeatedCharacters\n        where second_index > 0,\n];"));
+    assert!(
+        formatted.contains(
+            "e = sum (i in {1}) (sum (\n    j in {1, 2}\n        where j > 0,\n) (i + j));"
+        )
+    );
+    let reparsed = parse(formatted.clone());
+    assert!(
+        reparsed.diagnostics().is_empty(),
+        "{:?}",
+        reparsed.diagnostics()
+    );
+    assert_eq!(
+        structure(parsed.tree(), &parsed),
+        structure(reparsed.tree(), &reparsed)
+    );
+    assert_eq!(format(&reparsed).unwrap(), formatted);
+    let domain = "é".repeat(65);
+    let body = "i+".repeat(45) + "i";
+    let source =
+        format!("any: unicode=sum(i in '{domain}')(i); any: wide=sum(i in {{1}})({body});");
+    let parsed = parse(source);
+    let formatted = format(&parsed).unwrap();
+    assert!(formatted.contains(&format!("unicode = sum (i in '{domain}') (i);")));
+    assert!(formatted.contains("wide = sum (i in {1}) (\n    i + i"));
     let reparsed = parse(formatted.clone());
     assert_eq!(
         structure(parsed.tree(), &parsed),

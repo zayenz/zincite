@@ -1,7 +1,7 @@
 # Zincite
 
 Zincite is a Rust project for MiniZinc source tooling. `zincite-fmt` formats a
-scalar and ordinary collection model subset using the shared `zincite-syntax`
+scalar and collection model subset using the shared `zincite-syntax`
 parser and concrete syntax tree. The tree retains source spelling, comments,
 whitespace and byte ranges. `zincite-lint`, the planned static analyser, is not
 implemented yet.
@@ -30,6 +30,10 @@ types, collection entries, array index types and access expressions have distinc
 node kinds in this same tree. Indexed entries expose their key and value; matrix
 nodes expose column indices and rows in written order. Array index bindings retain
 their name tokens and index type, and set cardinalities retain their expression.
+Comprehensions expose their head and ordered generator list; indexed heads reuse
+the key/value entry nodes. Each generator retains its written binding names and
+`in` or `=` token, its source/value expression and its optional `where` filter.
+Generator calls expose that same list followed by a parenthesized body.
 
 ## Formatter usage
 
@@ -65,6 +69,10 @@ The temporary grammar supports:
   keys may use parenthesized index tuples.
 - Two-dimensional literals with optional column and row indices, including empty
   forms and written row delimiters.
+- Set, array and indexed array comprehensions, including scalar or tuple keys,
+  multiple-name `in` generators, single-name assignment generators and an optional
+  attached `where` filter on each generator. Quoted and anonymous bindings and
+  trailing generator commas are supported.
 - Array indexing after atoms, calls and parentheses, including repeated indexing,
   multiple indices and range slices with either, both or neither bound.
 - Assignments to ordinary or quoted identifiers.
@@ -74,6 +82,8 @@ The temporary grammar supports:
   backtick operators, Unicode spellings and half-open or one-sided ranges.
 - Parenthesized expressions and ordinary or quoted calls, including nested calls,
   named arguments, empty argument lists and trailing commas.
+- Generator calls such as `forall(i in Indices)(i > 0)` and `sum(i in Indices)(i)`,
+  including supported nested expressions, annotations and array access.
 - Declaration and expression annotations. Annotation literals use the same
   identifier and call syntax as other expressions.
 - Constraints with an expression and an optional direct `:: "label"`.
@@ -84,13 +94,22 @@ Comments may occur between tokens. Formatting preserves comment, literal and
 operator spelling and explicit parentheses. It puts a labelled constraint's
 expression on the following line and retains explicitly multiline comma-separated
 lists with one entry per line and a trailing comma. A multiline nested entry does
-not expand its enclosing list. Matrices use one logical row per line; column
+not expand its enclosing list. Generator calls use spaces before their header and
+body parentheses. `forall` bodies always use block indentation, including quoted
+`'forall'` calls. Other short bodies stay compact; explicitly expanded bodies stay
+expanded. Generator headers exceeding 120 columns or written with line breaks
+use one generator per line, with each `where` filter indented beneath its generator.
+Expanded headers have a trailing comma; bodies contain a single expression without
+an added comma. These width decisions currently apply only to generator headers
+and bodies, using Unicode scalar columns and four-column tab stops. General
+expression wrapping and configurable layout settings remain unimplemented.
+Matrices use one logical row per line; column
 alignment and width-based row wrapping are not implemented yet. It normalizes
 editable spacing and line endings to LF, adds a final newline and preserves blank-line groups while
 collapsing excess blank layout lines.
 
-Comprehensions, field access, structured types/values, generic type-inst variables,
-control expressions, generators, interpolated strings and other item families
+Field access, structured types/values, generic type-inst variables,
+control expressions, interpolated strings and other item families
 remain unsupported and produce diagnostics. Range-type bounds follow the
 numeric-expression grammar: their parentheses may contain numeric operators,
 identifiers and calls; call

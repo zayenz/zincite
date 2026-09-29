@@ -93,7 +93,10 @@ fn syntax_errors_retain_ranges_and_a_following_declaration() {
 
 #[test]
 fn unsupported_expressions_are_diagnosed_and_anonymous_atoms_parse() {
-    for source in ["int: x = if true then 1 else 2 endif;", "int: x = f(1)(2);"] {
+    for source in [
+        "int: x = if true then 1 else 2 endif;",
+        "int: x = let {} in 2;",
+    ] {
         let parsed = parse(source);
         assert!(
             parsed
@@ -395,6 +398,91 @@ fn collection_types_entries_and_indices_share_the_lossless_tree() {
 }
 
 #[test]
+fn comprehension_heads_and_generator_filters_are_direct_ordered_children() {
+    let parsed = parse(include_str!("../../../tests/fixtures/collections.mzn"));
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    let nodes = items(&parsed);
+    let set = nodes[21].child_nodes().nth(1).unwrap();
+    assert_eq!(set.kind(), NodeKind::SetComprehension);
+    let list = set.child_nodes().nth(1).unwrap();
+    assert_eq!(list.kind(), NodeKind::GeneratorList);
+    let generators = list.child_nodes().collect::<Vec<_>>();
+    assert_eq!(operator_text(generators[0], &parsed), ["i", ",", "j", "in"]);
+    assert_eq!(operator_text(generators[1], &parsed), ["k", "="]);
+    assert_eq!(
+        generators
+            .iter()
+            .map(|generator| generator
+                .child_nodes()
+                .map(|child| (child.kind(), &parsed.source()[child.range()]))
+                .collect::<Vec<_>>())
+            .collect::<Vec<_>>(),
+        [
+            vec![
+                (NodeKind::Expression, "Indices"),
+                (NodeKind::WhereFilter, "where i<j")
+            ],
+            vec![
+                (NodeKind::BinaryExpression, "i+j"),
+                (NodeKind::WhereFilter, "where k>0")
+            ],
+        ]
+    );
+    let nested = nodes[22].child_nodes().nth(1).unwrap();
+    assert_eq!(nested.kind(), NodeKind::ArrayComprehension);
+    let call = nested.child_nodes().next().unwrap();
+    assert_eq!(call.kind(), NodeKind::GeneratorCallExpression);
+    assert_eq!(
+        call.child_nodes().map(SyntaxNode::kind).collect::<Vec<_>>(),
+        [NodeKind::GeneratorList, NodeKind::ParenthesizedExpression]
+    );
+    let source = call
+        .child_nodes()
+        .next()
+        .unwrap()
+        .child_nodes()
+        .next()
+        .unwrap()
+        .child_nodes()
+        .next()
+        .unwrap();
+    assert_eq!(source.kind(), NodeKind::SetComprehension);
+    for (item, key) in [(23, NodeKind::Expression), (24, NodeKind::IndexTuple)] {
+        let indexed = nodes[item].child_nodes().nth(1).unwrap();
+        assert_eq!(indexed.kind(), NodeKind::IndexedArrayComprehension);
+        let entry = indexed.child_nodes().next().unwrap();
+        assert_eq!(entry.kind(), NodeKind::IndexedArrayEntry);
+        assert_eq!(entry.child_nodes().next().unwrap().kind(), key);
+    }
+    let written = nodes[25]
+        .child_nodes()
+        .nth(1)
+        .unwrap()
+        .child_nodes()
+        .nth(1)
+        .unwrap()
+        .child_nodes()
+        .next()
+        .unwrap();
+    assert_eq!(
+        operator_text(written, &parsed),
+        ["_", ",", "'written name'", "in"]
+    );
+    let parsed = parse(
+        "var sum(i in 1..3)(i)..sum(j=2)(j+1): bounded; any: x=sum(i in 1..3)([i])[1]::tag; any: open=[i | i in 1.. where true,]; any: trailing=[i | i, in {1},]; any: ordinary=f(i in A, i=2, named:3);",
+    );
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+}
+
+#[test]
 fn malformed_and_excluded_collections_recover_to_the_next_item() {
     for source in [
         "array[] of int: bad;",
@@ -408,14 +496,21 @@ fn malformed_and_excluded_collections_recover_to_the_next_item() {
         "any: bad=[1:2,3:4,5];",
         "any: bad=[(1,,2):3];",
         "any: bad=[(1,2)];",
-        "any: bad=[1:2 | i in 1..3];",
+        "any: bad=[1:2, 3:4 | i in 1..3];",
         "any: bad=[|1,,2|];",
         "any: bad=[|1,2];",
         "any: bad=[|1|2:|];",
         "any: bad=[|1:2:3|];",
-        "any: bad={i | i in 1..3};",
-        "any: bad=[i | i in 1..3];",
-        "any: bad=forall(i in 1..3)(true);",
+        "any: bad={i | };",
+        "any: bad=[i | i in ];",
+        "any: bad=[i | i,j=1];",
+        "any: bad=[i | i in 1..3 where ];",
+        "any: bad=[i | i in 1..3 where true where false];",
+        "any: bad=[i,j | i in 1..3];",
+        "any: bad=forall(i in 1..3)();",
+        "any: bad=sum(i in 1..3)(i,);",
+        "any: bad=f(1)(2);",
+        "any: bad=C^-1(i in 1..3)(i);",
         "any: bad=a[];",
         "any: bad=[1,,2];",
         "any: bad=a.field;",

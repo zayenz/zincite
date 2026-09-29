@@ -24,5 +24,19 @@ array[c in 1..3] of var set(c) of 1..5: dependent_sets;
 array[i in 1..2,j in 1..3] of var 1..(i+j): dependent;
 array[i in 1..2] of array[j in 1..2] of var 1..(i+j): dependent_nested;
 var set(1..3) of 1..5: cardinality;
+set of int: generated={i+j | i,j in Indices where i<j, k=i+j where k>0};
+array[int] of int: filtered=[sum(j in {k | k in Indices where k<=i})(j) | i in Indices where i>0];
+array[int] of int: indexed_comp=[i:i*2 | i in Indices];
+array[int,int] of int: tuple_comp=[(i,j):i+j | i,j in Indices];
+array[int] of int: written_bindings=[1 | _, 'written name' in Indices where 'written name'>0];
+int: short_sum=sum(i in Indices)(i);
+int: expanded_sum=sum(i in Indices)(
+i % Keep  body comment
+);
+int: long_sum=sum(first_index in Indices where first_index>0, second_index in Indices where second_index>first_index, combined_index=first_index+second_index where combined_index>0)(combined_index);
+constraint forall(i in Indices)(i>0);
+constraint 'forall'(i in Indices /* Keep  binding comment */ where i>0)(
+/* Keep  body start */ i>0);
+constraint forall(first_index in Indices where first_index>0, second_index in Indices where second_index>first_index)(first_index<second_index);
 constraint picked>0;
 solve satisfy;

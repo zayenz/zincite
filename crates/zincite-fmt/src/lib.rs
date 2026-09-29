@@ -75,6 +75,16 @@ impl Formatter<'_> {
     }
 
     fn expression(&mut self, node: &SyntaxNode, leading_space: bool) {
+        if matches!(
+            node.kind(),
+            NodeKind::GeneratorCallExpression
+                | NodeKind::SetComprehension
+                | NodeKind::ArrayComprehension
+                | NodeKind::IndexedArrayComprehension
+        ) {
+            self.generator_expression(node, leading_space);
+            return;
+        }
         if node.kind() == NodeKind::MatrixLiteral {
             self.matrix(node, leading_space);
             return;
@@ -136,6 +146,238 @@ impl Formatter<'_> {
                 }
             }
         }
+    }
+
+    fn generator_expression(&mut self, node: &SyntaxNode, leading_space: bool) {
+        let call = node.kind() == NodeKind::GeneratorCallExpression;
+        let closing = match node.kind() {
+            NodeKind::SetComprehension => TokenKind::RightBrace,
+            NodeKind::GeneratorCallExpression => TokenKind::RightParen,
+            _ => TokenKind::RightBracket,
+        };
+        let forall = call
+            && node.children().iter().any(|child| {
+                matches!(child, SyntaxElement::Token(index)
+                    if matches!(self.parsed.tokens()[*index].kind,
+                        TokenKind::Identifier | TokenKind::QuotedIdentifier)
+                    && matches!(&self.parsed.source()[self.parsed.tokens()[*index].range.clone()],
+                        "forall" | "'forall'"))
+            });
+        let head_expanded = !call && self.has_line_break(node);
+        let mut first = true;
+        let mut header_expanded = false;
+        for child in node.children() {
+            match child {
+                SyntaxElement::Node(list) if list.kind() == NodeKind::GeneratorList => {
+                    header_expanded =
+                        head_expanded || self.generator_header_expands(list, closing, !call);
+                    if header_expanded && !head_expanded {
+                        self.indent += 1;
+                    }
+                    self.generator_list(list, header_expanded, !call);
+                }
+                SyntaxElement::Node(body) if call => self.generator_body(body, forall),
+                SyntaxElement::Node(head) => {
+                    if head_expanded {
+                        self.newlines(1);
+                        self.pending_breaks = 0;
+                    }
+                    self.expression(head, false);
+                }
+                SyntaxElement::Token(index) => {
+                    let kind = self.parsed.tokens()[*index].kind;
+                    if kind == closing {
+                        if header_expanded || head_expanded {
+                            self.indent -= 1;
+                            self.newlines(1);
+                            self.pending_breaks = 0;
+                        }
+                        self.token_with_space(*index, false);
+                    } else if is_trivia(kind) {
+                        self.token(*index);
+                    } else {
+                        self.token_with_space(*index, first && leading_space || !first);
+                        if head_expanded && first {
+                            self.indent += 1;
+                        }
+                        first = false;
+                    }
+                }
+            }
+        }
+    }
+
+    fn generator_header_expands(
+        &self,
+        list: &SyntaxNode,
+        closing: TokenKind,
+        leading_space: bool,
+    ) -> bool {
+        if self.has_line_break(list)
+            || list.child_nodes().any(|generator| {
+                self.has_line_break(generator)
+                    || generator
+                        .child_nodes()
+                        .filter(|child| child.kind() == NodeKind::WhereFilter)
+                        .any(|filter| self.has_line_break(filter))
+            })
+        {
+            return true;
+        }
+        let mut preview = self.preview();
+        preview.generator_list(list, false, leading_space);
+        preview.code_with_space(
+            match closing {
+                TokenKind::RightBrace => "}",
+                TokenKind::RightBracket => "]",
+                _ => ")",
+            },
+            false,
+        );
+        preview.exceeds_width()
+    }
+
+    fn generator_list(&mut self, list: &SyntaxNode, expanded: bool, leading_space: bool) {
+        let mut first = true;
+        let mut previous_end = self.output.len();
+        for (position, child) in list.children().iter().enumerate() {
+            match child {
+                SyntaxElement::Node(generator) => {
+                    let comment_before = self.last_was_comment
+                        && !self.line_comment
+                        && self.pending_breaks == 0
+                        && self.output[previous_end..].contains('\n');
+                    if expanded && !comment_before {
+                        self.newlines(1);
+                        self.pending_breaks = 0;
+                    }
+                    self.generator(generator, expanded, !expanded && (leading_space || !first));
+                    if expanded
+                        && !list.children()[position + 1..].iter().any(|child| {
+                            matches!(child, SyntaxElement::Token(index)
+                                if self.parsed.tokens()[*index].kind == TokenKind::Comma)
+                        })
+                    {
+                        self.code_with_space(",", false);
+                    }
+                    previous_end = self.output.len();
+                    first = false;
+                }
+                SyntaxElement::Token(index) => self.token_with_space(*index, false),
+            }
+        }
+    }
+
+    fn generator(&mut self, generator: &SyntaxNode, expanded: bool, leading_space: bool) {
+        let mut first = true;
+        for child in generator.children() {
+            match child {
+                SyntaxElement::Node(filter) if filter.kind() == NodeKind::WhereFilter => {
+                    if expanded {
+                        self.indent += 1;
+                        self.newlines(self.pending_breaks.max(1));
+                        self.pending_breaks = 0;
+                    }
+                    self.expression(filter, true);
+                    if expanded {
+                        self.indent -= 1;
+                    }
+                }
+                SyntaxElement::Node(source) => self.expression(source, true),
+                SyntaxElement::Token(index) => {
+                    let kind = self.parsed.tokens()[*index].kind;
+                    self.token_with_space(
+                        *index,
+                        if first {
+                            leading_space
+                        } else {
+                            kind != TokenKind::Comma
+                        },
+                    );
+                    if !is_trivia(kind) {
+                        first = false;
+                    }
+                }
+            }
+        }
+    }
+
+    fn generator_body(&mut self, body: &SyntaxNode, forall: bool) {
+        let mut preview = self.preview();
+        preview.expression(body, true);
+        let expanded = forall || self.has_line_break(body) || preview.exceeds_width();
+        let mut previous_end = self.output.len();
+        for child in body.children() {
+            match child {
+                SyntaxElement::Node(expression) => {
+                    let comment_before = self.last_was_comment
+                        && !self.line_comment
+                        && self.pending_breaks == 0
+                        && self.output[previous_end..].contains('\n');
+                    if expanded && !comment_before {
+                        self.newlines(1);
+                        self.pending_breaks = 0;
+                    }
+                    self.expression(expression, false);
+                }
+                SyntaxElement::Token(index) => match self.parsed.tokens()[*index].kind {
+                    TokenKind::LeftParen => {
+                        self.token_with_space(*index, true);
+                        previous_end = self.output.len();
+                        if expanded {
+                            self.indent += 1;
+                        }
+                    }
+                    TokenKind::RightParen => {
+                        if expanded {
+                            self.indent -= 1;
+                            self.newlines(self.pending_breaks.max(1));
+                            self.pending_breaks = 0;
+                        }
+                        self.token_with_space(*index, false);
+                    }
+                    _ => self.token(*index),
+                },
+            }
+        }
+    }
+
+    fn has_line_break(&self, node: &SyntaxNode) -> bool {
+        node.children().iter().any(|child| {
+            matches!(child, SyntaxElement::Token(index)
+                if self.parsed.tokens()[*index].kind == TokenKind::Whitespace
+                && self.parsed.source()[self.parsed.tokens()[*index].range.clone()]
+                    .contains(['\r', '\n']))
+        })
+    }
+
+    // Width decisions are limited to generator headers and bodies for now.
+    // Keep the current line so nested headers account for their actual column.
+    fn preview(&self) -> Self {
+        Self {
+            parsed: self.parsed,
+            output: self
+                .output
+                .rsplit_once('\n')
+                .map_or_else(|| self.output.clone(), |(_, line)| format!("\n{line}")),
+            pending_breaks: self.pending_breaks,
+            line_comment: self.line_comment,
+            last_was_comment: self.last_was_comment,
+            between_items: self.between_items,
+            indent: self.indent,
+        }
+    }
+
+    fn exceeds_width(&self) -> bool {
+        self.output.lines().any(|line| {
+            line.chars().fold(0, |column, character| {
+                if character == '\t' {
+                    column + 4 - column % 4
+                } else {
+                    column + 1
+                }
+            }) > 120
+        })
     }
 
     fn matrix(&mut self, node: &SyntaxNode, leading_space: bool) {

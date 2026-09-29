@@ -7,9 +7,10 @@ use zincite_syntax::{Diagnostic, parse};
 
 const HELP: &str = "Usage: zincite-fmt [FILE|-]
 
-Format one UTF-8 scalar MiniZinc model to stdout. No input or '-' reads stdin.
-Supports scalar declarations/assignments, atoms, constraints with optional string
-labels, and solve satisfy. Other syntax is diagnosed as unsupported.
+Format one UTF-8 MiniZinc model subset to stdout. No input or '-' reads stdin.
+Supports scalar/collection declarations and expressions, comprehensions, calls,
+constraints with optional string labels, and solve satisfy. Other syntax is
+diagnosed as unsupported.
 
 Options:
     -h, --help    Show this help

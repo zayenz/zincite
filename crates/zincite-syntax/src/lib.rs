@@ -6,8 +6,8 @@
 //! Parsing supports scalar and ordinary collection declarations, domains,
 //! indexed and matrix literals, dependent indices, cardinalities, array access,
 //! operator expressions, calls, annotations, constraints with optional string
-//! labels, and `solve satisfy`.
-//! Comprehensions, structured values, control expressions and other items remain
+//! labels, comprehensions, generator calls, and `solve satisfy`.
+//! Structured values, control expressions and other items remain
 //! unsupported.
 
 use std::ops::Range;
@@ -116,6 +116,21 @@ pub enum NodeKind {
     BinaryExpression,
     ParenthesizedExpression,
     CallExpression,
+    /// Written call name/header tokens, an ordered generator list, then a
+    /// parenthesized body expression.
+    GeneratorCallExpression,
+    /// Child nodes are the head expression and ordered generator list.
+    SetComprehension,
+    ArrayComprehension,
+    /// Child nodes are an indexed entry (key/value) and ordered generator list.
+    IndexedArrayComprehension,
+    /// Child nodes are generators in written order; commas remain token leaves.
+    GeneratorList,
+    /// Direct tokens retain binding names and `in` or `=`. Child nodes are the
+    /// source/value expression followed by an optional attached WhereFilter.
+    Generator,
+    /// The written `where` token followed by its expression child.
+    WhereFilter,
     /// Child nodes are the entries; empty literals have no child nodes.
     SetLiteral,
     /// Child nodes are bare expressions or indexed entries, in written order.

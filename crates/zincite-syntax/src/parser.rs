@@ -395,14 +395,20 @@ impl Parser<'_> {
             }
             Some(Identifier | QuotedIdentifier) => {
                 self.bump(&mut children);
-                if let Some(count) = self.inverse_call_tokens() {
+                let inverse_tokens = self.inverse_call_tokens();
+                if let Some(count) = inverse_tokens {
                     for _ in 0..count {
                         self.bump(&mut children);
                     }
                 }
                 if self.peek() == Some(LeftParen) {
-                    self.call_arguments(&mut children)?;
-                    NodeKind::CallExpression
+                    if inverse_tokens.is_none() && self.after_matching_paren() == Some(LeftParen) {
+                        self.generator_call(&mut children)?;
+                        NodeKind::GeneratorCallExpression
+                    } else {
+                        self.call_arguments(&mut children)?;
+                        NodeKind::CallExpression
+                    }
                 } else {
                     NodeKind::Expression
                 }
@@ -418,12 +424,14 @@ impl Parser<'_> {
                 NodeKind::Expression
             }
             Some(LeftBrace) if grammar != Grammar::Numeric => {
-                self.collection_entries(&mut children, RightBrace, false)?;
-                NodeKind::SetLiteral
+                if self.collection_entries(&mut children, RightBrace, false)? {
+                    NodeKind::SetComprehension
+                } else {
+                    NodeKind::SetLiteral
+                }
             }
             Some(LeftBracket) if grammar != Grammar::Numeric => {
-                self.array_entries(&mut children)?;
-                NodeKind::ArrayLiteral
+                self.array_entries(&mut children)?
             }
             Some(MatrixStart) if grammar != Grammar::Numeric => {
                 self.matrix(&mut children)?;
@@ -451,12 +459,14 @@ impl Parser<'_> {
         children: &mut Vec<SyntaxElement>,
         closing: TokenKind,
         access: bool,
-    ) -> Result<(), &'static str> {
+    ) -> Result<bool, &'static str> {
         use TokenKind::*;
         self.bump(children);
         if access && self.peek() == Some(closing) {
             return Err("expected at least one array index expression");
         }
+        let mut entries = 0;
+        let mut comprehension = false;
         while self.peek() != Some(closing) {
             if access
                 && self.peek().is_some_and(is_range)
@@ -474,8 +484,17 @@ impl Parser<'_> {
             } else {
                 self.expression(children)?;
             }
+            entries += 1;
             match self.peek() {
-                Some(Pipe) => return Err("collection comprehensions are unsupported"),
+                Some(Pipe) => {
+                    if access || entries != 1 {
+                        return Err("expected a single comprehension head");
+                    }
+                    self.bump(children);
+                    children.push(SyntaxElement::Node(self.generators(closing)?));
+                    comprehension = true;
+                    break;
+                }
                 Some(Colon) => return Err("indexed collection literals are unsupported"),
                 Some(Comma) => self.bump(children),
                 _ => break,
@@ -485,14 +504,20 @@ impl Parser<'_> {
             closing,
             children,
             "expected ',' or closing collection delimiter",
-        )
+        )?;
+        Ok(comprehension)
     }
 
-    fn array_entries(&mut self, children: &mut Vec<SyntaxElement>) -> Result<(), &'static str> {
+    fn array_entries(
+        &mut self,
+        children: &mut Vec<SyntaxElement>,
+    ) -> Result<NodeKind, &'static str> {
         use TokenKind::*;
         self.bump(children);
         let mut keyed_entries = 0;
         let mut has_bare_entries = false;
+        let mut entries = 0;
+        let mut kind = NodeKind::ArrayLiteral;
         while self.peek() != Some(RightBracket) {
             self.trivia(children);
             let start = self.position;
@@ -519,8 +544,21 @@ impl Parser<'_> {
                 children.push(SyntaxElement::Node(key));
                 has_bare_entries = true;
             }
+            entries += 1;
             match self.peek() {
-                Some(Pipe) => return Err("collection comprehensions are unsupported"),
+                Some(Pipe) => {
+                    if entries != 1 {
+                        return Err("expected a single comprehension head");
+                    }
+                    self.bump(children);
+                    children.push(SyntaxElement::Node(self.generators(RightBracket)?));
+                    kind = if keyed_entries == 1 {
+                        NodeKind::IndexedArrayComprehension
+                    } else {
+                        NodeKind::ArrayComprehension
+                    };
+                    break;
+                }
                 Some(Comma) => self.bump(children),
                 _ => break,
             }
@@ -529,7 +567,8 @@ impl Parser<'_> {
             RightBracket,
             children,
             "expected ',' or ']' after array entry",
-        )
+        )?;
+        Ok(kind)
     }
 
     fn array_entry_head(&mut self) -> Result<SyntaxNode, &'static str> {
@@ -555,8 +594,12 @@ impl Parser<'_> {
     // by ':'. Other parentheses keep the ordinary expression grammar.
     // https://docs.minizinc.dev/en/2.10.1/spec.html#indexed-array-literals
     fn starts_index_tuple(&self) -> bool {
+        self.after_matching_paren() == Some(TokenKind::Colon)
+    }
+
+    fn after_matching_paren(&self) -> Option<TokenKind> {
         if self.peek() != Some(TokenKind::LeftParen) {
-            return false;
+            return None;
         }
         let mut depth = 0;
         for index in self.position..self.tokens.len() {
@@ -567,14 +610,101 @@ impl Parser<'_> {
                     if depth == 0 {
                         return self
                             .significant(index + 1)
-                            .is_some_and(|next| self.tokens[next].kind == TokenKind::Colon);
+                            .map(|next| self.tokens[next].kind);
                     }
                 }
                 TokenKind::Semicolon => break,
                 _ => {}
             }
         }
-        false
+        None
+    }
+
+    fn generators(&mut self, closing: TokenKind) -> Result<SyntaxNode, &'static str> {
+        let start = self.position;
+        let mut children = Vec::new();
+        loop {
+            self.trivia(&mut children);
+            children.push(SyntaxElement::Node(self.generator()?));
+            if self.peek() != Some(TokenKind::Comma) {
+                break;
+            }
+            self.bump(&mut children);
+            if self.peek() == Some(closing) {
+                break;
+            }
+        }
+        self.trivia(&mut children);
+        Ok(self.node(NodeKind::GeneratorList, start, children))
+    }
+
+    // One optional filter belongs to each generator, not to the whole tail.
+    // https://docs.minizinc.dev/en/2.10.1/spec.html#set-comprehensions
+    fn generator(&mut self) -> Result<SyntaxNode, &'static str> {
+        use TokenKind::*;
+        let start = self.position;
+        let mut children = Vec::new();
+        let mut bindings = 0;
+        loop {
+            if !matches!(self.peek(), Some(Identifier | QuotedIdentifier | Anonymous)) {
+                return Err("expected a generator binding name");
+            }
+            self.bump(&mut children);
+            bindings += 1;
+            if self.peek() != Some(Comma) {
+                break;
+            }
+            self.bump(&mut children);
+            if self.peek() == Some(In) {
+                break;
+            }
+        }
+        match self.peek() {
+            Some(In) => self.bump(&mut children),
+            Some(Equal) if bindings == 1 => self.bump(&mut children),
+            _ => return Err("expected 'in' or a single binding followed by '='"),
+        }
+        self.expression(&mut children)?;
+        if self.peek() == Some(Where) {
+            self.trivia(&mut children);
+            let filter_start = self.position;
+            let mut filter = Vec::new();
+            self.bump(&mut filter);
+            self.expression(&mut filter)?;
+            children.push(SyntaxElement::Node(self.node(
+                NodeKind::WhereFilter,
+                filter_start,
+                filter,
+            )));
+        }
+        Ok(self.node(NodeKind::Generator, start, children))
+    }
+
+    fn generator_call(&mut self, children: &mut Vec<SyntaxElement>) -> Result<(), &'static str> {
+        use TokenKind::*;
+        self.bump(children);
+        children.push(SyntaxElement::Node(self.generators(RightParen)?));
+        self.expect(RightParen, children, "expected ',' or ')' after generator")?;
+        self.trivia(children);
+        let start = self.position;
+        let mut body = Vec::new();
+        self.expect(
+            LeftParen,
+            &mut body,
+            "expected '(' before generator call body",
+        )?;
+        self.expression(&mut body)?;
+        self.expect(
+            RightParen,
+            &mut body,
+            "expected ')' after generator call body",
+        )?;
+        children.push(SyntaxElement::Node(self.node(
+            NodeKind::ParenthesizedExpression,
+            start,
+            body,
+        )));
+        Ok(())
     }
 
     fn matrix(&mut self, children: &mut Vec<SyntaxElement>) -> Result<(), &'static str> {
@@ -718,6 +848,7 @@ impl Parser<'_> {
                     | TokenKind::RightBrace
                     | TokenKind::Pipe
                     | TokenKind::MatrixEnd
+                    | TokenKind::Where
             )
         ) || self
             .peek()
@@ -964,7 +1095,7 @@ fn starts_type(kind: TokenKind) -> bool {
 
 fn is_numeric_expression(node: &SyntaxNode, tokens: &[Token]) -> bool {
     match node.kind {
-        NodeKind::CallExpression => true,
+        NodeKind::CallExpression | NodeKind::GeneratorCallExpression => true,
         NodeKind::ArrayAccessExpression | NodeKind::AnnotatedExpression => node
             .child_nodes()
             .next()
@@ -1006,7 +1137,7 @@ fn unsupported_expression(kind: Option<TokenKind>) -> Option<&'static str> {
     use TokenKind::*;
     match kind? {
         LeftBracket | LeftBrace | MatrixStart | Dot | Pipe | If | Let | Case | LeftParen => {
-            Some("this collection, access, control or generator expression syntax is unsupported")
+            Some("this expression syntax is unsupported")
         }
         _ => None,
     }
