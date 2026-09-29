@@ -118,7 +118,9 @@ impl Formatter<'_> {
             NodeKind::ArrayLiteral | NodeKind::ArrayAccessExpression | NodeKind::ArrayType => {
                 Some((TokenKind::LeftBracket, TokenKind::RightBracket))
             }
-            NodeKind::SetLiteral => Some((TokenKind::LeftBrace, TokenKind::RightBrace)),
+            NodeKind::SetLiteral | NodeKind::EnumCases => {
+                Some((TokenKind::LeftBrace, TokenKind::RightBrace))
+            }
             _ => None,
         };
         if let Some((opening, closing)) = delimiters {
@@ -134,7 +136,9 @@ impl Formatter<'_> {
                         leading_space
                     } else {
                         match node.kind() {
-                            NodeKind::ParenthesizedExpression | NodeKind::SetCardinality => false,
+                            NodeKind::ParenthesizedExpression
+                            | NodeKind::SetCardinality
+                            | NodeKind::EnumConstructor => false,
                             NodeKind::SetType if child.kind() == NodeKind::SetCardinality => false,
                             NodeKind::UnaryExpression => {
                                 previous == Some(TokenKind::Not)

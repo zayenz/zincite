@@ -371,3 +371,44 @@ fn model_item_layout_keeps_include_order_and_annotation_attachment_stable() {
     }
     assert!(format(&parse("output :: name [\"x\"]; ")).is_err());
 }
+
+#[test]
+fn enum_and_alias_layout_preserves_names_comments_and_type_structure() {
+    let source = include_str!("../../../tests/fixtures/enums-aliases.mzn");
+    let parsed = parse(source);
+    let formatted = format(&parsed).unwrap();
+    assert!(
+        formatted
+            .contains("enum Colour :: doc_comment(\"Keep  enum docs\") = {Red, 'Ocean blue'};")
+    );
+    assert!(formatted.contains("    None, % Keep  member comment\n    /* Next  member */ Extra,\n} ++ FromColour(Colour) ++ _(1 .. 2);"));
+    assert!(formatted.contains("type ColourAlias :: doc_comment(\"Keep  alias docs\") = Colour;"));
+    assert!(formatted.contains("FromColour⁻¹(entry)"));
+    let reparsed = parse(formatted.clone());
+    assert!(
+        reparsed.diagnostics().is_empty(),
+        "{:?}",
+        reparsed.diagnostics()
+    );
+    assert_eq!(
+        structure(parsed.tree(), &parsed),
+        structure(reparsed.tree(), &reparsed)
+    );
+    assert_eq!(format(&reparsed).unwrap(), formatted);
+    let source = "type Joined=Left++var opt Right++set of int; function Left++Right: identity(Left++Right: value)=value; enum 'Written Enum'= 'Written Constructor'(\n{1,2} % Keep  argument comment\n);";
+    let parsed = parse(source);
+    let formatted = format(&parsed).unwrap();
+    assert!(formatted.contains("type Joined = Left ++ var opt Right ++ set of int;"));
+    assert!(formatted.contains("'Written Constructor'({1, 2} % Keep  argument comment\n"));
+    let reparsed = parse(formatted.clone());
+    assert!(
+        reparsed.diagnostics().is_empty(),
+        "{:?}",
+        reparsed.diagnostics()
+    );
+    assert_eq!(
+        structure(parsed.tree(), &parsed),
+        structure(reparsed.tree(), &reparsed)
+    );
+    assert_eq!(format(&reparsed).unwrap(), formatted);
+}

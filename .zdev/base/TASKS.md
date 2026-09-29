@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 21
-- Ready: 4
+- Ready: 3
 - Blocked: 7
-- Done: 10
+- Done: 11
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -19,7 +19,7 @@
 | [base-008](tasks/008-parse-expressions-inside-interpolated-strings.md) | Parse expressions inside interpolated strings | done | base-003 |
 | [base-009](tasks/009-add-callable-and-annotation-declarations.md) | Add callable and annotation declarations | done | base-005 |
 | [base-010](tasks/010-add-includes-output-and-optimization-items.md) | Add includes, output and optimization items | done | base-003 |
-| [base-011](tasks/011-add-enum-definitions-and-type-aliases.md) | Add enum definitions and type aliases | ready | base-004 |
+| [base-011](tasks/011-add-enum-definitions-and-type-aliases.md) | Add enum definitions and type aliases | done | base-004 |
 | [base-012](tasks/012-add-tuple-and-record-types-and-values.md) | Add tuple and record types and values | ready | base-004 |
 | [base-013](tasks/013-select-data-file-mode-and-check-grammar-integration.md) | Select data-file mode and check grammar integration | blocked | base-006, base-007, base-008, base-009, base-010, base-011, base-012 |
 | [base-014](tasks/014-finish-ordinary-width-aware-formatting.md) | Finish ordinary width-aware formatting | blocked | base-013 |

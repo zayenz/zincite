@@ -928,3 +928,148 @@ fn malformed_model_items_diagnose_and_recover_without_losing_source() {
         assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
     }
 }
+
+#[test]
+fn enums_and_aliases_expose_only_written_declaration_names_losslessly() {
+    let source = include_str!("../../../tests/fixtures/enums-aliases.mzn");
+    let parsed = parse(source);
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    let mut leaves = Vec::new();
+    collect_leaves(parsed.tree(), &parsed, &mut leaves);
+    assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+    let reconstructed: String = leaves
+        .iter()
+        .map(|&i| &source[parsed.tokens()[i].range.clone()])
+        .collect();
+    assert_eq!(reconstructed, source);
+    fn names<'a>(node: &SyntaxNode, parsed: &'a ParsedFile, result: &mut Vec<(NodeKind, &'a str)>) {
+        if matches!(
+            node.kind(),
+            NodeKind::EnumDeclaration
+                | NodeKind::TypeAlias
+                | NodeKind::EnumCase
+                | NodeKind::EnumConstructor
+        ) {
+            let token = node
+                .children()
+                .iter()
+                .find_map(|child| match child {
+                    SyntaxElement::Token(i)
+                        if matches!(
+                            parsed.tokens()[*i].kind,
+                            zincite_syntax::TokenKind::Identifier
+                                | zincite_syntax::TokenKind::QuotedIdentifier
+                                | zincite_syntax::TokenKind::Anonymous
+                        ) =>
+                    {
+                        Some(&parsed.tokens()[*i])
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            let spelling = &parsed.source()[token.range.clone()];
+            assert_eq!(
+                token.range.start,
+                parsed
+                    .source()
+                    .find(if spelling == "_" { "_(1" } else { spelling })
+                    .unwrap()
+            );
+            result.push((node.kind(), spelling));
+        }
+        for child in node.child_nodes() {
+            names(child, parsed, result);
+        }
+    }
+    let mut declarations = Vec::new();
+    names(parsed.tree(), &parsed, &mut declarations);
+    assert_eq!(
+        declarations,
+        [
+            (NodeKind::EnumDeclaration, "Colour"),
+            (NodeKind::EnumCase, "Red"),
+            (NodeKind::EnumCase, "'Ocean blue'"),
+            (NodeKind::EnumDeclaration, "Entry"),
+            (NodeKind::EnumCase, "None"),
+            (NodeKind::EnumCase, "Extra"),
+            (NodeKind::EnumConstructor, "FromColour"),
+            (NodeKind::EnumConstructor, "_"),
+            (NodeKind::TypeAlias, "ColourAlias"),
+            (NodeKind::TypeAlias, "Counts"),
+        ]
+    );
+    let deferred = parse("enum Pending :: tag; Pending: value; any: reference=Pending;");
+    assert!(deferred.diagnostics().is_empty());
+    assert_eq!(items(&deferred)[0].child_nodes().count(), 1);
+}
+
+#[test]
+fn shared_type_inst_concatenation_and_malformed_enum_items() {
+    let source = "type Combined = Left ++ var opt Right ++ set of int; array[Left ++ Right] of int: values; function Left ++ Right: convert(Left ++ Right: value) = value; any: local=let {Left ++ Right: value;} in value; type ArrayUnion=array[int] of Left ++ Right; type SetUnion=(Left ++ Right); type Open=1.. ++ 5..;";
+    let parsed = parse(source);
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    let nodes = items(&parsed);
+    assert_eq!(
+        nodes[0].child_nodes().next().unwrap().kind(),
+        NodeKind::TypeInstConcatenation
+    );
+    assert_eq!(
+        nodes[1]
+            .child_nodes()
+            .next()
+            .unwrap()
+            .child_nodes()
+            .next()
+            .unwrap()
+            .kind(),
+        NodeKind::TypeInstConcatenation
+    );
+    assert_eq!(
+        nodes[2].child_nodes().next().unwrap().kind(),
+        NodeKind::TypeInstConcatenation
+    );
+    let target = nodes[4].child_nodes().next().unwrap();
+    assert_eq!(target.kind(), NodeKind::TypeInstConcatenation);
+    assert_eq!(
+        target.child_nodes().next().unwrap().kind(),
+        NodeKind::ArrayType
+    );
+    assert_eq!(
+        nodes[5]
+            .child_nodes()
+            .next()
+            .unwrap()
+            .child_nodes()
+            .next()
+            .unwrap()
+            .kind(),
+        NodeKind::ParenthesizedExpression
+    );
+    for invalid in [
+        "enum Missing = {1};",
+        "enum Bad = C();",
+        "enum Bad = C(1,2);",
+        "enum Bad = _(1,);",
+        "enum Bad = C(1) ++ Other;",
+        "type Missing;",
+        "type Bad = int ++ array[int] of int;",
+    ] {
+        let source = format!("{invalid}\nint: after=7;");
+        let parsed = parse(source.clone());
+        assert!(!parsed.diagnostics().is_empty(), "{source}");
+        let last = items(&parsed).last().copied().unwrap();
+        assert_eq!(last.kind(), NodeKind::Declaration, "{source}");
+        assert_eq!(&source[last.range()], "int: after=7;");
+        let mut leaves = Vec::new();
+        collect_leaves(parsed.tree(), &parsed, &mut leaves);
+        assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+    }
+}

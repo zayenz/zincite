@@ -82,6 +82,28 @@ impl Parser<'_> {
                 self.declaration_tail(children)?;
                 NodeKind::Declaration
             }
+            Some(Enum | Type) => {
+                let keyword = self.peek().unwrap();
+                self.bump(children);
+                self.name(children)?;
+                while self.peek() == Some(AnnotationMarker) {
+                    self.trivia(children);
+                    children.push(SyntaxElement::Node(self.annotation()?));
+                }
+                if keyword == Type {
+                    self.expect(Equal, children, "expected '=' after type synonym name")?;
+                    self.trivia(children);
+                    children.push(SyntaxElement::Node(self.type_inst()?));
+                    NodeKind::TypeAlias
+                } else {
+                    if self.peek() == Some(Equal) {
+                        self.bump(children);
+                        self.trivia(children);
+                        children.push(SyntaxElement::Node(self.enum_definition()?));
+                    }
+                    NodeKind::EnumDeclaration
+                }
+            }
             Some(Function | Predicate | Test | Annotation) => return self.callable(children),
             token if token.is_some_and(starts_type) => {
                 children.push(SyntaxElement::Node(self.type_inst()?));
@@ -169,6 +191,74 @@ impl Parser<'_> {
             }
         };
         Ok(kind)
+    }
+
+    fn enum_definition(&mut self) -> Result<SyntaxNode, &'static str> {
+        let start = self.position;
+        let mut children = vec![SyntaxElement::Node(self.enum_cases()?)];
+        while self.peek() == Some(TokenKind::Concat) {
+            self.bump(&mut children);
+            self.trivia(&mut children);
+            children.push(SyntaxElement::Node(self.enum_cases()?));
+        }
+        Ok(self.node(NodeKind::EnumDefinition, start, children))
+    }
+
+    fn enum_cases(&mut self) -> Result<SyntaxNode, &'static str> {
+        use TokenKind::*;
+        let start = self.position;
+        let mut children = Vec::new();
+        let kind = if self.peek() == Some(LeftBrace) {
+            self.bump(&mut children);
+            while self.peek() != Some(RightBrace) {
+                self.trivia(&mut children);
+                let case_start = self.position;
+                let mut case = Vec::new();
+                self.name(&mut case)?;
+                children.push(SyntaxElement::Node(self.node(
+                    NodeKind::EnumCase,
+                    case_start,
+                    case,
+                )));
+                if self.peek() != Some(Comma) {
+                    break;
+                }
+                self.bump(&mut children);
+            }
+            self.expect(
+                RightBrace,
+                &mut children,
+                "expected ',' or '}' after enum case",
+            )?;
+            NodeKind::EnumCases
+        } else {
+            if self.peek() == Some(Anonymous) {
+                self.bump(&mut children);
+            } else {
+                self.name(&mut children)?;
+            }
+            self.trivia(&mut children);
+            let argument_start = self.position;
+            let mut argument = Vec::new();
+            self.expect(
+                LeftParen,
+                &mut argument,
+                "expected '(' after enum constructor",
+            )?;
+            self.expression(&mut argument)?;
+            self.expect(
+                RightParen,
+                &mut argument,
+                "expected ')' after enum constructor expression",
+            )?;
+            children.push(SyntaxElement::Node(self.node(
+                NodeKind::ParenthesizedExpression,
+                argument_start,
+                argument,
+            )));
+            NodeKind::EnumConstructor
+        };
+        Ok(self.node(kind, start, children))
     }
 
     fn name(&mut self, children: &mut Vec<SyntaxElement>) -> Result<(), &'static str> {
@@ -267,15 +357,34 @@ impl Parser<'_> {
         self.type_inst_context(false)
     }
 
+    // A concatenation has a type-inst on the left and a base type-inst on the
+    // right; array/list element types do not consume the outer concatenation.
     // Parameter array indices use ordinary ti-expr, but their direct bindings
     // and parameter element cardinalities are excluded by param-ti-expr.
     // https://docs.minizinc.dev/en/2.10.1/spec.html#items
     fn type_inst_context(&mut self, parameter: bool) -> Result<SyntaxNode, &'static str> {
+        let start = self.position;
+        let mut left = self.type_inst_term(parameter, true)?;
+        while self.peek() == Some(TokenKind::Concat) {
+            let mut children = vec![SyntaxElement::Node(left)];
+            self.bump(&mut children);
+            self.trivia(&mut children);
+            children.push(SyntaxElement::Node(self.type_inst_term(parameter, false)?));
+            left = self.node(NodeKind::TypeInstConcatenation, start, children);
+        }
+        Ok(left)
+    }
+
+    fn type_inst_term(
+        &mut self,
+        parameter: bool,
+        collection: bool,
+    ) -> Result<SyntaxNode, &'static str> {
         use TokenKind::*;
         let start = self.position;
         let mut children = Vec::new();
         let kind = match self.peek() {
-            Some(Array) => {
+            Some(Array) if collection => {
                 self.bump(&mut children);
                 self.expect(LeftBracket, &mut children, "expected '[' after 'array'")?;
                 if self.peek() == Some(RightBracket) {
@@ -298,13 +407,13 @@ impl Parser<'_> {
                     "expected ',' or ']' after array index type",
                 )?;
                 self.expect(Of, &mut children, "expected 'of' after array index types")?;
-                children.push(SyntaxElement::Node(self.type_inst_context(parameter)?));
+                children.push(SyntaxElement::Node(self.type_inst_term(parameter, true)?));
                 NodeKind::ArrayType
             }
-            Some(List) => {
+            Some(List) if collection => {
                 self.bump(&mut children);
                 self.expect(Of, &mut children, "expected 'of' after 'list'")?;
-                children.push(SyntaxElement::Node(self.type_inst_context(parameter)?));
+                children.push(SyntaxElement::Node(self.type_inst_term(parameter, true)?));
                 NodeKind::ListType
             }
             Some(Any) => {
@@ -392,7 +501,9 @@ impl Parser<'_> {
             if matches!(self.peek(), Some(Tuple | Record)) {
                 return Err("structured types are unsupported");
             }
-            children.push(SyntaxElement::Node(self.precedence(Grammar::Domain, 1600)?));
+            children.push(SyntaxElement::Node(
+                self.precedence(Grammar::TypeDomain, 1600)?,
+            ));
             NodeKind::DomainType
         };
         Ok(self.node(kind, start, children))
@@ -420,7 +531,7 @@ impl Parser<'_> {
             if self.range_end() {
                 return Err("expected at least one range bound");
             }
-            let bounds_grammar = if grammar == Grammar::Domain {
+            let bounds_grammar = if matches!(grammar, Grammar::Domain | Grammar::TypeDomain) {
                 Grammar::Numeric
             } else {
                 grammar
@@ -455,7 +566,8 @@ impl Parser<'_> {
             let Some((precedence, associativity)) = self.peek().and_then(operator) else {
                 break;
             };
-            if precedence > loosest
+            if (grammar == Grammar::TypeDomain && self.peek() == Some(TokenKind::Concat))
+                || precedence > loosest
                 || (grammar == Grammar::Numeric && !self.peek().is_some_and(is_numeric_operator))
             {
                 break;
@@ -464,7 +576,10 @@ impl Parser<'_> {
                 return Err("non-associative operators require parentheses");
             }
             let range = self.peek().is_some_and(is_range);
-            if range && grammar == Grammar::Domain && !is_numeric_expression(&left, self.tokens) {
+            if range
+                && matches!(grammar, Grammar::Domain | Grammar::TypeDomain)
+                && !is_numeric_expression(&left, self.tokens)
+            {
                 return Err("expected a numeric expression for range type bound");
             }
             let mut children = vec![SyntaxElement::Node(left)];
@@ -474,12 +589,15 @@ impl Parser<'_> {
             } else {
                 precedence - 1
             };
-            if !range || !self.range_end() {
-                let right_grammar = if range && grammar == Grammar::Domain {
-                    Grammar::Numeric
-                } else {
-                    grammar
-                };
+            let range_end = self.range_end()
+                || (grammar == Grammar::TypeDomain && self.peek() == Some(TokenKind::Concat));
+            if !range || !range_end {
+                let right_grammar =
+                    if range && matches!(grammar, Grammar::Domain | Grammar::TypeDomain) {
+                        Grammar::Numeric
+                    } else {
+                        grammar
+                    };
                 children.push(SyntaxElement::Node(
                     self.precedence(right_grammar, right_limit)?,
                 ));
@@ -541,7 +659,14 @@ impl Parser<'_> {
             }
             Some(LeftParen) => {
                 self.bump(&mut children);
-                children.push(SyntaxElement::Node(self.precedence(grammar, 1600)?));
+                children.push(SyntaxElement::Node(self.precedence(
+                    if grammar == Grammar::TypeDomain {
+                        Grammar::Domain
+                    } else {
+                        grammar
+                    },
+                    1600,
+                )?));
                 self.expect(
                     RightParen,
                     &mut children,
@@ -1262,6 +1387,8 @@ impl Parser<'_> {
                 | TokenKind::Predicate
                 | TokenKind::Test
                 | TokenKind::Annotation
+                | TokenKind::Enum
+                | TokenKind::Type
         ) || self.tokens[start..self.position]
             .iter()
             .any(|token| matches!(token.kind, TokenKind::Colon | TokenKind::Equal));
@@ -1309,6 +1436,8 @@ impl Parser<'_> {
                 | Predicate
                 | Test
                 | Annotation
+                | Enum
+                | Type
                 | Array
                 | List
                 | Set
@@ -1362,6 +1491,7 @@ enum Grammar {
     General,
     Numeric,
     Domain,
+    TypeDomain,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

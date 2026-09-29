@@ -8,7 +8,8 @@
 //! operator expressions, calls, interpolated strings, annotations, constraints
 //! with optional string labels, comprehensions, generator calls, conditional and let
 //! expressions, callable/annotation declarations with generic types and parameter
-//! defaults, includes, output items and all solve modes.
+//! defaults, enums and constructors, type aliases and type-inst concatenation,
+//! includes, output items and all solve modes.
 //! Structured values, case expressions and other items remain
 //! unsupported.
 
@@ -93,6 +94,20 @@ pub enum SyntaxElement {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeKind {
     Root,
+    /// Direct name token, annotations, and an optional EnumDefinition child.
+    EnumDeclaration,
+    /// Direct name token, annotations, and the target type child.
+    TypeAlias,
+    /// Ordered case lists and constructors, separated by written `++` tokens.
+    EnumDefinition,
+    /// Braces containing EnumCase children in written order.
+    EnumCases,
+    /// The direct identifier token declares an enum member.
+    EnumCase,
+    /// A direct declaration name (or anonymous `_`) and a parenthesized expression.
+    EnumConstructor,
+    /// Left type and right base type, separated by a written `++` token.
+    TypeInstConcatenation,
     /// The first child node is the type; later nodes are annotations/initializer.
     Declaration,
     /// Return type child, direct name token, and optional parameter list,

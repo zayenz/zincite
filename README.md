@@ -115,6 +115,18 @@ The temporary grammar supports:
   Set cardinalities and dependent array index bindings are excluded from parameter
   types where the parameter grammar requires it. Array index types themselves use
   the ordinary type grammar. Return types use that same ordinary grammar.
+- Enum declarations, including deferred definitions, explicit member lists,
+  anonymous `_(expression)` and named constructor forms, and combinations with
+  `++`. Enum/type declaration names, member names and constructor names have
+  distinct node kinds with direct name tokens and precise byte ranges. Constructor
+  arguments and ordinary uses of these names remain expression syntax; their
+  references are not resolved or classified as declarations.
+- Type aliases with declaration annotations and the currently supported target
+  types. Shared type-inst concatenation supports declarations, aliases, callable
+  return/parameter types, array indices and local types. Its right operand is a
+  base type, as required by the pinned grammar; parenthesized expression
+  concatenation remains expression syntax. Targets are neither resolved nor
+  evaluated.
 - Declaration and expression annotations. Annotation literals use the same
   identifier and call syntax as other expressions.
 - Constraints with an expression and an optional direct `:: "label"`, including
@@ -151,7 +163,7 @@ alignment and width-based row wrapping are not implemented yet. It normalizes
 editable spacing and line endings to LF, adds a final newline and preserves blank-line groups while
 collapsing excess blank layout lines.
 
-Field access, structured types/values, type-inst concatenation,
+Field access, structured types/values,
 case expressions and other item families
 remain unsupported and produce diagnostics. Range-type bounds follow the
 numeric-expression grammar: their parentheses may contain numeric operators,
@@ -162,6 +174,11 @@ Parsing checks syntax only: it does not resolve includes or names, require a
 solve item, infer types or check semantic validity. For example, accepting a
 named argument does not establish that a callable has that parameter, and
 accepting a range expression does not establish that its bounds have valid types.
+The enum/alias fixture and its formatted output pass MiniZinc 2.10.1 model checks.
+Type-inst concatenation examples establish syntax and format stability only:
+MiniZinc rejects an enum-target `type Joined = Left ++ Right` with a type error.
+Zincite retains the pinned concatenation syntax without imposing that semantic
+restriction on parsing.
 Written indices and cardinalities are retained without evaluation, domain inference,
 contiguity checks or rectangularity checks. The pinned grammar permits an empty
 index tuple `()` as a key, although the installed MiniZinc 2.10.1 compiler rejects
