@@ -70,13 +70,10 @@ impl Parser<'_> {
                 self.expression(children)?;
                 NodeKind::Assignment
             }
-            Some(Any) => {
+            Some(Any) if self.peek_after(1) == Some(Colon) => {
                 let start = self.position;
                 let mut type_children = Vec::new();
                 self.bump(&mut type_children);
-                if self.peek() == Some(TypeInstVariable) {
-                    return Err("generic type-inst variables are unsupported");
-                }
                 children.push(SyntaxElement::Node(self.node(
                     NodeKind::ScalarType,
                     start,
@@ -85,6 +82,7 @@ impl Parser<'_> {
                 self.declaration_tail(children)?;
                 NodeKind::Declaration
             }
+            Some(Function | Predicate | Test | Annotation) => return self.callable(children),
             token if token.is_some_and(starts_type) => {
                 children.push(SyntaxElement::Node(self.type_inst()?));
                 self.declaration_tail(children)?;
@@ -152,7 +150,81 @@ impl Parser<'_> {
         Ok(())
     }
 
+    fn callable(&mut self, children: &mut Vec<SyntaxElement>) -> Result<NodeKind, &'static str> {
+        use TokenKind::*;
+        let keyword = self.peek().unwrap();
+        self.bump(children);
+        let kind = match keyword {
+            Function => {
+                self.trivia(children);
+                children.push(SyntaxElement::Node(self.type_inst()?));
+                self.expect(Colon, children, "expected ':' after function return type")?;
+                NodeKind::FunctionDeclaration
+            }
+            Predicate => NodeKind::PredicateDeclaration,
+            Test => NodeKind::TestDeclaration,
+            Annotation => NodeKind::AnnotationDeclaration,
+            _ => unreachable!(),
+        };
+        self.name(children)?;
+        if self.peek() == Some(LeftParen) {
+            self.trivia(children);
+            children.push(SyntaxElement::Node(self.parameters()?));
+        }
+        if keyword != Annotation {
+            while self.peek() == Some(AnnotationMarker) {
+                self.trivia(children);
+                children.push(SyntaxElement::Node(self.annotation()?));
+            }
+        }
+        if self.peek() == Some(Equal) {
+            self.bump(children);
+            self.expression(children)?;
+        }
+        Ok(kind)
+    }
+
+    fn parameters(&mut self) -> Result<SyntaxNode, &'static str> {
+        use TokenKind::*;
+        let start = self.position;
+        let mut parameters = Vec::new();
+        self.bump(&mut parameters);
+        while self.peek() != Some(RightParen) {
+            self.trivia(&mut parameters);
+            let parameter_start = self.position;
+            let mut parameter = vec![SyntaxElement::Node(self.type_inst_context(true)?)];
+            self.expect(Colon, &mut parameter, "expected ':' after parameter type")?;
+            self.name(&mut parameter)?;
+            if self.peek() == Some(Equal) {
+                self.bump(&mut parameter);
+                self.expression(&mut parameter)?;
+            }
+            parameters.push(SyntaxElement::Node(self.node(
+                NodeKind::Parameter,
+                parameter_start,
+                parameter,
+            )));
+            if self.peek() != Some(Comma) {
+                break;
+            }
+            self.bump(&mut parameters);
+        }
+        self.expect(
+            RightParen,
+            &mut parameters,
+            "expected ',' or ')' after parameter",
+        )?;
+        Ok(self.node(NodeKind::ParameterList, start, parameters))
+    }
+
     fn type_inst(&mut self) -> Result<SyntaxNode, &'static str> {
+        self.type_inst_context(false)
+    }
+
+    // Parameter array indices use ordinary ti-expr, but their direct bindings
+    // and parameter element cardinalities are excluded by param-ti-expr.
+    // https://docs.minizinc.dev/en/2.10.1/spec.html#items
+    fn type_inst_context(&mut self, parameter: bool) -> Result<SyntaxNode, &'static str> {
         use TokenKind::*;
         let start = self.position;
         let mut children = Vec::new();
@@ -165,7 +237,7 @@ impl Parser<'_> {
                 }
                 loop {
                     self.trivia(&mut children);
-                    children.push(SyntaxElement::Node(self.array_index()?));
+                    children.push(SyntaxElement::Node(self.array_index(parameter)?));
                     if self.peek() != Some(Comma) {
                         break;
                     }
@@ -180,17 +252,23 @@ impl Parser<'_> {
                     "expected ',' or ']' after array index type",
                 )?;
                 self.expect(Of, &mut children, "expected 'of' after array index types")?;
-                children.push(SyntaxElement::Node(self.type_inst()?));
+                children.push(SyntaxElement::Node(self.type_inst_context(parameter)?));
                 NodeKind::ArrayType
             }
             Some(List) => {
                 self.bump(&mut children);
                 self.expect(Of, &mut children, "expected 'of' after 'list'")?;
-                children.push(SyntaxElement::Node(self.type_inst()?));
+                children.push(SyntaxElement::Node(self.type_inst_context(parameter)?));
                 NodeKind::ListType
             }
             Some(Any) => {
-                return Err("generic type-inst variables are unsupported");
+                self.bump(&mut children);
+                self.expect(
+                    TypeInstVariable,
+                    &mut children,
+                    "expected type-inst variable after 'any'",
+                )?;
+                NodeKind::TypeInstVariable
             }
             _ => {
                 if matches!(self.peek(), Some(Var | Par)) {
@@ -202,6 +280,9 @@ impl Parser<'_> {
                 if self.peek() == Some(Set) {
                     self.bump(&mut children);
                     if self.peek() == Some(LeftParen) {
+                        if parameter {
+                            return Err("set cardinalities are not allowed in parameter types");
+                        }
                         self.trivia(&mut children);
                         children.push(SyntaxElement::Node(self.set_cardinality()?));
                     }
@@ -218,12 +299,15 @@ impl Parser<'_> {
         Ok(self.node(kind, start, children))
     }
 
-    fn array_index(&mut self) -> Result<SyntaxNode, &'static str> {
+    fn array_index(&mut self, parameter: bool) -> Result<SyntaxNode, &'static str> {
         use TokenKind::*;
         if !matches!(self.peek(), Some(Identifier | QuotedIdentifier))
             || self.peek_after(1) != Some(In)
         {
             return self.type_inst();
+        }
+        if parameter {
+            return Err("dependent array indices are not allowed in parameter types");
         }
         let start = self.position;
         let mut children = Vec::new();
@@ -255,9 +339,12 @@ impl Parser<'_> {
         let kind = if matches!(self.peek(), Some(Bool | Int | Float | String | Ann)) {
             self.bump(&mut children);
             NodeKind::ScalarType
+        } else if self.peek() == Some(TypeInstVariable) {
+            self.bump(&mut children);
+            NodeKind::TypeInstVariable
         } else {
-            if matches!(self.peek(), Some(Tuple | Record | TypeInstVariable)) {
-                return Err("structured types and generic type-inst variables are unsupported");
+            if matches!(self.peek(), Some(Tuple | Record)) {
+                return Err("structured types are unsupported");
             }
             children.push(SyntaxElement::Node(self.precedence(Grammar::Domain, 1600)?));
             NodeKind::DomainType
@@ -1063,7 +1150,12 @@ impl Parser<'_> {
         // unsupported type. Do not recover to one of those as a new item.
         let can_find_next_item = matches!(
             self.tokens[start].kind,
-            TokenKind::Constraint | TokenKind::Solve
+            TokenKind::Constraint
+                | TokenKind::Solve
+                | TokenKind::Function
+                | TokenKind::Predicate
+                | TokenKind::Test
+                | TokenKind::Annotation
         ) || self.tokens[start..self.position]
             .iter()
             .any(|token| matches!(token.kind, TokenKind::Colon | TokenKind::Equal));
@@ -1103,7 +1195,16 @@ impl Parser<'_> {
         let mut index = position;
         if matches!(
             self.tokens[index].kind,
-            Constraint | Solve | Array | List | Set | Opt
+            Constraint
+                | Solve
+                | Function
+                | Predicate
+                | Test
+                | Annotation
+                | Array
+                | List
+                | Set
+                | Opt
         ) {
             return true;
         }
@@ -1212,6 +1313,7 @@ fn starts_type(kind: TokenKind) -> bool {
     matches!(
         kind,
         Identifier
+            | TypeInstVariable
             | QuotedIdentifier
             | IntegerLiteral
             | FloatLiteral

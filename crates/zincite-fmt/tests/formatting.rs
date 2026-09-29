@@ -307,3 +307,33 @@ fn nested_control_layout_preserves_scope_comments_annotations_and_stability() {
         .is_err()
     );
 }
+
+#[test]
+fn callable_layout_preserves_signatures_comments_and_body_structure() {
+    let parsed = parse(include_str!("../../../tests/fixtures/callables.mzn"));
+    let formatted = format(&parsed).unwrap();
+    assert!(formatted.contains("function any $T: identity(\n    any $T: value, % Keep  parameter comment\n    int: count = 1,\n) :: doc_comment(\"Identity  docs\") = let"), "{formatted}");
+    assert!(formatted.contains(
+        "function array[$$Index] of var opt $T: opaque(array[$$Index] of var opt $T: values);"
+    ));
+    assert!(formatted.contains(
+        "annotation marker;\nannotation note(string: text = \"Keep  literal\") = doc_comment(text);"
+    ));
+    let reparsed = parse(formatted.clone());
+    assert!(
+        reparsed.diagnostics().is_empty(),
+        "{:?}",
+        reparsed.diagnostics()
+    );
+    assert_eq!(
+        structure(parsed.tree(), &parsed),
+        structure(reparsed.tree(), &reparsed)
+    );
+    assert_eq!(format(&reparsed).unwrap(), formatted);
+    assert_eq!(
+        format(&parse("predicate bad(set(2) of int: values);"))
+            .unwrap_err()
+            .len(),
+        1
+    );
+}

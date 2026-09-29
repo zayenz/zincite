@@ -71,7 +71,7 @@ impl Formatter<'_> {
                     if labelled && !label_pending {
                         self.newlines(self.pending_breaks.max(1));
                     }
-                    self.expression(expression, true);
+                    self.expression(expression, expression.kind() != NodeKind::ParameterList);
                     label_pending = false;
                 }
                 SyntaxElement::Token(index) => {
@@ -111,7 +111,9 @@ impl Formatter<'_> {
             return;
         }
         let delimiters = match node.kind() {
-            NodeKind::CallExpression => Some((TokenKind::LeftParen, TokenKind::RightParen)),
+            NodeKind::CallExpression | NodeKind::ParameterList => {
+                Some((TokenKind::LeftParen, TokenKind::RightParen))
+            }
             NodeKind::IndexTuple => Some((TokenKind::LeftParen, TokenKind::RightParen)),
             NodeKind::ArrayLiteral | NodeKind::ArrayAccessExpression | NodeKind::ArrayType => {
                 Some((TokenKind::LeftBracket, TokenKind::RightBracket))
@@ -624,12 +626,14 @@ impl Formatter<'_> {
                         self.indent -= 1;
                         self.newlines(1);
                     }
-                    let space =
-                        if in_list || kind == opening || node.kind() == NodeKind::CallExpression {
-                            first && leading_space
-                        } else {
-                            kind != TokenKind::Colon
-                        };
+                    let space = if first {
+                        leading_space
+                    } else if in_list || kind == opening || node.kind() == NodeKind::CallExpression
+                    {
+                        false
+                    } else {
+                        kind != TokenKind::Colon
+                    };
                     self.token_with_space(*index, space);
                     if kind == opening {
                         in_list = true;

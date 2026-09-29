@@ -1,7 +1,7 @@
 # Zincite
 
 Zincite is a Rust project for MiniZinc source tooling. `zincite-fmt` formats a
-scalar and collection model subset using the shared `zincite-syntax`
+scalar, collection and callable model subset using the shared `zincite-syntax`
 parser and concrete syntax tree. The tree retains source spelling, comments,
 whitespace and byte ranges. `zincite-lint`, the planned static analyser, is not
 implemented yet.
@@ -34,6 +34,12 @@ Comprehensions expose their head and ordered generator list; indexed heads reuse
 the key/value entry nodes. Each generator retains its written binding names and
 `in` or `=` token, its source/value expression and its optional `where` filter.
 Generator calls expose that same list followed by a parenthesized body.
+Function, predicate, test and annotation declarations expose their name as a direct
+token. Their optional `ParameterList` contains ordered `Parameter` nodes with a
+type child, direct binding name and optional default expression; name tokens and
+parameter nodes retain precise byte ranges. Generic variables have a distinct
+`TypeInstVariable` kind and retain their qualifiers and written `$T`/`$$Index`
+spelling. These views borrow the existing tree.
 Interpolated strings expose their embedded expressions as ordered child nodes,
 with literal chunks retained as token leaves in the same tree.
 
@@ -97,6 +103,14 @@ The temporary grammar supports:
   and comma separators and a trailing separator are retained. Local declaration
   names and byte ranges are exposed by the same declaration nodes and direct
   token leaves as top-level names.
+- Function, predicate, test and annotation declarations with optional parameter
+  lists and bodies. Parameters support the existing scalar/collection types,
+  generic type-inst variables, `any`-qualified variables and default expressions.
+  Function, predicate and test declarations support declaration annotations; the
+  pinned grammar does not permit those on annotation declarations or parameters.
+  Set cardinalities and dependent array index bindings are excluded from parameter
+  types where the parameter grammar requires it. Array index types themselves use
+  the ordinary type grammar. Return types use that same ordinary grammar.
 - Declaration and expression annotations. Annotation literals use the same
   identifier and call syntax as other expressions.
 - Constraints with an expression and an optional direct `:: "label"`, including
@@ -119,15 +133,16 @@ and bodies, using Unicode scalar columns and four-column tab stops. General
 expression wrapping and configurable layout settings remain unimplemented.
 Conditional branch bodies and `let` blocks/bodies use block indentation;
 local item order, separators, parentheses and annotation attachment are retained.
-Local structured types and generic type-inst variables remain excluded alongside
-their top-level equivalents. No local name resolution or checks of
-branch types or declaration initializers are performed.
+Local structured types remain excluded alongside their top-level equivalents.
+Generic type-inst syntax is shared by local, top-level and callable declarations.
+No local name resolution or checks of branch types or declaration initializers are
+performed.
 Matrices use one logical row per line; column
 alignment and width-based row wrapping are not implemented yet. It normalizes
 editable spacing and line endings to LF, adds a final newline and preserves blank-line groups while
 collapsing excess blank layout lines.
 
-Field access, structured types/values, generic type-inst variables,
+Field access, structured types/values, type-inst concatenation,
 case expressions and other item families
 remain unsupported and produce diagnostics. Range-type bounds follow the
 numeric-expression grammar: their parentheses may contain numeric operators,

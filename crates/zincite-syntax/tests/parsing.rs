@@ -701,3 +701,126 @@ fn malformed_local_blocks_recover_to_following_items() {
         assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
     }
 }
+
+#[test]
+fn callable_signatures_expose_names_parameters_defaults_and_generic_types() {
+    let source = include_str!("../../../tests/fixtures/callables.mzn");
+    let parsed = parse(source);
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    let nodes = items(&parsed);
+    assert_eq!(
+        nodes.iter().map(|node| node.kind()).collect::<Vec<_>>(),
+        [
+            NodeKind::FunctionDeclaration,
+            NodeKind::FunctionDeclaration,
+            NodeKind::PredicateDeclaration,
+            NodeKind::TestDeclaration,
+            NodeKind::PredicateDeclaration,
+            NodeKind::AnnotationDeclaration,
+            NodeKind::AnnotationDeclaration,
+            NodeKind::Solve,
+        ]
+    );
+    assert_eq!(
+        operator_text(nodes[0], &parsed),
+        ["function", ":", "identity", "=", ";"]
+    );
+    let signature = nodes[0].child_nodes().collect::<Vec<_>>();
+    assert_eq!(signature[0].kind(), NodeKind::TypeInstVariable);
+    assert_eq!(&source[signature[0].range()], "any $T");
+    let parameters = signature[1].child_nodes().collect::<Vec<_>>();
+    assert_eq!(
+        parameters
+            .iter()
+            .map(|node| node.kind())
+            .collect::<Vec<_>>(),
+        [NodeKind::Parameter, NodeKind::Parameter]
+    );
+    assert_eq!(operator_text(parameters[0], &parsed), [":", "value"]);
+    assert_eq!(operator_text(parameters[1], &parsed), [":", "count", "="]);
+    assert_eq!(
+        &source[parameters[1].child_nodes().nth(1).unwrap().range()],
+        "1"
+    );
+    let name_range = parameters[1]
+        .children()
+        .iter()
+        .find_map(|child| match child {
+            SyntaxElement::Token(i)
+                if parsed.tokens()[*i].kind == zincite_syntax::TokenKind::Identifier =>
+            {
+                Some(parsed.tokens()[*i].range.clone())
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        name_range,
+        source.find("count=1").unwrap()..source.find("count=1").unwrap() + 5
+    );
+    assert_eq!(signature[2].kind(), NodeKind::Annotation);
+    assert_eq!(signature[3].kind(), NodeKind::LetExpression);
+    let array = nodes[1].child_nodes().next().unwrap();
+    assert_eq!(
+        array
+            .child_nodes()
+            .map(SyntaxNode::kind)
+            .collect::<Vec<_>>(),
+        [NodeKind::TypeInstVariable, NodeKind::TypeInstVariable]
+    );
+    assert_eq!(
+        &source[array.child_nodes().next().unwrap().range()],
+        "$$Index"
+    );
+    assert_eq!(
+        source[array.child_nodes().nth(1).unwrap().range()].trim(),
+        "var opt $T"
+    );
+    assert!(nodes[4].child_nodes().next().is_none());
+    assert!(nodes[5].child_nodes().next().is_none());
+    let mut leaves = Vec::new();
+    collect_leaves(parsed.tree(), &parsed, &mut leaves);
+    assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+    let reconstructed: String = leaves
+        .iter()
+        .map(|&i| &source[parsed.tokens()[i].range.clone()])
+        .collect();
+    assert_eq!(reconstructed, source);
+}
+
+#[test]
+fn forbidden_parameter_types_and_malformed_callables_recover() {
+    for source in [
+        "predicate bad(set(2) of int: values);",
+        "predicate bad(array[i in 1..3] of int: values);",
+        "predicate bad(list of set(2) of int: values);",
+        "function any: bad(int: value);",
+        "predicate bad(any: value);",
+        "function int bad(int: value);",
+        "test bad(int: value=);",
+        "predicate bad(int: value :: tag);",
+        "annotation bad :: tag;",
+        "function int: bad(int: value = 1;",
+        "predicate bad(int: value) = ;",
+        "predicate bad",
+        "function",
+    ] {
+        let source = format!("{source}\nfunction int: after(int: value)=value;");
+        let parsed = parse(source.clone());
+        assert!(!parsed.diagnostics().is_empty(), "{source}");
+        let last = items(&parsed).last().copied().unwrap();
+        assert_eq!(last.kind(), NodeKind::FunctionDeclaration, "{source}");
+        assert_eq!(
+            &source[last.range()],
+            "function int: after(int: value)=value;"
+        );
+        let mut leaves = Vec::new();
+        collect_leaves(parsed.tree(), &parsed, &mut leaves);
+        assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+    }
+    assert!(parse("predicate empty(); function set(2) of int: result; predicate nested(array[set(2) of int] of int: values);").diagnostics().is_empty());
+}

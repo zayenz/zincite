@@ -6,8 +6,9 @@
 //! Parsing supports scalar and ordinary collection declarations, domains,
 //! indexed and matrix literals, dependent indices, cardinalities, array access,
 //! operator expressions, calls, interpolated strings, annotations, constraints
-//! with optional string labels, comprehensions, generator calls, conditional and let expressions,
-//! and `solve satisfy`.
+//! with optional string labels, comprehensions, generator calls, conditional and let
+//! expressions, callable/annotation declarations with generic types and parameter
+//! defaults, and `solve satisfy`.
 //! Structured values, case expressions and other items remain
 //! unsupported.
 
@@ -94,6 +95,21 @@ pub enum NodeKind {
     Root,
     /// The first child node is the type; later nodes are annotations/initializer.
     Declaration,
+    /// Return type child, direct name token, and optional parameter list,
+    /// annotations and body expression.
+    FunctionDeclaration,
+    /// Direct name token, optional parameter list, annotations and body.
+    PredicateDeclaration,
+    /// Direct name token, optional parameter list, annotations and body.
+    TestDeclaration,
+    /// Direct name token, optional parameter list and body; no annotations.
+    AnnotationDeclaration,
+    /// Parentheses and ordered Parameter children; omitted lists have no node.
+    ParameterList,
+    /// The type child, direct name token, and optional default expression child.
+    Parameter,
+    /// Generic variable spelling, with any/var/par/opt qualifiers retained.
+    TypeInstVariable,
     ScalarType,
     /// Contains one domain expression, with any qualifiers retained as tokens.
     DomainType,
