@@ -824,3 +824,107 @@ fn forbidden_parameter_types_and_malformed_callables_recover() {
     }
     assert!(parse("predicate empty(); function set(2) of int: result; predicate nested(array[set(2) of int] of int: values);").diagnostics().is_empty());
 }
+
+#[test]
+fn model_items_expose_paths_output_headers_and_solve_objectives_losslessly() {
+    let model = include_str!("../../../tests/fixtures/model-items.mzn");
+    // One complete model also exercises each solve form through the same item view.
+    for (mode, kind) in [
+        ("minimize", NodeKind::SolveMinimize),
+        ("maximize", NodeKind::SolveMaximize),
+        ("satisfy", NodeKind::Solve),
+    ] {
+        let source = if mode == "satisfy" {
+            model.replace("minimize (choice+0)::output_var", "satisfy")
+        } else {
+            model.replace("minimize", mode)
+        };
+        let parsed = parse(source.clone());
+        assert!(
+            parsed.diagnostics().is_empty(),
+            "{:?}",
+            parsed.diagnostics()
+        );
+        let nodes = items(&parsed);
+        assert_eq!(
+            nodes.iter().map(|node| node.kind()).collect::<Vec<_>>(),
+            [
+                NodeKind::Include,
+                NodeKind::Include,
+                NodeKind::Declaration,
+                NodeKind::Constraint,
+                NodeKind::Output,
+                NodeKind::Output,
+                NodeKind::Output,
+                kind,
+            ]
+        );
+        assert_eq!(
+            &source[nodes[0].child_nodes().next().unwrap().range()],
+            "\"alldifferent.mzn\""
+        );
+        for (index, header, body_kind) in [
+            (4, "::\"result\"", NodeKind::ArrayLiteral),
+            (
+                5,
+                "::json_section(\"details\")",
+                NodeKind::ParenthesizedExpression,
+            ),
+            (6, "::(\"extra\")", NodeKind::ArrayLiteral),
+        ] {
+            let parts = nodes[index].child_nodes().collect::<Vec<_>>();
+            assert_eq!(parts[0].kind(), NodeKind::Annotation);
+            assert_eq!(&source[parts[0].range()], header);
+            assert_eq!(parts[1].kind(), body_kind);
+        }
+        let solve = nodes[7].child_nodes().collect::<Vec<_>>();
+        assert_eq!(solve[0].kind(), NodeKind::Annotation);
+        assert_eq!(&source[solve[1].range()], "::restart_none");
+        if mode == "satisfy" {
+            assert_eq!(solve.len(), 2);
+        } else {
+            assert_eq!(solve[2].kind(), NodeKind::AnnotatedExpression);
+            assert_eq!(&source[solve[2].range()], "(choice+0)::output_var");
+        }
+        let mut leaves = Vec::new();
+        collect_leaves(parsed.tree(), &parsed, &mut leaves);
+        assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+        assert_eq!(
+            leaves
+                .iter()
+                .map(|&index| &source[parsed.tokens()[index].range.clone()])
+                .collect::<String>(),
+            source
+        );
+    }
+}
+
+#[test]
+fn malformed_model_items_diagnose_and_recover_without_losing_source() {
+    for bad in [
+        "include path;",
+        "include \"x.mzn\"[1];",
+        "include \"x.mzn\"++\"y.mzn\";",
+        "output :: name [\"x\"];",
+        "output :: section(name: \"x\") [\"x\"];",
+        "output :: 1 [\"x\"];",
+        "output :: \"one\" :: \"two\" [\"x\"];",
+        "output;",
+        "solve :: restart_none;",
+        "solve minimize;",
+        "solve satisfy 1;",
+        "output (a:1);",
+    ] {
+        let source = format!("{bad} include \"missing.mzn\"; output [\"after\"]; solve satisfy;");
+        let parsed = parse(source.clone());
+        assert!(!parsed.diagnostics().is_empty(), "{source}");
+        let nodes = items(&parsed);
+        assert_eq!(nodes[0].kind(), NodeKind::Error, "{source}");
+        assert_eq!(nodes[nodes.len() - 3].kind(), NodeKind::Include, "{source}");
+        assert_eq!(nodes[nodes.len() - 2].kind(), NodeKind::Output, "{source}");
+        assert_eq!(nodes.last().unwrap().kind(), NodeKind::Solve, "{source}");
+        let mut leaves = Vec::new();
+        collect_leaves(parsed.tree(), &parsed, &mut leaves);
+        assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+    }
+}

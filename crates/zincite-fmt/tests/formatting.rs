@@ -57,6 +57,7 @@ fn errors_produce_no_formatted_source() {
     for source in [
         "int: bad = ; int: after = 7;",
         "constraint f(1 + );",
+        "annotation section(string: name); output :: section(name: \"x\") [\"x\"]; solve satisfy;",
         r#"string: bad="value \(1+[; int: hidden; 2) end"; int: after=7;"#,
         r#"string: bad="\()";"#,
         r#"string: bad="\(1"#,
@@ -336,4 +337,37 @@ fn callable_layout_preserves_signatures_comments_and_body_structure() {
             .len(),
         1
     );
+}
+
+#[test]
+fn model_item_layout_keeps_include_order_and_annotation_attachment_stable() {
+    let model = include_str!("../../../tests/fixtures/model-items.mzn");
+    for mode in ["minimize", "maximize", "satisfy"] {
+        let source = if mode == "satisfy" {
+            model.replace("minimize (choice+0)::output_var", "satisfy")
+        } else {
+            model.replace("minimize", mode)
+        };
+        let parsed = parse(source);
+        let formatted = format(&parsed).unwrap();
+        assert!(formatted.contains(
+            "include \"alldifferent.mzn\"; % Keep  include comment\ninclude \"globals.mzn\";"
+        ));
+        assert!(formatted.contains("output :: \"result\" [\"choice = \", show(choice), \"\\n\"];"));
+        assert!(formatted.contains("output :: json_section(\"details\") (choice + 1);"));
+        assert!(formatted.contains("output :: (\"extra\") [\"Keep  literal\\n\"];"));
+        assert!(formatted.contains(&format!("solve :: int_search([choice], input_order, indomain_min, complete) :: restart_none {mode}")));
+        let reparsed = parse(formatted.clone());
+        assert!(
+            reparsed.diagnostics().is_empty(),
+            "{:?}",
+            reparsed.diagnostics()
+        );
+        assert_eq!(
+            structure(parsed.tree(), &parsed),
+            structure(reparsed.tree(), &reparsed)
+        );
+        assert_eq!(format(&reparsed).unwrap(), formatted);
+    }
+    assert!(format(&parse("output :: name [\"x\"]; ")).is_err());
 }

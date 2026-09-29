@@ -42,6 +42,10 @@ parameter nodes retain precise byte ranges. Generic variables have a distinct
 spelling. These views borrow the existing tree.
 Interpolated strings expose their embedded expressions as ordered child nodes,
 with literal chunks retained as token leaves in the same tree.
+Include nodes expose their path literal as a child. Output nodes expose an optional
+`Annotation` child followed by the output expression. `Solve` identifies a satisfy
+item; `SolveMinimize` and `SolveMaximize` expose direct solve annotations followed
+by the objective expression. Each node retains its precise source range.
 
 ## Formatter usage
 
@@ -115,7 +119,11 @@ The temporary grammar supports:
   identifier and call syntax as other expressions.
 - Constraints with an expression and an optional direct `:: "label"`, including
   interpolated labels.
-- `solve satisfy`.
+- Include items with a string literal path, output items with an optional string,
+  call or parenthesized section annotation, and `solve satisfy`, `solve minimize`
+  and `solve maximize` with solve annotations. Output bodies and optimization
+  objectives use the supported expression families; expression annotations stay
+  attached to those expressions.
 
 Items use semicolon separators; the last semicolon is optional on input.
 Comments may occur between tokens. Formatting preserves comment, literal and
@@ -136,7 +144,8 @@ local item order, separators, parentheses and annotation attachment are retained
 Local structured types remain excluded alongside their top-level equivalents.
 Generic type-inst syntax is shared by local, top-level and callable declarations.
 No local name resolution or checks of branch types or declaration initializers are
-performed.
+performed. Includes retain their written order and paths; they are neither loaded
+nor sorted in the current implementation.
 Matrices use one logical row per line; column
 alignment and width-based row wrapping are not implemented yet. It normalizes
 editable spacing and line endings to LF, adds a final newline and preserves blank-line groups while

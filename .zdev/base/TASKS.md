@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 21
-- Ready: 5
+- Ready: 4
 - Blocked: 7
-- Done: 9
+- Done: 10
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -18,7 +18,7 @@
 | [base-007](tasks/007-add-conditional-and-let-expressions.md) | Add conditional and let expressions | done | base-004 |
 | [base-008](tasks/008-parse-expressions-inside-interpolated-strings.md) | Parse expressions inside interpolated strings | done | base-003 |
 | [base-009](tasks/009-add-callable-and-annotation-declarations.md) | Add callable and annotation declarations | done | base-005 |
-| [base-010](tasks/010-add-includes-output-and-optimization-items.md) | Add includes, output and optimization items | ready | base-003 |
+| [base-010](tasks/010-add-includes-output-and-optimization-items.md) | Add includes, output and optimization items | done | base-003 |
 | [base-011](tasks/011-add-enum-definitions-and-type-aliases.md) | Add enum definitions and type aliases | ready | base-004 |
 | [base-012](tasks/012-add-tuple-and-record-types-and-values.md) | Add tuple and record types and values | ready | base-004 |
 | [base-013](tasks/013-select-data-file-mode-and-check-grammar-integration.md) | Select data-file mode and check grammar integration | blocked | base-006, base-007, base-008, base-009, base-010, base-011, base-012 |

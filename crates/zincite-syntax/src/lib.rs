@@ -8,7 +8,7 @@
 //! operator expressions, calls, interpolated strings, annotations, constraints
 //! with optional string labels, comprehensions, generator calls, conditional and let
 //! expressions, callable/annotation declarations with generic types and parameter
-//! defaults, and `solve satisfy`.
+//! defaults, includes, output items and all solve modes.
 //! Structured values, case expressions and other items remain
 //! unsupported.
 
@@ -126,7 +126,16 @@ pub enum NodeKind {
     ListType,
     Assignment,
     Constraint,
+    /// Contains the written string literal path; no include resolution is performed.
+    Include,
+    /// Optional direct Annotation child followed by the output expression.
+    Output,
+    /// A satisfy item, with direct Annotation children and no objective.
     Solve,
+    /// Direct Annotation children followed by the minimization objective expression.
+    SolveMinimize,
+    /// Direct Annotation children followed by the maximization objective expression.
+    SolveMaximize,
     /// A literal or identifier atom, including anonymous and absent values.
     Expression,
     /// Exact string chunks alternate with embedded expression child nodes.

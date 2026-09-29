@@ -111,14 +111,60 @@ impl Parser<'_> {
                 self.expression(children)?;
                 NodeKind::Constraint
             }
+            Some(Include) => {
+                self.bump(children);
+                if !matches!(self.peek(), Some(StringLiteral | StringHead)) {
+                    return Err("expected a string literal after 'include'");
+                }
+                self.trivia(children);
+                let path = self.atom_head(Grammar::General, false)?;
+                if !matches!(
+                    path.kind(),
+                    NodeKind::Expression | NodeKind::InterpolatedString
+                ) {
+                    return Err("expected a string literal after 'include'");
+                }
+                children.push(SyntaxElement::Node(path));
+                NodeKind::Include
+            }
+            Some(Output) => {
+                self.bump(children);
+                if self.peek() == Some(AnnotationMarker) {
+                    self.trivia(children);
+                    children.push(SyntaxElement::Node(self.output_annotation()?));
+                }
+                self.expression(children)?;
+                NodeKind::Output
+            }
             Some(Solve) => {
                 self.bump(children);
-                self.expect(Satisfy, children, "only 'solve satisfy' is supported")?;
-                NodeKind::Solve
+                while self.peek() == Some(AnnotationMarker) {
+                    self.trivia(children);
+                    children.push(SyntaxElement::Node(self.annotation()?));
+                }
+                let mode = self.peek();
+                if !matches!(mode, Some(Satisfy | Minimize | Maximize)) {
+                    return Err(
+                        "expected 'satisfy', 'minimize' or 'maximize' after solve annotations",
+                    );
+                }
+                self.bump(children);
+                match mode {
+                    Some(Satisfy) => NodeKind::Solve,
+                    Some(Minimize) => {
+                        self.expression(children)?;
+                        NodeKind::SolveMinimize
+                    }
+                    Some(Maximize) => {
+                        self.expression(children)?;
+                        NodeKind::SolveMaximize
+                    }
+                    _ => unreachable!(),
+                }
             }
             _ => {
                 return Err(
-                    "unsupported top-level item; expected a declaration, assignment, constraint or solve satisfy",
+                    "unsupported top-level item; expected a declaration, assignment, constraint, include, output or solve",
                 );
             }
         };
@@ -516,7 +562,7 @@ impl Parser<'_> {
                         self.generator_call(&mut children)?;
                         NodeKind::GeneratorCallExpression
                     } else {
-                        self.call_arguments(&mut children)?;
+                        self.call_arguments(&mut children, true)?;
                         NodeKind::CallExpression
                     }
                 } else {
@@ -998,12 +1044,70 @@ impl Parser<'_> {
         Ok(self.node(NodeKind::Annotation, start, children))
     }
 
-    fn call_arguments(&mut self, children: &mut Vec<SyntaxElement>) -> Result<(), &'static str> {
+    fn output_annotation(&mut self) -> Result<SyntaxNode, &'static str> {
+        use TokenKind::*;
+        // Unlike general annotations, output headers require a string, ordinary
+        // call with expression arguments or parenthesized expression. A following output
+        // body must not turn the annotation call into a generator call.
+        // https://docs.minizinc.dev/en/2.10.1/spec.html#output-items
+        let start = self.position;
+        let mut children = Vec::new();
+        self.bump(&mut children);
+        self.trivia(&mut children);
+        let value = match self.peek() {
+            Some(Identifier | QuotedIdentifier) => {
+                let call_start = self.position;
+                let mut call = Vec::new();
+                self.bump(&mut call);
+                if self.peek() != Some(LeftParen) {
+                    return Err("expected a call in output annotation");
+                }
+                self.call_arguments(&mut call, false)?;
+                self.node(NodeKind::CallExpression, call_start, call)
+            }
+            Some(StringLiteral | StringHead | LeftParen) => {
+                let value_start = self.position;
+                let mut value = Vec::new();
+                let kind = match self.peek() {
+                    Some(StringLiteral) => {
+                        self.bump(&mut value);
+                        NodeKind::Expression
+                    }
+                    Some(StringHead) => {
+                        self.interpolated_string(&mut value)?;
+                        NodeKind::InterpolatedString
+                    }
+                    Some(LeftParen) => {
+                        self.bump(&mut value);
+                        self.expression(&mut value)?;
+                        self.expect(
+                            RightParen,
+                            &mut value,
+                            "expected ')' after output annotation",
+                        )?;
+                        NodeKind::ParenthesizedExpression
+                    }
+                    _ => unreachable!(),
+                };
+                self.node(kind, value_start, value)
+            }
+            _ => return Err("expected a string, call or parenthesized output annotation"),
+        };
+        children.push(SyntaxElement::Node(value));
+        Ok(self.node(NodeKind::Annotation, start, children))
+    }
+
+    fn call_arguments(
+        &mut self,
+        children: &mut Vec<SyntaxElement>,
+        allow_named_arguments: bool,
+    ) -> Result<(), &'static str> {
         use TokenKind::*;
         self.bump(children);
         while self.peek() != Some(RightParen) {
             self.trivia(children);
-            if matches!(self.peek(), Some(Identifier | QuotedIdentifier))
+            if allow_named_arguments
+                && matches!(self.peek(), Some(Identifier | QuotedIdentifier))
                 && self.peek_after(1) == Some(Colon)
             {
                 let start = self.position;
@@ -1151,6 +1255,8 @@ impl Parser<'_> {
         let can_find_next_item = matches!(
             self.tokens[start].kind,
             TokenKind::Constraint
+                | TokenKind::Include
+                | TokenKind::Output
                 | TokenKind::Solve
                 | TokenKind::Function
                 | TokenKind::Predicate
@@ -1196,6 +1302,8 @@ impl Parser<'_> {
         if matches!(
             self.tokens[index].kind,
             Constraint
+                | Include
+                | Output
                 | Solve
                 | Function
                 | Predicate
