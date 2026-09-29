@@ -7,8 +7,8 @@ Establish the Rust syntax foundation shared by zincite-fmt and zincite-lint.
 Zincite will provide MiniZinc development tools, starting with a formatter
 (`zincite-fmt`) and a static analyser (`zincite-lint`). The `base` area establishes the
 shared parsing and source representation and the smallest useful path to both
-tools. This shaping pass records background and decisions; it does not start
-implementation or create tasks.
+tools. The first task bundle covers the syntax foundation and usable formatter
+and linter commands.
 
 ## Settled decisions
 
@@ -18,15 +18,20 @@ implementation or create tasks.
 - Use `zincite` as the project name and crate prefix, with executable names
   `zincite-fmt` and `zincite-lint`.
 - Use zdev project records. `base` follows configured trunk `main`, as requested.
-- Keep the existing checkout directory `mzn-tools`; its filesystem name need not
-  match the project name.
+- The current checkout directory is `zincite`.
 - Build Zincite's own Rust parser, CST, formatter, and linter. Keep the project
   independent of Shackle: use it as a research and design reference only, with
   no Shackle code reuse, crate dependencies, or planned integration.
 - Prefer simple modules and direct tree traversal. Add crates, generic interfaces,
   semantic machinery, and tests when an actual consumer or risk justifies them.
+- Target MiniZinc 2.10.1, including `.mzn` models and `.dzn` data files.
+- Start linting with the naming conventions below and missing constraint-label
+  advice. Defer unused-declaration analysis and general name resolution.
+- Accept explicit file paths and stdin. Provide formatter stdout, check, and
+  explicit in-place modes, and text lint diagnostics. Defer directory discovery
+  and JSON output.
 
-## Proposed approach
+## Implementation direction
 
 Build a MiniZinc parser in Rust, informed by Zirium's source ownership and recovery
 design. Own the source-preserving CST and expose it to both tools. Shackle's
@@ -132,8 +137,8 @@ untouched; formatting fails for that file. Support both a skip-next-item comment
 and paired formatting-off/on comments. Off/on regions must start and end between
 complete top-level items. Preserve skipped items verbatim. Nested or unmatched
 markers, or boundaries inside expressions, are errors that leave the file
-untouched. Skipping does not exempt source from syntax checking. Directive
-spelling remains to be settled.
+untouched. Skipping does not exempt source from syntax checking. Use standalone `% zincite-fmt: skip`, `% zincite-fmt: off`, and
+`% zincite-fmt: on` comments. A skip without a following item is also an error.
 
 Keep short generator headers compact. When a header exceeds the width limit, use
 block indentation with one generator per line and each `where` filter on a following
@@ -142,27 +147,112 @@ line indented beneath its generator. Preserve generator/filter order and attachm
 Read [formatting background](background/formatting.md)
 for evidence, recommendations, and the remaining policy questions.
 
-## Open questions
+## Language and command-line contract
 
-1. Parser design: choose the smallest useful lexer, parsing approach, and CST
-   representation for exact source coverage, typed traversal, and error recovery.
-2. Language baseline: which MiniZinc release, and should the first release also
-   format `.dzn` files? The current stable handbook inspected was 2.10.1; the
-   thesis's 2.5.5 is historical context, not a proposed compatibility target.
-3. First lint rules: which useful checks can run on syntax alone, and which justify
-   scoped name/type analysis within Zincite? Define default severities and
-   suppression behavior with the chosen rules.
-4. Formatting: resolve skip-directive spelling, expression annotations, and the
-   remaining detailed layout cases using the background questions.
-   EditorConfig newline/whitespace details, CLI check mode, and file rewriting
-   also remain to be shaped.
-5. Project license and release packaging remain undecided.
+The [MiniZinc 2.10.1 specification](https://docs.minizinc.dev/en/2.10.1/spec.html)
+is the syntax authority. Cover its model and data syntax by the end of this
+bundle, including structured types, interpolation, annotations and comprehensions.
+Intermediate tasks may support a documented subset but must diagnose unsupported
+input rather than silently accept it as opaque valid syntax. Parse individual
+UTF-8 files without resolving includes, requiring a solve item, evaluating data,
+or performing compiler semantic checks. Reject invalid UTF-8 without writing.
+Treat `.dzn` as data input; do not pretend syntax-only checks establish the
+semantic validity of data expressions.
+
+Both tools accept explicit files or `-` for stdin; no input means stdin.
+`--stdin-filepath` supplies the language mode and EditorConfig lookup path for
+stdin; without it use model mode and no filesystem configuration lookup.
+Reject mixed stdin and file inputs. Do not traverse includes or directories.
+
+`zincite-fmt` defaults to stdout for one input. Require `--check` or `--write`
+for multiple files. These modes are mutually exclusive; `--write` requires file
+paths. `--check` writes nothing and exits 1 when any file would change. Successful
+formatting exits 0; syntax, directive, configuration, usage or I/O errors exit 2
+and take precedence over exit 1. Process independent files even if one fails;
+never write a failing file. Complete each file's formatting before replacing it,
+avoid truncation on failure, and retain its permissions. Symlink inputs may be
+read, but refuse in-place writes through symlinks in this first version.
+
+Expose explicit CLI overrides for indentation style, indentation size, tab width,
+line endings and maximum line length, with help documenting accepted values.
+Resolve EditorConfig according to its specification, including parent lookup,
+section precedence and `unset`. Support `insert_final_newline` and
+`trim_trailing_whitespace` on editable layout as well as the agreed indentation,
+line-ending and width properties. Use UTF-8 input/output only; support a UTF-8 BOM
+when requested and reject incompatible charset settings. Default to LF and one
+final newline. Preserved comments, literal contents and skipped spans take
+precedence over newline conversion, trimming and final-newline settings.
+Unknown EditorConfig properties are ignored; invalid values of supported
+properties report a configuration error. Support `max_line_length = off`.
+
+Both tools report text diagnostics with path, line/column, precise byte range,
+and a readable message. Lint diagnostics also identify the rule and severity.
+Keep stdout for formatted source in the formatter; use stderr for its diagnostics.
+Lint reports diagnostics on stderr and does not rewrite files. It exits 0 when
+clean, 1 for unsuppressed warnings, and 2 for input, parse, directive or usage
+errors. On parse errors, omit lint rules for that file and report syntax errors.
+
+## Remaining layout defaults
+
+These defaults complete the agreed formatting direction without adding style
+configuration. Count Unicode scalar values as one column and expand tabs to the
+next configured tab stop. Preserve literal spelling, parentheses and annotation
+attachment; put broken binary operators at the end of the preceding line. Do not
+add synthetic operands or semantic rewrites. Use trailing commas in expanded
+lists only where permitted by the pinned grammar. Preserve blank-line group
+boundaries while collapsing multiple blank layout lines to one outside protected
+text. Keep end-of-line comments attached to their preceding code.
+
+Within an include group, compare decoded include paths case-sensitively, with
+`globals.mzn` first and stable ordering for equal paths. A directly preceding
+standalone comment block without an intervening blank line belongs to the next
+include. A separated comment is a group boundary. Formatting and lint suppression
+directives and skipped spans are sorting barriers, so sorting cannot change the
+item a directive controls. Preserved skipped regions include their original
+whitespace; adjacent formatting must not swallow or duplicate it.
+
+## Initial lint contract
+
+Rule IDs are `naming` and `missing-constraint-label`. Both are warnings enabled by
+default; unsuppressed warnings fail the command. Naming checks declarations and
+bindings whose role is clear from syntax: ordinary values, callable names,
+parameters, fields and generator bindings use snake_case; enum/type names,
+constructors and explicitly declared parameter sets/domains use UpperCamelCase.
+Set-valued decision variables use snake_case. Do not infer an identifier's role
+from its uses or resolve type aliases for this first rule; skip classifications
+that require semantic information. Do not check references or standalone `.dzn`
+assignment targets against an unavailable declaration. Exempt anonymous `_`,
+quoted identifiers and a single leading underscore used for an intentionally
+unused binding; check the remaining spelling of that binding normally.
+
+A constraint has a label when it has a direct string annotation in the constraint
+header. Other expression annotations or strings inside a wrapper do not count.
+The missing-label message is modelling advice, not a claim that the model is
+incorrect or slower.
+
+A standalone `% zincite-lint: ignore naming` or
+`% zincite-lint: ignore missing-constraint-label` comment suppresses that rule
+throughout the next top-level item, including nested bindings. Consecutive comments
+may suppress both rules. Unknown rule IDs, malformed directives, misplaced
+non-top-level directives and a directive without a following item are errors.
+Do not add automatic fixes or a general suppression/configuration framework.
+
+## License and release boundary
+
+Use `MIT OR Apache-2.0` and include both license texts and Cargo metadata.
+Document local Cargo installation and command usage. Publishing packages,
+release automation, hosted CI and binary distribution are outside this bundle.
+Before a stable release, formatting may change between versions; document this
+without adding a versioned style system.
+
+Parser algorithms, tree representation, dependencies and module boundaries are
+implementation choices. Choose the simplest design that meets exact source
+coverage, useful traversal and recovery. No further product choice is needed to
+draft this bundle.
 
 ## Testing
 
-Existing checks only for this setup. It adds no code or test harness. Validate
-zdev records and document links.
-For implementation, prefer a small set of behavior checks: exact source/token
+Focused coverage: use a small set of behavior checks for implementation: exact source/token
 coverage (not merely returning a saved input string), recovery past an error,
 formatter idempotence and comment preservation, and positive/negative cases for
 each selected lint. Include shadowing or parameter-dependent cases when relevant.
@@ -183,7 +273,9 @@ semantic equivalence.
 
 ## Validation
 
-Run `zdev check base --format json` after changing these records. The setup is
-ready for discussion when this brief indexes the reusable research, the naming
-decision is recorded, and all decisions above are distinguishable from proposals.
-Create tasks only after the user requests that next interaction.
+Run `zdev check base --format json` after changing these records. For code, run
+`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+and `cargo test --workspace`. Keep behavior checks small and aligned with each
+task; no test is required solely for scaffolding, metadata or documentation.
+Use MiniZinc 2.10.1 acceptance checks on a few complete representative models
+and model/data pairs as supplementary evidence; do not require a solver run.
