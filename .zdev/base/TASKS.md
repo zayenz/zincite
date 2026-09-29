@@ -3,22 +3,22 @@
 # Tasks: base
 
 - Total: 21
-- Ready: 2
-- Blocked: 17
-- Done: 2
+- Ready: 5
+- Blocked: 13
+- Done: 3
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
 | [base-001](tasks/001-establish-lossless-source-tokenization.md) | Establish lossless source tokenization | done | — |
 | [base-002](tasks/002-parse-and-format-a-minimal-scalar-model.md) | Parse and format a minimal scalar model | done | base-001 |
-| [base-003](tasks/003-add-operator-precedence-calls-and-annotations.md) | Add operator precedence, calls and annotations | ready | base-002 |
-| [base-004](tasks/004-add-basic-collection-types-literals-and-indexing.md) | Add basic collection types, literals and indexing | blocked | base-003 |
+| [base-003](tasks/003-add-operator-precedence-calls-and-annotations.md) | Add operator precedence, calls and annotations | done | base-002 |
+| [base-004](tasks/004-add-basic-collection-types-literals-and-indexing.md) | Add basic collection types, literals and indexing | ready | base-003 |
 | [base-005](tasks/005-add-indexed-arrays-matrix-syntax-and-dependent-indices.md) | Add indexed arrays, matrix syntax and dependent indices | blocked | base-004 |
 | [base-006](tasks/006-add-comprehensions-and-generator-call-layouts.md) | Add comprehensions and generator-call layouts | blocked | base-005 |
 | [base-007](tasks/007-add-conditional-and-let-expressions.md) | Add conditional and let expressions | blocked | base-004 |
-| [base-008](tasks/008-parse-expressions-inside-interpolated-strings.md) | Parse expressions inside interpolated strings | blocked | base-003 |
+| [base-008](tasks/008-parse-expressions-inside-interpolated-strings.md) | Parse expressions inside interpolated strings | ready | base-003 |
 | [base-009](tasks/009-add-callable-and-annotation-declarations.md) | Add callable and annotation declarations | blocked | base-005 |
-| [base-010](tasks/010-add-includes-output-and-optimization-items.md) | Add includes, output and optimization items | blocked | base-003 |
+| [base-010](tasks/010-add-includes-output-and-optimization-items.md) | Add includes, output and optimization items | ready | base-003 |
 | [base-011](tasks/011-add-enum-definitions-and-type-aliases.md) | Add enum definitions and type aliases | blocked | base-004 |
 | [base-012](tasks/012-add-tuple-and-record-types-and-values.md) | Add tuple and record types and values | blocked | base-004 |
 | [base-013](tasks/013-select-data-file-mode-and-check-grammar-integration.md) | Select data-file mode and check grammar integration | blocked | base-006, base-007, base-008, base-009, base-010, base-011, base-012 |
@@ -28,5 +28,5 @@
 | [base-017](tasks/017-sort-include-groups-without-moving-directive-targets.md) | Sort include groups without moving directive targets | blocked | base-010, base-016 |
 | [base-018](tasks/018-add-formatter-check-and-safe-write-modes.md) | Add formatter check and safe write modes | blocked | base-013, base-017 |
 | [base-019](tasks/019-resolve-editorconfig-and-explicit-formatter-overrides.md) | Resolve EditorConfig and explicit formatter overrides | blocked | base-018, base-015 |
-| [base-020](tasks/020-deliver-missing-label-lint-with-suppressions.md) | Deliver missing-label lint with suppressions | blocked | base-003 |
+| [base-020](tasks/020-deliver-missing-label-lint-with-suppressions.md) | Deliver missing-label lint with suppressions | ready | base-003 |
 | [base-021](tasks/021-add-syntax-based-naming-checks.md) | Add syntax-based naming checks | blocked | base-020, base-013 |

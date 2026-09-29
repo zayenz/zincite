@@ -44,26 +44,41 @@ Syntax diagnostics include the path, line/column and byte range.
 
 The temporary grammar supports:
 
-- `bool`, `int`, `float` and `string` declarations, with optional `var` or `par`
-  and an optional atom initializer.
+- `bool`, `int`, `float`, `string` and `ann` declarations, with optional `var`
+  or `par`, annotations and an optional initializer; `any` declarations are also
+  accepted.
+- Scalar range types with numeric-expression bounds.
 - Assignments to ordinary or quoted identifiers.
 - Atom values: identifiers, quoted identifiers, integer/float/string literals,
-  `true`, `false`, `infinity` and anonymous `_`.
-- Constraints with an atom expression and an optional direct `:: "label"`.
+  `true`, `false`, `infinity`, anonymous `_` and absent `<>`.
+- All unary and binary operators from the pinned specification, including
+  backtick operators, Unicode spellings and half-open or one-sided ranges.
+- Parenthesized expressions and ordinary or quoted calls, including nested calls,
+  named arguments, empty argument lists and trailing commas.
+- Declaration and expression annotations. Annotation literals use the same
+  identifier and call syntax as other expressions.
+- Constraints with an expression and an optional direct `:: "label"`.
 - `solve satisfy`.
 
 Items use semicolon separators; the last semicolon is optional on input.
-Comments may occur between tokens. Formatting preserves comment and atom
-spelling, puts a labelled constraint's expression on the following line,
-normalizes editable spacing and line endings to LF, and adds a final newline.
-It preserves blank-line groups while collapsing excess blank layout lines.
+Comments may occur between tokens. Formatting preserves comment, literal and
+operator spelling and explicit parentheses. It puts a labelled constraint's
+expression on the following line and retains explicitly multiline argument
+lists with one argument per line. It normalizes editable spacing and line
+endings to LF, adds a final newline and preserves blank-line groups while
+collapsing excess blank layout lines.
 
-Calls, operators (including signed numerals), parentheses, absent atoms,
-general annotations, other types and other item families are unsupported and
-produce diagnostics. Interpolated strings are also unsupported. Parsing checks
-syntax only: it does not resolve includes or names, require a solve item, or
-check types. For example, accepting `_` as an atom does not establish that a
-particular initializer is valid MiniZinc.
+Collections, indexing and field access, control expressions, generators,
+interpolated strings, other types and other item families remain unsupported
+and produce diagnostics. Bare range markers used for array slicing are also
+unsupported. Range-type bounds follow the numeric-expression grammar: their
+parentheses may contain numeric operators, identifiers and calls; call
+arguments and annotations use the general expression grammar.
+
+Parsing checks syntax only: it does not resolve includes or names, require a
+solve item, infer types or check semantic validity. For example, accepting a
+named argument does not establish that a callable has that parameter, and
+accepting a range expression does not establish that its bounds have valid types.
 
 Use the libraries independently of the command:
 

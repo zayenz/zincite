@@ -4,7 +4,7 @@ use zincite_syntax::{Diagnostic, NodeKind, ParsedFile, SyntaxElement, SyntaxNode
 
 /// Format a complete parse result, or return its diagnostics without output.
 ///
-/// Identifiers, atoms and comments retain their original spelling. Editable
+/// Identifiers, literals, operators and comments retain their spelling. Editable
 /// layout uses LF and a final newline. No type or semantic checks are performed.
 pub fn format(parsed: &ParsedFile) -> Result<String, &[Diagnostic]> {
     if !parsed.diagnostics().is_empty() {
@@ -17,6 +17,7 @@ pub fn format(parsed: &ParsedFile) -> Result<String, &[Diagnostic]> {
         line_comment: false,
         last_was_comment: false,
         between_items: false,
+        indent: 0,
     };
     for child in parsed.tree().children() {
         match child {
@@ -37,6 +38,7 @@ struct Formatter<'a> {
     line_comment: bool,
     last_was_comment: bool,
     between_items: bool,
+    indent: usize,
 }
 
 impl Formatter<'_> {
@@ -58,11 +60,7 @@ impl Formatter<'_> {
                     if labelled {
                         self.newlines(self.pending_breaks.max(1));
                     }
-                    for atom in expression.children() {
-                        if let SyntaxElement::Token(index) = atom {
-                            self.token(*index);
-                        }
-                    }
+                    self.expression(expression, true);
                 }
                 SyntaxElement::Token(index) => {
                     has_semicolon |= self.parsed.tokens()[*index].kind == TokenKind::Semicolon;
@@ -76,7 +74,109 @@ impl Formatter<'_> {
         self.between_items = true;
     }
 
+    fn expression(&mut self, node: &SyntaxNode, leading_space: bool) {
+        if node.kind() == NodeKind::CallExpression {
+            self.call(node, leading_space);
+            return;
+        }
+        let mut first = true;
+        let mut previous = None;
+        for child in node.children() {
+            match child {
+                SyntaxElement::Node(child) => {
+                    let space = if first {
+                        leading_space
+                    } else {
+                        match node.kind() {
+                            NodeKind::ParenthesizedExpression => false,
+                            NodeKind::UnaryExpression => {
+                                previous == Some(TokenKind::Not)
+                                    || child.kind() == NodeKind::UnaryExpression
+                            }
+                            _ => true,
+                        }
+                    };
+                    self.expression(child, space);
+                    first = false;
+                }
+                SyntaxElement::Token(index) => {
+                    let kind = self.parsed.tokens()[*index].kind;
+                    if is_trivia(kind) {
+                        self.token(*index);
+                        continue;
+                    }
+                    let space = if first {
+                        leading_space
+                    } else {
+                        !matches!(
+                            kind,
+                            TokenKind::RightParen | TokenKind::Colon | TokenKind::Inverse
+                        )
+                    };
+                    self.token_with_space(*index, space);
+                    first = false;
+                    previous = Some(kind);
+                }
+            }
+        }
+    }
+
+    fn call(&mut self, node: &SyntaxNode, leading_space: bool) {
+        let mut in_arguments = false;
+        let multiline = node.children().iter().any(|child| {
+            if let SyntaxElement::Token(index) = child {
+                let token = &self.parsed.tokens()[*index];
+                if token.kind == TokenKind::LeftParen {
+                    in_arguments = true;
+                }
+                in_arguments
+                    && token.kind == TokenKind::Whitespace
+                    && self.parsed.source()[token.range.clone()].contains(['\r', '\n'])
+            } else {
+                false
+            }
+        });
+        let mut first = true;
+        let mut first_argument = true;
+        for child in node.children() {
+            match child {
+                SyntaxElement::Node(argument) => {
+                    if multiline {
+                        self.newlines(1);
+                        self.pending_breaks = 0;
+                    }
+                    self.expression(argument, !first_argument && !multiline);
+                    first_argument = false;
+                }
+                SyntaxElement::Token(index) => {
+                    let kind = self.parsed.tokens()[*index].kind;
+                    if is_trivia(kind) {
+                        self.token(*index);
+                        continue;
+                    }
+                    if kind == TokenKind::RightParen && multiline {
+                        self.indent -= 1;
+                        self.newlines(1);
+                    }
+                    self.token_with_space(*index, first && leading_space);
+                    if kind == TokenKind::LeftParen && multiline {
+                        self.indent += 1;
+                    }
+                    first = false;
+                }
+            }
+        }
+    }
+
     fn token(&mut self, index: usize) {
+        let kind = self.parsed.tokens()[index].kind;
+        self.token_with_space(
+            index,
+            !matches!(kind, TokenKind::Colon | TokenKind::Semicolon),
+        );
+    }
+
+    fn token_with_space(&mut self, index: usize, space_before: bool) {
         let token = &self.parsed.tokens()[index];
         let text = &self.parsed.source()[token.range.clone()];
         match token.kind {
@@ -94,26 +194,43 @@ impl Formatter<'_> {
                     self.newlines(self.pending_breaks.max(1));
                 }
                 self.space();
+                self.indent_line();
                 self.output.push_str(text);
                 self.pending_breaks = 0;
                 self.line_comment = token.kind == TokenKind::LineComment;
                 self.last_was_comment = true;
             }
-            kind => self.code(kind, text),
+            _ => self.code_with_space(text, space_before),
         }
     }
 
     fn code(&mut self, kind: TokenKind, text: &str) {
+        self.code_with_space(
+            text,
+            !matches!(kind, TokenKind::Colon | TokenKind::Semicolon),
+        );
+    }
+
+    fn code_with_space(&mut self, text: &str, space_before: bool) {
         if self.line_comment || (self.last_was_comment && self.pending_breaks > 0) {
             self.newlines(self.pending_breaks.max(1));
         }
-        if !matches!(kind, TokenKind::Colon | TokenKind::Semicolon) {
+        if space_before || self.last_was_comment {
             self.space();
         }
+        self.indent_line();
         self.output.push_str(text);
         self.pending_breaks = 0;
         self.line_comment = false;
         self.last_was_comment = false;
+    }
+
+    fn indent_line(&mut self) {
+        if self.output.ends_with('\n') {
+            for _ in 0..self.indent {
+                self.output.push_str("    ");
+            }
+        }
     }
 
     fn space(&mut self) {
@@ -132,4 +249,11 @@ impl Formatter<'_> {
         }
         self.line_comment = false;
     }
+}
+
+fn is_trivia(kind: TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::Whitespace | TokenKind::LineComment | TokenKind::BlockComment
+    )
 }

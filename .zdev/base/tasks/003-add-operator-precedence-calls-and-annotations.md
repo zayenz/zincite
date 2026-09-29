@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-003"
 key = "scalar-expressions"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -26,11 +26,22 @@ Read the minimal expression/tree/formatter interfaces and the pinned grammar sec
 
 ## Done when
 
-- [ ] All pinned unary/binary operators, associativity and precedence, backtick operators, quoted operator calls, ordinary calls including named arguments, parentheses and anonymous/absent atoms parse and format.
-- [ ] Declaration and expression annotations and annotation literals retain attachment; any declarations and ann types are supported syntactically.
-- [ ] Half-open/open-ended ranges described by the pinned specification are supported, and restricted numeric-expression contexts use the appropriate grammar without type inference.
+- [x] All pinned unary/binary operators, associativity and precedence, backtick operators, quoted operator calls, ordinary calls including named arguments, parentheses and anonymous/absent atoms parse and format.
+- [x] Declaration and expression annotations and annotation literals retain attachment; any declarations and ann types are supported syntactically.
+- [x] Half-open/open-ended ranges described by the pinned specification are supported, and restricted numeric-expression contexts use the appropriate grammar without type inference.
 
 ## Validation
 
 - Run the area Cargo checks from brief.md. Reuse existing fixtures; add only the focused behavior evidence named here.
 - Use a small precedence/associativity model plus named/quoted calls and an annotated expression; compare meaningful tree structure after formatting and second-pass output. Check compiler acceptance of representative valid inputs.
+
+## Result
+
+Added precedence-aware scalar expressions, calls, annotations, ann/any declarations, and ordinary/restricted numeric ranges with source-preserving recursive formatting.
+
+Validation:
+
+- Independent verifier PASS against Wa8ce70beca88625c; unchanged snapshot.
+- Cargo fmt, Clippy with denied warnings, and all 12 workspace integration tests passed.
+- Tree structure, spelling/comments, recovery, numeric-context probes and formatting idempotence passed.
+- MiniZinc 2.10.1 model-check-only accepted six original/formatted expression models.

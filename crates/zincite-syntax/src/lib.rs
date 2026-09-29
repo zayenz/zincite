@@ -3,8 +3,8 @@
 //! Lexing retains trivia and erroneous input. It does not check model or data
 //! grammar, resolve names, or evaluate literals. String interpolation is retained
 //! as a single unsupported token until expression tokenization is implemented.
-//! Parsing currently supports scalar declarations and assignments, atom
-//! expressions, constraints with optional string labels, and `solve satisfy`.
+//! Parsing supports scalar declarations and ranges, operator expressions,
+//! calls, annotations, constraints with optional string labels, and `solve satisfy`.
 
 use std::ops::Range;
 
@@ -17,7 +17,7 @@ mod parser;
 /// check types. Unsupported syntax produces diagnostics rather than opaque items.
 pub fn parse(source: impl Into<String>) -> ParsedFile {
     let mut lexed = lex(source);
-    let (tree, diagnostics) = parser::parse(&lexed.tokens, lexed.source.len());
+    let (tree, diagnostics) = parser::parse(&lexed.tokens, &lexed.source);
     lexed.diagnostics.extend(diagnostics);
     ParsedFile { lexed, tree }
 }
@@ -83,7 +83,18 @@ pub enum NodeKind {
     Assignment,
     Constraint,
     Solve,
+    /// A literal or identifier atom, including anonymous and absent values.
     Expression,
+    UnaryExpression,
+    BinaryExpression,
+    ParenthesizedExpression,
+    CallExpression,
+    NamedArgument,
+    AnnotatedExpression,
+    /// An annotation marker and its atom; distinct from the annotated subject.
+    Annotation,
+    /// Children contain the written bounds and marker; either bound may be omitted.
+    RangeExpression,
     Error,
 }
 
