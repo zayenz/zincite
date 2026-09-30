@@ -4,8 +4,8 @@
 
 - Total: 53
 - Ready: 5
-- Blocked: 19
-- Done: 29
+- Blocked: 18
+- Done: 30
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -38,8 +38,8 @@
 | [base-027](tasks/027-stabilise-expression-wrapping-and-continuation-indentation.md) | Stabilise expression wrapping and continuation indentation | done | base-023 |
 | [base-028](tasks/028-check-formatter-preservation-across-the-expanded-corpus.md) | Check formatter preservation across the expanded corpus | done | base-025, base-027 |
 | [base-029](tasks/029-accept-directories-for-linting-and-formatter-checks.md) | Accept directories for linting and formatter checks | done | — |
-| [base-030](tasks/030-select-rule-presets-and-extend-existing-suppressions.md) | Select rule presets and extend existing suppressions | ready | — |
-| [base-031](tasks/031-load-model-include-closures-for-selected-semantic-rules.md) | Load model include closures for selected semantic rules | blocked | base-030, base-025 |
+| [base-030](tasks/030-select-rule-presets-and-extend-existing-suppressions.md) | Select rule presets and extend existing suppressions | done | — |
+| [base-031](tasks/031-load-model-include-closures-for-selected-semantic-rules.md) | Load model include closures for selected semantic rules | ready | base-030, base-025 |
 | [base-032](tasks/032-resolve-bindings-and-report-captured-global-decisions.md) | Resolve bindings and report captured global decisions | blocked | base-031 |
 | [base-033](tasks/033-resolve-callable-facts-and-deliver-element-advice.md) | Resolve callable facts and deliver element advice | blocked | base-032 |
 | [base-034](tasks/034-track-expression-instantiation-and-add-decision-use-advice.md) | Track expression instantiation and add decision-use advice | blocked | base-033 |

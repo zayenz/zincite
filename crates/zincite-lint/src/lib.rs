@@ -4,21 +4,8 @@ use std::ops::Range;
 use zincite_syntax::{Diagnostic, NodeKind, ParsedFile, SyntaxElement, SyntaxNode, TokenKind};
 
 mod naming;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Rule {
-    Naming,
-    MissingConstraintLabel,
-}
-
-impl Rule {
-    pub fn id(self) -> &'static str {
-        match self {
-            Self::Naming => "naming",
-            Self::MissingConstraintLabel => "missing-constraint-label",
-        }
-    }
-}
+mod rules;
+pub use rules::{LintOptions, Rule};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Severity {
@@ -37,17 +24,34 @@ pub struct LintDiagnostic {
 /// Suppressions apply independently throughout the next top-level item. Naming
 /// checks declared syntax roles; missing-label warnings are modelling advice.
 pub fn lint(parsed: &ParsedFile) -> Result<Vec<LintDiagnostic>, Vec<Diagnostic>> {
+    lint_with_options(parsed, &LintOptions::default())
+}
+
+/// Lint selected rules. Syntax, suppression or unavailable-rule errors omit all
+/// warnings. Selection errors use the zero-length range at the start of the file.
+pub fn lint_with_options(
+    parsed: &ParsedFile,
+    options: &LintOptions,
+) -> Result<Vec<LintDiagnostic>, Vec<Diagnostic>> {
     if !parsed.diagnostics().is_empty() {
         return Err(parsed.diagnostics().to_vec());
     }
     let items: Vec<_> = parsed.tree().child_nodes().collect();
     let suppressed = item_suppressions(parsed, &items)?;
+    options.check_available().map_err(|message| {
+        vec![Diagnostic {
+            range: 0..0,
+            message,
+        }]
+    })?;
     let mut warnings = Vec::new();
     for (item, suppressed) in items.into_iter().zip(suppressed) {
-        if !suppressed.naming {
+        if options.rules.contains(&Rule::Naming) && !suppressed.contains(&Rule::Naming) {
             naming::check_names(item, parsed, &mut warnings);
         }
-        if !suppressed.missing_label {
+        if options.rules.contains(&Rule::MissingConstraintLabel)
+            && !suppressed.contains(&Rule::MissingConstraintLabel)
+        {
             missing_labels(item, parsed, &mut warnings);
         }
     }
@@ -55,17 +59,11 @@ pub fn lint(parsed: &ParsedFile) -> Result<Vec<LintDiagnostic>, Vec<Diagnostic>>
     Ok(warnings)
 }
 
-#[derive(Clone, Copy, Default)]
-struct Suppression {
-    naming: bool,
-    missing_label: bool,
-}
-
 fn item_suppressions(
     parsed: &ParsedFile,
     items: &[&SyntaxNode],
-) -> Result<Vec<Suppression>, Vec<Diagnostic>> {
-    let mut suppressed = vec![Suppression::default(); items.len()];
+) -> Result<Vec<Vec<Rule>>, Vec<Diagnostic>> {
+    let mut suppressed = vec![Vec::new(); items.len()];
     for token in parsed.tokens() {
         if token.kind != TokenKind::LineComment {
             continue;
@@ -80,11 +78,11 @@ fn item_suppressions(
                 message: message.into(),
             }]
         };
-        let rule = match text.trim_end() {
-            "% zincite-lint: ignore naming" => Rule::Naming,
-            "% zincite-lint: ignore missing-constraint-label" => Rule::MissingConstraintLabel,
-            _ => return Err(error("unknown or malformed lint suppression directive")),
-        };
+        let rule = text
+            .trim_end()
+            .strip_prefix("% zincite-lint: ignore ")
+            .and_then(Rule::from_id)
+            .ok_or_else(|| error("unknown or malformed lint suppression directive"))?;
         let line_start = parsed.source()[..token.range.start]
             .rfind(['\r', '\n'])
             .map_or(0, |position| position + 1);
@@ -108,10 +106,7 @@ fn item_suppressions(
         else {
             return Err(error("lint suppression has no following item"));
         };
-        match rule {
-            Rule::Naming => suppressed[next].naming = true,
-            Rule::MissingConstraintLabel => suppressed[next].missing_label = true,
-        }
+        suppressed[next].push(rule);
     }
     Ok(suppressed)
 }

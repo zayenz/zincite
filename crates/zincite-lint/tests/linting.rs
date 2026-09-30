@@ -214,3 +214,87 @@ fn compiler_source_extensions_reach_nested_naming_and_constraint_checks() {
         1
     );
 }
+
+#[test]
+fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
+    use zincite_lint::{LintOptions, lint_with_options};
+    let defaults = ["naming", "missing-constraint-label"];
+    let thesis = [
+        "array-index-start",
+        "compact-if",
+        "constant-variable",
+        "effective-zero-one",
+        "element-predicate",
+        "reified-global",
+        "global-variable-in-function",
+        "unbounded-variable",
+        "search-coverage",
+        "decision-variable-operator",
+        "unmarked-symmetry-breaking",
+        "unused-declaration",
+        "decision-variable-generator",
+        "decision-variable-condition",
+    ];
+    for (selection, expected) in [
+        ("default", defaults.to_vec()),
+        ("thesis", thesis.to_vec()),
+        ("all", defaults.into_iter().chain(thesis).collect()),
+    ] {
+        let options = LintOptions::from_selection(selection).unwrap();
+        assert_eq!(
+            options
+                .rules
+                .iter()
+                .map(|rule| rule.id())
+                .collect::<Vec<_>>(),
+            expected
+        );
+    }
+    let source = "function bool: BadName = let { constraint true; } in true;";
+    let parsed = parse(source);
+    assert_eq!(
+        lint(&parsed),
+        lint_with_options(&parsed, &LintOptions::default())
+    );
+    for (selection, rule) in [
+        ("naming", Rule::Naming),
+        ("missing-constraint-label", Rule::MissingConstraintLabel),
+    ] {
+        let options = LintOptions::from_selection(selection).unwrap();
+        let warnings = lint_with_options(&parsed, &options).unwrap();
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].rule, rule);
+    }
+    let comments: String = thesis
+        .iter()
+        .map(|id| format!("% zincite-lint: ignore {id}\n"))
+        .collect();
+    assert_eq!(
+        lint(&parse(format!("{comments}{source}"))).unwrap().len(),
+        2
+    );
+    let naming = LintOptions::from_selection("naming,naming").unwrap();
+    assert_eq!(naming.rules, [Rule::Naming]);
+    let disabled = parse(format!(
+        "% zincite-lint: ignore missing-constraint-label\n{source}"
+    ));
+    assert_eq!(lint_with_options(&disabled, &naming).unwrap().len(), 1);
+    for selection in ["thesis", "all", "compact-if", "naming,compact-if"] {
+        let options = LintOptions::from_selection(selection).unwrap();
+        let errors = lint_with_options(&parsed, &options).unwrap_err();
+        assert!(
+            errors[0].message.contains("unavailable rules")
+                && errors[0].message.contains("compact-if")
+        );
+        assert_eq!(errors[0].range, 0..0);
+    }
+    for selection in ["", "unknown", "naming,", "default,naming"] {
+        assert!(LintOptions::from_selection(selection).is_err());
+    }
+    for source in [
+        "% zincite-lint: ignore compact-if\n",
+        "constraint (\n% zincite-lint: ignore compact-if\ntrue);",
+    ] {
+        assert!(lint(&parse(source)).is_err());
+    }
+}

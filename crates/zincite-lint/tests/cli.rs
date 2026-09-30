@@ -163,3 +163,55 @@ fn directory_inputs_include_hidden_ignored_files_and_continue_after_errors() {
     }
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn rule_selection_preserves_defaults_and_reports_unavailable_rules() {
+    let source = "int: BadName = 1; constraint true;";
+    let default = run(&[], source);
+    assert_eq!(default.status.code(), Some(1));
+    for selection in ["default", "naming,missing-constraint-label"] {
+        let output = run(&["--rules", selection], source);
+        assert_eq!(output.status.code(), Some(1));
+        assert_eq!(output.stderr, default.stderr);
+        assert!(output.stdout.is_empty());
+    }
+    let naming = run(&["--rules", "naming"], source);
+    assert_eq!(naming.status.code(), Some(1));
+    let diagnostic = String::from_utf8(naming.stderr).unwrap();
+    assert!(
+        diagnostic.contains("warning [naming]") && !diagnostic.contains("missing-constraint-label")
+    );
+    let suppressed = run(
+        &["--rules", "naming"],
+        "% zincite-lint: ignore compact-if\n% zincite-lint: ignore naming\nint: BadName = 1; constraint true;",
+    );
+    assert_eq!(suppressed.status.code(), Some(0));
+    assert!(suppressed.stdout.is_empty() && suppressed.stderr.is_empty());
+    for selection in ["thesis", "all", "array-index-start", "naming,compact-if"] {
+        let output = run(&["--rules", selection], "");
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(
+            String::from_utf8(output.stderr)
+                .unwrap()
+                .contains("unavailable rules (not implemented)")
+        );
+    }
+    for arguments in [
+        vec!["--rules"],
+        vec!["--rules", "unknown"],
+        vec!["--rules", "naming,"],
+        vec!["--rules", "naming", "--rules", "default"],
+    ] {
+        assert_eq!(run(&arguments, source).status.code(), Some(2));
+    }
+    let empty = std::env::temp_dir().join(format!("zincite-lint-empty-{}", std::process::id()));
+    std::fs::create_dir(&empty).unwrap();
+    assert_eq!(
+        run(&["--rules", "thesis", empty.to_str().unwrap()], "")
+            .status
+            .code(),
+        Some(2)
+    );
+    std::fs::remove_dir(empty).unwrap();
+}

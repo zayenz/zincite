@@ -1,9 +1,10 @@
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use zincite_lint::LintOptions;
 use zincite_syntax::{FileMode, parse_with_mode};
 
-const HELP: &str = "Usage: zincite-lint [--stdin-filepath PATH] [FILE|DIR...|-]
+const HELP: &str = "Usage: zincite-lint [--rules SELECTION] [--stdin-filepath PATH] [FILE|DIR...|-]
 
 Report MiniZinc modelling advice on stderr without rewriting source.
 No input or '-' reads stdin; stdin cannot be mixed with files.
@@ -13,7 +14,12 @@ Discovery skips .git, visits directory symlinks once and sorts directory entries
 Overlapping inputs use the first path to each file.
 .dzn paths use assignment-only data syntax; other paths use model syntax.
 
-Rules (both warnings, enabled by default):
+--rules default|thesis|all or comma-separated rule IDs selects exactly that set.
+Omitted --rules selects default; repeated --rules and unknown IDs are errors.
+The thesis preset selects its fourteen catalogue rules; all includes the defaults.
+Thesis rules are registered but not implemented yet: selecting one reports an error.
+
+Default rules (both warnings):
     naming: snake_case for values, callable names, parameters, fields and bindings;
             UpperCamelCase for enum/type/constructor names and explicit parameter
             sets/domains. Decision sets use snake_case. No SHOUTY_CASE.
@@ -26,7 +32,8 @@ Standalone suppressions apply throughout the next top-level item:
     % zincite-lint: ignore missing-constraint-label
     % zincite-lint: ignore naming
 Consecutive comments can suppress both rules independently, including nested bindings.
-Unknown, malformed, misplaced or dangling suppressions are errors.
+Every registered rule ID can be suppressed even when disabled. Suppressions affect
+only their own rule. Unknown, malformed, misplaced or dangling directives are errors.
 
 The shared parser covers MiniZinc 2.10.1 model/data syntax; reserved
 variant_record and case syntax is unsupported. Includes are not loaded, and
@@ -54,7 +61,10 @@ fn run() -> Result<u8, String> {
             .map_err(|error| format!("stdout: {error}"))?;
         return Ok(0);
     }
-    let (paths, stdin_filepath) = parse_arguments(arguments)?;
+    let (paths, stdin_filepath, options) = parse_arguments(arguments)?;
+    options
+        .check_available()
+        .map_err(|message| format!("zincite-lint: {message}"))?;
     if paths.is_empty() {
         let mut bytes = Vec::new();
         io::stdin()
@@ -65,7 +75,7 @@ fn run() -> Result<u8, String> {
             |path| path.to_string_lossy().into_owned(),
         );
         let mode = stdin_filepath.map_or(FileMode::Model, FileMode::from_path);
-        return check_source(&label, bytes, mode);
+        return check_source(&label, bytes, mode, &options);
     }
     let inputs = zincite_syntax::inputs::discover_inputs(&paths);
     let mut status = if inputs.errors.is_empty() { 0 } else { 2 };
@@ -76,7 +86,7 @@ fn run() -> Result<u8, String> {
         let label = path.to_string_lossy();
         let result = std::fs::read(&path)
             .map_err(|error| format!("{label}: {error}"))
-            .and_then(|bytes| check_source(&label, bytes, FileMode::from_path(&path)));
+            .and_then(|bytes| check_source(&label, bytes, FileMode::from_path(&path), &options));
         match result {
             Ok(file_status) => status = status.max(file_status),
             Err(message) => {
@@ -90,12 +100,27 @@ fn run() -> Result<u8, String> {
 
 fn parse_arguments(
     arguments: Vec<std::ffi::OsString>,
-) -> Result<(Vec<PathBuf>, Option<PathBuf>), String> {
+) -> Result<(Vec<PathBuf>, Option<PathBuf>, LintOptions), String> {
     let mut paths = Vec::new();
     let mut stdin_filepath = None;
+    let mut options = None;
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
-        if argument == "--stdin-filepath" {
+        if argument == "--rules" {
+            if options.is_some() {
+                return Err("zincite-lint: repeated --rules".into());
+            }
+            let selection = arguments
+                .next()
+                .ok_or("zincite-lint: --rules requires a selection")?;
+            let selection = selection
+                .to_str()
+                .ok_or("zincite-lint: rule selection must be UTF-8")?;
+            options = Some(
+                LintOptions::from_selection(selection)
+                    .map_err(|message| format!("zincite-lint: {message}"))?,
+            );
+        } else if argument == "--stdin-filepath" {
             if stdin_filepath.is_some() {
                 return Err("zincite-lint: repeated --stdin-filepath".into());
             }
@@ -120,10 +145,15 @@ fn parse_arguments(
     if stdin_filepath.is_some() && !paths.is_empty() {
         return Err("zincite-lint: --stdin-filepath requires stdin".into());
     }
-    Ok((paths, stdin_filepath))
+    Ok((paths, stdin_filepath, options.unwrap_or_default()))
 }
 
-fn check_source(label: &str, bytes: Vec<u8>, mode: FileMode) -> Result<u8, String> {
+fn check_source(
+    label: &str,
+    bytes: Vec<u8>,
+    mode: FileMode,
+    options: &LintOptions,
+) -> Result<u8, String> {
     let source = String::from_utf8(bytes).map_err(|error| {
         format!(
             "{label}: input is not UTF-8 at byte {}",
@@ -133,7 +163,7 @@ fn check_source(label: &str, bytes: Vec<u8>, mode: FileMode) -> Result<u8, Strin
     let text = source.strip_prefix('\u{feff}').unwrap_or(&source);
     let offset = source.len() - text.len();
     let parsed = parse_with_mode(text, mode);
-    match zincite_lint::lint(&parsed) {
+    match zincite_lint::lint_with_options(&parsed, options) {
         Ok(warnings) => {
             for warning in &warnings {
                 let message = format!("warning [{}]: {}", warning.rule.id(), warning.message);

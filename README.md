@@ -333,6 +333,7 @@ Install and run the lint command from this checkout:
 cargo install --path crates/zincite-lint
 zincite-lint model.mzn other.mzn
 zincite-lint models/
+zincite-lint --rules naming model.mzn
 zincite-lint < model.mzn
 zincite-lint --stdin-filepath data.dzn < data.dzn
 zincite-lint --help
@@ -345,6 +346,39 @@ path, line/column and precise byte ranges; warnings identify their severity and
 rule. The command exits 0 when clean, 1 for unsuppressed warnings, and 2 for
 input, syntax, suppression or usage errors. Errors take precedence and independent
 files are still checked. Source files are never rewritten.
+
+`--rules default` selects `naming` and `missing-constraint-label`; omitting the
+option does the same. `--rules thesis` selects exactly the fourteen thesis rules,
+and `--rules all` selects both groups. A comma-separated list such as
+`--rules naming,missing-constraint-label` selects exactly those IDs. Unknown IDs,
+empty list entries and repeated `--rules` are errors. Repeated IDs within a list
+select a rule once.
+
+The thesis catalogue is registered, but its rules are not implemented yet.
+Selecting any of them exits 2 with an unavailable-rule error; the presets do not
+claim successful thesis coverage. Registered thesis IDs are:
+
+```text
+array-index-start
+compact-if
+constant-variable
+effective-zero-one
+element-predicate
+reified-global
+global-variable-in-function
+unbounded-variable
+search-coverage
+decision-variable-operator
+unmarked-symmetry-breaking
+unused-declaration
+decision-variable-generator
+decision-variable-condition
+```
+
+A standalone `% zincite-lint: ignore RULE_ID` accepts any registered ID, including
+a disabled or unimplemented rule. It suppresses only that rule throughout the
+next complete top-level item; it does not make an unavailable selected rule
+executable. Existing placement and dangling-directive errors still apply.
 
 The `missing-constraint-label` warning suggests a string label to explain a
 constraint's modelling intent. A direct header label such as
@@ -380,7 +414,10 @@ loaded and name resolution, type checking and solver analysis are outside scope.
 
 Use the library independently with `zincite_lint::lint(&parsed)`. It returns
 warnings with rule, severity, message and byte range, or owned syntax/suppression
-diagnostics without partial warnings.
+diagnostics without partial warnings. `LintOptions::from_selection` resolves
+presets and explicit IDs; `lint_with_options(&parsed, &options)` runs a selected
+set. `Rule::DEFAULT` and `Rule::THESIS` expose preset membership. Unavailable
+selected rules return errors rather than partial warnings.
 
 ## Scope
 
