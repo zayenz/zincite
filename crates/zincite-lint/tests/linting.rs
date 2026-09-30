@@ -48,6 +48,22 @@ fn labels_are_direct_and_suppressions_cover_the_next_complete_item() {
 }
 
 #[test]
+fn naming_skips_unnamed_parameters_and_type_or_annotation_references() {
+    let parsed = parse(include_str!(
+        "../../../tests/fixtures/library-parameters.mzn"
+    ));
+    assert!(lint(&parsed).unwrap().is_empty());
+    let source =
+        "predicate library_signature(MissingType, int: BadParameter :: MissingAnnotation);";
+    let parsed = parse(source);
+    let warnings = lint(&parsed).unwrap();
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].rule, Rule::Naming);
+    let start = source.find("BadParameter").unwrap();
+    assert_eq!(warnings[0].range, start..start + "BadParameter".len());
+}
+
+#[test]
 fn invalid_suppressions_and_syntax_errors_omit_all_warnings() {
     for source in [
         "constraint true;\n% zincite-lint: ignore other\nconstraint false;",

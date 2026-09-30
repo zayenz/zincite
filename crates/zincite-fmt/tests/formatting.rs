@@ -590,6 +590,41 @@ fn callable_layout_preserves_signatures_comments_and_body_structure() {
 }
 
 #[test]
+fn library_parameter_layout_preserves_names_annotations_comments_and_structure() {
+    let parsed = parse(include_str!(
+        "../../../tests/fixtures/library-parameters.mzn"
+    ));
+    let formatted = format(&parsed).unwrap();
+    assert!(formatted.contains("annotation parameter_mark(string);"));
+    assert!(formatted.contains("function int: library_value(int, string) = 1;"));
+    assert!(formatted.contains(
+        "int: value :: other_mark :: parameter_mark(\"Keep  annotation\") = 1 :: other_mark,"
+    ));
+    assert!(
+        formatted.contains("var int: bound /* Keep  parameter comment */ :: promise_ctx_monotone,")
+    );
+    let reparsed = parse(formatted.clone());
+    assert!(
+        reparsed.diagnostics().is_empty(),
+        "{:?}",
+        reparsed.diagnostics()
+    );
+    assert_eq!(
+        structure(parsed.tree(), &parsed),
+        structure(reparsed.tree(), &reparsed)
+    );
+    let spellings = |file: &zincite_syntax::ParsedFile| {
+        file.tokens()
+            .iter()
+            .filter(|token| !matches!(token.kind, TokenKind::Whitespace | TokenKind::Comma))
+            .map(|token| file.source()[token.range.clone()].to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(spellings(&parsed), spellings(&reparsed));
+    assert_eq!(format(&reparsed).unwrap(), formatted);
+}
+
+#[test]
 fn model_item_layout_keeps_include_comments_and_annotation_attachment_stable() {
     let model = include_str!("../../../tests/fixtures/model-items.mzn");
     for mode in ["minimize", "maximize", "satisfy"] {

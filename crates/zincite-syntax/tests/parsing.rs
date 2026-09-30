@@ -791,6 +791,90 @@ fn callable_signatures_expose_names_parameters_defaults_and_generic_types() {
 }
 
 #[test]
+fn library_parameters_retain_unnamed_types_names_annotations_and_ranges() {
+    let source = include_str!("../../../tests/fixtures/library-parameters.mzn");
+    let parsed = parse(source);
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    let nodes = items(&parsed);
+    let unnamed = nodes[..5]
+        .iter()
+        .flat_map(|node| node.child_nodes())
+        .filter(|node| node.kind() == NodeKind::ParameterList)
+        .flat_map(SyntaxNode::child_nodes)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        unnamed
+            .iter()
+            .map(|node| &source[node.range()])
+            .collect::<Vec<_>>(),
+        ["string", "int", "string", "var int", "int"]
+    );
+    for parameter in unnamed {
+        assert_eq!(parameter.kind(), NodeKind::Parameter);
+        assert!(operator_text(parameter, &parsed).is_empty());
+        assert_eq!(parameter.child_nodes().count(), 1);
+        assert_eq!(
+            parameter.child_nodes().next().unwrap().range(),
+            parameter.range()
+        );
+    }
+    let parameter = nodes[5]
+        .child_nodes()
+        .find(|node| node.kind() == NodeKind::ParameterList)
+        .unwrap()
+        .child_nodes()
+        .next()
+        .unwrap();
+    assert_eq!(operator_text(parameter, &parsed), [":", "value", "="]);
+    let parts = parameter.child_nodes().collect::<Vec<_>>();
+    assert_eq!(
+        parts.iter().map(|node| node.kind()).collect::<Vec<_>>(),
+        [
+            NodeKind::ScalarType,
+            NodeKind::Annotation,
+            NodeKind::Annotation,
+            NodeKind::AnnotatedExpression
+        ]
+    );
+    assert_eq!(&source[parts[1].range()], ":: other_mark");
+    assert_eq!(
+        &source[parts[2].range()],
+        ":: parameter_mark(\"Keep  annotation\")"
+    );
+    assert_eq!(&source[parts[3].range()], "1 :: other_mark");
+    let name = parameter
+        .children()
+        .iter()
+        .find_map(|child| match child {
+            SyntaxElement::Token(index)
+                if parsed.tokens()[*index].kind == zincite_syntax::TokenKind::Identifier =>
+            {
+                Some(&parsed.tokens()[*index])
+            }
+            _ => None,
+        })
+        .unwrap();
+    let start = source.find("value ::").unwrap();
+    assert_eq!(name.range, start..start + "value".len());
+    assert_eq!(
+        parameter.range(),
+        source.find("int: value").unwrap()..source.find(",\n) = value").unwrap()
+    );
+    let mut leaves = Vec::new();
+    collect_leaves(parsed.tree(), &parsed, &mut leaves);
+    assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+    let reconstructed: String = leaves
+        .iter()
+        .map(|&index| &source[parsed.tokens()[index].range.clone()])
+        .collect();
+    assert_eq!(reconstructed, source);
+}
+
+#[test]
 fn forbidden_parameter_types_and_malformed_callables_recover() {
     for source in [
         "predicate bad(set(2) of int: values);",
@@ -800,7 +884,10 @@ fn forbidden_parameter_types_and_malformed_callables_recover() {
         "predicate bad(any: value);",
         "function int bad(int: value);",
         "test bad(int: value=);",
-        "predicate bad(int: value :: tag);",
+        "predicate bad(int:);",
+        "predicate bad(int: value ::);",
+        "predicate bad(int :: tag: value);",
+        "predicate bad(int = 1);",
         "annotation bad :: tag;",
         "function int: bad(int: value = 1;",
         "predicate bad(int: value) = ;",

@@ -148,7 +148,9 @@ pub enum NodeKind {
     AnnotationDeclaration,
     /// Parentheses and ordered Parameter children; omitted lists have no node.
     ParameterList,
-    /// The type child, direct name token, and optional default expression child.
+    /// The type child, optional direct name token, ordered Annotation children,
+    /// and optional default expression child. Unnamed parameters contain only a
+    /// type; annotations after a default belong to that expression.
     Parameter,
     /// Generic variable spelling, with any/var/par/opt qualifiers retained.
     TypeInstVariable,

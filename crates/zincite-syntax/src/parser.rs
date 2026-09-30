@@ -343,11 +343,19 @@ impl Parser<'_> {
             self.trivia(&mut parameters);
             let parameter_start = self.position;
             let mut parameter = vec![SyntaxElement::Node(self.type_inst_context(true)?)];
-            self.expect(Colon, &mut parameter, "expected ':' after parameter type")?;
-            self.name(&mut parameter)?;
-            if self.peek() == Some(Equal) {
+            if self.peek() == Some(Colon) {
                 self.bump(&mut parameter);
-                self.expression(&mut parameter)?;
+                self.name(&mut parameter)?;
+                while self.peek() == Some(AnnotationMarker) {
+                    self.trivia(&mut parameter);
+                    parameter.push(SyntaxElement::Node(self.annotation()?));
+                }
+                if self.peek() == Some(Equal) {
+                    self.bump(&mut parameter);
+                    self.expression(&mut parameter)?;
+                }
+            } else if !matches!(self.peek(), Some(Comma | RightParen)) {
+                return Err("expected ':', ',' or ')' after parameter type");
             }
             parameters.push(SyntaxElement::Node(self.node(
                 NodeKind::Parameter,

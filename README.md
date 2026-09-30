@@ -36,8 +36,10 @@ the key/value entry nodes. Each generator retains its written binding names and
 Generator calls expose that same list followed by a parenthesized body.
 Function, predicate, test and annotation declarations expose their name as a direct
 token. Their optional `ParameterList` contains ordered `Parameter` nodes with a
-type child, direct binding name and optional default expression; name tokens and
-parameter nodes retain precise byte ranges. Generic variables have a distinct
+type child, optional direct binding name, ordered `Annotation` children and an
+optional default expression. Unnamed parameters contain only their type; annotations
+after a default belong to that expression. Name tokens and parameter nodes retain
+precise byte ranges. Generic variables have a distinct
 `TypeInstVariable` kind and retain their qualifiers and written `$T`/`$$Index`
 spelling. These views borrow the existing tree.
 Interpolated strings expose their embedded expressions as ordered child nodes,
@@ -129,9 +131,13 @@ The parser supports:
   token leaves as top-level names.
 - Function, predicate, test and annotation declarations with optional parameter
   lists and bodies. Parameters support the existing scalar/collection types,
-  generic type-inst variables, `any`-qualified variables and default expressions.
+  generic type-inst variables, `any`-qualified variables and named defaults.
+  MiniZinc 2.10.1 also accepts type-only unnamed parameters and annotations after
+  named parameters, before an optional default. Zincite supports these compiler
+  extensions to the narrower printed parameter grammar. A written colon still
+  requires a name; unnamed defaults and annotations before the name are rejected.
   Function, predicate and test declarations support declaration annotations; the
-  pinned grammar does not permit those on annotation declarations or parameters.
+  pinned grammar does not permit declaration annotations on annotation declarations.
   Set cardinalities and dependent array index bindings are excluded from parameter
   types where the parameter grammar requires it. Array index types themselves use
   the ordinary type grammar. Return types use that same ordinary grammar.
