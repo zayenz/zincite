@@ -77,3 +77,99 @@ fn invalid_suppressions_and_syntax_errors_omit_all_warnings() {
     assert!(!parsed.diagnostics().is_empty());
     assert_eq!(lint(&parsed).unwrap_err(), parsed.diagnostics());
 }
+
+#[test]
+fn naming_checks_declared_roles_without_matching_references_or_resolving_aliases() {
+    let source = concat!(
+        "enum bad_enum = {bad_case, GoodCase} ++ bad_constructor({1});\n",
+        "type bad_alias = int;\n",
+        "set of int: bad_set; var set of int: BadDecision;\n",
+        "array [BadIndex in 1..2] of set of int: BadArray;\n",
+        "function bool: BadFunction(int: BadParameter) = let { int: BadLocal; } in true;\n",
+        "record(int: BadField): good_record;\n",
+        "predicate BadPredicate = true; test BadTest = true;\n",
+        "annotation BadAnnotation(int: BadAnnotationParameter);\n",
+        "array [1..2] of int: values = [BadGenerator | BadGenerator in 1..2];\n",
+        "int: _BadUnused = 1; enum SHOUTY = {A};\n",
+    );
+    let parsed = parse(source);
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    let warnings = lint(&parsed).unwrap();
+    let expected = [
+        "bad_enum",
+        "bad_case",
+        "bad_constructor",
+        "bad_alias",
+        "bad_set",
+        "BadDecision",
+        "BadIndex",
+        "BadArray",
+        "BadFunction",
+        "BadParameter",
+        "BadLocal",
+        "BadField",
+        "BadPredicate",
+        "BadTest",
+        "BadAnnotation",
+        "BadAnnotationParameter",
+        "BadGenerator in",
+        "_BadUnused",
+        "SHOUTY",
+    ];
+    assert_eq!(warnings.len(), expected.len(), "{warnings:?}");
+    for (warning, marker) in warnings.iter().zip(expected) {
+        let name = marker.split_whitespace().next().unwrap();
+        let start = source.find(marker).unwrap();
+        assert_eq!(warning.range, start..start + name.len());
+        assert_eq!(warning.rule, Rule::Naming);
+        assert_eq!(warning.severity, Severity::Warning);
+    }
+    let valid = concat!(
+        "enum GoodEnum = {GoodCase} ++ GoodConstructor(BadReference);\n",
+        "type GoodAlias = int; set of int: GoodDomain; var set of int: good_set;\n",
+        "array [index in 1..2] of set of int: good_array;\n",
+        "function bool: good_function(int: good_parameter, set of int: good_set_parameter) = let { int: good_local; } in true;\n",
+        "record(int: good_field): good_record; annotation good_annotation;\n",
+        "array [1..2] of int: good_values = [BadReference | good_generator in 1..2];\n",
+        "int: _unused = BadReference; int: 'Quoted NAME' = 1;\n",
+        "Alias: UnclassifiedName; (Alias): OtherUnclassified; any: InferredUnknown; var Alias: good_decision;\n",
+        "constraint :: \"label\" forall (_ in 1..2) (true);\n",
+    );
+    let parsed = parse(valid);
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    assert!(lint(&parsed).unwrap().is_empty());
+    let data = zincite_syntax::parse_with_mode("BAD_TARGET = 1;", zincite_syntax::FileMode::Data);
+    assert!(lint(&data).unwrap().is_empty());
+}
+
+#[test]
+fn naming_and_label_suppressions_are_independent_and_stop_at_the_next_item() {
+    let source = concat!(
+        "% zincite-lint: ignore naming\n",
+        "function bool: BadName(int: BadParameter) = let { constraint true; } in true;\n",
+        "% zincite-lint: ignore missing-constraint-label\n",
+        "function bool: OtherBadName = let { constraint true; int: BadLocal; } in true;\n",
+        "% zincite-lint: ignore naming\n",
+        "% zincite-lint: ignore missing-constraint-label\n",
+        "function bool: SuppressedBadName = let { constraint true; int: SuppressedBadLocal; } in true;\n",
+        "int: NextBadName;\n",
+    );
+    let warnings = lint(&parse(source)).unwrap();
+    assert_eq!(warnings.len(), 4, "{warnings:?}");
+    assert_eq!(warnings[0].rule, Rule::MissingConstraintLabel);
+    for (warning, name) in warnings[1..]
+        .iter()
+        .zip(["OtherBadName", "BadLocal", "NextBadName"])
+    {
+        assert_eq!(warning.rule, Rule::Naming);
+        assert_eq!(&source[warning.range.clone()], name);
+    }
+}

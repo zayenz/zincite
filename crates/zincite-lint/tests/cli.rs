@@ -39,7 +39,7 @@ fn cli_reports_located_advice_errors_and_processes_independent_files_without_wri
         assert!(output.status.success());
         assert!(output.stdout.is_empty() && output.stderr.is_empty());
     }
-    let data = run(&["--stdin-filepath", "data.dzn"], "value=1;");
+    let data = run(&["--stdin-filepath", "data.dzn"], "BAD_TARGET=1;");
     assert!(data.status.success());
     for source in [
         "constraint true; int:x=;",
@@ -59,6 +59,17 @@ fn cli_reports_located_advice_errors_and_processes_independent_files_without_wri
     ] {
         assert_eq!(run(&arguments, "").status.code(), Some(2));
     }
+    let naming = run(&[], "int: BadName = 1;");
+    assert_eq!(naming.status.code(), Some(1));
+    assert!(naming.stdout.is_empty());
+    assert!(
+        String::from_utf8(naming.stderr)
+            .unwrap()
+            .contains("bytes 5..12: warning [naming]")
+    );
+    let naming = run(&[], "% zincite-lint: ignore naming\nint: BadName = 1;");
+    assert!(naming.status.success());
+    assert!(naming.stdout.is_empty() && naming.stderr.is_empty());
     let directory = std::env::temp_dir().join(format!("zincite-lint-{}", std::process::id()));
     std::fs::create_dir(&directory).unwrap();
     let bad = directory.join("bad.mzn");

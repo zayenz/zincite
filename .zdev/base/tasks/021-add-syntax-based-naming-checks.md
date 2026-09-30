@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-021"
 key = "naming-lint"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -26,13 +26,23 @@ Read brief Initial lint contract, the existing label rule/suppressions and typed
 
 ## Done when
 
-- [ ] All classifiable roles in the brief receive snake_case or UpperCamelCase checks, with parameter sets distinguished from set-valued decision variables.
-- [ ] Callable parameters, fields, generators and local declarations are checked as bindings, while references and semantically ambiguous classifications are skipped.
-- [ ] Existing naming suppressions now silence only naming warnings through the next item, including nested bindings; label warnings remain independent.
-- [ ] CLI data-file mode, exit statuses and help cover both implemented rules and the completed syntax baseline.
+- [x] All classifiable roles in the brief receive snake_case or UpperCamelCase checks, with parameter sets distinguished from set-valued decision variables.
+- [x] Callable parameters, fields, generators and local declarations are checked as bindings, while references and semantically ambiguous classifications are skipped.
+- [x] Existing naming suppressions now silence only naming warnings through the next item, including nested bindings; label warnings remain independent.
+- [x] CLI data-file mode, exit statuses and help cover both implemented rules and the completed syntax baseline.
 
 ## Validation
 
 - Run the area Cargo checks from brief.md. Reuse existing fixtures; add only the focused behavior evidence named here.
 - Use compact positive/negative examples for the naming roles, including a parameter set versus decision set, a nested binding, exemptions and .dzn targets.
 - Check isolation between both rules and successive items under suppression; reuse label-lint CLI tests rather than duplicate them.
+
+## Result
+
+Implemented syntax-based naming checks with independent next-item suppressions and updated lint help and README.
+
+Validation:
+
+- Independent whole-task verifier PASS against W8e077894b71aa7c3; unchanged snapshot confirmed.
+- cargo fmt --all -- --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace: all 53 tests passed.
+- Focused checks passed for declared roles, sets versus arrays, nested bindings, exemptions, skipped references/data targets and rule suppression isolation.

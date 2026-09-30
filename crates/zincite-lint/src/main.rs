@@ -10,17 +10,24 @@ No input or '-' reads stdin; stdin cannot be mixed with files.
 --stdin-filepath PATH selects the stdin language mode and diagnostic path.
 .dzn paths use assignment-only data syntax; other paths use model syntax.
 
-Rule: warning missing-constraint-label recommends a direct constraint-header
-string label. Nested strings and expression annotations do not count as labels.
+Rules (both warnings, enabled by default):
+    naming: snake_case for values, callable names, parameters, fields and bindings;
+            UpperCamelCase for enum/type/constructor names and explicit parameter
+            sets/domains. Decision sets use snake_case. No SHOUTY_CASE.
+    missing-constraint-label: recommend a direct constraint-header string label.
+            Nested strings and expression annotations do not count as labels.
+Naming skips references, alias-dependent roles and data assignment targets.
+Quoted names and anonymous '_' are exempt; a single leading underscore is
+allowed, with the remaining spelling checked normally.
 Standalone suppressions apply throughout the next top-level item:
     % zincite-lint: ignore missing-constraint-label
     % zincite-lint: ignore naming
-Consecutive comments can suppress both rules. Naming warnings are not yet implemented.
+Consecutive comments can suppress both rules independently, including nested bindings.
 Unknown, malformed, misplaced or dangling suppressions are errors.
 
 The shared parser covers MiniZinc 2.10.1 model/data syntax; reserved
 variant_record and case syntax is unsupported. Includes are not loaded, and
-names, types, semantic validity and solver performance are not checked.
+name resolution, types, semantic validity and solver performance are not checked.
 Syntax errors omit lint rules for that file. Independent files are processed.
 Exit codes: 0 clean, 1 unsuppressed warnings, 2 input/parse/directive/usage errors.
 -h, --help shows this help.

@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 21
-- Ready: 1
+- Ready: 0
 - Blocked: 0
-- Done: 20
+- Done: 21
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -29,4 +29,4 @@
 | [base-018](tasks/018-add-formatter-check-and-safe-write-modes.md) | Add formatter check and safe write modes | done | base-013, base-017 |
 | [base-019](tasks/019-resolve-editorconfig-and-explicit-formatter-overrides.md) | Resolve EditorConfig and explicit formatter overrides | done | base-018, base-015 |
 | [base-020](tasks/020-deliver-missing-label-lint-with-suppressions.md) | Deliver missing-label lint with suppressions | done | base-003 |
-| [base-021](tasks/021-add-syntax-based-naming-checks.md) | Add syntax-based naming checks | ready | base-020, base-013 |
+| [base-021](tasks/021-add-syntax-based-naming-checks.md) | Add syntax-based naming checks | done | base-020, base-013 |

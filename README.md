@@ -3,7 +3,8 @@
 Zincite is a Rust project for MiniZinc source tooling. `zincite-fmt` formats
 model and data syntax using the shared `zincite-syntax` parser and concrete
 syntax tree. The tree retains source spelling, comments, whitespace and byte
-ranges. `zincite-lint` uses the same tree to advise on missing constraint labels.
+ranges. `zincite-lint` checks declared naming roles and advises on missing
+constraint labels using the same tree.
 
 `zincite_syntax::lex` owns UTF-8 source text and exposes read-only source,
 tokens and lexical diagnostics. Token ranges cover every byte exactly once,
@@ -337,7 +338,17 @@ constraint true;
 
 Consecutive comments may suppress both rules. Unknown rule IDs, malformed or
 misplaced directives and directives without a following item fail the file.
-`naming` is recognized for suppression; naming warnings are not yet implemented.
+Both rules are warnings enabled by default. `naming` checks ordinary values,
+arrays, callable names, parameters, fields, dependent index bindings, generators
+and local declarations for `snake_case`. Enum/type names, constructors and
+explicitly declared parameter sets/domains use `UpperCamelCase`; set-valued
+decision variables use `snake_case`. Arrays keep `snake_case` even when their
+elements are sets. `SHOUTY_CASE` is discouraged. Anonymous `_` and quoted names
+are exempt. A single leading underscore is allowed for an unused binding, while
+the remaining spelling is checked normally.
+
+Naming checks declared syntax roles and skips references, standalone data-file
+assignment targets and classifications that need alias or type resolution.
 Syntax errors omit all lint rules for that file. The shared parser's supported
 syntax and exclusions described above also apply to linting; includes are never
 loaded and name resolution, type checking and solver analysis are outside scope.
@@ -351,7 +362,7 @@ diagnostics without partial warnings.
 The initial target is MiniZinc 2.10.1, covering model (`.mzn`) and data (`.dzn`)
 files. The formatter supports explicit files and stdin, with stdout, check
 and in-place modes, with EditorConfig and explicit CLI layout overrides.
-Linting advises on missing constraint labels; naming checks remain planned.
+Linting checks declared naming roles and advises on missing constraint labels.
 
 Formatting will preserve comments and source meaning, with layouts chosen to
 keep later diffs small. The default width is 120 columns with four-space

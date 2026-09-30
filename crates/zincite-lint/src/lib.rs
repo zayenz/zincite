@@ -3,6 +3,8 @@
 use std::ops::Range;
 use zincite_syntax::{Diagnostic, NodeKind, ParsedFile, SyntaxElement, SyntaxNode, TokenKind};
 
+mod naming;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Rule {
     Naming,
@@ -32,28 +34,38 @@ pub struct LintDiagnostic {
 }
 
 /// Lint a complete parsed file. Syntax or suppression errors omit all warnings.
-/// Suppressions apply throughout the next top-level item. Naming is currently
-/// recognized for suppression only; missing-label warnings are modelling advice.
+/// Suppressions apply independently throughout the next top-level item. Naming
+/// checks declared syntax roles; missing-label warnings are modelling advice.
 pub fn lint(parsed: &ParsedFile) -> Result<Vec<LintDiagnostic>, Vec<Diagnostic>> {
     if !parsed.diagnostics().is_empty() {
         return Err(parsed.diagnostics().to_vec());
     }
     let items: Vec<_> = parsed.tree().child_nodes().collect();
-    let suppressed = missing_label_suppressions(parsed, &items)?;
+    let suppressed = item_suppressions(parsed, &items)?;
     let mut warnings = Vec::new();
     for (item, suppressed) in items.into_iter().zip(suppressed) {
-        if !suppressed {
+        if !suppressed.naming {
+            naming::check_names(item, parsed, &mut warnings);
+        }
+        if !suppressed.missing_label {
             missing_labels(item, parsed, &mut warnings);
         }
     }
+    warnings.sort_by_key(|warning| warning.range.start);
     Ok(warnings)
 }
 
-fn missing_label_suppressions(
+#[derive(Clone, Copy, Default)]
+struct Suppression {
+    naming: bool,
+    missing_label: bool,
+}
+
+fn item_suppressions(
     parsed: &ParsedFile,
     items: &[&SyntaxNode],
-) -> Result<Vec<bool>, Vec<Diagnostic>> {
-    let mut suppressed = vec![false; items.len()];
+) -> Result<Vec<Suppression>, Vec<Diagnostic>> {
+    let mut suppressed = vec![Suppression::default(); items.len()];
     for token in parsed.tokens() {
         if token.kind != TokenKind::LineComment {
             continue;
@@ -96,8 +108,9 @@ fn missing_label_suppressions(
         else {
             return Err(error("lint suppression has no following item"));
         };
-        if rule == Rule::MissingConstraintLabel {
-            suppressed[next] = true;
+        match rule {
+            Rule::Naming => suppressed[next].naming = true,
+            Rule::MissingConstraintLabel => suppressed[next].missing_label = true,
         }
     }
     Ok(suppressed)
