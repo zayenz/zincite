@@ -1,10 +1,12 @@
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use zincite_lint::LintOptions;
+use zincite_lint::{
+    LintOptions, ModelOptions, analyze_file, analyze_model, load_model, write_analysis,
+};
 use zincite_syntax::{FileMode, parse_with_mode};
 
-const HELP: &str = "Usage: zincite-lint [--rules SELECTION] [--stdin-filepath PATH] [FILE|DIR...|-]
+const HELP: &str = "Usage: zincite-lint [--rules SELECTION] [-I DIR] [--stdlib-dir DIR] [--stdin-filepath PATH] [FILE|DIR...|-]
 
 Report MiniZinc modelling advice on stderr without rewriting source.
 No input or '-' reads stdin; stdin cannot be mixed with files.
@@ -18,6 +20,9 @@ Overlapping inputs use the first path to each file.
 Omitted --rules selects default; repeated --rules and unknown IDs are errors.
 The thesis preset selects its fourteen catalogue rules; all includes the defaults.
 Thesis rules are registered but not implemented yet: selecting one reports an error.
+-I DIR adds an ordered include directory for rules requiring model analysis.
+--stdlib-dir DIR supplies the MiniZinc library root, overriding MZN_STDLIB_DIR.
+Current default rules do not load includes or the standard library.
 
 Default rules (both warnings):
     naming: snake_case for values, callable names, parameters, fields and bindings;
@@ -36,10 +41,11 @@ Every registered rule ID can be suppressed even when disabled. Suppressions affe
 only their own rule. Unknown, malformed, misplaced or dangling directives are errors.
 
 The shared parser covers MiniZinc 2.10.1 model/data syntax; reserved
-variant_record and case syntax is unsupported. Includes are not loaded, and
-name resolution, types, semantic validity and solver performance are not checked.
+variant_record and case syntax is unsupported. Name resolution, types, semantic
+validity and solver performance are not checked by the current rules.
 Syntax errors omit lint rules for that file. Independent files are processed.
-Exit codes: 0 clean, 1 unsuppressed warnings, 2 input/parse/directive/usage errors.
+Exit codes: 0 clean, 1 unsuppressed warnings, 2 input/parse/directive/usage/dependency errors.
+Analysis limitations alone retain status 0 or 1.
 -h, --help shows this help.
 ";
 
@@ -61,11 +67,22 @@ fn run() -> Result<u8, String> {
             .map_err(|error| format!("stdout: {error}"))?;
         return Ok(0);
     }
-    let (paths, stdin_filepath, options) = parse_arguments(arguments)?;
+    let Arguments {
+        paths,
+        stdin_filepath,
+        options,
+        model,
+    } = parse_arguments(
+        arguments,
+        std::env::var_os("MZN_STDLIB_DIR").map(PathBuf::from),
+    )?;
     options
         .check_available()
         .map_err(|message| format!("zincite-lint: {message}"))?;
     if paths.is_empty() {
+        if options.requires_model() {
+            return Err("zincite-lint: selected model rules require positional model files".into());
+        }
         let mut bytes = Vec::new();
         io::stdin()
             .read_to_end(&mut bytes)
@@ -84,9 +101,15 @@ fn run() -> Result<u8, String> {
     }
     for path in inputs.files {
         let label = path.to_string_lossy();
-        let result = std::fs::read(&path)
-            .map_err(|error| format!("{label}: {error}"))
-            .and_then(|bytes| check_source(&label, bytes, FileMode::from_path(&path), &options));
+        let result = if options.requires_model() && FileMode::from_path(&path) == FileMode::Model {
+            let context = load_model(&path, &model);
+            write_analysis(&analyze_model(&context, &options), &mut io::stderr())
+                .map_err(|error| format!("stderr: {error}"))
+        } else {
+            std::fs::read(&path)
+                .map_err(|error| format!("{label}: {error}"))
+                .and_then(|bytes| check_source(&label, bytes, FileMode::from_path(&path), &options))
+        };
         match result {
             Ok(file_status) => status = status.max(file_status),
             Err(message) => {
@@ -98,12 +121,21 @@ fn run() -> Result<u8, String> {
     Ok(status)
 }
 
+struct Arguments {
+    paths: Vec<PathBuf>,
+    stdin_filepath: Option<PathBuf>,
+    options: LintOptions,
+    model: ModelOptions,
+}
+
 fn parse_arguments(
     arguments: Vec<std::ffi::OsString>,
-) -> Result<(Vec<PathBuf>, Option<PathBuf>, LintOptions), String> {
+    stdlib_fallback: Option<PathBuf>,
+) -> Result<Arguments, String> {
     let mut paths = Vec::new();
     let mut stdin_filepath = None;
     let mut options = None;
+    let mut model = ModelOptions::default();
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
         if argument == "--rules" {
@@ -120,6 +152,21 @@ fn parse_arguments(
                 LintOptions::from_selection(selection)
                     .map_err(|message| format!("zincite-lint: {message}"))?,
             );
+        } else if argument == "-I" {
+            model.include_dirs.push(PathBuf::from(
+                arguments
+                    .next()
+                    .ok_or("zincite-lint: -I requires a directory")?,
+            ));
+        } else if argument == "--stdlib-dir" {
+            if model.stdlib_dir.is_some() {
+                return Err("zincite-lint: repeated --stdlib-dir".into());
+            }
+            model.stdlib_dir = Some(PathBuf::from(
+                arguments
+                    .next()
+                    .ok_or("zincite-lint: --stdlib-dir requires a directory")?,
+            ));
         } else if argument == "--stdin-filepath" {
             if stdin_filepath.is_some() {
                 return Err("zincite-lint: repeated --stdin-filepath".into());
@@ -145,7 +192,13 @@ fn parse_arguments(
     if stdin_filepath.is_some() && !paths.is_empty() {
         return Err("zincite-lint: --stdin-filepath requires stdin".into());
     }
-    Ok((paths, stdin_filepath, options.unwrap_or_default()))
+    model.stdlib_dir = model.stdlib_dir.or(stdlib_fallback);
+    Ok(Arguments {
+        paths,
+        stdin_filepath,
+        options: options.unwrap_or_default(),
+        model,
+    })
 }
 
 fn check_source(
@@ -163,62 +216,30 @@ fn check_source(
     let text = source.strip_prefix('\u{feff}').unwrap_or(&source);
     let offset = source.len() - text.len();
     let parsed = parse_with_mode(text, mode);
-    match zincite_lint::lint_with_options(&parsed, options) {
-        Ok(warnings) => {
-            for warning in &warnings {
-                let message = format!("warning [{}]: {}", warning.rule.id(), warning.message);
-                writeln!(
-                    io::stderr(),
-                    "{}",
-                    render_diagnostic(label, text, warning.range.clone(), offset, &message)
-                )
-                .map_err(|error| format!("stderr: {error}"))?;
-            }
-            Ok(u8::from(!warnings.is_empty()))
-        }
-        Err(errors) => Err(errors
-            .iter()
-            .map(|error| {
-                render_diagnostic(
-                    label,
-                    text,
-                    error.range.clone(),
-                    offset,
-                    &format!("error: {}", error.message),
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n")),
-    }
+    write_analysis(
+        &analyze_file(&parsed, label, offset, options),
+        &mut io::stderr(),
+    )
+    .map_err(|error| format!("stderr: {error}"))
 }
 
-fn render_diagnostic(
-    label: &str,
-    source: &str,
-    range: std::ops::Range<usize>,
-    offset: usize,
-    message: &str,
-) -> String {
-    let mut line = 1;
-    let mut column = 1;
-    let mut characters = source[..range.start].chars().peekable();
-    while let Some(character) = characters.next() {
-        if character == '\r' {
-            if characters.peek() == Some(&'\n') {
-                characters.next();
-            }
-            line += 1;
-            column = 1;
-        } else if character == '\n' {
-            line += 1;
-            column = 1;
-        } else {
-            column += 1;
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explicit_library_overrides_fallback_and_include_directories_remain_ordered() {
+        let arguments = ["-I", "first", "-I", "second", "--stdlib-dir", "explicit"]
+            .into_iter()
+            .map(Into::into)
+            .collect();
+        let parsed = parse_arguments(arguments, Some("environment".into())).unwrap();
+        assert_eq!(parsed.model.stdlib_dir, Some("explicit".into()));
+        assert_eq!(
+            parsed.model.include_dirs,
+            [PathBuf::from("first"), PathBuf::from("second")]
+        );
+        let fallback = parse_arguments(Vec::new(), Some("environment".into())).unwrap();
+        assert_eq!(fallback.model.stdlib_dir, Some("environment".into()));
     }
-    format!(
-        "{label}:{line}:{column}: bytes {}..{}: {message}",
-        range.start + offset,
-        range.end + offset
-    )
 }

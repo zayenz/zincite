@@ -1,10 +1,20 @@
-//! Syntax-based MiniZinc modelling advice, without name or type resolution.
+//! MiniZinc modelling advice with syntax-only defaults and explicit model loading.
 
 use std::ops::Range;
 use zincite_syntax::{Diagnostic, NodeKind, ParsedFile, SyntaxElement, SyntaxNode, TokenKind};
 
+mod analysis;
+mod model;
 mod naming;
 mod rules;
+pub use analysis::{
+    AnalysisResult, FileFinding, RuleExecution, RuleOutcome, analyze_file, analyze_model,
+    write_analysis,
+};
+pub use model::{
+    FileId, IncludeEdge, ModelContext, ModelFile, ModelOptions, SourceDiagnostic, SourceKind,
+    SourceLocation, load_model,
+};
 pub use rules::{LintOptions, Rule};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,8 +54,16 @@ pub fn lint_with_options(
             message,
         }]
     })?;
+    Ok(lint_items(parsed, &suppressed, options))
+}
+
+fn lint_items(
+    parsed: &ParsedFile,
+    suppressed: &[Vec<Rule>],
+    options: &LintOptions,
+) -> Vec<LintDiagnostic> {
     let mut warnings = Vec::new();
-    for (item, suppressed) in items.into_iter().zip(suppressed) {
+    for (item, suppressed) in parsed.tree().child_nodes().zip(suppressed) {
         if options.rules.contains(&Rule::Naming) && !suppressed.contains(&Rule::Naming) {
             naming::check_names(item, parsed, &mut warnings);
         }
@@ -56,7 +74,7 @@ pub fn lint_with_options(
         }
     }
     warnings.sort_by_key(|warning| warning.range.start);
-    Ok(warnings)
+    warnings
 }
 
 fn item_suppressions(

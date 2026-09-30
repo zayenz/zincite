@@ -2,7 +2,19 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 fn run(arguments: &[&str], source: &str) -> std::process::Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_zincite-lint"))
+    run_with_library(arguments, source, None)
+}
+
+fn run_with_library(
+    arguments: &[&str],
+    source: &str,
+    library: Option<&str>,
+) -> std::process::Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_zincite-lint"));
+    if let Some(library) = library {
+        command.env("MZN_STDLIB_DIR", library);
+    }
+    let mut child = command
         .args(arguments)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -16,6 +28,45 @@ fn run(arguments: &[&str], source: &str) -> std::process::Output {
         .write_all(source.as_bytes())
         .unwrap();
     child.wait_with_output().unwrap()
+}
+
+#[test]
+fn model_configuration_does_not_load_dependencies_for_syntax_defaults_or_unavailable_rules() {
+    let source = "include \"missing_dependency.mzn\"; int: good_name = 1;";
+    for arguments in [
+        vec![],
+        vec!["-I", "missing_first", "-I", "missing_second"],
+        vec!["--stdlib-dir", "missing_explicit_library"],
+    ] {
+        let output = run_with_library(&arguments, source, Some("missing_environment_library"));
+        assert_eq!(output.status.code(), Some(0));
+        assert!(output.stdout.is_empty() && output.stderr.is_empty());
+    }
+    for selection in ["thesis", "all", "naming,compact-if"] {
+        let output = run_with_library(
+            &[
+                "--rules",
+                selection,
+                "--stdlib-dir",
+                "missing_explicit_library",
+                "missing_input.mzn",
+            ],
+            "",
+            Some("missing_environment_library"),
+        );
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains("unavailable rules (not implemented)"));
+        assert!(!stderr.contains("missing_input") && !stderr.contains("cannot load"));
+    }
+    for arguments in [
+        vec!["-I"],
+        vec!["--stdlib-dir"],
+        vec!["--stdlib-dir", "one", "--stdlib-dir", "two"],
+    ] {
+        assert_eq!(run(&arguments, source).status.code(), Some(2));
+    }
 }
 
 #[test]

@@ -429,3 +429,61 @@ pub enum TokenKind {
     /// The Unicode inverse spelling `⁻¹`, equivalent to the sequence `^-1`.
     Inverse,
 }
+
+/// Decode a literal include path as bytes without loading files or evaluating
+/// interpolations. Unsupported paths return None; source spelling is untouched.
+pub fn literal_include_path(parsed: &ParsedFile, item: &SyntaxNode) -> Option<Vec<u8>> {
+    if item.kind() != NodeKind::Include {
+        return None;
+    }
+    let path = item.child_nodes().next()?;
+    if path.kind() == NodeKind::InterpolatedString {
+        // Evaluating interpolations would require model semantics. Keep these
+        // includes in place as group boundaries instead.
+        return None;
+    }
+    let text = path.children().iter().find_map(|child| match child {
+        SyntaxElement::Token(index) if parsed.tokens()[*index].kind == TokenKind::StringLiteral => {
+            Some(&parsed.source()[parsed.tokens()[*index].range.clone()])
+        }
+        _ => None,
+    })?;
+    let mut decoded = Vec::new();
+    let mut bytes = text[1..text.len() - 1].bytes().peekable();
+    while let Some(byte) = bytes.next() {
+        if byte != b'\\' {
+            decoded.push(byte);
+            continue;
+        }
+        let escaped = bytes.next()?;
+        decoded.push(match escaped {
+            b'n' => b'\n',
+            b't' => b'\t',
+            b'"' | b'\\' => escaped,
+            b'x' | b'0'..=b'7' => {
+                let radix = if escaped == b'x' { 16 } else { 8 };
+                let mut value = if radix == 8 {
+                    u32::from(escaped - b'0')
+                } else {
+                    0
+                };
+                for _ in 0..2 {
+                    let Some(digit) = bytes
+                        .peek()
+                        .and_then(|byte| char::from(*byte).to_digit(radix))
+                    else {
+                        break;
+                    };
+                    bytes.next();
+                    value = value * radix + digit;
+                }
+                value as u8
+            }
+            _ => return None,
+        });
+    }
+    // Escapes insert UTF-8 bytes, not Unicode code points; byte ordering agrees
+    // with scalar ordering for UTF-8. Preserve the written spelling in output.
+    // https://docs.minizinc.dev/en/2.10.1/spec.html#string-literals-and-string-interpolation
+    Some(decoded)
+}

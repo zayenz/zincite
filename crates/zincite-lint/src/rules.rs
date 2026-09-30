@@ -70,6 +70,11 @@ impl Rule {
     pub fn is_available(self) -> bool {
         matches!(self, Self::Naming | Self::MissingConstraintLabel)
     }
+
+    /// The original rules inspect one file; thesis rules require model facts.
+    pub fn requires_model(self) -> bool {
+        !matches!(self, Self::Naming | Self::MissingConstraintLabel)
+    }
 }
 
 /// Selected rules. The default keeps Zincite's original two syntax rules.
@@ -87,6 +92,10 @@ impl Default for LintOptions {
 }
 
 impl LintOptions {
+    pub fn requires_model(&self) -> bool {
+        self.rules.iter().any(|rule| rule.requires_model())
+    }
+
     /// Resolve a preset or comma-separated IDs. Availability is checked before
     /// execution, so callers can inspect the complete registered presets.
     pub fn from_selection(selection: &str) -> Result<Self, String> {
