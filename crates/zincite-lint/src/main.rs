@@ -20,15 +20,19 @@ Overlapping inputs use the first path to each file.
 Omitted --rules selects default; repeated --rules and unknown IDs are errors.
 The thesis preset selects its fourteen catalogue rules; all includes the defaults.
 global-variable-in-function, element-predicate, decision-variable-operator,
-decision-variable-generator, decision-variable-condition and array-index-start
+decision-variable-generator, decision-variable-condition, array-index-start and constant-variable
 are implemented.
-The other eight thesis rules
+The other seven thesis rules
 remain unavailable and selecting any of them reports an error.
 -I DIR adds an ordered include directory for rules requiring model analysis.
 --stdlib-dir DIR supplies the MiniZinc library root, overriding MZN_STDLIB_DIR.
 Current default rules do not load includes or the standard library.
 array-index-start advises starting known nonempty numeric index sets at 1.
 It retains named domains and enum identity; unknown symbolic bounds stay quiet.
+constant-variable advises expressing parameter-valued whole definitions as parameters.
+It admits initializers, enforced equalities and complete unfiltered core forall
+definitions over matching indices. Conditional/partial definitions stay quiet;
+unsupported option or value safety reports a limitation. No fix is performed.
 global-variable-in-function advises passing captured global decisions as arguments.
 It resolves lexical bindings and declared instantiation, without full type checking.
 element-predicate recommends indexing equality for a resolved three-argument

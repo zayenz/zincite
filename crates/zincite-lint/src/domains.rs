@@ -175,7 +175,11 @@ impl Walker<'_> {
         result
     }
     fn reference(&self, file: FileId, node: &SyntaxNode) -> Option<DeclarationId> {
-        let start = node.range().start + self.context.files[file].byte_offset;
+        let start = tokens(&self.context.files[file].parsed, node)
+            .first()?
+            .range
+            .start
+            + self.context.files[file].byte_offset;
         self.bindings
             .references
             .iter()
@@ -564,4 +568,137 @@ fn minimum(domain: &Domain) -> Result<Option<i64>, &str> {
         Domain::Unsupported(reason) => Err(reason),
         _ => Ok(None),
     }
+}
+
+/// Reuse the domain walk for a retained generator source without deriving
+/// membership from its set element type.
+pub(super) fn expression_domain(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    file: FileId,
+    node: &SyntaxNode,
+) -> Domain {
+    Walker {
+        context,
+        bindings,
+        active: Vec::new(),
+    }
+    .domain(file, node)
+}
+
+/// Compare membership by named identity or closed supported values. None is
+/// ordinary symbolic uncertainty. Closed ranges never need enumeration.
+pub(super) fn same_members(left: &Domain, right: &Domain) -> Result<Option<bool>, String> {
+    fn failure(domain: &Domain) -> Result<(), String> {
+        match domain {
+            Domain::Unsupported(reason) => Err(reason.clone()),
+            Domain::Named { domain, .. } => failure(domain),
+            Domain::Range { lower, upper } => {
+                integer(lower).map_err(str::to_owned)?;
+                integer(upper).map_err(str::to_owned)?;
+                Ok(())
+            }
+            Domain::LiteralSet(values) => {
+                for bound in values {
+                    integer(bound).map_err(str::to_owned)?;
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+    fn bound_equal(a: &NumericBound, b: &NumericBound) -> Result<Option<bool>, String> {
+        match (
+            integer(a).map_err(str::to_owned)?,
+            integer(b).map_err(str::to_owned)?,
+        ) {
+            (Some(a), Some(b)) => Ok(Some(a == b)),
+            _ if a == b && !matches!(a, NumericBound::Unknown) => Ok(Some(true)),
+            _ => Ok(None),
+        }
+    }
+    fn closed_set(
+        values: &[NumericBound],
+    ) -> Result<Option<std::collections::BTreeSet<i64>>, String> {
+        values
+            .iter()
+            .map(|v| integer(v).map_err(str::to_owned))
+            .collect::<Result<Option<_>, _>>()
+    }
+    failure(left)?;
+    failure(right)?;
+    if let (Domain::Named { declaration: a, .. }, Domain::Named { declaration: b, .. }) =
+        (left, right)
+        && a == b
+    {
+        return Ok(Some(true));
+    }
+    if let Domain::Named { domain, .. } = left {
+        return same_members(domain, right);
+    }
+    if let Domain::Named { domain, .. } = right {
+        return same_members(left, domain);
+    }
+    match (left, right) {
+        (Domain::Enum(a), Domain::Enum(b)) => Ok(Some(a == b)),
+        (Domain::Range { lower: a, upper: b }, Domain::Range { lower: c, upper: d }) => {
+            if let (Some(a), Some(b), Some(c), Some(d)) = (
+                integer(a).map_err(str::to_owned)?,
+                integer(b).map_err(str::to_owned)?,
+                integer(c).map_err(str::to_owned)?,
+                integer(d).map_err(str::to_owned)?,
+            ) {
+                return Ok(Some(if a > b || c > d {
+                    a > b && c > d
+                } else {
+                    a == c && b == d
+                }));
+            }
+            Ok(match (bound_equal(a, c)?, bound_equal(b, d)?) {
+                (Some(true), Some(true)) => Some(true),
+                (Some(false), _) | (_, Some(false)) => Some(false),
+                _ => None,
+            })
+        }
+        (Domain::LiteralSet(a), Domain::LiteralSet(b)) => {
+            Ok(match (closed_set(a)?, closed_set(b)?) {
+                (Some(a), Some(b)) => Some(a == b),
+                _ => None,
+            })
+        }
+        (Domain::Range { lower, upper }, Domain::LiteralSet(values))
+        | (Domain::LiteralSet(values), Domain::Range { lower, upper }) => Ok(
+            match (
+                integer(lower).map_err(str::to_owned)?,
+                integer(upper).map_err(str::to_owned)?,
+                closed_set(values)?,
+            ) {
+                (Some(l), Some(u), Some(values)) if l > u => Some(values.is_empty()),
+                (Some(l), Some(u), Some(values)) => Some(
+                    values.first() == Some(&l)
+                        && values.last() == Some(&u)
+                        && values.len() as i128 == i128::from(u) - i128::from(l) + 1,
+                ),
+                _ => None,
+            },
+        ),
+        _ => Ok(None),
+    }
+}
+
+/// Checked closed integer value for this producer's existing arithmetic subset.
+/// None retains ordinary symbolic uncertainty; Err is unsupported/invalid math.
+pub(super) fn expression_integer(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    file: FileId,
+    node: &SyntaxNode,
+) -> Result<Option<i64>, String> {
+    let bound = Walker {
+        context,
+        bindings,
+        active: Vec::new(),
+    }
+    .bound(file, node);
+    integer(&bound).map_err(str::to_owned)
 }

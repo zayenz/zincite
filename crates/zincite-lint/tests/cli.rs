@@ -559,3 +559,76 @@ fn numeric_index_advice_uses_model_selection_and_item_suppression() {
     assert_eq!(output.status.code(), Some(2));
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn constant_variable_selection_keeps_context_limits_and_status_precedence() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-constant-cli-{}", std::process::id()));
+    std::fs::create_dir_all(directory.join("library/std")).unwrap();
+    std::fs::write(directory.join("library/std/stdlib.mzn"), "").unwrap();
+    let model = directory.join("root.mzn");
+    let bad = directory.join("bad.mzn");
+    let data = directory.join("values.dzn");
+    let library = directory.join("library");
+    let original = "var int: value=2; solve satisfy;";
+    std::fs::write(&model, original).unwrap();
+    std::fs::write(&bad, "include \"missing.mzn\";").unwrap();
+    std::fs::write(&data, "value=2;").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_zincite-lint"))
+        .args(["--rules", "constant-variable", "--stdlib-dir"])
+        .arg(&library)
+        .arg(&model)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("warning [constant-variable]"));
+    assert!(output.stdout.is_empty());
+    let failed = Command::new(env!("CARGO_BIN_EXE_zincite-lint"))
+        .args(["--rules", "constant-variable", "--stdlib-dir"])
+        .arg(&library)
+        .args([&bad, &model])
+        .output()
+        .unwrap();
+    assert_eq!(failed.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("warning [constant-variable]"));
+    let inapplicable = Command::new(env!("CARGO_BIN_EXE_zincite-lint"))
+        .args(["--rules", "constant-variable"])
+        .arg(&data)
+        .output()
+        .unwrap();
+    assert_eq!(inapplicable.status.code(), Some(0));
+    assert!(inapplicable.stdout.is_empty() && inapplicable.stderr.is_empty());
+    let stdin = run(&["--rules", "constant-variable"], original);
+    assert_eq!(stdin.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&stdin.stderr).contains("requires a ModelContext"));
+    std::fs::write(&model, "var opt int: value=<>; solve satisfy;").unwrap();
+    let limited = Command::new(env!("CARGO_BIN_EXE_zincite-lint"))
+        .args(["--rules", "constant-variable", "--stdlib-dir"])
+        .arg(&library)
+        .arg(&model)
+        .output()
+        .unwrap();
+    assert_eq!(limited.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&limited.stderr).contains("analysis limitation:"));
+    assert_eq!(
+        std::fs::read_to_string(&model).unwrap(),
+        "var opt int: value=<>; solve satisfy;"
+    );
+    assert!(
+        zincite_lint::lint_with_options(
+            &zincite_syntax::parse(original),
+            &zincite_lint::LintOptions::from_selection("constant-variable").unwrap()
+        )
+        .unwrap_err()[0]
+            .message
+            .contains("ModelContext")
+    );
+    assert_eq!(
+        zincite_lint::Rule::THESIS
+            .iter()
+            .filter(|r| !r.is_available())
+            .count(),
+        7
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}

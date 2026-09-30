@@ -73,6 +73,7 @@ impl Rule {
             Self::Naming
                 | Self::MissingConstraintLabel
                 | Self::ArrayIndexStart
+                | Self::ConstantVariable
                 | Self::GlobalVariableInFunction
                 | Self::ElementPredicate
                 | Self::DecisionVariableOperator

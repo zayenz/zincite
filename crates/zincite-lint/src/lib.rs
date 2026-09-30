@@ -8,7 +8,9 @@ mod array_indices;
 mod bindings;
 mod callables;
 mod captures;
+mod constant_variable;
 mod decision_use;
+mod definitions;
 mod domains;
 mod element;
 mod instantiations;
@@ -27,6 +29,10 @@ pub use bindings::{
 pub use callables::{
     CallFact, CallOutcome, CallableFacts, CallableParameter, CallableSignature, DeclarationType,
     ExpressionType, resolve_callables,
+};
+pub use definitions::{
+    Definition, DefinitionCoverage, DefinitionEnforcement, DefinitionFacts, DefinitionSafety,
+    resolve_definitions,
 };
 pub use domains::{
     ArrayIndexSet, DeclarationDomain, Domain, DomainFacts, NumericBound, resolve_domains,

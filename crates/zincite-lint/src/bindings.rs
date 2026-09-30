@@ -384,7 +384,23 @@ impl<'a> Builder<'a> {
         let source = &self.context.files[file];
         let token = &source.parsed.tokens()[index];
         let name = identity(&source.parsed.source()[token.range.clone()]);
-        let resolution = self.lookup(&name, scopes);
+        let resolution = match self.lookup(&name, scopes) {
+            BindingResolution::Ambiguous(ids) if kind == ReferenceKind::Value => {
+                // A value and a callable may share a name. Prefer the unique
+                // non-callable in value context; keep bare callable/annotation
+                // and genuinely ambiguous cases in their existing form.
+                let values: Vec<_> = ids
+                    .iter()
+                    .copied()
+                    .filter(|id| !self.facts.declarations[id.0].role.callable())
+                    .collect();
+                match values.as_slice() {
+                    [id] => BindingResolution::Resolved(*id),
+                    _ => BindingResolution::Ambiguous(ids),
+                }
+            }
+            resolution => resolution,
+        };
         self.facts.references.push(Reference {
             file,
             item,
