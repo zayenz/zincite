@@ -1,0 +1,1264 @@
+//! Bounded callable facts over retained lexical identities, independent of lint.
+use std::collections::BTreeMap;
+use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
+
+use crate::types::{Match, aggregate, coerces, join, match_type, pattern_narrower, substitute};
+use crate::{
+    BindingFacts, BindingResolution, DeclarationId, DeclarationRole, FileId, Instantiation,
+    ModelContext, SourceLocation, TypeInst, TypeKind,
+};
+
+#[derive(Clone, Debug)]
+pub struct CallableParameter {
+    pub name: Option<String>,
+    pub ty: TypeInst,
+    pub has_default: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct CallableSignature {
+    pub declaration: DeclarationId,
+    pub parameters: Vec<CallableParameter>,
+    pub return_type: TypeInst,
+}
+
+#[derive(Debug)]
+pub struct DeclarationType {
+    pub declaration: DeclarationId,
+    pub ty: TypeInst,
+}
+
+#[derive(Debug)]
+pub struct ExpressionType {
+    pub file: FileId,
+    pub location: SourceLocation,
+    pub ty: TypeInst,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CallOutcome {
+    Resolved {
+        declaration: DeclarationId,
+        parameters: Vec<TypeInst>,
+        return_type: TypeInst,
+    },
+    NoMatch {
+        reason: String,
+    },
+    Unresolved {
+        reason: String,
+    },
+    Ambiguous {
+        candidates: Vec<DeclarationId>,
+    },
+    Unsupported {
+        reason: String,
+        candidates: Vec<DeclarationId>,
+    },
+}
+
+#[derive(Debug)]
+pub struct CallFact {
+    pub file: FileId,
+    pub item: usize,
+    pub location: SourceLocation,
+    pub name: String,
+    pub outcome: CallOutcome,
+}
+
+#[derive(Debug, Default)]
+pub struct CallableFacts {
+    pub declarations: Vec<DeclarationType>,
+    pub signatures: Vec<CallableSignature>,
+    pub expressions: Vec<ExpressionType>,
+    pub calls: Vec<CallFact>,
+}
+
+/// Produce facts without selecting a lint rule. The supplied bindings must
+/// belong to this context. Supported types retain enum identity, qualifiers,
+/// array indices and structured fields. Unknown domains, alias cycles and
+/// unsupported operations stay explicit; no parameter data is evaluated.
+/// Every inspected user call has an outcome. Matching uses component coercions
+/// and a unique lowest signature, never a summed specificity score.
+pub fn resolve_callables(context: &ModelContext, bindings: &BindingFacts) -> CallableFacts {
+    let mut engine = Engine {
+        context,
+        bindings,
+        nodes: Vec::new(),
+        declared: vec![None; bindings.declarations.len()],
+        active: Vec::new(),
+        signatures: BTreeMap::new(),
+        expressions: BTreeMap::new(),
+        calls: BTreeMap::new(),
+        active_calls: Vec::new(),
+    };
+    for declaration in &bindings.declarations {
+        engine.nodes.push(find_node(
+            context.files[declaration.file].parsed.tree(),
+            &declaration.syntax_range,
+            declaration.role,
+        ));
+    }
+    for declaration in &bindings.declarations {
+        engine.declared_type(declaration.id);
+    }
+    for declaration in &bindings.declarations {
+        engine.signature(declaration.id);
+    }
+    for (file, source) in context.files.iter().enumerate() {
+        if !source.warnings_enabled() || !source.parsed.diagnostics().is_empty() {
+            continue;
+        }
+        for (item, node) in source.parsed.tree().child_nodes().enumerate() {
+            engine.inspect(file, item, node);
+        }
+    }
+    CallableFacts {
+        declarations: engine
+            .declared
+            .into_iter()
+            .enumerate()
+            .map(|(id, ty)| DeclarationType {
+                declaration: DeclarationId(id),
+                ty: ty.unwrap(),
+            })
+            .collect(),
+        signatures: engine.signatures.into_values().flatten().collect(),
+        expressions: engine
+            .expressions
+            .into_iter()
+            .map(|((file, start, end), ty)| ExpressionType {
+                file,
+                location: context.files[file].location(start..end),
+                ty,
+            })
+            .collect(),
+        calls: engine.calls.into_values().collect(),
+    }
+}
+
+fn find_node<'a>(
+    node: &'a SyntaxNode,
+    range: &std::ops::Range<usize>,
+    role: DeclarationRole,
+) -> Option<&'a SyntaxNode> {
+    use DeclarationRole as R;
+    use NodeKind as N;
+    let kind = match role {
+        R::Value | R::Local => N::Declaration,
+        R::Function => N::FunctionDeclaration,
+        R::Predicate => N::PredicateDeclaration,
+        R::Test => N::TestDeclaration,
+        R::Annotation => N::AnnotationDeclaration,
+        R::TypeAlias => N::TypeAlias,
+        R::Enum => N::EnumDeclaration,
+        R::EnumMember => N::EnumCase,
+        R::EnumConstructor => N::EnumConstructor,
+        R::Parameter => N::Parameter,
+        R::Generator => N::Generator,
+        R::Index => N::ArrayIndexBinding,
+    };
+    if node.range() == *range && node.kind() == kind {
+        return Some(node);
+    }
+    node.child_nodes()
+        .find_map(|child| find_node(child, range, role))
+}
+
+fn identity(text: &str) -> String {
+    text.trim_matches(['\'', '`']).to_owned()
+}
+
+struct Engine<'a> {
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    nodes: Vec<Option<&'a SyntaxNode>>,
+    declared: Vec<Option<TypeInst>>,
+    active: Vec<DeclarationId>,
+    signatures: BTreeMap<usize, Option<CallableSignature>>,
+    expressions: BTreeMap<(FileId, usize, usize), TypeInst>,
+    calls: BTreeMap<(FileId, usize), CallFact>,
+    active_calls: Vec<(FileId, usize)>,
+}
+
+impl<'a> Engine<'a> {
+    fn tokens(
+        &self,
+        file: FileId,
+        node: &SyntaxNode,
+    ) -> Vec<(TokenKind, String, std::ops::Range<usize>)> {
+        let parsed = &self.context.files[file].parsed;
+        node.children()
+            .iter()
+            .filter_map(|child| {
+                if let SyntaxElement::Token(index) = child {
+                    let token = &parsed.tokens()[*index];
+                    (!matches!(
+                        token.kind,
+                        TokenKind::Whitespace | TokenKind::LineComment | TokenKind::BlockComment
+                    ))
+                    .then(|| {
+                        (
+                            token.kind,
+                            parsed.source()[token.range.clone()].to_owned(),
+                            token.range.clone(),
+                        )
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+    fn name(&self, file: FileId, node: &SyntaxNode) -> Option<String> {
+        self.tokens(file, node)
+            .into_iter()
+            .find(|(kind, _, _)| {
+                matches!(
+                    kind,
+                    TokenKind::Identifier
+                        | TokenKind::QuotedIdentifier
+                        | TokenKind::InfixIdentifier
+                )
+            })
+            .map(|(_, name, _)| identity(&name))
+    }
+    fn resolution(&self, file: FileId, node: &SyntaxNode) -> BindingResolution {
+        let Some((_, _, range)) = self.tokens(file, node).into_iter().find(|(kind, _, _)| {
+            matches!(
+                kind,
+                TokenKind::Identifier | TokenKind::QuotedIdentifier | TokenKind::InfixIdentifier
+            )
+        }) else {
+            return BindingResolution::Unresolved;
+        };
+        self.bindings
+            .references
+            .iter()
+            .find(|r| {
+                r.file == file
+                    && r.location.range.start == range.start + self.context.files[file].byte_offset
+            })
+            .map(|r| r.resolution.clone())
+            .unwrap_or(BindingResolution::Unresolved)
+    }
+    fn declared_type(&mut self, id: DeclarationId) -> TypeInst {
+        if let Some(ty) = &self.declared[id.0] {
+            return ty.clone();
+        }
+        if self.active.contains(&id) {
+            return TypeInst::unknown("cyclic declaration type");
+        }
+        self.active.push(id);
+        let declaration = &self.bindings.declarations[id.0];
+        let file = declaration.file;
+        let ty = match (declaration.role, self.nodes[id.0]) {
+            (DeclarationRole::Enum, _) => {
+                TypeInst::par(TypeKind::Set(Box::new(TypeInst::par(TypeKind::Enum(id)))))
+            }
+            (DeclarationRole::EnumMember, _) => self
+                .bindings
+                .declarations
+                .iter()
+                .find(|d| {
+                    d.file == file && d.item == declaration.item && d.role == DeclarationRole::Enum
+                })
+                .map(|d| TypeInst::par(TypeKind::Enum(d.id)))
+                .unwrap_or_else(|| TypeInst::unknown("enum owner is unknown")),
+            (DeclarationRole::Annotation, _) => TypeInst::par(TypeKind::Annotation),
+            (DeclarationRole::Generator, Some(node)) => {
+                let source = node
+                    .child_nodes()
+                    .next()
+                    .map(|n| self.infer(file, declaration.item, n))
+                    .unwrap_or_else(|| TypeInst::unknown("generator source is missing"));
+                if self
+                    .tokens(file, node)
+                    .iter()
+                    .any(|(kind, _, _)| *kind == TokenKind::In)
+                {
+                    match source.kind {
+                        TypeKind::Set(element) | TypeKind::Array { element, .. } => *element,
+                        _ => TypeInst::unknown("generator domain is unsupported"),
+                    }
+                } else {
+                    source
+                }
+            }
+            (DeclarationRole::TypeAlias, Some(node)) => node
+                .child_nodes()
+                .find(|n| n.kind() != NodeKind::Annotation)
+                .map(|n| self.type_node(file, declaration.item, n))
+                .unwrap_or_else(|| TypeInst::unknown("alias target is missing")),
+            (
+                DeclarationRole::Value
+                | DeclarationRole::Local
+                | DeclarationRole::Parameter
+                | DeclarationRole::Function
+                | DeclarationRole::Index,
+                Some(node),
+            ) => node
+                .child_nodes()
+                .next()
+                .map(|n| self.type_node(file, declaration.item, n))
+                .unwrap_or_else(|| TypeInst::unknown("declared type is missing")),
+            (DeclarationRole::Predicate, _) => {
+                TypeInst::par(TypeKind::Bool).with_inst(Instantiation::Decision)
+            }
+            (DeclarationRole::Test, _) => TypeInst::par(TypeKind::Bool),
+            _ => TypeInst::unknown("declaration type is unsupported"),
+        };
+        self.active.pop();
+        self.declared[id.0] = Some(ty.clone());
+        ty
+    }
+    fn type_node(&mut self, file: FileId, item: usize, node: &'a SyntaxNode) -> TypeInst {
+        use NodeKind::*;
+        let tokens = self.tokens(file, node);
+        let has = |kind| tokens.iter().any(|(k, _, _)| *k == kind);
+        let children: Vec<_> = node.child_nodes().collect();
+        let mut ty = match node.kind() {
+            ScalarType => TypeInst::par(if has(TokenKind::Bool) {
+                TypeKind::Bool
+            } else if has(TokenKind::Int) {
+                TypeKind::Int
+            } else if has(TokenKind::Float) {
+                TypeKind::Float
+            } else if has(TokenKind::String) {
+                TypeKind::String
+            } else {
+                TypeKind::Annotation
+            }),
+            TypeInstVariable => TypeInst {
+                instantiation: if has(TokenKind::Any) {
+                    Instantiation::Unknown
+                } else {
+                    Instantiation::Parameter
+                },
+                optional: false,
+                kind: TypeKind::Variable {
+                    name: tokens
+                        .iter()
+                        .find(|(kind, _, _)| *kind == TokenKind::TypeInstVariable)
+                        .map(|(_, name, _)| name.clone())
+                        .unwrap_or_default(),
+                    enum_only: tokens.iter().any(|(_, name, _)| name.starts_with("$$")),
+                    any: has(TokenKind::Any),
+                },
+            },
+            DomainType => {
+                if let Some(expression) = children.first() {
+                    match self.resolution(file, expression) {
+                        BindingResolution::Resolved(id)
+                            if self.bindings.declarations[id.0].role
+                                == DeclarationRole::TypeAlias =>
+                        {
+                            self.declared_type(id)
+                        }
+                        _ => {
+                            let domain = self.infer(file, item, expression);
+                            match domain.kind {
+                                TypeKind::Set(element)
+                                    if domain.instantiation == Instantiation::Parameter
+                                        && !domain.optional =>
+                                {
+                                    *element
+                                }
+                                _ => TypeInst::unknown("domain is not a supported parameter set"),
+                            }
+                        }
+                    }
+                } else {
+                    TypeInst::unknown("type domain is missing")
+                }
+            }
+            ArrayIndexBinding | RecordField => children
+                .first()
+                .map(|n| self.type_node(file, item, n))
+                .unwrap_or_else(|| TypeInst::unknown("component type is missing")),
+            ArrayType | ListType => {
+                let Some(element) = children.last() else {
+                    return TypeInst::unknown("array element type is missing");
+                };
+                let element = self.type_node(file, item, element);
+                let indices = if node.kind() == ListType {
+                    vec![TypeInst::par(TypeKind::Int)]
+                } else {
+                    children[..children.len() - 1]
+                        .iter()
+                        .map(|n| self.type_node(file, item, n))
+                        .collect()
+                };
+                TypeInst {
+                    instantiation: element.instantiation,
+                    optional: false,
+                    kind: TypeKind::Array {
+                        indices,
+                        element: Box::new(element),
+                    },
+                }
+            }
+            SetType => TypeInst::par(TypeKind::Set(Box::new(
+                children
+                    .last()
+                    .map(|n| self.type_node(file, item, n))
+                    .unwrap_or_else(|| TypeInst::unknown("set element type is missing")),
+            ))),
+            TupleType => {
+                let fields: Vec<_> = children
+                    .iter()
+                    .map(|n| self.type_node(file, item, n))
+                    .collect();
+                TypeInst {
+                    instantiation: aggregate(&fields),
+                    optional: false,
+                    kind: TypeKind::Tuple(fields),
+                }
+            }
+            RecordType => {
+                let mut fields: Vec<_> = children
+                    .iter()
+                    .map(|n| {
+                        (
+                            self.name(file, n).unwrap_or_default(),
+                            self.type_node(file, item, n),
+                        )
+                    })
+                    .collect();
+                fields.sort_by(|(a, _), (b, _)| a.cmp(b));
+                TypeInst {
+                    instantiation: aggregate(
+                        &fields.iter().map(|(_, t)| t.clone()).collect::<Vec<_>>(),
+                    ),
+                    optional: false,
+                    kind: TypeKind::Record(fields),
+                }
+            }
+            _ => TypeInst::unknown("type form is unsupported"),
+        };
+        if has(TokenKind::Var) {
+            ty = ty.with_inst(Instantiation::Decision);
+        } else if has(TokenKind::Par) {
+            ty = ty.with_inst(Instantiation::Parameter);
+        }
+        if has(TokenKind::Opt) {
+            ty.optional = true;
+        }
+        ty
+    }
+    fn signature(&mut self, id: DeclarationId) -> Option<CallableSignature> {
+        if let Some(signature) = self.signatures.get(&id.0) {
+            return signature.clone();
+        }
+        let declaration = &self.bindings.declarations[id.0];
+        if !matches!(
+            declaration.role,
+            DeclarationRole::Function
+                | DeclarationRole::Predicate
+                | DeclarationRole::Test
+                | DeclarationRole::Annotation
+        ) {
+            self.signatures.insert(id.0, None);
+            return None;
+        }
+        let node = self.nodes[id.0]?;
+        let file = declaration.file;
+        let item = declaration.item;
+        let parameters = node
+            .child_nodes()
+            .find(|n| n.kind() == NodeKind::ParameterList)
+            .map(|list| {
+                list.child_nodes()
+                    .map(|parameter| CallableParameter {
+                        name: self.name(file, parameter),
+                        ty: parameter
+                            .child_nodes()
+                            .next()
+                            .map(|n| self.type_node(file, item, n))
+                            .unwrap_or_else(|| TypeInst::unknown("parameter type is missing")),
+                        has_default: self
+                            .tokens(file, parameter)
+                            .iter()
+                            .any(|(kind, _, _)| *kind == TokenKind::Equal),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let signature = CallableSignature {
+            declaration: id,
+            parameters,
+            return_type: self.declared_type(id),
+        };
+        self.signatures.insert(id.0, Some(signature.clone()));
+        Some(signature)
+    }
+    fn inspect(&mut self, file: FileId, item: usize, node: &'a SyntaxNode) {
+        if matches!(
+            node.kind(),
+            NodeKind::CallExpression | NodeKind::GeneratorCallExpression
+        ) || self
+            .tokens(file, node)
+            .iter()
+            .any(|(kind, _, _)| *kind == TokenKind::InfixIdentifier)
+        {
+            self.call(file, item, node);
+        }
+        for child in node.child_nodes() {
+            self.inspect(file, item, child);
+        }
+    }
+    fn infer(&mut self, file: FileId, item: usize, node: &'a SyntaxNode) -> TypeInst {
+        let range = node.range();
+        let key = (file, range.start, range.end);
+        if let Some(ty) = self.expressions.get(&key) {
+            return ty.clone();
+        }
+        use NodeKind::*;
+        let children: Vec<_> = node.child_nodes().collect();
+        let tokens = self.tokens(file, node);
+        let ty = match node.kind() {
+            Expression => {
+                let kind = tokens.first().map(|(kind, _, _)| *kind);
+                match kind {
+                    Some(TokenKind::True | TokenKind::False) => TypeInst::par(TypeKind::Bool),
+                    Some(TokenKind::IntegerLiteral) => TypeInst::par(TypeKind::Int),
+                    Some(TokenKind::FloatLiteral) => TypeInst::par(TypeKind::Float),
+                    Some(TokenKind::StringLiteral) => TypeInst::par(TypeKind::String),
+                    Some(TokenKind::Absent) => TypeInst {
+                        optional: true,
+                        ..TypeInst::par(TypeKind::Bottom)
+                    },
+                    Some(TokenKind::Identifier | TokenKind::QuotedIdentifier) => {
+                        match self.resolution(file, node) {
+                            BindingResolution::Resolved(id) => self.declared_type(id),
+                            _ => TypeInst::unknown("value reference is unresolved or ambiguous"),
+                        }
+                    }
+                    _ => TypeInst::unknown("atom type is unsupported"),
+                }
+            }
+            ParenthesizedExpression
+            | AnnotatedExpression
+            | NamedArgument
+            | RecordLiteralField
+            | WhereFilter => children
+                .first()
+                .map(|n| self.infer(file, item, n))
+                .unwrap_or_else(|| TypeInst::unknown("expression is missing")),
+            InterpolatedString => TypeInst::par(TypeKind::String),
+            CallExpression | GeneratorCallExpression => match self.call(file, item, node) {
+                CallOutcome::Resolved { return_type, .. } => return_type,
+                _ => TypeInst::unknown("call return type is not resolved"),
+            },
+            ArrayAccessExpression => match children
+                .first()
+                .map(|n| self.infer(file, item, n))
+                .map(|t| t.kind)
+            {
+                Some(TypeKind::Array { indices, element })
+                    if indices.len() == children.len() - 1 =>
+                {
+                    let actual: Vec<_> = children[1..]
+                        .iter()
+                        .map(|n| self.infer(file, item, n))
+                        .collect();
+                    if actual.iter().zip(&indices).any(|(a, b)| {
+                        a.optional || !coerces(&a.clone().with_inst(Instantiation::Parameter), b)
+                    }) {
+                        TypeInst::unknown("array index or slicing type is unsupported")
+                    } else if actual
+                        .iter()
+                        .any(|t| t.instantiation == Instantiation::Decision)
+                    {
+                        element.with_inst(Instantiation::Decision)
+                    } else {
+                        *element
+                    }
+                }
+                _ => TypeInst::unknown("array access type is unsupported"),
+            },
+            FieldAccessExpression => {
+                let subject = children
+                    .first()
+                    .map(|n| self.infer(file, item, n))
+                    .unwrap_or_else(|| TypeInst::unknown("field subject is missing"));
+                let field = tokens
+                    .iter()
+                    .find(|(kind, _, _)| {
+                        matches!(
+                            kind,
+                            TokenKind::IntegerLiteral
+                                | TokenKind::Identifier
+                                | TokenKind::QuotedIdentifier
+                        )
+                    })
+                    .map(|(_, name, _)| identity(name))
+                    .unwrap_or_default();
+                match subject.kind {
+                    TypeKind::Tuple(fields) => field
+                        .parse::<usize>()
+                        .ok()
+                        .and_then(|i| i.checked_sub(1))
+                        .and_then(|i| fields.get(i).cloned())
+                        .unwrap_or_else(|| TypeInst::unknown("tuple field is unknown")),
+                    TypeKind::Record(fields) => fields
+                        .into_iter()
+                        .find(|(n, _)| *n == field)
+                        .map(|(_, t)| t)
+                        .unwrap_or_else(|| TypeInst::unknown("record field is unknown")),
+                    _ => TypeInst::unknown("field access type is unsupported"),
+                }
+            }
+            TupleLiteral => {
+                let fields: Vec<_> = children.iter().map(|n| self.infer(file, item, n)).collect();
+                TypeInst {
+                    instantiation: aggregate(&fields),
+                    optional: false,
+                    kind: TypeKind::Tuple(fields),
+                }
+            }
+            RecordLiteral => {
+                let mut fields: Vec<_> = children
+                    .iter()
+                    .map(|n| {
+                        (
+                            self.name(file, n).unwrap_or_default(),
+                            self.infer(file, item, n),
+                        )
+                    })
+                    .collect();
+                fields.sort_by(|(a, _), (b, _)| a.cmp(b));
+                TypeInst {
+                    instantiation: aggregate(
+                        &fields.iter().map(|(_, t)| t.clone()).collect::<Vec<_>>(),
+                    ),
+                    optional: false,
+                    kind: TypeKind::Record(fields),
+                }
+            }
+            RangeExpression | SetLiteral => {
+                let element = self.common(file, item, &children);
+                TypeInst {
+                    instantiation: element.instantiation,
+                    optional: false,
+                    kind: TypeKind::Set(Box::new(element.with_inst(Instantiation::Parameter))),
+                }
+            }
+            ArrayLiteral => {
+                let indexed = children.iter().any(|n| n.kind() == IndexedArrayEntry);
+                let mut indices = vec![TypeInst::par(TypeKind::Int)];
+                let values: Vec<_> = if indexed {
+                    let mut keys = Vec::new();
+                    let mut values = Vec::new();
+                    for entry in &children {
+                        let parts: Vec<_> = entry.child_nodes().collect();
+                        if parts.len() != 2 {
+                            return TypeInst::unknown("mixed array entries are unsupported");
+                        }
+                        keys.push(parts[0]);
+                        values.push(parts[1]);
+                    }
+                    let key = self.common(file, item, &keys);
+                    indices = match key.kind {
+                        TypeKind::Tuple(fields) => fields,
+                        TypeKind::Unknown(_) => vec![key],
+                        _ => vec![key],
+                    };
+                    values
+                } else {
+                    children.clone()
+                };
+                let element = self.common(file, item, &values);
+                TypeInst {
+                    instantiation: element.instantiation,
+                    optional: false,
+                    kind: TypeKind::Array {
+                        indices,
+                        element: Box::new(element),
+                    },
+                }
+            }
+            MatrixLiteral => {
+                let rows: Vec<_> = children
+                    .iter()
+                    .filter(|n| n.kind() == MatrixRow)
+                    .copied()
+                    .collect();
+                let mut cells = Vec::new();
+                let mut row_indices = Vec::new();
+                for row in rows {
+                    let parts: Vec<_> = row.child_nodes().collect();
+                    if self
+                        .tokens(file, row)
+                        .iter()
+                        .any(|(kind, _, _)| *kind == TokenKind::Colon)
+                    {
+                        if let Some(key) = parts.first() {
+                            row_indices.push(*key);
+                        }
+                        cells.extend(parts.into_iter().skip(1));
+                    } else {
+                        cells.extend(parts);
+                    }
+                }
+                let row = if row_indices.is_empty() {
+                    TypeInst::par(TypeKind::Int)
+                } else {
+                    self.common(file, item, &row_indices)
+                };
+                let column = if let Some(header) =
+                    children.iter().find(|n| n.kind() == MatrixColumnIndices)
+                {
+                    self.common(file, item, &header.child_nodes().collect::<Vec<_>>())
+                } else {
+                    TypeInst::par(TypeKind::Int)
+                };
+                let element = self.common(file, item, &cells);
+                TypeInst {
+                    instantiation: element.instantiation,
+                    optional: false,
+                    kind: TypeKind::Array {
+                        indices: vec![row, column],
+                        element: Box::new(element),
+                    },
+                }
+            }
+            SetComprehension | ArrayComprehension | IndexedArrayComprehension => {
+                self.comprehension(file, item, node, false)
+            }
+            UnaryExpression => {
+                let mut value = children
+                    .first()
+                    .map(|n| self.infer(file, item, n))
+                    .unwrap_or_else(|| TypeInst::unknown("operand is missing"));
+                let operator = tokens.first().map(|(kind, _, _)| *kind);
+                if !value.known() || value.optional {
+                    TypeInst::unknown("unary operand type is unsupported")
+                } else if operator == Some(TokenKind::Not) && value.kind == TypeKind::Bool {
+                    value
+                } else if matches!(operator, Some(TokenKind::Plus | TokenKind::Minus))
+                    && matches!(
+                        value.kind,
+                        TypeKind::Bool | TypeKind::Int | TypeKind::Enum(_) | TypeKind::Float
+                    )
+                {
+                    if matches!(value.kind, TypeKind::Bool | TypeKind::Enum(_)) {
+                        value.kind = TypeKind::Int;
+                    }
+                    value
+                } else {
+                    TypeInst::unknown("unary operand is unsupported")
+                }
+            }
+            BinaryExpression
+                if tokens
+                    .iter()
+                    .any(|(kind, _, _)| *kind == TokenKind::InfixIdentifier) =>
+            {
+                match self.call(file, item, node) {
+                    CallOutcome::Resolved { return_type, .. } => return_type,
+                    _ => TypeInst::unknown("infix call is not resolved"),
+                }
+            }
+            BinaryExpression => {
+                let values: Vec<_> = children.iter().map(|n| self.infer(file, item, n)).collect();
+                let operator = tokens
+                    .iter()
+                    .find(|(kind, _, _)| {
+                        !matches!(kind, TokenKind::LeftParen | TokenKind::RightParen)
+                    })
+                    .map(|(kind, _, _)| *kind);
+                if values.iter().any(|t| !t.known() || t.optional) {
+                    TypeInst::unknown("operator operand is unknown")
+                } else if matches!(
+                    operator,
+                    Some(
+                        TokenKind::Equal
+                            | TokenKind::DoubleEqual
+                            | TokenKind::NotEqual
+                            | TokenKind::Less
+                            | TokenKind::LessEqual
+                            | TokenKind::Greater
+                            | TokenKind::GreaterEqual
+                            | TokenKind::In
+                            | TokenKind::Subset
+                            | TokenKind::Superset
+                            | TokenKind::And
+                            | TokenKind::Or
+                            | TokenKind::Xor
+                            | TokenKind::Implies
+                            | TokenKind::ReverseImplies
+                            | TokenKind::Equivalence
+                    )
+                ) {
+                    let supported = match operator {
+                        Some(
+                            TokenKind::And
+                            | TokenKind::Or
+                            | TokenKind::Xor
+                            | TokenKind::Implies
+                            | TokenKind::ReverseImplies
+                            | TokenKind::Equivalence,
+                        ) => values.iter().all(|t| t.kind == TypeKind::Bool),
+                        Some(TokenKind::In) => {
+                            matches!(&values[1].kind,TypeKind::Set(element) if coerces(&values[0].clone().with_inst(Instantiation::Parameter),element))
+                        }
+                        Some(TokenKind::Subset | TokenKind::Superset) => {
+                            values.iter().all(|t| matches!(t.kind, TypeKind::Set(_)))
+                                && join(&values[0], &values[1]).known()
+                        }
+                        Some(
+                            TokenKind::Less
+                            | TokenKind::LessEqual
+                            | TokenKind::Greater
+                            | TokenKind::GreaterEqual,
+                        ) => {
+                            values.iter().all(|t| {
+                                matches!(
+                                    t.kind,
+                                    TypeKind::Bool
+                                        | TypeKind::Int
+                                        | TypeKind::Float
+                                        | TypeKind::Enum(_)
+                                        | TypeKind::String
+                                )
+                            }) && join(&values[0], &values[1]).known()
+                        }
+                        _ => join(&values[0], &values[1]).known(),
+                    };
+                    if supported {
+                        TypeInst::par(TypeKind::Bool).with_inst(aggregate(&values))
+                    } else {
+                        TypeInst::unknown("operator operand types are unsupported")
+                    }
+                } else if matches!(
+                    operator,
+                    Some(
+                        TokenKind::Plus
+                            | TokenKind::Minus
+                            | TokenKind::Star
+                            | TokenKind::Div
+                            | TokenKind::Mod
+                            | TokenKind::Power
+                            | TokenKind::Slash
+                    )
+                ) && values.iter().all(|t| {
+                    matches!(
+                        t.kind,
+                        TypeKind::Bool | TypeKind::Int | TypeKind::Float | TypeKind::Enum(_)
+                    )
+                }) {
+                    if matches!(operator, Some(TokenKind::Div | TokenKind::Mod))
+                        && values.iter().any(|t| t.kind == TypeKind::Float)
+                    {
+                        return TypeInst::unknown("integer operator has a float operand");
+                    }
+                    let mut ty = values
+                        .into_iter()
+                        .map(|mut t| {
+                            if matches!(t.kind, TypeKind::Bool | TypeKind::Enum(_)) {
+                                t.kind = TypeKind::Int;
+                            }
+                            t
+                        })
+                        .reduce(|a, b| join(&a, &b))
+                        .unwrap();
+                    if operator == Some(TokenKind::Slash) {
+                        ty.kind = TypeKind::Float;
+                    } else if matches!(ty.kind, TypeKind::Bool | TypeKind::Enum(_)) {
+                        ty.kind = TypeKind::Int;
+                    }
+                    ty
+                } else if matches!(
+                    operator,
+                    Some(
+                        TokenKind::Union
+                            | TokenKind::Intersect
+                            | TokenKind::Diff
+                            | TokenKind::SymDiff
+                    )
+                ) {
+                    if values.iter().all(|t| matches!(t.kind, TypeKind::Set(_))) {
+                        values.into_iter().reduce(|a, b| join(&a, &b)).unwrap()
+                    } else {
+                        TypeInst::unknown("set operator has a non-set operand")
+                    }
+                } else if operator == Some(TokenKind::Concat)
+                    && values.iter().all(|t| t.kind == TypeKind::String)
+                {
+                    TypeInst::par(TypeKind::String)
+                } else {
+                    TypeInst::unknown("operator type is unsupported")
+                }
+            }
+            LetExpression => children
+                .last()
+                .map(|n| self.infer(file, item, n))
+                .unwrap_or_else(|| TypeInst::unknown("let body is missing")),
+            ConditionalExpression => {
+                let branches: Vec<_> = children
+                    .iter()
+                    .filter_map(|branch| branch.child_nodes().last())
+                    .collect();
+                let mut ty = self.common(file, item, &branches);
+                for branch in children.iter().filter(|n| n.kind() == ConditionalBranch) {
+                    if let Some(condition) = branch.child_nodes().next() {
+                        let condition = self.infer(file, item, condition);
+                        if !condition.known() {
+                            ty = TypeInst::unknown("conditional guard type is unknown");
+                            break;
+                        }
+                        if condition.instantiation == Instantiation::Decision {
+                            ty = ty.with_inst(Instantiation::Decision);
+                        }
+                    }
+                }
+                ty
+            }
+            IndexTuple => {
+                let fields: Vec<_> = children.iter().map(|n| self.infer(file, item, n)).collect();
+                TypeInst {
+                    instantiation: aggregate(&fields),
+                    optional: false,
+                    kind: TypeKind::Tuple(fields),
+                }
+            }
+            _ => TypeInst::unknown("expression form is unsupported"),
+        };
+        self.expressions.insert(key, ty.clone());
+        ty
+    }
+    fn common(&mut self, file: FileId, item: usize, nodes: &[&'a SyntaxNode]) -> TypeInst {
+        nodes
+            .iter()
+            .map(|n| self.infer(file, item, n))
+            .reduce(|a, b| join(&a, &b))
+            .unwrap_or_else(|| TypeInst::par(TypeKind::Bottom))
+    }
+    fn comprehension(
+        &mut self,
+        file: FileId,
+        item: usize,
+        node: &'a SyntaxNode,
+        generator_call: bool,
+    ) -> TypeInst {
+        let Some(head) = node
+            .child_nodes()
+            .find(|n| n.kind() != NodeKind::GeneratorList)
+        else {
+            return TypeInst::unknown("comprehension head is missing");
+        };
+        let mut element = if head.kind() == NodeKind::IndexedArrayEntry {
+            head.child_nodes()
+                .last()
+                .map(|n| self.infer(file, item, n))
+                .unwrap_or_else(|| TypeInst::unknown("indexed head is missing"))
+        } else {
+            self.infer(file, item, head)
+        };
+        for list in node
+            .child_nodes()
+            .filter(|n| n.kind() == NodeKind::GeneratorList)
+        {
+            for generator in list.child_nodes() {
+                for source in generator.child_nodes() {
+                    let ty = self.infer(file, item, source);
+                    if !ty.known() {
+                        return TypeInst::unknown("generator domain or filter type is unknown");
+                    }
+                    if ty.instantiation == Instantiation::Decision {
+                        element.optional = true;
+                        element = element.with_inst(Instantiation::Decision);
+                    }
+                }
+            }
+        }
+        if node.kind() == NodeKind::SetComprehension && !generator_call {
+            return TypeInst {
+                instantiation: element.instantiation,
+                optional: false,
+                kind: TypeKind::Set(Box::new(element.with_inst(Instantiation::Parameter))),
+            };
+        }
+        let indices = if head.kind() == NodeKind::IndexedArrayEntry {
+            let key = self.infer(file, item, head.child_nodes().next().unwrap());
+            match key.kind {
+                TypeKind::Tuple(fields) => fields,
+                _ => vec![key],
+            }
+        } else {
+            vec![TypeInst::par(TypeKind::Int)]
+        };
+        TypeInst {
+            instantiation: element.instantiation,
+            optional: false,
+            kind: TypeKind::Array {
+                indices,
+                element: Box::new(element),
+            },
+        }
+    }
+    fn call(&mut self, file: FileId, item: usize, node: &'a SyntaxNode) -> CallOutcome {
+        let tokens = self.tokens(file, node);
+        let Some((_, written, range)) = tokens.iter().find(|(kind, _, _)| {
+            matches!(
+                kind,
+                TokenKind::Identifier | TokenKind::QuotedIdentifier | TokenKind::InfixIdentifier
+            )
+        }) else {
+            return CallOutcome::Unsupported {
+                reason: "call head is unsupported".into(),
+                candidates: Vec::new(),
+            };
+        };
+        let key = (file, range.start);
+        if let Some(fact) = self.calls.get(&key) {
+            return fact.outcome.clone();
+        }
+        if self.active_calls.contains(&key) {
+            return CallOutcome::Unsupported {
+                reason: "recursive call typing is unsupported".into(),
+                candidates: Vec::new(),
+            };
+        }
+        self.active_calls.push(key);
+        let resolution = self.resolution(file, node);
+        let mut arguments = Vec::new();
+        if node.kind() == NodeKind::GeneratorCallExpression {
+            arguments.push((None, self.comprehension(file, item, node, true)));
+        } else {
+            for argument in node.child_nodes() {
+                arguments.push((
+                    if argument.kind() == NodeKind::NamedArgument {
+                        self.name(file, argument)
+                    } else {
+                        None
+                    },
+                    self.infer(file, item, argument),
+                ));
+            }
+        }
+        let outcome = match resolution {
+            BindingResolution::Unresolved => CallOutcome::Unresolved {
+                reason: "callable name is unresolved".into(),
+            },
+            BindingResolution::Ambiguous(candidates) => CallOutcome::Ambiguous { candidates },
+            BindingResolution::Resolved(id) => self.choose(&[id], &arguments),
+            BindingResolution::Overloads(ids) => self.choose(&ids, &arguments),
+        };
+        self.active_calls.pop();
+        self.calls.insert(
+            key,
+            CallFact {
+                file,
+                item,
+                location: self.context.files[file].location(range.clone()),
+                name: identity(written),
+                outcome: outcome.clone(),
+            },
+        );
+        outcome
+    }
+    fn choose(
+        &mut self,
+        ids: &[DeclarationId],
+        arguments: &[(Option<String>, TypeInst)],
+    ) -> CallOutcome {
+        let mut matches = Vec::new();
+        let mut unknown = Vec::new();
+        for &id in ids {
+            let Some(signature) = self.signature(id) else {
+                if self.bindings.declarations[id.0].role == DeclarationRole::EnumConstructor {
+                    unknown.push(id);
+                }
+                continue;
+            };
+            let mut assigned = vec![None; signature.parameters.len()];
+            let mut next = 0;
+            let mut valid = true;
+            let mut named = false;
+            for (name, ty) in arguments {
+                let position = if let Some(name) = name {
+                    named = true;
+                    signature
+                        .parameters
+                        .iter()
+                        .position(|p| p.name.as_ref() == Some(name))
+                } else if named {
+                    None
+                } else {
+                    let position = next;
+                    next += 1;
+                    Some(position)
+                };
+                if let Some(position) =
+                    position.filter(|&p| p < assigned.len() && assigned[p].is_none())
+                {
+                    assigned[position] = Some(ty);
+                } else {
+                    valid = false;
+                    break;
+                }
+            }
+            if !valid
+                || assigned
+                    .iter()
+                    .zip(&signature.parameters)
+                    .any(|(a, p)| a.is_none() && !p.has_default)
+            {
+                continue;
+            }
+            // Omitted defaults use their retained enclosing-scope references.
+            // They can constrain type-inst variables just like supplied values.
+            let defaults: Vec<_> = self.nodes[id.0]
+                .unwrap()
+                .child_nodes()
+                .find(|node| node.kind() == NodeKind::ParameterList)
+                .map(|list| {
+                    list.child_nodes()
+                        .enumerate()
+                        .map(|(position, parameter)| {
+                            if assigned[position].is_none() {
+                                parameter.child_nodes().last().map(|expression| {
+                                    self.infer(
+                                        self.bindings.declarations[id.0].file,
+                                        self.bindings.declarations[id.0].item,
+                                        expression,
+                                    )
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let omitted: Vec<_> = assigned.iter().map(Option::is_none).collect();
+            for (actual, default) in assigned.iter_mut().zip(&defaults) {
+                if actual.is_none() {
+                    *actual = default.as_ref();
+                }
+            }
+            let mut variables = BTreeMap::new();
+            let mut state = Match::Yes;
+            for (actual, formal) in assigned.iter().zip(&signature.parameters) {
+                if let Some(actual) = actual {
+                    let result = match_type(actual, &formal.ty, &mut variables);
+                    if result == Match::No {
+                        state = Match::No;
+                        break;
+                    }
+                    if result == Match::Unknown {
+                        state = Match::Unknown;
+                    }
+                }
+            }
+            if state == Match::No {
+                continue;
+            }
+            let targets: Vec<_> = signature
+                .parameters
+                .iter()
+                .map(|p| substitute(&p.ty, &variables))
+                .collect();
+            for (actual, target) in assigned.iter().zip(&targets) {
+                if let Some(actual) = actual {
+                    if !target.known() || !actual.known() {
+                        state = Match::Unknown;
+                    } else if !coerces(actual, target) {
+                        state = Match::No;
+                        break;
+                    }
+                }
+            }
+            if state == Match::No {
+                continue;
+            }
+            if state == Match::Unknown {
+                unknown.push(id);
+                continue;
+            }
+            let mut actual_targets: Vec<_> = arguments
+                .iter()
+                .enumerate()
+                .map(|(position, (name, _))| {
+                    targets[if let Some(name) = name {
+                        signature
+                            .parameters
+                            .iter()
+                            .position(|p| p.name.as_ref() == Some(name))
+                            .unwrap()
+                    } else {
+                        position
+                    }]
+                    .clone()
+                })
+                .collect();
+            let mut patterns: Vec<_> = arguments
+                .iter()
+                .enumerate()
+                .map(|(position, (name, _))| {
+                    signature.parameters[if let Some(name) = name {
+                        signature
+                            .parameters
+                            .iter()
+                            .position(|p| p.name.as_ref() == Some(name))
+                            .unwrap()
+                    } else {
+                        position
+                    }]
+                    .ty
+                    .clone()
+                })
+                .collect();
+            for (position, omitted) in omitted.iter().enumerate() {
+                if *omitted {
+                    actual_targets.push(targets[position].clone());
+                    patterns.push(signature.parameters[position].ty.clone());
+                }
+            }
+            let return_type = substitute(&signature.return_type, &variables);
+            matches.push((id, actual_targets, patterns, return_type, targets));
+        }
+        if !unknown.is_empty() {
+            unknown.extend(matches.iter().map(|(id, _, _, _, _)| *id));
+            return CallOutcome::Unsupported {
+                reason: "a potentially matching signature or argument type is unknown".into(),
+                candidates: unknown,
+            };
+        }
+        if matches.is_empty() {
+            return CallOutcome::NoMatch {
+                reason: "no declaration accepts the supplied arity, names and supported types"
+                    .into(),
+            };
+        }
+        let minima: Vec<_> = matches
+            .iter()
+            .filter(|candidate| {
+                matches.iter().all(|other| {
+                    candidate.1.len() == other.1.len()
+                        && candidate
+                            .1
+                            .iter()
+                            .zip(&other.1)
+                            .zip(candidate.2.iter().zip(&other.2))
+                            .all(|((a, b), (pa, pb))| {
+                                coerces(a, b) && (a != b || pattern_narrower(pa, pb))
+                            })
+                })
+            })
+            .collect();
+        if let [winner] = minima.as_slice() {
+            CallOutcome::Resolved {
+                declaration: winner.0,
+                parameters: winner.4.clone(),
+                return_type: winner.3.clone(),
+            }
+        } else {
+            CallOutcome::Ambiguous {
+                candidates: matches.iter().map(|(id, _, _, _, _)| *id).collect(),
+            }
+        }
+    }
+}

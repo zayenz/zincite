@@ -356,3 +356,89 @@ fn capture_selection_loads_model_roots_and_keeps_stdin_data_and_error_precedence
     assert_eq!(std::fs::read_to_string(&shared).unwrap(), included);
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn element_selection_reports_advice_limits_and_independent_root_errors() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-lint-element-{}", std::process::id()));
+    let library = directory.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(library.join("std/stdlib.mzn"), "").unwrap();
+    std::fs::write(
+        library.join("std/element.mzn"),
+        "predicate element(var $$E: i,array[$$E] of var $$T: x,var $$T: y)=y=x[i];",
+    )
+    .unwrap();
+    let root = directory.join("root.mzn");
+    let source = "include \"element.mzn\"; array[int] of var int: xs; var int: value; constraint element(1,xs,value);";
+    std::fs::write(&root, source).unwrap();
+    let arguments = [
+        "--rules",
+        "element-predicate",
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        root.to_str().unwrap(),
+    ];
+    let warning = run(&arguments, "");
+    assert_eq!(warning.status.code(), Some(1));
+    assert!(warning.stdout.is_empty());
+    let stderr = String::from_utf8(warning.stderr).unwrap();
+    let start = source.find("element(1").unwrap();
+    assert!(
+        stderr.contains(&format!(
+            "{}:1:{}: bytes {}..{}: warning [element-predicate]",
+            root.display(),
+            start + 1,
+            start,
+            start + 7
+        )),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("analysis limitation"));
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    let failed = directory.join("failed.mzn");
+    std::fs::write(&failed, "include \"missing.mzn\";").unwrap();
+    let mut independent = arguments.to_vec();
+    independent.push(failed.to_str().unwrap());
+    let failure = run(&independent, "");
+    assert_eq!(failure.status.code(), Some(2));
+    let stderr = String::from_utf8(failure.stderr).unwrap();
+    assert!(
+        stderr.contains("warning [element-predicate]") && stderr.contains("cannot resolve include")
+    );
+    std::fs::write(
+        &root,
+        "predicate element(int: x)=true; constraint element(1);",
+    )
+    .unwrap();
+    let clean = run(&arguments, "");
+    assert_eq!(clean.status.code(), Some(0));
+    assert!(clean.stdout.is_empty() && clean.stderr.is_empty());
+    std::fs::write(&root, "constraint missing(1);").unwrap();
+    let limited = run(&arguments, "");
+    assert_eq!(limited.status.code(), Some(0));
+    assert!(
+        String::from_utf8(limited.stderr)
+            .unwrap()
+            .contains("analysis limitation: element-predicate: callable name is unresolved")
+    );
+    let stdin = run(&["--rules", "element-predicate"], source);
+    assert_eq!(stdin.status.code(), Some(0));
+    assert!(
+        String::from_utf8(stdin.stderr)
+            .unwrap()
+            .contains("requires a ModelContext")
+    );
+    let data = run(
+        &[
+            "--rules",
+            "element-predicate",
+            "--stdin-filepath",
+            "data.dzn",
+        ],
+        "x=1;",
+    );
+    assert_eq!(data.status.code(), Some(0));
+    assert!(data.stderr.is_empty());
+    std::fs::remove_dir_all(directory).unwrap();
+}

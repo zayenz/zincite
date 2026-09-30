@@ -112,6 +112,8 @@ pub struct IncludeEdge {
 #[derive(Debug)]
 pub struct ModelContext {
     pub root: PathBuf,
+    /// Canonical configured std/element.mzn identity retained at load time.
+    pub standard_element: Option<PathBuf>,
     pub root_file: Option<FileId>,
     pub implicit_core: Option<FileId>,
     pub files: Vec<ModelFile>,
@@ -128,6 +130,10 @@ pub fn load_model(root: impl AsRef<Path>, options: &ModelOptions) -> ModelContex
     let mut loader = Loader {
         context: ModelContext {
             root: root.clone(),
+            standard_element: options
+                .stdlib_dir
+                .as_ref()
+                .and_then(|path| path.join("std/element.mzn").canonicalize().ok()),
             root_file: None,
             implicit_core: None,
             files: Vec::new(),

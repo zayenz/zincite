@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 74
-- Ready: 6
-- Blocked: 36
-- Done: 32
+- Ready: 9
+- Blocked: 32
+- Done: 33
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -41,16 +41,16 @@
 | [base-030](tasks/030-select-rule-presets-and-extend-existing-suppressions.md) | Select rule presets and extend existing suppressions | done | — |
 | [base-031](tasks/031-load-model-include-closures-for-selected-semantic-rules.md) | Load model include closures for selected semantic rules | done | base-030, base-025 |
 | [base-032](tasks/032-resolve-bindings-and-report-captured-global-decisions.md) | Resolve bindings and report captured global decisions | done | base-031 |
-| [base-033](tasks/033-resolve-callable-facts-and-deliver-element-advice.md) | Resolve callable facts and deliver element advice | ready | base-032 |
-| [base-034](tasks/034-track-expression-instantiation-and-add-decision-use-advice.md) | Track expression instantiation and add decision-use advice | blocked | base-033 |
-| [base-035](tasks/035-track-declared-domains-and-report-numeric-index-advice.md) | Track declared domains and report numeric index advice | blocked | base-033 |
+| [base-033](tasks/033-resolve-callable-facts-and-deliver-element-advice.md) | Resolve callable facts and deliver element advice | done | base-032 |
+| [base-034](tasks/034-track-expression-instantiation-and-add-decision-use-advice.md) | Track expression instantiation and add decision-use advice | ready | base-033 |
+| [base-035](tasks/035-track-declared-domains-and-report-numeric-index-advice.md) | Track declared domains and report numeric index advice | ready | base-033 |
 | [base-036](tasks/036-find-unconditional-definitions-and-deliver-constant-variable.md) | Find unconditional definitions and deliver constant-variable advice | blocked | base-035, base-034 |
 | [base-037](tasks/037-report-unbounded-decisions-without-false-defining-equality-w.md) | Report unbounded decisions without false defining-equality warnings | blocked | base-036 |
 | [base-038](tasks/038-recommend-compact-forms-for-eligible-if-expressions.md) | Recommend compact forms for eligible if expressions | blocked | base-034 |
 | [base-039](tasks/039-recognise-safe-0-1-implication-and-sum-formulations.md) | Recognise safe 0..1 implication and sum formulations | blocked | base-036 |
-| [base-040](tasks/040-report-unreachable-declarations-in-complete-model-roots.md) | Report unreachable declarations in complete model roots | blocked | base-033 |
+| [base-040](tasks/040-report-unreachable-declarations-in-complete-model-roots.md) | Report unreachable declarations in complete model roots | ready | base-033 |
 | [base-041](tasks/041-report-globals-in-reified-and-half-reified-contexts.md) | Report globals in reified and half-reified contexts | blocked | base-036 |
-| [base-042](tasks/042-recognise-unmarked-likely-symmetry-breaking-globals.md) | Recognise unmarked likely symmetry-breaking globals | blocked | base-033 |
+| [base-042](tasks/042-recognise-unmarked-likely-symmetry-breaking-globals.md) | Recognise unmarked likely symmetry-breaking globals | ready | base-033 |
 | [base-043](tasks/043-check-search-coverage-through-direct-definitions.md) | Check search coverage through direct definitions | blocked | base-036 |
 | [base-044](tasks/044-complete-search-coverage-through-callable-definitions.md) | Complete search coverage through callable definitions | blocked | base-043 |
 | [base-045](tasks/045-measure-complete-model-coverage-for-every-thesis-rule.md) | Measure complete-model coverage for every thesis rule | blocked | base-037, base-038, base-039, base-040, base-042, base-044, base-041 |

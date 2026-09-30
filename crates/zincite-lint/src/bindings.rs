@@ -52,6 +52,8 @@ pub struct Declaration {
     pub file: FileId,
     pub item: usize,
     pub location: SourceLocation,
+    /// Owning CST node range in the parsed (BOM-stripped) source.
+    pub syntax_range: std::ops::Range<usize>,
     /// Lexical identity without quote delimiters; source retains exact spelling.
     pub name: String,
     pub role: DeclarationRole,
@@ -186,6 +188,7 @@ impl<'a> Builder<'a> {
                 file,
                 item,
                 location: source.location(token.range.clone()),
+                syntax_range: node.range(),
                 name: name.clone(),
                 role,
                 top_level,

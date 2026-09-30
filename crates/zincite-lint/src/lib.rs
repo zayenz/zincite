@@ -5,10 +5,13 @@ use zincite_syntax::{Diagnostic, NodeKind, ParsedFile, SyntaxElement, SyntaxNode
 
 mod analysis;
 mod bindings;
+mod callables;
 mod captures;
+mod element;
 mod model;
 mod naming;
 mod rules;
+mod types;
 pub use analysis::{
     AnalysisResult, FileFinding, RuleExecution, RuleOutcome, analyze_file, analyze_model,
     write_analysis,
@@ -17,11 +20,16 @@ pub use bindings::{
     BindingFacts, BindingResolution, Declaration, DeclarationId, DeclarationRole, Instantiation,
     Reference, ReferenceKind, resolve_bindings,
 };
+pub use callables::{
+    CallFact, CallOutcome, CallableFacts, CallableParameter, CallableSignature, DeclarationType,
+    ExpressionType, resolve_callables,
+};
 pub use model::{
     FileId, IncludeEdge, ModelContext, ModelFile, ModelOptions, SourceDiagnostic, SourceKind,
     SourceLocation, load_model,
 };
 pub use rules::{LintOptions, Rule};
+pub use types::{TypeInst, TypeKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Severity {

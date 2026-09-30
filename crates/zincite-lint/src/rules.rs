@@ -70,7 +70,10 @@ impl Rule {
     pub fn is_available(self) -> bool {
         matches!(
             self,
-            Self::Naming | Self::MissingConstraintLabel | Self::GlobalVariableInFunction
+            Self::Naming
+                | Self::MissingConstraintLabel
+                | Self::GlobalVariableInFunction
+                | Self::ElementPredicate
         )
     }
 

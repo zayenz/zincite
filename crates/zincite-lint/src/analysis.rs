@@ -5,7 +5,8 @@ use zincite_syntax::{FileMode, ParsedFile};
 
 use crate::{
     LintDiagnostic, LintOptions, ModelContext, Rule, Severity, SourceDiagnostic, SourceLocation,
-    captures::check_captures, lint_items, lint_with_options, resolve_bindings,
+    captures::check_captures, element::check_element, lint_items, lint_with_options,
+    resolve_bindings, resolve_callables,
 };
 
 #[derive(Debug)]
@@ -182,11 +183,24 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
         }
     }
     let data = FileMode::from_path(&context.root) == FileMode::Data;
-    if !data && options.rules.contains(&Rule::GlobalVariableInFunction) {
+    let shared_incomplete = !context.limitations.is_empty() || !context.errors.is_empty();
+    let mut capture_incomplete = false;
+    let mut element_incomplete = false;
+    if !data && options.requires_model() {
         let facts = resolve_bindings(context);
-        let captures = check_captures(context, &facts);
-        result.findings.extend(captures.findings);
-        result.limitations.extend(captures.limitations);
+        if options.rules.contains(&Rule::GlobalVariableInFunction) {
+            let captures = check_captures(context, &facts);
+            capture_incomplete = !captures.limitations.is_empty();
+            result.findings.extend(captures.findings);
+            result.limitations.extend(captures.limitations);
+        }
+        if options.rules.contains(&Rule::ElementPredicate) {
+            let calls = resolve_callables(context, &facts);
+            let elements = check_element(context, &facts, &calls);
+            element_incomplete = !elements.limitations.is_empty();
+            result.findings.extend(elements.findings);
+            result.limitations.extend(elements.limitations);
+        }
     }
     result.rules = options
         .rules
@@ -198,10 +212,12 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     reason: "standalone data has no model context".into(),
                 }
             } else if rule.requires_model()
-                && (!result.limitations.is_empty() || !result.errors.is_empty())
+                && (shared_incomplete
+                    || (rule == Rule::GlobalVariableInFunction && capture_incomplete)
+                    || (rule == Rule::ElementPredicate && element_incomplete))
             {
                 RuleOutcome::Limited {
-                    reason: "model dependencies or binding facts are incomplete".into(),
+                    reason: "model dependencies or required semantic facts are incomplete".into(),
                 }
             } else if result.errors.is_empty() {
                 RuleOutcome::Completed

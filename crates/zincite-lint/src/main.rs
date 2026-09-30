@@ -19,15 +19,19 @@ Overlapping inputs use the first path to each file.
 --rules default|thesis|all or comma-separated rule IDs selects exactly that set.
 Omitted --rules selects default; repeated --rules and unknown IDs are errors.
 The thesis preset selects its fourteen catalogue rules; all includes the defaults.
-global-variable-in-function is implemented; the other thirteen thesis rules
+global-variable-in-function and element-predicate are implemented; the other twelve thesis rules
 remain unavailable and selecting any of them reports an error.
 -I DIR adds an ordered include directory for rules requiring model analysis.
 --stdlib-dir DIR supplies the MiniZinc library root, overriding MZN_STDLIB_DIR.
 Current default rules do not load includes or the standard library.
 global-variable-in-function advises passing captured global decisions as arguments.
 It resolves lexical bindings and declared instantiation, without full type checking.
+element-predicate recommends indexing equality for a resolved three-argument
+standard predicate. Callable facts retain aliases, enums, optional and structured
+types, parameter names/defaults and supported polymorphic coercions. Ambiguous,
+unresolved or unsupported calls report limitations; no full type checking occurs.
 Stdin has no model context: selected semantic analysis reports a limitation;
-standalone .dzn inputs mark the semantic rule inapplicable.
+standalone .dzn inputs mark semantic rules inapplicable.
 
 Default rules (both warnings):
     naming: snake_case for values, callable names, parameters, fields and bindings;
