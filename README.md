@@ -147,8 +147,11 @@ The parser supports:
   base type, as required by the pinned grammar; parenthesized expression
   concatenation remains expression syntax. Targets are neither resolved nor
   evaluated.
-- Declaration and expression annotations. Annotation literals use the same
-  identifier and call syntax as other expressions.
+- Declaration and expression annotations, including annotations on local let
+  declarations. The bare reserved `output` token is accepted immediately after
+  `::`, matching MiniZinc 2.10.1; ordinary expressions, parenthesized annotations,
+  calls and field access using that reserved spelling remain rejected. Other
+  annotation literals use ordinary identifier and call syntax.
 - Constraints with an expression and an optional direct `:: "label"`, including
   interpolated labels.
 - Include items with a string literal path, output items with an optional string,
@@ -190,17 +193,21 @@ including nested types, `var`/`par`/`opt` qualifiers, array fields, aliases, cal
 signatures and local declarations. Field order and spelling are preserved.
 The CST distinguishes record type field declarations, literal field labels and
 access references; parsing does not resolve them. Types require at least one
-field and accept a trailing comma. Tuple literals and record literals require
-their first comma, including `(value,)` and `(field: value,)`. These follow the
-pinned grammar: unary tuple syntax parses despite the specification prose
-excluding it. MiniZinc 2.10.1 accepts unary tuples and also accepts singleton
-record literals without the comma. Zincite follows the written grammar.
+field and accept a trailing comma. Tuple literals require their first comma,
+including `(value,)`; this follows the pinned grammar despite its prose excluding
+unary tuples. Record literals also accept `(field: value)` without a comma,
+matching MiniZinc 2.10.1 beyond the printed record production. They retain a
+record node and field-label nodes rather than becoming parenthesized expressions.
 The structured fixture and its formatted output pass MiniZinc 2.10.1 model checks.
 `variant_record` and `case` are reserved keywords without productions in the
 pinned grammar; they remain unsupported and produce diagnostics. Unsupported
 input produces diagnostics. Range-type bounds follow the numeric-expression
-grammar: their parentheses may contain numeric operators, identifiers and calls;
-call arguments and annotations use the general expression grammar.
+grammar with the compiler-supported `infinity` bound, including signed bounds.
+Their parentheses may contain numeric operators, identifiers and calls; call
+arguments and annotations use the general expression grammar. Global and local
+declaration initializers accept both `=` and the compiler-supported `==` spelling,
+retaining the written token. Other declarations such as type aliases still require
+`=`. Local annotation declarations remain rejected, as in MiniZinc 2.10.1.
 
 Parsing checks syntax only: it does not resolve includes or names, require a
 solve item, infer types or check semantic validity. For example, accepting a

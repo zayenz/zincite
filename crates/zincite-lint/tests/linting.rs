@@ -173,3 +173,28 @@ fn naming_and_label_suppressions_are_independent_and_stop_at_the_next_item() {
         assert_eq!(&source[warning.range.clone()], name);
     }
 }
+
+#[test]
+fn compiler_source_extensions_reach_nested_naming_and_constraint_checks() {
+    let source = "var -infinity..infinity: BadBound :: output; record(int: BadField): rec=(BadField:1); var bool: BadFlag == let {var bool: BadLocal :: output == true; constraint BadLocal;} in BadLocal; solve satisfy;";
+    let parsed = parse(source);
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    let warnings = lint(&parsed).unwrap();
+    let names = warnings
+        .iter()
+        .filter(|warning| warning.rule == Rule::Naming)
+        .map(|warning| &source[warning.range.clone()])
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["BadBound", "BadField", "BadFlag", "BadLocal"]);
+    assert_eq!(
+        warnings
+            .iter()
+            .filter(|warning| warning.rule == Rule::MissingConstraintLabel)
+            .count(),
+        1
+    );
+}

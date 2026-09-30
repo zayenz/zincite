@@ -273,7 +273,6 @@ fn numeric_type_bounds_check_grammar_without_inference() {
         "var 1.._: x;",
         "var 1..<>: x;",
         "var 1..\"2\": x;",
-        "var 1..infinity: x;",
         "int: x=..;",
         "int: x=f(1,,2);",
         "int: x=1+;",
@@ -912,7 +911,7 @@ fn malformed_model_items_diagnose_and_recover_without_losing_source() {
         "solve :: restart_none;",
         "solve minimize;",
         "solve satisfy 1;",
-        "output (a:1);",
+        "output (a:);",
     ] {
         let source = format!("{bad} include \"missing.mzn\"; output [\"after\"]; solve satisfy;");
         let parsed = parse(source.clone());
@@ -1180,7 +1179,7 @@ fn structured_grammar_forms_and_malformed_fields_use_shared_parsing() {
     for bad in [
         "record(): r;",
         "tuple(): t;",
-        "any: r=(x:1);",
+        "any: r=(x:);",
         "any: r=(x:1, 2);",
         "any: t=();",
         "any: x=t.true;",
@@ -1238,4 +1237,65 @@ fn data_mode_keeps_assignments_lossless_and_recovers_past_model_items() {
     assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
     assert_eq!(FileMode::from_path("data.dzn"), FileMode::Data);
     assert_eq!(FileMode::from_path("model.mzn"), FileMode::Model);
+}
+
+#[test]
+fn compiler_source_extensions_retain_nodes_tokens_and_reject_nearby_invalid_forms() {
+    let source = "var -infinity..infinity: bound :: output; record(int: field): rec=(field:1); var bool: flag == let { var bool: local_flag :: output == true; constraint local_flag; } in local_flag; solve satisfy;";
+    let parsed = parse(source);
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    let mut leaves = Vec::new();
+    collect_leaves(parsed.tree(), &parsed, &mut leaves);
+    assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+    let nodes = items(&parsed);
+    let range = nodes[0]
+        .child_nodes()
+        .next()
+        .unwrap()
+        .child_nodes()
+        .next()
+        .unwrap();
+    assert_eq!(range.kind(), NodeKind::RangeExpression);
+    assert_eq!(&source[range.range()], " -infinity..infinity");
+    let annotation = nodes[0].child_nodes().nth(1).unwrap();
+    assert_eq!(annotation.kind(), NodeKind::Annotation);
+    assert_eq!(&source[annotation.range()], ":: output");
+    let record = nodes[1].child_nodes().nth(1).unwrap();
+    assert_eq!(record.kind(), NodeKind::RecordLiteral);
+    assert_eq!(
+        record.child_nodes().next().unwrap().kind(),
+        NodeKind::RecordLiteralField
+    );
+    assert_eq!(&source[record.range()], "(field:1)");
+    for bad in [
+        "any: r=(field:1, 2);",
+        "any: r=(field:1 other:2);",
+        "var int: x :: output();",
+        "var int: x :: output.field;",
+        "var int: x :: (output);",
+        "ann: a=output;",
+        "var int: x = let { annotation local_tag; } in 1;",
+        "type T == int;",
+        "var int: x == ;",
+    ] {
+        let source = format!("{bad} int: after=7;");
+        let parsed = parse(source.clone());
+        assert!(!parsed.diagnostics().is_empty(), "{source}");
+        assert_eq!(
+            &source[items(&parsed).last().unwrap().range()],
+            "int: after=7;"
+        );
+        let mut leaves = Vec::new();
+        collect_leaves(parsed.tree(), &parsed, &mut leaves);
+        assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+    }
+    assert!(
+        !zincite_syntax::parse_with_mode(source, zincite_syntax::FileMode::Data)
+            .diagnostics()
+            .is_empty()
+    );
 }

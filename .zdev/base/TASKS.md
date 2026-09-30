@@ -4,8 +4,8 @@
 
 - Total: 51
 - Ready: 5
-- Blocked: 22
-- Done: 24
+- Blocked: 21
+- Done: 25
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -32,8 +32,8 @@
 | [base-021](tasks/021-add-syntax-based-naming-checks.md) | Add syntax-based naming checks | done | base-020, base-013 |
 | [base-022](tasks/022-measure-save-latency-memory-and-scaling-before-optimization.md) | Measure save latency, memory and scaling before optimization | done | — |
 | [base-023](tasks/023-establish-a-repeatable-full-corpus-check.md) | Establish a repeatable full-corpus check | done | — |
-| [base-024](tasks/024-accept-compiler-supported-source-forms-found-in-models.md) | Accept compiler-supported source forms found in models | ready | base-023 |
-| [base-025](tasks/025-support-unnamed-and-annotated-library-parameters.md) | Support unnamed and annotated library parameters | blocked | base-023, base-024 |
+| [base-024](tasks/024-accept-compiler-supported-source-forms-found-in-models.md) | Accept compiler-supported source forms found in models | done | base-023 |
+| [base-025](tasks/025-support-unnamed-and-annotated-library-parameters.md) | Support unnamed and annotated library parameters | ready | base-023, base-024 |
 | [base-026](tasks/026-classify-remaining-historical-and-library-syntax-gaps.md) | Classify remaining historical and library syntax gaps | blocked | base-025 |
 | [base-027](tasks/027-stabilise-expression-wrapping-and-continuation-indentation.md) | Stabilise expression wrapping and continuation indentation | ready | base-023 |
 | [base-028](tasks/028-check-formatter-preservation-across-the-expanded-corpus.md) | Check formatter preservation across the expanded corpus | blocked | base-025, base-027 |

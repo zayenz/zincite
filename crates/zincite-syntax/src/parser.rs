@@ -291,7 +291,9 @@ impl Parser<'_> {
             self.trivia(children);
             children.push(SyntaxElement::Node(self.annotation()?));
         }
-        if self.peek() == Some(TokenKind::Equal) {
+        // MiniZinc 2.10.1 also accepts '==' for declaration initialization,
+        // including local declarations in the Challenge connect models.
+        if matches!(self.peek(), Some(TokenKind::Equal | TokenKind::DoubleEqual)) {
             self.bump(children);
             self.expression(children)?;
         }
@@ -732,11 +734,11 @@ impl Parser<'_> {
                     NodeKind::Expression
                 }
             }
-            Some(IntegerLiteral | FloatLiteral) => {
+            Some(IntegerLiteral | FloatLiteral | Infinity) => {
                 self.bump(&mut children);
                 NodeKind::Expression
             }
-            Some(StringLiteral | True | False | Infinity | Anonymous | Absent)
+            Some(StringLiteral | True | False | Anonymous | Absent)
                 if grammar != Grammar::Numeric =>
             {
                 self.bump(&mut children);
@@ -822,10 +824,8 @@ impl Parser<'_> {
             } else {
                 children.push(SyntaxElement::Node(self.precedence(inner_grammar, 1600)?));
             }
+            // The compiler also accepts singleton record fields without a comma.
             if self.peek() != Some(Comma) {
-                if record && !literal {
-                    return Err("expected ',' after first record literal field");
-                }
                 break;
             }
             if grammar == Grammar::Numeric {
@@ -1277,7 +1277,17 @@ impl Parser<'_> {
         let start = self.position;
         let mut children = Vec::new();
         self.bump(&mut children);
-        children.push(SyntaxElement::Node(self.atom_head(Grammar::General, true)?));
+        // The compiler accepts bare reserved 'output' after '::', but rejects
+        // it as an ordinary expression, call or field-access subject.
+        let atom = if self.peek() == Some(TokenKind::Output) {
+            let atom_start = self.position;
+            let mut atom = Vec::new();
+            self.bump(&mut atom);
+            self.node(NodeKind::Expression, atom_start, atom)
+        } else {
+            self.atom_head(Grammar::General, true)?
+        };
+        children.push(SyntaxElement::Node(atom));
         Ok(self.node(NodeKind::Annotation, start, children))
     }
 
@@ -1717,6 +1727,7 @@ fn is_numeric_expression(node: &SyntaxNode, tokens: &[Token]) -> bool {
                             | TokenKind::QuotedIdentifier
                             | TokenKind::IntegerLiteral
                             | TokenKind::FloatLiteral
+                            | TokenKind::Infinity
                             | TokenKind::LeftParen
                             | TokenKind::RightParen
                             | TokenKind::Inverse

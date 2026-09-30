@@ -141,3 +141,46 @@ place, with `protected_bytes = not_applicable_no_directives`; the summary record
 this supplemental scan. Previous check outcomes and the final failure totals
 remain unchanged. This distinction records the newly added invariant without
 claiming the original full run checked protected bytes.
+
+## Compiler-supported source forms recheck
+
+The base-024 recheck selected all 64 prior parse-failure records outside the local
+software tree, including duplicates and mislabelled data files. It was a focused
+recheck, not another full-corpus acceptance run. External hashes stayed unchanged.
+The complete records and classification counts are in ignored
+`target/corpus/base024/{results.jsonl,summary.json}`.
+
+Forty-two files now parse and reach formatting/reparse and current lint: 19 public
+archive records and 23 local records. Their spelling, ordered structure and
+protected-byte checks pass. Ten connect copies and two stripboard models retain
+second-pass differences; the existing formatter compatibility work in base-027
+owns those layout failures. None was excluded from the report.
+
+The remaining 22 parse failures comprise:
+
+| Classification | Records |
+| --- | ---: |
+| Deprecated function declarations without `function` | 9 |
+| Historical form-feed whitespace | 4 |
+| Model declarations in default data mode | 4 |
+| Malformed comma-separated interpolation | 1 |
+| Missing array-entry comma, including a copied model | 2 |
+| Field outside its record literal | 1 |
+| Unclosed call | 1 |
+
+MiniZinc 2.10.1 accepts minimal omitted-function and form-feed probes; those remain
+explicit compatibility families for base-026. It rejects minimal comma
+interpolation, missing-entry-comma and misplaced-field probes. The four data-mode
+cases still require model grammar rather than silently changing `.dzn` behavior.
+Software/library unnamed or annotated parameter forms remain outside this recheck
+and belong to base-025.
+
+The installed MiniZinc build `33348285743` accepts original and formatted minimal
+models for infinity bounds, bare `:: output`, singleton record values, annotations
+on local declarations and local/global `==` declaration initializers. All six
+`--model-check-only` pairs returned 0 with no diagnostics; no solver ran. Focused
+public checks retain CST/token ranges, spelling and comments, reject malformed
+records and reserved-output placements, retain data-mode rejection, and reach
+nested naming/constraint-label lint checks. Required workspace fmt, clippy and
+tests pass. This recheck does not claim all historical syntax or formatter corpus
+failures are resolved.

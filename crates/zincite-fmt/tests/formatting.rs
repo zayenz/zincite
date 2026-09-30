@@ -998,3 +998,32 @@ fn options_use_scalar_columns_tab_stops_and_unlimited_width() {
         formatted
     );
 }
+
+#[test]
+fn compiler_source_extensions_format_losslessly_and_stably() {
+    let source = "var -infinity..infinity: bound::output; record(int:field):rec=(field:1); var bool:flag==let { % Keep  comment\nvar bool:local_flag::output==true; constraint::\"local\" local_flag;} in local_flag; solve satisfy;";
+    let parsed = parse(source);
+    let formatted = format(&parsed).unwrap();
+    let reparsed = parse(&formatted);
+    assert!(
+        reparsed.diagnostics().is_empty(),
+        "{:?}",
+        reparsed.diagnostics()
+    );
+    let spellings = |parsed: &zincite_syntax::ParsedFile| {
+        parsed
+            .tokens()
+            .iter()
+            .filter(|token| token.kind != TokenKind::Whitespace)
+            .map(|token| (token.kind, parsed.source()[token.range.clone()].to_owned()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(spellings(&parsed), spellings(&reparsed));
+    assert_eq!(
+        structure(parsed.tree(), &parsed),
+        structure(reparsed.tree(), &reparsed)
+    );
+    assert!(formatted.contains("(field: 1)"));
+    assert!(formatted.contains("local_flag :: output == true"));
+    assert_eq!(format(&reparsed).unwrap(), formatted);
+}

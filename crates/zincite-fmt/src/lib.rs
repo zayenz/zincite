@@ -242,6 +242,7 @@ impl Formatter<'_> {
                                 previous,
                                 Some(
                                     TokenKind::Equal
+                                        | TokenKind::DoubleEqual
                                         | TokenKind::Minimize
                                         | TokenKind::Maximize
                                         | TokenKind::Output
