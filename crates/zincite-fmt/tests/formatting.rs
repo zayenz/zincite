@@ -4,6 +4,67 @@ use zincite_syntax::{TokenKind, parse};
 const MODEL: &str = include_str!("../../../tests/fixtures/scalar.mzn");
 
 #[test]
+fn include_groups_sort_decoded_paths_with_attached_comments_and_stable_duplicates() {
+    let source = r#"% Z  attachment
+include "z.mzn"; % Z  tail
+/* A  attachment */
+include "a.mzn"; % First  a
+include "\x67lobals.mzn";
+include "A.mzn";
+include "\141.mzn"; % Second  a
+include "\xc3\xa9.mzn"; % First  unicode
+include "é.mzn"; % Second  unicode
+
+% Section  stays
+
+include "q.mzn";
+include "b.mzn";
+int: barrier=1;
+include "d.mzn";
+include "c.mzn";
+"#;
+    let expected = r#"include "\x67lobals.mzn";
+include "A.mzn";
+/* A  attachment */
+include "a.mzn"; % First  a
+include "\141.mzn"; % Second  a
+% Z  attachment
+include "z.mzn"; % Z  tail
+include "\xc3\xa9.mzn"; % First  unicode
+include "é.mzn"; % Second  unicode
+
+% Section  stays
+
+include "b.mzn";
+include "q.mzn";
+int: barrier = 1;
+include "c.mzn";
+include "d.mzn";
+"#;
+    let parsed = parse(source);
+    let formatted = format(&parsed).unwrap();
+    assert_eq!(formatted, expected);
+    let reparsed = parse(formatted.clone());
+    assert!(reparsed.diagnostics().is_empty());
+    assert_eq!(format(&reparsed).unwrap(), formatted);
+}
+
+#[test]
+fn include_sorting_respects_directive_and_protected_barriers() {
+    let skipped = "\r\n% zincite-fmt: skip\r\n include  \"globals.mzn\" ; \r\n";
+    let off = "\r\n% zincite-fmt: off\r\ninclude  \"z.mzn\" ;\r\ninclude \"a.mzn\";\r\n% zincite-fmt: on\r\n";
+    let source = format!(
+        "include \"z.mzn\";\ninclude \"a.mzn\";{skipped}include \"d.mzn\";\ninclude \"c.mzn\";{off}include \"f.mzn\";\ninclude \"e.mzn\";\n% zincite-lint: ignore naming\ninclude \"q.mzn\";\ninclude \"b.mzn\";\ninclude \"a.mzn\";\ninclude \"\\(path).mzn\";\ninclude \"d.mzn\";\ninclude \"c.mzn\";"
+    );
+    let expected = format!(
+        "include \"a.mzn\";\ninclude \"z.mzn\";{skipped}include \"c.mzn\";\ninclude \"d.mzn\";{off}include \"e.mzn\";\ninclude \"f.mzn\";\n% zincite-lint: ignore naming\ninclude \"q.mzn\";\ninclude \"a.mzn\";\ninclude \"b.mzn\";\ninclude \"\\(path).mzn\";\ninclude \"c.mzn\";\ninclude \"d.mzn\";\n"
+    );
+    let formatted = format(&parse(source)).unwrap();
+    assert_eq!(formatted, expected);
+    assert_eq!(format(&parse(formatted.clone())).unwrap(), formatted);
+}
+
+#[test]
 fn directives_preserve_items_regions_and_boundary_bytes() {
     use zincite_fmt::protected_ranges;
 
@@ -529,7 +590,7 @@ fn callable_layout_preserves_signatures_comments_and_body_structure() {
 }
 
 #[test]
-fn model_item_layout_keeps_include_order_and_annotation_attachment_stable() {
+fn model_item_layout_keeps_include_comments_and_annotation_attachment_stable() {
     let model = include_str!("../../../tests/fixtures/model-items.mzn");
     for mode in ["minimize", "maximize", "satisfy"] {
         let source = if mode == "satisfy" {
@@ -540,7 +601,7 @@ fn model_item_layout_keeps_include_order_and_annotation_attachment_stable() {
         let parsed = parse(source);
         let formatted = format(&parsed).unwrap();
         assert!(formatted.contains(
-            "include \"alldifferent.mzn\"; % Keep  include comment\ninclude \"globals.mzn\";"
+            "include \"globals.mzn\";\n% Keep  include order\ninclude \"alldifferent.mzn\"; % Keep  include comment"
         ));
         assert!(formatted.contains("output :: \"result\" [\"choice = \", show(choice), \"\\n\"];"));
         assert!(formatted.contains("output :: json_section(\"details\") (choice + 1);"));
@@ -552,10 +613,14 @@ fn model_item_layout_keeps_include_order_and_annotation_attachment_stable() {
             "{:?}",
             reparsed.diagnostics()
         );
-        assert_eq!(
-            structure(parsed.tree(), &parsed),
-            structure(reparsed.tree(), &reparsed)
-        );
+        let ordinary_items = |file: &zincite_syntax::ParsedFile| {
+            file.tree()
+                .child_nodes()
+                .filter(|item| item.kind() != zincite_syntax::NodeKind::Include)
+                .map(|item| structure(item, file))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ordinary_items(&parsed), ordinary_items(&reparsed));
         assert_eq!(format(&reparsed).unwrap(), formatted);
     }
     assert!(format(&parse("output :: name [\"x\"]; ")).is_err());

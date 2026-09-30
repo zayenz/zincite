@@ -166,8 +166,8 @@ Conditional branch bodies and `let` blocks/bodies use block indentation;
 local item order, separators, parentheses and annotation attachment are retained.
 Generic type-inst syntax is shared by local, top-level and callable declarations.
 No local name resolution or checks of branch types or declaration initializers are
-performed. Includes retain their written order and paths; they are neither loaded
-nor sorted in the current implementation.
+performed. Adjacent include groups sort with their attached comments, retaining
+written paths and group boundaries; included files are never loaded.
 Matrices align columns and wrap rows at shared column boundaries when needed,
 retaining their logical row boundaries, indices and comments. It normalizes
 editable spacing and line endings to LF, adds a final newline and preserves blank-line groups while
@@ -249,8 +249,13 @@ preserve a region between complete items. These spans retain their marker lines,
 boundary whitespace, comments and original line endings exactly, including EOF
 whitespace. Skipped syntax is still checked. Nested, unmatched, misplaced,
 malformed and dangling markers fail the whole file. The library's
-`protected_ranges(&parsed)` exposes the validated byte spans for sorting barriers;
-include sorting remains unimplemented.
+`protected_ranges(&parsed)` exposes the validated byte spans for sorting barriers.
+Adjacent include groups sort by decoded path, case-sensitively, with `globals.mzn`
+first and equal paths retaining their order. Written paths and attached comments
+are preserved. Blank lines, separated comments, other items, formatting directives,
+lint suppression targets and skipped spans keep groups separate. Interpolated
+include paths stay in place because sorting does not evaluate expressions or load
+included files.
 
 Indentation size and tab width are nonzero column counts;
 tab indentation fills complete tab stops and uses spaces for any remainder.

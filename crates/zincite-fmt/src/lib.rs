@@ -5,6 +5,7 @@ use std::num::NonZeroUsize;
 use zincite_syntax::{Diagnostic, NodeKind, ParsedFile, SyntaxElement, SyntaxNode, TokenKind};
 
 mod directives;
+mod includes;
 pub use directives::protected_ranges;
 
 /// How indentation columns are written. Tabs use spaces for a partial tab stop.
@@ -69,7 +70,23 @@ pub fn format_with_options(
         suffix_columns: 0,
     };
     let mut ranges = protected.iter().peekable();
-    for child in parsed.tree().children() {
+    let mut groups = includes::include_groups(parsed, &protected)
+        .into_iter()
+        .peekable();
+    let children = parsed.tree().children();
+    let mut position = 0;
+    while position < children.len() {
+        if groups
+            .peek()
+            .is_some_and(|group| group.children.start == position)
+        {
+            let group = groups.next().unwrap();
+            formatter.include_group(&group);
+            position = group.children.end;
+            continue;
+        }
+        let child = &children[position];
+        position += 1;
         let start = match child {
             SyntaxElement::Node(item) => item.range().start,
             SyntaxElement::Token(index) => parsed.tokens()[*index].range.start,
@@ -134,6 +151,20 @@ struct MatrixLayout {
 }
 
 impl Formatter<'_> {
+    fn include_group(&mut self, group: &includes::IncludeGroup) {
+        for entry in &group.entries {
+            self.newlines(self.pending_breaks.max(1));
+            self.pending_breaks = 0;
+            self.between_items = false;
+            for child in &self.parsed.tree().children()[entry.clone()] {
+                match child {
+                    SyntaxElement::Node(item) => self.item(item),
+                    SyntaxElement::Token(index) => self.token(*index),
+                }
+            }
+        }
+    }
+
     fn item(&mut self, item: &SyntaxNode) {
         if self.between_items || self.pending_breaks > 0 || self.line_comment {
             self.newlines(self.pending_breaks.max(1));
