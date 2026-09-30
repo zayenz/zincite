@@ -74,6 +74,7 @@ impl Rule {
                 | Self::MissingConstraintLabel
                 | Self::ArrayIndexStart
                 | Self::ConstantVariable
+                | Self::UnboundedVariable
                 | Self::GlobalVariableInFunction
                 | Self::ElementPredicate
                 | Self::DecisionVariableOperator

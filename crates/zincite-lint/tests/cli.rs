@@ -628,7 +628,53 @@ fn constant_variable_selection_keeps_context_limits_and_status_precedence() {
             .iter()
             .filter(|r| !r.is_available())
             .count(),
-        7
+        6
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn unbounded_selection_preserves_domains_definitions_suppression_and_errors() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-unbounded-cli-{}", std::process::id()));
+    let library = directory.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(library.join("std/stdlib.mzn"), "").unwrap();
+    let root = directory.join("root.mzn");
+    let original = "type Real=var float; Real: value; var 0..3: bounded; var int: defined; constraint defined=bounded; solve satisfy;";
+    std::fs::write(&root, original).unwrap();
+    let args = [
+        "--rules",
+        "unbounded-variable",
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        root.to_str().unwrap(),
+    ];
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let diagnostics = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(
+        diagnostics.matches("warning [unbounded-variable]").count(),
+        1
+    );
+    assert!(!diagnostics.contains("analysis limitation"));
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), original);
+    std::fs::write(&root,"% zincite-lint: ignore unbounded-variable\nvar int: suppressed; var float: initialized=2.0; solve satisfy;").unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stdout.is_empty() && output.stderr.is_empty());
+    let failed = directory.join("failed.mzn");
+    std::fs::write(&failed, "var int: broken = ;").unwrap();
+    std::fs::write(&root, original).unwrap();
+    let mut independent = args.to_vec();
+    independent.push(failed.to_str().unwrap());
+    let output = run(&independent, "");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("warning [unbounded-variable]")
     );
     std::fs::remove_dir_all(directory).unwrap();
 }

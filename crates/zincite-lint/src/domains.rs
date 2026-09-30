@@ -41,6 +41,8 @@ pub enum Domain {
     },
     Enum(DeclarationId),
     UnconstrainedInt,
+    UnconstrainedFloat,
+    NonNumeric,
     /// Set element type; the type alone does not establish actual membership.
     Set(Box<Domain>),
     Array {
@@ -165,7 +167,8 @@ impl Walker<'_> {
                     .map(|n| self.domain(declaration.file, n))
                     .unwrap_or(Domain::Unknown)
             } else {
-                Domain::Unknown
+                self.active.pop();
+                return declared_type;
             };
             declared_type.with_set_elements(elements)
         } else {
@@ -207,6 +210,26 @@ impl Walker<'_> {
             {
                 Domain::UnconstrainedInt
             }
+            ScalarType => {
+                if tokens(&self.context.files[file].parsed, node)
+                    .iter()
+                    .any(|t| t.kind == TokenKind::Float)
+                {
+                    Domain::UnconstrainedFloat
+                } else {
+                    Domain::NonNumeric
+                }
+            }
+            TupleType | RecordType => Domain::NonNumeric,
+            ListType => Domain::Array {
+                indices: vec![Domain::UnconstrainedInt],
+                element: Box::new(
+                    children
+                        .last()
+                        .map(|n| self.domain(file, n))
+                        .unwrap_or(Domain::Unknown),
+                ),
+            },
             ArrayType => Domain::Array {
                 indices: children[..children.len().saturating_sub(1)]
                     .iter()
@@ -477,6 +500,29 @@ fn adjust(bound: NumericBound, delta: i64) -> NumericBound {
 }
 
 impl Domain {
+    /// Whether a numeric value or array element has no explicit written domain.
+    /// Named aliases are followed; unsupported/unknown domain interpretation
+    /// stays distinct from a known nonnumeric or explicitly bounded type.
+    pub fn has_unbounded_numeric_elements(&self) -> Result<bool, &str> {
+        match self {
+            Self::UnconstrainedInt | Self::UnconstrainedFloat => Ok(true),
+            Self::Named { domain, .. } => domain.has_unbounded_numeric_elements(),
+            Self::Array { element, .. } => element.has_unbounded_numeric_elements(),
+            Self::Unknown => Err("declared domain is unknown"),
+            Self::Unsupported(reason) => Err(reason),
+            _ => Ok(false),
+        }
+    }
+
+    /// A written numeric element domain, including through array/type aliases.
+    pub fn has_explicit_numeric_domain(&self) -> bool {
+        match self {
+            Self::Range { .. } | Self::LiteralSet(_) => true,
+            Self::Named { domain, .. } => domain.has_explicit_numeric_domain(),
+            Self::Array { element, .. } => element.has_explicit_numeric_domain(),
+            _ => false,
+        }
+    }
     fn is_set(&self) -> bool {
         match self {
             Self::Set(_) => true,

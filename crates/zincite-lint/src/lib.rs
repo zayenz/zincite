@@ -18,6 +18,7 @@ mod model;
 mod naming;
 mod rules;
 mod types;
+mod unbounded_variable;
 pub use analysis::{
     AnalysisResult, FileFinding, RuleExecution, RuleOutcome, analyze_file, analyze_model,
     write_analysis,

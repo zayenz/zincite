@@ -53,6 +53,52 @@ pub struct DefinitionFacts {
     pub definitions: Vec<Definition>,
 }
 
+impl DefinitionFacts {
+    /// Values anchored by parameters, explicit numeric domains or complete
+    /// supported enforced definitions. Facts must share the same ModelContext.
+    /// Cyclic equality directions need already anchored dependencies; an
+    /// unanchored or self cycle never establishes its own complete definition.
+    pub fn bounded_or_defined_targets(
+        &self,
+        bindings: &BindingFacts,
+        domains: &DomainFacts,
+    ) -> Vec<DeclarationId> {
+        let mut known: Vec<_> = bindings
+            .declarations
+            .iter()
+            .filter(|d| {
+                d.instantiation == Instantiation::Parameter
+                    || domains.declarations[d.id.0]
+                        .domain
+                        .has_explicit_numeric_domain()
+            })
+            .map(|d| d.id)
+            .collect();
+        loop {
+            let previous = known.len();
+            for definition in &self.definitions {
+                if known.contains(&definition.target)
+                    || definition.enforcement != DefinitionEnforcement::Enforced
+                    || !matches!(
+                        definition.coverage,
+                        DefinitionCoverage::Scalar | DefinitionCoverage::WholeArray
+                    )
+                    || definition.safety != DefinitionSafety::Supported
+                {
+                    continue;
+                }
+                if !definition.cyclic || definition.dependencies.iter().all(|id| known.contains(id))
+                {
+                    known.push(definition.target);
+                }
+            }
+            if known.len() == previous {
+                return known;
+            }
+        }
+    }
+}
+
 /// Retain initializer/equality candidates without enabling lint or evaluating
 /// data. Prerequisite facts must belong to this ModelContext. Enforcement admits
 /// core conjunction/forall and exactly resolved Boolean forwarding bodies only.

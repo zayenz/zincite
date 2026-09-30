@@ -9,6 +9,7 @@ use crate::{
     constant_variable::check_constant_variables, decision_use::check_decision_use,
     element::check_element, lint_items, lint_with_options, resolve_bindings, resolve_callables,
     resolve_definitions, resolve_domains, resolve_instantiations,
+    unbounded_variable::check_unbounded_variables,
 };
 
 #[derive(Debug)]
@@ -188,6 +189,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
     let shared_incomplete = !context.limitations.is_empty() || !context.errors.is_empty();
     let mut array_incomplete = false;
     let mut constant_incomplete = false;
+    let mut unbounded_incomplete = false;
     let mut capture_incomplete = false;
     let mut element_incomplete = false;
     let mut decision_incomplete = Vec::new();
@@ -195,6 +197,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
         let facts = resolve_bindings(context);
         let domains = if options.rules.contains(&Rule::ArrayIndexStart)
             || options.rules.contains(&Rule::ConstantVariable)
+            || options.rules.contains(&Rule::UnboundedVariable)
         {
             Some(resolve_domains(context, &facts))
         } else {
@@ -229,6 +232,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
         if options.rules.contains(&Rule::ElementPredicate)
             || !decision_rules.is_empty()
             || options.rules.contains(&Rule::ConstantVariable)
+            || options.rules.contains(&Rule::UnboundedVariable)
         {
             let calls = resolve_callables(context, &facts);
             if options.rules.contains(&Rule::ElementPredicate) {
@@ -237,9 +241,14 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 result.findings.extend(elements.findings);
                 result.limitations.extend(elements.limitations);
             }
-            if !decision_rules.is_empty() || options.rules.contains(&Rule::ConstantVariable) {
+            if !decision_rules.is_empty()
+                || options.rules.contains(&Rule::ConstantVariable)
+                || options.rules.contains(&Rule::UnboundedVariable)
+            {
                 let instantiations = resolve_instantiations(context, &facts, &calls);
-                if options.rules.contains(&Rule::ConstantVariable) {
+                if options.rules.contains(&Rule::ConstantVariable)
+                    || options.rules.contains(&Rule::UnboundedVariable)
+                {
                     let definitions = resolve_definitions(
                         context,
                         &facts,
@@ -247,10 +256,24 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                         &instantiations,
                         domains.as_ref().unwrap(),
                     );
-                    let checked = check_constant_variables(context, &facts, &calls, &definitions);
-                    constant_incomplete = !checked.limitations.is_empty();
-                    result.findings.extend(checked.findings);
-                    result.limitations.extend(checked.limitations);
+                    if options.rules.contains(&Rule::UnboundedVariable) {
+                        let checked = check_unbounded_variables(
+                            context,
+                            &facts,
+                            domains.as_ref().unwrap(),
+                            &definitions,
+                        );
+                        unbounded_incomplete = !checked.limitations.is_empty();
+                        result.findings.extend(checked.findings);
+                        result.limitations.extend(checked.limitations);
+                    }
+                    if options.rules.contains(&Rule::ConstantVariable) {
+                        let checked =
+                            check_constant_variables(context, &facts, &calls, &definitions);
+                        constant_incomplete = !checked.limitations.is_empty();
+                        result.findings.extend(checked.findings);
+                        result.limitations.extend(checked.limitations);
+                    }
                 }
                 for rule in decision_rules {
                     let checked =
@@ -279,6 +302,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     || (rule == Rule::ElementPredicate && element_incomplete)
                     || (rule == Rule::ArrayIndexStart && array_incomplete)
                     || (rule == Rule::ConstantVariable && constant_incomplete)
+                    || (rule == Rule::UnboundedVariable && unbounded_incomplete)
                     || decision_incomplete.contains(&rule))
             {
                 RuleOutcome::Limited {
