@@ -5,8 +5,8 @@ use zincite_syntax::{FileMode, ParsedFile};
 
 use crate::{
     LintDiagnostic, LintOptions, ModelContext, Rule, Severity, SourceDiagnostic, SourceLocation,
-    captures::check_captures, element::check_element, lint_items, lint_with_options,
-    resolve_bindings, resolve_callables,
+    captures::check_captures, decision_use::check_decision_use, element::check_element, lint_items,
+    lint_with_options, resolve_bindings, resolve_callables, resolve_instantiations,
 };
 
 #[derive(Debug)]
@@ -186,6 +186,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
     let shared_incomplete = !context.limitations.is_empty() || !context.errors.is_empty();
     let mut capture_incomplete = false;
     let mut element_incomplete = false;
+    let mut decision_incomplete = Vec::new();
     if !data && options.requires_model() {
         let facts = resolve_bindings(context);
         if options.rules.contains(&Rule::GlobalVariableInFunction) {
@@ -194,12 +195,39 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             result.findings.extend(captures.findings);
             result.limitations.extend(captures.limitations);
         }
-        if options.rules.contains(&Rule::ElementPredicate) {
+        let decision_rules: Vec<_> = options
+            .rules
+            .iter()
+            .copied()
+            .filter(|rule| {
+                matches!(
+                    rule,
+                    Rule::DecisionVariableOperator
+                        | Rule::DecisionVariableGenerator
+                        | Rule::DecisionVariableCondition
+                )
+            })
+            .collect();
+        if options.rules.contains(&Rule::ElementPredicate) || !decision_rules.is_empty() {
             let calls = resolve_callables(context, &facts);
-            let elements = check_element(context, &facts, &calls);
-            element_incomplete = !elements.limitations.is_empty();
-            result.findings.extend(elements.findings);
-            result.limitations.extend(elements.limitations);
+            if options.rules.contains(&Rule::ElementPredicate) {
+                let elements = check_element(context, &facts, &calls);
+                element_incomplete = !elements.limitations.is_empty();
+                result.findings.extend(elements.findings);
+                result.limitations.extend(elements.limitations);
+            }
+            if !decision_rules.is_empty() {
+                let instantiations = resolve_instantiations(context, &facts, &calls);
+                for rule in decision_rules {
+                    let checked =
+                        check_decision_use(context, &facts, &calls, &instantiations, rule);
+                    if !checked.limitations.is_empty() {
+                        decision_incomplete.push(rule);
+                    }
+                    result.findings.extend(checked.findings);
+                    result.limitations.extend(checked.limitations);
+                }
+            }
         }
     }
     result.rules = options
@@ -214,7 +242,8 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             } else if rule.requires_model()
                 && (shared_incomplete
                     || (rule == Rule::GlobalVariableInFunction && capture_incomplete)
-                    || (rule == Rule::ElementPredicate && element_incomplete))
+                    || (rule == Rule::ElementPredicate && element_incomplete)
+                    || decision_incomplete.contains(&rule))
             {
                 RuleOutcome::Limited {
                     reason: "model dependencies or required semantic facts are incomplete".into(),

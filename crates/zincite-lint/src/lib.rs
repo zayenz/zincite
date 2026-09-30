@@ -7,7 +7,9 @@ mod analysis;
 mod bindings;
 mod callables;
 mod captures;
+mod decision_use;
 mod element;
+mod instantiations;
 mod model;
 mod naming;
 mod rules;
@@ -24,6 +26,7 @@ pub use callables::{
     CallFact, CallOutcome, CallableFacts, CallableParameter, CallableSignature, DeclarationType,
     ExpressionType, resolve_callables,
 };
+pub use instantiations::{ExpressionInstantiation, InstantiationFacts, resolve_instantiations};
 pub use model::{
     FileId, IncludeEdge, ModelContext, ModelFile, ModelOptions, SourceDiagnostic, SourceKind,
     SourceLocation, load_model,

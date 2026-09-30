@@ -74,6 +74,9 @@ impl Rule {
                 | Self::MissingConstraintLabel
                 | Self::GlobalVariableInFunction
                 | Self::ElementPredicate
+                | Self::DecisionVariableOperator
+                | Self::DecisionVariableGenerator
+                | Self::DecisionVariableCondition
         )
     }
 

@@ -506,6 +506,9 @@ impl<'a> Engine<'a> {
         for child in node.child_nodes() {
             self.inspect(file, item, child);
         }
+        if is_expression(node.kind()) {
+            self.infer(file, item, node);
+        }
     }
     fn infer(&mut self, file: FileId, item: usize, node: &'a SyntaxNode) -> TypeInst {
         let range = node.range();
@@ -1261,4 +1264,36 @@ impl<'a> Engine<'a> {
             }
         }
     }
+}
+
+pub(super) fn is_expression(kind: NodeKind) -> bool {
+    use NodeKind::*;
+    matches!(
+        kind,
+        Expression
+            | InterpolatedString
+            | UnaryExpression
+            | BinaryExpression
+            | ParenthesizedExpression
+            | CallExpression
+            | GeneratorCallExpression
+            | ConditionalExpression
+            | LetExpression
+            | SetComprehension
+            | ArrayComprehension
+            | IndexedArrayComprehension
+            | SetLiteral
+            | ArrayLiteral
+            | MatrixLiteral
+            | ArrayAccessExpression
+            | FieldAccessExpression
+            | AnnotatedExpression
+            | RangeExpression
+            | TupleLiteral
+            | RecordLiteral
+            | IndexedArrayEntry
+            | IndexTuple
+            | NamedArgument
+            | RecordLiteralField
+    )
 }

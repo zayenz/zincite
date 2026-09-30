@@ -442,3 +442,80 @@ fn element_selection_reports_advice_limits_and_independent_root_errors() {
     assert!(data.stderr.is_empty());
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn decision_use_selection_preserves_cli_status_context_and_independent_inputs() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-lint-decision-{}", std::process::id()));
+    let library = directory.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(library.join("std/stdlib.mzn"), "").unwrap();
+    let root = directory.join("root.mzn");
+    let source = "var bool: choice; var 1..3: value; array[int] of var opt int: xs=[i|i in 1..value where choice]; constraint if choice then value^2>0 else true endif; solve satisfy;";
+    std::fs::write(&root, source).unwrap();
+    let rules =
+        "decision-variable-operator,decision-variable-generator,decision-variable-condition";
+    let args = [
+        "--rules",
+        rules,
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        root.to_str().unwrap(),
+    ];
+    let warning = run(&args, "");
+    assert_eq!(warning.status.code(), Some(1));
+    assert!(warning.stdout.is_empty());
+    let stderr = String::from_utf8(warning.stderr).unwrap();
+    for id in rules.split(',') {
+        assert!(stderr.contains(&format!("warning [{id}]")), "{stderr}");
+    }
+    assert!(!stderr.contains("analysis limitation"));
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    let failed = directory.join("failed.mzn");
+    std::fs::write(&failed, "include \"missing.mzn\";").unwrap();
+    let mut independent = args.to_vec();
+    independent.push(failed.to_str().unwrap());
+    let failed = run(&independent, "");
+    assert_eq!(failed.status.code(), Some(2));
+    let stderr = String::from_utf8(failed.stderr).unwrap();
+    assert!(
+        stderr.contains("warning [decision-variable-operator]")
+            && stderr.contains("cannot resolve include")
+    );
+    std::fs::write(&root,"int: limit; array[int] of int: xs=[i|i in 1..limit where true]; constraint if true then limit^2>0 else false endif; solve satisfy;").unwrap();
+    let quiet = run(&args, "");
+    assert_eq!(quiet.status.code(), Some(0));
+    assert!(quiet.stdout.is_empty() && quiet.stderr.is_empty());
+    std::fs::write(&root, "constraint if missing() then true else false endif;").unwrap();
+    let limited = run(&args, "");
+    assert_eq!(limited.status.code(), Some(0));
+    assert!(
+        String::from_utf8(limited.stderr)
+            .unwrap()
+            .contains("analysis limitation: decision-variable-condition")
+    );
+    let stdin = run(&["--rules", rules], source);
+    assert_eq!(stdin.status.code(), Some(0));
+    assert!(
+        String::from_utf8(stdin.stderr)
+            .unwrap()
+            .contains("requires a ModelContext")
+    );
+    let data = run(
+        &["--rules", rules, "--stdin-filepath", "data.dzn"],
+        "value=1;",
+    );
+    assert_eq!(data.status.code(), Some(0));
+    assert!(data.stderr.is_empty());
+    let parsed = zincite_syntax::parse(source);
+    assert!(
+        zincite_lint::lint_with_options(
+            &parsed,
+            &zincite_lint::LintOptions::from_selection(rules).unwrap()
+        )
+        .unwrap_err()[0]
+            .message
+            .contains("ModelContext")
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}
