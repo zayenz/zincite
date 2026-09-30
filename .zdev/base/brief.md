@@ -2,13 +2,18 @@
 
 ## Objective
 
-Establish the Rust syntax foundation shared by zincite-fmt and zincite-lint.
+Build source-preserving MiniZinc tools that process the complete published MiniZinc
+Challenge corpus and the models and data under `~/minizinc/`, and offer all fourteen
+lint rules in Erik Rimskog's thesis alongside Zincite's existing rules. Formatting
+on save must be fast and economical enough to be unremarkable in normal editing.
 
 Zincite will provide MiniZinc development tools, starting with a formatter
 (`zincite-fmt`) and a static analyser (`zincite-lint`). The `base` area establishes the
 shared parsing and source representation and the smallest useful path to both
-tools. The first task bundle covers the syntax foundation and usable formatter
-and linter commands.
+tools. The first 21 tasks delivered the syntax foundation and usable formatter
+and linter commands. The next bundle establishes corpus compatibility and expands
+linting to the full thesis catalogue. The contracts below describe the existing
+baseline; the Corpus and thesis expansion section explicitly extends them.
 
 ## Settled decisions
 
@@ -25,11 +30,12 @@ and linter commands.
 - Prefer simple modules and direct tree traversal. Add crates, generic interfaces,
   semantic machinery, and tests when an actual consumer or risk justifies them.
 - Target MiniZinc 2.10.1, including `.mzn` models and `.dzn` data files.
-- Start linting with the naming conventions below and missing constraint-label
-  advice. Defer unused-declaration analysis and general name resolution.
-- Accept explicit file paths and stdin. Provide formatter stdout, check, and
-  explicit in-place modes, and text lint diagnostics. Defer directory discovery
-  and JSON output.
+- Retain the existing naming and constraint-label rules as defaults. Add all
+  fourteen thesis rules through the explicitly selected `--rules thesis` preset.
+  Build name resolution and semantic facts only as those rules need them.
+- Accept explicit file paths and stdin. Extend linting and formatter check mode
+  to directories in the next bundle. Provide formatter stdout, check and explicit
+  file-write modes, with text diagnostics. JSON output remains deferred.
 
 ## Implementation direction
 
@@ -60,9 +66,10 @@ Observable success for the eventual foundation:
 This is source tooling, not a new solver or a replacement MiniZinc compiler.
 Full type checking, flattening, language-server support, Python bindings,
 incremental reparsing, a query language, and automatic semantic rewrites are not
-initial requirements. Do not copy Zirium's MLIR dialect machinery or port the
-thesis's entire rule catalogue. Do not promise solver speedups from syntactic
-rewrites. A source-preserving parse and a formatter are different operations.
+initial requirements. Do not copy Zirium's MLIR dialect machinery. The expanded
+scope includes the thesis's entire fourteen-rule catalogue, with conservative
+analysis and advisory wording where a conclusion is heuristic. Do not promise
+solver speedups from syntactic rewrites. A source-preserving parse and a formatter are different operations.
 
 ## Formatting direction
 
@@ -162,7 +169,9 @@ semantic validity of data expressions.
 Both tools accept explicit files or `-` for stdin; no input means stdin.
 `--stdin-filepath` supplies the language mode and EditorConfig lookup path for
 stdin; without it use model mode and no filesystem configuration lookup.
-Reject mixed stdin and file inputs. Do not traverse includes or directories.
+Reject mixed stdin and file inputs. Parsing an individual file never resolves
+includes. The expansion below adds directory discovery and semantic lint include
+loading without changing single-file parser behavior.
 
 `zincite-fmt` defaults to stdout for one input. Require `--check` or `--write`
 for multiple files. These modes are mutually exclusive; `--write` requires file
@@ -237,6 +246,188 @@ may suppress both rules. Unknown rule IDs, malformed directives, misplaced
 non-top-level directives and a directive without a following item are errors.
 Do not add automatic fixes or a general suppression/configuration framework.
 
+## Corpus and thesis expansion
+
+This section extends the original single-file, syntax-only bundle. It is the
+shared contract for the next tasks; completed task records remain historical.
+
+### Coverage and acceptance
+
+- Use the official [Challenge archive](https://github.com/MiniZinc/mzn-challenge),
+  covering every published year (2008–2026 at planning time), all `.mzn` files,
+  and all available `.dzn` instances. Keep the checkout external to this repository.
+  Record the checked revision and per-year counts in each acceptance report; an
+  absent year or unavailable instance is a coverage gap, not a passing check.
+- Inventory every `.mzn` and `.dzn` under `~/minizinc/`, including ignored files,
+  nested repositories, archive and software trees. Classify compiler negative
+  tests, malformed experiments, vendored/generated duplicates and encoding errors
+  explicitly. Do not exclude a failing valid model to improve the pass count.
+  Local files stay read-only and private; reports use relative paths and summaries.
+  Do not copy confidential models into fixtures or published planning records.
+- Processing means lossless parsing, stable source-preserving formatting and lint
+  execution without crashes or hangs. Valid target files must parse and format;
+  deliberately invalid files must produce diagnostics and remain untouched.
+  A warning is a successful lint run, not a failed corpus check. Zero warnings
+  on third-party models is not a completion condition.
+- MiniZinc 2.10.1 remains the baseline. Accept demonstrated compiler-supported
+  source forms needed by the corpus even where the printed grammar is narrower;
+  document each extension and retain meaningful CST nodes. Historical Challenge
+  syntax belongs in compatibility work. A future extension cannot silently pass
+  as opaque syntax. Keep `.dzn` assignment-only by default; declarations in a
+  mislabelled data file are diagnosed, not silently reinterpreted as model code.
+- Check the full corpus with a small explicit developer runner, not a benchmark
+  platform. It must enumerate all inputs, continue after individual failures,
+  distinguish parse/format/lint/compiler outcomes and account for unavailable
+  dependencies. Use temporary outputs; never format the external originals.
+  Compare token spellings, comments and structure as well as second-pass output;
+  allow only the existing include sorting and permitted layout punctuation changes.
+- Compiler checks supplement preservation checks. Exercise complete model/data
+  pairs and include trees, with the formatted include tree staged together.
+  Do not guess pairs by taking a Cartesian product of nearby files. Use known
+  project invocations or simple explicit entries, report missing pairings, and
+  do not require solving. Historical compiler incompatibilities remain visible.
+
+### Commands and rule selection
+
+Add deterministic recursive directory inputs for lint and formatter check mode.
+Discover `.mzn`/`.dzn`, include ignored source files, skip Git metadata, avoid
+symlink-directory cycles and deduplicate overlapping inputs. Do not recursively
+write directories in this bundle. Explicit file writes retain their current
+contract. Reading included files for semantic linting never formats them.
+
+`--rules default` selects the current two rules; omitted `--rules` is equivalent.
+`--rules thesis` selects exactly the fourteen thesis rules, and `--rules all`
+selects both groups. A comma-separated list of stable rule IDs selects exactly
+those rules. Reject unknown IDs and repeated `--rules`; keep the existing text
+output and 0/1/2 exit semantics. Extend existing next-item suppressions to every
+rule ID, including rules currently disabled. No plugin system, automatic fixes,
+JSON output or general configuration framework is required.
+
+### Semantic analysis
+
+Keep the parser and formatter independent of semantic linting. Retain
+`lint(&ParsedFile)` with its current defaults; expose selected rules and model
+analysis through library APIs used by the CLI. Start with direct traversal and
+small modules in `zincite-lint`; a new semantic crate needs an actual second
+consumer. Do not build a generic AST query engine.
+
+When selected rules need it, analyse each positional `.mzn` as its own root with
+its include closure. Resolve relative includes from the including file, then
+ordered `-I` directories, then an explicitly configured `--stdlib-dir` (or
+`MZN_STDLIB_DIR`). Identify builtins and standard-library declarations separately
+from user code. System library files supply facts but receive no user-style
+warnings unless explicitly selected as inputs. Cache within one invocation only
+when this avoids repeated parsing. Includes, diagnostics and suppressions retain
+file identity and byte ranges. Missing/cyclic includes and unreadable dependencies
+produce useful errors without aborting unrelated roots. Do not execute a compiler
+or solver to provide ordinary lint results.
+
+Lexical scopes, aliases, enums, callable overloads and `par`/`var` expression facts
+must use declaration identity. Unresolved or ambiguous facts stay unknown; they
+must never become guessed parameter values, fabricated domains or safe rewrite
+claims. Implement the necessary subset of typing, not a second validating compiler.
+A rule skipped because required facts are unavailable must be distinguishable
+from a completed rule with no findings in the library result and corpus report;
+report a concise CLI analysis limitation. It does not constitute full semantic
+coverage at the final acceptance gate. Selected-analysis results separate findings,
+per-rule execution/applicability/limitations, and actual errors. Render limitations
+on stderr; retain exit 0 with no warnings, 1 with unsuppressed warnings, and 2
+for input, parse, directive, usage or dependency errors, with 2 taking precedence.
+A limitation alone does not change 0/1, but the corpus report cannot count it as
+complete analysis. Known symbolic parameters need no supplied value: a rule can
+complete and decline an unprovable candidate. Missing implementation support is
+an analysis limitation, not an ordinary negative result.
+Standalone `.dzn` gets syntax checks and applicable syntax rules, not invented
+model bindings. Model analysis does not require data values; explicit model/data
+pairs are used for compiler validation, not instance-specific rewrite proofs.
+
+The thesis's unused-declaration analysis requires a complete model root. Do not
+label exported declarations unused when linting an include-only fragment without
+a solve item. Account for implicit/default output and annotation references.
+Mark this rule inapplicable to such fragments, rather than calling missing
+semantic information in a complete model inapplicable.
+
+Read [the rule coverage contract](background/thesis-rule-coverage.md) before
+implementing any thesis rule. All fourteen must have working library/CLI paths,
+source locations, suppressions and focused positive/negative checks. Conservative
+unknown results are allowed where static proof is impossible, but cannot be used
+to leave a rule unimplemented. Advice must explain uncertainty and must not claim
+that fewer constraints or a rewrite guarantees faster solving.
+
+### Completion evidence
+
+Keep focused unit/integration coverage: small counterexamples for scope,
+shadowing, overloads, unknown parameters, reification and partial array coverage.
+Add only regressions that expose a real corpus failure, using minimal synthetic
+examples where possible. Run the whole external corpus at integration milestones
+and final acceptance, not in every `cargo test`. Report totals, failure categories,
+rule coverage and analysis limitations separately. Final acceptance requires no
+unresolved Zincite failures on valid target syntax, formatter stability and
+preservation on all valid inputs, and execution of all applicable thesis rules on
+complete model roots with resolved dependencies. All exclusions need a reason;
+missing corpora or unavailable model dependencies prevent a full-coverage claim.
+
+## Performance and format-on-save
+
+Speed and memory are required outcomes for both tools. The formatter's primary
+interactive path is a fresh `zincite-fmt --stdin-filepath PATH` process receiving
+the editor buffer on stdin and returning complete formatted source on stdout.
+The editor replaces its buffer only on success; syntax/configuration/directive
+errors leave it intact. Saving does not run lint rules, resolve includes, invoke
+MiniZinc, or scan the workspace. Existing no-partial-output behavior remains.
+
+Use these proposed acceptance budgets on the user's M1 Max with a release build:
+
+| Representative edited model/data size | End-to-end p95 | Peak child RSS |
+| --- | ---: | ---: |
+| Up to 100 KiB | 50 ms | 32 MiB |
+| Above 100 KiB, up to 1 MiB | 100 ms | 64 MiB |
+
+Latency includes process startup, stdin/stdout transfer, EditorConfig lookup,
+parsing and formatting. Measure repeated saves with a fresh process each time
+and ordinary warm filesystem caches, including changed buffers and already
+formatted buffers. Record first invocation/first-use separately; do not describe
+it as cold filesystem I/O unless that was actually controlled. Report its cost
+and investigate material delays. Do not substitute a library microbenchmark or
+persistent-result-cache hit for the command budget.
+
+The benchmark baseline task selects a small named case set from the real corpus
+covering ordinary models, dense data, matrices, comments and nested expressions,
+with exact sizes and a few synthetic growing families. Add newly discovered slow
+shapes to that set instead of excluding them. Use at least 50 measured save
+samples per small case for reported p95, reporting sample count and spread. The
+budgets apply to each representative case, not a percentile pooled across files.
+Include invalid edited buffers in responsiveness checks while retaining their
+error status. Inputs over 1 MiB stay fully supported: measure representative
+large cases and growth, report throughput and peak RSS, and require no unexplained
+superlinear growth or unbounded accumulation across independent files. Establish
+CPU/allocation attribution with a profiler when deciding a particular fix; RSS
+alone is not an allocation count.
+
+Keep a small self-contained performance driver and case description; reuse corpus
+input discovery where useful. Record release build, hardware, commands, input
+sizes and measurements sufficient to repeat a comparison. Keep external sources
+read-only and local reports untracked by default. Do not build a benchmark service
+or assert noisy wall-clock thresholds in `cargo test`. Performance changes need
+before/after release measurements and the existing source-preservation, comment,
+formatting-stability and diagnostic checks. Recheck after syntax and layout changes.
+A confirmed regression or missed budget needs a bounded follow-up; no silent budget
+relaxation or skipping the hard cases at final acceptance.
+
+Measure whole-corpus formatter throughput and lint throughput/memory separately
+from save latency. Once semantic linting exists, compare `default`, `thesis` and
+`all`, including shared includes and many diagnostics, and expose incomplete
+analysis in performance reports. Start with sequential processing and reuse of
+needed facts within an invocation. Add bounded parallelism, persistent caching,
+a daemon, incremental parsing or an LSP only through later evidence-backed work
+if simpler changes cannot meet the goal. Format-on-save itself requires none of
+those features or a new editor extension.
+
+Read [performance evidence and Astral references](background/performance.md)
+before performance work. Use Ruff's uncached responsiveness and shared syntax,
+uv's distinct cold/warm measurements and dependency-aware reuse, and ty's selective
+computation as inspiration. Keep Zincite's own language, layout and source model.
+
 ## License and release boundary
 
 Use `MIT OR Apache-2.0` and include both license texts and Cargo metadata.
@@ -256,11 +447,20 @@ Focused coverage: use a small set of behavior checks for implementation: exact s
 coverage (not merely returning a saved input string), recovery past an error,
 formatter idempotence and comment preservation, and positive/negative cases for
 each selected lint. Include shadowing or parameter-dependent cases when relevant.
-Do not create a benchmark campaign or broad test matrix before there is a measured
-need. Compiler acceptance can supplement formatting checks; it is not a proof of
+Use the small repeatable benchmark set described above for speed, memory and
+scaling; do not expand it into a broad campaign or unit-test timing matrix.
+Compiler acceptance can supplement formatting checks; it is not a proof of
 semantic equivalence.
 
 ## Background
+
+- [Performance and Astral references](background/performance.md): read for save
+  latency, memory, batch throughput and measured optimization work.
+
+- [Corpus planning evidence](background/corpus-coverage.md): read when building
+  the corpus runner or fixing syntax and formatter compatibility.
+- [Thesis rule coverage](background/thesis-rule-coverage.md): the full rule mapping,
+  prerequisites and soundness limits for semantic lint tasks.
 
 - [Syntax design references](background/syntax-and-reuse.md): read before designing
   the parser, CST representation, or crate boundaries.

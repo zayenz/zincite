@@ -2,9 +2,9 @@
 
 # Tasks: base
 
-- Total: 21
-- Ready: 0
-- Blocked: 0
+- Total: 50
+- Ready: 4
+- Blocked: 25
 - Done: 21
 
 | ID | Task | State | Blocked by |
@@ -30,3 +30,32 @@
 | [base-019](tasks/019-resolve-editorconfig-and-explicit-formatter-overrides.md) | Resolve EditorConfig and explicit formatter overrides | done | base-018, base-015 |
 | [base-020](tasks/020-deliver-missing-label-lint-with-suppressions.md) | Deliver missing-label lint with suppressions | done | base-003 |
 | [base-021](tasks/021-add-syntax-based-naming-checks.md) | Add syntax-based naming checks | done | base-020, base-013 |
+| [base-022](tasks/022-measure-save-latency-memory-and-scaling-before-optimization.md) | Measure save latency, memory and scaling before optimization | ready | — |
+| [base-023](tasks/023-establish-a-repeatable-full-corpus-check.md) | Establish a repeatable full-corpus check | ready | — |
+| [base-024](tasks/024-accept-compiler-supported-source-forms-found-in-models.md) | Accept compiler-supported source forms found in models | blocked | base-023 |
+| [base-025](tasks/025-support-unnamed-and-annotated-library-parameters.md) | Support unnamed and annotated library parameters | blocked | base-023, base-024 |
+| [base-026](tasks/026-classify-remaining-historical-and-library-syntax-gaps.md) | Classify remaining historical and library syntax gaps | blocked | base-025 |
+| [base-027](tasks/027-stabilise-expression-wrapping-and-continuation-indentation.md) | Stabilise expression wrapping and continuation indentation | blocked | base-023 |
+| [base-028](tasks/028-check-formatter-preservation-across-the-expanded-corpus.md) | Check formatter preservation across the expanded corpus | blocked | base-025, base-027 |
+| [base-029](tasks/029-accept-directories-for-linting-and-formatter-checks.md) | Accept directories for linting and formatter checks | ready | — |
+| [base-030](tasks/030-select-rule-presets-and-extend-existing-suppressions.md) | Select rule presets and extend existing suppressions | ready | — |
+| [base-031](tasks/031-load-model-include-closures-for-selected-semantic-rules.md) | Load model include closures for selected semantic rules | blocked | base-030, base-025 |
+| [base-032](tasks/032-resolve-bindings-and-report-captured-global-decisions.md) | Resolve bindings and report captured global decisions | blocked | base-031 |
+| [base-033](tasks/033-resolve-callable-facts-and-deliver-element-advice.md) | Resolve callable facts and deliver element advice | blocked | base-032 |
+| [base-034](tasks/034-track-expression-instantiation-and-add-decision-use-advice.md) | Track expression instantiation and add decision-use advice | blocked | base-033 |
+| [base-035](tasks/035-track-declared-domains-and-report-numeric-index-advice.md) | Track declared domains and report numeric index advice | blocked | base-033 |
+| [base-036](tasks/036-find-unconditional-definitions-and-deliver-constant-variable.md) | Find unconditional definitions and deliver constant-variable advice | blocked | base-035, base-034 |
+| [base-037](tasks/037-report-unbounded-decisions-without-false-defining-equality-w.md) | Report unbounded decisions without false defining-equality warnings | blocked | base-036 |
+| [base-038](tasks/038-recommend-compact-forms-for-eligible-if-expressions.md) | Recommend compact forms for eligible if expressions | blocked | base-034 |
+| [base-039](tasks/039-recognise-safe-0-1-implication-and-sum-formulations.md) | Recognise safe 0..1 implication and sum formulations | blocked | base-036 |
+| [base-040](tasks/040-report-unreachable-declarations-in-complete-model-roots.md) | Report unreachable declarations in complete model roots | blocked | base-033 |
+| [base-041](tasks/041-report-globals-in-reified-and-half-reified-contexts.md) | Report globals in reified and half-reified contexts | blocked | base-036 |
+| [base-042](tasks/042-recognise-unmarked-likely-symmetry-breaking-globals.md) | Recognise unmarked likely symmetry-breaking globals | blocked | base-033 |
+| [base-043](tasks/043-check-search-coverage-through-direct-definitions.md) | Check search coverage through direct definitions | blocked | base-036 |
+| [base-044](tasks/044-complete-search-coverage-through-callable-definitions.md) | Complete search coverage through callable definitions | blocked | base-043 |
+| [base-045](tasks/045-measure-complete-model-coverage-for-every-thesis-rule.md) | Measure complete-model coverage for every thesis rule | blocked | base-037, base-038, base-039, base-040, base-042, base-044, base-041 |
+| [base-046](tasks/046-reduce-repeated-layout-measurement-work.md) | Reduce repeated layout measurement work | blocked | base-022, base-027 |
+| [base-047](tasks/047-reduce-the-live-syntax-and-formatting-working-set.md) | Reduce the live syntax and formatting working set | blocked | base-022 |
+| [base-048](tasks/048-verify-and-document-an-unobtrusive-save-command.md) | Verify and document an unobtrusive save command | blocked | base-046, base-047 |
+| [base-049](tasks/049-measure-batch-and-semantic-lint-speed-and-memory.md) | Measure batch and semantic-lint speed and memory | blocked | base-022, base-029, base-045 |
+| [base-050](tasks/050-verify-corpus-processing-and-full-thesis-lint-coverage.md) | Verify corpus processing and full thesis lint coverage | blocked | base-028, base-045, base-026, base-029, base-048, base-049 |
