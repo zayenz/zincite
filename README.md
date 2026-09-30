@@ -156,9 +156,12 @@ body parentheses. `forall` bodies always use block indentation, including quoted
 expanded. Generator headers exceeding 120 columns or written with line breaks
 use one generator per line, with each `where` filter indented beneath its generator.
 Expanded headers have a trailing comma; bodies contain a single expression without
-an added comma. These width decisions currently apply only to generator headers
-and bodies, using Unicode scalar columns and four-column tab stops. General
-expression wrapping and configurable layout settings remain unimplemented.
+an added comma. Ordinary expressions, annotations, lists and item continuations
+wrap using their actual line prefix and following delimiters. Broken binary
+operators end the preceding line; continuation indentation stays consistent
+through a chain. Parentheses, precedence and annotation order are preserved.
+Indivisible identifiers, literals and preserved comments may exceed the width
+without a warning.
 Conditional branch bodies and `let` blocks/bodies use block indentation;
 local item order, separators, parentheses and annotation attachment are retained.
 Generic type-inst syntax is shared by local, top-level and callable declarations.
@@ -228,11 +231,25 @@ let parsed = zincite_syntax::parse("int: count=2; constraint true; solve satisfy
 let formatted = zincite_fmt::format(&parsed)?;
 let data = zincite_syntax::parse_with_mode("count=2;", zincite_syntax::FileMode::Data);
 let formatted_data = zincite_fmt::format(&data)?;
+
+// The default wrapper uses four spaces, four-column tabs and 120 columns.
+let options = zincite_fmt::FormatOptions {
+    indent_style: zincite_fmt::IndentStyle::Tab,
+    indent_size: std::num::NonZeroUsize::new(4).unwrap(),
+    tab_width: std::num::NonZeroUsize::new(4).unwrap(),
+    max_line_length: std::num::NonZeroUsize::new(80),
+};
+let formatted = zincite_fmt::format_with_options(&parsed, &options)?;
 ```
 
 The formatter returns the parse diagnostics on error. It produces no partial
-formatted source. Before a stable release, formatting may change between
-versions.
+formatted source. Indentation size and tab width are nonzero column counts;
+tab indentation fills complete tab stops and uses spaces for any remainder.
+Width counts Unicode scalar values as one column and tabs to the next configured
+tab stop. Set `max_line_length` to `None` for unlimited width; mandatory blocks and
+explicitly expanded lists still expand. These options are available through the
+library; CLI overrides and EditorConfig support remain unimplemented.
+Before a stable release, formatting may change between versions.
 
 ## Scope
 

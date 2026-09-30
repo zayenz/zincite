@@ -263,7 +263,7 @@ fn generator_layout_keeps_nested_expansion_and_comments_attached() {
     let parsed = parse(source);
     let formatted = format(&parsed).unwrap();
     assert!(formatted.contains(&format!("unicode = sum (i in '{domain}') (i);")));
-    assert!(formatted.contains("wide = sum (i in {1}) (\n    i + i"));
+    assert!(formatted.contains("wide = sum (i in {1}) (\n    i +\n        i +"));
     let reparsed = parse(formatted.clone());
     assert_eq!(
         structure(parsed.tree(), &parsed),
@@ -492,4 +492,254 @@ fn model_data_pair_and_cross_family_model_keep_structure_and_stable_layout() {
         assert_eq!(format(&reparsed).unwrap(), formatted);
     }
     assert!(format(&parse_with_mode("constraint true;", FileMode::Data)).is_err());
+}
+
+#[test]
+fn ordinary_width_breaks_keep_structure_comments_and_explicit_lists_stable() {
+    use std::num::NonZeroUsize;
+    use zincite_fmt::{FormatOptions, format_with_options};
+
+    let source = r#"any: value = first_operand + second_operand * third_operand + fourth_operand :: tag(17) :: annotation_call(first_operand, second_operand);
+
+
+constraint :: "Keep  label"
+(first_operand /\ second_operand /\ third_operand) :: tag(1);
+any: nested = f(g(1, 2, 3), [
+1, % Keep  entry comment
+2
+], (name: nested_call(first_operand, second_operand),));
+any: local = let {constraint :: "Local  label" first_operand /\ second_operand /\ third_operand; int: x = 1;} in x + first_operand + second_operand;
+any: condition = if first_operand > first_threshold /\ second_operand > second_threshold then f(first_operand, second_operand) else 0 endif;
+any: comments = first_operand % Keep  operand comment
++ second_operand + third_operand;
+any: short = 1 + % Keep  short comment
+2;
+any: groups = [1,
+
+
+2];
+any: call_groups = f(1,
+
+2);
+any: operand_groups = 1+
+
+2;
+any: annotation_groups = 1
+
+::tag;
+any: annotation_value_groups = 1::
+
+tag;
+enum Cases = {First, Second, Third} ++ Additional(first_operand);
+any: unavoidable = f("This literal is intentionally longer than the selected width", 1); % Keep this long comment exactly as written, including  spacing
+"#;
+    let options = FormatOptions {
+        max_line_length: NonZeroUsize::new(48),
+        ..FormatOptions::default()
+    };
+    let parsed = parse(source);
+    let formatted = format_with_options(&parsed, &options).unwrap();
+    assert!(
+        formatted.contains("first_operand +\n    second_operand *\n    third_operand +"),
+        "{formatted}"
+    );
+    assert!(
+        formatted.contains("constraint :: \"Local  label\"\n    first_operand"),
+        "{formatted}"
+    );
+    assert!(
+        formatted.contains("[\n        1, % Keep  entry comment\n        2,\n    ]"),
+        "{formatted}"
+    );
+    assert!(
+        formatted.contains("first_operand + % Keep  operand comment\n"),
+        "{formatted}"
+    );
+    assert!(
+        formatted.contains("short = 1 + % Keep  short comment\n    2;"),
+        "{formatted}"
+    );
+    assert!(
+        formatted.contains("groups = [\n    1,\n\n    2,\n];"),
+        "{formatted}"
+    );
+    assert!(
+        formatted.contains("call_groups = f(\n    1,\n\n    2,\n);"),
+        "{formatted}"
+    );
+    assert!(
+        formatted.contains("operand_groups = 1 +\n\n    2;"),
+        "{formatted}"
+    );
+    assert!(
+        formatted.contains("annotation_groups = 1\n\n:: tag;"),
+        "{formatted}"
+    );
+    assert!(
+        formatted.contains("annotation_value_groups = 1 ::\n\ntag;"),
+        "{formatted}"
+    );
+    assert!(!formatted.contains("\n\n\n"));
+    let reparsed = parse(formatted.clone());
+    assert!(
+        reparsed.diagnostics().is_empty(),
+        "{:?}\n{formatted}",
+        reparsed.diagnostics()
+    );
+    assert_eq!(
+        structure(parsed.tree(), &parsed),
+        structure(reparsed.tree(), &reparsed)
+    );
+    let comments = |file: &zincite_syntax::ParsedFile| {
+        file.tokens()
+            .iter()
+            .filter(|token| matches!(token.kind, TokenKind::LineComment | TokenKind::BlockComment))
+            .map(|token| file.source()[token.range.clone()].to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(comments(&parsed), comments(&reparsed));
+    assert_eq!(format_with_options(&reparsed, &options).unwrap(), formatted);
+    let default = format(&parsed).unwrap();
+    assert!(
+        default.contains("operand_groups = 1 +\n\n    2;"),
+        "{default}"
+    );
+    assert!(
+        default.contains("annotation_groups = 1\n\n:: tag;"),
+        "{default}"
+    );
+    assert!(
+        default.contains("annotation_value_groups = 1 ::\n\ntag;"),
+        "{default}"
+    );
+    assert_eq!(format(&parse(default.clone())).unwrap(), default);
+}
+
+#[test]
+fn options_use_scalar_columns_tab_stops_and_unlimited_width() {
+    use std::num::NonZeroUsize;
+    use zincite_fmt::{FormatOptions, IndentStyle, format_with_options};
+
+    let source =
+        "any: x=f('ééé',2); constraint forall(i in {1})('ééé'+1); any: nested=f([\n1,\n2\n],3);";
+    let options = FormatOptions {
+        indent_style: IndentStyle::Tab,
+        indent_size: NonZeroUsize::new(6).unwrap(),
+        tab_width: NonZeroUsize::new(4).unwrap(),
+        max_line_length: NonZeroUsize::new(21),
+    };
+    let parsed = parse(source);
+    let formatted = format_with_options(&parsed, &options).unwrap();
+    assert!(formatted.contains("any: x = f('ééé', 2);"), "{formatted}");
+    assert!(formatted.contains("\n\t  'ééé' + 1\n"), "{formatted}");
+    assert!(
+        formatted.contains("nested = f([\n\t  1,\n\t  2,\n], 3);"),
+        "{formatted}"
+    );
+    let reparsed = parse(formatted.clone());
+    assert_eq!(
+        structure(parsed.tree(), &parsed),
+        structure(reparsed.tree(), &reparsed)
+    );
+    assert_eq!(format_with_options(&reparsed, &options).unwrap(), formatted);
+
+    let narrow = FormatOptions {
+        max_line_length: NonZeroUsize::new(20),
+        ..options
+    };
+    assert!(
+        format_with_options(&parsed, &narrow)
+            .unwrap()
+            .contains("x = f(\n")
+    );
+    assert!(
+        format_with_options(&parse("any: x=f('ééé',2)"), &narrow)
+            .unwrap()
+            .contains("x = f(\n")
+    );
+    let tab_boundary = FormatOptions {
+        max_line_length: NonZeroUsize::new(14),
+        ..options
+    };
+    let boundary_parsed = parse("constraint :: \"t\" forall(i in {1})('ééé'+1);");
+    let formatted = format_with_options(&boundary_parsed, &tab_boundary).unwrap();
+    assert!(
+        formatted.contains("\n\t  'ééé' +\n\t\t\t1\n"),
+        "{formatted}"
+    );
+    assert_eq!(
+        format_with_options(&parse(formatted.clone()), &tab_boundary).unwrap(),
+        formatted
+    );
+    let unlimited = FormatOptions {
+        max_line_length: None,
+        ..options
+    };
+    let formatted = format_with_options(&parsed, &unlimited).unwrap();
+    assert!(formatted.contains("constraint forall (i in {1}) (\n\t  'ééé' + 1\n);"));
+    assert!(formatted.contains("nested = f([\n\t  1,\n\t  2,\n], 3);"));
+    assert_eq!(
+        format_with_options(&parse(formatted.clone()), &unlimited).unwrap(),
+        formatted
+    );
+
+    // Bodies retain punctuation reserved by their enclosing expression/item.
+    let body_options = FormatOptions {
+        max_line_length: NonZeroUsize::new(15),
+        ..FormatOptions::default()
+    };
+    for source in [
+        "any:x=let{int:y=1;}in f(123,456);",
+        "any:x=let{int:y=1;}in f(123,456)",
+        "any:x=f(\nlet{int:y=1;}in f(1,2)\n);",
+    ] {
+        let parsed = parse(source);
+        let formatted = format_with_options(&parsed, &body_options).unwrap();
+        assert!(
+            formatted.lines().all(|line| line.chars().count() <= 15),
+            "{formatted}"
+        );
+        let reparsed = parse(formatted.clone());
+        let terminated = parse(format!("{};", source.trim_end_matches(';')));
+        assert_eq!(
+            structure(terminated.tree(), &terminated),
+            structure(reparsed.tree(), &reparsed)
+        );
+        assert_eq!(
+            format_with_options(&reparsed, &body_options).unwrap(),
+            formatted
+        );
+    }
+    let header_options = FormatOptions {
+        max_line_length: NonZeroUsize::new(24),
+        ..FormatOptions::default()
+    };
+    let parsed = parse(
+        "function VeryLongReturnType:f(int:x)=x; function int:very_long_callable_name(int:x,int:y)=x+y;",
+    );
+    let formatted = format_with_options(&parsed, &header_options).unwrap();
+    assert!(
+        formatted.contains("function\n    VeryLongReturnType:"),
+        "{formatted}"
+    );
+    assert!(
+        formatted.contains("very_long_callable_name\n"),
+        "{formatted}"
+    );
+    assert!(
+        formatted
+            .lines()
+            .filter(|line| !line.contains("very_long_callable_name"))
+            .all(|line| line.chars().count() <= 24),
+        "{formatted}"
+    );
+    let reparsed = parse(formatted.clone());
+    assert_eq!(
+        structure(parsed.tree(), &parsed),
+        structure(reparsed.tree(), &reparsed)
+    );
+    assert_eq!(
+        format_with_options(&reparsed, &header_options).unwrap(),
+        formatted
+    );
 }
