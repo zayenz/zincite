@@ -261,3 +261,8 @@ with an explicit `!Error` expectation in their opening test block receive a nega
 that hint does not establish invalid syntax or excuse a Zincite failure. Inspect
 compiler expectations and known model/data pairings before making that judgment.
 This command reports the current compatibility baseline and makes no fixes.
+
+
+The [lexer dispatch comparison](lexer-dispatch-performance.md) records the base-051
+before/after save timings, native CPU attribution and remaining fit, memory and
+first-use work. It reuses the unchanged save driver and preserved release binaries.

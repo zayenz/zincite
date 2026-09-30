@@ -158,3 +158,85 @@ fn tokenizes_interpolation_through_nested_delimiters() {
     assert_eq!(plain.tokens()[0].kind, TokenKind::StringLiteral);
     assert!(plain.diagnostics().is_empty());
 }
+
+#[test]
+fn symbol_dispatch_keeps_longest_matches_unicode_and_unknown_character_recovery() {
+    use TokenKind::*;
+    let operators = [
+        ("<..<", RangeExclusive),
+        ("<->", Equivalence),
+        ("<..", RangeExclusiveStart),
+        ("..<", RangeExclusiveEnd),
+        ("..", RangeInclusive),
+        ("<-", ReverseImplies),
+        ("<=", LessEqual),
+        ("<>", Absent),
+        ("<", Less),
+        ("~div", WeakDiv),
+        ("~!=", WeakNotEqual),
+        ("~=", WeakEqual),
+        ("~+", WeakPlus),
+        ("~-", WeakMinus),
+        ("~*", WeakStar),
+        ("~/", WeakSlash),
+        ("::", AnnotationMarker),
+        (":", Colon),
+        ("->", Implies),
+        ("-", Minus),
+        ("\\/", Or),
+        ("/\\", And),
+        ("/", Slash),
+        (">=", GreaterEqual),
+        (">", Greater),
+        ("==", DoubleEqual),
+        ("=", Equal),
+        ("!=", NotEqual),
+        ("++", Concat),
+        ("+", Plus),
+        ("[|", MatrixStart),
+        ("[", LeftBracket),
+        ("|]", MatrixEnd),
+        ("|", Pipe),
+        ("↔", Equivalence),
+        ("→", Implies),
+        ("←", ReverseImplies),
+        ("¬", Not),
+        ("∨", Or),
+        ("∧", And),
+        ("≠", NotEqual),
+        ("≤", LessEqual),
+        ("≥", GreaterEqual),
+        ("∈", In),
+        ("⊆", Subset),
+        ("⊇", Superset),
+        ("∪", Union),
+        ("∩", Intersect),
+        ("⁻¹", Inverse),
+        (",", Comma),
+        (";", Semicolon),
+    ];
+    let source = operators
+        .iter()
+        .map(|(text, _)| *text)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let lexed = lex(source);
+    assert_coverage(&lexed);
+    assert!(lexed.diagnostics().is_empty());
+    let actual = lexed
+        .tokens()
+        .iter()
+        .filter(|token| token.kind != Whitespace)
+        .map(|token| (&lexed.source()[token.range.clone()], token.kind))
+        .collect::<Vec<_>>();
+    assert_eq!(actual, operators);
+
+    // Unknown symbols include both UTF-8 leading-byte groups used above.
+    let malformed = lex("~ ! \\ ⁻ © ☃ int: after;");
+    assert_coverage(&malformed);
+    assert_eq!(malformed.diagnostics().len(), 6);
+    assert_eq!(malformed.tokens().last().unwrap().kind, Semicolon);
+    assert!(malformed.tokens().iter().any(|token| {
+        token.kind == Identifier && &malformed.source()[token.range.clone()] == "after"
+    }));
+}

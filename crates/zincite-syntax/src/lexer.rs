@@ -86,11 +86,9 @@ impl Scanner<'_> {
         if character.is_ascii_digit() {
             return self.number();
         }
-        for &(spelling, kind) in SYMBOLS {
-            if self.remaining().starts_with(spelling) {
-                self.position += spelling.len();
-                return kind;
-            }
+        if let Some((kind, length)) = match_symbol(self.remaining()) {
+            self.position += length;
+            return kind;
         }
         let start = self.position;
         self.advance();
@@ -483,67 +481,76 @@ fn keyword(name: &str) -> Option<TokenKind> {
     })
 }
 
-// Longest spellings precede their prefixes. Preserve distinct '=' and '=='
-// tokens even though their expression semantics coincide.
-const SYMBOLS: &[(&str, TokenKind)] = &[
-    ("<..<", TokenKind::RangeExclusive),
-    ("~div", TokenKind::WeakDiv),
-    ("<->", TokenKind::Equivalence),
-    ("<..", TokenKind::RangeExclusiveStart),
-    ("..<", TokenKind::RangeExclusiveEnd),
-    ("~!=", TokenKind::WeakNotEqual),
-    ("..", TokenKind::RangeInclusive),
-    ("::", TokenKind::AnnotationMarker),
-    ("->", TokenKind::Implies),
-    ("<-", TokenKind::ReverseImplies),
-    ("\\/", TokenKind::Or),
-    ("/\\", TokenKind::And),
-    ("<=", TokenKind::LessEqual),
-    (">=", TokenKind::GreaterEqual),
-    ("==", TokenKind::DoubleEqual),
-    ("!=", TokenKind::NotEqual),
-    ("~=", TokenKind::WeakEqual),
-    ("++", TokenKind::Concat),
-    ("~+", TokenKind::WeakPlus),
-    ("~-", TokenKind::WeakMinus),
-    ("~*", TokenKind::WeakStar),
-    ("~/", TokenKind::WeakSlash),
-    ("[|", TokenKind::MatrixStart),
-    ("|]", TokenKind::MatrixEnd),
-    ("<>", TokenKind::Absent),
-    ("↔", TokenKind::Equivalence),
-    ("→", TokenKind::Implies),
-    ("←", TokenKind::ReverseImplies),
-    ("¬", TokenKind::Not),
-    ("∨", TokenKind::Or),
-    ("∧", TokenKind::And),
-    ("≠", TokenKind::NotEqual),
-    ("≤", TokenKind::LessEqual),
-    ("≥", TokenKind::GreaterEqual),
-    ("∈", TokenKind::In),
-    ("⊆", TokenKind::Subset),
-    ("⊇", TokenKind::Superset),
-    ("∪", TokenKind::Union),
-    ("∩", TokenKind::Intersect),
-    ("⁻¹", TokenKind::Inverse),
-    ("(", TokenKind::LeftParen),
-    (")", TokenKind::RightParen),
-    ("[", TokenKind::LeftBracket),
-    ("]", TokenKind::RightBracket),
-    ("{", TokenKind::LeftBrace),
-    ("}", TokenKind::RightBrace),
-    (",", TokenKind::Comma),
-    (":", TokenKind::Colon),
-    (";", TokenKind::Semicolon),
-    (".", TokenKind::Dot),
-    ("|", TokenKind::Pipe),
-    ("_", TokenKind::Anonymous),
-    ("<", TokenKind::Less),
-    (">", TokenKind::Greater),
-    ("=", TokenKind::Equal),
-    ("+", TokenKind::Plus),
-    ("-", TokenKind::Minus),
-    ("*", TokenKind::Star),
-    ("/", TokenKind::Slash),
-    ("^", TokenKind::Power),
-];
+// Select by the first UTF-8 byte, retaining longest-match order within each
+// group. Unicode operators sharing a leading byte still compare full spellings.
+fn match_symbol(source: &str) -> Option<(TokenKind, usize)> {
+    use TokenKind::*;
+    let candidates: &[(&str, TokenKind)] = match source.as_bytes()[0] {
+        b'<' => &[
+            ("<..<", RangeExclusive),
+            ("<->", Equivalence),
+            ("<..", RangeExclusiveStart),
+            ("<-", ReverseImplies),
+            ("<=", LessEqual),
+            ("<>", Absent),
+            ("<", Less),
+        ],
+        b'~' => &[
+            ("~div", WeakDiv),
+            ("~!=", WeakNotEqual),
+            ("~=", WeakEqual),
+            ("~+", WeakPlus),
+            ("~-", WeakMinus),
+            ("~*", WeakStar),
+            ("~/", WeakSlash),
+        ],
+        b'.' => &[
+            ("..<", RangeExclusiveEnd),
+            ("..", RangeInclusive),
+            (".", Dot),
+        ],
+        b':' => &[("::", AnnotationMarker), (":", Colon)],
+        b'-' => &[("->", Implies), ("-", Minus)],
+        b'\\' => &[("\\/", Or)],
+        b'/' => &[("/\\", And), ("/", Slash)],
+        b'>' => &[(">=", GreaterEqual), (">", Greater)],
+        b'=' => &[("==", DoubleEqual), ("=", Equal)],
+        b'!' => &[("!=", NotEqual)],
+        b'+' => &[("++", Concat), ("+", Plus)],
+        b'[' => &[("[|", MatrixStart), ("[", LeftBracket)],
+        b'|' => &[("|]", MatrixEnd), ("|", Pipe)],
+        0xc2 => &[("¬", Not)],
+        0xe2 => &[
+            ("↔", Equivalence),
+            ("→", Implies),
+            ("←", ReverseImplies),
+            ("∨", Or),
+            ("∧", And),
+            ("≠", NotEqual),
+            ("≤", LessEqual),
+            ("≥", GreaterEqual),
+            ("∈", In),
+            ("⊆", Subset),
+            ("⊇", Superset),
+            ("∪", Union),
+            ("∩", Intersect),
+            ("⁻¹", Inverse),
+        ],
+        b'(' => return Some((LeftParen, 1)),
+        b')' => return Some((RightParen, 1)),
+        b']' => return Some((RightBracket, 1)),
+        b'{' => return Some((LeftBrace, 1)),
+        b'}' => return Some((RightBrace, 1)),
+        b',' => return Some((Comma, 1)),
+        b';' => return Some((Semicolon, 1)),
+        b'_' => return Some((Anonymous, 1)),
+        b'*' => return Some((Star, 1)),
+        b'^' => return Some((Power, 1)),
+        _ => return None,
+    };
+    candidates.iter().find_map(|&(spelling, kind)| {
+        source
+            .starts_with(spelling)
+            .then_some((kind, spelling.len()))
+    })
+}

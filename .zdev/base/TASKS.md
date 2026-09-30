@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 51
-- Ready: 6
+- Ready: 5
 - Blocked: 22
-- Done: 23
+- Done: 24
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -59,4 +59,4 @@
 | [base-048](tasks/048-verify-and-document-an-unobtrusive-save-command.md) | Verify and document an unobtrusive save command | blocked | base-046, base-047 |
 | [base-049](tasks/049-measure-batch-and-semantic-lint-speed-and-memory.md) | Measure batch and semantic-lint speed and memory | blocked | base-022, base-029, base-045 |
 | [base-050](tasks/050-verify-corpus-processing-and-full-thesis-lint-coverage.md) | Verify corpus processing and full thesis lint coverage | blocked | base-028, base-045, base-026, base-029, base-048, base-049 |
-| [base-051](tasks/051-reduce-measured-punctuation-dispatch-cost-in-the-lexer.md) | Reduce measured punctuation dispatch cost in the lexer | ready | — |
+| [base-051](tasks/051-reduce-measured-punctuation-dispatch-cost-in-the-lexer.md) | Reduce measured punctuation dispatch cost in the lexer | done | — |
