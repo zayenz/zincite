@@ -4,6 +4,105 @@ use zincite_syntax::{TokenKind, parse};
 const MODEL: &str = include_str!("../../../tests/fixtures/scalar.mzn");
 
 #[test]
+fn directives_preserve_items_regions_and_boundary_bytes() {
+    use zincite_fmt::protected_ranges;
+
+    let skip = " \r\n\t% zincite-fmt: skip  \r\n\r\n  array [1..2] of int: kept = [ 1,2 ]; % keep  tail\r\n \t\r\n";
+    let off = "\r\n\t% zincite-fmt: off\r\n  string: kept_text=\"keep  spacing\";\r\n\r\n int: kept_number =  7 ; \r\n % zincite-fmt: on\r\n  ";
+    let source = format!("int: before=0;{skip}int: middle=1;{off}int: after=3;");
+    let parsed = parse(source.clone());
+    let ranges = protected_ranges(&parsed).unwrap();
+    assert_eq!(
+        ranges
+            .iter()
+            .map(|range| &source[range.clone()])
+            .collect::<Vec<_>>(),
+        [skip, off]
+    );
+    let formatted = format(&parsed).unwrap();
+    assert_eq!(
+        formatted,
+        format!("int: before = 0;{skip}int: middle = 1;{off}int: after = 3;\n")
+    );
+    let reparsed = parse(formatted.clone());
+    assert_eq!(
+        structure(parsed.tree(), &parsed),
+        structure(reparsed.tree(), &reparsed)
+    );
+    assert_eq!(format(&reparsed).unwrap(), formatted);
+
+    // Protected EOF layout overrides the ordinary final-newline default, even
+    // for a final item without a written semicolon.
+    let tail = "\r\n% zincite-fmt: skip\r\n\tint: kept=2   \r\n \t";
+    let source = format!("int: before=0;{tail}");
+    let formatted = format(&parse(source)).unwrap();
+    assert_eq!(formatted, format!("int: before = 0;{tail}"));
+    assert_eq!(format(&parse(formatted.clone())).unwrap(), formatted);
+
+    for source in [
+        "% zincite-fmt: skip\r\n int:a=1;\r\n% zincite-fmt: skip\r\n int:b=2;  ",
+        "\t% zincite-fmt: off\r\n \r\n% zincite-fmt: on\r\n \t",
+    ] {
+        let parsed = parse(source);
+        assert_eq!(format(&parsed).unwrap(), source);
+        let ranges = protected_ranges(&parsed).unwrap();
+        assert_eq!(ranges.len(), 1);
+        assert_eq!(ranges[0], 0..source.len());
+    }
+    // Directive spellings inside literals and block comments are ordinary text.
+    let source = "string:x=\"% zincite-fmt: off\"; /* % zincite-fmt: on */";
+    assert!(protected_ranges(&parse(source)).unwrap().is_empty());
+    let formatted = format(&parse(source)).unwrap();
+    assert_eq!(format(&parse(formatted.clone())).unwrap(), formatted);
+}
+
+#[test]
+fn invalid_directives_fail_before_any_output_and_skips_still_check_syntax() {
+    for (source, marker) in [
+        ("% zincite-fmt: on\nint:x=1;", "% zincite-fmt: on"),
+        ("% zincite-fmt: off\nint:x=1;", "% zincite-fmt: off"),
+        ("int:x=1;\n% zincite-fmt: skip\n", "% zincite-fmt: skip"),
+        (
+            "% zincite-fmt: off\n% zincite-fmt: off\n% zincite-fmt: on\n",
+            "% zincite-fmt: off",
+        ),
+        (
+            "% zincite-fmt: skip\n% zincite-fmt: off\nint:x=1;\n% zincite-fmt: on",
+            "% zincite-fmt: off",
+        ),
+        (
+            "% zincite-fmt: off\n% zincite-fmt: skip\nint:x=1;\n% zincite-fmt: on",
+            "% zincite-fmt: skip",
+        ),
+        ("any:x=f(\n% zincite-fmt: skip\n1);", "% zincite-fmt: skip"),
+        (
+            "int:x=1; % zincite-fmt: skip\nint:y=2;",
+            "% zincite-fmt: skip",
+        ),
+        ("% zincite-fmt: unknown\nint:x=1;", "% zincite-fmt: unknown"),
+    ] {
+        let parsed = parse(source);
+        assert!(
+            parsed.diagnostics().is_empty(),
+            "{source}: {:?}",
+            parsed.diagnostics()
+        );
+        let diagnostics = format(&parsed).unwrap_err();
+        assert_eq!(diagnostics.len(), 1, "{source}: {diagnostics:?}");
+        assert_eq!(&source[diagnostics[0].range.clone()], marker);
+        assert!(!diagnostics[0].message.is_empty());
+    }
+    for source in [
+        "% zincite-fmt: skip\nint:bad=;",
+        "% zincite-fmt: off\nint:bad=;\n% zincite-fmt: on",
+    ] {
+        let parsed = parse(source);
+        assert!(!parsed.diagnostics().is_empty());
+        assert_eq!(format(&parsed).unwrap_err(), parsed.diagnostics());
+    }
+}
+
+#[test]
 fn formats_a_complete_model_and_preserves_spelling_on_a_stable_second_pass() {
     let parsed = parse(MODEL);
     let formatted = format(&parsed).unwrap();

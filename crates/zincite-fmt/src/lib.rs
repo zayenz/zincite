@@ -4,6 +4,9 @@ use std::num::NonZeroUsize;
 
 use zincite_syntax::{Diagnostic, NodeKind, ParsedFile, SyntaxElement, SyntaxNode, TokenKind};
 
+mod directives;
+pub use directives::protected_ranges;
+
 /// How indentation columns are written. Tabs use spaces for a partial tab stop.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum IndentStyle {
@@ -36,22 +39,21 @@ impl Default for FormatOptions {
     }
 }
 
-/// Format a complete parse result, or return its diagnostics without output.
+/// Format a complete parse result, or return syntax/directive diagnostics without output.
 ///
 /// Identifiers, literals, operators and comments retain their spelling. Editable
-/// layout uses LF and a final newline. No type or semantic checks are performed.
-pub fn format(parsed: &ParsedFile) -> Result<String, &[Diagnostic]> {
+/// layout uses LF and a final newline; protected spans retain their original bytes.
+/// No type or semantic checks are performed.
+pub fn format(parsed: &ParsedFile) -> Result<String, Vec<Diagnostic>> {
     format_with_options(parsed, &FormatOptions::default())
 }
 
-/// Format with the supplied layout options, or return the parse diagnostics.
-pub fn format_with_options<'a>(
-    parsed: &'a ParsedFile,
+/// Format with the supplied options, or return syntax/directive diagnostics.
+pub fn format_with_options(
+    parsed: &ParsedFile,
     options: &FormatOptions,
-) -> Result<String, &'a [Diagnostic]> {
-    if !parsed.diagnostics().is_empty() {
-        return Err(parsed.diagnostics());
-    }
+) -> Result<String, Vec<Diagnostic>> {
+    let protected = protected_ranges(parsed)?;
     let mut formatter = Formatter {
         parsed,
         output: String::new(),
@@ -66,13 +68,37 @@ pub fn format_with_options<'a>(
         break_before_code: false,
         suffix_columns: 0,
     };
+    let mut ranges = protected.iter().peekable();
     for child in parsed.tree().children() {
+        let start = match child {
+            SyntaxElement::Node(item) => item.range().start,
+            SyntaxElement::Token(index) => parsed.tokens()[*index].range.start,
+        };
+        while ranges.peek().is_some_and(|range| range.end <= start) {
+            ranges.next();
+        }
+        if let Some(range) = ranges.peek().filter(|range| range.contains(&start)) {
+            if range.start == start {
+                formatter
+                    .output
+                    .push_str(&parsed.source()[(*range).clone()]);
+                formatter.pending_breaks = 0;
+                formatter.line_comment = false;
+                formatter.last_was_comment = false;
+                formatter.between_items = false;
+            }
+            continue;
+        }
         match child {
             SyntaxElement::Node(item) => formatter.item(item),
             SyntaxElement::Token(index) => formatter.token(*index),
         }
     }
-    if !formatter.output.is_empty() {
+    if !formatter.output.is_empty()
+        && !protected
+            .last()
+            .is_some_and(|range| range.end == parsed.source().len())
+    {
         formatter.newlines(1);
     }
     Ok(formatter.output)

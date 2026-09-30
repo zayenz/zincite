@@ -4,8 +4,8 @@
 
 - Total: 21
 - Ready: 2
-- Blocked: 4
-- Done: 15
+- Blocked: 3
+- Done: 16
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -24,8 +24,8 @@
 | [base-013](tasks/013-select-data-file-mode-and-check-grammar-integration.md) | Select data-file mode and check grammar integration | done | base-006, base-007, base-008, base-009, base-010, base-011, base-012 |
 | [base-014](tasks/014-finish-ordinary-width-aware-formatting.md) | Finish ordinary width-aware formatting | done | base-013 |
 | [base-015](tasks/015-align-and-wrap-two-dimensional-literals.md) | Align and wrap two-dimensional literals | done | base-014 |
-| [base-016](tasks/016-preserve-skipped-items-and-formatting-off-regions.md) | Preserve skipped items and formatting-off regions | ready | base-002 |
-| [base-017](tasks/017-sort-include-groups-without-moving-directive-targets.md) | Sort include groups without moving directive targets | blocked | base-010, base-016 |
+| [base-016](tasks/016-preserve-skipped-items-and-formatting-off-regions.md) | Preserve skipped items and formatting-off regions | done | base-002 |
+| [base-017](tasks/017-sort-include-groups-without-moving-directive-targets.md) | Sort include groups without moving directive targets | ready | base-010, base-016 |
 | [base-018](tasks/018-add-formatter-check-and-safe-write-modes.md) | Add formatter check and safe write modes | blocked | base-013, base-017 |
 | [base-019](tasks/019-resolve-editorconfig-and-explicit-formatter-overrides.md) | Resolve EditorConfig and explicit formatter overrides | blocked | base-018, base-015 |
 | [base-020](tasks/020-deliver-missing-label-lint-with-suppressions.md) | Deliver missing-label lint with suppressions | ready | base-003 |

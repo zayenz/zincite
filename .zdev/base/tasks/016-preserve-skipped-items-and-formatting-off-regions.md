@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-016"
 key = "format-directives"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -26,11 +26,20 @@ Read brief Formatting direction and Remaining layout defaults, then top-level it
 
 ## Done when
 
-- [ ] Standalone skip/off/on directives preserve complete items/regions and their boundary whitespace exactly.
-- [ ] Nested, unmatched, inside-expression and dangling markers fail the whole file without partial output.
-- [ ] Ordinary surrounding formatting does not consume, duplicate or alter protected bytes, including their original line endings.
+- [x] Standalone skip/off/on directives preserve complete items/regions and their boundary whitespace exactly.
+- [x] Nested, unmatched, inside-expression and dangling markers fail the whole file without partial output.
+- [x] Ordinary surrounding formatting does not consume, duplicate or alter protected bytes, including their original line endings.
 
 ## Validation
 
 - Run the area Cargo checks from brief.md. Reuse existing fixtures; add only the focused behavior evidence named here.
 - Use a skipped item and off/on region with distinctive spacing and line endings, plus representative invalid markers. Verify exact protected bytes and second-pass stability.
+
+## Result
+
+Preserved skipped items and off/on regions byte-for-byte with validated standalone directives and protected sorting barriers.
+
+Validation:
+
+- Independent PASS on W4df54bb2d0a0df16; byte-exact CRLF/EOF spans, idempotence, precise directive errors and empty failure stdout verified.
+- cargo fmt --all -- --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace: all pass (42 tests).

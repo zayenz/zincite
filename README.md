@@ -242,8 +242,17 @@ let options = zincite_fmt::FormatOptions {
 let formatted = zincite_fmt::format_with_options(&parsed, &options)?;
 ```
 
-The formatter returns the parse diagnostics on error. It produces no partial
-formatted source. Indentation size and tab width are nonzero column counts;
+The formatter returns owned syntax or formatting-directive diagnostics on error.
+It produces no partial formatted source. Standalone `% zincite-fmt: skip` preserves
+the next complete top-level item; `% zincite-fmt: off` and `% zincite-fmt: on`
+preserve a region between complete items. These spans retain their marker lines,
+boundary whitespace, comments and original line endings exactly, including EOF
+whitespace. Skipped syntax is still checked. Nested, unmatched, misplaced,
+malformed and dangling markers fail the whole file. The library's
+`protected_ranges(&parsed)` exposes the validated byte spans for sorting barriers;
+include sorting remains unimplemented.
+
+Indentation size and tab width are nonzero column counts;
 tab indentation fills complete tab stops and uses spaces for any remainder.
 Width counts Unicode scalar values as one column and tabs to the next configured
 tab stop. Set `max_line_length` to `None` for unlimited width; mandatory blocks and
