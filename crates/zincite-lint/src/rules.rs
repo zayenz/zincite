@@ -72,6 +72,7 @@ impl Rule {
             self,
             Self::Naming
                 | Self::MissingConstraintLabel
+                | Self::ArrayIndexStart
                 | Self::GlobalVariableInFunction
                 | Self::ElementPredicate
                 | Self::DecisionVariableOperator

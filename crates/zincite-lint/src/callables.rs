@@ -137,7 +137,7 @@ pub fn resolve_callables(context: &ModelContext, bindings: &BindingFacts) -> Cal
     }
 }
 
-fn find_node<'a>(
+pub(super) fn find_node<'a>(
     node: &'a SyntaxNode,
     range: &std::ops::Range<usize>,
     role: DeclarationRole,

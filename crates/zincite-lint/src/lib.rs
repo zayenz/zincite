@@ -4,10 +4,12 @@ use std::ops::Range;
 use zincite_syntax::{Diagnostic, NodeKind, ParsedFile, SyntaxElement, SyntaxNode, TokenKind};
 
 mod analysis;
+mod array_indices;
 mod bindings;
 mod callables;
 mod captures;
 mod decision_use;
+mod domains;
 mod element;
 mod instantiations;
 mod model;
@@ -25,6 +27,9 @@ pub use bindings::{
 pub use callables::{
     CallFact, CallOutcome, CallableFacts, CallableParameter, CallableSignature, DeclarationType,
     ExpressionType, resolve_callables,
+};
+pub use domains::{
+    ArrayIndexSet, DeclarationDomain, Domain, DomainFacts, NumericBound, resolve_domains,
 };
 pub use instantiations::{ExpressionInstantiation, InstantiationFacts, resolve_instantiations};
 pub use model::{

@@ -5,8 +5,9 @@ use zincite_syntax::{FileMode, ParsedFile};
 
 use crate::{
     LintDiagnostic, LintOptions, ModelContext, Rule, Severity, SourceDiagnostic, SourceLocation,
-    captures::check_captures, decision_use::check_decision_use, element::check_element, lint_items,
-    lint_with_options, resolve_bindings, resolve_callables, resolve_instantiations,
+    array_indices::check_array_indices, captures::check_captures, decision_use::check_decision_use,
+    element::check_element, lint_items, lint_with_options, resolve_bindings, resolve_callables,
+    resolve_domains, resolve_instantiations,
 };
 
 #[derive(Debug)]
@@ -184,11 +185,19 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
     }
     let data = FileMode::from_path(&context.root) == FileMode::Data;
     let shared_incomplete = !context.limitations.is_empty() || !context.errors.is_empty();
+    let mut array_incomplete = false;
     let mut capture_incomplete = false;
     let mut element_incomplete = false;
     let mut decision_incomplete = Vec::new();
     if !data && options.requires_model() {
         let facts = resolve_bindings(context);
+        if options.rules.contains(&Rule::ArrayIndexStart) {
+            let domains = resolve_domains(context, &facts);
+            let indices = check_array_indices(context, &domains);
+            array_incomplete = !indices.limitations.is_empty();
+            result.findings.extend(indices.findings);
+            result.limitations.extend(indices.limitations);
+        }
         if options.rules.contains(&Rule::GlobalVariableInFunction) {
             let captures = check_captures(context, &facts);
             capture_incomplete = !captures.limitations.is_empty();
@@ -243,6 +252,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 && (shared_incomplete
                     || (rule == Rule::GlobalVariableInFunction && capture_incomplete)
                     || (rule == Rule::ElementPredicate && element_incomplete)
+                    || (rule == Rule::ArrayIndexStart && array_incomplete)
                     || decision_incomplete.contains(&rule))
             {
                 RuleOutcome::Limited {

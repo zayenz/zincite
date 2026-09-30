@@ -238,7 +238,7 @@ fn rule_selection_preserves_defaults_and_reports_unavailable_rules() {
     );
     assert_eq!(suppressed.status.code(), Some(0));
     assert!(suppressed.stdout.is_empty() && suppressed.stderr.is_empty());
-    for selection in ["thesis", "all", "array-index-start", "naming,compact-if"] {
+    for selection in ["thesis", "all", "compact-if", "naming,compact-if"] {
         let output = run(&["--rules", selection], "");
         assert_eq!(output.status.code(), Some(2));
         assert!(output.stdout.is_empty());
@@ -517,5 +517,45 @@ fn decision_use_selection_preserves_cli_status_context_and_independent_inputs() 
             .message
             .contains("ModelContext")
     );
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn numeric_index_advice_uses_model_selection_and_item_suppression() {
+    let directory = std::env::temp_dir().join(format!("zincite-index-cli-{}", std::process::id()));
+    std::fs::create_dir_all(directory.join("std")).unwrap();
+    std::fs::write(directory.join("std/stdlib.mzn"), "").unwrap();
+    let root = directory.join("root.mzn");
+    let args = [
+        "--rules",
+        "array-index-start",
+        "--stdlib-dir",
+        directory.to_str().unwrap(),
+        root.to_str().unwrap(),
+    ];
+    std::fs::write(
+        &root,
+        "set of int: Index={2,4}; array[Index] of int: values; solve satisfy;",
+    )
+    .unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("warning [array-index-start]")
+    );
+    std::fs::write(
+        &root,
+        "% zincite-lint: ignore array-index-start\narray[0..4] of int: values; solve satisfy;",
+    )
+    .unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stdout.is_empty() && output.stderr.is_empty());
+    std::fs::write(&root, "array[0..3 of int: values; solve satisfy;").unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(2));
     std::fs::remove_dir_all(directory).unwrap();
 }
