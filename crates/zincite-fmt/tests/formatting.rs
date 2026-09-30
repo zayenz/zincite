@@ -166,10 +166,10 @@ fn formats_collection_lists_and_preserves_comments_and_structure() {
     assert!(formatted.contains("keyed = [3: 7, 4: 8];"));
     assert!(formatted.contains("stepped = [0: 5, 6, 7];"));
     assert!(formatted.contains("tupled = [(1, 2): 9, (1, 3): 10];"));
-    assert!(formatted.contains("plain = [|\n    1, 2\n    | 3, 4\n|];"));
-    assert!(formatted.contains("rows = [|\n    3: 1, 2\n    | 4: 3, 4\n|];"));
-    assert!(formatted.contains("cols = [|\n    5: 6:\n    | 1, 2\n    | 3, 4\n|];"));
-    assert!(formatted.contains("both = [|\n    5: 6: % Keep  column indices\n    | 3: 0x1, 2 % Keep  row comment\n    | 4: 3, 0o4\n|];"));
+    assert!(formatted.contains("plain = [|\n      1, 2\n    | 3, 4\n|];"));
+    assert!(formatted.contains("rows = [|\n      3: 1, 2\n    | 4: 3, 4\n|];"));
+    assert!(formatted.contains("cols = [|\n      5: 6:\n    | 1, 2\n    | 3, 4\n|];"));
+    assert!(formatted.contains("both = [|\n         5:   6: % Keep  column indices\n    | 3: 0x1, 2 % Keep  row comment\n    | 4: 3,   0o4\n|];"));
     assert!(formatted.contains("array[c in 1 .. 3] of var set(c) of 1 .. 5: dependent_sets;"));
     assert!(formatted.contains("array[i in 1 .. 2, j in 1 .. 3] of var 1 .. (i + j): dependent;"));
     assert!(formatted.contains(
@@ -229,6 +229,96 @@ fn formats_collection_lists_and_preserves_comments_and_structure() {
         structure(reparsed.tree(), &reparsed)
     );
     assert_eq!(format(&reparsed).unwrap(), formatted);
+}
+
+#[test]
+fn matrix_columns_align_and_share_width_breaks_without_changing_rows() {
+    use std::num::NonZeroUsize;
+    use zincite_fmt::{FormatOptions, format_with_options};
+
+    let source = include_str!("../../../tests/fixtures/collections.mzn")
+        .lines()
+        .skip_while(|line| !line.starts_with("any: uneven="))
+        .take(2)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let parsed = parse(source);
+    let default = format(&parsed).unwrap();
+    assert!(
+        default.contains(
+            "uneven = [|\n      1,  222,                3\n    | 55, 6 /* Keep  gap */ , 777 % Keep"
+        ),
+        "{default}"
+    );
+    let narrow = FormatOptions {
+        max_line_length: NonZeroUsize::new(32),
+        ..FormatOptions::default()
+    };
+    let wrapped = format_with_options(&parsed, &narrow).unwrap();
+    assert!(
+        wrapped.contains(
+            "uneven = [|\n      1,  222,\n      3\n    | 55, 6 /* Keep  gap */ ,\n      777 % Keep"
+        ),
+        "{wrapped}"
+    );
+    assert!(
+        wrapped
+            .lines()
+            .filter(|line| !line.contains("% Keep"))
+            .all(|line| line.chars().count() <= 32),
+        "{wrapped}"
+    );
+    assert!(
+        wrapped
+            .lines()
+            .any(|line| line.contains("% Keep") && line.chars().count() > 32)
+    );
+    let comments = |file: &zincite_syntax::ParsedFile| {
+        file.tokens()
+            .iter()
+            .filter(|token| matches!(token.kind, TokenKind::LineComment | TokenKind::BlockComment))
+            .map(|token| file.source()[token.range.clone()].to_owned())
+            .collect::<Vec<_>>()
+    };
+    for (formatted, options) in [(default, FormatOptions::default()), (wrapped, narrow)] {
+        let reparsed = parse(formatted.clone());
+        assert!(
+            reparsed.diagnostics().is_empty(),
+            "{:?}",
+            reparsed.diagnostics()
+        );
+        assert_eq!(
+            structure(parsed.tree(), &parsed),
+            structure(reparsed.tree(), &reparsed)
+        );
+        assert_eq!(comments(&parsed), comments(&reparsed));
+        assert_eq!(format_with_options(&reparsed, &options).unwrap(), formatted);
+    }
+
+    let parsed = parse("any: x=[|1,2|/* lead */3,4|]; any: y=[|1:1,2|/* lead */2:3,4|];");
+    for max_line_length in [NonZeroUsize::new(120), NonZeroUsize::new(24)] {
+        let options = FormatOptions {
+            max_line_length,
+            ..FormatOptions::default()
+        };
+        let formatted = format_with_options(&parsed, &options).unwrap();
+        assert!(
+            formatted.contains("x = [|\n      1, 2\n    | /* lead */\n      3, 4\n|];"),
+            "{formatted}"
+        );
+        assert!(
+            formatted.contains("y = [|\n      1: 1, 2\n    | /* lead */\n      2: 3, 4\n|];"),
+            "{formatted}"
+        );
+        let reparsed = parse(formatted.clone());
+        assert!(reparsed.diagnostics().is_empty());
+        assert_eq!(
+            structure(parsed.tree(), &parsed),
+            structure(reparsed.tree(), &reparsed)
+        );
+        assert_eq!(comments(&parsed), comments(&reparsed));
+        assert_eq!(format_with_options(&reparsed, &options).unwrap(), formatted);
+    }
 }
 
 #[test]

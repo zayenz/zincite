@@ -40,3 +40,5 @@ constraint 'forall'(i in Indices /* Keep  binding comment */ where i>0)(
 constraint forall(first_index in Indices where first_index>0, second_index in Indices where second_index>first_index)(first_index<second_index);
 constraint picked>0;
 solve satisfy;
+any: uneven=[|1,222,3|55,6 /* Keep  gap */,777 % Keep this deliberately long row comment exactly as written, including  spacing
+|];

@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-015"
 key = "matrix-layout"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -26,11 +26,20 @@ Read the current matrix syntax/formatter and brief Formatting direction. Ordinar
 
 ## Done when
 
-- [ ] 2D literals format one logical row per line with aligned columns.
-- [ ] Rows that exceed the target width wrap at the same column boundaries across rows while preserving alignment and logical row grouping.
-- [ ] Comments and uneven cell widths do not corrupt the literal; the second formatting pass is unchanged.
+- [x] 2D literals format one logical row per line with aligned columns.
+- [x] Rows that exceed the target width wrap at the same column boundaries across rows while preserving alignment and logical row grouping.
+- [x] Comments and uneven cell widths do not corrupt the literal; the second formatting pass is unchanged.
 
 ## Validation
 
 - Run the area Cargo checks from brief.md. Reuse existing fixtures; add only the focused behavior evidence named here.
 - Use one uneven-width matrix and a narrow-width version requiring shared breaks, plus a preserved comment or indivisible cell. Check valid reparse, logical rows and idempotence.
+
+## Result
+
+Aligned matrix columns and shared width breaks while preserving rows, indices, cells and comments.
+
+Validation:
+
+- Independent verification PASS on W4a17cc1a62a38890; default and narrow alignment, leading-comment regression, structure and idempotence verified.
+- cargo fmt --all -- --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace: all pass (40 tests).

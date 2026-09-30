@@ -168,8 +168,8 @@ Generic type-inst syntax is shared by local, top-level and callable declarations
 No local name resolution or checks of branch types or declaration initializers are
 performed. Includes retain their written order and paths; they are neither loaded
 nor sorted in the current implementation.
-Matrices use one logical row per line; column
-alignment and width-based row wrapping are not implemented yet. It normalizes
+Matrices align columns and wrap rows at shared column boundaries when needed,
+retaining their logical row boundaries, indices and comments. It normalizes
 editable spacing and line endings to LF, adds a final newline and preserves blank-line groups while
 collapsing excess blank layout lines.
 

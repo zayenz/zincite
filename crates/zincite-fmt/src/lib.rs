@@ -93,6 +93,20 @@ struct Formatter<'a> {
     suffix_columns: usize,
 }
 
+struct MatrixCell {
+    text: String,
+    slot: String,
+    pending_breaks: usize,
+    line_comment: bool,
+    last_was_comment: bool,
+}
+
+struct MatrixLayout {
+    rows: Vec<Vec<MatrixCell>>,
+    starts: Vec<usize>,
+    breaks: Vec<bool>,
+}
+
 impl Formatter<'_> {
     fn item(&mut self, item: &SyntaxNode) {
         if self.between_items || self.pending_breaks > 0 || self.line_comment {
@@ -892,8 +906,12 @@ impl Formatter<'_> {
     }
 
     fn columns(&self, text: &str) -> usize {
+        self.columns_from(text, 0)
+    }
+
+    fn columns_from(&self, text: &str, start: usize) -> usize {
         let tab_width = self.options.tab_width.get();
-        text.chars().fold(0, |column, character| {
+        text.chars().fold(start, |column, character| {
             if character == '\t' {
                 column + tab_width - column % tab_width
             } else {
@@ -996,6 +1014,8 @@ impl Formatter<'_> {
 
     fn matrix(&mut self, node: &SyntaxNode, leading_space: bool) {
         let multiline = node.child_nodes().next().is_some();
+        let layout = self.matrix_layout(node);
+        let mut row_number = 0;
         let mut after_pipe = false;
         for child in node.children() {
             match child {
@@ -1004,7 +1024,8 @@ impl Formatter<'_> {
                         self.newlines(self.pending_breaks.max(1));
                         self.pending_breaks = 0;
                     }
-                    self.expression(row, after_pipe);
+                    self.matrix_row(row, &layout.rows[row_number], &layout);
+                    row_number += 1;
                     after_pipe = false;
                 }
                 SyntaxElement::Token(index) => match self.parsed.tokens()[*index].kind {
@@ -1028,6 +1049,209 @@ impl Formatter<'_> {
                     }
                     _ => self.token(*index),
                 },
+            }
+        }
+    }
+
+    // Render cells at the common continuation column before choosing shared
+    // breaks. A nested multiline cell therefore keeps its ordinary layout even
+    // when neighboring columns move on the next formatting pass.
+    fn matrix_layout(&self, node: &SyntaxNode) -> MatrixLayout {
+        let indent = (self.indent + 1) * self.options.indent_size.get();
+        let index_width = node
+            .child_nodes()
+            .filter(|row| self.matrix_row_has_index(row))
+            .map(|row| {
+                let mut rendered =
+                    self.render_matrix_cell(row.child_nodes().next().unwrap(), indent + 2, 1);
+                let index_width = rendered.current_columns().saturating_sub(indent + 2) + 2;
+                for child in row.children().iter().skip(1) {
+                    let SyntaxElement::Token(index) = child else {
+                        break;
+                    };
+                    rendered.token_with_space(*index, false);
+                }
+                if rendered.output[indent + 3..].contains('\n')
+                    || rendered.line_comment
+                    || rendered.last_was_comment && rendered.pending_breaks > 0
+                {
+                    index_width
+                } else {
+                    rendered.current_columns().saturating_sub(indent + 2) + 1
+                }
+            })
+            .max()
+            .unwrap_or(0);
+        let base = indent + 2 + index_width;
+        let mut rows = Vec::new();
+        let mut forced_breaks = Vec::new();
+        for row in node.child_nodes() {
+            let indexed = self.matrix_row_has_index(row);
+            let mut cells = Vec::new();
+            for (position, child) in row.children().iter().enumerate() {
+                let SyntaxElement::Node(cell) = child else {
+                    continue;
+                };
+                let following = &row.children()[position + 1..];
+                let tokens: Vec<_> = following
+                    .iter()
+                    .take_while(|child| matches!(child, SyntaxElement::Token(_)))
+                    .filter_map(|child| match child {
+                        SyntaxElement::Token(index) => Some(*index),
+                        _ => None,
+                    })
+                    .collect();
+                let suffix = tokens
+                    .iter()
+                    .filter(|&&index| !is_trivia(self.parsed.tokens()[index].kind))
+                    .count();
+                let is_index = indexed && cells.is_empty();
+                let start = if is_index { indent + 2 } else { base };
+                let mut rendered = self.render_matrix_cell(cell, start, suffix);
+                let prefix_length = start + 1;
+                let text = rendered.output[prefix_length..].to_owned();
+                let pending_breaks = rendered.pending_breaks;
+                let line_comment = rendered.line_comment;
+                let last_was_comment = rendered.last_was_comment;
+                let has_next = following
+                    .iter()
+                    .any(|child| matches!(child, SyntaxElement::Node(_)));
+                for index in tokens {
+                    let kind = self.parsed.tokens()[index].kind;
+                    // A trailing comment has the usual preserved-text overrun
+                    // exception; it does not widen the other rows' last cell.
+                    if has_next || !is_trivia(kind) {
+                        rendered.token_with_space(index, false);
+                    }
+                }
+                let slot = rendered.output[prefix_length..].to_owned();
+                if !is_index {
+                    let column = cells.len() - usize::from(indexed);
+                    forced_breaks.resize(forced_breaks.len().max(column + 2), false);
+                    if text.contains('\n') {
+                        forced_breaks[column] = true;
+                        forced_breaks[column + 1] = true;
+                    }
+                    if slot.contains('\n')
+                        || rendered.line_comment
+                        || rendered.pending_breaks > 1
+                        || rendered.last_was_comment && rendered.pending_breaks > 0
+                    {
+                        forced_breaks[column + 1] = true;
+                    }
+                }
+                cells.push(MatrixCell {
+                    text,
+                    slot,
+                    pending_breaks,
+                    line_comment,
+                    last_was_comment,
+                });
+            }
+            rows.push(cells);
+        }
+        let mut starts = Vec::new();
+        let mut breaks = Vec::new();
+        let mut start = base;
+        for (column, &forced_break) in forced_breaks
+            .iter()
+            .enumerate()
+            .take(forced_breaks.len().saturating_sub(1))
+        {
+            let width_at = |start| {
+                node.child_nodes()
+                    .zip(&rows)
+                    .filter_map(|(row, cells)| {
+                        cells.get(column + usize::from(self.matrix_row_has_index(row)))
+                    })
+                    .map(|cell| {
+                        self.columns_from(cell.slot.split('\n').next().unwrap_or_default(), start)
+                            - start
+                    })
+                    .max()
+                    .unwrap_or(0)
+            };
+            let mut width = width_at(start);
+            let should_break = column > 0
+                && (forced_break
+                    || !self.measuring
+                        && self
+                            .options
+                            .max_line_length
+                            .is_some_and(|limit| start + width > limit.get()));
+            if should_break {
+                start = base;
+                width = width_at(start);
+            }
+            starts.push(start);
+            breaks.push(should_break);
+            start += width + 1;
+        }
+        MatrixLayout {
+            rows,
+            starts,
+            breaks,
+        }
+    }
+
+    fn matrix_row_has_index(&self, row: &SyntaxNode) -> bool {
+        row.kind() == NodeKind::MatrixRow
+            && row.children().iter().any(|child| {
+                matches!(child, SyntaxElement::Token(index)
+                    if self.parsed.tokens()[*index].kind == TokenKind::Colon)
+            })
+    }
+
+    fn render_matrix_cell(&self, cell: &SyntaxNode, start: usize, suffix: usize) -> Self {
+        let mut rendered = self.preview();
+        rendered.output = format!("\n{}", " ".repeat(start));
+        rendered.indent = self.indent + 1;
+        rendered.pending_breaks = 0;
+        rendered.line_comment = false;
+        rendered.last_was_comment = false;
+        rendered.break_before_code = false;
+        rendered.measuring = self.measuring;
+        rendered.expression_before(cell, false, suffix);
+        rendered
+    }
+
+    fn matrix_row(&mut self, row: &SyntaxNode, cells: &[MatrixCell], layout: &MatrixLayout) {
+        let indexed = self.matrix_row_has_index(row);
+        let mut entry: usize = 0;
+        for child in row.children() {
+            match child {
+                SyntaxElement::Node(_) => {
+                    let is_index = indexed && entry == 0;
+                    let column = entry.saturating_sub(usize::from(indexed));
+                    if !is_index && layout.breaks[column] {
+                        self.newlines(self.pending_breaks.max(1));
+                        self.pending_breaks = 0;
+                    }
+                    let start = if is_index {
+                        self.indent * self.options.indent_size.get() + 2
+                    } else {
+                        layout.starts[column]
+                    };
+                    if self.line_comment
+                        || self.pending_breaks > 1
+                        || self.last_was_comment
+                            && (self.pending_breaks > 0
+                                || entry == 0 && self.current_columns() >= start)
+                    {
+                        self.newlines(self.pending_breaks.max(1));
+                    }
+                    self.pending_breaks = 0;
+                    self.indent_line();
+                    self.output
+                        .push_str(&" ".repeat(start.saturating_sub(self.current_columns())));
+                    let cell = &cells[entry];
+                    self.code_with_space(&cell.text, false);
+                    self.pending_breaks = cell.pending_breaks;
+                    self.line_comment = cell.line_comment;
+                    self.last_was_comment = cell.last_was_comment;
+                    entry += 1;
+                }
+                SyntaxElement::Token(index) => self.token_with_space(*index, false),
             }
         }
     }
