@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/zincite-syntax", "crates/zincite-fmt"]
+members = ["crates/zincite-syntax", "crates/zincite-fmt", "crates/zincite-lint"]
 resolver = "3"
 
 [workspace.package]

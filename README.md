@@ -3,8 +3,7 @@
 Zincite is a Rust project for MiniZinc source tooling. `zincite-fmt` formats
 model and data syntax using the shared `zincite-syntax` parser and concrete
 syntax tree. The tree retains source spelling, comments, whitespace and byte
-ranges. `zincite-lint`, the planned static analyser, is not
-implemented yet.
+ranges. `zincite-lint` uses the same tree to advise on missing constraint labels.
 
 `zincite_syntax::lex` owns UTF-8 source text and exposes read-only source,
 tokens and lexical diagnostics. Token ranges cover every byte exactly once,
@@ -301,12 +300,58 @@ zincite-fmt --indent-size 2 --end-of-line crlf --max-line-length off model.mzn
 
 Before a stable release, formatting may change between versions.
 
+## Linter usage
+
+Install and run the lint command from this checkout:
+
+```sh
+cargo install --path crates/zincite-lint
+zincite-lint model.mzn other.mzn
+zincite-lint < model.mzn
+zincite-lint --stdin-filepath data.dzn < data.dzn
+zincite-lint --help
+```
+
+Explicit files may be checked together; no input or `-` reads stdin. Stdin cannot
+be mixed with file inputs. `--stdin-filepath` supplies its diagnostic path and
+language mode, with `.dzn` selecting data syntax. Diagnostics go to stderr with
+path, line/column and precise byte ranges; warnings identify their severity and
+rule. The command exits 0 when clean, 1 for unsuppressed warnings, and 2 for
+input, syntax, suppression or usage errors. Errors take precedence and independent
+files are still checked. Source files are never rewritten.
+
+The `missing-constraint-label` warning suggests a string label to explain a
+constraint's modelling intent. A direct header label such as
+`constraint :: "explanation" true;` counts, including interpolated strings.
+Strings inside calls and expression annotations do not count. This is advice,
+not a claim that an unlabelled constraint is incorrect or slower.
+
+These standalone comments suppress a rule throughout the next top-level item,
+including its local constraints and bindings:
+
+```minizinc
+% zincite-lint: ignore naming
+% zincite-lint: ignore missing-constraint-label
+constraint true;
+```
+
+Consecutive comments may suppress both rules. Unknown rule IDs, malformed or
+misplaced directives and directives without a following item fail the file.
+`naming` is recognized for suppression; naming warnings are not yet implemented.
+Syntax errors omit all lint rules for that file. The shared parser's supported
+syntax and exclusions described above also apply to linting; includes are never
+loaded and name resolution, type checking and solver analysis are outside scope.
+
+Use the library independently with `zincite_lint::lint(&parsed)`. It returns
+warnings with rule, severity, message and byte range, or owned syntax/suppression
+diagnostics without partial warnings.
+
 ## Scope
 
 The initial target is MiniZinc 2.10.1, covering model (`.mzn`) and data (`.dzn`)
 files. The formatter supports explicit files and stdin, with stdout, check
 and in-place modes, with EditorConfig and explicit CLI layout overrides.
-The first lint rules will check naming conventions and advise on missing constraint labels.
+Linting advises on missing constraint labels; naming checks remain planned.
 
 Formatting will preserve comments and source meaning, with layouts chosen to
 keep later diffs small. The default width is 120 columns with four-space

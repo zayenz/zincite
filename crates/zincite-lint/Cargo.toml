@@ -1,0 +1,9 @@
+[package]
+name = "zincite-lint"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "MiniZinc source lint advice"
+
+[dependencies]
+zincite-syntax = { path = "../zincite-syntax" }

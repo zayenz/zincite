@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-020"
 key = "label-lint"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -26,13 +26,23 @@ Read brief Initial lint contract and CLI contract and ../background/linting-and-
 
 ## Done when
 
-- [ ] Direct constraint-header string annotations count as labels; nested strings and unrelated expression annotations do not. Warnings are framed as modelling advice.
-- [ ] Standalone next-item suppressions validate both agreed rule IDs, apply to the target item and reject bad syntax, placement, unknown IDs or missing targets.
-- [ ] The thin CLI supports explicit files/stdin and the currently available language modes, emits located rule/severity diagnostics and exits 0/1/2 as specified; later data-mode support is consumed through the shared parser.
-- [ ] Help and usage describe the implemented rule, suppression syntax and current grammar limitations.
+- [x] Direct constraint-header string annotations count as labels; nested strings and unrelated expression annotations do not. Warnings are framed as modelling advice.
+- [x] Standalone next-item suppressions validate both agreed rule IDs, apply to the target item and reject bad syntax, placement, unknown IDs or missing targets.
+- [x] The thin CLI supports explicit files/stdin and the currently available language modes, emits located rule/severity diagnostics and exits 0/1/2 as specified; later data-mode support is consumed through the shared parser.
+- [x] Help and usage describe the implemented rule, suppression syntax and current grammar limitations.
 
 ## Validation
 
 - Run the area Cargo checks from brief.md. Reuse existing fixtures; add only the focused behavior evidence named here.
 - Use labelled/unlabelled constraints, a nested string and a suppressed next item; check positive/negative warnings, locations and status.
 - Check malformed suppression and source errors without writing files; no diagnostic-rendering snapshot matrix.
+
+## Result
+
+Delivered missing-label lint library and CLI with validated next-item suppressions and located modelling advice.
+
+Validation:
+
+- Independent verifier PASS against Wcf261f58020724c9; unchanged snapshot confirmed.
+- cargo fmt --all -- --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace: all 51 tests passed.
+- Focused public behavior probes passed for labels, suppressions, locations, CLI modes, error precedence and unchanged source bytes.
