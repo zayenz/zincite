@@ -401,6 +401,10 @@ MiniZinc 2.10.1 can provide supplementary acceptance checks for complete models
 and model/data pairs. Compiler acceptance alone does not prove that formatting
 preserves meaning.
 
+The developer [save-path benchmark](scripts/README.md) records release latency,
+peak child RSS and CPU/allocation evidence separately from behavior tests. Local
+reports stay under ignored `target/benchmarks/` by default.
+
 ## License
 
 Zincite is dual-licensed under [MIT](LICENSE-MIT) or
