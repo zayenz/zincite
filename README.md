@@ -58,20 +58,32 @@ zincite-fmt < model.mzn
 zincite-fmt - < model.mzn
 zincite-fmt data.dzn
 zincite-fmt --stdin-filepath data.dzn < data.dzn
+zincite-fmt --check model.mzn data.dzn
+zincite-fmt --check --stdin-filepath model.mzn < model.mzn
+zincite-fmt --write model.mzn data.dzn
 zincite-fmt --help
 ```
 
-The command accepts one UTF-8 file or stdin and writes the complete formatted
-source to stdout. No argument means stdin. `.dzn` paths select data mode;
+The command defaults to formatting one UTF-8 file or stdin to stdout. Multiple
+files require `--check` or `--write`. No input argument means stdin; `-` also
+selects stdin. `.dzn` paths select data mode;
 `.mzn` and other paths select model mode. Data mode permits only top-level
 assignments. `--stdin-filepath PATH` supplies the stdin language mode and
 path used in diagnostics; without it stdin uses model mode. This option
-requires stdin, and mixed stdin/file inputs are rejected. It never rewrites
-the input file. EditorConfig lookup through the supplied path will arrive
-with configuration support.
-Successful formatting exits 0. Syntax, unsupported-input, usage and I/O errors
-exit 2, with diagnostics on stderr and no formatted source on input errors.
-Syntax diagnostics include the path, line/column and byte range.
+requires stdin, and mixed stdin/file inputs are rejected. EditorConfig lookup
+through the supplied path will arrive with configuration support.
+
+`--check` writes nothing and exits 1 if any input would change, or 0 when all
+inputs are already formatted. `--write` requires file paths and replaces each
+successfully formatted file through a sibling temporary file, retaining its
+permissions. It refuses writes through symlink inputs; stdout and check modes
+may read them. The two modes are mutually exclusive.
+
+Successful formatting or writing exits 0. Syntax, formatting-directive,
+invalid UTF-8, usage and I/O errors exit 2 and take precedence over check changes.
+Diagnostics go to stderr; syntax and directive diagnostics include the path,
+line/column and byte range. Independent files continue to process after an error,
+and failing files remain untouched. Check and write modes emit no source to stdout.
 
 The parser supports:
 
@@ -268,8 +280,8 @@ Before a stable release, formatting may change between versions.
 ## Scope
 
 The initial target is MiniZinc 2.10.1, covering model (`.mzn`) and data (`.dzn`)
-files. The formatter will support explicit files and stdin, with stdout, check
-and in-place modes. Check/write modes and configuration are not implemented yet.
+files. The formatter supports explicit files and stdin, with stdout, check
+and in-place modes. EditorConfig and CLI layout overrides remain unimplemented.
 The first lint rules will check naming conventions and advise on missing constraint labels.
 
 Formatting will preserve comments and source meaning, with layouts chosen to
