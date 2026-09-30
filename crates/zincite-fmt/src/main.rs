@@ -6,6 +6,8 @@ use std::process::ExitCode;
 
 use zincite_syntax::{Diagnostic, FileMode, parse_with_mode};
 
+mod config;
+
 const HELP: &str = "Usage: zincite-fmt [--check|--write] [--stdin-filepath PATH] [FILE...|-]
 
 Format UTF-8 MiniZinc model or data files. No input or '-' reads stdin.
@@ -19,10 +21,20 @@ Options:
     --write                 Replace explicit files, retaining their permissions
                             Refuses symlinks; failing files remain unchanged
     --stdin-filepath PATH    Select stdin language mode and diagnostic path
+    --indent-style STYLE    Override indentation: space or tab
+    --indent-size N         Override indentation columns: positive integer
+    --tab-width N           Override tab stops: positive integer
+    --end-of-line EOL       Override editable line endings: lf, crlf or cr
+    --max-line-length N     Override width: positive integer or off
     -h, --help               Show this help
 
 Exit codes: 0 success, 1 check found changes, 2 input/usage/I/O errors.
 Errors take precedence; independent files are processed even if another fails.
+EditorConfig lookup uses input paths or --stdin-filepath; plain stdin uses defaults.
+Supported properties: indent_style, indent_size (integer or tab), tab_width,
+end_of_line, max_line_length (integer or off), insert_final_newline,
+trim_trailing_whitespace and charset (utf-8 or utf-8-bom). CLI overrides win.
+Protected text keeps its bytes. Formatting may change before a stable release.
 ";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -36,6 +48,7 @@ struct Arguments {
     output: OutputMode,
     paths: Vec<PathBuf>,
     stdin_filepath: Option<PathBuf>,
+    overrides: ec4rs::Properties,
 }
 
 fn main() -> ExitCode {
@@ -62,15 +75,17 @@ fn run() -> Result<u8, String> {
         io::stdin()
             .read_to_end(&mut bytes)
             .map_err(|error| format!("<stdin>: {error}"))?;
+        let label = arguments.stdin_filepath.as_ref().map_or_else(
+            || "<stdin>".to_owned(),
+            |path| path.to_string_lossy().into_owned(),
+        );
+        let settings = config::resolve(arguments.stdin_filepath.as_deref(), &arguments.overrides)
+            .map_err(|error| format!("{label}: {error}"))?;
         let mode = arguments
             .stdin_filepath
             .as_ref()
             .map_or(FileMode::Model, FileMode::from_path);
-        let label = arguments.stdin_filepath.map_or_else(
-            || "<stdin>".to_owned(),
-            |path| path.to_string_lossy().into_owned(),
-        );
-        let (formatted, changed) = format_source(&label, bytes, mode)?;
+        let (formatted, changed) = format_source(&label, bytes, mode, &settings)?;
         if arguments.output == OutputMode::Stdout {
             io::stdout()
                 .write_all(formatted.as_bytes())
@@ -80,7 +95,7 @@ fn run() -> Result<u8, String> {
     }
     let mut status = 0;
     for path in arguments.paths {
-        match process_file(&path, arguments.output) {
+        match process_file(&path, arguments.output, &arguments.overrides) {
             Ok(changed) if arguments.output == OutputMode::Check && changed => {
                 status = status.max(1)
             }
@@ -98,6 +113,7 @@ fn parse_arguments(arguments: Vec<std::ffi::OsString>) -> Result<Arguments, Stri
     let mut output = OutputMode::Stdout;
     let mut inputs = Vec::new();
     let mut stdin_filepath = None;
+    let mut overrides = ec4rs::Properties::new();
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
         if argument == "--check" || argument == "--write" {
@@ -112,6 +128,18 @@ fn parse_arguments(arguments: Vec<std::ffi::OsString>) -> Result<Arguments, Stri
             } else {
                 OutputMode::Write
             };
+        } else if let Some(key) = config::override_key(&argument) {
+            let value = arguments.next().ok_or_else(|| {
+                format!(
+                    "zincite-fmt: {} requires a value",
+                    argument.to_string_lossy()
+                )
+            })?;
+            let value = value
+                .to_str()
+                .ok_or("zincite-fmt: override values must be UTF-8")?;
+            config::set_override(&mut overrides, key, value)
+                .map_err(|error| format!("zincite-fmt: {error}"))?;
         } else if argument == "--stdin-filepath" {
             if stdin_filepath.is_some() {
                 return Err("zincite-fmt: repeated --stdin-filepath".into());
@@ -148,10 +176,15 @@ fn parse_arguments(arguments: Vec<std::ffi::OsString>) -> Result<Arguments, Stri
         output,
         paths: inputs,
         stdin_filepath,
+        overrides,
     })
 }
 
-fn process_file(path: &std::path::Path, output: OutputMode) -> Result<bool, String> {
+fn process_file(
+    path: &std::path::Path,
+    output: OutputMode,
+    overrides: &ec4rs::Properties,
+) -> Result<bool, String> {
     let label = path.to_string_lossy();
     let permissions = if output == OutputMode::Write {
         let metadata = fs::symlink_metadata(path).map_err(|error| format!("{label}: {error}"))?;
@@ -163,7 +196,9 @@ fn process_file(path: &std::path::Path, output: OutputMode) -> Result<bool, Stri
         None
     };
     let bytes = fs::read(path).map_err(|error| format!("{label}: {error}"))?;
-    let (formatted, changed) = format_source(&label, bytes, FileMode::from_path(path))?;
+    let settings =
+        config::resolve(Some(path), overrides).map_err(|error| format!("{label}: {error}"))?;
+    let (formatted, changed) = format_source(&label, bytes, FileMode::from_path(path), &settings)?;
     match output {
         OutputMode::Stdout => io::stdout()
             .write_all(formatted.as_bytes())
@@ -177,20 +212,37 @@ fn process_file(path: &std::path::Path, output: OutputMode) -> Result<bool, Stri
     Ok(changed)
 }
 
-fn format_source(label: &str, bytes: Vec<u8>, mode: FileMode) -> Result<(String, bool), String> {
+fn format_source(
+    label: &str,
+    bytes: Vec<u8>,
+    mode: FileMode,
+    settings: &config::Settings,
+) -> Result<(String, bool), String> {
     let source = String::from_utf8(bytes).map_err(|error| {
         let offset = error.utf8_error().valid_up_to();
         format!("{label}: input is not UTF-8 at byte {offset}")
     })?;
-    let parsed = parse_with_mode(source, mode);
-    let formatted = zincite_fmt::format(&parsed).map_err(|diagnostics| {
-        diagnostics
-            .iter()
-            .map(|diagnostic| render_diagnostic(label, parsed.source(), diagnostic))
-            .collect::<Vec<_>>()
-            .join("\n")
-    })?;
-    let changed = formatted != parsed.source();
+    let had_bom = source.starts_with('\u{feff}');
+    let parsed = parse_with_mode(source.strip_prefix('\u{feff}').unwrap_or(&source), mode);
+    let mut formatted =
+        zincite_fmt::format_with_options(&parsed, &settings.format).map_err(|diagnostics| {
+            diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    let mut diagnostic = diagnostic.clone();
+                    if had_bom {
+                        diagnostic.range.start += 3;
+                        diagnostic.range.end += 3;
+                    }
+                    render_diagnostic(label, &source, &diagnostic)
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        })?;
+    if settings.bom {
+        formatted.insert(0, '\u{feff}');
+    }
+    let changed = formatted != source;
     Ok((formatted, changed))
 }
 
@@ -229,7 +281,7 @@ fn replace_file(
 }
 
 fn render_diagnostic(label: &str, source: &str, diagnostic: &Diagnostic) -> String {
-    let prefix = &source[..diagnostic.range.start];
+    let prefix = source[..diagnostic.range.start].trim_start_matches('\u{feff}');
     let mut line = 1;
     let mut column = 1;
     let mut characters = prefix.chars().peekable();

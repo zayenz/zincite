@@ -6,6 +6,7 @@ use zincite_syntax::{Diagnostic, NodeKind, ParsedFile, SyntaxElement, SyntaxNode
 
 mod directives;
 mod includes;
+mod layout;
 pub use directives::protected_ranges;
 
 /// How indentation columns are written. Tabs use spaces for a partial tab stop.
@@ -14,6 +15,25 @@ pub enum IndentStyle {
     #[default]
     Space,
     Tab,
+}
+
+/// Line endings for editable layout; protected text keeps its original bytes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LineEnding {
+    #[default]
+    Lf,
+    CrLf,
+    Cr,
+}
+
+impl LineEnding {
+    fn text(self) -> &'static str {
+        match self {
+            Self::Lf => "\n",
+            Self::CrLf => "\r\n",
+            Self::Cr => "\r",
+        }
+    }
 }
 
 /// Layout options for ordinary MiniZinc syntax.
@@ -27,6 +47,9 @@ pub struct FormatOptions {
     pub indent_size: NonZeroUsize,
     pub tab_width: NonZeroUsize,
     pub max_line_length: Option<NonZeroUsize>,
+    pub line_ending: LineEnding,
+    pub insert_final_newline: bool,
+    pub trim_trailing_whitespace: bool,
 }
 
 impl Default for FormatOptions {
@@ -36,6 +59,9 @@ impl Default for FormatOptions {
             indent_size: NonZeroUsize::new(4).unwrap(),
             tab_width: NonZeroUsize::new(4).unwrap(),
             max_line_length: NonZeroUsize::new(120),
+            line_ending: LineEnding::Lf,
+            insert_final_newline: true,
+            trim_trailing_whitespace: true,
         }
     }
 }
@@ -70,6 +96,7 @@ pub fn format_with_options(
         suffix_columns: 0,
     };
     let mut ranges = protected.iter().peekable();
+    let mut protected_output = Vec::new();
     let mut groups = includes::include_groups(parsed, &protected)
         .into_iter()
         .peekable();
@@ -96,9 +123,11 @@ pub fn format_with_options(
         }
         if let Some(range) = ranges.peek().filter(|range| range.contains(&start)) {
             if range.start == start {
+                let output_start = formatter.output.len();
                 formatter
                     .output
                     .push_str(&parsed.source()[(*range).clone()]);
+                protected_output.push(output_start..formatter.output.len());
                 formatter.pending_breaks = 0;
                 formatter.line_comment = false;
                 formatter.last_was_comment = false;
@@ -112,13 +141,14 @@ pub fn format_with_options(
         }
     }
     if !formatter.output.is_empty()
+        && options.insert_final_newline
         && !protected
             .last()
             .is_some_and(|range| range.end == parsed.source().len())
     {
         formatter.newlines(1);
     }
-    Ok(formatter.output)
+    layout::apply_layout(formatter.output, protected_output, options)
 }
 
 struct Formatter<'a> {

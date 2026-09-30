@@ -69,9 +69,9 @@ files require `--check` or `--write`. No input argument means stdin; `-` also
 selects stdin. `.dzn` paths select data mode;
 `.mzn` and other paths select model mode. Data mode permits only top-level
 assignments. `--stdin-filepath PATH` supplies the stdin language mode and
-path used in diagnostics; without it stdin uses model mode. This option
-requires stdin, and mixed stdin/file inputs are rejected. EditorConfig lookup
-through the supplied path will arrive with configuration support.
+path used in diagnostics and EditorConfig lookup; without it stdin uses model
+mode and default settings without filesystem lookup. This option requires stdin,
+and mixed stdin/file inputs are rejected.
 
 `--check` writes nothing and exits 1 if any input would change, or 0 when all
 inputs are already formatted. `--write` requires file paths and replaces each
@@ -182,8 +182,8 @@ performed. Adjacent include groups sort with their attached comments, retaining
 written paths and group boundaries; included files are never loaded.
 Matrices align columns and wrap rows at shared column boundaries when needed,
 retaining their logical row boundaries, indices and comments. It normalizes
-editable spacing and line endings to LF, adds a final newline and preserves blank-line groups while
-collapsing excess blank layout lines.
+editable spacing, defaults to LF with a final newline, and preserves blank-line
+groups while collapsing excess blank layout lines.
 
 Tuple and record types, literals and chained field/tuple access are supported,
 including nested types, `var`/`par`/`opt` qualifiers, array fields, aliases, callable
@@ -250,6 +250,7 @@ let options = zincite_fmt::FormatOptions {
     indent_size: std::num::NonZeroUsize::new(4).unwrap(),
     tab_width: std::num::NonZeroUsize::new(4).unwrap(),
     max_line_length: std::num::NonZeroUsize::new(80),
+    ..zincite_fmt::FormatOptions::default()
 };
 let formatted = zincite_fmt::format_with_options(&parsed, &options)?;
 ```
@@ -273,20 +274,43 @@ Indentation size and tab width are nonzero column counts;
 tab indentation fills complete tab stops and uses spaces for any remainder.
 Width counts Unicode scalar values as one column and tabs to the next configured
 tab stop. Set `max_line_length` to `None` for unlimited width; mandatory blocks and
-explicitly expanded lists still expand. These options are available through the
-library; CLI overrides and EditorConfig support remain unimplemented.
+explicitly expanded lists still expand. The library also exposes `line_ending`
+(`Lf`, `CrLf` or `Cr`), `insert_final_newline` and `trim_trailing_whitespace`;
+the defaults use LF and enable final newline insertion and trimming. Comments,
+literal chunks and skipped spans retain their bytes even when these settings
+would otherwise change them.
+
+For input files and `--stdin-filepath`, the command searches parent `.editorconfig`
+files, respecting `root = true`, matching section order and `unset`. Supported
+properties are `indent_style` (`space` or `tab`), `indent_size` (positive integer or
+`tab`), `tab_width` (positive integer), `max_line_length` (positive integer or
+`off`), `end_of_line` (`lf`, `crlf` or `cr`), `insert_final_newline` and
+`trim_trailing_whitespace` (`true` or `false`), and `charset` (`utf-8` or
+`utf-8-bom`). Unknown properties are ignored; invalid supported values and other
+charsets fail. UTF-8 BOM input is accepted; output has a BOM only when
+`charset = utf-8-bom` is resolved.
+
+Explicit `--indent-style`, `--indent-size`, `--tab-width`, `--end-of-line` and
+`--max-line-length` options override the corresponding properties. Their values
+match the properties above, except `--indent-size` requires a positive integer.
+Check and write modes use the same resolved settings. For example:
+
+```sh
+zincite-fmt --indent-size 2 --end-of-line crlf --max-line-length off model.mzn
+```
+
 Before a stable release, formatting may change between versions.
 
 ## Scope
 
 The initial target is MiniZinc 2.10.1, covering model (`.mzn`) and data (`.dzn`)
 files. The formatter supports explicit files and stdin, with stdout, check
-and in-place modes. EditorConfig and CLI layout overrides remain unimplemented.
+and in-place modes, with EditorConfig and explicit CLI layout overrides.
 The first lint rules will check naming conventions and advise on missing constraint labels.
 
 Formatting will preserve comments and source meaning, with layouts chosen to
 keep later diffs small. The default width is 120 columns with four-space
-indentation; EditorConfig and explicit command-line options will control the
+indentation; EditorConfig and explicit command-line options control the
 supported layout settings.
 
 Zincite will own its Rust parser and source representation. Full type checking,

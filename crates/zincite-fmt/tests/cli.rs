@@ -248,3 +248,122 @@ fn symlink_inputs_can_be_read_but_never_written() {
     assert_eq!(std::fs::read(&independent).unwrap(), b"int: other = 2;\n");
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn editorconfig_parent_sections_unset_and_cli_overrides() {
+    let directory = std::env::temp_dir().join(format!("zincite-config-{}", std::process::id()));
+    let root = directory.join("project");
+    let nested = root.join("nested");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(directory.join(".editorconfig"), "[*]\ncharset = latin1\n").unwrap();
+    std::fs::write(root.join(".editorconfig"), "root = true\n[*]\nindent_style = space\nindent_size = 2\nend_of_line = crlf\nmax_line_length = 20\nunknown_property = ignored\n").unwrap();
+    std::fs::write(nested.join(".editorconfig"), "[*.mzn]\nindent_size = 3\nend_of_line = unset\nmax_line_length = off\n[model.mzn]\nindent_size = 6\n").unwrap();
+    let path = nested.join("model.mzn");
+    let source = "constraint if true then true else false endif;";
+    std::fs::write(&path, source).unwrap();
+    let expected = "constraint if true then\n      true\nelse\n      false\nendif;\n";
+    let output = run(&[path.to_str().unwrap()], "");
+    assert!(output.status.success(), "{:?}", output);
+    assert_eq!(output.stdout, expected.as_bytes());
+    assert_eq!(
+        run(&["--stdin-filepath", path.to_str().unwrap()], source).stdout,
+        expected.as_bytes()
+    );
+    let overridden = run(
+        &[
+            "--indent-size",
+            "2",
+            "--indent-style",
+            "tab",
+            "--tab-width",
+            "2",
+            "--end-of-line",
+            "cr",
+            "--max-line-length",
+            "off",
+            path.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert!(overridden.status.success(), "{:?}", overridden);
+    assert_eq!(
+        overridden.stdout,
+        b"constraint if true then\r\ttrue\relse\r\tfalse\rendif;\r"
+    );
+    assert_eq!(
+        run(&["--check", path.to_str().unwrap()], "").status.code(),
+        Some(1)
+    );
+    assert!(
+        run(&["--write", path.to_str().unwrap()], "")
+            .status
+            .success()
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), expected.as_bytes());
+    assert!(
+        run(&["--check", path.to_str().unwrap()], "")
+            .status
+            .success()
+    );
+    // Plain stdin must not consult even an invalid config in its working directory.
+    let mut child = Command::new(env!("CARGO_BIN_EXE_zincite-fmt"))
+        .current_dir(&directory)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"int:x=1;").unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"int: x = 1;\n");
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn editorconfig_protected_bytes_bom_and_invalid_settings() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-config-bytes-{}", std::process::id()));
+    std::fs::create_dir(&directory).unwrap();
+    let config = directory.join(".editorconfig");
+    let path = directory.join("model.mzn");
+    std::fs::write(&config, "root = true\n[*]\nend_of_line = CRLF\nindent_style = SPACE\ninsert_final_newline = FALSE\ntrim_trailing_whitespace = TRUE\ncharset = UTF-8-BOM\n").unwrap();
+    let source = "/* first  \nsecond\r\n */\nstring:s=\"line\\n  \";\n% zincite-fmt: skip\nint:  skipped=2;  \n";
+    let output = run(&["--stdin-filepath", path.to_str().unwrap()], source);
+    assert!(output.status.success(), "{:?}", output);
+    let expected = "\u{feff}/* first  \nsecond\r\n */\r\nstring: s = \"line\\n  \";\n% zincite-fmt: skip\nint:  skipped=2;  \n";
+    assert_eq!(output.stdout, expected.as_bytes());
+    assert_eq!(
+        run(&["--stdin-filepath", path.to_str().unwrap()], expected).stdout,
+        expected.as_bytes()
+    );
+    assert_eq!(
+        run(
+            &["--stdin-filepath", path.to_str().unwrap()],
+            "int:x=1;  \n"
+        )
+        .stdout,
+        "\u{feff}int: x = 1;".as_bytes()
+    );
+    std::fs::write(&path, "int:x=1;").unwrap();
+    for property in [
+        "charset = latin1",
+        "tab_width = 0",
+        "insert_final_newline = perhaps",
+        "indent_size =",
+        "end_of_line =",
+    ] {
+        std::fs::write(&config, format!("root = true\n[*]\n{property}\n")).unwrap();
+        let output = run(&["--write", path.to_str().unwrap()], "");
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty() && !output.stderr.is_empty());
+        assert_eq!(std::fs::read(&path).unwrap(), b"int:x=1;");
+    }
+    for arguments in [
+        vec!["--indent-size", "0"],
+        vec!["--end-of-line", "native"],
+        vec!["--max-line-length"],
+    ] {
+        assert_eq!(run(&arguments, "int:x=1;").status.code(), Some(2));
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

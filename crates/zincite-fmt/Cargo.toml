@@ -6,4 +6,5 @@ license.workspace = true
 description = "MiniZinc source formatter"
 
 [dependencies]
+ec4rs = { version = "1.2.0", features = ["allow-empty-values"] }
 zincite-syntax = { path = "../zincite-syntax" }

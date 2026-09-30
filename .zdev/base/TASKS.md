@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 21
-- Ready: 2
+- Ready: 1
 - Blocked: 1
-- Done: 18
+- Done: 19
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -27,6 +27,6 @@
 | [base-016](tasks/016-preserve-skipped-items-and-formatting-off-regions.md) | Preserve skipped items and formatting-off regions | done | base-002 |
 | [base-017](tasks/017-sort-include-groups-without-moving-directive-targets.md) | Sort include groups without moving directive targets | done | base-010, base-016 |
 | [base-018](tasks/018-add-formatter-check-and-safe-write-modes.md) | Add formatter check and safe write modes | done | base-013, base-017 |
-| [base-019](tasks/019-resolve-editorconfig-and-explicit-formatter-overrides.md) | Resolve EditorConfig and explicit formatter overrides | ready | base-018, base-015 |
+| [base-019](tasks/019-resolve-editorconfig-and-explicit-formatter-overrides.md) | Resolve EditorConfig and explicit formatter overrides | done | base-018, base-015 |
 | [base-020](tasks/020-deliver-missing-label-lint-with-suppressions.md) | Deliver missing-label lint with suppressions | ready | base-003 |
 | [base-021](tasks/021-add-syntax-based-naming-checks.md) | Add syntax-based naming checks | blocked | base-020, base-013 |

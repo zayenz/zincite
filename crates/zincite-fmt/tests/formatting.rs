@@ -881,6 +881,7 @@ fn options_use_scalar_columns_tab_stops_and_unlimited_width() {
         indent_size: NonZeroUsize::new(6).unwrap(),
         tab_width: NonZeroUsize::new(4).unwrap(),
         max_line_length: NonZeroUsize::new(21),
+        ..FormatOptions::default()
     };
     let parsed = parse(source);
     let formatted = format_with_options(&parsed, &options).unwrap();
