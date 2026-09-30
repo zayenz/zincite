@@ -5,10 +5,10 @@ use zincite_syntax::{FileMode, ParsedFile};
 
 use crate::{
     LintDiagnostic, LintOptions, ModelContext, Rule, Severity, SourceDiagnostic, SourceLocation,
-    array_indices::check_array_indices, captures::check_captures,
+    array_indices::check_array_indices, captures::check_captures, compact_if::check_compact_ifs,
     constant_variable::check_constant_variables, decision_use::check_decision_use,
     element::check_element, lint_items, lint_with_options, resolve_bindings, resolve_callables,
-    resolve_definitions, resolve_domains, resolve_instantiations,
+    resolve_compact_ifs, resolve_definitions, resolve_domains, resolve_instantiations,
     unbounded_variable::check_unbounded_variables,
 };
 
@@ -188,6 +188,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
     let data = FileMode::from_path(&context.root) == FileMode::Data;
     let shared_incomplete = !context.limitations.is_empty() || !context.errors.is_empty();
     let mut array_incomplete = false;
+    let mut compact_incomplete = false;
     let mut constant_incomplete = false;
     let mut unbounded_incomplete = false;
     let mut capture_incomplete = false;
@@ -230,6 +231,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             })
             .collect();
         if options.rules.contains(&Rule::ElementPredicate)
+            || options.rules.contains(&Rule::CompactIf)
             || !decision_rules.is_empty()
             || options.rules.contains(&Rule::ConstantVariable)
             || options.rules.contains(&Rule::UnboundedVariable)
@@ -242,10 +244,19 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 result.limitations.extend(elements.limitations);
             }
             if !decision_rules.is_empty()
+                || options.rules.contains(&Rule::CompactIf)
                 || options.rules.contains(&Rule::ConstantVariable)
                 || options.rules.contains(&Rule::UnboundedVariable)
             {
                 let instantiations = resolve_instantiations(context, &facts, &calls);
+                if options.rules.contains(&Rule::CompactIf) {
+                    let conditionals =
+                        resolve_compact_ifs(context, &facts, &calls, &instantiations);
+                    let checked = check_compact_ifs(context, &conditionals);
+                    compact_incomplete = !checked.limitations.is_empty();
+                    result.findings.extend(checked.findings);
+                    result.limitations.extend(checked.limitations);
+                }
                 if options.rules.contains(&Rule::ConstantVariable)
                     || options.rules.contains(&Rule::UnboundedVariable)
                 {
@@ -301,6 +312,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     || (rule == Rule::GlobalVariableInFunction && capture_incomplete)
                     || (rule == Rule::ElementPredicate && element_incomplete)
                     || (rule == Rule::ArrayIndexStart && array_incomplete)
+                    || (rule == Rule::CompactIf && compact_incomplete)
                     || (rule == Rule::ConstantVariable && constant_incomplete)
                     || (rule == Rule::UnboundedVariable && unbounded_incomplete)
                     || decision_incomplete.contains(&rule))

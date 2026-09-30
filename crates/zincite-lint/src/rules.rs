@@ -73,6 +73,7 @@ impl Rule {
             Self::Naming
                 | Self::MissingConstraintLabel
                 | Self::ArrayIndexStart
+                | Self::CompactIf
                 | Self::ConstantVariable
                 | Self::UnboundedVariable
                 | Self::GlobalVariableInFunction

@@ -376,6 +376,6 @@ fn standalone_and_legacy_apis_distinguish_missing_context_from_data_applicabilit
             .iter()
             .filter(|rule| !rule.is_available())
             .count(),
-        6
+        5
     );
 }

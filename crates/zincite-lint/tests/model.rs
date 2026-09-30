@@ -276,7 +276,7 @@ fn incomplete_context_and_shared_reporter_keep_rule_execution_and_status_distinc
             .unwrap()
             .contains("error: cannot resolve include")
     );
-    for selection in ["thesis", "all", "naming,compact-if"] {
+    for selection in ["thesis", "all", "naming,effective-zero-one"] {
         let unavailable = analyze_model(&context, &LintOptions::from_selection(selection).unwrap());
         assert_eq!(unavailable.status(), 2);
         assert!(unavailable.findings.is_empty());

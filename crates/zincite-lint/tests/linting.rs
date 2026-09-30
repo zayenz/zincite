@@ -279,12 +279,17 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
         "% zincite-lint: ignore missing-constraint-label\n{source}"
     ));
     assert_eq!(lint_with_options(&disabled, &naming).unwrap().len(), 1);
-    for selection in ["thesis", "all", "compact-if", "naming,compact-if"] {
+    for selection in [
+        "thesis",
+        "all",
+        "effective-zero-one",
+        "naming,effective-zero-one",
+    ] {
         let options = LintOptions::from_selection(selection).unwrap();
         let errors = lint_with_options(&parsed, &options).unwrap_err();
         assert!(
             errors[0].message.contains("unavailable rules")
-                && errors[0].message.contains("compact-if")
+                && errors[0].message.contains("effective-zero-one")
         );
         assert_eq!(errors[0].range, 0..0);
     }

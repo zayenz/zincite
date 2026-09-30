@@ -8,6 +8,7 @@ mod array_indices;
 mod bindings;
 mod callables;
 mod captures;
+mod compact_if;
 mod constant_variable;
 mod decision_use;
 mod definitions;
@@ -19,6 +20,7 @@ mod naming;
 mod rules;
 mod types;
 mod unbounded_variable;
+mod value_safety;
 pub use analysis::{
     AnalysisResult, FileFinding, RuleExecution, RuleOutcome, analyze_file, analyze_model,
     write_analysis,
@@ -31,6 +33,7 @@ pub use callables::{
     CallFact, CallOutcome, CallableFacts, CallableParameter, CallableSignature, DeclarationType,
     ExpressionType, resolve_callables,
 };
+pub use compact_if::{CompactIfFact, CompactIfFacts, CompactIfOutcome, resolve_compact_ifs};
 pub use definitions::{
     Definition, DefinitionCoverage, DefinitionEnforcement, DefinitionFacts, DefinitionSafety,
     resolve_definitions,
@@ -45,6 +48,7 @@ pub use model::{
 };
 pub use rules::{LintOptions, Rule};
 pub use types::{TypeInst, TypeKind};
+pub use value_safety::expression_safety;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Severity {

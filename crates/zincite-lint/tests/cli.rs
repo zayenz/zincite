@@ -42,7 +42,7 @@ fn model_configuration_does_not_load_dependencies_for_syntax_defaults_or_unavail
         assert_eq!(output.status.code(), Some(0));
         assert!(output.stdout.is_empty() && output.stderr.is_empty());
     }
-    for selection in ["thesis", "all", "naming,compact-if"] {
+    for selection in ["thesis", "all", "naming,effective-zero-one"] {
         let output = run_with_library(
             &[
                 "--rules",
@@ -238,7 +238,12 @@ fn rule_selection_preserves_defaults_and_reports_unavailable_rules() {
     );
     assert_eq!(suppressed.status.code(), Some(0));
     assert!(suppressed.stdout.is_empty() && suppressed.stderr.is_empty());
-    for selection in ["thesis", "all", "compact-if", "naming,compact-if"] {
+    for selection in [
+        "thesis",
+        "all",
+        "effective-zero-one",
+        "naming,effective-zero-one",
+    ] {
         let output = run(&["--rules", selection], "");
         assert_eq!(output.status.code(), Some(2));
         assert!(output.stdout.is_empty());
@@ -628,7 +633,7 @@ fn constant_variable_selection_keeps_context_limits_and_status_precedence() {
             .iter()
             .filter(|r| !r.is_available())
             .count(),
-        6
+        5
     );
     std::fs::remove_dir_all(directory).unwrap();
 }
@@ -676,5 +681,46 @@ fn unbounded_selection_preserves_domains_definitions_suppression_and_errors() {
             .unwrap()
             .contains("warning [unbounded-variable]")
     );
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn compact_if_selection_keeps_advice_limits_and_suppression_separate() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-compact-cli-{}", std::process::id()));
+    let library = directory.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(library.join("std/stdlib.mzn"), "").unwrap();
+    let root = directory.join("root.mzn");
+    let source = "var bool: choice; var int: value; var int: first=if choice then value else 0 endif; var int: second=if choice then 0 else value endif; solve satisfy;";
+    std::fs::write(&root, source).unwrap();
+    let args = [
+        "--rules",
+        "compact-if",
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        root.to_str().unwrap(),
+    ];
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let diagnostics = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(diagnostics.matches("warning [compact-if]").count(), 2);
+    assert!(!diagnostics.contains("analysis limitation"));
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    std::fs::write(&root,"var bool: choice; var int: value; % section\n% zincite-lint: ignore compact-if\nvar int: suppressed=if choice then value else 0 endif; solve satisfy;").unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stdout.is_empty() && output.stderr.is_empty());
+    std::fs::write(
+        &root,
+        "var bool: choice; var int: partial=if choice then 1 div 0 else 0 endif; solve satisfy;",
+    )
+    .unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(0));
+    let diagnostics = String::from_utf8(output.stderr).unwrap();
+    assert!(diagnostics.contains("analysis limitation: compact-if"));
+    assert!(!diagnostics.contains("warning [compact-if]"));
     std::fs::remove_dir_all(directory).unwrap();
 }

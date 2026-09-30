@@ -1,10 +1,11 @@
 //! Definition candidates and dependencies, independent of diagnostic policy.
 use crate::callables::{find_node, is_expression};
-use crate::domains::{expression_domain, expression_integer, same_members};
+use crate::domains::{expression_domain, same_members};
+use crate::value_safety::optional;
 use crate::{
     BindingFacts, BindingResolution, CallOutcome, CallableFacts, DeclarationId, DeclarationRole,
     Domain, DomainFacts, FileId, Instantiation, InstantiationFacts, ModelContext, ReferenceKind,
-    SourceKind, SourceLocation, TypeInst, TypeKind,
+    SourceKind, SourceLocation, TypeKind,
 };
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
@@ -249,14 +250,6 @@ impl<'context> Producer<'context> {
                 BindingResolution::Resolved(id) => Some(id),
                 _ => None,
             })
-    }
-    fn ty(&self, file: FileId, node: &SyntaxNode) -> Option<&TypeInst> {
-        let location = self.context.files[file].location(node.range());
-        self.calls
-            .expressions
-            .iter()
-            .find(|e| e.file == file && e.location.range == location.range)
-            .map(|e| &e.ty)
     }
     fn instantiation(&self, file: FileId, node: &SyntaxNode) -> Instantiation {
         let location = self.context.files[file].location(node.range());
@@ -648,96 +641,6 @@ impl<'context> Producer<'context> {
         }
         DefinitionCoverage::WholeArray
     }
-    fn value_safety(&self, file: FileId, node: &SyntaxNode) -> DefinitionSafety {
-        let Some(ty) = self.ty(file, node) else {
-            return DefinitionSafety::Unsupported("value type is unavailable".into());
-        };
-        if optional(ty) {
-            return DefinitionSafety::Unsupported(
-                "optional definition values are not supported".into(),
-            );
-        }
-        let children: Vec<_> = node.child_nodes().collect();
-        match node.kind() {
-            NodeKind::Expression => {
-                if matches!(ty.kind, TypeKind::Unknown(_)) {
-                    DefinitionSafety::Unsupported("definition value type is unsupported".into())
-                } else {
-                    DefinitionSafety::Supported
-                }
-            }
-            NodeKind::MatrixLiteral => {
-                for value in children.iter().flat_map(|row| row.child_nodes()) {
-                    let safety = self.value_safety(file, value);
-                    if safety != DefinitionSafety::Supported {
-                        return safety;
-                    }
-                }
-                DefinitionSafety::Supported
-            }
-            NodeKind::CallExpression | NodeKind::GeneratorCallExpression => {
-                DefinitionSafety::Unsupported(
-                    "arbitrary calls do not establish definition value safety".into(),
-                )
-            }
-            NodeKind::ArrayAccessExpression => DefinitionSafety::Unsupported(
-                "definition array access requires an index-membership proof".into(),
-            ),
-            NodeKind::BinaryExpression
-                if self
-                    .tokens(file, node)
-                    .iter()
-                    .any(|t| matches!(t.kind, TokenKind::Div | TokenKind::Mod)) =>
-            {
-                match expression_integer(self.context, self.bindings, file, node) {
-                    Ok(Some(_)) => DefinitionSafety::Supported,
-                    Ok(None) => {
-                        DefinitionSafety::Unknown("divisor/value needs parameter data".into())
-                    }
-                    Err(reason) => DefinitionSafety::Unsupported(reason),
-                }
-            }
-            NodeKind::BinaryExpression
-                if !self.tokens(file, node).iter().any(|t| {
-                    matches!(
-                        t.kind,
-                        TokenKind::Plus
-                            | TokenKind::Minus
-                            | TokenKind::Star
-                            | TokenKind::And
-                            | TokenKind::Or
-                            | TokenKind::Equal
-                            | TokenKind::DoubleEqual
-                            | TokenKind::Less
-                            | TokenKind::LessEqual
-                            | TokenKind::Greater
-                            | TokenKind::GreaterEqual
-                            | TokenKind::NotEqual
-                    )
-                }) =>
-            {
-                DefinitionSafety::Unsupported(
-                    "definition operator partiality is unsupported".into(),
-                )
-            }
-            NodeKind::LetExpression
-            | NodeKind::ConditionalExpression
-            | NodeKind::ArrayComprehension
-            | NodeKind::SetComprehension
-            | NodeKind::IndexedArrayComprehension => DefinitionSafety::Unsupported(
-                "definition value control/iteration safety is unsupported".into(),
-            ),
-            _ => {
-                for child in children {
-                    let status = self.value_safety(file, child);
-                    if status != DefinitionSafety::Supported {
-                        return status;
-                    }
-                }
-                DefinitionSafety::Supported
-            }
-        }
-    }
     fn record(
         &mut self,
         file: FileId,
@@ -778,7 +681,8 @@ impl<'context> Producer<'context> {
             }
         }
         let instantiation = self.instantiation(file, value);
-        let mut safety = self.value_safety(file, value);
+        let mut safety =
+            crate::expression_safety(self.context, self.bindings, self.calls, file, value);
         if !self.calls.declarations[target.0].ty.known() {
             safety = DefinitionSafety::Unsupported("definition target type is unsupported".into());
         } else if optional(&self.calls.declarations[target.0].ty) {
@@ -814,13 +718,4 @@ fn source_name(parsed: &zincite_syntax::ParsedFile, token: &zincite_syntax::Toke
     parsed.source()[token.range.clone()]
         .trim_matches(['\'', '`'])
         .to_owned()
-}
-fn optional(ty: &TypeInst) -> bool {
-    ty.optional
-        || match &ty.kind {
-            TypeKind::Array { element, .. } | TypeKind::Set(element) => optional(element),
-            TypeKind::Tuple(fields) => fields.iter().any(optional),
-            TypeKind::Record(fields) => fields.iter().any(|(_, ty)| optional(ty)),
-            _ => false,
-        }
 }
