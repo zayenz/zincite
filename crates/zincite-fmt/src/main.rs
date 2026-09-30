@@ -8,11 +8,14 @@ use zincite_syntax::{Diagnostic, FileMode, parse_with_mode};
 
 mod config;
 
-const HELP: &str = "Usage: zincite-fmt [--check|--write] [--stdin-filepath PATH] [FILE...|-]
+const HELP: &str = "Usage: zincite-fmt [--check|--write] [--stdin-filepath PATH] [FILE|DIR...|-]
 
 Format UTF-8 MiniZinc model or data files. No input or '-' reads stdin.
 Default: write one complete formatted input to stdout.
 Multiple files require --check or --write; stdin cannot be mixed with files.
+Directories require --check and recursively discover .mzn/.dzn files.
+Discovery includes hidden/ignored files, skips .git and visits directory symlinks once.
+Overlapping read-only inputs use the first path to each file; directory entries are sorted.
 .dzn paths select assignment-only data syntax; other paths select model syntax.
 Parsing checks syntax only; it does not resolve includes, names or types.
 
@@ -93,8 +96,22 @@ fn run() -> Result<u8, String> {
         }
         return Ok(u8::from(arguments.output == OutputMode::Check && changed));
     }
-    let mut status = 0;
-    for path in arguments.paths {
+    if arguments.output != OutputMode::Check && arguments.paths.iter().any(|path| path.is_dir()) {
+        return Err("zincite-fmt: directory inputs require --check".into());
+    }
+    let (paths, mut status) = if arguments.output == OutputMode::Check {
+        let inputs = zincite_syntax::inputs::discover_inputs(&arguments.paths);
+        let status = if inputs.errors.is_empty() { 0 } else { 2 };
+        for (path, error) in inputs.errors {
+            let _ = writeln!(io::stderr(), "{}: {error}", path.display());
+        }
+        (inputs.files, status)
+    } else {
+        // Explicit writes must still reject every symlink, even an alias of
+        // another input. Discovery's canonical-file deduplication is read-only.
+        (arguments.paths, 0)
+    };
+    for path in paths {
         match process_file(&path, arguments.output, &arguments.overrides) {
             Ok(changed) if arguments.output == OutputMode::Check && changed => {
                 status = status.max(1)

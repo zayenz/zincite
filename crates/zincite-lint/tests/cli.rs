@@ -96,3 +96,70 @@ fn cli_reports_located_advice_errors_and_processes_independent_files_without_wri
             && help.contains("variant_record")
     );
 }
+
+#[test]
+fn directory_inputs_include_hidden_ignored_files_and_continue_after_errors() {
+    let root = std::env::temp_dir().join(format!("zincite-lint-tree-{}", std::process::id()));
+    let nested = root.join(".hidden");
+    let git = root.join(".git");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::create_dir(&git).unwrap();
+    std::fs::write(root.join(".gitignore"), "ignored.mzn\n").unwrap();
+    let hidden = nested.join("advice.mzn");
+    let ignored = root.join("ignored.mzn");
+    let data = nested.join("data.dzn");
+    std::fs::write(&hidden, "constraint true;").unwrap();
+    std::fs::write(&ignored, "int: BadName = 1;").unwrap();
+    std::fs::write(&data, "BAD_TARGET=1;").unwrap();
+    std::fs::write(git.join("invalid.mzn"), "int: x = ;").unwrap();
+    std::fs::write(root.join("notes.txt"), "int: x = ;").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&root, nested.join("cycle")).unwrap();
+    let arguments = [
+        root.to_str().unwrap(),
+        nested.to_str().unwrap(),
+        hidden.to_str().unwrap(),
+    ];
+    let output = run(&arguments, "");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let warnings = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(
+        warnings
+            .matches("warning [missing-constraint-label]")
+            .count(),
+        1
+    );
+    assert_eq!(warnings.matches("warning [naming]").count(), 1);
+    assert!(warnings.find("advice.mzn:").unwrap() < warnings.find("ignored.mzn:").unwrap());
+    assert_eq!(run(&arguments, "").stderr, warnings.as_bytes());
+    let invalid = nested.join("invalid.mzn");
+    std::fs::write(&invalid, "int: x = ;").unwrap();
+    let missing = root.join("absent.mzn");
+    let output = run(
+        &[
+            missing.to_str().unwrap(),
+            root.to_str().unwrap(),
+            invalid.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let diagnostics = String::from_utf8(output.stderr).unwrap();
+    assert!(diagnostics.contains("absent.mzn") && diagnostics.contains("warning [naming]"));
+    assert_eq!(
+        diagnostics.matches("invalid.mzn:").count(),
+        1,
+        "{diagnostics}"
+    );
+    for (path, bytes) in [
+        (&hidden, b"constraint true;".as_slice()),
+        (&ignored, b"int: BadName = 1;".as_slice()),
+        (&data, b"BAD_TARGET=1;".as_slice()),
+        (&invalid, b"int: x = ;".as_slice()),
+    ] {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}

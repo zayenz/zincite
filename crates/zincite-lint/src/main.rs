@@ -3,11 +3,14 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use zincite_syntax::{FileMode, parse_with_mode};
 
-const HELP: &str = "Usage: zincite-lint [--stdin-filepath PATH] [FILE...|-]
+const HELP: &str = "Usage: zincite-lint [--stdin-filepath PATH] [FILE|DIR...|-]
 
 Report MiniZinc modelling advice on stderr without rewriting source.
 No input or '-' reads stdin; stdin cannot be mixed with files.
 --stdin-filepath PATH selects the stdin language mode and diagnostic path.
+Directories recursively discover .mzn/.dzn files, including hidden/ignored files.
+Discovery skips .git, visits directory symlinks once and sorts directory entries.
+Overlapping inputs use the first path to each file.
 .dzn paths use assignment-only data syntax; other paths use model syntax.
 
 Rules (both warnings, enabled by default):
@@ -64,8 +67,12 @@ fn run() -> Result<u8, String> {
         let mode = stdin_filepath.map_or(FileMode::Model, FileMode::from_path);
         return check_source(&label, bytes, mode);
     }
-    let mut status = 0;
-    for path in paths {
+    let inputs = zincite_syntax::inputs::discover_inputs(&paths);
+    let mut status = if inputs.errors.is_empty() { 0 } else { 2 };
+    for (path, error) in inputs.errors {
+        let _ = writeln!(io::stderr(), "{}: {error}", path.display());
+    }
+    for path in inputs.files {
         let label = path.to_string_lossy();
         let result = std::fs::read(&path)
             .map_err(|error| format!("{label}: {error}"))

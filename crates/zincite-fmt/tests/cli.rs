@@ -367,3 +367,70 @@ fn editorconfig_protected_bytes_bom_and_invalid_settings() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn directory_checks_discover_sources_deduplicate_and_preserve_every_input() {
+    let root = std::env::temp_dir().join(format!("zincite-fmt-tree-{}", std::process::id()));
+    let nested = root.join(".hidden");
+    let git = root.join(".git");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::create_dir(&git).unwrap();
+    std::fs::write(root.join(".gitignore"), "ignored.mzn\n").unwrap();
+    let hidden = nested.join("values.dzn");
+    let ignored = root.join("ignored.mzn");
+    std::fs::write(&hidden, "x=1;").unwrap();
+    std::fs::write(&ignored, "int: x = 1;\n").unwrap();
+    std::fs::write(git.join("invalid.mzn"), "int: x = ;").unwrap();
+    std::fs::write(root.join("notes.txt"), "int: x = ;").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&root, nested.join("cycle")).unwrap();
+    let check = run(
+        &[
+            "--check",
+            root.to_str().unwrap(),
+            nested.to_str().unwrap(),
+            hidden.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(check.status.code(), Some(1));
+    assert!(check.stdout.is_empty() && check.stderr.is_empty());
+    for mode in [
+        vec![root.to_str().unwrap()],
+        vec!["--write", ignored.to_str().unwrap(), root.to_str().unwrap()],
+    ] {
+        let output = run(&mode, "");
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(
+            String::from_utf8(output.stderr)
+                .unwrap()
+                .contains("directory inputs require --check")
+        );
+    }
+    let invalid = nested.join("invalid.mzn");
+    std::fs::write(&invalid, "int: x = ;").unwrap();
+    let missing = root.join("absent.mzn");
+    let output = run(
+        &[
+            "--check",
+            missing.to_str().unwrap(),
+            root.to_str().unwrap(),
+            invalid.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let errors = String::from_utf8(output.stderr).unwrap();
+    assert!(errors.contains("absent.mzn"));
+    assert_eq!(errors.matches("invalid.mzn:").count(), 1, "{errors}");
+    assert_eq!(std::fs::read(&hidden).unwrap(), b"x=1;");
+    assert_eq!(std::fs::read(&ignored).unwrap(), b"int: x = 1;\n");
+    assert_eq!(std::fs::read(&invalid).unwrap(), b"int: x = ;");
+    assert_eq!(
+        std::fs::read(git.join("invalid.mzn")).unwrap(),
+        b"int: x = ;"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}

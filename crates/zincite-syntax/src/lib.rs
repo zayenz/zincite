@@ -17,6 +17,7 @@
 use std::ops::Range;
 use std::path::Path;
 
+pub mod inputs;
 mod lexer;
 mod parser;
 

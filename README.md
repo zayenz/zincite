@@ -61,13 +61,15 @@ zincite-fmt - < model.mzn
 zincite-fmt data.dzn
 zincite-fmt --stdin-filepath data.dzn < data.dzn
 zincite-fmt --check model.mzn data.dzn
+zincite-fmt --check models/
 zincite-fmt --check --stdin-filepath model.mzn < model.mzn
 zincite-fmt --write model.mzn data.dzn
 zincite-fmt --help
 ```
 
 The command defaults to formatting one UTF-8 file or stdin to stdout. Multiple
-files require `--check` or `--write`. No input argument means stdin; `-` also
+files require `--check` or `--write`. Directories require `--check`; stdout and
+write modes reject them. No input argument means stdin; `-` also
 selects stdin. `.dzn` paths select data mode;
 `.mzn` and other paths select model mode. Data mode permits only top-level
 assignments. `--stdin-filepath PATH` supplies the stdin language mode and
@@ -86,6 +88,15 @@ invalid UTF-8, usage and I/O errors exit 2 and take precedence over check change
 Diagnostics go to stderr; syntax and directive diagnostics include the path,
 line/column and byte range. Independent files continue to process after an error,
 and failing files remain untouched. Check and write modes emit no source to stdout.
+
+Directory discovery recursively selects `.mzn`/`.dzn` files, including hidden and
+Git-ignored files, and skips `.git` metadata. It sorts entries within each
+directory, visits each canonical directory once to avoid symlink cycles, and
+checks each canonical file once across overlapping inputs. The first discovered
+path supplies diagnostics, file mode and configuration lookup. Explicit file
+paths keep their existing behavior, including files with other extensions.
+Discovery errors exit 2 while independent files continue. Lint uses the same
+read-only discovery through `zincite_syntax::inputs::discover_inputs`.
 
 The parser supports:
 
@@ -321,13 +332,14 @@ Install and run the lint command from this checkout:
 ```sh
 cargo install --path crates/zincite-lint
 zincite-lint model.mzn other.mzn
+zincite-lint models/
 zincite-lint < model.mzn
 zincite-lint --stdin-filepath data.dzn < data.dzn
 zincite-lint --help
 ```
 
-Explicit files may be checked together; no input or `-` reads stdin. Stdin cannot
-be mixed with file inputs. `--stdin-filepath` supplies its diagnostic path and
+Explicit files and directories may be checked together. No input or `-` reads
+stdin, which cannot be mixed with file inputs. `--stdin-filepath` supplies its diagnostic path and
 language mode, with `.dzn` selecting data syntax. Diagnostics go to stderr with
 path, line/column and precise byte ranges; warnings identify their severity and
 rule. The command exits 0 when clean, 1 for unsuppressed warnings, and 2 for
@@ -373,8 +385,9 @@ diagnostics without partial warnings.
 ## Scope
 
 The initial target is MiniZinc 2.10.1, covering model (`.mzn`) and data (`.dzn`)
-files. The formatter supports explicit files and stdin, with stdout, check
-and in-place modes, with EditorConfig and explicit CLI layout overrides.
+files. The formatter formats explicit files and stdin, writes explicit files
+in place, and checks directories. EditorConfig and explicit CLI options control
+layout.
 Linting checks declared naming roles and advises on missing constraint labels.
 
 Formatting will preserve comments and source meaning, with layouts chosen to
