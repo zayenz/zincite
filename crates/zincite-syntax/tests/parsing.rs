@@ -1197,3 +1197,45 @@ fn structured_grammar_forms_and_malformed_fields_use_shared_parsing() {
         );
     }
 }
+
+#[test]
+fn data_mode_keeps_assignments_lossless_and_recovers_past_model_items() {
+    use zincite_syntax::{FileMode, parse_with_mode};
+    let data = include_str!("../../../tests/fixtures/data.dzn");
+    let parsed = parse_with_mode(data, FileMode::Data);
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    assert!(
+        items(&parsed)
+            .iter()
+            .all(|node| node.kind() == NodeKind::Assignment)
+    );
+    let mut leaves = Vec::new();
+    collect_leaves(parsed.tree(), &parsed, &mut leaves);
+    assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+    let reconstructed: String = leaves
+        .iter()
+        .map(|index| &data[parsed.tokens()[*index].range.clone()])
+        .collect();
+    assert_eq!(reconstructed, data);
+
+    let source = "int: forbidden=1; constraint true; solve satisfy; include \"other.mzn\"; output [\"x\"]; enum E={A}; type T=int; function int: f()=1; annotation a; predicate p=true; test t=true; 'written target'=let {int: local=1; constraint local>0;} in user_call(local);";
+    let parsed = parse_with_mode(source, FileMode::Data);
+    assert_eq!(parsed.diagnostics().len(), 11);
+    assert!(
+        parsed
+            .diagnostics()
+            .iter()
+            .all(|diagnostic| diagnostic.message.contains("only assignments"))
+    );
+    assert_eq!(items(&parsed).last().unwrap().kind(), NodeKind::Assignment);
+    assert!(parse(source).diagnostics().is_empty());
+    let mut leaves = Vec::new();
+    collect_leaves(parsed.tree(), &parsed, &mut leaves);
+    assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+    assert_eq!(FileMode::from_path("data.dzn"), FileMode::Data);
+    assert_eq!(FileMode::from_path("model.mzn"), FileMode::Model);
+}

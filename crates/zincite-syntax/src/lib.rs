@@ -11,9 +11,11 @@
 //! defaults, enums and constructors, type aliases and type-inst concatenation,
 //! includes, output items and all solve modes.
 //! Tuple/record types and literals and chained field access share the CST.
-//! Reserved variant_record/case syntax and other items remain unsupported.
+//! Data mode accepts only top-level assignments. Reserved variant_record/case
+//! syntax remains unsupported.
 
 use std::ops::Range;
+use std::path::Path;
 
 mod lexer;
 mod parser;
@@ -23,8 +25,33 @@ mod parser;
 /// This checks syntax only: it does not resolve names, require a solve item, or
 /// check types. Unsupported syntax produces diagnostics rather than opaque items.
 pub fn parse(source: impl Into<String>) -> ParsedFile {
+    parse_with_mode(source, FileMode::Model)
+}
+
+/// The syntax permitted at the top level of a source file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileMode {
+    Model,
+    Data,
+}
+
+impl FileMode {
+    /// `.dzn` selects data syntax; other paths use model syntax.
+    pub fn from_path(path: impl AsRef<Path>) -> Self {
+        if path.as_ref().extension().is_some_and(|ext| ext == "dzn") {
+            Self::Data
+        } else {
+            Self::Model
+        }
+    }
+}
+
+/// Parse model syntax or assignment-only data syntax without resolving names.
+/// Calls in data expressions are retained: determining whether an operation is
+/// user-defined requires the model and is outside syntax checking.
+pub fn parse_with_mode(source: impl Into<String>, mode: FileMode) -> ParsedFile {
     let mut lexed = lex(source);
-    let (tree, diagnostics) = parser::parse(&lexed.tokens, &lexed.source);
+    let (tree, diagnostics) = parser::parse(&lexed.tokens, &lexed.source, mode);
     lexed.diagnostics.extend(diagnostics);
     ParsedFile { lexed, tree }
 }

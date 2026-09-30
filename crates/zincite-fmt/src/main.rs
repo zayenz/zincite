@@ -1,19 +1,20 @@
 use std::env;
 use std::fs;
 use std::io::{self, Read, Write};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
-use zincite_syntax::{Diagnostic, parse};
+use zincite_syntax::{Diagnostic, FileMode, parse_with_mode};
 
-const HELP: &str = "Usage: zincite-fmt [FILE|-]
+const HELP: &str = "Usage: zincite-fmt [--stdin-filepath PATH] [FILE|-]
 
-Format one UTF-8 MiniZinc model subset to stdout. No input or '-' reads stdin.
-Supports scalar/collection declarations and expressions, comprehensions, calls,
-constraints with optional string labels, and solve satisfy. Other syntax is
-diagnosed as unsupported.
+Format one UTF-8 MiniZinc model or data file to stdout. No input or '-' reads stdin.
+.dzn paths select assignment-only data syntax; other paths select model syntax.
+Parsing checks syntax only; it does not resolve includes, names or types.
 
 Options:
-    -h, --help    Show this help
+    --stdin-filepath PATH    Select stdin language mode and diagnostic path
+    -h, --help               Show this help
 ";
 
 fn main() -> ExitCode {
@@ -33,29 +34,54 @@ fn run() -> Result<(), String> {
             .write_all(HELP.as_bytes())
             .map_err(|error| format!("stdout: {error}"));
     }
-    if arguments.len() > 1 {
-        return Err("zincite-fmt: expected one file or stdin; use --help for usage".into());
+    let mut input = None;
+    let mut stdin_filepath = None;
+    let mut arguments = arguments.into_iter();
+    while let Some(argument) = arguments.next() {
+        if argument == "--stdin-filepath" {
+            if stdin_filepath.is_some() {
+                return Err("zincite-fmt: repeated --stdin-filepath".into());
+            }
+            stdin_filepath = Some(PathBuf::from(
+                arguments
+                    .next()
+                    .ok_or("zincite-fmt: --stdin-filepath requires a path")?,
+            ));
+        } else {
+            if argument != "-" && argument.to_string_lossy().starts_with('-') {
+                return Err("zincite-fmt: unsupported option; use --help for usage".into());
+            }
+            if input.replace(argument).is_some() {
+                return Err("zincite-fmt: expected one file or stdin; use --help for usage".into());
+            }
+        }
     }
-    let input = arguments.first();
-    if input.is_some_and(|arg| arg != "-" && arg.to_string_lossy().starts_with('-')) {
-        return Err("zincite-fmt: unsupported option; use --help for usage".into());
-    }
-    let (label, bytes) = if let Some(path) = input.filter(|arg| *arg != "-") {
+    let (label, bytes, mode) = if let Some(path) = input.filter(|arg| arg != "-") {
+        if stdin_filepath.is_some() {
+            return Err("zincite-fmt: --stdin-filepath requires stdin input".into());
+        }
         let label = path.to_string_lossy().into_owned();
-        let bytes = fs::read(path).map_err(|error| format!("{label}: {error}"))?;
-        (label, bytes)
+        let bytes = fs::read(&path).map_err(|error| format!("{label}: {error}"))?;
+        (label, bytes, FileMode::from_path(path))
     } else {
         let mut bytes = Vec::new();
         io::stdin()
             .read_to_end(&mut bytes)
             .map_err(|error| format!("<stdin>: {error}"))?;
-        ("<stdin>".to_owned(), bytes)
+        let mode = stdin_filepath
+            .as_ref()
+            .map_or(FileMode::Model, FileMode::from_path);
+        let label = stdin_filepath.map_or_else(
+            || "<stdin>".to_owned(),
+            |path| path.to_string_lossy().into_owned(),
+        );
+        (label, bytes, mode)
     };
     let source = String::from_utf8(bytes).map_err(|error| {
         let offset = error.utf8_error().valid_up_to();
         format!("{label}: input is not UTF-8 at byte {offset}")
     })?;
-    let parsed = parse(source);
+    let parsed = parse_with_mode(source, mode);
     let formatted = zincite_fmt::format(&parsed).map_err(|diagnostics| {
         diagnostics
             .iter()

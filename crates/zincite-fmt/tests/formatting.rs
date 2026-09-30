@@ -429,3 +429,67 @@ fn structured_layout_preserves_field_order_comments_and_access_chains() {
     );
     assert_eq!(format(&reparsed).unwrap(), formatted);
 }
+
+#[test]
+fn model_data_pair_and_cross_family_model_keep_structure_and_stable_layout() {
+    use zincite_syntax::{FileMode, SyntaxElement, parse_with_mode};
+    for (source, mode) in [
+        (
+            include_str!("../../../tests/fixtures/data-model.mzn"),
+            FileMode::Model,
+        ),
+        (
+            include_str!("../../../tests/fixtures/data.dzn"),
+            FileMode::Data,
+        ),
+        (
+            include_str!("../../../tests/fixtures/integration.mzn"),
+            FileMode::Model,
+        ),
+    ] {
+        let parsed = parse_with_mode(source, mode);
+        let formatted = format(&parsed).unwrap();
+        let reparsed = parse_with_mode(formatted.clone(), mode);
+        assert!(
+            reparsed.diagnostics().is_empty(),
+            "{:?}",
+            reparsed.diagnostics()
+        );
+        assert_eq!(
+            structure(parsed.tree(), &parsed),
+            structure(reparsed.tree(), &reparsed)
+        );
+        let comments = |parsed: &zincite_syntax::ParsedFile| {
+            parsed
+                .tokens()
+                .iter()
+                .filter(|token| {
+                    matches!(token.kind, TokenKind::LineComment | TokenKind::BlockComment)
+                })
+                .map(|token| &parsed.source()[token.range.clone()])
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        assert_eq!(comments(&parsed), comments(&reparsed));
+        fn leaves(node: &zincite_syntax::SyntaxNode, indices: &mut Vec<usize>) {
+            for child in node.children() {
+                match child {
+                    SyntaxElement::Node(node) => leaves(node, indices),
+                    SyntaxElement::Token(index) => indices.push(*index),
+                }
+            }
+        }
+        for parsed in [&parsed, &reparsed] {
+            let mut indices = Vec::new();
+            leaves(parsed.tree(), &mut indices);
+            assert_eq!(indices, (0..parsed.tokens().len()).collect::<Vec<_>>());
+            let reconstructed: String = indices
+                .iter()
+                .map(|index| &parsed.source()[parsed.tokens()[*index].range.clone()])
+                .collect();
+            assert_eq!(reconstructed, parsed.source());
+        }
+        assert_eq!(format(&reparsed).unwrap(), formatted);
+    }
+    assert!(format(&parse_with_mode("constraint true;", FileMode::Data)).is_err());
+}

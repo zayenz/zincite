@@ -1,9 +1,9 @@
 # Zincite
 
-Zincite is a Rust project for MiniZinc source tooling. `zincite-fmt` formats a
-scalar, collection and callable model subset using the shared `zincite-syntax`
-parser and concrete syntax tree. The tree retains source spelling, comments,
-whitespace and byte ranges. `zincite-lint`, the planned static analyser, is not
+Zincite is a Rust project for MiniZinc source tooling. `zincite-fmt` formats
+model and data syntax using the shared `zincite-syntax` parser and concrete
+syntax tree. The tree retains source spelling, comments, whitespace and byte
+ranges. `zincite-lint`, the planned static analyser, is not
 implemented yet.
 
 `zincite_syntax::lex` owns UTF-8 source text and exposes read-only source,
@@ -56,16 +56,24 @@ cargo install --path crates/zincite-fmt
 zincite-fmt model.mzn
 zincite-fmt < model.mzn
 zincite-fmt - < model.mzn
+zincite-fmt data.dzn
+zincite-fmt --stdin-filepath data.dzn < data.dzn
 zincite-fmt --help
 ```
 
 The command accepts one UTF-8 file or stdin and writes the complete formatted
-model to stdout. No argument means stdin. It never rewrites the input file.
+source to stdout. No argument means stdin. `.dzn` paths select data mode;
+`.mzn` and other paths select model mode. Data mode permits only top-level
+assignments. `--stdin-filepath PATH` supplies the stdin language mode and
+path used in diagnostics; without it stdin uses model mode. This option
+requires stdin, and mixed stdin/file inputs are rejected. It never rewrites
+the input file. EditorConfig lookup through the supplied path will arrive
+with configuration support.
 Successful formatting exits 0. Syntax, unsupported-input, usage and I/O errors
 exit 2, with diagnostics on stderr and no formatted source on input errors.
 Syntax diagnostics include the path, line/column and byte range.
 
-The temporary grammar supports:
+The parser supports:
 
 - `bool`, `int`, `float`, `string` and `ann` declarations, with optional `var`
   or `par` and `opt`, annotations and an optional initializer; `any` declarations
@@ -174,11 +182,10 @@ excluding it. MiniZinc 2.10.1 accepts unary tuples and also accepts singleton
 record literals without the comma. Zincite follows the written grammar.
 The structured fixture and its formatted output pass MiniZinc 2.10.1 model checks.
 `variant_record` and `case` are reserved keywords without productions in the
-pinned grammar; they remain unsupported and produce diagnostics. Other
-unimplemented item families also produce diagnostics. Range-type bounds follow the
-numeric-expression grammar: their parentheses may contain numeric operators,
-identifiers and calls; call
-arguments and annotations use the general expression grammar.
+pinned grammar; they remain unsupported and produce diagnostics. Unsupported
+input produces diagnostics. Range-type bounds follow the numeric-expression
+grammar: their parentheses may contain numeric operators, identifiers and calls;
+call arguments and annotations use the general expression grammar.
 
 Parsing checks syntax only: it does not resolve includes or names, require a
 solve item, infer types or check semantic validity. For example, accepting a
@@ -195,11 +202,32 @@ index tuple `()` as a key, although the installed MiniZinc 2.10.1 compiler rejec
 it. That compiler also crashes on a mixed binder/plain-index declaration during
 `--model-check-only`; Zincite accepts these forms from the specification.
 
+The comparison with the pinned [full grammar](https://docs.minizinc.dev/en/2.10.1/spec.html#full-grammar)
+covers its item families, ordinary and parameter type-inst forms, general and
+numeric expressions, collection/structured literals and access, control and
+call expressions, interpolation and annotations. All planned families have
+shared parser/formatter paths; the integration fixture combines them, rather
+than treating each family as an isolated syntax subset. This is family coverage,
+not a claim of complete compiler compatibility: the grammar/compiler differences
+and syntax-only exclusions above still apply. `variant_record` and `case` have
+no productions in this grammar. JSON data and solver output formats are outside
+the `.mzn`/`.dzn` target.
+
+The model/data pair and cross-family integration fixture, both original and
+formatted, pass MiniZinc 2.10.1 `--model-check-only`. Data assignment expressions
+use the same expression grammar as models, without evaluation or type checking.
+The specification forbids user-defined operation calls in data files; deciding
+whether a call is user-defined requires model name resolution, so syntax-only
+data parsing retains calls and does not establish that restriction. Parsing
+never loads includes or requires a solve item.
+
 Use the libraries independently of the command:
 
 ```rust,ignore
 let parsed = zincite_syntax::parse("int: count=2; constraint true; solve satisfy;");
 let formatted = zincite_fmt::format(&parsed)?;
+let data = zincite_syntax::parse_with_mode("count=2;", zincite_syntax::FileMode::Data);
+let formatted_data = zincite_fmt::format(&data)?;
 ```
 
 The formatter returns the parse diagnostics on error. It produces no partial
@@ -210,9 +238,8 @@ versions.
 
 The initial target is MiniZinc 2.10.1, covering model (`.mzn`) and data (`.dzn`)
 files. The formatter will support explicit files and stdin, with stdout, check
-and in-place modes. Data mode, check/write modes and configuration are not
-implemented yet. The first lint rules will check naming conventions and
-advise on missing constraint labels.
+and in-place modes. Check/write modes and configuration are not implemented yet.
+The first lint rules will check naming conventions and advise on missing constraint labels.
 
 Formatting will preserve comments and source meaning, with layouts chosen to
 keep later diffs small. The default width is 120 columns with four-space

@@ -1,6 +1,10 @@
-use crate::{Diagnostic, NodeKind, SyntaxElement, SyntaxNode, Token, TokenKind};
+use crate::{Diagnostic, FileMode, NodeKind, SyntaxElement, SyntaxNode, Token, TokenKind};
 
-pub(crate) fn parse(tokens: &[Token], source: &str) -> (SyntaxNode, Vec<Diagnostic>) {
+pub(crate) fn parse(
+    tokens: &[Token],
+    source: &str,
+    mode: FileMode,
+) -> (SyntaxNode, Vec<Diagnostic>) {
     let mut parser = Parser {
         tokens,
         source,
@@ -16,9 +20,17 @@ pub(crate) fn parse(tokens: &[Token], source: &str) -> (SyntaxNode, Vec<Diagnost
         }
         let start = parser.position;
         let mut item_children = Vec::new();
-        let item_kind = parser.item(&mut item_children);
-        let node = match item_kind {
-            Ok(kind) => parser.node(kind, start, item_children),
+        let node = match parser.item(&mut item_children) {
+            Ok(kind) => {
+                if mode == FileMode::Data && kind != NodeKind::Assignment {
+                    parser.diagnostics.push(Diagnostic {
+                        range: tokens[start].range.clone(),
+                        message: "unsupported data-file item; only assignments are permitted"
+                            .into(),
+                    });
+                }
+                parser.node(kind, start, item_children)
+            }
             Err(message) => {
                 parser.diagnose(message);
                 parser.recover(start);

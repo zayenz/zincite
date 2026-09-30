@@ -1,0 +1,4 @@
+% Keep  data spelling and comments.
+count=0x2;
+values=[1,2];
+metadata=(bounds:(1,2),name:"example");
