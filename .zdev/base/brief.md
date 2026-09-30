@@ -4,7 +4,8 @@
 
 Build source-preserving MiniZinc tools that process the complete published MiniZinc
 Challenge corpus and the models and data under `~/minizinc/`, and offer all fourteen
-lint rules in Erik Rimskog's thesis alongside Zincite's existing rules. Formatting
+lint rules in Erik Rimskog's thesis alongside Zincite's existing rules, then extend
+semantic linting with the rule families, configuration and fixes described below. Formatting
 on save must be fast and economical enough to be unremarkable in normal editing.
 
 Zincite will provide MiniZinc development tools, starting with a formatter
@@ -244,7 +245,8 @@ A standalone `% zincite-lint: ignore naming` or
 throughout the next top-level item, including nested bindings. Consecutive comments
 may suppress both rules. Unknown rule IDs, malformed directives, misplaced
 non-top-level directives and a directive without a following item are errors.
-Do not add automatic fixes or a general suppression/configuration framework.
+The initial rules are diagnostic-only. The Linter expansion section below adds
+bounded configuration and explicit fixes without changing ordinary lint runs.
 
 ## Corpus and thesis expansion
 
@@ -300,8 +302,8 @@ contract. Reading included files for semantic linting never formats them.
 selects both groups. A comma-separated list of stable rule IDs selects exactly
 those rules. Reject unknown IDs and repeated `--rules`; keep the existing text
 output and 0/1/2 exit semantics. Extend existing next-item suppressions to every
-rule ID, including rules currently disabled. No plugin system, automatic fixes,
-JSON output or general configuration framework is required.
+rule ID, including rules currently disabled. The Linter expansion section extends
+selection, configuration and fixes; a plugin system and JSON output remain deferred.
 
 ### Semantic analysis
 
@@ -366,6 +368,171 @@ unresolved Zincite failures on valid target syntax, formatter stability and
 preservation on all valid inputs, and execution of all applicable thesis rules on
 complete model roots with resolved dependencies. All exclusions need a reason;
 missing corpora or unavailable model dependencies prevent a full-coverage claim.
+
+## Linter expansion: semantic facts, rule families and fixes
+
+Requested on 2026-09-30. Add the ten proposed detection families: index-set
+mismatches, hidden optionality mistakes, partial-expression hazards, suspicious
+shadowing, vacuous constraints/conditions, unused generator bindings, recognizable
+global-constraint opportunities, expensive comprehensions, missing input
+preconditions, and suspicious domains/intermediate bounds. Existing thesis
+coverage remains required. The new work has its own integration task; base-050
+continues to close the existing corpus/thesis bundle.
+
+### Interpretation before policy
+
+Semantic interpretation returns typed facts keyed by existing source/declaration
+identity. Lint rules consume those facts to choose findings; fix producers consume
+facts and findings to propose edits; a separate edit application path owns writes.
+Keep these responsibilities in small modules in `zincite-lint`, not new crates,
+a generic query language, a solver, or a plugin framework. Existing semantic
+work (base-032 through base-036 and search analysis) must also keep fact production
+separate from diagnostic policy within its implementation. Preserve those tasks;
+new infrastructure extends their results rather than rebuilding name resolution.
+
+Add separate infrastructure tasks for bounded numeric interpretation, guarded
+truth/definedness, option presence/cardinality, and iteration/dependency facts.
+Each has named rule consumers below and can be exercised without enabling a lint.
+Known, disproven, unknown and unsupported conclusions remain distinguishable.
+Missing parameter data is ordinary uncertainty, not a fabricated value; unsupported
+analysis remains an explicit limitation. Analyse only facts required by selected
+rules or fixes, once per model context. Rule parameters never change semantic
+truth or turn an unknown precondition into a proved one.
+
+Guards follow MiniZinc relational partiality and conditional semantics, not an
+imperative short-circuit assumption. Bounds use checked arithmetic and conservative
+intervals; unknown does not mean unsafe. Same-sized arrays need not share indices.
+Iteration facts distinguish array capacity from present optional elements and
+quantifier idempotence from arithmetic multiplicity. No rule may remove or reorder
+partial expressions merely because a Boolean identity appears applicable.
+
+### Rule catalogue, families and selection
+
+Keep stable readable IDs, including the existing sixteen. Each rule records a
+primary family, a short explanation, required semantic facts, availability and
+fix capability (none, sometimes or always). Families are `correctness`,
+`suspicious`, `modelling`, `performance`, and `style`; families classify purpose,
+not severity or fix safety. Assign a rule once, and document the membership.
+Keep current warning severity and exit status policy. Broad heuristic advice stays
+opt-in; preserve the two-rule `default` and fourteen-rule `thesis` presets.
+`all` expands to every registered rule and still diagnoses unavailable selections.
+
+Selectors accept exact IDs, `family:NAME`, `preset:NAME`, and legacy
+`default`/`thesis`/`all`. Configuration uses `select`, `extend-select`, and `ignore`:
+expand the base selection, union extensions, then remove ignored rules; ignore
+wins within a layer. Unknown or ambiguous selectors are errors. An explicit
+`--rules` replaces configured selection and its exclusions, retaining configured
+rule options and fix restrictions. Existing comma-separated IDs and exact-ID
+next-item suppressions remain compatible; do not add broad suppression directives.
+Provide `--list-rules` and `--explain RULE` from the same catalogue so users can
+inspect families, availability, caveats, options and conditional fix support.
+
+### Configuration, personal presets and parameters
+
+Use `zincite.toml` with a `[lint]` table. For each positional root, use the nearest
+ancestor configuration and apply it to that root's include closure; do not merge
+ancestor files. `--config PATH` supplies one explicit file and `--isolated`
+disables discovery; reject their combination. Stdin discovers configuration only
+through `--stdin-filepath`, unless an explicit file is supplied. Keep formatter
+EditorConfig independent. Plain library calls receive settings explicitly and
+perform no ambient configuration lookup.
+
+Personal/project presets live under `[lint.presets.NAME]`. Each contains
+`select`, optional `extend-select`/`ignore`, and optional typed `options`.
+Preset members may name rules, families or built-in presets; custom presets
+cannot include other custom presets. Reject reserved names and more than one
+custom preset in an effective selection. This deliberately avoids inheritance
+and ordering rules for competing parameter bundles. Merge defaults, selected
+preset options, then `[lint.options.RULE_ID]` overrides. Validate unknown keys,
+types and ranges even for disabled rules; give a path and setting name in errors.
+
+Start with two useful parameters: `suspicious-shadowing.ignore-names` (exact
+binding names, default empty) and `expensive-comprehension.max-candidates`
+(positive integer, default 1000000). The latter controls only warnings for a
+known candidate-count upper bound above the threshold; symbolic estimates remain
+advice about structure, not measured runtime. A high upper bound is explicitly a
+potential expansion, not proof the compiler enumerates it. Keep options typed
+per rule and add parameters only for a concrete decision. Do not expose arbitrary
+expressions, a configuration DSL or a generic per-rule options map in core logic.
+Resolved settings, expanded IDs and option values are inspectable through
+`--show-settings`; record preset membership changes in user documentation.
+
+### Fixes and source edits
+
+Ordinary linting remains read-only. A diagnostic can carry an optional titled
+fix consisting of source edits, safety and the established applicability
+conditions. Rule-level fix support is not a promise that every finding is fixable.
+A safe fix preserves the solution set, objective values, output, definedness,
+annotations and comments. It need not preserve solving time or search order.
+An unsafe fix has a described behavioural uncertainty and needs explicit
+`--unsafe-fixes`; this flag never enables fixes by itself. Unsupported semantic
+facts cannot justify a safe fix. Do not invent constraint labels, automatically
+rename public symbols or silently delete comments.
+
+`--fix` applies safe fixes to explicit regular files; `--diff` previews eligible
+edits without writing. The modes are mutually exclusive. `--unsafe-fixes` expands
+eligible fixes only in either mode. `[lint].fixable` (default all) and `unfixable`
+(default empty) independently restrict fixes using rule/family selectors, with
+unfixable winning; they do not change diagnostic selection or upgrade fix safety.
+Reject directory or stdin inputs in fix/diff modes for this first increment;
+include-only dependencies and standard-library files are never implicit write
+targets. Read-only directory linting remains supported.
+
+Edits refer to the exact original UTF-8 bytes, including BOM offsets. Apply a
+finding's edits as one unit. If candidate fixes overlap, omit the conflicting
+fixes and explain the conflict; independent fixes may proceed. Reparse each full
+candidate before replacing its source, compare original bytes again before
+writing, retain permissions and refuse symlinks. Preserve untouched bytes,
+comments and line endings. A failing file stays unchanged and independent files
+continue. Apply one pass, then reanalyse; report remaining/new findings rather
+than iterating silently. In fix mode, exit 0 when the resulting inputs have no
+warnings, 1 for remaining warnings, and 2 for actual errors. Diff mode uses the
+original diagnostic exit status. Validate mode/configuration errors before any
+writes. Suppressed findings never supply edits.
+
+First real fix producers target unused generator names (rename only a proven
+unused binding to `_` where syntax permits) and standard `element` calls
+(indexing equality only with proven matching types, indices and totality).
+Retain multiplicity, guards and annotations. Offer no fix when these obligations
+cannot be established; keep advice useful independently. Do not manufacture an unsafe fix merely to exercise the flag: a producer needs
+a useful suggested change with a specific, documented risk.
+
+### Evidence and focused validation
+
+Ruff is inspiration for selection, discoverability and edit safety, not a Python
+compatibility target. Its established rule-prefix selection and safe/unsafe fixes
+are described in [the linter guide](https://docs.astral.sh/ruff/linter/).
+Its purpose-based categories are currently documented as preview behaviour;
+Zincite's families are its own stable vocabulary. Use
+[configuration](https://docs.astral.sh/ruff/configuration/) for precedence and
+[settings](https://docs.astral.sh/ruff/settings/) for typed rule options and
+independent fix selection. Zincite intentionally retains readable IDs, a single
+nearest configuration, flat personal presets and a small set of options.
+Ruff's [semantic model](https://github.com/astral-sh/ruff/blob/main/crates/ruff_python_semantic/src/model.rs)
+stores bindings, scopes and resolved references; its
+[fix representation](https://github.com/astral-sh/ruff/blob/main/crates/ruff_diagnostics/src/fix.rs)
+carries applicability with edits. Reuse those responsibility boundaries, not
+Ruff's crate structure or Python-specific machinery.
+
+The earlier [lint research](background/linting-and-literature.md) and the
+MiniZinc 2.10.1 [option-type documentation](https://docs.minizinc.dev/en/stable/optiontypes.html)
+and [effective modelling guidance](https://docs.minizinc.dev/en/stable/efficient.html)
+inform optionality, bounds and generators. CPKB's maintained summaries of
+*Compiling Conditional Constraints* (Stuckey and Tack, 2019), *Globalizing
+Constraint Models* (Leo et al., 2022), and *Solver-Aided Expansion of Loops to Avoid
+Generate-and-Test* (Dewally and Akgün, 2025) motivate guarded partiality, narrow
+global patterns and expansion-cost advice respectively. These inspire detection
+families, not claims that every formulation needs rewriting.
+
+Keep the existing focused testing level. Infrastructure checks demonstrate useful
+facts without diagnostics, especially unknown and guarded cases. Rule checks use
+a few positive/negative public examples and suppression/selection. Fix checks
+cover an actual semantic transformation, comments/annotations, stale or overlapping
+edits and failure leaving the original intact. MiniZinc checks supplement explicit
+before/after semantic reasoning; compilation alone does not prove equivalence.
+Reuse the corpus runner on temporary copies for integration, reconcile limitations
+and sample false positives, and measure added lint cost against the existing
+baseline. No broad test matrix or new benchmark platform is required.
 
 ## Performance and format-on-save
 

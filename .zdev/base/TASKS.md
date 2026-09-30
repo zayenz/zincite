@@ -2,9 +2,9 @@
 
 # Tasks: base
 
-- Total: 53
-- Ready: 5
-- Blocked: 17
+- Total: 74
+- Ready: 6
+- Blocked: 37
 - Done: 31
 
 | ID | Task | State | Blocked by |
@@ -62,3 +62,24 @@
 | [base-051](tasks/051-reduce-measured-punctuation-dispatch-cost-in-the-lexer.md) | Reduce measured punctuation dispatch cost in the lexer | done | — |
 | [base-052](tasks/052-accept-compiler-supported-form-feed-layout-and-escaped-singl.md) | Accept compiler-supported form-feed layout and escaped single quotes | ready | — |
 | [base-053](tasks/053-accept-the-four-remaining-compiler-supported-item-and-callab.md) | Accept the four remaining compiler-supported item and callable families | ready | — |
+| [base-054](tasks/054-describe-lint-families-and-capabilities-in-one-rule-catalogu.md) | Describe lint families and capabilities in one rule catalogue | ready | base-030 |
+| [base-055](tasks/055-resolve-rule-families-and-per-root-lint-configuration.md) | Resolve rule families and per-root lint configuration | blocked | base-054 |
+| [base-056](tasks/056-support-personal-presets-and-typed-rule-parameters.md) | Support personal presets and typed rule parameters | blocked | base-055 |
+| [base-057](tasks/057-interpret-numeric-intervals-and-intermediate-expression-boun.md) | Interpret numeric intervals and intermediate expression bounds | blocked | base-034, base-035, base-036 |
+| [base-058](tasks/058-interpret-guarded-truth-and-partial-expression-definedness.md) | Interpret guarded truth and partial-expression definedness | blocked | base-057 |
+| [base-059](tasks/059-interpret-optional-presence-and-comprehension-cardinality.md) | Interpret optional presence and comprehension cardinality | blocked | base-034, base-035, base-058 |
+| [base-060](tasks/060-interpret-iteration-coverage-binding-use-and-expansion-size.md) | Interpret iteration coverage, binding use and expansion size | blocked | base-032, base-034, base-035, base-058 |
+| [base-061](tasks/061-report-index-set-mismatches-and-off-by-one-accesses.md) | Report index-set mismatches and off-by-one accesses | blocked | base-054, base-060 |
+| [base-062](tasks/062-report-length-mistakes-caused-by-hidden-optional-values.md) | Report length mistakes caused by hidden optional values | blocked | base-054, base-059 |
+| [base-063](tasks/063-report-actionable-partial-expression-hazards.md) | Report actionable partial-expression hazards | blocked | base-054, base-059, base-061 |
+| [base-064](tasks/064-report-suspicious-lexical-shadowing.md) | Report suspicious lexical shadowing | blocked | base-056, base-032 |
+| [base-065](tasks/065-report-vacuous-constraints-and-conditions.md) | Report vacuous constraints and conditions | blocked | base-054, base-060, base-059 |
+| [base-066](tasks/066-report-unused-generator-bindings-without-changing-multiplici.md) | Report unused generator bindings without changing multiplicity | blocked | base-054, base-060 |
+| [base-067](tasks/067-recognise-bounded-global-constraint-opportunities.md) | Recognise bounded global-constraint opportunities | blocked | base-054, base-060 |
+| [base-068](tasks/068-report-expensive-comprehension-structure-with-a-typed-thresh.md) | Report expensive comprehension structure with a typed threshold | blocked | base-056, base-060 |
+| [base-069](tasks/069-report-concrete-missing-callable-input-preconditions.md) | Report concrete missing callable input preconditions | blocked | base-054, base-060, base-063 |
+| [base-070](tasks/070-report-conflicting-domains-and-risky-intermediate-ranges.md) | Report conflicting domains and risky intermediate ranges | blocked | base-054, base-057 |
+| [base-071](tasks/071-represent-conditional-lint-fixes-as-validated-source-edit-pl.md) | Represent conditional lint fixes as validated source edit plans | blocked | base-054 |
+| [base-072](tasks/072-preview-and-apply-explicitly-selected-lint-fixes.md) | Preview and apply explicitly selected lint fixes | blocked | base-055, base-071 |
+| [base-073](tasks/073-deliver-semantic-fixes-for-unused-generator-names-and-elemen.md) | Deliver semantic fixes for unused generator names and element calls | blocked | base-072, base-066, base-033, base-058 |
+| [base-074](tasks/074-validate-expanded-lint-families-presets-and-fixes-together.md) | Validate expanded lint families, presets and fixes together | blocked | base-061, base-062, base-063, base-064, base-065, base-066, base-067, base-068, base-069, base-070, base-073, base-049 |
