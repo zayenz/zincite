@@ -513,7 +513,7 @@ fn generator_layout_keeps_nested_expansion_and_comments_attached() {
     let parsed = parse(source);
     let formatted = format(&parsed).unwrap();
     assert!(formatted.contains(&format!("unicode = sum (i in '{domain}') (i);")));
-    assert!(formatted.contains("wide = sum (i in {1}) (\n    i +\n        i +"));
+    assert!(formatted.contains("wide = sum (i in {1}) (\n    i + i"));
     let reparsed = parse(formatted.clone());
     assert_eq!(
         structure(parsed.tree(), &parsed),
@@ -688,7 +688,7 @@ fn enum_and_alias_layout_preserves_names_comments_and_type_structure() {
     let parsed = parse(source);
     let formatted = format(&parsed).unwrap();
     assert!(formatted.contains("type Joined = Left ++ var opt Right ++ set of int;"));
-    assert!(formatted.contains("'Written Constructor'({1, 2} % Keep  argument comment\n"));
+    assert!(formatted.contains("'Written Constructor'(\n    {1, 2} % Keep  argument comment\n"));
     let reparsed = parse(formatted.clone());
     assert!(
         reparsed.diagnostics().is_empty(),
@@ -784,6 +784,69 @@ fn model_data_pair_and_cross_family_model_keep_structure_and_stable_layout() {
 }
 
 #[test]
+fn expression_wrapping_keeps_selected_child_layout_and_comment_order_stable() {
+    use std::num::NonZeroUsize;
+    use zincite_fmt::{FormatOptions, format_with_options};
+
+    for (source, width) in [
+        (
+            "constraint Beamtime=sum(b in BTimes)(b*N[b]) /\\ K=sum(b in BTimes)(N[b]) /\\ forall(i in Rows,j in Columns)(true);",
+            120,
+        ),
+        (
+            "any: x=(f(first_operand, second_operand, third_operand) /\\ g(first_operand, second_operand));",
+            48,
+        ),
+        (
+            "constraint forall (i in 1..2) (true)\n% section\n/\\ forall (j in 1..2) (true);",
+            120,
+        ),
+        (
+            "predicate p(array [int] of var int: x, var int: v, var int: i) = f([j: x[j] == v | j in index_set(x)], i) /\\ x[i] = v;",
+            80,
+        ),
+        (
+            "predicate p(var set of int: input, var set of int: result) = result = {m | m in ub(input) where sol(m in input)};",
+            80,
+        ),
+        (
+            "any: x=sum(i in Indices)(sum(j in OtherIndices)(first_operand*second_operand+third_operand*fourth_operand)+other_operand);",
+            80,
+        ),
+        (
+            "any: x=if some_call(first_operand,second_operand,third_operand) /\\ another_call(first_operand,second_operand) then 1 else 0 endif; any: values=[\n1,\nf(2,3)\n];",
+            48,
+        ),
+    ] {
+        let parsed = parse(source);
+        let options = FormatOptions {
+            max_line_length: NonZeroUsize::new(width),
+            ..FormatOptions::default()
+        };
+        let formatted = format_with_options(&parsed, &options).unwrap();
+        let reparsed = parse(formatted.clone());
+        assert!(reparsed.diagnostics().is_empty(), "{formatted}");
+        let spellings = |file: &zincite_syntax::ParsedFile| {
+            file.tokens()
+                .iter()
+                .filter(|token| !matches!(token.kind, TokenKind::Whitespace | TokenKind::Comma))
+                .map(|token| file.source()[token.range.clone()].to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(spellings(&parsed), spellings(&reparsed), "{formatted}");
+        assert_eq!(
+            structure(parsed.tree(), &parsed),
+            structure(reparsed.tree(), &reparsed)
+        );
+        assert_eq!(
+            format_with_options(&reparsed, &options).unwrap(),
+            formatted,
+            "{source}"
+        );
+    }
+}
+
+#[test]
 fn ordinary_width_breaks_keep_structure_comments_and_explicit_lists_stable() {
     use std::num::NonZeroUsize;
     use zincite_fmt::{FormatOptions, format_with_options};
@@ -829,7 +892,7 @@ any: unavoidable = f("This literal is intentionally longer than the selected wid
     let parsed = parse(source);
     let formatted = format_with_options(&parsed, &options).unwrap();
     assert!(
-        formatted.contains("first_operand +\n    second_operand *\n    third_operand +"),
+        formatted.contains("first_operand + second_operand *\n    third_operand +"),
         "{formatted}"
     );
     assert!(
@@ -841,7 +904,7 @@ any: unavoidable = f("This literal is intentionally longer than the selected wid
         "{formatted}"
     );
     assert!(
-        formatted.contains("first_operand + % Keep  operand comment\n"),
+        formatted.contains("first_operand % Keep  operand comment\n"),
         "{formatted}"
     );
     assert!(

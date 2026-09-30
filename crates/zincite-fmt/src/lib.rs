@@ -318,8 +318,7 @@ impl Formatter<'_> {
 
     fn expression_contents(&mut self, node: &SyntaxNode, leading_space: bool) {
         if is_binary(node.kind()) {
-            let expanded = self.measuring_prefix
-                || self.node_exceeds_width(node, leading_space, self.suffix_columns);
+            let expanded = self.measuring_prefix;
             self.binary_expression(node, leading_space, expanded, self.indent + 1);
             return;
         }
@@ -479,12 +478,16 @@ impl Formatter<'_> {
         let initial_indent = self.indent;
         let mut first = true;
         let mut operator_seen = false;
-        let mut before_operator = Vec::new();
         for (position, child) in node.children().iter().enumerate() {
             match child {
                 SyntaxElement::Node(child) => {
                     if operator_seen
                         && (expanded
+                            || self.prefix_exceeds_width(
+                                child,
+                                !first,
+                                self.following_columns(node.children(), position),
+                            )
                             || self.line_comment
                             || self.pending_breaks > 1
                             || self.has_leading_break(child))
@@ -513,29 +516,24 @@ impl Formatter<'_> {
                 }
                 SyntaxElement::Token(index) => {
                     let kind = self.parsed.tokens()[*index].kind;
-                    if is_trivia(kind) && !operator_seen {
-                        before_operator.push(*index);
-                        continue;
+                    if kind == TokenKind::LineComment {
+                        self.indent = continuation_indent;
                     }
                     self.token_with_space(*index, first && leading_space || !first);
                     if !is_trivia(kind) {
                         operator_seen = true;
                         first = false;
-                        for index in before_operator.drain(..) {
-                            self.token(index);
-                        }
                     }
                 }
             }
-        }
-        for index in before_operator {
-            self.token(index);
         }
         self.indent = initial_indent;
     }
 
     fn parenthesized(&mut self, node: &SyntaxNode, leading_space: bool) {
-        let expanded = self.measuring_prefix
+        let expanded = node.kind() == NodeKind::ParenthesizedExpression
+            && self.has_delimited_line_break(node, TokenKind::LeftParen, TokenKind::RightParen)
+            || self.measuring_prefix
             || self.node_exceeds_width(node, leading_space, self.suffix_columns);
         let mut first = true;
         for (position, child) in node.children().iter().enumerate() {
@@ -741,18 +739,30 @@ impl Formatter<'_> {
                     && matches!(&self.parsed.source()[self.parsed.tokens()[*index].range.clone()],
                         "forall" | "'forall'"))
             });
-        let mut head_expanded = !call && self.has_line_break(node);
+        let opening = if closing == TokenKind::RightBrace {
+            TokenKind::LeftBrace
+        } else {
+            TokenKind::LeftBracket
+        };
+        let mut head_expanded = !call && self.has_delimited_line_break(node, opening, closing);
         let mut first = true;
         let mut header_expanded = false;
         for child in node.children() {
             match child {
                 SyntaxElement::Node(list) if list.kind() == NodeKind::GeneratorList => {
+                    let suffix = self.suffix_columns;
+                    if call {
+                        // The body starts after this header; an enclosing
+                        // expression's suffix belongs to the body's last line.
+                        self.suffix_columns = 2;
+                    }
                     header_expanded =
                         head_expanded || self.generator_header_expands(list, closing, !call);
                     if header_expanded && !head_expanded {
                         self.indent += 1;
                     }
                     self.generator_list(list, header_expanded, !call);
+                    self.suffix_columns = suffix;
                 }
                 SyntaxElement::Node(body) if call => self.generator_body(body, forall),
                 SyntaxElement::Node(head) => {
@@ -822,14 +832,7 @@ impl Formatter<'_> {
             },
             false,
         );
-        preview.exceeds_width(
-            self.current_columns(),
-            if leading_space {
-                self.suffix_columns
-            } else {
-                2
-            },
-        )
+        preview.exceeds_width(self.current_columns(), self.suffix_columns)
     }
 
     fn generator_list(&mut self, list: &SyntaxNode, expanded: bool, leading_space: bool) {
@@ -916,7 +919,7 @@ impl Formatter<'_> {
 
     fn generator_body(&mut self, body: &SyntaxNode, forall: bool) {
         let expanded = forall
-            || self.has_line_break(body)
+            || self.has_delimited_line_break(body, TokenKind::LeftParen, TokenKind::RightParen)
             || self.measuring_prefix
             || self.node_exceeds_width(body, true, self.suffix_columns);
         if self.prefix_exceeds_width(body, true, self.suffix_columns) {
@@ -968,6 +971,29 @@ impl Formatter<'_> {
                 if self.parsed.tokens()[*index].kind == TokenKind::Whitespace
                 && self.parsed.source()[self.parsed.tokens()[*index].range.clone()]
                     .contains(['\r', '\n']))
+        })
+    }
+
+    fn has_delimited_line_break(
+        &self,
+        node: &SyntaxNode,
+        opening: TokenKind,
+        closing: TokenKind,
+    ) -> bool {
+        let mut inside = false;
+        node.children().iter().any(|child| {
+            let SyntaxElement::Token(index) = child else {
+                return false;
+            };
+            let token = &self.parsed.tokens()[*index];
+            if token.kind == opening {
+                inside = true;
+            } else if token.kind == closing {
+                inside = false;
+            }
+            inside
+                && token.kind == TokenKind::Whitespace
+                && self.parsed.source()[token.range.clone()].contains(['\r', '\n'])
         })
     }
 
@@ -1070,7 +1096,14 @@ impl Formatter<'_> {
         preview.expression_before(node, space, suffix);
         let text = preview.output.trim_start_matches('\n');
         let (first, remaining) = text.split_once('\n').unwrap_or((text, ""));
-        self.columns(first) + if remaining.is_empty() { suffix } else { 0 } > width.get()
+        let prefix = self.current_columns();
+        let columns = if prefix > width.get() {
+            self.columns(first).saturating_sub(prefix)
+                + self.indent * self.options.indent_size.get()
+        } else {
+            self.columns(first)
+        };
+        columns + if remaining.is_empty() { suffix } else { 0 } > width.get()
     }
 
     fn following_columns(&self, children: &[SyntaxElement], position: usize) -> usize {
@@ -1351,29 +1384,14 @@ impl Formatter<'_> {
         opening: TokenKind,
         closing: TokenKind,
     ) {
-        let mut in_list = false;
-        let multiline = node.children().iter().any(|child| {
-            if let SyntaxElement::Token(index) = child {
-                let token = &self.parsed.tokens()[*index];
-                if token.kind == closing {
-                    in_list = false;
-                }
-                if token.kind == opening {
-                    in_list = true;
-                }
-                in_list
-                    && token.kind == TokenKind::Whitespace
-                    && self.parsed.source()[token.range.clone()].contains(['\r', '\n'])
-            } else {
-                false
-            }
-        }) || self.measuring_prefix && node.child_nodes().next().is_some()
+        let multiline = self.has_delimited_line_break(node, opening, closing)
+            || self.measuring_prefix && node.child_nodes().next().is_some()
             || self.node_exceeds_width(node, leading_space, self.suffix_columns);
         let mut first = true;
         let mut first_entry = true;
         let mut continuation = false;
         let mut previous_entry_end = self.output.len();
-        in_list = false;
+        let mut in_list = false;
         for (position, child) in node.children().iter().enumerate() {
             match child {
                 SyntaxElement::Node(entry) => {

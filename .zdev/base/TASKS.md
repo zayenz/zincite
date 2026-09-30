@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 53
-- Ready: 6
-- Blocked: 21
-- Done: 26
+- Ready: 7
+- Blocked: 19
+- Done: 27
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -35,8 +35,8 @@
 | [base-024](tasks/024-accept-compiler-supported-source-forms-found-in-models.md) | Accept compiler-supported source forms found in models | done | base-023 |
 | [base-025](tasks/025-support-unnamed-and-annotated-library-parameters.md) | Support unnamed and annotated library parameters | done | base-023, base-024 |
 | [base-026](tasks/026-classify-remaining-historical-and-library-syntax-gaps.md) | Classify remaining historical and library syntax gaps | blocked | base-025, base-052, base-053 |
-| [base-027](tasks/027-stabilise-expression-wrapping-and-continuation-indentation.md) | Stabilise expression wrapping and continuation indentation | ready | base-023 |
-| [base-028](tasks/028-check-formatter-preservation-across-the-expanded-corpus.md) | Check formatter preservation across the expanded corpus | blocked | base-025, base-027 |
+| [base-027](tasks/027-stabilise-expression-wrapping-and-continuation-indentation.md) | Stabilise expression wrapping and continuation indentation | done | base-023 |
+| [base-028](tasks/028-check-formatter-preservation-across-the-expanded-corpus.md) | Check formatter preservation across the expanded corpus | ready | base-025, base-027 |
 | [base-029](tasks/029-accept-directories-for-linting-and-formatter-checks.md) | Accept directories for linting and formatter checks | ready | — |
 | [base-030](tasks/030-select-rule-presets-and-extend-existing-suppressions.md) | Select rule presets and extend existing suppressions | ready | — |
 | [base-031](tasks/031-load-model-include-closures-for-selected-semantic-rules.md) | Load model include closures for selected semantic rules | blocked | base-030, base-025 |
@@ -54,7 +54,7 @@
 | [base-043](tasks/043-check-search-coverage-through-direct-definitions.md) | Check search coverage through direct definitions | blocked | base-036 |
 | [base-044](tasks/044-complete-search-coverage-through-callable-definitions.md) | Complete search coverage through callable definitions | blocked | base-043 |
 | [base-045](tasks/045-measure-complete-model-coverage-for-every-thesis-rule.md) | Measure complete-model coverage for every thesis rule | blocked | base-037, base-038, base-039, base-040, base-042, base-044, base-041 |
-| [base-046](tasks/046-reduce-repeated-layout-measurement-work.md) | Reduce repeated layout measurement work | blocked | base-022, base-027 |
+| [base-046](tasks/046-reduce-repeated-layout-measurement-work.md) | Reduce repeated layout measurement work | ready | base-022, base-027 |
 | [base-047](tasks/047-reduce-the-live-syntax-and-formatting-working-set.md) | Reduce the live syntax and formatting working set | ready | base-022 |
 | [base-048](tasks/048-verify-and-document-an-unobtrusive-save-command.md) | Verify and document an unobtrusive save command | blocked | base-046, base-047 |
 | [base-049](tasks/049-measure-batch-and-semantic-lint-speed-and-memory.md) | Measure batch and semantic-lint speed and memory | blocked | base-022, base-029, base-045 |
