@@ -7,7 +7,7 @@ status = "open"
 complexity = "standard"
 afk = true
 priority = "normal"
-blocked_by = ["base-025"]
+blocked_by = ["base-025", "base-052", "base-053"]
 +++
 # Classify remaining historical and library syntax gaps
 

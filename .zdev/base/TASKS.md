@@ -2,9 +2,9 @@
 
 # Tasks: base
 
-- Total: 51
-- Ready: 5
-- Blocked: 20
+- Total: 53
+- Ready: 6
+- Blocked: 21
 - Done: 26
 
 | ID | Task | State | Blocked by |
@@ -34,7 +34,7 @@
 | [base-023](tasks/023-establish-a-repeatable-full-corpus-check.md) | Establish a repeatable full-corpus check | done | — |
 | [base-024](tasks/024-accept-compiler-supported-source-forms-found-in-models.md) | Accept compiler-supported source forms found in models | done | base-023 |
 | [base-025](tasks/025-support-unnamed-and-annotated-library-parameters.md) | Support unnamed and annotated library parameters | done | base-023, base-024 |
-| [base-026](tasks/026-classify-remaining-historical-and-library-syntax-gaps.md) | Classify remaining historical and library syntax gaps | ready | base-025 |
+| [base-026](tasks/026-classify-remaining-historical-and-library-syntax-gaps.md) | Classify remaining historical and library syntax gaps | blocked | base-025, base-052, base-053 |
 | [base-027](tasks/027-stabilise-expression-wrapping-and-continuation-indentation.md) | Stabilise expression wrapping and continuation indentation | ready | base-023 |
 | [base-028](tasks/028-check-formatter-preservation-across-the-expanded-corpus.md) | Check formatter preservation across the expanded corpus | blocked | base-025, base-027 |
 | [base-029](tasks/029-accept-directories-for-linting-and-formatter-checks.md) | Accept directories for linting and formatter checks | ready | — |
@@ -60,3 +60,5 @@
 | [base-049](tasks/049-measure-batch-and-semantic-lint-speed-and-memory.md) | Measure batch and semantic-lint speed and memory | blocked | base-022, base-029, base-045 |
 | [base-050](tasks/050-verify-corpus-processing-and-full-thesis-lint-coverage.md) | Verify corpus processing and full thesis lint coverage | blocked | base-028, base-045, base-026, base-029, base-048, base-049 |
 | [base-051](tasks/051-reduce-measured-punctuation-dispatch-cost-in-the-lexer.md) | Reduce measured punctuation dispatch cost in the lexer | done | — |
+| [base-052](tasks/052-accept-compiler-supported-form-feed-layout-and-escaped-singl.md) | Accept compiler-supported form-feed layout and escaped single quotes | ready | — |
+| [base-053](tasks/053-accept-the-four-remaining-compiler-supported-item-and-callab.md) | Accept the four remaining compiler-supported item and callable families | ready | — |
