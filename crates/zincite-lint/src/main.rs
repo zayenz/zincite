@@ -19,10 +19,15 @@ Overlapping inputs use the first path to each file.
 --rules default|thesis|all or comma-separated rule IDs selects exactly that set.
 Omitted --rules selects default; repeated --rules and unknown IDs are errors.
 The thesis preset selects its fourteen catalogue rules; all includes the defaults.
-Thesis rules are registered but not implemented yet: selecting one reports an error.
+global-variable-in-function is implemented; the other thirteen thesis rules
+remain unavailable and selecting any of them reports an error.
 -I DIR adds an ordered include directory for rules requiring model analysis.
 --stdlib-dir DIR supplies the MiniZinc library root, overriding MZN_STDLIB_DIR.
 Current default rules do not load includes or the standard library.
+global-variable-in-function advises passing captured global decisions as arguments.
+It resolves lexical bindings and declared instantiation, without full type checking.
+Stdin has no model context: selected semantic analysis reports a limitation;
+standalone .dzn inputs mark the semantic rule inapplicable.
 
 Default rules (both warnings):
     naming: snake_case for values, callable names, parameters, fields and bindings;
@@ -41,8 +46,8 @@ Every registered rule ID can be suppressed even when disabled. Suppressions affe
 only their own rule. Unknown, malformed, misplaced or dangling directives are errors.
 
 The shared parser covers MiniZinc 2.10.1 model/data syntax; reserved
-variant_record and case syntax is unsupported. Name resolution, types, semantic
-validity and solver performance are not checked by the current rules.
+variant_record and case syntax is unsupported. Full semantic validity and solver
+performance are not checked.
 Syntax errors omit lint rules for that file. Independent files are processed.
 Exit codes: 0 clean, 1 unsuppressed warnings, 2 input/parse/directive/usage/dependency errors.
 Analysis limitations alone retain status 0 or 1.
@@ -80,9 +85,6 @@ fn run() -> Result<u8, String> {
         .check_available()
         .map_err(|message| format!("zincite-lint: {message}"))?;
     if paths.is_empty() {
-        if options.requires_model() {
-            return Err("zincite-lint: selected model rules require positional model files".into());
-        }
         let mut bytes = Vec::new();
         io::stdin()
             .read_to_end(&mut bytes)

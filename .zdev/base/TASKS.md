@@ -4,8 +4,8 @@
 
 - Total: 74
 - Ready: 6
-- Blocked: 37
-- Done: 31
+- Blocked: 36
+- Done: 32
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -40,8 +40,8 @@
 | [base-029](tasks/029-accept-directories-for-linting-and-formatter-checks.md) | Accept directories for linting and formatter checks | done | — |
 | [base-030](tasks/030-select-rule-presets-and-extend-existing-suppressions.md) | Select rule presets and extend existing suppressions | done | — |
 | [base-031](tasks/031-load-model-include-closures-for-selected-semantic-rules.md) | Load model include closures for selected semantic rules | done | base-030, base-025 |
-| [base-032](tasks/032-resolve-bindings-and-report-captured-global-decisions.md) | Resolve bindings and report captured global decisions | ready | base-031 |
-| [base-033](tasks/033-resolve-callable-facts-and-deliver-element-advice.md) | Resolve callable facts and deliver element advice | blocked | base-032 |
+| [base-032](tasks/032-resolve-bindings-and-report-captured-global-decisions.md) | Resolve bindings and report captured global decisions | done | base-031 |
+| [base-033](tasks/033-resolve-callable-facts-and-deliver-element-advice.md) | Resolve callable facts and deliver element advice | ready | base-032 |
 | [base-034](tasks/034-track-expression-instantiation-and-add-decision-use-advice.md) | Track expression instantiation and add decision-use advice | blocked | base-033 |
 | [base-035](tasks/035-track-declared-domains-and-report-numeric-index-advice.md) | Track declared domains and report numeric index advice | blocked | base-033 |
 | [base-036](tasks/036-find-unconditional-definitions-and-deliver-constant-variable.md) | Find unconditional definitions and deliver constant-variable advice | blocked | base-035, base-034 |

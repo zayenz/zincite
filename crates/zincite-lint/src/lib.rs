@@ -4,12 +4,18 @@ use std::ops::Range;
 use zincite_syntax::{Diagnostic, NodeKind, ParsedFile, SyntaxElement, SyntaxNode, TokenKind};
 
 mod analysis;
+mod bindings;
+mod captures;
 mod model;
 mod naming;
 mod rules;
 pub use analysis::{
     AnalysisResult, FileFinding, RuleExecution, RuleOutcome, analyze_file, analyze_model,
     write_analysis,
+};
+pub use bindings::{
+    BindingFacts, BindingResolution, Declaration, DeclarationId, DeclarationRole, Instantiation,
+    Reference, ReferenceKind, resolve_bindings,
 };
 pub use model::{
     FileId, IncludeEdge, ModelContext, ModelFile, ModelOptions, SourceDiagnostic, SourceKind,
@@ -38,7 +44,8 @@ pub fn lint(parsed: &ParsedFile) -> Result<Vec<LintDiagnostic>, Vec<Diagnostic>>
 }
 
 /// Lint selected rules. Syntax, suppression or unavailable-rule errors omit all
-/// warnings. Selection errors use the zero-length range at the start of the file.
+/// warnings. Semantic selections require analyze_model and are rejected here.
+/// Selection/context errors use the zero-length range at the start of the file.
 pub fn lint_with_options(
     parsed: &ParsedFile,
     options: &LintOptions,
@@ -54,6 +61,12 @@ pub fn lint_with_options(
             message,
         }]
     })?;
+    if options.requires_model() {
+        return Err(vec![Diagnostic {
+            range: 0..0,
+            message: "selected semantic rules require a ModelContext; use analyze_model".into(),
+        }]);
+    }
     Ok(lint_items(parsed, &suppressed, options))
 }
 

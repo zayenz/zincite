@@ -68,7 +68,10 @@ impl Rule {
 
     /// Registration alone does not mean a rule has an implementation.
     pub fn is_available(self) -> bool {
-        matches!(self, Self::Naming | Self::MissingConstraintLabel)
+        matches!(
+            self,
+            Self::Naming | Self::MissingConstraintLabel | Self::GlobalVariableInFunction
+        )
     }
 
     /// The original rules inspect one file; thesis rules require model facts.

@@ -266,3 +266,93 @@ fn rule_selection_preserves_defaults_and_reports_unavailable_rules() {
     );
     std::fs::remove_dir(empty).unwrap();
 }
+
+#[test]
+fn capture_selection_loads_model_roots_and_keeps_stdin_data_and_error_precedence_honest() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-lint-captures-{}", std::process::id()));
+    let library = directory.join("library");
+    let includes = directory.join("includes");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::create_dir_all(&includes).unwrap();
+    std::fs::write(library.join("std/stdlib.mzn"), "").unwrap();
+    let root = directory.join("root.mzn");
+    let shared = includes.join("shared.mzn");
+    let source = "include \"shared.mzn\"; var int: global; solve satisfy;";
+    let included = "function var int: capture() = global;\n% zincite-lint: ignore global-variable-in-function\nfunction var int: suppressed() = global;";
+    std::fs::write(&root, source).unwrap();
+    std::fs::write(&shared, included).unwrap();
+    let arguments = [
+        "--rules",
+        "global-variable-in-function",
+        "-I",
+        includes.to_str().unwrap(),
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        root.to_str().unwrap(),
+    ];
+    let output = run_with_library(&arguments, "", Some("missing_environment_library"));
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains(&format!(
+            "{}:1:31: bytes 30..36: warning [global-variable-in-function]",
+            shared.display()
+        )),
+        "{stderr}"
+    );
+    assert_eq!(
+        stderr
+            .matches("warning [global-variable-in-function]")
+            .count(),
+        1
+    );
+    assert!(!stderr.contains("analysis limitation"));
+    assert!(run(&[root.to_str().unwrap()], "").status.success());
+    let failed = directory.join("failed.mzn");
+    std::fs::write(&failed, "include \"missing.mzn\";").unwrap();
+    let mut independent = arguments.to_vec();
+    independent.push(failed.to_str().unwrap());
+    let output = run(&independent, "");
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("warning [global-variable-in-function]")
+            && stderr.contains("cannot resolve include")
+    );
+    let stdin = run(
+        &["--rules", "global-variable-in-function"],
+        "var int: global; function var int: capture() = global;",
+    );
+    assert_eq!(stdin.status.code(), Some(0));
+    assert!(stdin.stdout.is_empty());
+    assert!(
+        String::from_utf8(stdin.stderr)
+            .unwrap()
+            .contains("requires a ModelContext")
+    );
+    let data = run(
+        &[
+            "--rules",
+            "global-variable-in-function",
+            "--stdin-filepath",
+            "data.dzn",
+        ],
+        "global=1;",
+    );
+    assert_eq!(data.status.code(), Some(0));
+    assert!(data.stdout.is_empty() && data.stderr.is_empty());
+    for rule in zincite_lint::Rule::THESIS
+        .into_iter()
+        .filter(|rule| !rule.is_available())
+    {
+        let output = run(&["--rules", rule.id(), "missing_input.mzn"], "");
+        assert_eq!(output.status.code(), Some(2));
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains("unavailable rules") && !stderr.contains("missing_input"));
+    }
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    assert_eq!(std::fs::read_to_string(&shared).unwrap(), included);
+    std::fs::remove_dir_all(directory).unwrap();
+}

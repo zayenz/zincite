@@ -5,7 +5,7 @@ use zincite_syntax::{FileMode, ParsedFile};
 
 use crate::{
     LintDiagnostic, LintOptions, ModelContext, Rule, Severity, SourceDiagnostic, SourceLocation,
-    lint_items, lint_with_options,
+    captures::check_captures, lint_items, lint_with_options, resolve_bindings,
 };
 
 #[derive(Debug)]
@@ -93,7 +93,15 @@ pub fn analyze_file(
         return result;
     }
     let mut result = AnalysisResult::default();
-    match lint_with_options(parsed, options) {
+    let syntax_options = LintOptions {
+        rules: options
+            .rules
+            .iter()
+            .copied()
+            .filter(|rule| !rule.requires_model())
+            .collect(),
+    };
+    match lint_with_options(parsed, &syntax_options) {
         Ok(warnings) => {
             result.findings = warnings
                 .into_iter()
@@ -137,11 +145,20 @@ pub fn analyze_file(
             },
         })
         .collect();
+    if result.errors.is_empty() && FileMode::from_path(path) == FileMode::Model {
+        for rule in options.rules.iter().filter(|rule| rule.requires_model()) {
+            result.limitations.push(SourceDiagnostic {
+                location: location(0..0),
+                message: format!("{} requires a ModelContext; use analyze_model", rule.id()),
+            });
+        }
+    }
     result
 }
 
 /// Analyse retained sources, keeping syntax rule completion separate from an
-/// incomplete model closure. Standard-library files receive style findings only
+/// incomplete model closure. Binding facts are produced once when required.
+/// Standard-library files receive style findings only
 /// when they were explicitly selected as inputs.
 pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisResult {
     if let Some(result) = unavailable(
@@ -164,12 +181,29 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             result.findings.push(finding(warning, location));
         }
     }
+    let data = FileMode::from_path(&context.root) == FileMode::Data;
+    if !data && options.rules.contains(&Rule::GlobalVariableInFunction) {
+        let facts = resolve_bindings(context);
+        let captures = check_captures(context, &facts);
+        result.findings.extend(captures.findings);
+        result.limitations.extend(captures.limitations);
+    }
     result.rules = options
         .rules
         .iter()
         .map(|&rule| RuleExecution {
             rule,
-            outcome: if result.errors.is_empty() {
+            outcome: if data && rule.requires_model() {
+                RuleOutcome::Inapplicable {
+                    reason: "standalone data has no model context".into(),
+                }
+            } else if rule.requires_model()
+                && (!result.limitations.is_empty() || !result.errors.is_empty())
+            {
+                RuleOutcome::Limited {
+                    reason: "model dependencies or binding facts are incomplete".into(),
+                }
+            } else if result.errors.is_empty() {
                 RuleOutcome::Completed
             } else {
                 RuleOutcome::Limited {
