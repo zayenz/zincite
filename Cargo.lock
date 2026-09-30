@@ -13,6 +13,7 @@ name = "zincite-fmt"
 version = "0.1.0"
 dependencies = [
  "ec4rs",
+ "zincite-lint",
  "zincite-syntax",
 ]
 

@@ -198,3 +198,66 @@ The [Ruff formatter infrastructure](https://github.com/astral-sh/ruff/blob/main/
 [uv cache semantics](https://docs.astral.sh/uv/concepts/cache/) and
 [ty incremental analysis](https://docs.astral.sh/ty/features/language-server/#fine-grained-incrementality)
 are design references; the save command adds no persistent state or semantic work.
+
+# Full corpus correctness check
+
+Build the one-file developer checker, then inventory and check every `.mzn` and
+`.dzn` file in the supplied trees:
+
+```sh
+cargo build --release -p zincite-fmt --example check-corpus-file
+python3 scripts/check-corpus.py --challenge /tmp/mzn-challenge --local ~/minizinc --supplement /tmp/mznc2026_probs
+```
+
+Use a complete checkout of [MiniZinc/mzn-challenge](https://github.com/MiniZinc/mzn-challenge).
+The [2026 published problems](https://www.minizinc.org/challenge/2026/mznc2026_probs.tar.gz)
+supply instances absent from the Git archive at the baseline revision. Extract
+that archive outside this repository and pass its directory with `--supplement`.
+Keep originals private and read only. The command does not fetch, compile models,
+run solvers, discover include dependencies or rewrite any source.
+
+The standard-library Python driver includes ignored files and nested repositories;
+it skips only `.git` metadata and records directory aliases/cycles. It processes
+content duplicates individually and reports their hashes and first matching path.
+The inventory records source/year/subtree counts, the Git revision, missing tracked
+inputs and years without archive data. Missing directories are usage errors;
+filesystem inventory errors remain explicit coverage gaps. Extension-selected
+`.dzn` checks retain data grammar. A file rejected in data mode but accepted as a
+model with declarations is reported separately, never silently reinterpreted.
+
+Each fresh child has a ten-second timeout (`--timeout SECONDS`). Reports default
+to ignored `target/corpus/latest/`; `--output DIRECTORY` selects another location
+outside the input trees. A repeated command replaces that report directory's
+three report files. `inventory.json` records every discovered input,
+`results.jsonl` streams one result per file, and `summary.json` reconciles the
+counts. Reports can contain local paths and bounded diagnostic/token snippets;
+review them before sharing. No input fixtures are copied into tracked source.
+
+The child accepts UTF-8 with an optional leading BOM, removes that encoding marker
+before syntax checks, and checks contiguous token coverage and exactly ordered CST leaves,
+then parse, default library formatting, reparse, preservation, second-pass
+stability and both current syntax lint rules. Lint warnings count as successful
+runs. Parser errors skip formatting and lint for that file. EditorConfig and CLI
+configuration are covered by the existing focused CLI tests, not this library
+acceptance run.
+
+Preservation compares exact original token/literal/comment spelling counts
+independently of include sorting. Ordered CST events then allow only the existing
+bounded include groups to reorder with their attached comments. They retain all
+other item, token and comment order. A separate comparison retains the ordered original and formatted protected-range
+byte slices, including boundary trivia and range count. Skip/off spans must match
+verbatim before any layout allowances apply. Outside protected text, whitespace, grammar-optional trailing commas
+at supported list closings, and the optional final top-level semicolon are
+normalized; nested statement separators and singleton tuple structure remain
+checked. Include groups reuse the existing sorter only for expected order, so a
+sorting defect can still require a separate targeted check; it cannot hide
+spelling or comment loss.
+
+Exit 0 means all inputs passed, 1 means recorded failures or inventory gaps, and
+2 means invalid command arguments. Timeouts, crashes, encoding errors, data-mode
+model items, parse failures requiring assessment, directives, formatted parse
+errors, preservation and unstable second passes remain distinct. Compiler tests
+with an explicit `!Error` expectation in their opening test block receive a negative-test hint;
+that hint does not establish invalid syntax or excuse a Zincite failure. Inspect
+compiler expectations and known model/data pairings before making that judgment.
+This command reports the current compatibility baseline and makes no fixes.

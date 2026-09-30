@@ -405,6 +405,11 @@ The developer [save-path benchmark](scripts/README.md) records release latency,
 peak child RSS and CPU/allocation evidence separately from behavior tests. Local
 reports stay under ignored `target/benchmarks/` by default.
 
+The developer [full corpus command](scripts/README.md#full-corpus-correctness-check)
+checks the complete published Challenge archive and local model/data tree without
+rewriting originals. Its [baseline](scripts/corpus-baseline.md) records coverage
+and current failures; detailed private reports default to ignored `target/corpus/`.
+
 ## License
 
 Zincite is dual-licensed under [MIT](LICENSE-MIT) or
