@@ -3,8 +3,8 @@
 # Tasks: base
 
 - Total: 77
-- Ready: 8
-- Blocked: 22
+- Ready: 7
+- Blocked: 23
 - Done: 47
 
 | ID | Task | State | Blocked by |
@@ -56,7 +56,7 @@
 | [base-045](tasks/045-measure-complete-model-coverage-for-every-thesis-rule.md) | Measure complete-model coverage for every thesis rule | done | base-037, base-038, base-039, base-040, base-042, base-044, base-041 |
 | [base-046](tasks/046-reduce-repeated-layout-measurement-work.md) | Reduce repeated layout measurement work | done | base-022, base-027 |
 | [base-047](tasks/047-reduce-the-live-syntax-and-formatting-working-set.md) | Reduce the live syntax and formatting working set | done | base-022 |
-| [base-048](tasks/048-verify-and-document-an-unobtrusive-save-command.md) | Verify and document an unobtrusive save command | ready | base-046, base-047 |
+| [base-048](tasks/048-verify-and-document-an-unobtrusive-save-command.md) | Verify and document an unobtrusive save command | blocked | base-046, base-047, base-077 |
 | [base-049](tasks/049-measure-batch-and-semantic-lint-speed-and-memory.md) | Measure batch and semantic-lint speed and memory | ready | base-022, base-029, base-045 |
 | [base-050](tasks/050-verify-corpus-processing-and-full-thesis-lint-coverage.md) | Verify corpus processing and full thesis lint coverage | blocked | base-028, base-045, base-026, base-029, base-048, base-049, base-075, base-076 |
 | [base-051](tasks/051-reduce-measured-punctuation-dispatch-cost-in-the-lexer.md) | Reduce measured punctuation dispatch cost in the lexer | done | — |

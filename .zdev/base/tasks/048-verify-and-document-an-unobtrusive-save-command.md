@@ -7,7 +7,7 @@ status = "open"
 complexity = "standard"
 afk = true
 priority = "normal"
-blocked_by = ["base-046", "base-047"]
+blocked_by = ["base-046", "base-047", "base-077"]
 +++
 # Verify and document an unobtrusive save command
 
