@@ -10,6 +10,11 @@
 //! expressions, callable/annotation declarations with generic types and parameter
 //! defaults, enums and constructors, type aliases and type-inst concatenation,
 //! includes, output items and all solve modes.
+//! Compiler-supported extensions include deprecated function declarations without
+//! `function`, anonymous `_(expression)` constructors in assignments, identifier
+//! equality items without `constraint`, and predicate `ann: name` capture bindings.
+//! These retain their written tokens and expose ordinary callable, call and
+//! constraint nodes, plus a distinct annotation-capture binding in the signature.
 //! Tuple/record types and literals and chained field access share the CST.
 //! Data mode accepts only top-level assignments. Reserved variant_record/case
 //! syntax remains unsupported.
@@ -139,10 +144,14 @@ pub enum NodeKind {
     /// The first child node is the type; later nodes are annotations/initializer.
     Declaration,
     /// Return type child, direct name token, and optional parameter list,
-    /// annotations and body expression.
+    /// annotations and body expression. Deprecated omitted-keyword declarations
+    /// contain no `function` token.
     FunctionDeclaration,
-    /// Direct name token, optional parameter list, annotations and body.
+    /// Direct name token, optional parameter list, annotation capture, annotations and body.
     PredicateDeclaration,
+    /// Written `ann`, colon and direct binding name; captures contextual annotations
+    /// in a predicate signature, separate from its formal ParameterList.
+    AnnotationCapture,
     /// Direct name token, optional parameter list, annotations and body.
     TestDeclaration,
     /// Direct name token, optional parameter list and body; no annotations.
@@ -184,6 +193,7 @@ pub enum NodeKind {
     /// Contains the element type.
     ListType,
     Assignment,
+    /// A keyword/optional label and expression, or a keyword-free identifier equality.
     Constraint,
     /// Contains the written string literal path; no include resolution is performed.
     Include,
@@ -202,6 +212,7 @@ pub enum NodeKind {
     UnaryExpression,
     BinaryExpression,
     ParenthesizedExpression,
+    /// A callable invocation or anonymous `_(expression)` enum constructor.
     CallExpression,
     /// Written call name/header tokens, an ordered generator list, then a
     /// parenthesized body expression.

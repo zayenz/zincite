@@ -4,8 +4,8 @@
 
 - Total: 79
 - Ready: 7
-- Blocked: 23
-- Done: 49
+- Blocked: 22
+- Done: 50
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -34,7 +34,7 @@
 | [base-023](tasks/023-establish-a-repeatable-full-corpus-check.md) | Establish a repeatable full-corpus check | done | — |
 | [base-024](tasks/024-accept-compiler-supported-source-forms-found-in-models.md) | Accept compiler-supported source forms found in models | done | base-023 |
 | [base-025](tasks/025-support-unnamed-and-annotated-library-parameters.md) | Support unnamed and annotated library parameters | done | base-023, base-024 |
-| [base-026](tasks/026-classify-remaining-historical-and-library-syntax-gaps.md) | Classify remaining historical and library syntax gaps | blocked | base-025, base-052, base-053 |
+| [base-026](tasks/026-classify-remaining-historical-and-library-syntax-gaps.md) | Classify remaining historical and library syntax gaps | ready | base-025, base-052, base-053 |
 | [base-027](tasks/027-stabilise-expression-wrapping-and-continuation-indentation.md) | Stabilise expression wrapping and continuation indentation | done | base-023 |
 | [base-028](tasks/028-check-formatter-preservation-across-the-expanded-corpus.md) | Check formatter preservation across the expanded corpus | done | base-025, base-027 |
 | [base-029](tasks/029-accept-directories-for-linting-and-formatter-checks.md) | Accept directories for linting and formatter checks | done | — |
@@ -61,7 +61,7 @@
 | [base-050](tasks/050-verify-corpus-processing-and-full-thesis-lint-coverage.md) | Verify corpus processing and full thesis lint coverage | blocked | base-028, base-045, base-026, base-029, base-048, base-049, base-075, base-076, base-078, base-079 |
 | [base-051](tasks/051-reduce-measured-punctuation-dispatch-cost-in-the-lexer.md) | Reduce measured punctuation dispatch cost in the lexer | done | — |
 | [base-052](tasks/052-accept-compiler-supported-form-feed-layout-and-escaped-singl.md) | Accept compiler-supported form-feed layout and escaped single quotes | done | — |
-| [base-053](tasks/053-accept-the-four-remaining-compiler-supported-item-and-callab.md) | Accept the four remaining compiler-supported item and callable families | ready | — |
+| [base-053](tasks/053-accept-the-four-remaining-compiler-supported-item-and-callab.md) | Accept the four remaining compiler-supported item and callable families | done | — |
 | [base-054](tasks/054-describe-lint-families-and-capabilities-in-one-rule-catalogu.md) | Describe lint families and capabilities in one rule catalogue | ready | base-030 |
 | [base-055](tasks/055-resolve-rule-families-and-per-root-lint-configuration.md) | Resolve rule families and per-root lint configuration | blocked | base-054 |
 | [base-056](tasks/056-support-personal-presets-and-typed-rule-parameters.md) | Support personal presets and typed rule parameters | blocked | base-055 |

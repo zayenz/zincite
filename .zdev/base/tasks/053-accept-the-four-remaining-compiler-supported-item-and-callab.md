@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-053"
 key = "parser-corpus-compatibility"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -28,12 +28,21 @@ Read the area brief and scripts/syntax-corpus-checkpoint.md. scripts/syntax-gap-
 
 ## Done when
 
-- [ ] All four retained reductions and affected files pass parsing with meaningful declaration/expression/signature nodes and exact token/CST coverage.
-- [ ] Formatting retains spelling and reaches stable output for focused new-form examples; naming and constraint-label traversal retain their existing contracts.
-- [ ] Nearby invalid forms remain diagnosed, accepted extensions are documented accurately, and all affected records are reconciled without excluding existing formatter failures.
+- [x] All four retained reductions and affected files pass parsing with meaningful declaration/expression/signature nodes and exact token/CST coverage.
+- [x] Formatting retains spelling and reaches stable output for focused new-form examples; naming and constraint-label traversal retain their existing contracts.
+- [x] Nearby invalid forms remain diagnosed, accepted extensions are documented accurately, and all affected records are reconciled without excluding existing formatter failures.
 
 ## Validation
 
 - Run required workspace fmt, clippy with -D warnings and tests.
 - Use a few combined public syntax/format/lint checks and original/formatted MiniZinc 2.10.1 model-check-only probes; no solver runs.
 - Recheck affected corpus families read-only and retain remaining failures for the parent's final reconciliation.
+
+## Result
+
+Accept the four demonstrated compiler-supported item and callable families through existing lossless nodes, with a distinct annotation-capture binding and preserved formatter/lint traversal.
+
+Validation:
+
+- Independent Cargo fmt, all-target Clippy with -D warnings, workspace tests and zdev check pass; baseline regression fails before the fix.
+- Four reductions and all 19 affected files pass source fidelity, clean reparse and stable formatting. All 46 compiler checks match expected outcomes: 44 pass and two retain known jobshop2 duplicate-assignment failures. Three negative originals still diagnose and format rejection emits no source; original hashes and modes remain unchanged.

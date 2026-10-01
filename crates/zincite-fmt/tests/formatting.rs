@@ -4,6 +4,25 @@ use zincite_syntax::{TokenKind, parse};
 const MODEL: &str = include_str!("../../../tests/fixtures/scalar.mzn");
 
 #[test]
+fn compiler_item_families_preserve_written_headers_and_stable_structure() {
+    let source = "int: identity(int:x)=x; enum E; E=_(1..2); var int:value; value==identity(1); annotation tag; predicate p() /* Keep  capture */ ann:anns=tag in anns; solve satisfy;";
+    let parsed = parse(source);
+    let formatted = format(&parsed).unwrap();
+    assert!(formatted.contains("int: identity(int: x) = x;"));
+    assert!(formatted.contains("E = _(1 .. 2);"));
+    assert!(formatted.contains("value == identity(1);"));
+    assert!(formatted.contains("predicate p() /* Keep  capture */ ann: anns = tag in anns;"));
+    assert!(!formatted.contains("function "));
+    let reparsed = parse(&formatted);
+    assert!(reparsed.diagnostics().is_empty());
+    assert_eq!(
+        structure(parsed.tree(), &parsed),
+        structure(reparsed.tree(), &reparsed)
+    );
+    assert_eq!(format(&reparsed).unwrap(), formatted);
+}
+
+#[test]
 fn include_groups_sort_decoded_paths_with_attached_comments_and_stable_duplicates() {
     let source = r#"% Z  attachment
 include "z.mzn"; % Z  tail

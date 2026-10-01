@@ -200,22 +200,24 @@ fn missing_labels(node: &SyntaxNode, parsed: &ParsedFile, warnings: &mut Vec<Lin
         let labelled = node.children().iter().any(|child| matches!(child,
             SyntaxElement::Token(index) if parsed.tokens()[*index].kind == TokenKind::AnnotationMarker));
         if !labelled {
-            let keyword = node
+            let range = node
                 .children()
                 .iter()
                 .find_map(|child| match child {
                     SyntaxElement::Token(index)
                         if parsed.tokens()[*index].kind == TokenKind::Constraint =>
                     {
-                        Some(&parsed.tokens()[*index])
+                        Some(parsed.tokens()[*index].range.clone())
                     }
                     _ => None,
                 })
-                .expect("constraint nodes contain their keyword");
+                // Keyword-free equality items retain their full expression;
+                // use that range when there is no written constraint keyword.
+                .unwrap_or_else(|| node.child_nodes().next().unwrap().range());
             warnings.push(LintDiagnostic {
                 rule: Rule::MissingConstraintLabel,
                 severity: Severity::Warning,
-                range: keyword.range.clone(),
+                range,
                 message:
                     "consider adding a string label to explain this constraint's modelling intent"
                         .into(),

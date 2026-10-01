@@ -31,6 +31,104 @@ fn items(parsed: &ParsedFile) -> Vec<&SyntaxNode> {
 }
 
 #[test]
+fn compiler_item_families_retain_signatures_expressions_and_data_boundaries() {
+    use zincite_syntax::{FileMode, TokenKind, parse_with_mode};
+    let source = concat!(
+        "int: identity(int: x)=x; enum E; E=_(1..2); var int: value; value == identity(1);",
+        "annotation tag; predicate p() ann: anns=tag in anns; solve satisfy;",
+    );
+    let parsed = parse(source);
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    let nodes = items(&parsed);
+    assert_eq!(nodes[0].kind(), NodeKind::FunctionDeclaration);
+    assert_eq!(
+        nodes[0].child_nodes().next().unwrap().kind(),
+        NodeKind::ScalarType
+    );
+    assert!(
+        nodes[0]
+            .child_nodes()
+            .any(|node| node.kind() == NodeKind::ParameterList)
+    );
+    assert_eq!(
+        nodes[2].child_nodes().next().unwrap().kind(),
+        NodeKind::CallExpression
+    );
+    let equality = nodes[4].child_nodes().next().unwrap();
+    assert_eq!(nodes[4].kind(), NodeKind::Constraint);
+    assert_eq!(equality.kind(), NodeKind::BinaryExpression);
+    assert_eq!(&source[equality.range()], "value == identity(1)");
+    let capture = nodes[6]
+        .child_nodes()
+        .find(|node| node.kind() == NodeKind::AnnotationCapture)
+        .unwrap();
+    assert_eq!(&source[capture.range()], "ann: anns");
+    let name = capture
+        .children()
+        .iter()
+        .find_map(|child| match child {
+            SyntaxElement::Token(i) if parsed.tokens()[*i].kind == TokenKind::Identifier => {
+                Some(&parsed.tokens()[*i])
+            }
+            _ => None,
+        })
+        .unwrap();
+    let start = source.find("anns").unwrap();
+    assert_eq!(name.range, start..start + 4);
+    let mut leaves = Vec::new();
+    collect_leaves(parsed.tree(), &parsed, &mut leaves);
+    assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+    let mut end = 0;
+    for token in parsed.tokens() {
+        assert_eq!(token.range.start, end);
+        end = token.range.end;
+    }
+    assert_eq!(end, source.len());
+    assert_eq!(
+        leaves
+            .iter()
+            .map(|&i| &source[parsed.tokens()[i].range.clone()])
+            .collect::<String>(),
+        source
+    );
+
+    assert!(
+        parse_with_mode("E=_(1..2);", FileMode::Data)
+            .diagnostics()
+            .is_empty()
+    );
+    for model_item in [
+        "int: identity(int: x)=x;",
+        "value == 1;",
+        "predicate p() ann: anns=true;",
+    ] {
+        assert!(
+            !parse_with_mode(model_item, FileMode::Data)
+                .diagnostics()
+                .is_empty()
+        );
+    }
+    for malformed in [
+        "int: f(int:) = 1;",
+        "E=_();",
+        "value ==;",
+        "predicate p() ann: = true;",
+        "int: x=int(1.0);",
+    ] {
+        let parsed = parse(format!("{malformed} int: after=7;"));
+        assert!(!parsed.diagnostics().is_empty(), "{malformed}");
+        assert_eq!(
+            &parsed.source()[items(&parsed).last().unwrap().range()],
+            "int: after=7;"
+        );
+    }
+}
+
+#[test]
 fn scalar_tree_retains_every_token_and_exposes_items_and_atoms() {
     let parsed = parse(MODEL);
     assert!(

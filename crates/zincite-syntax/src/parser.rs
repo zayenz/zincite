@@ -82,6 +82,12 @@ impl Parser<'_> {
                 self.expression(children)?;
                 NodeKind::Assignment
             }
+            // MiniZinc 2.10.1 accepts a keyword-free equality item. Keep the
+            // written binary expression under a constraint, without a synthetic keyword.
+            Some(Identifier | QuotedIdentifier) if self.peek_after(1) == Some(DoubleEqual) => {
+                self.expression(children)?;
+                NodeKind::Constraint
+            }
             Some(Any) if self.peek_after(1) == Some(Colon) => {
                 let start = self.position;
                 let mut type_children = Vec::new();
@@ -91,8 +97,7 @@ impl Parser<'_> {
                     start,
                     type_children,
                 )));
-                self.declaration_tail(children)?;
-                NodeKind::Declaration
+                self.typed_item_tail(children)?
             }
             Some(Enum | Type) => {
                 let keyword = self.peek().unwrap();
@@ -119,8 +124,7 @@ impl Parser<'_> {
             Some(Function | Predicate | Test | Annotation) => return self.callable(children),
             token if token.is_some_and(starts_type) => {
                 children.push(SyntaxElement::Node(self.type_inst()?));
-                self.declaration_tail(children)?;
-                NodeKind::Declaration
+                self.typed_item_tail(children)?
             }
             Some(Constraint) => {
                 self.bump(children);
@@ -284,9 +288,17 @@ impl Parser<'_> {
         Ok(())
     }
 
-    fn declaration_tail(&mut self, children: &mut Vec<SyntaxElement>) -> Result<(), &'static str> {
+    fn typed_item_tail(
+        &mut self,
+        children: &mut Vec<SyntaxElement>,
+    ) -> Result<NodeKind, &'static str> {
         self.expect(TokenKind::Colon, children, "expected ':' after type")?;
         self.name(children)?;
+        // The compiler still accepts deprecated functions without `function`.
+        // A parameter list distinguishes them from ordinary declarations.
+        if self.peek() == Some(TokenKind::LeftParen) {
+            return self.callable_tail(children, NodeKind::FunctionDeclaration);
+        }
         while self.peek() == Some(TokenKind::AnnotationMarker) {
             self.trivia(children);
             children.push(SyntaxElement::Node(self.annotation()?));
@@ -297,7 +309,7 @@ impl Parser<'_> {
             self.bump(children);
             self.expression(children)?;
         }
-        Ok(())
+        Ok(NodeKind::Declaration)
     }
 
     fn callable(&mut self, children: &mut Vec<SyntaxElement>) -> Result<NodeKind, &'static str> {
@@ -317,11 +329,39 @@ impl Parser<'_> {
             _ => unreachable!(),
         };
         self.name(children)?;
+        self.callable_tail(children, kind)
+    }
+
+    fn callable_tail(
+        &mut self,
+        children: &mut Vec<SyntaxElement>,
+        kind: NodeKind,
+    ) -> Result<NodeKind, &'static str> {
+        use TokenKind::*;
         if self.peek() == Some(LeftParen) {
             self.trivia(children);
             children.push(SyntaxElement::Node(self.parameters()?));
         }
-        if keyword != Annotation {
+        // The demonstrated predicate extension binds its contextual annotations
+        // after the formal parameters; this is not another callable argument.
+        if kind == NodeKind::PredicateDeclaration && self.peek() == Some(Ann) {
+            self.trivia(children);
+            let start = self.position;
+            let mut capture = Vec::new();
+            self.bump(&mut capture);
+            self.expect(
+                Colon,
+                &mut capture,
+                "expected ':' after annotation capture type",
+            )?;
+            self.name(&mut capture)?;
+            children.push(SyntaxElement::Node(self.node(
+                NodeKind::AnnotationCapture,
+                start,
+                capture,
+            )));
+        }
+        if kind != NodeKind::AnnotationDeclaration {
             while self.peek() == Some(AnnotationMarker) {
                 self.trivia(children);
                 children.push(SyntaxElement::Node(self.annotation()?));
@@ -745,6 +785,25 @@ impl Parser<'_> {
             Some(IntegerLiteral | FloatLiteral | Infinity) => {
                 self.bump(&mut children);
                 NodeKind::Expression
+            }
+            Some(Anonymous)
+                if grammar == Grammar::General && self.peek_after(1) == Some(LeftParen) =>
+            {
+                // Anonymous enum constructors also occur in assignment/data
+                // expressions, not just in an enum declaration's definition.
+                self.bump(&mut children);
+                self.expect(
+                    LeftParen,
+                    &mut children,
+                    "expected '(' after enum constructor",
+                )?;
+                self.expression(&mut children)?;
+                self.expect(
+                    RightParen,
+                    &mut children,
+                    "expected ')' after enum constructor expression",
+                )?;
+                NodeKind::CallExpression
             }
             Some(StringLiteral | True | False | Anonymous | Absent)
                 if grammar != Grammar::Numeric =>

@@ -26,6 +26,7 @@ pub(super) fn check_names(
         | NodeKind::PredicateDeclaration
         | NodeKind::TestDeclaration
         | NodeKind::AnnotationDeclaration
+        | NodeKind::AnnotationCapture
         | NodeKind::Parameter
         | NodeKind::RecordField
         | NodeKind::ArrayIndexBinding

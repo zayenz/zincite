@@ -2,6 +2,40 @@ use zincite_lint::{Rule, Severity, lint};
 use zincite_syntax::parse;
 
 #[test]
+fn compiler_item_families_keep_binding_names_labels_and_suppressions() {
+    let source = concat!(
+        "int: BadFunction(int: BadParameter)=BadParameter; enum E; E=_(1..2);",
+        "annotation tag; predicate good() ann: BadCapture=tag in BadCapture;",
+        "var int: value; value == BadFunction(1);\n",
+        "% zincite-lint: ignore missing-constraint-label\n",
+        "value == 2;\n",
+        "% zincite-lint: ignore naming\n",
+        "predicate Suppressed() ann: SuppressedCapture=tag in SuppressedCapture;",
+        "solve satisfy;",
+    );
+    let parsed = parse(source);
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    let warnings = lint(&parsed).unwrap();
+    let names = warnings
+        .iter()
+        .filter(|warning| warning.rule == Rule::Naming)
+        .map(|warning| &source[warning.range.clone()])
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["BadFunction", "BadParameter", "BadCapture"]);
+    let labels = warnings
+        .iter()
+        .filter(|warning| warning.rule == Rule::MissingConstraintLabel)
+        .map(|warning| &source[warning.range.clone()])
+        .collect::<Vec<_>>();
+    assert_eq!(labels, ["value == BadFunction(1)"]);
+    assert_eq!(parsed.source(), source);
+}
+
+#[test]
 fn labels_are_direct_and_suppressions_cover_the_next_complete_item() {
     let source = concat!(
         "constraint :: \"explanation\" true;\n",
