@@ -303,7 +303,14 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
     for (selection, expected) in [
         ("default", defaults.to_vec()),
         ("thesis", thesis.to_vec()),
-        ("all", defaults.into_iter().chain(thesis).collect()),
+        (
+            "all",
+            defaults
+                .into_iter()
+                .chain(thesis)
+                .chain(["suspicious-shadowing", "expensive-comprehension"])
+                .collect(),
+        ),
     ] {
         let options = LintOptions::from_selection(selection).unwrap();
         assert_eq!(
@@ -344,7 +351,7 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
         "% zincite-lint: ignore missing-constraint-label\n{source}"
     ));
     assert_eq!(lint_with_options(&disabled, &naming).unwrap().len(), 1);
-    for selection in ["thesis", "all", "search-coverage", "naming,search-coverage"] {
+    for selection in ["thesis", "search-coverage", "naming,search-coverage"] {
         let options = LintOptions::from_selection(selection).unwrap();
         let errors = lint_with_options(&parsed, &options).unwrap_err();
         assert!(errors[0].message.contains("ModelContext"));
@@ -376,6 +383,7 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
         [Rule::MissingConstraintLabel, Rule::Naming]
             .into_iter()
             .chain(Rule::THESIS)
+            .chain(Rule::ADDITIONAL)
             .collect::<Vec<_>>()
     );
     for (legacy, prefixed) in [
@@ -436,7 +444,7 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
     for (source, setting) in [
         ("[other]", "other"),
         ("lint=1", "lint"),
-        ("[lint]\noptions={}", "lint.options"),
+        ("[lint]\noptions={unknown={}}", "lint.options.unknown"),
         ("[lint]\nselect=1", "lint.select"),
         ("[lint]\nignore=[true]", "lint.ignore[0]"),
         (
@@ -459,4 +467,102 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
     let warnings = lint_with_options(&parsed, &options).unwrap();
     assert_eq!(warnings.len(), 1);
     assert_eq!(warnings[0].rule, Rule::MissingConstraintLabel);
+}
+
+#[test]
+fn personal_presets_merge_typed_options_and_reject_ambiguous_or_invalid_settings() {
+    use zincite_lint::settings::{LintSettings, RuleOptions};
+    let settings = LintSettings::from_toml(
+        r#"
+        [lint]
+        select = ["preset:personal"]
+        extend-select = ["missing-constraint-label"]
+        [lint.presets.personal]
+        select = ["family:style", "family:performance"]
+        ignore = ["naming", "expensive-comprehension"]
+        [lint.presets.personal.options.suspicious-shadowing]
+        ignore-names = ["i", "j"]
+        [lint.presets.personal.options.expensive-comprehension]
+        max-candidates = 50000
+        [lint.options.expensive-comprehension]
+        max-candidates = 25000
+    "#,
+    )
+    .unwrap();
+    let effective = settings.resolve().unwrap();
+    assert!(effective.rules.contains(&Rule::ReifiedGlobal));
+    assert!(effective.rules.contains(&Rule::MissingConstraintLabel));
+    assert!(!effective.rules.contains(&Rule::Naming));
+    assert_eq!(effective.parameters.shadowing_ignore_names, ["i", "j"]);
+    assert_eq!(
+        effective.parameters.comprehension_max_candidates.get(),
+        25000
+    );
+    let replaced = settings.resolve_selection(&["naming".into()]).unwrap();
+    assert_eq!(replaced.rules, [Rule::Naming]);
+    assert_eq!(replaced.parameters, effective.parameters);
+    assert_eq!(
+        LintSettings::default().resolve().unwrap().parameters,
+        RuleOptions::default()
+    );
+    assert!(Rule::ADDITIONAL.iter().all(|rule| !rule.is_available()));
+    assert!(
+        zincite_lint::LintOptions::from_selection("all")
+            .unwrap()
+            .check_available()
+            .unwrap_err()
+            .contains("suspicious-shadowing")
+    );
+    // Registered disabled rules accept exact-ID suppressions, without executing them.
+    assert!(
+        lint(&parse(
+            "% zincite-lint: ignore suspicious-shadowing\nint: good=1;"
+        ))
+        .is_ok()
+    );
+    for source in [
+        "[lint.options.expensive-comprehension]\nmax-candidates=0",
+        "[lint.options.expensive-comprehension]\nmax-candidates=-1",
+        "[lint.options.expensive-comprehension]\nmax-candidates=1.5",
+        "[lint.options.suspicious-shadowing]\nignore-names=['i',1]",
+        "[lint.options.suspicious-shadowing]\nunknown=[]",
+        "[lint.presets.default]\nselect=[]",
+        "[lint.presets.naming]\nselect=[]",
+        "[lint.presets.style]\nselect=[]",
+        "[lint.presets.personal]\nselect=['preset:other']\n[lint.presets.other]\nselect=[]",
+        "[lint]\nselect=['preset:a','preset:b']\n[lint.presets.a]\nselect=[]\n[lint.presets.b]\nselect=[]",
+    ] {
+        assert!(
+            LintSettings::from_toml(source)
+                .and_then(|s| s.resolve())
+                .is_err(),
+            "{source}"
+        );
+    }
+    let exclusions = LintSettings::from_toml("[lint]\nselect=['default']\nignore=['preset:a','preset:b']\n[lint.presets.a]\nselect=['naming']\n[lint.presets.b]\nselect=['missing-constraint-label']").unwrap();
+    assert!(exclusions.resolve().unwrap().rules.is_empty());
+    let bundles = LintSettings::from_toml("[lint]\nselect=['preset:a']\n[lint.presets.a]\nselect=['naming']\n[lint.presets.a.options.suspicious-shadowing]\nignore-names=['a']\n[lint.presets.b]\nselect=['naming']\n[lint.presets.b.options.suspicious-shadowing]\nignore-names=['b']").unwrap();
+    assert_eq!(
+        bundles
+            .resolve_selection(&["preset:b".into()])
+            .unwrap()
+            .parameters
+            .shadowing_ignore_names,
+        ["b"]
+    );
+    assert!(
+        bundles
+            .resolve_selection(&["preset:a".into(), "preset:b".into()])
+            .is_err()
+    );
+    let mut explicit = LintSettings::default();
+    explicit.options.shadowing_ignore_names = Some(vec!["ExactName".into()]);
+    assert_eq!(
+        explicit
+            .resolve()
+            .unwrap()
+            .parameters
+            .shadowing_ignore_names,
+        ["ExactName"]
+    );
 }

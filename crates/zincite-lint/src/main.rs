@@ -19,7 +19,7 @@ Discovery skips .git, visits directory symlinks once and sorts directory entries
 Overlapping inputs use the first path to each file.
 .dzn paths use assignment-only data syntax; other paths use model syntax.
 
---rules accepts comma-separated IDs, family:NAME, preset:default|thesis|all,
+--rules accepts comma-separated IDs, family:NAME, preset:NAME,
 or legacy default/thesis/all. Expansion preserves first occurrence and removes duplicates.
 Families are correctness, suspicious, modelling, performance and style.
 Unknown/empty selectors and repeated --rules are errors.
@@ -32,8 +32,13 @@ Absent select uses default; select = [] selects no rules. Extend then ignore; ig
 --config and --isolated are mutually exclusive. Include closures use their root's settings.
 Invalid settings for any root fail before analysis or partial settings output.
 --show-settings prints root labels, settings paths and expanded IDs without reading models/stdin.
-Custom presets, rule options and fixes are not supported yet.
-The thesis preset selects its fourteen catalogue rules; all includes the defaults.
+Personal preset members use existing selectors; they cannot include other personal presets.
+Options merge defaults, the selected personal preset, then lint.options overrides.
+--rules retains configured effective options; a named personal preset selects its own bundle.
+--show-settings also prints exact ignored names and the positive candidate threshold.
+Fixes are not supported yet.
+The thesis preset selects its fourteen rules; all includes every registered rule,
+including unavailable rules that fail execution. Default remains two rules.
 --list-rules lists rule IDs, families, availability, fix support and preset membership.
 --explain RULE describes a rule's purpose, required facts, limitations and options.
 These inspection commands run alone, write to stdout and do not read input.
@@ -90,7 +95,7 @@ fn run() -> Result<u8, String> {
     let Arguments {
         paths,
         stdin_filepath,
-        cli_options,
+        cli_selection,
         configuration,
         show_settings,
         model,
@@ -107,7 +112,12 @@ fn run() -> Result<u8, String> {
             .collect(),
         None => vec![stdin_filepath.as_deref()],
     };
-    let settings = preflight_settings(&anchors, &configuration, cli_options.as_ref())?;
+    let settings = preflight_settings(
+        &anchors,
+        &configuration,
+        cli_selection.as_deref(),
+        !show_settings,
+    )?;
     if show_settings {
         let mut output = io::stdout().lock();
         for (anchor, settings) in anchors.iter().zip(&settings) {
@@ -181,7 +191,7 @@ fn inspect_rules(arguments: &[std::ffi::OsString]) -> Result<u8, String> {
 
 fn write_rule_list(output: &mut impl Write) -> io::Result<()> {
     writeln!(output, "ID\tFamily\tAvailability\tFixes\tPreset\tPurpose")?;
-    for rule in Rule::DEFAULT.into_iter().chain(Rule::THESIS) {
+    for rule in Rule::all() {
         let metadata = rule.metadata();
         writeln!(
             output,
@@ -196,8 +206,10 @@ fn write_rule_list(output: &mut impl Write) -> io::Result<()> {
             metadata.fix_support.as_str(),
             if Rule::DEFAULT.contains(&rule) {
                 "default"
-            } else {
+            } else if Rule::THESIS.contains(&rule) {
                 "thesis"
+            } else {
+                "opt-in"
             },
             metadata.purpose,
         )?;
@@ -227,8 +239,10 @@ fn write_rule_explanation(rule: Rule, output: &mut impl Write) -> io::Result<()>
         "Preset: {}",
         if Rule::DEFAULT.contains(&rule) {
             "default"
-        } else {
+        } else if Rule::THESIS.contains(&rule) {
             "thesis"
+        } else {
+            "opt-in"
         }
     )?;
     writeln!(
@@ -257,7 +271,7 @@ fn write_rule_explanation(rule: Rule, output: &mut impl Write) -> io::Result<()>
 struct Arguments {
     paths: Vec<PathBuf>,
     stdin_filepath: Option<PathBuf>,
-    cli_options: Option<LintOptions>,
+    cli_selection: Option<Vec<String>>,
     configuration: Configuration,
     show_settings: bool,
     model: ModelOptions,
@@ -280,17 +294,26 @@ struct ResolvedSettings {
 fn preflight_settings(
     anchors: &[Option<&Path>],
     configuration: &Configuration,
-    cli_options: Option<&LintOptions>,
+    cli_selection: Option<&[String]>,
+    execute: bool,
 ) -> Result<Vec<ResolvedSettings>, String> {
-    if let Some(options) = cli_options {
-        options
-            .check_available()
-            .map_err(|error| format!("zincite-lint: {error}"))?;
-    }
     let explicit = match configuration {
-        Configuration::Explicit(path) => Some(read_settings(path, cli_options)?),
+        Configuration::Explicit(path) => Some(read_settings(path, cli_selection, execute)?),
         _ => None,
     };
+    if anchors.is_empty() && explicit.is_none() {
+        let defaults = LintSettings::default();
+        let options = match cli_selection {
+            Some(selection) => defaults.resolve_selection(selection),
+            None => defaults.resolve(),
+        }
+        .map_err(|error| format!("zincite-lint: {error}"))?;
+        if execute {
+            options
+                .check_available()
+                .map_err(|error| format!("zincite-lint: {error}"))?;
+        }
+    }
     anchors
         .iter()
         .map(|anchor| {
@@ -301,12 +324,19 @@ fn preflight_settings(
                 && let Some(anchor) = anchor
                 && let Some(path) = nearest_settings(anchor)?
             {
-                return read_settings(&path, cli_options);
+                return read_settings(&path, cli_selection, execute);
             }
-            let options = cli_options.cloned().unwrap_or_default();
-            options
-                .check_available()
-                .map_err(|error| format!("zincite-lint: {error}"))?;
+            let defaults = LintSettings::default();
+            let options = match cli_selection {
+                Some(selection) => defaults.resolve_selection(selection),
+                None => defaults.resolve(),
+            }
+            .map_err(|error| format!("zincite-lint: {error}"))?;
+            if execute {
+                options
+                    .check_available()
+                    .map_err(|error| format!("zincite-lint: {error}"))?;
+            }
             Ok(ResolvedSettings {
                 path: None,
                 options,
@@ -317,17 +347,22 @@ fn preflight_settings(
 
 fn read_settings(
     path: &Path,
-    cli_options: Option<&LintOptions>,
+    cli_selection: Option<&[String]>,
+    execute: bool,
 ) -> Result<ResolvedSettings, String> {
     let source =
         std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
-    let configured = LintSettings::from_toml(&source)
-        .and_then(|settings| settings.resolve())
+    let options = LintSettings::from_toml(&source)
+        .and_then(|settings| match cli_selection {
+            Some(selection) => settings.resolve_selection(selection),
+            None => settings.resolve(),
+        })
         .map_err(|error| format!("{}: {error}", path.display()))?;
-    let options = cli_options.cloned().unwrap_or(configured);
-    options
-        .check_available()
-        .map_err(|error| format!("{}: {error}", path.display()))?;
+    if execute {
+        options
+            .check_available()
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+    }
     Ok(ResolvedSettings {
         path: Some(path.to_path_buf()),
         options,
@@ -386,6 +421,25 @@ fn write_settings(
             .map(|rule| rule.id())
             .collect::<Vec<_>>()
             .join(",")
+    )?;
+    writeln!(
+        output,
+        "suspicious-shadowing.ignore-names: {}",
+        toml::Value::Array(
+            settings
+                .options
+                .parameters
+                .shadowing_ignore_names
+                .iter()
+                .cloned()
+                .map(toml::Value::String)
+                .collect()
+        )
+    )?;
+    writeln!(
+        output,
+        "expensive-comprehension.max-candidates: {}",
+        settings.options.parameters.comprehension_max_candidates
     )
 }
 
@@ -395,14 +449,14 @@ fn parse_arguments(
 ) -> Result<Arguments, String> {
     let mut paths = Vec::new();
     let mut stdin_filepath = None;
-    let mut options = None;
+    let mut rule_selection = None;
     let mut configuration = Configuration::Discover;
     let mut show_settings = false;
     let mut model = ModelOptions::default();
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
         if argument == "--rules" {
-            if options.is_some() {
+            if rule_selection.is_some() {
                 return Err("zincite-lint: repeated --rules".into());
             }
             let selection = arguments
@@ -411,10 +465,7 @@ fn parse_arguments(
             let selection = selection
                 .to_str()
                 .ok_or("zincite-lint: rule selection must be UTF-8")?;
-            options = Some(
-                LintOptions::from_selection(selection)
-                    .map_err(|message| format!("zincite-lint: {message}"))?,
-            );
+            rule_selection = Some(selection.split(',').map(str::to_owned).collect());
         } else if argument == "--config" {
             if !matches!(configuration, Configuration::Discover) {
                 return Err("zincite-lint: use --config or --isolated once, not both".into());
@@ -475,7 +526,7 @@ fn parse_arguments(
     Ok(Arguments {
         paths,
         stdin_filepath,
-        cli_options: options,
+        cli_selection: rule_selection,
         configuration,
         show_settings,
         model,

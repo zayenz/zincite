@@ -28,6 +28,7 @@ fn model(name: &str, source: &str) -> (PathBuf, zincite_lint::ModelContext) {
 fn selected() -> LintOptions {
     LintOptions {
         rules: vec![Rule::UnboundedVariable],
+        ..LintOptions::default()
     }
 }
 #[test]

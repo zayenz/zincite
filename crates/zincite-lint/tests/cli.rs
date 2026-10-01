@@ -35,7 +35,7 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     let list = run(&["--list-rules"], "not valid MiniZinc");
     assert!(list.status.success() && list.stderr.is_empty());
     let list = String::from_utf8(list.stdout).unwrap();
-    assert_eq!(list.lines().count(), 17);
+    assert_eq!(list.lines().count(), 19);
     assert!(list.contains("naming\tstyle\tavailable\tnone\tdefault"));
     assert!(list.contains("search-coverage\tmodelling\tavailable\tnone\tthesis"));
     let explanation = run_with_library(
@@ -80,7 +80,7 @@ fn model_configuration_keeps_syntax_defaults_independent_and_loads_semantic_inpu
         assert_eq!(output.status.code(), Some(0));
         assert!(output.stdout.is_empty() && output.stderr.is_empty());
     }
-    for selection in ["thesis", "all", "naming,search-coverage"] {
+    for selection in ["thesis", "naming,search-coverage"] {
         let output = run_with_library(
             &[
                 "--rules",
@@ -253,7 +253,7 @@ fn directory_inputs_include_hidden_ignored_files_and_continue_after_errors() {
 }
 
 #[test]
-fn rule_selection_preserves_defaults_and_runs_all_catalogue_rules() {
+fn rule_selection_preserves_defaults_and_runs_available_catalogue_rules() {
     let source = "int: BadName = 1; constraint true;";
     let default = run(&[], source);
     assert_eq!(default.status.code(), Some(1));
@@ -275,7 +275,7 @@ fn rule_selection_preserves_defaults_and_runs_all_catalogue_rules() {
     );
     assert_eq!(suppressed.status.code(), Some(0));
     assert!(suppressed.stdout.is_empty() && suppressed.stderr.is_empty());
-    for selection in ["thesis", "all", "search-coverage", "naming,search-coverage"] {
+    for selection in ["thesis", "search-coverage", "naming,search-coverage"] {
         let output = run(&["--rules", selection], "");
         assert_eq!(output.status.code(), Some(0));
         assert!(output.stdout.is_empty());
@@ -957,7 +957,7 @@ fn search_selection_keeps_completion_suppression_and_status_precedence() {
         "{diagnostics}"
     );
     assert_eq!(diagnostics.matches("analysis limitation:").count(), 0);
-    for selection in ["thesis", "all"] {
+    for selection in ["thesis", "default,thesis"] {
         let mut selected = args;
         selected[1] = selection;
         let output = run(&selected, "");
@@ -1083,7 +1083,7 @@ fn nearest_settings_cli_replacement_and_stdin_anchors_share_one_preflight() {
     assert_eq!(
         String::from_utf8(shown.stdout).unwrap(),
         format!(
-            "Root: {}\nSettings: {}\nRules: missing-constraint-label\n",
+            "Root: {}\nSettings: {}\nRules: missing-constraint-label\nsuspicious-shadowing.ignore-names: []\nexpensive-comprehension.max-candidates: 1000000\n",
             unsaved.display(),
             nested_config.canonicalize().unwrap().display()
         )
@@ -1154,5 +1154,89 @@ fn invalid_configuration_preflights_all_roots_and_empty_input_directories() {
     ] {
         assert_eq!(run(&args, "").status.code(), Some(2));
     }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn personal_settings_inspect_effective_options_and_keep_cli_replacement_read_only() {
+    let dir = std::env::temp_dir().join(format!("zincite-personal-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let config = dir.join("zincite.toml");
+    std::fs::write(
+        &config,
+        r#"
+        [lint]
+        select=["preset:personal"]
+        [lint.presets.personal]
+        select=["family:style", "family:performance"]
+        ignore=["naming", "expensive-comprehension"]
+        [lint.presets.personal.options.suspicious-shadowing]
+        ignore-names=['quote"name', 'back\slash', '名字']
+        [lint.presets.personal.options.expensive-comprehension]
+        max-candidates=50000
+        [lint.options.expensive-comprehension]
+        max-candidates=25000
+    "#,
+    )
+    .unwrap();
+    let args = ["--config", config.to_str().unwrap(), "--show-settings"];
+    let output = run(&args, "invalid input");
+    assert_eq!(output.status.code(), Some(0));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("Rules: missing-constraint-label,compact-if"));
+    let names = text
+        .lines()
+        .find_map(|line| line.strip_prefix("suspicious-shadowing.ignore-names: "))
+        .unwrap();
+    let names = format!("names={names}").parse::<toml::Table>().unwrap();
+    assert_eq!(
+        names["names"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["quote\"name", "back\\slash", "名字"]
+    );
+    assert!(text.contains("expensive-comprehension.max-candidates: 25000"));
+    let replaced = run(
+        &[args[0], args[1], args[2], "--rules", "naming"],
+        "invalid input",
+    );
+    assert_eq!(replaced.status.code(), Some(0));
+    let text = String::from_utf8(replaced.stdout).unwrap();
+    assert!(text.contains("Rules: naming\n") && text.contains("max-candidates: 25000"));
+    let replaced_names = text
+        .lines()
+        .find_map(|line| line.strip_prefix("suspicious-shadowing.ignore-names: "))
+        .unwrap();
+    assert_eq!(
+        format!("names={replaced_names}")
+            .parse::<toml::Table>()
+            .unwrap(),
+        names
+    );
+    let unavailable = run(&["--rules", "all"], "");
+    assert_eq!(unavailable.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&unavailable.stderr).contains("unavailable rules"));
+    let inspect = run(
+        &["--show-settings", "--rules", "suspicious-shadowing"],
+        "invalid input",
+    );
+    assert_eq!(inspect.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&inspect.stdout).contains("Rules: suspicious-shadowing"));
+    std::fs::write(
+        &config,
+        "[lint]\nselect=[]\n[lint.options.expensive-comprehension]\nmax-candidates=0",
+    )
+    .unwrap();
+    let invalid = run(&args, "");
+    assert_eq!(invalid.status.code(), Some(2));
+    assert!(invalid.stdout.is_empty());
+    let error = String::from_utf8(invalid.stderr).unwrap();
+    assert!(
+        error.contains(config.to_str().unwrap())
+            && error.contains("lint.options.expensive-comprehension.max-candidates")
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }

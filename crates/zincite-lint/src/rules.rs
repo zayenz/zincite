@@ -95,6 +95,8 @@ pub enum Rule {
     UnusedDeclaration,
     DecisionVariableGenerator,
     DecisionVariableCondition,
+    SuspiciousShadowing,
+    ExpensiveComprehension,
 }
 
 impl Rule {
@@ -115,6 +117,16 @@ impl Rule {
         Self::DecisionVariableGenerator,
         Self::DecisionVariableCondition,
     ];
+
+    pub const ADDITIONAL: [Self; 2] = [Self::SuspiciousShadowing, Self::ExpensiveComprehension];
+
+    /// Every registered rule, including unavailable rules; built-in presets stay fixed.
+    pub fn all() -> impl Iterator<Item = Self> {
+        Self::DEFAULT
+            .into_iter()
+            .chain(Self::THESIS)
+            .chain(Self::ADDITIONAL)
+    }
 
     /// Return the single catalogue entry for this rule. Extend this match when
     /// registering a rule; CLI explanations and the existing accessors use it.
@@ -232,6 +244,20 @@ impl Rule {
                 "Lexical bindings, resolved callable types and condition/filter instantiation.",
                 "Decisions appearing only in a branch or body are not matches. Parameter-only conditions stay quiet; unknown facts report limitations. Reformulation advice has no solving-speed guarantee.",
             ),
+            Self::SuspiciousShadowing => (
+                "suspicious-shadowing",
+                RuleFamily::Suspicious,
+                "Report binding names that conceal another binding in a surrounding scope.",
+                "Lexical scopes and binding identities.",
+                "Detection is not implemented. ignore-names matches exact binding names, not patterns.",
+            ),
+            Self::ExpensiveComprehension => (
+                "expensive-comprehension",
+                RuleFamily::Performance,
+                "Advise on comprehension candidate-count upper bounds and symbolic expansion structure.",
+                "Iteration bounds, multiplicity and parameter dependence.",
+                "Detection is not implemented. The threshold applies only to known upper bounds; symbolic estimates remain structural advice. An upper bound is potential expansion, not measured runtime or proof of compiler enumeration.",
+            ),
         };
         RuleMetadata {
             id,
@@ -240,10 +266,16 @@ impl Rule {
             requirements,
             limitations,
             requires_model: !Self::DEFAULT.contains(&self),
-            // Every current rule is implemented, with no fix producer or options.
-            available: true,
+            // New parameterized rules are registered before their detection bodies.
+            available: !Self::ADDITIONAL.contains(&self),
             fix_support: FixSupport::None,
-            options: &[],
+            options: match self {
+                Self::SuspiciousShadowing => &["ignore-names: exact binding names; default []"],
+                Self::ExpensiveComprehension => &[
+                    "max-candidates: positive integer; default 1000000 (TOML range 1..=9223372036854775807)",
+                ],
+                _ => &[],
+            },
         }
     }
 
@@ -252,10 +284,7 @@ impl Rule {
     }
 
     pub fn from_id(id: &str) -> Option<Self> {
-        Self::DEFAULT
-            .into_iter()
-            .chain(Self::THESIS)
-            .find(|rule| rule.id() == id)
+        Self::all().find(|rule| rule.id() == id)
     }
 
     /// Registration alone does not mean a rule has an implementation.
@@ -273,12 +302,14 @@ impl Rule {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LintOptions {
     pub rules: Vec<Rule>,
+    pub parameters: crate::settings::RuleOptions,
 }
 
 impl Default for LintOptions {
     fn default() -> Self {
         Self {
             rules: Rule::DEFAULT.to_vec(),
+            parameters: crate::settings::RuleOptions::default(),
         }
     }
 }
@@ -294,6 +325,7 @@ impl LintOptions {
     pub fn from_selection(selection: &str) -> Result<Self, String> {
         Ok(Self {
             rules: expand_selectors(selection.split(','))?,
+            ..Self::default()
         })
     }
 
@@ -326,9 +358,7 @@ pub(crate) fn expand_selectors<'a>(
         let expanded = if let Some(name) = selector.strip_prefix("family:") {
             let family = RuleFamily::from_name(name)
                 .ok_or_else(|| format!("unknown rule family '{name}'"))?;
-            Rule::DEFAULT
-                .into_iter()
-                .chain(Rule::THESIS)
+            Rule::all()
                 .filter(|rule| rule.metadata().family == family)
                 .collect()
         } else {
@@ -336,7 +366,7 @@ pub(crate) fn expand_selectors<'a>(
             let preset = match name {
                 "default" => Some(Rule::DEFAULT.to_vec()),
                 "thesis" => Some(Rule::THESIS.to_vec()),
-                "all" => Some(Rule::DEFAULT.into_iter().chain(Rule::THESIS).collect()),
+                "all" => Some(Rule::all().collect()),
                 _ => None,
             };
             let exact = Rule::from_id(selector);

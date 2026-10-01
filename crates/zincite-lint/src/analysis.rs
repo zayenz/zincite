@@ -109,6 +109,7 @@ pub fn analyze_file(
             .copied()
             .filter(|rule| !rule.requires_model())
             .collect(),
+        parameters: options.parameters.clone(),
     };
     match lint_with_options(parsed, &syntax_options) {
         Ok(warnings) => {
