@@ -21,6 +21,7 @@ mod guarded;
 mod instantiations;
 mod model;
 mod naming;
+mod optional;
 mod rules;
 mod search;
 mod search_coverage;
@@ -65,12 +66,17 @@ pub use global_uses::{GlobalUse, GlobalUseFacts, GlobalUseOutcome, resolve_globa
 pub use guarded::{
     GuardActivation, GuardAssumption, GuardAssumptionKind, GuardContext, GuardEvaluation,
     GuardObligation, GuardObligationKind, GuardedExpression, GuardedFacts, GuardedLimitation,
-    GuardedOutcome, resolve_guarded_facts,
+    GuardedOutcome, resolve_guarded_facts, resolve_guarded_facts_with_options,
 };
 pub use instantiations::{ExpressionInstantiation, InstantiationFacts, resolve_instantiations};
 pub use model::{
     FileId, IncludeEdge, ModelContext, ModelFile, ModelOptions, SourceDiagnostic, SourceKind,
     SourceLocation, load_model,
+};
+pub use optional::{
+    Cardinality, CollectionCardinality, OptionalCollection, OptionalCondition,
+    OptionalConditionKind, OptionalDeclaration, OptionalExpression, OptionalFacts,
+    OptionalLimitation, Presence, resolve_optional_facts,
 };
 pub use rules::{FixSupport, LintOptions, Rule, RuleFamily, RuleMetadata};
 pub use search::{

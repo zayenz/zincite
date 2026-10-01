@@ -6,9 +6,9 @@ use crate::definitions::{
 };
 use crate::domains::{expression_domain, invariant_integer, same_members, tokens};
 use crate::{
-    BindingFacts, CallableFacts, DeclarationId, DefinitionEnforcement, Domain, DomainFacts, FileId,
-    Instantiation, InstantiationFacts, ModelContext, NumericFacts, NumericOutcome, SourceLocation,
-    TypeKind,
+    BindingFacts, CallableFacts, Cardinality, DeclarationId, DefinitionEnforcement, Domain,
+    DomainFacts, FileId, Instantiation, InstantiationFacts, ModelContext, NumericFacts,
+    NumericOutcome, OptionalFacts, Presence, SourceLocation, TypeKind,
 };
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 
@@ -34,6 +34,8 @@ pub enum GuardEvaluation {
     DecisionBranch,
     AssertionReturn,
     GeneratorBody,
+    /// Right operand evaluated when default needs its fallback.
+    DefaultFallback,
 }
 #[derive(Clone, Debug)]
 pub enum GuardAssumptionKind {
@@ -68,6 +70,8 @@ pub struct GuardContext {
 #[derive(Clone, Debug)]
 pub enum GuardObligationKind {
     Nonzero,
+    /// deopt requires a present value, separately from operand evaluation.
+    Presence,
     Index {
         array: DeclarationId,
         dimension: usize,
@@ -103,6 +107,11 @@ pub struct GuardedExpression {
     /// even while its numeric operand has a refuted obligation.
     pub definedness: GuardedOutcome,
     pub numeric: Option<NumericOutcome>,
+    /// Intrinsic presence when defined, supplied only by the option-aware entry.
+    pub invariant_presence: Option<Presence>,
+    /// Presence under this expression's explicit local/global assumptions.
+    /// This does not discharge its operand evaluation or whole definedness.
+    pub presence: Option<Presence>,
     pub context: GuardContext,
 }
 #[derive(Clone, Debug)]
@@ -166,6 +175,56 @@ pub fn resolve_guarded_facts(
     domains: &DomainFacts,
     numeric: &NumericFacts,
 ) -> GuardedFacts {
+    interpret(
+        context,
+        bindings,
+        calls,
+        instantiations,
+        domains,
+        numeric,
+        None,
+    )
+}
+
+/// Apply actual guards to the same-context OptionalFacts prerequisite. Call
+/// bindings/callables/instantiations/domains/definitions/numeric first, then
+/// resolve_optional_facts, then this entry. The original entry remains useful
+/// without option facts and retains its existing subset.
+///
+/// Supports resolved core occurs/absent/deopt, scalar default (absence and
+/// undefinedness capture), integer optional +/* absence identities, and present
+/// counts for min/max/sum/product/forall/exists. Other optional operators and
+/// arbitrary callable bodies remain located limitations. A deopt obligation
+/// retains its invariant outcome even in a locally proven or inactive branch.
+/// Presence always means presence when defined; it is not a totality proof.
+pub fn resolve_guarded_facts_with_options(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &CallableFacts,
+    instantiations: &InstantiationFacts,
+    domains: &DomainFacts,
+    numeric: &NumericFacts,
+    options: &OptionalFacts,
+) -> GuardedFacts {
+    interpret(
+        context,
+        bindings,
+        calls,
+        instantiations,
+        domains,
+        numeric,
+        Some(options),
+    )
+}
+fn interpret<'a>(
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    calls: &'a CallableFacts,
+    instantiations: &'a InstantiationFacts,
+    domains: &'a DomainFacts,
+    numeric: &'a NumericFacts,
+    options: Option<&'a OptionalFacts>,
+) -> GuardedFacts {
     let mut producer = Producer {
         context,
         bindings,
@@ -173,6 +232,7 @@ pub fn resolve_guarded_facts(
         instantiations,
         domains,
         numeric,
+        options,
         facts: GuardedFacts::default(),
     };
     let mut global = Vec::new();
@@ -235,6 +295,7 @@ struct Evaluation {
     numeric: Option<NumericOutcome>,
     /// A failed assertion aborts rather than becoming relational false.
     assertion: bool,
+    presence: Option<Presence>,
 }
 impl Evaluation {
     fn total() -> Self {
@@ -243,6 +304,7 @@ impl Evaluation {
             truth: None,
             numeric: None,
             assertion: false,
+            presence: None,
         }
     }
 }
@@ -253,6 +315,7 @@ struct Producer<'a> {
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     numeric: &'a NumericFacts,
+    options: Option<&'a OptionalFacts>,
     facts: GuardedFacts,
 }
 impl<'a> Producer<'a> {
@@ -399,6 +462,27 @@ impl<'a> Producer<'a> {
                     self.assume(out, file, condition, true, true);
                 }
             }
+            NodeKind::CallExpression
+                if self.options.is_some()
+                    && ["occurs", "absent"]
+                        .iter()
+                        .any(|name| self.optional_call(file, node, name)) =>
+            {
+                self.assume(out, file, node, true, true);
+            }
+            NodeKind::UnaryExpression
+                if self.options.is_some()
+                    && self.operator(file, node) == Some(TokenKind::Not)
+                    && self.core_operator(file, node).is_ok() =>
+            {
+                if let Some(child) = children.first()
+                    && ["occurs", "absent"]
+                        .iter()
+                        .any(|name| self.optional_call(file, unwrap(child), name))
+                {
+                    self.assume(out, file, child, false, true);
+                }
+            }
             NodeKind::CallExpression => {
                 if let Some(id) = resolved_call(self.context, self.calls, file, node)
                     && let Some((f, i, argument)) = transparent_boolean_argument(
@@ -515,7 +599,8 @@ impl<'a> Producer<'a> {
                     });
                 }
                 if self.ty(file, node).is_some_and(|ty| {
-                    crate::value_safety::optional(ty) || matches!(ty.kind, TypeKind::Unknown(_))
+                    self.options.is_none() && crate::value_safety::optional(ty)
+                        || matches!(ty.kind, TypeKind::Unknown(_))
                 }) {
                     self.unsupported(
                         file,
@@ -556,6 +641,10 @@ impl<'a> Producer<'a> {
                 combine(&values)
             }
         };
+        let invariant_presence = self.intrinsic_presence(file, node);
+        if result.presence.is_none() && self.options.is_some() {
+            result.presence = Some(self.scoped_presence(file, node, &scope));
+        }
         let raw = result.definedness.clone();
         if is_boolean && !result.assertion {
             match &raw {
@@ -585,6 +674,8 @@ impl<'a> Producer<'a> {
                 raw_definedness: raw,
                 definedness: result.definedness.clone(),
                 numeric: result.numeric.clone(),
+                invariant_presence,
+                presence: result.presence.clone(),
                 context: self.context(&scope),
             });
         }
@@ -676,6 +767,9 @@ impl<'a> Producer<'a> {
             if selected.iter().any(|v| v.numeric != result.numeric) {
                 result.numeric = None;
             }
+            if selected.iter().any(|v| v.presence != result.presence) {
+                result.presence = self.intrinsic_presence(file, node);
+            }
             result.assertion = selected.iter().any(|v| v.assertion);
             result
         };
@@ -719,6 +813,9 @@ impl<'a> Producer<'a> {
         scope: &Scope<'a>,
     ) -> Evaluation {
         let children: Vec<_> = node.child_nodes().collect();
+        if self.options.is_some() && self.operator(file, node) == Some(TokenKind::Default) {
+            return self.default_value(file, item, node, scope);
+        }
         let mut own = scope.clone();
         if self.operator(file, node) != Some(TokenKind::And) {
             own.enforcement = DefinitionEnforcement::Conditional;
@@ -737,6 +834,51 @@ impl<'a> Producer<'a> {
         let Some(operator) = self.operator(file, node) else {
             return self.unsupported(file, node, "operator syntax is unavailable");
         };
+        if self.options.is_some()
+            && children
+                .iter()
+                .any(|n| self.ty(file, n).is_some_and(|t| t.optional))
+        {
+            if !matches!(operator, TokenKind::Plus | TokenKind::Star)
+                || children.len() != 2
+                || !self.ty(file, node).is_some_and(|t| t.kind == TypeKind::Int)
+            {
+                return self.unsupported(
+                    file,
+                    node,
+                    "optional operator is outside guarded interpretation",
+                );
+            }
+            result.numeric = None;
+            let identity = if operator == TokenKind::Plus { 0 } else { 1 };
+            let exact: Vec<_> = children
+                .iter()
+                .zip(&values)
+                .map(|(n, v)| {
+                    if self.scoped_presence(file, n, scope) == Presence::Absent {
+                        Some(identity)
+                    } else {
+                        match v.numeric {
+                            Some(NumericOutcome::Exact(n)) => Some(n),
+                            _ => None,
+                        }
+                    }
+                })
+                .collect();
+            if let [Some(a), Some(b)] = exact.as_slice() {
+                let value = if operator == TokenKind::Plus {
+                    a.checked_add(*b)
+                } else {
+                    a.checked_mul(*b)
+                };
+                let Some(value) = value else {
+                    return self.unsupported(file, node, "checked optional arithmetic overflow");
+                };
+                result.numeric = Some(NumericOutcome::Exact(value));
+            }
+            result.presence = Some(Presence::Present);
+            return result;
+        }
         if matches!(operator, TokenKind::Div | TokenKind::Mod) && children.len() == 2 {
             let invariant = self.nonzero(file, children[1]);
             let outcome = if invariant == GuardedOutcome::Unknown
@@ -889,6 +1031,13 @@ impl<'a> Producer<'a> {
                 "named callable arguments are outside guarded interpretation",
             );
         }
+        if self.options.is_some()
+            && ["occurs", "absent", "deopt"]
+                .iter()
+                .any(|name| self.optional_call(file, node, name))
+        {
+            return self.option_call(file, item, node, scope);
+        }
         if self.core_call(file, node, "assert") && matches!(children.len(), 2 | 3) {
             let condition = self.walk(file, item, children[0], scope.clone());
             let invariant = self.invariant_truth(file, children[0]);
@@ -966,9 +1115,15 @@ impl<'a> Producer<'a> {
                     "aggregate arity is outside supported interpretation",
                 );
             }
-            let nonempty = self.nonempty(file, children[0]);
+            let nonempty = self
+                .collection_nonempty(file, children[0], name)
+                .unwrap_or_else(|| self.nonempty(file, children[0]));
             if matches!(name, "min" | "max") {
                 let scoped = if nonempty == GuardedOutcome::Unknown
+                    && (self.options.is_none()
+                        || !self
+                            .ty(file, children[0])
+                            .is_some_and(crate::value_safety::optional))
                     && self.guarded_nonempty(file, children[0], scope)
                 {
                     GuardedOutcome::Proven
@@ -1103,10 +1258,23 @@ impl<'a> Producer<'a> {
         }
         let mut result = combine(&inputs);
         if own.activation != GuardActivation::Inactive {
-            result.definedness = conjoin(&result.definedness, &combine(&bodies).definedness);
+            let body = if self.options.is_some() {
+                bodies
+                    .iter()
+                    .cloned()
+                    .map(|b| evaluated_when(b, own.activation))
+                    .collect::<Vec<_>>()
+            } else {
+                bodies.clone()
+            };
+            result.definedness = conjoin(&result.definedness, &combine(&body).definedness);
         }
         if node.kind() == NodeKind::GeneratorCallExpression {
-            if empty || own.activation == GuardActivation::Inactive {
+            let present_nonempty = self.collection_nonempty(file, node, "sum");
+            if empty
+                || own.activation == GuardActivation::Inactive
+                || present_nonempty == Some(GuardedOutcome::Refuted)
+            {
                 if core_forall {
                     result.truth = Some(GuardedOutcome::Proven);
                 } else if self.core_call(file, node, "exists") {
@@ -1118,7 +1286,9 @@ impl<'a> Producer<'a> {
                 }
             }
             if self.core_call(file, node, "min") || self.core_call(file, node, "max") {
-                let outcome = if empty || own.activation == GuardActivation::Inactive {
+                let outcome = if let Some(present) = present_nonempty {
+                    present
+                } else if empty || own.activation == GuardActivation::Inactive {
                     GuardedOutcome::Refuted
                 } else if filtered || own.activation == GuardActivation::Conditional {
                     GuardedOutcome::Unknown
@@ -1159,6 +1329,241 @@ impl<'a> Producer<'a> {
             }
         }
         result
+    }
+    fn optional_call(&self, file: FileId, node: &SyntaxNode, name: &str) -> bool {
+        crate::optional::core_optional_call(
+            self.context,
+            self.bindings,
+            self.calls,
+            file,
+            node,
+            name,
+        )
+    }
+    fn intrinsic_presence(&self, file: FileId, node: &SyntaxNode) -> Option<Presence> {
+        self.options
+            .and_then(|facts| facts.expression(file, &self.location(file, node)))
+            .map(|e| e.presence.clone())
+    }
+    fn presence_condition(
+        &self,
+        file: FileId,
+        node: &'a SyntaxNode,
+        expected: bool,
+    ) -> Option<(&'a SyntaxNode, bool)> {
+        let node = unwrap(node);
+        if node.kind() == NodeKind::UnaryExpression
+            && self.operator(file, node) == Some(TokenKind::Not)
+            && self.core_operator(file, node).is_ok()
+        {
+            return self.presence_condition(file, node.child_nodes().next()?, !expected);
+        }
+        for name in ["occurs", "absent"] {
+            if self.optional_call(file, node, name) {
+                return node
+                    .child_nodes()
+                    .next()
+                    .map(|arg| (arg, expected == (name == "occurs")));
+            }
+        }
+        None
+    }
+    fn scoped_presence(&self, file: FileId, node: &SyntaxNode, scope: &Scope<'a>) -> Presence {
+        let intrinsic = self
+            .intrinsic_presence(file, node)
+            .unwrap_or(Presence::Unknown);
+        if matches!(
+            intrinsic,
+            Presence::Present | Presence::Absent | Presence::Unsupported(_)
+        ) {
+            return intrinsic;
+        }
+        for assumption in &scope.assumptions {
+            if let Assumption::Condition {
+                file: f,
+                node: condition,
+                expected,
+                ..
+            } = assumption
+                && !contains_subject(*f, condition, file, node)
+                && let Some((arg, present)) = self.presence_condition(*f, condition, *expected)
+                && self.same(file, node, *f, arg)
+            {
+                return if present {
+                    Presence::Present
+                } else {
+                    Presence::Absent
+                };
+            }
+        }
+        intrinsic
+    }
+    fn option_call(
+        &mut self,
+        file: FileId,
+        item: usize,
+        node: &'a SyntaxNode,
+        scope: &Scope<'a>,
+    ) -> Evaluation {
+        let children: Vec<_> = node.child_nodes().collect();
+        if children.len() != 1 {
+            return self.unsupported(file, node, "option callable arity is unsupported");
+        }
+        let arg = children[0];
+        let mut own = scope.clone();
+        own.enforcement = DefinitionEnforcement::Conditional;
+        let mut result = self.walk(file, item, arg, own);
+        let presence = self.scoped_presence(file, arg, scope);
+        if self.optional_call(file, node, "deopt") {
+            let invariant = presence_outcome(
+                &self
+                    .intrinsic_presence(file, arg)
+                    .unwrap_or(Presence::Unknown),
+            );
+            let outcome = presence_outcome(&presence);
+            self.obligation(
+                file,
+                node,
+                arg,
+                GuardObligationKind::Presence,
+                (invariant, outcome.clone()),
+                scope,
+            );
+            result.definedness = conjoin(&result.definedness, &outcome);
+            result.truth = None;
+        } else {
+            let truth = presence_outcome(&presence);
+            result.truth = Some(if self.optional_call(file, node, "absent") {
+                negate(truth)
+            } else {
+                truth
+            });
+            result.numeric = None;
+        }
+        result.presence = Some(Presence::Present);
+        result
+    }
+    fn default_value(
+        &mut self,
+        file: FileId,
+        item: usize,
+        node: &'a SyntaxNode,
+        scope: &Scope<'a>,
+    ) -> Evaluation {
+        let children: Vec<_> = node.child_nodes().collect();
+        if children.len() != 2 || self.core_operator(file, node).is_err() {
+            for child in children {
+                self.walk(file, item, child, scope.clone());
+            }
+            return self.unsupported(
+                file,
+                node,
+                "default requires its resolved scalar core overload",
+            );
+        }
+        if self
+            .ty(file, node)
+            .is_some_and(|t| matches!(t.kind, TypeKind::Array { .. } | TypeKind::Set(_)))
+        {
+            for child in children {
+                self.walk(file, item, child, scope.clone());
+            }
+            return self.unsupported(
+                file,
+                node,
+                "structured default is outside guarded interpretation",
+            );
+        }
+        let mut own = scope.clone();
+        own.enforcement = DefinitionEnforcement::Conditional;
+        let left = self.walk(file, item, children[0], own.clone());
+        let presence = left
+            .presence
+            .clone()
+            .unwrap_or_else(|| self.scoped_presence(file, children[0], scope));
+        let use_left = left.definedness == GuardedOutcome::Proven && presence == Presence::Present;
+        let fallback = left.definedness == GuardedOutcome::Refuted || presence == Presence::Absent;
+        own.evaluation = GuardEvaluation::DefaultFallback;
+        own.activation = if use_left {
+            GuardActivation::Inactive
+        } else if fallback {
+            scope.activation
+        } else {
+            activate(scope.activation, &GuardedOutcome::Unknown, true)
+        };
+        let right = self.walk(file, item, children[1], own);
+        if left.assertion {
+            return self.unsupported(
+                file,
+                node,
+                "default capture of aborting assertion is unsupported",
+            );
+        }
+        // Missing interpretation is not a proved undefined value. An opaque
+        // condition/body may abort; default cannot certify that evaluation.
+        if matches!(left.definedness, GuardedOutcome::Unsupported(_)) {
+            return left;
+        }
+        if use_left {
+            return left;
+        }
+        if fallback {
+            return right;
+        }
+        let mut result = Evaluation::total();
+        // If fallback is defined, either selection returns a defined value.
+        result.definedness = right.definedness.clone();
+        if right.definedness == GuardedOutcome::Refuted {
+            result.definedness = GuardedOutcome::Unknown;
+        }
+        result.presence = Some(
+            if presence == Presence::Present && right.presence == Some(Presence::Present) {
+                Presence::Present
+            } else {
+                self.intrinsic_presence(file, node)
+                    .unwrap_or(Presence::Unknown)
+            },
+        );
+        if left.numeric == right.numeric {
+            result.numeric = left.numeric;
+        }
+        if left.truth == right.truth {
+            result.truth = left.truth;
+        }
+        result.assertion = right.assertion;
+        result
+    }
+    fn collection_nonempty(
+        &self,
+        file: FileId,
+        node: &SyntaxNode,
+        aggregate: &str,
+    ) -> Option<GuardedOutcome> {
+        let options = self.options?;
+        let Some(count) = options.collection(file, &self.location(file, node)) else {
+            return if self
+                .ty(file, node)
+                .is_some_and(crate::value_safety::optional)
+            {
+                Some(GuardedOutcome::Unsupported(
+                    "optional collection count is outside interpretation".into(),
+                ))
+            } else {
+                None
+            };
+        };
+        let count = if matches!(aggregate, "length" | "card") {
+            &count.capacity
+        } else {
+            &count.present
+        };
+        Some(match count {
+            Cardinality::Exact(0) | Cardinality::Bounds { upper: 0, .. } => GuardedOutcome::Refuted,
+            Cardinality::Exact(_) => GuardedOutcome::Proven,
+            Cardinality::Bounds { lower, .. } if *lower > 0 => GuardedOutcome::Proven,
+            Cardinality::Unsupported(reason) => GuardedOutcome::Unsupported(reason.clone()),
+            _ => GuardedOutcome::Unknown,
+        })
     }
     fn obligation(
         &mut self,
@@ -1281,6 +1686,24 @@ impl<'a> Producer<'a> {
                 Some(TokenKind::False) => GuardedOutcome::Refuted,
                 _ => GuardedOutcome::Unknown,
             };
+        }
+        if self.options.is_some() && node.kind() == NodeKind::CallExpression {
+            for name in ["occurs", "absent"] {
+                if self.optional_call(file, node, name)
+                    && let Some(arg) = children.first()
+                {
+                    let outcome = presence_outcome(
+                        &self
+                            .intrinsic_presence(file, arg)
+                            .unwrap_or(Presence::Unknown),
+                    );
+                    return if name == "absent" {
+                        negate(outcome)
+                    } else {
+                        outcome
+                    };
+                }
+            }
         }
         if !matches!(
             node.kind(),
@@ -1943,4 +2366,13 @@ fn contains_subject(
     condition_file == file
         && condition.range().start <= node.range().start
         && condition.range().end >= node.range().end
+}
+
+fn presence_outcome(presence: &Presence) -> GuardedOutcome {
+    match presence {
+        Presence::Present => GuardedOutcome::Proven,
+        Presence::Absent => GuardedOutcome::Refuted,
+        Presence::Unsupported(reason) => GuardedOutcome::Unsupported(reason.clone()),
+        _ => GuardedOutcome::Unknown,
+    }
 }

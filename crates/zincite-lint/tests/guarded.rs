@@ -2,8 +2,9 @@ use std::path::PathBuf;
 use zincite_lint::{
     DefinitionEnforcement, GuardActivation, GuardEvaluation, GuardObligationKind,
     GuardedExpression, GuardedFacts, GuardedOutcome, ModelContext, ModelOptions, NumericOutcome,
-    load_model, resolve_bindings, resolve_callables, resolve_definitions, resolve_domains,
-    resolve_guarded_facts, resolve_instantiations, resolve_numeric_facts,
+    Presence, load_model, resolve_bindings, resolve_callables, resolve_definitions,
+    resolve_domains, resolve_guarded_facts, resolve_guarded_facts_with_options,
+    resolve_instantiations, resolve_numeric_facts, resolve_optional_facts,
 };
 
 const CORE: &str = concat!(
@@ -22,7 +23,7 @@ const CORE: &str = concat!(
     "function var int: 'mod'(var int: a,var int: b);\n",
     "function var bool: forall(array[int] of var opt bool: a);\n",
     "function var bool: exists(array[int] of var opt bool: a);\n",
-    "function var opt int: min(array[int] of var opt int: a);\n",
+    "function var int: min(array[int] of var opt int: a);\n",
     "function int: min(set of int: a);\n",
     "function var int: min(array[int] of var int: a); function var int: max(array[int] of var int: a);\n",
     "function var int: sum(array[int] of var int: a); function var int: product(array[int] of var int: a);\n",
@@ -30,8 +31,22 @@ const CORE: &str = concat!(
     "function set of $I: index_set(array[$I] of $T: a);\n",
     "function bool: assert(bool: condition,string: message);\n",
     "function $T: assert(bool: condition,string: message,$T: value);\n",
+    "test occurs(opt $T:x); test absent(opt $T:x); function $T: deopt(opt $T:x);\n",
+    "function var bool: occurs(var opt $T:x); function var bool: absent(var opt $T:x); function var $T: deopt(var opt $T:x);\n",
+    "function $T: 'default'(opt $T:x,$T:y); function var $T: 'default'(var opt $T:x,var $T:y);\n",
+    "function int: '+'(opt int:a,opt int:b); function int: '*'(opt int:a,opt int:b);\n",
+    "function var int: '+'(var opt int:a,var opt int:b); function var int: '*'(var opt int:a,var opt int:b);\n",
+    "function var int: sum(array[int] of var opt int:a);\n",
+    "function opt int: '~+'(opt int:a,opt int:b);\n",
 );
 fn model(name: &str, source: &str) -> (PathBuf, ModelContext, GuardedFacts) {
+    model_using_options(name, source, false)
+}
+fn model_using_options(
+    name: &str,
+    source: &str,
+    options: bool,
+) -> (PathBuf, ModelContext, GuardedFacts) {
     let dir = std::env::temp_dir().join(format!("zincite-guarded-{name}-{}", std::process::id()));
     std::fs::create_dir_all(dir.join("library/std")).unwrap();
     std::fs::write(dir.join("library/std/stdlib.mzn"), CORE).unwrap();
@@ -50,7 +65,22 @@ fn model(name: &str, source: &str) -> (PathBuf, ModelContext, GuardedFacts) {
     let domains = resolve_domains(&context, &bindings);
     let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
     let numeric = resolve_numeric_facts(&context, &bindings, &calls, &inst, &domains, &definitions);
-    let facts = resolve_guarded_facts(&context, &bindings, &calls, &inst, &domains, &numeric);
+    let facts = if options {
+        let optional = resolve_optional_facts(
+            &context,
+            &bindings,
+            &calls,
+            &inst,
+            &domains,
+            &numeric,
+            &definitions,
+        );
+        resolve_guarded_facts_with_options(
+            &context, &bindings, &calls, &inst, &domains, &numeric, &optional,
+        )
+    } else {
+        resolve_guarded_facts(&context, &bindings, &calls, &inst, &domains, &numeric)
+    };
     (dir, context, facts)
 }
 fn text<'a>(
@@ -402,5 +432,137 @@ fn aggregate_preconditions_and_missing_interpretation_remain_explicit() {
         GuardedOutcome::Unsupported(_)
     ));
     assert!(facts.limitations.iter().any(|l| l.reason.contains("user")));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn optional_guards_default_and_aggregates_keep_presence_separate_from_totality() {
+    let source = concat!(
+        "var opt int:x; opt int:q=<>; var opt int:none=<>;\n",
+        "var int:unsafe=deopt(x); var int:safe=if occurs(x) then deopt(x) else 0 endif;\n",
+        "var int:negative=if not absent(x) then deopt(x) else 0 endif;\n",
+        "var int:inactive=if occurs(none) then deopt(none) else 0 endif;\n",
+        "int:a=(<> default 7); int:b=(1 div 0) default 9; int:c=<>+3; int:d=<>*4;\n",
+        "var int:fallback=x default 0; bool:known=absent(<>); bool:present=occurs(3);\n",
+        "array[int] of opt int:empty=[<> | i in 1..3]; array[1..2] of var opt int:unknown_values;\n",
+        "var int:capacity_only=if length(unknown_values)>0 then min(unknown_values) else 0 endif;\n",
+        "opt int:weak=<> ~+ 3;\n",
+        "var int:low=min([<> | i in 1..3]); var int:zero=sum([<> | i in 1..3]);\n",
+        "constraint forall([<> | i in 1..3]);\n",
+        "constraint false -> occurs(x); constraint occurs(x) \\/ true;\n",
+        "constraint assert(occurs(q),\"need presence\",deopt(q)>0);\n",
+        "function opt int:opaque(opt int:v)=v; opt int:u=opaque(q);\n",
+        "function bool:opaque_bool()=true; int:opaque_default=(if opaque_bool() then <> else <> endif) default 5;\n",
+        "function bool:occurs(string:v)=true; bool:user=occurs(\"shadow\"); solve satisfy;\n",
+    );
+    let (dir, context, facts) = model_using_options("options", source, true);
+    let unguarded = facts
+        .obligations
+        .iter()
+        .filter(|o| text(&context, o.file, &o.operation) == "deopt(x)")
+        .collect::<Vec<_>>();
+    assert_eq!(unguarded.len(), 3);
+    assert_eq!(unguarded[0].invariant, GuardedOutcome::Unknown);
+    assert_eq!(unguarded[0].outcome, GuardedOutcome::Unknown);
+    assert!(
+        unguarded[1..]
+            .iter()
+            .all(|o| o.invariant == GuardedOutcome::Unknown && o.outcome == GuardedOutcome::Proven)
+    );
+    assert!(matches!(unguarded[0].kind, GuardObligationKind::Presence));
+    let inactive = obligation(&context, &facts, "deopt(none)");
+    assert_eq!(inactive.invariant, GuardedOutcome::Refuted);
+    assert_eq!(inactive.outcome, GuardedOutcome::Refuted);
+    assert_eq!(inactive.context.activation, GuardActivation::Inactive);
+    assert_eq!(
+        expression(
+            &context,
+            &facts,
+            "if occurs(none) then deopt(none) else 0 endif"
+        )
+        .definedness,
+        GuardedOutcome::Proven
+    );
+    for (code, n) in [
+        ("(<> default 7)", 7),
+        ("(1 div 0) default 9", 9),
+        ("<>+3", 3),
+        ("<>*4", 4),
+    ] {
+        let e = expression(&context, &facts, code);
+        assert_eq!(e.definedness, GuardedOutcome::Proven, "{code}");
+        assert_eq!(e.numeric, Some(NumericOutcome::Exact(n)), "{code}");
+        assert_eq!(e.presence, Some(Presence::Present));
+    }
+    assert_eq!(
+        obligation(&context, &facts, "1 div 0").outcome,
+        GuardedOutcome::Refuted
+    );
+    assert_eq!(
+        expression(&context, &facts, "x default 0").definedness,
+        GuardedOutcome::Proven
+    );
+    assert_eq!(
+        expression(&context, &facts, "absent(<>)").truth,
+        Some(GuardedOutcome::Proven)
+    );
+    assert_eq!(
+        expression(&context, &facts, "occurs(3)").truth,
+        Some(GuardedOutcome::Proven)
+    );
+    assert_eq!(
+        obligation(&context, &facts, "min([<> | i in 1..3])").outcome,
+        GuardedOutcome::Refuted
+    );
+    assert_eq!(
+        expression(&context, &facts, "sum([<> | i in 1..3])").numeric,
+        Some(NumericOutcome::Exact(0))
+    );
+    assert_eq!(
+        expression(&context, &facts, "forall([<> | i in 1..3])").truth,
+        Some(GuardedOutcome::Proven)
+    );
+    assert_eq!(
+        obligation(&context, &facts, "min(unknown_values)").outcome,
+        GuardedOutcome::Unknown
+    );
+    assert!(
+        facts
+            .limitations
+            .iter()
+            .any(|l| text(&context, l.file, &l.location) == "<> ~+ 3")
+    );
+    let assertion = obligation(
+        &context,
+        &facts,
+        "assert(occurs(q),\"need presence\",deopt(q)>0)",
+    );
+    assert_eq!(assertion.invariant, GuardedOutcome::Unknown);
+    assert_eq!(assertion.outcome, GuardedOutcome::Unknown);
+    assert_eq!(
+        obligation(&context, &facts, "deopt(q)").outcome,
+        GuardedOutcome::Proven
+    );
+    assert!(
+        facts
+            .limitations
+            .iter()
+            .any(|l| text(&context, l.file, &l.location) == "opaque(q)")
+    );
+    assert!(matches!(
+        expression(
+            &context,
+            &facts,
+            "(if opaque_bool() then <> else <> endif) default 5"
+        )
+        .definedness,
+        GuardedOutcome::Unsupported(_)
+    ));
+    assert!(
+        facts
+            .limitations
+            .iter()
+            .any(|l| text(&context, l.file, &l.location) == "occurs(\"shadow\")")
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }

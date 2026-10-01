@@ -657,6 +657,7 @@ pub(super) fn symbolic_operator(kind: TokenKind) -> Option<&'static str> {
         TokenKind::Implies => "->",
         TokenKind::ReverseImplies => "<-",
         TokenKind::Plus => "+",
+        TokenKind::Default => "default",
         TokenKind::Minus => "-",
         TokenKind::Star => "*",
         TokenKind::Div => "div",

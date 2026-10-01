@@ -1045,7 +1045,18 @@ impl<'a> Engine<'a> {
                         return TypeInst::unknown("generator domain or filter type is unknown");
                     }
                     if ty.instantiation == Instantiation::Decision {
-                        element.optional = true;
+                        // Only decision-set membership or a decision filter
+                        // gates presence. Nonoptional var-array iteration just
+                        // changes instantiation, not optionality.
+                        if source.kind() == NodeKind::WhereFilter
+                            || matches!(ty.kind, TypeKind::Set(_))
+                                && self
+                                    .tokens(file, generator)
+                                    .iter()
+                                    .any(|(kind, _, _)| *kind == TokenKind::In)
+                        {
+                            element.optional = true;
+                        }
                         element = element.with_inst(Instantiation::Decision);
                     }
                 }
@@ -1321,6 +1332,20 @@ impl<'a> Engine<'a> {
                 .zip(&assigned)
                 .map(|(p, actual)| {
                     let mut target = substitute(&p.ty, &variables);
+                    // Presence tests return bool independently of the absent
+                    // scalar's unconstrained $T. Keep Bottom instead of making
+                    // that core call unresolved; do not invent a concrete type.
+                    if matches!(d.name.as_str(), "occurs" | "absent")
+                        && matches!(d.role, DeclarationRole::Function | DeclarationRole::Test)
+                        && self.context.files[d.file].kind == crate::SourceKind::StandardLibrary
+                        && self.context.files[d.file].implicit
+                        && matches!(p.ty.kind, TypeKind::Variable { .. })
+                        && matches!(target.kind, TypeKind::Unknown(_))
+                        && actual.is_some_and(|t| t.kind == TypeKind::Bottom)
+                    {
+                        target = p.ty.clone();
+                        target.kind = TypeKind::Bottom;
+                    }
                     // A scalar any occurrence accepts the actual qualifiers;
                     // the shared variable still determines its common type
                     // and the callable's return type.

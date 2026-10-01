@@ -4,8 +4,8 @@
 
 - Total: 79
 - Ready: 9
-- Blocked: 14
-- Done: 56
+- Blocked: 13
+- Done: 57
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -67,10 +67,10 @@
 | [base-056](tasks/056-support-personal-presets-and-typed-rule-parameters.md) | Support personal presets and typed rule parameters | done | base-055 |
 | [base-057](tasks/057-interpret-numeric-intervals-and-intermediate-expression-boun.md) | Interpret numeric intervals and intermediate expression bounds | done | base-034, base-035, base-036 |
 | [base-058](tasks/058-interpret-guarded-truth-and-partial-expression-definedness.md) | Interpret guarded truth and partial-expression definedness | done | base-057 |
-| [base-059](tasks/059-interpret-optional-presence-and-comprehension-cardinality.md) | Interpret optional presence and comprehension cardinality | ready | base-034, base-035, base-058 |
+| [base-059](tasks/059-interpret-optional-presence-and-comprehension-cardinality.md) | Interpret optional presence and comprehension cardinality | done | base-034, base-035, base-058 |
 | [base-060](tasks/060-interpret-iteration-coverage-binding-use-and-expansion-size.md) | Interpret iteration coverage, binding use and expansion size | ready | base-032, base-034, base-035, base-058 |
 | [base-061](tasks/061-report-index-set-mismatches-and-off-by-one-accesses.md) | Report index-set mismatches and off-by-one accesses | blocked | base-054, base-060 |
-| [base-062](tasks/062-report-length-mistakes-caused-by-hidden-optional-values.md) | Report length mistakes caused by hidden optional values | blocked | base-054, base-059 |
+| [base-062](tasks/062-report-length-mistakes-caused-by-hidden-optional-values.md) | Report length mistakes caused by hidden optional values | ready | base-054, base-059 |
 | [base-063](tasks/063-report-actionable-partial-expression-hazards.md) | Report actionable partial-expression hazards | blocked | base-054, base-059, base-061 |
 | [base-064](tasks/064-report-suspicious-lexical-shadowing.md) | Report suspicious lexical shadowing | ready | base-056, base-032 |
 | [base-065](tasks/065-report-vacuous-constraints-and-conditions.md) | Report vacuous constraints and conditions | blocked | base-054, base-060, base-059 |
