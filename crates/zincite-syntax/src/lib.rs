@@ -87,7 +87,7 @@ impl ParsedFile {
 pub struct SyntaxNode {
     kind: NodeKind,
     range: Range<usize>,
-    children: Vec<SyntaxElement>,
+    children: Box<[SyntaxElement]>,
 }
 
 impl SyntaxNode {
@@ -281,6 +281,11 @@ pub struct LexedSource {
 impl LexedSource {
     pub fn source(&self) -> &str {
         &self.source
+    }
+
+    /// Return the owned source, releasing its tokens and diagnostics.
+    pub fn into_source(self) -> String {
+        self.source
     }
 
     pub fn tokens(&self) -> &[Token] {

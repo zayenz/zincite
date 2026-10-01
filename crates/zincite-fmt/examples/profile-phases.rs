@@ -72,14 +72,14 @@ fn main() {
     let mut arguments = std::env::args().skip(1);
     let path = arguments
         .next()
-        .expect("usage: profile-phases FILE [lex|parse|format] [seconds]");
+        .expect("usage: profile-phases FILE [all|lex|parse|format|drop] [seconds]");
     let selected = arguments.next().unwrap_or_else(|| "all".into());
     let seconds: f64 = arguments
         .next()
         .map_or(0.0, |value| value.parse().expect("seconds must be numeric"));
     assert!(matches!(
         selected.as_str(),
-        "all" | "lex" | "parse" | "format"
+        "all" | "lex" | "parse" | "format" | "drop"
     ));
     assert!(seconds.is_finite() && seconds >= 0.0);
     let source = std::fs::read_to_string(&path).expect("read UTF-8 input");
@@ -88,11 +88,31 @@ fn main() {
         "input_bytes={} phase={selected} repeat_seconds={seconds}",
         source.len()
     );
+    if selected == "drop" {
+        let baseline = LIVE.load(Relaxed);
+        for iteration in 1..=3 {
+            let parsed = zincite_syntax::parse_with_mode(source.clone(), mode);
+            assert!(parsed.diagnostics().is_empty());
+            let output = zincite_fmt::format(&parsed).expect("format input");
+            // Formatting borrows syntax; its caller can still inspect and lint it.
+            assert_eq!(parsed.source(), source);
+            let warnings = zincite_lint::lint(&parsed).expect("lint retained syntax");
+            drop(warnings);
+            drop(output);
+            drop(parsed);
+            let live = LIVE.load(Relaxed);
+            println!(
+                "iteration={iteration} baseline_live_bytes={baseline} after_drop_live_bytes={live}"
+            );
+        }
+        return;
+    }
     if selected == "all" {
         let lexed = phase("lex (including owned source copy)", || {
             zincite_syntax::lex(source.clone())
         });
         assert!(lexed.diagnostics().is_empty(), "{:?}", lexed.diagnostics());
+        println!("token_count={}", lexed.tokens().len());
         drop(lexed);
         let parsed = phase("parse (including lex/source copy)", || {
             zincite_syntax::parse_with_mode(source.clone(), mode)

@@ -47,7 +47,7 @@ pub(crate) fn parse(
         SyntaxNode {
             kind: NodeKind::Root,
             range: 0..source.len(),
-            children,
+            children: children.into_boxed_slice(),
         },
         parser.diagnostics,
     )
@@ -687,7 +687,7 @@ impl Parser<'_> {
     ) -> Result<SyntaxNode, &'static str> {
         use TokenKind::*;
         let start = self.position;
-        let mut children = Vec::new();
+        let mut children = Vec::with_capacity(1);
         let kind = match self.peek() {
             Some(Plus | Minus | Not) if grammar != Grammar::Numeric || self.peek() != Some(Not) => {
                 let limit = if self.peek() == Some(Not) { 349 } else { 499 };
@@ -1275,7 +1275,7 @@ impl Parser<'_> {
             return Ok(SyntaxNode {
                 kind: NodeKind::MatrixRow,
                 range: self.tokens[start].range.start..self.tokens[start].range.start,
-                children,
+                children: children.into_boxed_slice(),
             });
         }
         Ok(self.node(NodeKind::MatrixRow, start, children))
@@ -1489,7 +1489,7 @@ impl Parser<'_> {
         SyntaxNode {
             kind,
             range: self.tokens[start].range.start..self.tokens[self.position - 1].range.end,
-            children,
+            children: children.into_boxed_slice(),
         }
     }
 

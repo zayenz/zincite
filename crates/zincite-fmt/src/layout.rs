@@ -41,7 +41,7 @@ pub(super) fn apply_layout(
             merged.push(range);
         }
     }
-    let source = lexed.source();
+    let source = lexed.into_source();
     let mut result = String::with_capacity(source.len());
     let mut position = 0;
     for range in merged {
