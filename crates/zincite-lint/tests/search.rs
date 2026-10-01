@@ -9,6 +9,8 @@ const CORE: &str = concat!(
     "function var bool: '='(any $T: left,any $T: right); function bool: '='($T: left,$T: right);\n",
     "function var int: '+'(var int: left,var int: right); function set of int: '..'(int: left,int: right);\n",
     "function var bool: forall(array[int] of var opt bool: body);\n",
+    "function var int: sum(array[int] of var int: body); function set of int: index_set(array[int] of any $V: xs);\n",
+    "function var int: enum2int(var $$E: x); function array[int] of var int: enum2int(array[int] of var $$E: x);\n",
     "function var bool: '/\\'(var bool: left,var bool: right);\n",
     "annotation input_order; annotation indomain_min; annotation complete;\n",
     "annotation seq_search(array[int] of ann: s);\n",
@@ -77,7 +79,7 @@ fn typed_searches_aliases_and_direct_closure_preserve_whole_array_and_cycle_boun
     let (dir, context) = model("closure", source, included);
     let (bindings, search) = facts(&context);
     assert_eq!(search.root_state, ModelRootState::Complete);
-    assert_eq!(search.limitations.len(), 1, "{:?}", search.limitations);
+    assert!(search.limitations.is_empty(), "{:?}", search.limitations);
     for name in [
         "seed",
         "constant_value",
@@ -144,10 +146,7 @@ fn typed_searches_aliases_and_direct_closure_preserve_whole_array_and_cycle_boun
             .contains(&id)
     );
     let result = analyze_model(&context, &selected());
-    assert!(matches!(
-        result.rules[0].outcome,
-        RuleOutcome::Limited { .. }
-    ));
+    assert!(matches!(result.rules[0].outcome, RuleOutcome::Completed));
     let mut names: Vec<_> = result
         .findings
         .iter()
@@ -267,12 +266,18 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
             "{name}: {:?}",
             result.findings
         );
-        assert!(matches!(
-            result.rules[0].outcome,
-            RuleOutcome::Limited { .. }
-        ));
         if expected == SearchCoverage::Unknown {
-            assert!(result.limitations.len() > 1, "{name}");
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}"
+            );
+            assert!(!result.limitations.is_empty(), "{name}");
+        } else {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Completed),
+                "{name}: {:?}",
+                result.limitations
+            );
         }
         if name == "callable-output" {
             assert_eq!(
@@ -294,5 +299,138 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
         RuleOutcome::Inapplicable { .. }
     ));
     assert!(result.findings.is_empty() && result.limitations.is_empty());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn callable_outputs_keep_selected_direction_defaults_captures_and_array_extent() {
+    let included = concat!(
+        "predicate count_like(array[int] of var int: xs,var int: needle,var int: n);\n",
+        "predicate count_like(array[int] of var int: xs,var int: needle,var int: n)=n=sum(i in index_set(xs))(xs[i]==needle);\n",
+        "predicate wrapper(array[int] of var int: xs,var int: n,var int: needle=global_needle)=count_like(n:n,xs:xs,needle:needle);\n",
+        "predicate copy_value(var int: source,var int: result)=result=source; predicate enforce(var bool: condition)=condition;\n",
+        "predicate recursive_a(var int: source,var int: result)=result=source /\\ recursive_b(source,result);\n",
+        "predicate recursive_b(var int: source,var int: result)=recursive_a(source,result);\n",
+        "predicate loop_a(var int: source,var int: result)=loop_b(source,result);\n",
+        "predicate loop_b(var int: source,var int: result)=loop_a(source,result);\n",
+        "predicate named_output(var int: result,var int: input)=true;\n",
+        "predicate competing(var int: source,var int: result)=result=source; predicate competing(var int: source,var int: result)=true;\n",
+        "predicate copy_array(array[S] of var int: xs,array[S] of var int: ys)=forall(i in S)(ys[i]=xs[i]);\n",
+        "predicate filtered_array(array[S] of var int: xs,array[S] of var int: ys)=forall(i in S where true)(ys[i]=xs[i]);\n",
+        "function var int: opaque(var int: x)=x; predicate partly_supported(var int: source,var int: good,var int: bad)=good=source /\\ bad=opaque(source);\n",
+        "predicate optional_output(var opt int: source,var opt int: result)=result=source;\n",
+    );
+    let source = concat!(
+        "\u{feff}% é\r\ninclude \"included.mzn\"; int: global_needle; array[1..2,1..2] of var 0..3: values;\n",
+        "var 0..4: counted; var int: need_capture; var int: unsearched;\n",
+        "set of int: S; array[S] of var int: array_input; array[S] of var int: array_output; array[S] of var int: filtered_output;\n",
+        "var int: misleading; var int: competing_output; var int: good; var int: bad; var int: forwarded; var opt int: optional_input; var opt int: optional_result;\n",
+        "predicate capture_output(var int: out_value)=out_value=unsearched;\n",
+        "var int: anchored; var int: unanchored; var int: conditional; array[1..2] of var int: partial; var bool: gate;\n",
+        "constraint :: \"Count \\(1)\" wrapper(array1d(values),n:counted); constraint recursive_b(counted,anchored);\n",
+        "constraint named_output(misleading,counted); constraint competing(counted,competing_output);\n",
+        "constraint enforce(copy_value(counted,forwarded)); constraint partly_supported(counted,good,bad); constraint optional_output(optional_input,optional_result);\n",
+        "constraint copy_array(array_input,array_output); constraint filtered_array(array_input,filtered_output);\n",
+        "constraint capture_output(need_capture); constraint loop_a(counted,unanchored);\n",
+        "constraint gate -> copy_value(counted,conditional); constraint copy_value(counted,partial[1]);\n",
+        "solve :: seq_search([int_search(array1d(values),input_order,indomain_min,complete),int_search(array_input,input_order,indomain_min,complete),bool_search([gate],input_order,indomain_min,complete)]) satisfy;\n"
+    );
+    let (dir, context) = model("callable", source, included);
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let inst = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let outputs =
+        zincite_lint::resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+    assert!(
+        outputs
+            .outputs
+            .iter()
+            .any(|g| bindings.declarations[g.callable.0].name == "count_like"
+                && bindings.declarations[g.target.0].name == "n"
+                && g.dependencies
+                    .iter()
+                    .all(|id| bindings.declarations[id.0].name != "i")),
+        "{:?}",
+        outputs
+    );
+    let counted = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "counted")
+        .unwrap()
+        .id;
+    let definition = outputs
+        .definitions
+        .iter()
+        .find(|d| d.target == counted)
+        .unwrap();
+    assert_eq!(
+        &source[definition.location.range.clone()],
+        "wrapper(array1d(values),n:counted)"
+    );
+    let (_, search) = facts(&context);
+    assert_eq!(
+        coverage(&bindings, &search, "counted"),
+        SearchCoverage::Scalar,
+        "{:?}",
+        search.limitations
+    );
+    assert_eq!(
+        coverage(&bindings, &search, "anchored"),
+        SearchCoverage::Scalar
+    );
+    assert_eq!(
+        coverage(&bindings, &search, "unanchored"),
+        SearchCoverage::Unknown
+    );
+    assert_eq!(
+        coverage(&bindings, &search, "need_capture"),
+        SearchCoverage::Uncovered
+    );
+    assert_eq!(
+        coverage(&bindings, &search, "conditional"),
+        SearchCoverage::Uncovered
+    );
+    assert_ne!(
+        coverage(&bindings, &search, "partial"),
+        SearchCoverage::WholeArray
+    );
+    assert_eq!(
+        coverage(&bindings, &search, "array_output"),
+        SearchCoverage::WholeArray
+    );
+    assert_eq!(
+        coverage(&bindings, &search, "misleading"),
+        SearchCoverage::Uncovered
+    );
+    assert_eq!(coverage(&bindings, &search, "good"), SearchCoverage::Scalar);
+    assert_eq!(
+        coverage(&bindings, &search, "forwarded"),
+        SearchCoverage::Scalar
+    );
+    for name in [
+        "bad",
+        "competing_output",
+        "filtered_output",
+        "optional_result",
+    ] {
+        assert_eq!(
+            coverage(&bindings, &search, name),
+            SearchCoverage::Unknown,
+            "{name}: {:?}",
+            search.limitations
+        );
+    }
+    assert!(
+        search
+            .limitations
+            .iter()
+            .all(|l| !l.message.contains("direct definitions only"))
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join("root.mzn")).unwrap(),
+        source
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }

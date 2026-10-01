@@ -42,11 +42,11 @@ pub struct SearchFacts {
 /// covered. All prerequisites belong to this context. Numeric domains are not
 /// seeds. Partial selections do not cover an entire array, and computed search
 /// values do not seed their inputs. Unknown annotations withhold missing claims.
-/// Callable-output propagation is deliberately incomplete until base-044; every
-/// complete-root result retains one direct-only limitation, independent of lint.
+/// Exact selected callable bodies contribute bounded output guarantees. Options,
+/// opaque bodies and unproved iteration/enforcement retain specific limitations.
 /// Advice addresses top-level solve-visible values (thesis 4.9, p.28).
 /// Model-level local decisions retain Unknown plus a scoped limitation; callable
-/// locals remain under the direct-only boundary rather than inaccessible advice.
+/// local/control-flow output proofs remain explicitly unsupported.
 pub fn resolve_search_coverage(
     context: &ModelContext,
     bindings: &BindingFacts,
@@ -85,7 +85,36 @@ pub fn resolve_search_coverage(
         }
         return producer.facts;
     }
-    producer.close(definitions);
+    let callable =
+        crate::resolve_callable_definitions(context, bindings, calls, instantiations, domains);
+    for missing in &callable.unavailable {
+        for id in &missing.targets {
+            if !covered(producer.facts.declarations[id.0].coverage) {
+                producer.facts.declarations[id.0].coverage = SearchCoverage::Unknown;
+            }
+        }
+    }
+    let mut combined = DefinitionFacts {
+        definitions: definitions.definitions.clone(),
+    };
+    combined.definitions.extend(callable.definitions);
+    producer.close(&combined);
+    for missing in callable.unavailable {
+        if missing.targets.is_empty()
+            || missing
+                .targets
+                .iter()
+                .any(|id| !covered(producer.facts.declarations[id.0].coverage))
+        {
+            let limit = SourceDiagnostic {
+                location: missing.location,
+                message: format!("search-coverage: {}", missing.reason),
+            };
+            if !producer.facts.limitations.contains(&limit) {
+                producer.facts.limitations.push(limit);
+            }
+        }
+    }
     producer.facts
 }
 type Argument<'a> = (DeclarationId, FileId, &'a SyntaxNode);
@@ -130,11 +159,6 @@ impl<'a> Producer<'a> {
             return;
         }
         let (file, solve) = solves[0];
-        self.limit(
-            file,
-            solve,
-            "direct definitions only; callable-output propagation is not implemented (base-044)",
-        );
         for annotation in solve
             .child_nodes()
             .filter(|n| n.kind() == NodeKind::Annotation)
@@ -183,46 +207,15 @@ impl<'a> Producer<'a> {
         id: DeclarationId,
         position: usize,
     ) -> Option<(FileId, &'a SyntaxNode)> {
-        let signature = self.calls.signatures.iter().find(|s| s.declaration == id)?;
-        let name = signature.parameters.get(position)?.name.as_deref();
-        let mut index = 0;
-        for value in node.child_nodes() {
-            if value.kind() == NodeKind::NamedArgument {
-                let parsed = &self.context.files[file].parsed;
-                let written = value.children().iter().find_map(|c| {
-                    if let SyntaxElement::Token(i) = c {
-                        let t = &parsed.tokens()[*i];
-                        (matches!(t.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
-                            .then_some(parsed.source()[t.range.clone()].trim_matches('\''))
-                    } else {
-                        None
-                    }
-                });
-                if written == name {
-                    return value.child_nodes().next().map(|n| (file, n));
-                }
-            } else {
-                if index == position {
-                    return Some((file, value));
-                }
-                index += 1;
-            }
-        }
-        let d = &self.bindings.declarations[id.0];
-        let declaration = find_node(
-            self.context.files[d.file].parsed.tree(),
-            &d.syntax_range,
-            d.role,
-        )?;
-        let parameter = declaration
-            .child_nodes()
-            .find(|n| n.kind() == NodeKind::ParameterList)?
-            .child_nodes()
-            .nth(position)?;
-        parameter
-            .child_nodes()
-            .find(|n| is_expression(n.kind()))
-            .map(|n| (d.file, n))
+        crate::callables::call_argument(
+            self.context,
+            self.bindings,
+            self.calls,
+            file,
+            node,
+            id,
+            position,
+        )
     }
     fn annotation(&mut self, file: FileId, node: &'a SyntaxNode, mapping: &[Argument<'a>]) {
         let node = unwrap(node);

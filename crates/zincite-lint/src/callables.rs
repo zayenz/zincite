@@ -23,13 +23,13 @@ pub struct CallableSignature {
     pub return_type: TypeInst,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DeclarationType {
     pub declaration: DeclarationId,
     pub ty: TypeInst,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ExpressionType {
     pub file: FileId,
     pub location: SourceLocation,
@@ -63,7 +63,7 @@ pub enum CallOutcome {
     },
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CallFact {
     /// Symbolic operator heads, distinct from written callable invocations.
     pub symbolic_operator: bool,
@@ -74,7 +74,7 @@ pub struct CallFact {
     pub outcome: CallOutcome,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct CallableFacts {
     pub declarations: Vec<DeclarationType>,
     pub signatures: Vec<CallableSignature>,
@@ -1409,6 +1409,50 @@ impl<'a> Engine<'a> {
                     .into(),
             };
         }
+        // A prototype and its unique implementation denote one operation.
+        // Defaults remain separate: equal presence does not establish equal
+        // default expressions or their lexical bindings.
+        let prototypes: Vec<_> = matches
+            .iter()
+            .filter_map(|candidate| {
+                let declaration = &self.bindings.declarations[candidate.0.0];
+                let signature = self.signatures.get(&candidate.0.0)?.as_ref()?;
+                let has_body = |id: DeclarationId| {
+                    self.nodes[id.0]
+                        .is_some_and(|n| n.child_nodes().any(|c| is_expression(c.kind())))
+                };
+                if !declaration.top_level
+                    || has_body(candidate.0)
+                    || signature.parameters.iter().any(|p| p.has_default)
+                {
+                    return None;
+                }
+                let implementations = matches
+                    .iter()
+                    .filter(|other| {
+                        let d = &self.bindings.declarations[other.0.0];
+                        let Some(s) = self.signatures.get(&other.0.0).and_then(Option::as_ref)
+                        else {
+                            return false;
+                        };
+                        d.top_level
+                            && d.name == declaration.name
+                            && d.role == declaration.role
+                            && self.context.files[d.file].kind
+                                == self.context.files[declaration.file].kind
+                            && has_body(other.0)
+                            && s.return_type == signature.return_type
+                            && s.parameters.len() == signature.parameters.len()
+                            && s.parameters
+                                .iter()
+                                .zip(&signature.parameters)
+                                .all(|(a, b)| !a.has_default && a.name == b.name && a.ty == b.ty)
+                    })
+                    .count();
+                (implementations == 1).then_some(candidate.0)
+            })
+            .collect();
+        matches.retain(|candidate| !prototypes.contains(&candidate.0));
         let minima: Vec<_> = matches
             .iter()
             .filter(|candidate| {
@@ -1527,4 +1571,158 @@ pub(super) fn core_operation(
         Some(CallOutcome::Ambiguous { .. }) => Err(format!("operation {name} is ambiguous")),
         None => Err(format!("operation {name} identity is unavailable")),
     }
+}
+
+/// Interpret one actually selected body with its concrete formal types. The
+/// original context-free facts remain unchanged, including unknown candidates.
+pub(super) fn instantiated_body(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    facts: &CallableFacts,
+    id: DeclarationId,
+    parameters: &[TypeInst],
+) -> CallableFacts {
+    let declaration = &bindings.declarations[id.0];
+    let node = find_node(
+        context.files[declaration.file].parsed.tree(),
+        &declaration.syntax_range,
+        declaration.role,
+    )
+    .unwrap();
+    let mut engine = Engine {
+        context,
+        bindings,
+        nodes: bindings
+            .declarations
+            .iter()
+            .map(|d| find_node(context.files[d.file].parsed.tree(), &d.syntax_range, d.role))
+            .collect(),
+        declared: facts
+            .declarations
+            .iter()
+            .map(|d| Some(d.ty.clone()))
+            .collect(),
+        active: Vec::new(),
+        signatures: facts
+            .signatures
+            .iter()
+            .map(|s| (s.declaration.0, Some(s.clone())))
+            .collect(),
+        expressions: BTreeMap::new(),
+        calls: BTreeMap::new(),
+        active_calls: Vec::new(),
+    };
+    for d in &bindings.declarations {
+        if d.file == declaration.file
+            && node.range().start <= d.syntax_range.start
+            && d.syntax_range.end <= node.range().end
+            && matches!(d.role, DeclarationRole::Local | DeclarationRole::Generator)
+        {
+            engine.declared[d.id.0] = None;
+        }
+    }
+    for (position, ty) in parameters.iter().enumerate() {
+        if let Some(formal) = formal_parameter(context, bindings, id, position) {
+            engine.declared[formal.0] = Some(ty.clone());
+        }
+    }
+    if let Some(body) = node
+        .child_nodes()
+        .filter(|n| is_expression(n.kind()))
+        .last()
+    {
+        engine.inspect(declaration.file, declaration.item, body);
+    }
+    CallableFacts {
+        declarations: engine
+            .declared
+            .into_iter()
+            .enumerate()
+            .map(|(i, ty)| DeclarationType {
+                declaration: DeclarationId(i),
+                ty: ty.unwrap_or_else(|| TypeInst::unknown("body declaration type unavailable")),
+            })
+            .collect(),
+        signatures: engine.signatures.into_values().flatten().collect(),
+        expressions: engine
+            .expressions
+            .into_iter()
+            .map(|((file, start, end), ty)| ExpressionType {
+                file,
+                location: context.files[file].location(start..end),
+                ty,
+            })
+            .collect(),
+        calls: engine.calls.into_values().collect(),
+    }
+}
+pub(super) fn formal_parameter(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    id: DeclarationId,
+    position: usize,
+) -> Option<DeclarationId> {
+    let d = &bindings.declarations[id.0];
+    let node = find_node(context.files[d.file].parsed.tree(), &d.syntax_range, d.role)?;
+    let parameter = node
+        .child_nodes()
+        .find(|n| n.kind() == NodeKind::ParameterList)?
+        .child_nodes()
+        .nth(position)?;
+    bindings
+        .declarations
+        .iter()
+        .find(|p| {
+            p.file == d.file
+                && p.role == DeclarationRole::Parameter
+                && p.syntax_range == parameter.range()
+        })
+        .map(|p| p.id)
+}
+/// Written actual or retained default in its declaration's lexical scope.
+pub(super) fn call_argument<'a>(
+    context: &'a ModelContext,
+    bindings: &BindingFacts,
+    facts: &CallableFacts,
+    file: FileId,
+    call: &'a SyntaxNode,
+    id: DeclarationId,
+    position: usize,
+) -> Option<(FileId, &'a SyntaxNode)> {
+    let signature = facts.signatures.iter().find(|s| s.declaration == id)?;
+    let name = signature.parameters.get(position)?.name.as_deref();
+    let mut index = 0;
+    for value in call.child_nodes() {
+        if value.kind() == NodeKind::NamedArgument {
+            let written = value.children().iter().find_map(|c| {
+                if let SyntaxElement::Token(i) = c {
+                    let t = &context.files[file].parsed.tokens()[*i];
+                    matches!(t.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier).then(
+                        || context.files[file].parsed.source()[t.range.clone()].trim_matches('\''),
+                    )
+                } else {
+                    None
+                }
+            });
+            if written == name {
+                return value.child_nodes().next().map(|n| (file, n));
+            }
+        } else {
+            if index == position {
+                return Some((file, value));
+            }
+            index += 1;
+        }
+    }
+    let d = &bindings.declarations[id.0];
+    let declaration = find_node(context.files[d.file].parsed.tree(), &d.syntax_range, d.role)?;
+    let parameter = declaration
+        .child_nodes()
+        .find(|n| n.kind() == NodeKind::ParameterList)?
+        .child_nodes()
+        .nth(position)?;
+    parameter
+        .child_nodes()
+        .find(|n| is_expression(n.kind()))
+        .map(|n| (d.file, n))
 }

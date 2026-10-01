@@ -876,7 +876,7 @@ fn unused_declaration_selection_respects_complete_roots_limits_and_status_preced
 }
 
 #[test]
-fn search_selection_keeps_direct_limits_suppression_and_status_precedence() {
+fn search_selection_keeps_completion_suppression_and_status_precedence() {
     let directory = std::env::temp_dir().join(format!("zincite-search-cli-{}", std::process::id()));
     let library = directory.join("library");
     std::fs::create_dir_all(library.join("std")).unwrap();
@@ -903,8 +903,7 @@ fn search_selection_keeps_direct_limits_suppression_and_status_precedence() {
         diagnostics.contains("bytes 26..33:") && diagnostics.contains("'missing'"),
         "{diagnostics}"
     );
-    assert_eq!(diagnostics.matches("analysis limitation:").count(), 1);
-    assert!(diagnostics.contains("direct definitions only") && diagnostics.contains("base-044"));
+    assert_eq!(diagnostics.matches("analysis limitation:").count(), 0);
     for selection in ["thesis", "all"] {
         let mut selected = args;
         selected[1] = selection;
@@ -913,7 +912,7 @@ fn search_selection_keeps_direct_limits_suppression_and_status_precedence() {
         let diagnostics = String::from_utf8(output.stderr).unwrap();
         assert!(diagnostics.contains("warning [search-coverage]"));
         assert!(
-            diagnostics.contains("direct definitions only")
+            !diagnostics.contains("direct definitions only")
                 && !diagnostics.contains("unavailable rules")
         );
     }

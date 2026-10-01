@@ -6,6 +6,7 @@ use zincite_syntax::{Diagnostic, NodeKind, ParsedFile, SyntaxElement, SyntaxNode
 mod analysis;
 mod array_indices;
 mod bindings;
+mod callable_definitions;
 mod callables;
 mod captures;
 mod compact_if;
@@ -34,6 +35,10 @@ pub use analysis::{
 pub use bindings::{
     BindingFacts, BindingResolution, Declaration, DeclarationId, DeclarationRole, Instantiation,
     Reference, ReferenceKind, resolve_bindings,
+};
+pub use callable_definitions::{
+    CallableDefinitionFacts, CallableOutput, UnavailableCallableDefinition,
+    resolve_callable_definitions,
 };
 pub use callables::{
     CallFact, CallOutcome, CallableFacts, CallableParameter, CallableSignature, DeclarationType,

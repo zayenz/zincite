@@ -1,4 +1,4 @@
-//! Missing-search advice over independently produced direct coverage facts.
+//! Missing-search advice over independently produced coverage facts.
 use crate::{
     BindingFacts, DeclarationRole, FileFinding, Instantiation, ModelContext, ModelRootState, Rule,
     SearchCoverage, SearchFacts, Severity,
@@ -40,7 +40,7 @@ pub(super) fn check_search_coverage(
             message: format!(
                 concat!(
                     "consider including '{}' in the solve search; its whole value is not covered ",
-                    "by a supported search or complete direct definition"
+                    "by a supported search or complete direct/callable definition"
                 ),
                 d.name
             ),

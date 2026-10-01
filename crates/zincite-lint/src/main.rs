@@ -22,14 +22,16 @@ The thesis preset selects its fourteen catalogue rules; all includes the default
 global-variable-in-function, element-predicate, decision-variable-operator,
 decision-variable-generator, decision-variable-condition, array-index-start,
 constant-variable, unbounded-variable, compact-if, effective-zero-one, unused-declaration, reified-global and unmarked-symmetry-breaking are implemented.
-search-coverage is available for direct definitions; all fourteen thesis rules can run.
-Search analysis still reports a direct-only limitation until callable-output
-propagation is implemented. It follows resolved typed searches, nested seq_search,
+search-coverage follows supported direct and callable definitions; all fourteen
+thesis rules can run. It follows resolved typed searches, nested seq_search,
 simple annotation aliases and supported array1d views. Partial array selections
 and unseeded cycles do not establish whole coverage; computed search values do
 not seed their operands. Unknown annotations withhold missing-coverage advice.
 Advice addresses top-level solve-visible decisions; model-level local decisions
-report a scoped limitation, and callable locals remain under the direct-only boundary.
+report a scoped limitation. Exact selected Boolean bodies supply unconditional
+output guarantees with all required dependencies. Opaque/optional bodies, unproved
+accesses and unanchored recursion retain specific limitations; computed outputs
+are not inverted.
 -I DIR adds an ordered include directory for rules requiring model analysis.
 --stdlib-dir DIR supplies the MiniZinc library root, overriding MZN_STDLIB_DIR.
 Current default rules do not load includes or the standard library.

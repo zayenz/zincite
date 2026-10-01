@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-044"
 key = "search-callables"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -21,11 +21,20 @@ Read brief Corpus and thesis expansion and the applicable sections of ../backgro
 
 ## Done when
 
-- [ ] Map unconditional output-parameter definitions through resolved user/standard calls, recursive call graphs and transparent array views, using conservative terminating analysis.
-- [ ] Do not infer whole-array or unconditional definitions from partial access, filtered/reified calls, opaque functions or cyclic summaries; expose unavailable facts.
-- [ ] Exercise all section 4.9 families and remove the direct-only limitation, with documented soundness boundaries and source diagnostics.
+- [x] Map unconditional output-parameter definitions through resolved user/standard calls, recursive call graphs and transparent array views, using conservative terminating analysis.
+- [x] Do not infer whole-array or unconditional definitions from partial access, filtered/reified calls, opaque functions or cyclic summaries; expose unavailable facts.
+- [x] Exercise all section 4.9 families and remove the direct-only limitation, with documented soundness boundaries and source diagnostics.
 
 ## Validation
 
 - Run the area Cargo checks for Rust changes and zdev check for record changes; no tests solely for documentation.
 - Check count-like output arguments, nested user predicates, array1d, recursion, a reified call and a partly defined array; verify current standard-library signatures.
+
+## Result
+
+Follow guaranteed callable output definitions for complete search coverage, including labelled constraints, with conservative recursion and array boundaries.
+
+Validation:
+
+- Independent whole-task PASS W2c8afd20e6846855; fmt, clippy, workspace tests, diff and zdev checks pass.
+- Four immutable MiniZinc 2.10.1 compiler/CLI/public-fact controls pass; labelled count regression fails before repair and passes after.
