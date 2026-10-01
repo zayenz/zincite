@@ -63,7 +63,7 @@ pub use model::{
     FileId, IncludeEdge, ModelContext, ModelFile, ModelOptions, SourceDiagnostic, SourceKind,
     SourceLocation, load_model,
 };
-pub use rules::{LintOptions, Rule};
+pub use rules::{FixSupport, LintOptions, Rule, RuleFamily, RuleMetadata};
 pub use search::{
     SearchCoverage, SearchDeclaration, SearchFacts, SearchValue, resolve_search_coverage,
 };

@@ -2,11 +2,12 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use zincite_lint::{
-    LintOptions, ModelOptions, analyze_file, analyze_model, load_model, write_analysis,
+    LintOptions, ModelOptions, Rule, analyze_file, analyze_model, load_model, write_analysis,
 };
 use zincite_syntax::{FileMode, parse_with_mode};
 
-const HELP: &str = "Usage: zincite-lint [--rules SELECTION] [-I DIR] [--stdlib-dir DIR] [--stdin-filepath PATH] [FILE|DIR...|-]
+const HELP: &str = "Usage: zincite-lint [--list-rules | --explain RULE]
+       zincite-lint [--rules SELECTION] [-I DIR] [--stdlib-dir DIR] [--stdin-filepath PATH] [FILE|DIR...|-]
 
 Report MiniZinc modelling advice on stderr without rewriting source.
 No input or '-' reads stdin; stdin cannot be mixed with files.
@@ -19,73 +20,19 @@ Overlapping inputs use the first path to each file.
 --rules default|thesis|all or comma-separated rule IDs selects exactly that set.
 Omitted --rules selects default; repeated --rules and unknown IDs are errors.
 The thesis preset selects its fourteen catalogue rules; all includes the defaults.
-global-variable-in-function, element-predicate, decision-variable-operator,
-decision-variable-generator, decision-variable-condition, array-index-start,
-constant-variable, unbounded-variable, compact-if, effective-zero-one, unused-declaration, reified-global and unmarked-symmetry-breaking are implemented.
-search-coverage follows supported direct and callable definitions; all fourteen
-thesis rules can run. It follows resolved typed searches, nested seq_search,
-simple annotation aliases and supported array1d views. Partial array selections
-and unseeded cycles do not establish whole coverage; computed search values do
-not seed their operands. Unknown annotations withhold missing-coverage advice.
-Advice addresses top-level solve-visible decisions; model-level local decisions
-report a scoped limitation. Exact selected Boolean bodies supply unconditional
-output guarantees with all required dependencies. Opaque/optional bodies, unproved
-accesses and unanchored recursion retain specific limitations; computed outputs
-are not inverted.
+--list-rules lists rule IDs, families, availability, fix support and preset membership.
+--explain RULE describes a rule's purpose, required facts, limitations and options.
+These inspection commands run alone, write to stdout and do not read input.
+Rule entries report availability, implemented fix support and current options.
+
 -I DIR adds an ordered include directory for rules requiring model analysis.
 --stdlib-dir DIR supplies the MiniZinc library root, overriding MZN_STDLIB_DIR.
 Current default rules do not load includes or the standard library.
-array-index-start advises starting known nonempty numeric index sets at 1.
-It retains named domains and enum identity; unknown symbolic bounds stay quiet.
-effective-zero-one advises <= for matching one implications, >= for matching zero
-implications and sum(array) for proved complete zero/one traversals. Bounds and
-constants must be instance-invariant; optional/partial/unknown forms receive no
-formulation advice. Unsupported proof reports a limitation; no fix is performed.
-unused-declaration follows selected callable and value dependencies from complete
-model constraints, solve and output, including supported MiniZinc 2.10.1 default
-output. It reports only outermost unreachable declarations, exempts underscore
-names and performs no deletion. Missing-solve fragments are inapplicable; unknown
-reachable dependencies or output semantics report limitations and withhold affected
-unused claims. Implicit standard sources do not receive warnings.
-compact-if advises a Boolean-to-integer product for a supported decision-Boolean
-conditional with a zero integer branch. Optional and potentially partial forms
-receive no replacement advice; unsupported safety reports a limitation.
-constant-variable advises expressing parameter-valued whole definitions as parameters.
-It admits initializers, enforced equalities and complete unfiltered core forall
-definitions over matching indices. Conditional/partial definitions stay quiet;
-unsupported option or value safety reports a limitation. No fix is performed.
-unbounded-variable advises explicit domains for numeric decisions or array elements
-without bounds or proven complete definitions. Conditional, cyclic and partial
-equalities do not establish a complete definition; unsupported facts report limits.
-global-variable-in-function advises passing captured global decisions as arguments.
-It resolves lexical bindings and declared instantiation, without full type checking.
-unmarked-symmetry-breaking asks whether a resolved standard lexicographic, precedence
-or monotonicity constraint is intended to break symmetry. Core symmetry wrappers
-mark nested uses; user lookalikes do not. Required model constraints need no marker,
-and advice does not prove symmetry or recommend removing constraints.
-reified-global advises reviewing included standard Boolean globals in decision-dependent
-Boolean value contexts. Enforced conjunctions/forall and parameter-only actuals stay
-quiet; advice does not guarantee solver speed or perform a rewrite.
-element-predicate recommends indexing equality for a resolved three-argument
-standard predicate. Callable facts retain aliases, enums, optional and structured
-types, parameter names/defaults and supported polymorphic coercions. Ambiguous,
-unresolved or unsupported calls report limitations; no full type checking occurs.
-Decision-use rules inspect operator operands, generator sources/assignments and
-if/elseif/where conditions. They keep parameter-only contexts quiet and report
-unknown required facts as limitations. Reformulation and manageable finite-domain
-tabling are conditional modelling advice, without a solving-speed guarantee.
 Stdin has no model context: selected semantic analysis reports a limitation;
 standalone .dzn inputs mark semantic rules inapplicable.
 
-Default rules (both warnings):
-    naming: snake_case for values, callable names, parameters, fields and bindings;
-            UpperCamelCase for enum/type/constructor names and explicit parameter
-            sets/domains. Decision sets use snake_case. No SHOUTY_CASE.
-    missing-constraint-label: recommend a direct constraint-header string label.
-            Nested strings and expression annotations do not count as labels.
-Naming skips references, alias-dependent roles and data assignment targets.
-Quoted names and anonymous '_' are exempt; a single leading underscore is
-allowed, with the remaining spelling checked normally.
+Default rules are naming and missing-constraint-label; all rules remain warnings.
+Use --explain for each rule's naming exemptions, label syntax or analysis limits.
 Standalone suppressions apply throughout the next top-level item:
     % zincite-lint: ignore missing-constraint-label
     % zincite-lint: ignore naming
@@ -119,6 +66,12 @@ fn run() -> Result<u8, String> {
             .write_all(HELP.as_bytes())
             .map_err(|error| format!("stdout: {error}"))?;
         return Ok(0);
+    }
+    if arguments
+        .first()
+        .is_some_and(|argument| matches!(argument.to_str(), Some("--list-rules" | "--explain")))
+    {
+        return inspect_rules(&arguments);
     }
     let Arguments {
         paths,
@@ -169,6 +122,99 @@ fn run() -> Result<u8, String> {
         }
     }
     Ok(status)
+}
+
+fn inspect_rules(arguments: &[std::ffi::OsString]) -> Result<u8, String> {
+    let mut output = io::stdout().lock();
+    let result = if arguments.len() == 1 && arguments[0] == "--list-rules" {
+        write_rule_list(&mut output)
+    } else if arguments.len() == 2 && arguments[0] == "--explain" {
+        let id = arguments[1]
+            .to_str()
+            .ok_or("zincite-lint: rule ID must be UTF-8")?;
+        let rule =
+            Rule::from_id(id).ok_or_else(|| format!("zincite-lint: unknown rule ID '{id}'"))?;
+        write_rule_explanation(rule, &mut output)
+    } else {
+        return Err("zincite-lint: use --list-rules or --explain RULE alone".into());
+    };
+    result.map_err(|error| format!("stdout: {error}"))?;
+    Ok(0)
+}
+
+fn write_rule_list(output: &mut impl Write) -> io::Result<()> {
+    writeln!(output, "ID\tFamily\tAvailability\tFixes\tPreset\tPurpose")?;
+    for rule in Rule::DEFAULT.into_iter().chain(Rule::THESIS) {
+        let metadata = rule.metadata();
+        writeln!(
+            output,
+            "{}\t{}\t{}\t{}\t{}\t{}",
+            metadata.id,
+            metadata.family.as_str(),
+            if metadata.available {
+                "available"
+            } else {
+                "unavailable"
+            },
+            metadata.fix_support.as_str(),
+            if Rule::DEFAULT.contains(&rule) {
+                "default"
+            } else {
+                "thesis"
+            },
+            metadata.purpose,
+        )?;
+    }
+    Ok(())
+}
+
+fn write_rule_explanation(rule: Rule, output: &mut impl Write) -> io::Result<()> {
+    let metadata = rule.metadata();
+    writeln!(output, "{}: {}", metadata.id, metadata.purpose)?;
+    writeln!(output, "Family: {}", metadata.family.as_str())?;
+    writeln!(
+        output,
+        "Families describe purpose, not severity or fix safety."
+    )?;
+    writeln!(
+        output,
+        "Availability: {}",
+        if metadata.available {
+            "available"
+        } else {
+            "unavailable"
+        }
+    )?;
+    writeln!(
+        output,
+        "Preset: {}",
+        if Rule::DEFAULT.contains(&rule) {
+            "default"
+        } else {
+            "thesis"
+        }
+    )?;
+    writeln!(
+        output,
+        "Requires model context: {}",
+        if metadata.requires_model { "yes" } else { "no" }
+    )?;
+    writeln!(output, "Required facts: {}", metadata.requirements)?;
+    writeln!(output, "Fix support: {}", metadata.fix_support.as_str())?;
+    writeln!(
+        output,
+        "Fix support describes implemented edits; individual findings may have stricter conditions."
+    )?;
+    writeln!(
+        output,
+        "Options: {}",
+        if metadata.options.is_empty() {
+            "none".to_owned()
+        } else {
+            metadata.options.join(", ")
+        }
+    )?;
+    writeln!(output, "Limitations: {}", metadata.limitations)
 }
 
 struct Arguments {

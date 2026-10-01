@@ -2,6 +2,37 @@ use zincite_lint::{Rule, Severity, lint};
 use zincite_syntax::parse;
 
 #[test]
+fn catalogue_exposes_current_capabilities_and_preserves_presets() {
+    use zincite_lint::{FixSupport, RuleFamily};
+    let naming = Rule::from_id("naming").unwrap().metadata();
+    assert_eq!(naming.family, RuleFamily::Style);
+    assert!(!naming.requires_model);
+    assert!(naming.limitations.contains("Quoted and anonymous"));
+    let search = Rule::from_id("search-coverage").unwrap().metadata();
+    assert_eq!(search.family, RuleFamily::Modelling);
+    assert!(search.requires_model && search.requirements.contains("Complete model root"));
+    assert_eq!(
+        Rule::UnusedDeclaration.metadata().family,
+        RuleFamily::Suspicious
+    );
+    assert_eq!(
+        Rule::ReifiedGlobal.metadata().family,
+        RuleFamily::Performance
+    );
+    for rule in Rule::DEFAULT.into_iter().chain(Rule::THESIS) {
+        let metadata = rule.metadata();
+        assert_eq!(metadata.id, rule.id());
+        assert!(metadata.available && rule.is_available());
+        assert_eq!(metadata.fix_support, FixSupport::None);
+        assert!(metadata.options.is_empty());
+        assert!(!metadata.purpose.is_empty() && !metadata.limitations.is_empty());
+    }
+    assert_eq!(Rule::DEFAULT.len(), 2);
+    assert_eq!(Rule::THESIS.len(), 14);
+    assert!(Rule::from_id("unknown-rule").is_none());
+}
+
+#[test]
 fn compiler_item_families_keep_binding_names_labels_and_suppressions() {
     let source = concat!(
         "int: BadFunction(int: BadParameter)=BadParameter; enum E; E=_(1..2);",

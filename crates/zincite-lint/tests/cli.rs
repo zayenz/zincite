@@ -31,6 +31,44 @@ fn run_with_library(
 }
 
 #[test]
+fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
+    let list = run(&["--list-rules"], "not valid MiniZinc");
+    assert!(list.status.success() && list.stderr.is_empty());
+    let list = String::from_utf8(list.stdout).unwrap();
+    assert_eq!(list.lines().count(), 17);
+    assert!(list.contains("naming\tstyle\tavailable\tnone\tdefault"));
+    assert!(list.contains("search-coverage\tmodelling\tavailable\tnone\tthesis"));
+    let explanation = run_with_library(
+        &["--explain", "element-predicate"],
+        "not valid MiniZinc",
+        Some("missing_library"),
+    );
+    assert!(explanation.status.success() && explanation.stderr.is_empty());
+    let explanation = String::from_utf8(explanation.stdout).unwrap();
+    for expected in [
+        "Family: modelling",
+        "Availability: available",
+        "Requires model context: yes",
+        "Required facts:",
+        "Fix support: none",
+        "Options: none",
+        "Limitations: User lookalikes",
+    ] {
+        assert!(explanation.contains(expected), "{explanation}");
+    }
+    for args in [
+        vec!["--explain", "unknown-rule"],
+        vec!["--explain"],
+        vec!["--list-rules", "missing.mzn"],
+        vec!["--explain", "naming", "--rules", "all"],
+    ] {
+        let result = run(&args, "");
+        assert_eq!(result.status.code(), Some(2));
+        assert!(result.stdout.is_empty() && !result.stderr.is_empty());
+    }
+}
+
+#[test]
 fn model_configuration_keeps_syntax_defaults_independent_and_loads_semantic_inputs() {
     let source = "include \"missing_dependency.mzn\"; int: good_name = 1;";
     for arguments in [
