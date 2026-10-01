@@ -21,6 +21,7 @@ mod naming;
 mod rules;
 mod types;
 mod unbounded_variable;
+mod unused_declarations;
 mod value_safety;
 pub use analysis::{
     AnalysisResult, FileFinding, RuleExecution, RuleOutcome, analyze_file, analyze_model,
@@ -54,6 +55,9 @@ pub use model::{
 };
 pub use rules::{LintOptions, Rule};
 pub use types::{TypeInst, TypeKind};
+pub use unused_declarations::{
+    DeclarationUsage, ModelRootState, UsageFacts, UsageOutcome, resolve_unused_declarations,
+};
 pub use value_safety::expression_safety;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

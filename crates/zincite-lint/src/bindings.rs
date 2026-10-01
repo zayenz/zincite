@@ -565,8 +565,10 @@ impl<'a> Builder<'a> {
                 for child in node.children() {
                     if let SyntaxElement::Token(index) = child
                         && (parsed.tokens()[*index].kind == TokenKind::InfixIdentifier
-                            || (matches!(node.kind(), UnaryExpression | BinaryExpression)
-                                && symbolic_operator(parsed.tokens()[*index].kind).is_some()))
+                            || (matches!(
+                                node.kind(),
+                                UnaryExpression | BinaryExpression | RangeExpression
+                            ) && symbolic_operator(parsed.tokens()[*index].kind).is_some()))
                     {
                         self.reference(
                             file,
@@ -648,7 +650,7 @@ fn identity(written: &str) -> String {
         .to_owned()
 }
 
-/// Canonical names of the symbolic operations needed by bounded integer advice.
+/// Canonical symbolic callable names; spelling remains in the CST.
 pub(super) fn symbolic_operator(kind: TokenKind) -> Option<&'static str> {
     Some(match kind {
         TokenKind::Equal | TokenKind::DoubleEqual => "=",
@@ -659,6 +661,37 @@ pub(super) fn symbolic_operator(kind: TokenKind) -> Option<&'static str> {
         TokenKind::Star => "*",
         TokenKind::Div => "div",
         TokenKind::Mod => "mod",
+        TokenKind::NotEqual => "!=",
+        TokenKind::WeakEqual => "~=",
+        TokenKind::WeakNotEqual => "~!=",
+        TokenKind::Less => "<",
+        TokenKind::LessEqual => "<=",
+        TokenKind::Greater => ">",
+        TokenKind::GreaterEqual => ">=",
+        TokenKind::Equivalence => "<->",
+        TokenKind::Or => "\\/",
+        TokenKind::And => "/\\",
+        TokenKind::Not => "not",
+        TokenKind::Xor => "xor",
+        TokenKind::Slash => "/",
+        TokenKind::Power | TokenKind::Inverse => "^",
+        TokenKind::Concat => "++",
+        TokenKind::WeakPlus => "~+",
+        TokenKind::WeakMinus => "~-",
+        TokenKind::WeakStar => "~*",
+        TokenKind::WeakSlash => "~/",
+        TokenKind::WeakDiv => "~div",
+        TokenKind::In => "in",
+        TokenKind::Subset => "subset",
+        TokenKind::Superset => "superset",
+        TokenKind::Union => "union",
+        TokenKind::Intersect => "intersect",
+        TokenKind::Diff => "diff",
+        TokenKind::SymDiff => "symdiff",
+        TokenKind::RangeInclusive => "..",
+        TokenKind::RangeExclusiveStart => "<..",
+        TokenKind::RangeExclusiveEnd => "..<",
+        TokenKind::RangeExclusive => "<..<",
         _ => return None,
     })
 }

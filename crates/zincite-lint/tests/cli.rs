@@ -628,7 +628,7 @@ fn constant_variable_selection_keeps_context_limits_and_status_precedence() {
             .iter()
             .filter(|r| !r.is_available())
             .count(),
-        4
+        3
     );
     std::fs::remove_dir_all(directory).unwrap();
 }
@@ -787,4 +787,94 @@ fn effective_zero_one_selection_preserves_facts_limits_and_status_precedence() {
     assert_eq!(output.status.code(), Some(0));
     assert!(output.stderr.is_empty());
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn unused_declaration_selection_respects_complete_roots_limits_and_status_precedence() {
+    let dir = std::env::temp_dir().join(format!("zincite-unused-cli-{}", std::process::id()));
+    let library = dir.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(
+        library.join("std/stdlib.mzn"),
+        "function string: show(any $T: value);",
+    )
+    .unwrap();
+    let root = dir.join("root.mzn");
+    let original = "int: kept=1; int: unused=2; solve satisfy; output [show(kept)];";
+    std::fs::write(&root, original).unwrap();
+    let args = [
+        "--rules",
+        "unused-declaration",
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        root.to_str().unwrap(),
+    ];
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(stderr.matches("warning [unused-declaration]").count(), 1);
+    assert!(stderr.contains("'unused'") && !stderr.contains("analysis limitation"));
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), original);
+    assert!(
+        zincite_lint::lint_with_options(
+            &zincite_syntax::parse(original),
+            &zincite_lint::LintOptions::from_selection("unused-declaration").unwrap()
+        )
+        .unwrap_err()[0]
+            .message
+            .contains("ModelContext")
+    );
+    std::fs::write(&root, "int: exported=2;").unwrap();
+    let fragment = run(&args, "");
+    assert_eq!(fragment.status.code(), Some(0));
+    assert!(fragment.stderr.is_empty());
+    std::fs::write(
+        &root,
+        "int: unused=2; constraint missing; solve satisfy; output [];",
+    )
+    .unwrap();
+    let uncertain = run(&args, "");
+    assert_eq!(uncertain.status.code(), Some(0));
+    let stderr = String::from_utf8(uncertain.stderr).unwrap();
+    assert!(
+        stderr.contains("analysis limitation: unused-declaration")
+            && !stderr.contains("warning [unused-declaration]")
+    );
+    std::fs::write(&root, original).unwrap();
+    let broken = dir.join("broken.mzn");
+    std::fs::write(&broken, "var int: =;").unwrap();
+    let mixed = run(
+        &[
+            "--rules",
+            "unused-declaration",
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            broken.to_str().unwrap(),
+            root.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(mixed.status.code(), Some(2));
+    assert!(
+        String::from_utf8(mixed.stderr)
+            .unwrap()
+            .contains("warning [unused-declaration]")
+    );
+    let stdin = run(&["--rules", "unused-declaration"], original);
+    assert_eq!(stdin.status.code(), Some(0));
+    assert!(
+        String::from_utf8(stdin.stderr)
+            .unwrap()
+            .contains("analysis limitation")
+    );
+    let data = dir.join("data.dzn");
+    std::fs::write(&data, "value=1;").unwrap();
+    let data_output = run(
+        &["--rules", "unused-declaration", data.to_str().unwrap()],
+        "",
+    );
+    assert_eq!(data_output.status.code(), Some(0));
+    assert!(data_output.stderr.is_empty());
+    std::fs::remove_dir_all(dir).unwrap();
 }

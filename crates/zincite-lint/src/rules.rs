@@ -82,6 +82,7 @@ impl Rule {
                 | Self::DecisionVariableOperator
                 | Self::DecisionVariableGenerator
                 | Self::DecisionVariableCondition
+                | Self::UnusedDeclaration
         )
     }
 

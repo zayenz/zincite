@@ -114,11 +114,56 @@ pub fn resolve_callables(context: &ModelContext, bindings: &BindingFacts) -> Cal
         engine.signature(declaration.id);
     }
     for (file, source) in context.files.iter().enumerate() {
-        if !source.warnings_enabled() || !source.parsed.diagnostics().is_empty() {
+        if !source.parsed.diagnostics().is_empty() {
             continue;
         }
         for (item, node) in source.parsed.tree().child_nodes().enumerate() {
-            engine.inspect(file, item, node);
+            if source.warnings_enabled()
+                || matches!(
+                    node.kind(),
+                    NodeKind::Constraint
+                        | NodeKind::Solve
+                        | NodeKind::SolveMinimize
+                        | NodeKind::SolveMaximize
+                        | NodeKind::Output
+                )
+            {
+                engine.inspect(file, item, node);
+            }
+        }
+    }
+    // Retain interpretation inside selected standard implementations as well.
+    // Native declarations are endpoints; this follows only demanded bodies.
+    let mut inspected = vec![false; bindings.declarations.len()];
+    loop {
+        let selected: Vec<_> = engine
+            .calls
+            .values()
+            .filter_map(|call| {
+                if let CallOutcome::Resolved { declaration, .. } = call.outcome {
+                    let d = &bindings.declarations[declaration.0];
+                    (context.files[d.file].kind == crate::SourceKind::StandardLibrary
+                        && !inspected[declaration.0])
+                        .then_some(declaration)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if selected.is_empty() {
+            break;
+        }
+        for id in selected {
+            if inspected[id.0] {
+                continue;
+            }
+            inspected[id.0] = true;
+            let d = &bindings.declarations[id.0];
+            if let Some(node) = engine.nodes[id.0]
+                && node.child_nodes().any(|n| is_expression(n.kind()))
+            {
+                engine.inspect(d.file, d.item, node);
+            }
         }
     }
     CallableFacts {
@@ -648,6 +693,12 @@ impl<'a> Engine<'a> {
                 }
             }
             RangeExpression | SetLiteral => {
+                if node.kind() == RangeExpression
+                    && let CallOutcome::Resolved { return_type, .. } = self.call(file, item, node)
+                {
+                    self.expressions.insert(key, return_type.clone());
+                    return return_type;
+                }
                 let element = self.common(file, item, &children);
                 TypeInst {
                     instantiation: element.instantiation,

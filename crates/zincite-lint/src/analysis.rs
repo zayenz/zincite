@@ -4,13 +4,14 @@ use std::path::Path;
 use zincite_syntax::{FileMode, ParsedFile};
 
 use crate::{
-    LintDiagnostic, LintOptions, ModelContext, Rule, Severity, SourceDiagnostic, SourceLocation,
-    array_indices::check_array_indices, captures::check_captures, compact_if::check_compact_ifs,
-    constant_variable::check_constant_variables, decision_use::check_decision_use,
-    effective_zero_one::check_effective_zero_one, element::check_element, lint_items,
-    lint_with_options, resolve_bindings, resolve_callables, resolve_compact_ifs,
-    resolve_definitions, resolve_domains, resolve_effective_zero_one, resolve_instantiations,
-    resolve_integer_bounds, unbounded_variable::check_unbounded_variables,
+    LintDiagnostic, LintOptions, ModelContext, ModelRootState, Rule, Severity, SourceDiagnostic,
+    SourceLocation, array_indices::check_array_indices, captures::check_captures,
+    compact_if::check_compact_ifs, constant_variable::check_constant_variables,
+    decision_use::check_decision_use, effective_zero_one::check_effective_zero_one,
+    element::check_element, lint_items, lint_with_options, resolve_bindings, resolve_callables,
+    resolve_compact_ifs, resolve_definitions, resolve_domains, resolve_effective_zero_one,
+    resolve_instantiations, resolve_integer_bounds, resolve_unused_declarations,
+    unbounded_variable::check_unbounded_variables, unused_declarations::check_unused_declarations,
 };
 
 #[derive(Debug)]
@@ -196,6 +197,8 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
     let mut capture_incomplete = false;
     let mut element_incomplete = false;
     let mut decision_incomplete = Vec::new();
+    let mut unused_state = ModelRootState::Complete;
+    let mut unused_incomplete = false;
     if !data && options.requires_model() {
         let facts = resolve_bindings(context);
         let domains = if options.rules.contains(&Rule::ArrayIndexStart)
@@ -239,8 +242,19 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             || options.rules.contains(&Rule::ConstantVariable)
             || options.rules.contains(&Rule::UnboundedVariable)
             || options.rules.contains(&Rule::EffectiveZeroOne)
+            || options.rules.contains(&Rule::UnusedDeclaration)
         {
             let calls = resolve_callables(context, &facts);
+            if options.rules.contains(&Rule::UnusedDeclaration) {
+                let usage = resolve_unused_declarations(context, &facts, &calls);
+                unused_state = usage.root_state;
+                unused_incomplete =
+                    !usage.limitations.is_empty() || unused_state == ModelRootState::Incomplete;
+                result
+                    .findings
+                    .extend(check_unused_declarations(context, &facts, &usage));
+                result.limitations.extend(usage.limitations);
+            }
             if options.rules.contains(&Rule::ElementPredicate) {
                 let elements = check_element(context, &facts, &calls);
                 element_incomplete = !elements.limitations.is_empty();
@@ -328,6 +342,11 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 RuleOutcome::Inapplicable {
                     reason: "standalone data has no model context".into(),
                 }
+            } else if rule == Rule::UnusedDeclaration && unused_state == ModelRootState::Fragment {
+                RuleOutcome::Inapplicable {
+                    reason: "a model fragment without a solve item cannot establish unused exports"
+                        .into(),
+                }
             } else if rule.requires_model()
                 && (shared_incomplete
                     || (rule == Rule::GlobalVariableInFunction && capture_incomplete)
@@ -335,6 +354,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     || (rule == Rule::ArrayIndexStart && array_incomplete)
                     || (rule == Rule::CompactIf && compact_incomplete)
                     || (rule == Rule::EffectiveZeroOne && effective_incomplete)
+                    || (rule == Rule::UnusedDeclaration && unused_incomplete)
                     || (rule == Rule::ConstantVariable && constant_incomplete)
                     || (rule == Rule::UnboundedVariable && unbounded_incomplete)
                     || decision_incomplete.contains(&rule))

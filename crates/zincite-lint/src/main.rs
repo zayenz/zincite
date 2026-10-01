@@ -21,8 +21,8 @@ Omitted --rules selects default; repeated --rules and unknown IDs are errors.
 The thesis preset selects its fourteen catalogue rules; all includes the defaults.
 global-variable-in-function, element-predicate, decision-variable-operator,
 decision-variable-generator, decision-variable-condition, array-index-start,
-constant-variable, unbounded-variable, compact-if and effective-zero-one are implemented.
-The other four thesis rules
+constant-variable, unbounded-variable, compact-if, effective-zero-one and unused-declaration are implemented.
+The other three thesis rules
 remain unavailable and selecting any of them reports an error.
 -I DIR adds an ordered include directory for rules requiring model analysis.
 --stdlib-dir DIR supplies the MiniZinc library root, overriding MZN_STDLIB_DIR.
@@ -33,6 +33,12 @@ effective-zero-one advises <= for matching one implications, >= for matching zer
 implications and sum(array) for proved complete zero/one traversals. Bounds and
 constants must be instance-invariant; optional/partial/unknown forms receive no
 formulation advice. Unsupported proof reports a limitation; no fix is performed.
+unused-declaration follows selected callable and value dependencies from complete
+model constraints, solve and output, including supported MiniZinc 2.10.1 default
+output. It reports only outermost unreachable declarations, exempts underscore
+names and performs no deletion. Missing-solve fragments are inapplicable; unknown
+reachable dependencies or output semantics report limitations and withhold affected
+unused claims. Implicit standard sources do not receive warnings.
 compact-if advises a Boolean-to-integer product for a supported decision-Boolean
 conditional with a zero integer branch. Optional and potentially partial forms
 receive no replacement advice; unsupported safety reports a limitation.
