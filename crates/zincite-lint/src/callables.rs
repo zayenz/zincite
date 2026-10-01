@@ -2,6 +2,7 @@
 use std::collections::BTreeMap;
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
+use crate::bindings::symbolic_operator;
 use crate::types::{Match, aggregate, coerces, join, match_type, pattern_narrower, substitute};
 use crate::{
     BindingFacts, BindingResolution, DeclarationId, DeclarationRole, FileId, Instantiation,
@@ -37,6 +38,11 @@ pub struct ExpressionType {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CallOutcome {
+    /// A language operation without a standard-library declaration.
+    Intrinsic {
+        name: String,
+        return_type: TypeInst,
+    },
     Resolved {
         declaration: DeclarationId,
         parameters: Vec<TypeInst>,
@@ -59,6 +65,8 @@ pub enum CallOutcome {
 
 #[derive(Debug)]
 pub struct CallFact {
+    /// Symbolic operator heads, distinct from written callable invocations.
+    pub symbolic_operator: bool,
     pub file: FileId,
     pub item: usize,
     pub location: SourceLocation,
@@ -228,7 +236,7 @@ impl<'a> Engine<'a> {
             matches!(
                 kind,
                 TokenKind::Identifier | TokenKind::QuotedIdentifier | TokenKind::InfixIdentifier
-            )
+            ) || symbolic_operator(*kind).is_some()
         }) else {
             return BindingResolution::Unresolved;
         };
@@ -730,6 +738,14 @@ impl<'a> Engine<'a> {
                 self.comprehension(file, item, node, false)
             }
             UnaryExpression => {
+                if tokens
+                    .first()
+                    .is_some_and(|(kind, _, _)| symbolic_operator(*kind).is_some())
+                    && let CallOutcome::Resolved { return_type, .. } = self.call(file, item, node)
+                {
+                    self.expressions.insert(key, return_type.clone());
+                    return return_type;
+                }
                 let mut value = children
                     .first()
                     .map(|n| self.infer(file, item, n))
@@ -764,6 +780,14 @@ impl<'a> Engine<'a> {
                 }
             }
             BinaryExpression => {
+                if tokens
+                    .first()
+                    .is_some_and(|(kind, _, _)| symbolic_operator(*kind).is_some())
+                    && let CallOutcome::Resolved { return_type, .. } = self.call(file, item, node)
+                {
+                    self.expressions.insert(key, return_type.clone());
+                    return return_type;
+                }
                 let values: Vec<_> = children.iter().map(|n| self.infer(file, item, n)).collect();
                 let operator = tokens
                     .iter()
@@ -1007,7 +1031,7 @@ impl<'a> Engine<'a> {
             matches!(
                 kind,
                 TokenKind::Identifier | TokenKind::QuotedIdentifier | TokenKind::InfixIdentifier
-            )
+            ) || symbolic_operator(*kind).is_some()
         }) else {
             return CallOutcome::Unsupported {
                 reason: "call head is unsupported".into(),
@@ -1023,6 +1047,47 @@ impl<'a> Engine<'a> {
                 reason: "recursive call typing is unsupported".into(),
                 candidates: Vec::new(),
             };
+        }
+        if node.kind() == NodeKind::UnaryExpression
+            && tokens
+                .first()
+                .is_some_and(|(kind, _, _)| *kind == TokenKind::Plus)
+        {
+            let mut ty = node
+                .child_nodes()
+                .next()
+                .map(|operand| self.infer(file, item, operand))
+                .unwrap_or_else(|| TypeInst::unknown("operand is missing"));
+            let outcome = if ty.optional
+                || !matches!(
+                    ty.kind,
+                    TypeKind::Bool | TypeKind::Int | TypeKind::Enum(_) | TypeKind::Float
+                ) {
+                CallOutcome::Unsupported {
+                    reason: "intrinsic unary plus operand is unsupported".into(),
+                    candidates: Vec::new(),
+                }
+            } else {
+                if matches!(ty.kind, TypeKind::Bool | TypeKind::Enum(_)) {
+                    ty.kind = TypeKind::Int;
+                }
+                CallOutcome::Intrinsic {
+                    name: "unary+".into(),
+                    return_type: ty,
+                }
+            };
+            self.calls.insert(
+                key,
+                CallFact {
+                    symbolic_operator: true,
+                    file,
+                    item,
+                    location: self.context.files[file].location(range.clone()),
+                    name: "unary+".into(),
+                    outcome: outcome.clone(),
+                },
+            );
+            return outcome;
         }
         self.active_calls.push(key);
         let resolution = self.resolution(file, node);
@@ -1053,10 +1118,16 @@ impl<'a> Engine<'a> {
         self.calls.insert(
             key,
             CallFact {
+                symbolic_operator: tokens
+                    .iter()
+                    .find(|(_, _, r)| r == range)
+                    .is_some_and(|(kind, _, _)| symbolic_operator(*kind).is_some()),
                 file,
                 item,
                 location: self.context.files[file].location(range.clone()),
-                name: identity(written),
+                name: symbolic_operator(tokens.iter().find(|(_, _, r)| r == range).unwrap().0)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| identity(written)),
                 outcome: outcome.clone(),
             },
         );
@@ -1162,7 +1233,24 @@ impl<'a> Engine<'a> {
             let targets: Vec<_> = signature
                 .parameters
                 .iter()
-                .map(|p| substitute(&p.ty, &variables))
+                .zip(&assigned)
+                .map(|(p, actual)| {
+                    let mut target = substitute(&p.ty, &variables);
+                    // A scalar any occurrence accepts the actual qualifiers;
+                    // the shared variable still determines its common type
+                    // and the callable's return type.
+                    if matches!(p.ty.kind, TypeKind::Variable { any: true, .. })
+                        && !matches!(
+                            target.kind,
+                            TypeKind::Array { .. } | TypeKind::Tuple(_) | TypeKind::Record(_)
+                        )
+                        && let Some(actual) = actual
+                    {
+                        target.instantiation = actual.instantiation;
+                        target.optional = actual.optional;
+                    }
+                    target
+                })
                 .collect();
             for (actual, target) in assigned.iter().zip(&targets) {
                 if let Some(actual) = actual {
@@ -1241,14 +1329,17 @@ impl<'a> Engine<'a> {
             .filter(|candidate| {
                 matches.iter().all(|other| {
                     candidate.1.len() == other.1.len()
-                        && candidate
+                        && candidate.1.iter().zip(&other.1).all(|(a, b)| coerces(a, b))
+                        && (!candidate
                             .1
                             .iter()
                             .zip(&other.1)
-                            .zip(candidate.2.iter().zip(&other.2))
-                            .all(|((a, b), (pa, pb))| {
-                                coerces(a, b) && (a != b || pattern_narrower(pa, pb))
-                            })
+                            .all(|(a, b)| a.kind == b.kind)
+                            || candidate
+                                .2
+                                .iter()
+                                .zip(&other.2)
+                                .all(|(a, b)| pattern_narrower(a, b)))
                 })
             })
             .collect();
@@ -1296,4 +1387,59 @@ pub(super) fn is_expression(kind: NodeKind) -> bool {
             | NamedArgument
             | RecordLiteralField
     )
+}
+
+/// The exact operation head, excluding heads nested in its arguments.
+pub(super) fn operation_fact<'a>(
+    context: &ModelContext,
+    calls: &'a CallableFacts,
+    file: FileId,
+    node: &SyntaxNode,
+) -> Option<&'a CallFact> {
+    let parsed = &context.files[file].parsed;
+    let head = node.children().iter().find_map(|child| {
+        let SyntaxElement::Token(index) = child else {
+            return None;
+        };
+        let token = &parsed.tokens()[*index];
+        (matches!(
+            token.kind,
+            TokenKind::Identifier | TokenKind::QuotedIdentifier | TokenKind::InfixIdentifier
+        ) || symbolic_operator(token.kind).is_some())
+        .then_some(token)
+    })?;
+    let start = head.range.start + context.files[file].byte_offset;
+    calls
+        .calls
+        .iter()
+        .find(|fact| fact.file == file && fact.location.range.start == start)
+}
+pub(super) fn core_operation(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &CallableFacts,
+    file: FileId,
+    node: &SyntaxNode,
+    name: &str,
+) -> Result<bool, String> {
+    match operation_fact(context, calls, file, node).map(|fact| &fact.outcome) {
+        Some(CallOutcome::Resolved { declaration, .. }) => {
+            let declaration = &bindings.declarations[declaration.0];
+            let source = &context.files[declaration.file];
+            Ok(declaration.name == name
+                && declaration.role == DeclarationRole::Function
+                && source.kind == crate::SourceKind::StandardLibrary
+                && source.implicit)
+        }
+        Some(CallOutcome::Intrinsic {
+            name: intrinsic, ..
+        }) => Ok(name == "+" && intrinsic == "unary+" && node.kind() == NodeKind::UnaryExpression),
+        Some(
+            CallOutcome::NoMatch { reason }
+            | CallOutcome::Unresolved { reason }
+            | CallOutcome::Unsupported { reason, .. },
+        ) => Err(format!("operation {name}: {reason}")),
+        Some(CallOutcome::Ambiguous { .. }) => Err(format!("operation {name} is ambiguous")),
+        None => Err(format!("operation {name} identity is unavailable")),
+    }
 }

@@ -265,12 +265,13 @@ impl Producer<'_> {
             .iter()
             .find(|call| call.file == file && Some(call.location.range.start) == head);
         match call.map(|call| &call.outcome) {
-            Some(CallOutcome::Resolved { return_type, .. })
-                if return_type.instantiation != Instantiation::Unknown =>
-            {
+            Some(
+                CallOutcome::Resolved { return_type, .. }
+                | CallOutcome::Intrinsic { return_type, .. },
+            ) if return_type.instantiation != Instantiation::Unknown => {
                 Conclusion::known(return_type.instantiation)
             }
-            Some(CallOutcome::Resolved { .. }) => {
+            Some(CallOutcome::Resolved { .. } | CallOutcome::Intrinsic { .. }) => {
                 Conclusion::unknown("resolved call return has unknown instantiation")
             }
             Some(

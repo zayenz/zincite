@@ -19,6 +19,9 @@ pub(super) fn check_element(
         limitations: Vec::new(),
     };
     for call in &facts.calls {
+        if call.symbolic_operator {
+            continue;
+        }
         let file = &context.files[call.file];
         let Some(suppressed) = &file.suppressions else {
             continue;
@@ -44,7 +47,7 @@ pub(super) fn check_element(
                 }
                 continue;
             }
-            CallOutcome::NoMatch { .. } => continue,
+            CallOutcome::NoMatch { .. } | CallOutcome::Intrinsic { .. } => continue,
             CallOutcome::Unresolved { reason } | CallOutcome::Unsupported { reason, .. } => {
                 reason.as_str()
             }

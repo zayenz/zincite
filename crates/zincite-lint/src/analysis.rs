@@ -7,9 +7,10 @@ use crate::{
     LintDiagnostic, LintOptions, ModelContext, Rule, Severity, SourceDiagnostic, SourceLocation,
     array_indices::check_array_indices, captures::check_captures, compact_if::check_compact_ifs,
     constant_variable::check_constant_variables, decision_use::check_decision_use,
-    element::check_element, lint_items, lint_with_options, resolve_bindings, resolve_callables,
-    resolve_compact_ifs, resolve_definitions, resolve_domains, resolve_instantiations,
-    unbounded_variable::check_unbounded_variables,
+    effective_zero_one::check_effective_zero_one, element::check_element, lint_items,
+    lint_with_options, resolve_bindings, resolve_callables, resolve_compact_ifs,
+    resolve_definitions, resolve_domains, resolve_effective_zero_one, resolve_instantiations,
+    resolve_integer_bounds, unbounded_variable::check_unbounded_variables,
 };
 
 #[derive(Debug)]
@@ -189,6 +190,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
     let shared_incomplete = !context.limitations.is_empty() || !context.errors.is_empty();
     let mut array_incomplete = false;
     let mut compact_incomplete = false;
+    let mut effective_incomplete = false;
     let mut constant_incomplete = false;
     let mut unbounded_incomplete = false;
     let mut capture_incomplete = false;
@@ -199,6 +201,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
         let domains = if options.rules.contains(&Rule::ArrayIndexStart)
             || options.rules.contains(&Rule::ConstantVariable)
             || options.rules.contains(&Rule::UnboundedVariable)
+            || options.rules.contains(&Rule::EffectiveZeroOne)
         {
             Some(resolve_domains(context, &facts))
         } else {
@@ -235,6 +238,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             || !decision_rules.is_empty()
             || options.rules.contains(&Rule::ConstantVariable)
             || options.rules.contains(&Rule::UnboundedVariable)
+            || options.rules.contains(&Rule::EffectiveZeroOne)
         {
             let calls = resolve_callables(context, &facts);
             if options.rules.contains(&Rule::ElementPredicate) {
@@ -247,8 +251,25 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 || options.rules.contains(&Rule::CompactIf)
                 || options.rules.contains(&Rule::ConstantVariable)
                 || options.rules.contains(&Rule::UnboundedVariable)
+                || options.rules.contains(&Rule::EffectiveZeroOne)
             {
                 let instantiations = resolve_instantiations(context, &facts, &calls);
+                if options.rules.contains(&Rule::EffectiveZeroOne) {
+                    let domains = domains.as_ref().unwrap();
+                    let bounds = resolve_integer_bounds(context, &facts, &calls, domains);
+                    let zero_one = resolve_effective_zero_one(
+                        context,
+                        &facts,
+                        &calls,
+                        &instantiations,
+                        domains,
+                        &bounds,
+                    );
+                    let checked = check_effective_zero_one(context, &zero_one);
+                    effective_incomplete = !checked.limitations.is_empty();
+                    result.findings.extend(checked.findings);
+                    result.limitations.extend(checked.limitations);
+                }
                 if options.rules.contains(&Rule::CompactIf) {
                     let conditionals =
                         resolve_compact_ifs(context, &facts, &calls, &instantiations);
@@ -313,6 +334,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     || (rule == Rule::ElementPredicate && element_incomplete)
                     || (rule == Rule::ArrayIndexStart && array_incomplete)
                     || (rule == Rule::CompactIf && compact_incomplete)
+                    || (rule == Rule::EffectiveZeroOne && effective_incomplete)
                     || (rule == Rule::ConstantVariable && constant_incomplete)
                     || (rule == Rule::UnboundedVariable && unbounded_incomplete)
                     || decision_incomplete.contains(&rule))

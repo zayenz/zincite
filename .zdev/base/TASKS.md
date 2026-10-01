@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 74
-- Ready: 11
+- Ready: 10
 - Blocked: 25
-- Done: 38
+- Done: 39
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -47,7 +47,7 @@
 | [base-036](tasks/036-find-unconditional-definitions-and-deliver-constant-variable.md) | Find unconditional definitions and deliver constant-variable advice | done | base-035, base-034 |
 | [base-037](tasks/037-report-unbounded-decisions-without-false-defining-equality-w.md) | Report unbounded decisions without false defining-equality warnings | done | base-036 |
 | [base-038](tasks/038-recommend-compact-forms-for-eligible-if-expressions.md) | Recommend compact forms for eligible if expressions | done | base-034 |
-| [base-039](tasks/039-recognise-safe-0-1-implication-and-sum-formulations.md) | Recognise safe 0..1 implication and sum formulations | ready | base-036 |
+| [base-039](tasks/039-recognise-safe-0-1-implication-and-sum-formulations.md) | Recognise safe 0..1 implication and sum formulations | done | base-036 |
 | [base-040](tasks/040-report-unreachable-declarations-in-complete-model-roots.md) | Report unreachable declarations in complete model roots | ready | base-033 |
 | [base-041](tasks/041-report-globals-in-reified-and-half-reified-contexts.md) | Report globals in reified and half-reified contexts | ready | base-036 |
 | [base-042](tasks/042-recognise-unmarked-likely-symmetry-breaking-globals.md) | Recognise unmarked likely symmetry-breaking globals | ready | base-033 |

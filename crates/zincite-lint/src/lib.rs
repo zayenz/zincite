@@ -13,6 +13,7 @@ mod constant_variable;
 mod decision_use;
 mod definitions;
 mod domains;
+mod effective_zero_one;
 mod element;
 mod instantiations;
 mod model;
@@ -39,7 +40,12 @@ pub use definitions::{
     resolve_definitions,
 };
 pub use domains::{
-    ArrayIndexSet, DeclarationDomain, Domain, DomainFacts, NumericBound, resolve_domains,
+    ArrayIndexSet, DeclarationDomain, Domain, DomainFacts, ExpressionBounds, IntegerBoundsFacts,
+    IntegerBoundsOutcome, NumericBound, resolve_domains, resolve_integer_bounds,
+};
+pub use effective_zero_one::{
+    EffectiveZeroOneFact, EffectiveZeroOneFacts, EffectiveZeroOneFamily, EffectiveZeroOneOutcome,
+    resolve_effective_zero_one,
 };
 pub use instantiations::{ExpressionInstantiation, InstantiationFacts, resolve_instantiations};
 pub use model::{

@@ -1,5 +1,5 @@
 //! Bounded expression safety shared by definition and compact-if interpretation.
-use crate::domains::expression_integer;
+use crate::domains::{expression_integer, invariant_expression_integer};
 use crate::{
     BindingFacts, CallableFacts, DefinitionSafety, FileId, ModelContext, TypeInst, TypeKind,
 };
@@ -20,6 +20,7 @@ pub fn expression_safety(
         context,
         bindings,
         calls,
+        membership: None,
     }
     .check(file, node)
 }
@@ -27,6 +28,7 @@ struct Safety<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
     calls: &'a CallableFacts,
+    membership: Option<std::ops::Range<usize>>,
 }
 impl Safety<'_> {
     fn ty(&self, file: FileId, node: &SyntaxNode) -> Option<&TypeInst> {
@@ -86,6 +88,15 @@ impl Safety<'_> {
                     "arbitrary calls do not establish definition value safety".into(),
                 )
             }
+            NodeKind::ArrayAccessExpression if self.membership.as_ref() == Some(&node.range()) => {
+                for child in children {
+                    let safety = self.check(file, child);
+                    if safety != DefinitionSafety::Supported {
+                        return safety;
+                    }
+                }
+                DefinitionSafety::Supported
+            }
             NodeKind::ArrayAccessExpression => DefinitionSafety::Unsupported(
                 "definition array access requires an index-membership proof".into(),
             ),
@@ -95,7 +106,12 @@ impl Safety<'_> {
                     .iter()
                     .any(|t| matches!(t.kind, TokenKind::Div | TokenKind::Mod)) =>
             {
-                match expression_integer(self.context, self.bindings, file, node) {
+                let value = if self.membership.is_some() {
+                    invariant_expression_integer(self.context, self.bindings, file, node)
+                } else {
+                    expression_integer(self.context, self.bindings, file, node)
+                };
+                match value {
                     Ok(Some(_)) => DefinitionSafety::Supported,
                     Ok(None) => DefinitionSafety::Unknown(
                         "divisor/value is not a known closed integer expression".into(),
@@ -153,4 +169,24 @@ pub(super) fn optional(ty: &TypeInst) -> bool {
             TypeKind::Record(fields) => fields.iter().any(|(_, ty)| optional(ty)),
             _ => false,
         }
+}
+
+/// Only the exact access whose full generator/index correspondence was proved.
+/// Ordinary expression_safety keeps rejecting accesses without membership proof.
+/// Traversal safety also retains parameter dependencies in closed div/mod checks.
+pub(super) fn traversal_expression_safety(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &CallableFacts,
+    file: FileId,
+    node: &SyntaxNode,
+    access: &SyntaxNode,
+) -> DefinitionSafety {
+    Safety {
+        context,
+        bindings,
+        calls,
+        membership: Some(access.range()),
+    }
+    .check(file, node)
 }

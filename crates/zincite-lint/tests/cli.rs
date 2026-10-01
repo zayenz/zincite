@@ -42,7 +42,7 @@ fn model_configuration_does_not_load_dependencies_for_syntax_defaults_or_unavail
         assert_eq!(output.status.code(), Some(0));
         assert!(output.stdout.is_empty() && output.stderr.is_empty());
     }
-    for selection in ["thesis", "all", "naming,effective-zero-one"] {
+    for selection in ["thesis", "all", "naming,search-coverage"] {
         let output = run_with_library(
             &[
                 "--rules",
@@ -238,12 +238,7 @@ fn rule_selection_preserves_defaults_and_reports_unavailable_rules() {
     );
     assert_eq!(suppressed.status.code(), Some(0));
     assert!(suppressed.stdout.is_empty() && suppressed.stderr.is_empty());
-    for selection in [
-        "thesis",
-        "all",
-        "effective-zero-one",
-        "naming,effective-zero-one",
-    ] {
+    for selection in ["thesis", "all", "search-coverage", "naming,search-coverage"] {
         let output = run(&["--rules", selection], "");
         assert_eq!(output.status.code(), Some(2));
         assert!(output.stdout.is_empty());
@@ -633,7 +628,7 @@ fn constant_variable_selection_keeps_context_limits_and_status_precedence() {
             .iter()
             .filter(|r| !r.is_available())
             .count(),
-        5
+        4
     );
     std::fs::remove_dir_all(directory).unwrap();
 }
@@ -722,5 +717,74 @@ fn compact_if_selection_keeps_advice_limits_and_suppression_separate() {
     let diagnostics = String::from_utf8(output.stderr).unwrap();
     assert!(diagnostics.contains("analysis limitation: compact-if"));
     assert!(!diagnostics.contains("warning [compact-if]"));
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn effective_zero_one_selection_preserves_facts_limits_and_status_precedence() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-zero-one-cli-{}", std::process::id()));
+    let library = directory.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(library.join("std/stdlib.mzn"),"function var bool: '='(any $T: left,any $T: right); function var bool: '->'(var bool: left,var bool: right); function var int: sum(array[int] of var int: values);").unwrap();
+    let root = directory.join("root.mzn");
+    let source = "var 0..1: a; var 0..1: b; array[1..2] of var 0..1: flags; constraint a=1 -> b=1; constraint a=0 -> b=0; var int: total=sum(i in 1..2)(flags[i]=1); solve satisfy;";
+    std::fs::write(&root, source).unwrap();
+    let args = [
+        "--rules",
+        "effective-zero-one",
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        root.to_str().unwrap(),
+    ];
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(stderr.matches("warning [effective-zero-one]").count(), 3);
+    assert!(!stderr.contains("analysis limitation"));
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    let broken = directory.join("broken.mzn");
+    std::fs::write(&broken, "var int: =;").unwrap();
+    let output = run(
+        &[
+            "--rules",
+            "effective-zero-one",
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            broken.to_str().unwrap(),
+            root.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("warning [effective-zero-one]")
+    );
+    std::fs::write(&root,"var 0..1: a; var 0..1: b; function int: opaque()=1; constraint a=opaque() -> b=1; solve satisfy;").unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("analysis limitation: effective-zero-one")
+    );
+    let output = run(&["--rules", "effective-zero-one"], source);
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("analysis limitation")
+    );
+    let data = directory.join("values.dzn");
+    std::fs::write(&data, "value=1;").unwrap();
+    let output = run(
+        &["--rules", "effective-zero-one", data.to_str().unwrap()],
+        "",
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
     std::fs::remove_dir_all(directory).unwrap();
 }

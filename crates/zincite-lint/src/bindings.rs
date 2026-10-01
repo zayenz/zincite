@@ -383,7 +383,9 @@ impl<'a> Builder<'a> {
     ) {
         let source = &self.context.files[file];
         let token = &source.parsed.tokens()[index];
-        let name = identity(&source.parsed.source()[token.range.clone()]);
+        let name = symbolic_operator(token.kind)
+            .map(str::to_owned)
+            .unwrap_or_else(|| identity(&source.parsed.source()[token.range.clone()]));
         let resolution = match self.lookup(&name, scopes) {
             BindingResolution::Ambiguous(ids) if kind == ReferenceKind::Value => {
                 // A value and a callable may share a name. Prefer the unique
@@ -562,7 +564,9 @@ impl<'a> Builder<'a> {
                 let parsed = &self.context.files[file].parsed;
                 for child in node.children() {
                     if let SyntaxElement::Token(index) = child
-                        && parsed.tokens()[*index].kind == TokenKind::InfixIdentifier
+                        && (parsed.tokens()[*index].kind == TokenKind::InfixIdentifier
+                            || (matches!(node.kind(), UnaryExpression | BinaryExpression)
+                                && symbolic_operator(parsed.tokens()[*index].kind).is_some()))
                     {
                         self.reference(
                             file,
@@ -642,4 +646,19 @@ fn identity(written: &str) -> String {
         })
         .unwrap_or(written)
         .to_owned()
+}
+
+/// Canonical names of the symbolic operations needed by bounded integer advice.
+pub(super) fn symbolic_operator(kind: TokenKind) -> Option<&'static str> {
+    Some(match kind {
+        TokenKind::Equal | TokenKind::DoubleEqual => "=",
+        TokenKind::Implies => "->",
+        TokenKind::ReverseImplies => "<-",
+        TokenKind::Plus => "+",
+        TokenKind::Minus => "-",
+        TokenKind::Star => "*",
+        TokenKind::Div => "div",
+        TokenKind::Mod => "mod",
+        _ => return None,
+    })
 }

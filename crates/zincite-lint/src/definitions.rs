@@ -576,71 +576,16 @@ impl<'context> Producer<'context> {
         indices: &[&SyntaxNode],
         generators: &[&SyntaxNode],
     ) -> DefinitionCoverage {
-        let mut domain = &self.domains.declarations[id.0].domain;
-        while let Domain::Named { domain: inner, .. } = domain {
-            domain = inner;
-        }
-        let Domain::Array {
-            indices: declared, ..
-        } = domain
-        else {
-            return DefinitionCoverage::Unsupported("array index domains are unavailable".into());
-        };
-        let mut bindings = Vec::new();
-        for generator in generators {
-            if generator
-                .child_nodes()
-                .any(|n| n.kind() == NodeKind::WhereFilter)
-                || !self
-                    .tokens(file, generator)
-                    .iter()
-                    .any(|t| t.kind == TokenKind::In)
-            {
-                return DefinitionCoverage::ArrayElement;
-            }
-            let Some(source) = generator.child_nodes().next() else {
-                return DefinitionCoverage::ArrayElement;
-            };
-            if self.instantiation(file, source) != Instantiation::Parameter {
-                return DefinitionCoverage::ArrayElement;
-            }
-            let domain = expression_domain(self.context, self.bindings, file, source);
-            for declaration in self.bindings.declarations.iter().filter(|d| {
-                d.file == file
-                    && d.role == DeclarationRole::Generator
-                    && d.syntax_range == generator.range()
-            }) {
-                bindings.push((declaration.id, domain.clone()));
-            }
-        }
-        if declared.len() != indices.len() || bindings.len() != indices.len() {
-            return DefinitionCoverage::ArrayElement;
-        }
-        let mut used = Vec::new();
-        for (index, expected) in indices.iter().zip(declared) {
-            let Some(id) = self.reference(file, unwrap_parentheses(index)) else {
-                return DefinitionCoverage::ArrayElement;
-            };
-            if used.contains(&id) {
-                return DefinitionCoverage::ArrayElement;
-            }
-            let Some((_, actual)) = bindings.iter().find(|(binder, _)| *binder == id) else {
-                return DefinitionCoverage::ArrayElement;
-            };
-            used.push(id);
-            match same_members(actual, expected) {
-                Ok(Some(true)) => {}
-                Ok(Some(false)) => return DefinitionCoverage::ArrayElement,
-                Ok(None) => {
-                    return DefinitionCoverage::Unproved(
-                        "array index domains are not proved equal".into(),
-                    );
-                }
-                Err(reason) => return DefinitionCoverage::Unsupported(reason),
-            }
-        }
-        DefinitionCoverage::WholeArray
+        complete_array_coverage(
+            self.context,
+            self.bindings,
+            self.instantiations,
+            self.domains,
+            (file, id),
+            (indices, generators),
+        )
     }
+
     fn record(
         &mut self,
         file: FileId,
@@ -718,4 +663,167 @@ fn source_name(parsed: &zincite_syntax::ParsedFile, token: &zincite_syntax::Toke
     parsed.source()[token.range.clone()]
         .trim_matches(['\'', '`'])
         .to_owned()
+}
+
+/// Exact, unfiltered index correspondence; arithmetic consumers also rely on
+/// distinct binders and no dependent/extra generators to preserve multiplicity.
+pub(super) fn complete_array_coverage(
+    context: &ModelContext,
+    bindings_facts: &BindingFacts,
+    instantiations: &InstantiationFacts,
+    domains: &DomainFacts,
+    scope: (FileId, DeclarationId),
+    syntax: (&[&SyntaxNode], &[&SyntaxNode]),
+) -> DefinitionCoverage {
+    let (file, id) = scope;
+    let (indices, generators) = syntax;
+    let reference = |node: &SyntaxNode| {
+        let start = significant_tokens(context, file, node).first()?.range.start
+            + context.files[file].byte_offset;
+        bindings_facts
+            .references
+            .iter()
+            .find(|r| r.file == file && r.location.range.start == start)
+            .and_then(|r| {
+                if let BindingResolution::Resolved(id) = r.resolution {
+                    Some(id)
+                } else {
+                    None
+                }
+            })
+    };
+    let instantiation = |node: &SyntaxNode| {
+        let range = context.files[file].location(node.range()).range;
+        instantiations
+            .expressions
+            .iter()
+            .find(|e| e.file == file && e.location.range == range)
+            .map_or(Instantiation::Unknown, |e| e.instantiation)
+    };
+    let mut domain = &domains.declarations[id.0].domain;
+    while let Domain::Named { domain: inner, .. } = domain {
+        domain = inner;
+    }
+    let Domain::Array {
+        indices: declared, ..
+    } = domain
+    else {
+        return DefinitionCoverage::Unsupported("array index domains are unavailable".into());
+    };
+    let mut bindings = Vec::new();
+    for generator in generators {
+        if generator
+            .child_nodes()
+            .any(|n| n.kind() == NodeKind::WhereFilter)
+            || !significant_tokens(context, file, generator)
+                .iter()
+                .any(|t| t.kind == TokenKind::In)
+        {
+            return DefinitionCoverage::ArrayElement;
+        }
+        let Some(source) = generator.child_nodes().next() else {
+            return DefinitionCoverage::ArrayElement;
+        };
+        if instantiation(source) != Instantiation::Parameter {
+            return DefinitionCoverage::ArrayElement;
+        }
+        let source_range = context.files[file].location(source.range()).range;
+        if bindings_facts.references.iter().any(|r| {
+            r.file == file
+                && source_range.start <= r.location.range.start
+                && r.location.range.end <= source_range.end
+                && match r.resolution {
+                    BindingResolution::Resolved(id) => {
+                        bindings_facts.declarations[id.0].role == DeclarationRole::Generator
+                    }
+                    _ => false,
+                }
+        }) {
+            return DefinitionCoverage::ArrayElement;
+        }
+        let domain = expression_domain(context, bindings_facts, file, source);
+        for declaration in bindings_facts.declarations.iter().filter(|d| {
+            d.file == file
+                && d.role == DeclarationRole::Generator
+                && d.syntax_range == generator.range()
+        }) {
+            bindings.push((declaration.id, domain.clone()));
+        }
+    }
+    if declared.len() != indices.len() || bindings.len() != indices.len() {
+        return DefinitionCoverage::ArrayElement;
+    }
+    let mut used = Vec::new();
+    for (index, expected) in indices.iter().zip(declared) {
+        let Some(id) = reference(unwrap_parentheses(index)) else {
+            return DefinitionCoverage::ArrayElement;
+        };
+        if used.contains(&id) {
+            return DefinitionCoverage::ArrayElement;
+        }
+        let Some((_, actual)) = bindings.iter().find(|(binder, _)| *binder == id) else {
+            return DefinitionCoverage::ArrayElement;
+        };
+        used.push(id);
+        let membership = same_members(actual, expected).and_then(|_| {
+            same_members(
+                &index_membership(actual, bindings_facts),
+                &index_membership(expected, bindings_facts),
+            )
+        });
+        match membership {
+            Ok(Some(true)) => {}
+            Ok(Some(false)) => return DefinitionCoverage::ArrayElement,
+            Ok(None) => {
+                return DefinitionCoverage::Unproved(
+                    "array index domains are not proved equal".into(),
+                );
+            }
+            Err(reason) => return DefinitionCoverage::Unsupported(reason),
+        }
+    }
+    DefinitionCoverage::WholeArray
+}
+// Keep parameter-set identities and alias chains, without substituting their
+// initializers into an unrelated literal traversal. Written type aliases and
+// unnamed literal sets/ranges still have their closed membership.
+fn index_membership(domain: &Domain, bindings: &BindingFacts) -> Domain {
+    match domain {
+        Domain::Named {
+            declaration,
+            domain,
+        } => Domain::Named {
+            declaration: *declaration,
+            domain: Box::new(
+                if bindings.declarations[declaration.0].role == DeclarationRole::TypeAlias
+                    || matches!(domain.as_ref(), Domain::Named { .. })
+                {
+                    index_membership(domain, bindings)
+                } else {
+                    Domain::Unknown
+                },
+            ),
+        },
+        other => other.clone(),
+    }
+}
+fn significant_tokens<'a>(
+    context: &'a ModelContext,
+    file: FileId,
+    node: &SyntaxNode,
+) -> Vec<&'a zincite_syntax::Token> {
+    node.children()
+        .iter()
+        .filter_map(|child| {
+            let SyntaxElement::Token(index) = child else {
+                return None;
+            };
+            let token = &context.files[file].parsed.tokens()[*index];
+            (!matches!(
+                token.kind,
+                TokenKind::Whitespace | TokenKind::LineComment | TokenKind::BlockComment
+            ))
+            .then_some(token)
+        })
+        .collect()
 }
