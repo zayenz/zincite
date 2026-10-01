@@ -79,6 +79,7 @@ impl Rule {
                 | Self::UnboundedVariable
                 | Self::GlobalVariableInFunction
                 | Self::ElementPredicate
+                | Self::ReifiedGlobal
                 | Self::DecisionVariableOperator
                 | Self::DecisionVariableGenerator
                 | Self::DecisionVariableCondition

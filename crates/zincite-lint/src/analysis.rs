@@ -8,9 +8,10 @@ use crate::{
     SourceLocation, array_indices::check_array_indices, captures::check_captures,
     compact_if::check_compact_ifs, constant_variable::check_constant_variables,
     decision_use::check_decision_use, effective_zero_one::check_effective_zero_one,
-    element::check_element, lint_items, lint_with_options, resolve_bindings, resolve_callables,
-    resolve_compact_ifs, resolve_definitions, resolve_domains, resolve_effective_zero_one,
-    resolve_instantiations, resolve_integer_bounds, resolve_unused_declarations,
+    element::check_element, global_uses::check_global_uses, lint_items, lint_with_options,
+    resolve_bindings, resolve_callables, resolve_compact_ifs, resolve_definitions, resolve_domains,
+    resolve_effective_zero_one, resolve_global_uses, resolve_instantiations,
+    resolve_integer_bounds, resolve_unused_declarations,
     unbounded_variable::check_unbounded_variables, unused_declarations::check_unused_declarations,
 };
 
@@ -196,6 +197,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
     let mut unbounded_incomplete = false;
     let mut capture_incomplete = false;
     let mut element_incomplete = false;
+    let mut global_incomplete = false;
     let mut decision_incomplete = Vec::new();
     let mut unused_state = ModelRootState::Complete;
     let mut unused_incomplete = false;
@@ -236,7 +238,8 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 )
             })
             .collect();
-        if options.rules.contains(&Rule::ElementPredicate)
+        if options.rules.contains(&Rule::ReifiedGlobal)
+            || options.rules.contains(&Rule::ElementPredicate)
             || options.rules.contains(&Rule::CompactIf)
             || !decision_rules.is_empty()
             || options.rules.contains(&Rule::ConstantVariable)
@@ -261,13 +264,21 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 result.findings.extend(elements.findings);
                 result.limitations.extend(elements.limitations);
             }
-            if !decision_rules.is_empty()
+            if options.rules.contains(&Rule::ReifiedGlobal)
+                || !decision_rules.is_empty()
                 || options.rules.contains(&Rule::CompactIf)
                 || options.rules.contains(&Rule::ConstantVariable)
                 || options.rules.contains(&Rule::UnboundedVariable)
                 || options.rules.contains(&Rule::EffectiveZeroOne)
             {
                 let instantiations = resolve_instantiations(context, &facts, &calls);
+                if options.rules.contains(&Rule::ReifiedGlobal) {
+                    let uses = resolve_global_uses(context, &facts, &calls, &instantiations);
+                    let (findings, limitations) = check_global_uses(context, &uses);
+                    global_incomplete = !limitations.is_empty();
+                    result.findings.extend(findings);
+                    result.limitations.extend(limitations);
+                }
                 if options.rules.contains(&Rule::EffectiveZeroOne) {
                     let domains = domains.as_ref().unwrap();
                     let bounds = resolve_integer_bounds(context, &facts, &calls, domains);
@@ -351,6 +362,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 && (shared_incomplete
                     || (rule == Rule::GlobalVariableInFunction && capture_incomplete)
                     || (rule == Rule::ElementPredicate && element_incomplete)
+                    || (rule == Rule::ReifiedGlobal && global_incomplete)
                     || (rule == Rule::ArrayIndexStart && array_incomplete)
                     || (rule == Rule::CompactIf && compact_incomplete)
                     || (rule == Rule::EffectiveZeroOne && effective_incomplete)

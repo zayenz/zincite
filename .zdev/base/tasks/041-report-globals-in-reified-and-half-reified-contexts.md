@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-041"
 key = "reified-global-advice"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -21,10 +21,20 @@ Read brief Corpus and thesis expansion and the applicable sections of ../backgro
 
 ## Done when
 
-- [ ] Report included standard-library Boolean predicates used in decision-dependent disjunction, implication, equivalence, negation, conditionals and value contexts.
-- [ ] Do not report enforced standalone/conjoined globals, parameter-only evaluation, user lookalikes or implicitly available builtins; retain file/rule/suppression behavior.
+- [x] Report included standard-library Boolean predicates used in decision-dependent disjunction, implication, equivalence, negation, conditionals and value contexts.
+- [x] Do not report enforced standalone/conjoined globals, parameter-only evaluation, user lookalikes or implicitly available builtins; retain file/rule/suppression behavior.
 
 ## Validation
 
 - Run the area Cargo checks for Rust changes and zdev check for record changes; no tests solely for documentation.
 - Check a directly enforced global, conjunction/forall, Boolean initializer and both implication sides, plus a shadowing predicate and par-only call.
+
+## Result
+
+Added reusable global-use facts and reified-global advice with resolved standard identity, actual argument dependency, nearest Boolean enforcement and explicit unknown limits. Independently verified against W2a8b085ed61902fe.
+
+Validation:
+
+- cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, cargo test --workspace: passed independently
+- Five bounded MiniZinc 2.10.1 model-check/core CLI replays matched; enforced controls quiet, native probe seven warnings; compile-only conditional rejection retained separately, no solver
+- Whole-task verifier PASS W2a8b085ed61902fe, equal snapshot; earlier independently reproduced context regressions corrected; six foreign paths unchanged

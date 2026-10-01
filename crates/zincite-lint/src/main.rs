@@ -21,8 +21,8 @@ Omitted --rules selects default; repeated --rules and unknown IDs are errors.
 The thesis preset selects its fourteen catalogue rules; all includes the defaults.
 global-variable-in-function, element-predicate, decision-variable-operator,
 decision-variable-generator, decision-variable-condition, array-index-start,
-constant-variable, unbounded-variable, compact-if, effective-zero-one and unused-declaration are implemented.
-The other three thesis rules
+constant-variable, unbounded-variable, compact-if, effective-zero-one, unused-declaration and reified-global are implemented.
+The other two thesis rules
 remain unavailable and selecting any of them reports an error.
 -I DIR adds an ordered include directory for rules requiring model analysis.
 --stdlib-dir DIR supplies the MiniZinc library root, overriding MZN_STDLIB_DIR.
@@ -51,6 +51,9 @@ without bounds or proven complete definitions. Conditional, cyclic and partial
 equalities do not establish a complete definition; unsupported facts report limits.
 global-variable-in-function advises passing captured global decisions as arguments.
 It resolves lexical bindings and declared instantiation, without full type checking.
+reified-global advises reviewing included standard Boolean globals in decision-dependent
+Boolean value contexts. Enforced conjunctions/forall and parameter-only actuals stay
+quiet; advice does not guarantee solver speed or perform a rewrite.
 element-predicate recommends indexing equality for a resolved three-argument
 standard predicate. Callable facts retain aliases, enums, optional and structured
 types, parameter names/defaults and supported polymorphic coercions. Ambiguous,

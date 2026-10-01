@@ -15,6 +15,7 @@ mod definitions;
 mod domains;
 mod effective_zero_one;
 mod element;
+mod global_uses;
 mod instantiations;
 mod model;
 mod naming;
@@ -48,6 +49,7 @@ pub use effective_zero_one::{
     EffectiveZeroOneFact, EffectiveZeroOneFacts, EffectiveZeroOneFamily, EffectiveZeroOneOutcome,
     resolve_effective_zero_one,
 };
+pub use global_uses::{GlobalUse, GlobalUseFacts, GlobalUseOutcome, resolve_global_uses};
 pub use instantiations::{ExpressionInstantiation, InstantiationFacts, resolve_instantiations};
 pub use model::{
     FileId, IncludeEdge, ModelContext, ModelFile, ModelOptions, SourceDiagnostic, SourceKind,
