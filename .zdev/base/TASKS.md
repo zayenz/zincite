@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 76
-- Ready: 8
+- Ready: 7
 - Blocked: 23
-- Done: 45
+- Done: 46
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -54,7 +54,7 @@
 | [base-043](tasks/043-check-search-coverage-through-direct-definitions.md) | Check search coverage through direct definitions | done | base-036 |
 | [base-044](tasks/044-complete-search-coverage-through-callable-definitions.md) | Complete search coverage through callable definitions | done | base-043 |
 | [base-045](tasks/045-measure-complete-model-coverage-for-every-thesis-rule.md) | Measure complete-model coverage for every thesis rule | done | base-037, base-038, base-039, base-040, base-042, base-044, base-041 |
-| [base-046](tasks/046-reduce-repeated-layout-measurement-work.md) | Reduce repeated layout measurement work | ready | base-022, base-027 |
+| [base-046](tasks/046-reduce-repeated-layout-measurement-work.md) | Reduce repeated layout measurement work | done | base-022, base-027 |
 | [base-047](tasks/047-reduce-the-live-syntax-and-formatting-working-set.md) | Reduce the live syntax and formatting working set | ready | base-022 |
 | [base-048](tasks/048-verify-and-document-an-unobtrusive-save-command.md) | Verify and document an unobtrusive save command | blocked | base-046, base-047 |
 | [base-049](tasks/049-measure-batch-and-semantic-lint-speed-and-memory.md) | Measure batch and semantic-lint speed and memory | ready | base-022, base-029, base-045 |

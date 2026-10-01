@@ -92,6 +92,8 @@ pub fn format_with_options(
         options: *options,
         measuring: false,
         measuring_prefix: false,
+        prefix_line_end: None,
+        prefix_scanned: 0,
         break_before_code: false,
         suffix_columns: 0,
     };
@@ -162,6 +164,8 @@ struct Formatter<'a> {
     options: FormatOptions,
     measuring: bool,
     measuring_prefix: bool,
+    prefix_line_end: Option<usize>,
+    prefix_scanned: usize,
     break_before_code: bool,
     suffix_columns: usize,
 }
@@ -224,6 +228,9 @@ impl Formatter<'_> {
         let mut continuation = false;
         let mut previous = None;
         for (position, child) in item.children().iter().enumerate() {
+            if self.prefix_finished() {
+                break;
+            }
             match child {
                 SyntaxElement::Node(expression) => {
                     if labelled && !label_pending {
@@ -310,6 +317,9 @@ impl Formatter<'_> {
     }
 
     fn expression_before(&mut self, node: &SyntaxNode, leading_space: bool, suffix: usize) {
+        if self.prefix_finished() {
+            return;
+        }
         let previous = self.suffix_columns;
         self.suffix_columns = suffix;
         self.expression_contents(node, leading_space);
@@ -381,6 +391,9 @@ impl Formatter<'_> {
         let mut previous = None;
         let mut continuation = false;
         for (position, child) in node.children().iter().enumerate() {
+            if self.prefix_finished() {
+                break;
+            }
             match child {
                 SyntaxElement::Node(child) => {
                     let space = if first {
@@ -479,6 +492,9 @@ impl Formatter<'_> {
         let mut first = true;
         let mut operator_seen = false;
         for (position, child) in node.children().iter().enumerate() {
+            if self.prefix_finished() {
+                break;
+            }
             match child {
                 SyntaxElement::Node(child) => {
                     if operator_seen
@@ -537,6 +553,9 @@ impl Formatter<'_> {
             || self.node_exceeds_width(node, leading_space, self.suffix_columns);
         let mut first = true;
         for (position, child) in node.children().iter().enumerate() {
+            if self.prefix_finished() {
+                break;
+            }
             match child {
                 SyntaxElement::Node(child) => {
                     if expanded {
@@ -590,6 +609,9 @@ impl Formatter<'_> {
 
     fn interpolated_string(&mut self, node: &SyntaxNode, leading_space: bool) {
         for child in node.children() {
+            if self.prefix_finished() {
+                break;
+            }
             match child {
                 SyntaxElement::Node(expression) => self.expression(expression, false),
                 SyntaxElement::Token(index) => {
@@ -620,6 +642,9 @@ impl Formatter<'_> {
     fn control_expression(&mut self, node: &SyntaxNode, leading_space: bool) {
         let mut first = true;
         for child in node.children() {
+            if self.prefix_finished() {
+                break;
+            }
             match child {
                 SyntaxElement::Node(branch)
                     if matches!(
@@ -632,6 +657,9 @@ impl Formatter<'_> {
                     }
                     let mut body = false;
                     for (position, part) in branch.children().iter().enumerate() {
+                        if self.prefix_finished() {
+                            break;
+                        }
                         match part {
                             SyntaxElement::Node(expression) => {
                                 if body {
@@ -671,7 +699,9 @@ impl Formatter<'_> {
                             }
                         }
                     }
-                    self.indent -= 1;
+                    if body {
+                        self.indent -= 1;
+                    }
                 }
                 SyntaxElement::Node(block) if block.kind() == NodeKind::LetBlock => {
                     self.local_block(block);
@@ -698,6 +728,9 @@ impl Formatter<'_> {
 
     fn local_block(&mut self, block: &SyntaxNode) {
         for child in block.children() {
+            if self.prefix_finished() {
+                break;
+            }
             match child {
                 SyntaxElement::Node(item) => {
                     self.newlines(self.pending_breaks.max(1));
@@ -748,6 +781,9 @@ impl Formatter<'_> {
         let mut first = true;
         let mut header_expanded = false;
         for child in node.children() {
+            if self.prefix_finished() {
+                break;
+            }
             match child {
                 SyntaxElement::Node(list) if list.kind() == NodeKind::GeneratorList => {
                     let suffix = self.suffix_columns;
@@ -839,6 +875,9 @@ impl Formatter<'_> {
         let mut first = true;
         let mut previous_end = self.output.len();
         for (position, child) in list.children().iter().enumerate() {
+            if self.prefix_finished() {
+                break;
+            }
             match child {
                 SyntaxElement::Node(generator) => {
                     let comment_before = self.last_was_comment
@@ -876,6 +915,9 @@ impl Formatter<'_> {
     fn generator(&mut self, generator: &SyntaxNode, expanded: bool, leading_space: bool) {
         let mut first = true;
         for (position, child) in generator.children().iter().enumerate() {
+            if self.prefix_finished() {
+                break;
+            }
             match child {
                 SyntaxElement::Node(filter) if filter.kind() == NodeKind::WhereFilter => {
                     if expanded {
@@ -927,6 +969,9 @@ impl Formatter<'_> {
         }
         let mut previous_end = self.output.len();
         for child in body.children() {
+            if self.prefix_finished() {
+                break;
+            }
             match child {
                 SyntaxElement::Node(expression) => {
                     let comment_before = self.last_was_comment
@@ -1014,6 +1059,8 @@ impl Formatter<'_> {
             options: self.options,
             measuring: true,
             measuring_prefix: false,
+            prefix_line_end: None,
+            prefix_scanned: 0,
             break_before_code: self.break_before_code,
             suffix_columns: self.suffix_columns,
         }
@@ -1081,6 +1128,31 @@ impl Formatter<'_> {
         preview.exceeds_width(self.current_columns(), suffix)
     }
 
+    // Output only grows. Scan new bytes for the first non-leading line's end,
+    // and stop once there is a remainder. A terminal newline alone still needs
+    // the suffix in prefix_exceeds_width, so it cannot finish this measurement.
+    fn prefix_finished(&mut self) -> bool {
+        if !self.measuring_prefix {
+            return false;
+        }
+        if self.prefix_line_end.is_none() {
+            let leading = self.prefix_scanned == 0
+                || self.output.as_bytes()[self.prefix_scanned - 1] == b'\n';
+            let text = &self.output[self.prefix_scanned..];
+            let text = if leading {
+                text.trim_start_matches('\n')
+            } else {
+                text
+            };
+            self.prefix_line_end = text
+                .find('\n')
+                .map(|end| self.output.len() - text.len() + end);
+            self.prefix_scanned = self.output.len();
+        }
+        self.prefix_line_end
+            .is_some_and(|end| self.output.len() > end + 1)
+    }
+
     // Before moving a whole child, see whether its initial unbroken segment
     // fits. Its own lists/operands can wrap after that segment. This decision
     // must not change when those nested layouts become explicit on reparse.
@@ -1139,6 +1211,9 @@ impl Formatter<'_> {
         let mut row_number = 0;
         let mut after_pipe = false;
         for child in node.children() {
+            if self.prefix_finished() {
+                break;
+            }
             match child {
                 SyntaxElement::Node(row) => {
                     if !after_pipe {
@@ -1340,6 +1415,9 @@ impl Formatter<'_> {
         let indexed = self.matrix_row_has_index(row);
         let mut entry: usize = 0;
         for child in row.children() {
+            if self.prefix_finished() {
+                break;
+            }
             match child {
                 SyntaxElement::Node(_) => {
                     let is_index = indexed && entry == 0;
@@ -1393,6 +1471,9 @@ impl Formatter<'_> {
         let mut previous_entry_end = self.output.len();
         let mut in_list = false;
         for (position, child) in node.children().iter().enumerate() {
+            if self.prefix_finished() {
+                break;
+            }
             match child {
                 SyntaxElement::Node(entry) => {
                     let comment_before_entry = self.last_was_comment
@@ -1490,6 +1571,9 @@ impl Formatter<'_> {
     }
 
     fn token_with_space(&mut self, index: usize, space_before: bool) {
+        if self.prefix_finished() {
+            return;
+        }
         let token = &self.parsed.tokens()[index];
         let text = &self.parsed.source()[token.range.clone()];
         match token.kind {
@@ -1525,6 +1609,9 @@ impl Formatter<'_> {
     }
 
     fn code_with_space(&mut self, text: &str, space_before: bool) {
+        if self.prefix_finished() {
+            return;
+        }
         if self.break_before_code {
             self.newlines(self.pending_breaks.max(1));
             self.break_before_code = false;
