@@ -2,10 +2,10 @@
 
 # Tasks: base
 
-- Total: 74
-- Ready: 7
+- Total: 76
+- Ready: 8
 - Blocked: 23
-- Done: 44
+- Done: 45
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -53,11 +53,11 @@
 | [base-042](tasks/042-recognise-unmarked-likely-symmetry-breaking-globals.md) | Recognise unmarked likely symmetry-breaking globals | done | base-033 |
 | [base-043](tasks/043-check-search-coverage-through-direct-definitions.md) | Check search coverage through direct definitions | done | base-036 |
 | [base-044](tasks/044-complete-search-coverage-through-callable-definitions.md) | Complete search coverage through callable definitions | done | base-043 |
-| [base-045](tasks/045-measure-complete-model-coverage-for-every-thesis-rule.md) | Measure complete-model coverage for every thesis rule | ready | base-037, base-038, base-039, base-040, base-042, base-044, base-041 |
+| [base-045](tasks/045-measure-complete-model-coverage-for-every-thesis-rule.md) | Measure complete-model coverage for every thesis rule | done | base-037, base-038, base-039, base-040, base-042, base-044, base-041 |
 | [base-046](tasks/046-reduce-repeated-layout-measurement-work.md) | Reduce repeated layout measurement work | ready | base-022, base-027 |
 | [base-047](tasks/047-reduce-the-live-syntax-and-formatting-working-set.md) | Reduce the live syntax and formatting working set | ready | base-022 |
 | [base-048](tasks/048-verify-and-document-an-unobtrusive-save-command.md) | Verify and document an unobtrusive save command | blocked | base-046, base-047 |
-| [base-049](tasks/049-measure-batch-and-semantic-lint-speed-and-memory.md) | Measure batch and semantic-lint speed and memory | blocked | base-022, base-029, base-045 |
+| [base-049](tasks/049-measure-batch-and-semantic-lint-speed-and-memory.md) | Measure batch and semantic-lint speed and memory | ready | base-022, base-029, base-045 |
 | [base-050](tasks/050-verify-corpus-processing-and-full-thesis-lint-coverage.md) | Verify corpus processing and full thesis lint coverage | blocked | base-028, base-045, base-026, base-029, base-048, base-049 |
 | [base-051](tasks/051-reduce-measured-punctuation-dispatch-cost-in-the-lexer.md) | Reduce measured punctuation dispatch cost in the lexer | done | — |
 | [base-052](tasks/052-accept-compiler-supported-form-feed-layout-and-escaped-singl.md) | Accept compiler-supported form-feed layout and escaped single quotes | ready | — |
@@ -83,3 +83,5 @@
 | [base-072](tasks/072-preview-and-apply-explicitly-selected-lint-fixes.md) | Preview and apply explicitly selected lint fixes | blocked | base-055, base-071 |
 | [base-073](tasks/073-deliver-semantic-fixes-for-unused-generator-names-and-elemen.md) | Deliver semantic fixes for unused generator names and element calls | blocked | base-072, base-066, base-033, base-058 |
 | [base-074](tasks/074-validate-expanded-lint-families-presets-and-fixes-together.md) | Validate expanded lint families, presets and fixes together | blocked | base-061, base-062, base-063, base-064, base-065, base-066, base-067, base-068, base-069, base-070, base-073, base-049 |
+| [base-075](tasks/075-load-compiler-supported-standard-include-re-entries.md) | Load compiler-supported standard include re-entries | ready | — |
+| [base-076](tasks/076-resolve-supported-defaulted-and-qualified-callable-overloads.md) | Resolve supported defaulted and qualified callable overloads | blocked | base-075 |

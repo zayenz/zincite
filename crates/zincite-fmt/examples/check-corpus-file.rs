@@ -212,10 +212,149 @@ fn messages(errors: &[zincite_syntax::Diagnostic]) -> String {
     format!("[{}]", values.join(","))
 }
 
+fn location_sample(
+    location: &zincite_lint::SourceLocation,
+    message: &str,
+    context: Option<&zincite_lint::ModelContext>,
+) -> String {
+    let kind = context
+        .and_then(|c| c.files.iter().find(|f| f.path == location.path))
+        .map_or("input", |f| match f.kind {
+            zincite_lint::SourceKind::User => "user",
+            zincite_lint::SourceKind::StandardLibrary => "standard_library",
+        });
+    let bounded: String = message.chars().take(512).collect();
+    format!(
+        "{{\"path\":{},\"start\":{},\"end\":{},\"line\":{},\"column\":{},\"source_kind\":{},\"message\":{},\"message_truncated\":{}}}",
+        quoted(&location.path.to_string_lossy()),
+        location.range.start,
+        location.range.end,
+        location.line,
+        location.column,
+        quoted(kind),
+        quoted(&bounded),
+        bounded.len() != message.len()
+    )
+}
+
+fn semantic_report(
+    path: &std::path::Path,
+    parsed: &ParsedFile,
+    byte_offset: usize,
+    preset: &str,
+    model_options: &zincite_lint::ModelOptions,
+) {
+    use zincite_lint::{RuleOutcome, SourceKind};
+    let options = zincite_lint::LintOptions::from_selection(preset).unwrap();
+    let data = zincite_syntax::FileMode::from_path(path) == zincite_syntax::FileMode::Data;
+    let context = (!data && parsed.diagnostics().is_empty())
+        .then(|| zincite_lint::load_model(path, model_options));
+    let result = if let Some(context) = &context {
+        zincite_lint::analyze_model(context, &options)
+    } else {
+        zincite_lint::analyze_file(parsed, path, byte_offset, &options)
+    };
+    let solves = context.as_ref().map_or(0, |c| {
+        c.files
+            .iter()
+            .filter(|f| f.kind == SourceKind::User)
+            .flat_map(|f| f.parsed.tree().child_nodes())
+            .filter(|n| {
+                matches!(
+                    n.kind(),
+                    NodeKind::Solve | NodeKind::SolveMinimize | NodeKind::SolveMaximize
+                )
+            })
+            .count()
+    });
+    let root_state = if data {
+        "data"
+    } else if !parsed.diagnostics().is_empty() {
+        "syntax_rejected"
+    } else if solves == 0 {
+        "fragment"
+    } else if solves == 1 {
+        "complete"
+    } else {
+        "multiple_solve"
+    };
+    let dependencies = context.as_ref().map_or("null".into(), |c| {
+        let user_files = c.files.iter().filter(|f| f.kind == SourceKind::User).count();
+        let unresolved = c.includes.iter().filter(|e| e.target.is_none()).count();
+        let errors: Vec<_> = c.errors.iter().take(12)
+            .map(|e| location_sample(&e.location, &e.message, Some(c))).collect();
+        let limits: Vec<_> = c.limitations.iter().take(12)
+            .map(|e| location_sample(&e.location, &e.message, Some(c))).collect();
+        format!("{{\"loaded_files\":{},\"user_files\":{user_files},\"standard_files\":{},\"include_edges\":{},\"unresolved_include_edges\":{unresolved},\"implicit_core_loaded\":{},\"load_error_count\":{},\"load_limitation_count\":{},\"resolved\":{},\"error_samples\":[{}],\"limitation_samples\":[{}]}}",
+            c.files.len(), c.files.len()-user_files, c.includes.len(), c.implicit_core.is_some(), c.errors.len(), c.limitations.len(),
+            c.errors.is_empty() && unresolved == 0 && c.implicit_core.is_some(), errors.join(","), limits.join(","))
+    });
+    let rules: Vec<_> = result.rules.iter().map(|execution| {
+        let (outcome, reason) = match &execution.outcome {
+            RuleOutcome::Completed => ("Completed", ""),
+            RuleOutcome::Inapplicable { reason } => ("Inapplicable", reason.as_str()),
+            RuleOutcome::Limited { reason } => ("Limited", reason.as_str()),
+            RuleOutcome::NotRun { reason } => ("NotRun", reason.as_str()),
+        };
+        let findings: Vec<_> = result.findings.iter().filter(|f| f.rule == execution.rule).collect();
+        let samples: Vec<_> = findings.iter().take(3)
+            .map(|f| location_sample(&f.location, &f.message, context.as_ref())).collect();
+        let bounded: String = reason.chars().take(512).collect();
+        format!("{}:{{\"outcome\":{},\"reason\":{},\"reason_truncated\":{},\"finding_count\":{},\"finding_samples\":[{}]}}", quoted(execution.rule.id()), quoted(outcome), quoted(&bounded), bounded.len()!=reason.len(), findings.len(), samples.join(","))
+    }).collect();
+    let errors: Vec<_> = result
+        .errors
+        .iter()
+        .take(12)
+        .map(|e| location_sample(&e.location, &e.message, context.as_ref()))
+        .collect();
+    let limits: Vec<_> = result
+        .limitations
+        .iter()
+        .take(12)
+        .map(|e| location_sample(&e.location, &e.message, context.as_ref()))
+        .collect();
+    let (tokens, tree) = coverage(parsed);
+    println!(
+        "{{\"input_status\":\"ok\",\"check_kind\":\"semantic\",\"selection\":{},\"file_mode\":{},\"root_state\":{},\"loaded_solve_count\":{solves},\"dependencies\":{dependencies},\"parse_count\":{},\"parse_errors\":{},\"token_coverage\":{tokens},\"tree_coverage\":{tree},\"analysis_status\":{},\"warning_count\":{},\"error_count\":{},\"limitation_count\":{},\"rules\":{{{}}},\"error_samples\":[{}],\"limitation_samples\":[{}],\"sample_limits\":{{\"findings_per_rule\":3,\"errors\":12,\"limitations\":12,\"message_characters\":512}}}}",
+        quoted(preset),
+        quoted(if data { "data" } else { "model" }),
+        quoted(root_state),
+        parsed.diagnostics().len(),
+        messages(parsed.diagnostics()),
+        result.status(),
+        result.findings.len(),
+        result.errors.len(),
+        result.limitations.len(),
+        rules.join(","),
+        errors.join(","),
+        limits.join(",")
+    );
+}
+
 fn main() {
     let path = std::env::args_os()
         .nth(1)
         .expect("usage: check-corpus-file FILE");
+    let mut preset = None;
+    let mut model_options = zincite_lint::ModelOptions::default();
+    let mut args = std::env::args_os().skip(2);
+    while let Some(flag) = args.next() {
+        let value = args.next().expect("checker option requires a value");
+        match flag.to_str() {
+            Some("--rules") => {
+                let selection = value.to_str().expect("selection must be UTF-8");
+                assert!(
+                    matches!(selection, "thesis" | "all"),
+                    "semantic preset must be thesis or all"
+                );
+                preset = Some(selection.to_owned());
+            }
+            Some("--stdlib-dir") => model_options.stdlib_dir = Some(value.into()),
+            Some("-I") => model_options.include_dirs.push(value.into()),
+            _ => panic!("unknown checker option"),
+        }
+    }
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) => {
@@ -236,9 +375,20 @@ fn main() {
             return;
         }
     };
+    let byte_offset = usize::from(source.starts_with('\u{feff}')) * 3;
     let source = source.strip_prefix('\u{feff}').unwrap_or(&source);
     let mode = zincite_syntax::FileMode::from_path(&path);
     let parsed = zincite_syntax::parse_with_mode(source, mode);
+    if let Some(preset) = preset {
+        semantic_report(
+            std::path::Path::new(&path),
+            &parsed,
+            byte_offset,
+            &preset,
+            &model_options,
+        );
+        return;
+    }
     let (token_coverage, tree_coverage) = coverage(&parsed);
     let parse_errors = messages(parsed.diagnostics());
     let parse_count = parsed.diagnostics().len();
