@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-042"
 key = "symmetry-advice"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -21,10 +21,20 @@ Read brief Corpus and thesis expansion and the applicable sections of ../backgro
 
 ## Done when
 
-- [ ] Report the complete documented predicate family when outside a resolved symmetry wrapper, with a message that asks whether the constraint is intended to break symmetry.
-- [ ] Respect nested wrappers and user shadowing; never claim the predicate proves symmetry or that removing it preserves solutions.
+- [x] Report the complete documented predicate family when outside a resolved symmetry wrapper, with a message that asks whether the constraint is intended to break symmetry.
+- [x] Respect nested wrappers and user shadowing; never claim the predicate proves symmetry or that removing it preserves solutions.
 
 ## Validation
 
 - Run the area Cargo checks for Rust changes and zdev check for record changes; no tests solely for documentation.
 - Use a small table-driven check of the finite predicate list and focused wrapped/shadowed/required-constraint wording examples.
+
+## Result
+
+Implemented resolved symmetry marker facts and advisory policy for eleven standard predicates; independently verified W7531ecd1a249c6f1.
+
+Validation:
+
+- Independent cargo fmt, clippy with denied warnings, workspace tests and diff checks passed.
+- Pinned MiniZinc model-check accepted the bounded increasing model; native CLI emitted one unwrapped advisory and quiet nested wrapper controls, with no errors or limitations.
+- Whole-task PASS W7531ecd1a249c6f1; exact candidate and six unrelated paths preserved.

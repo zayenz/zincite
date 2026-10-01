@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 74
-- Ready: 8
+- Ready: 7
 - Blocked: 25
-- Done: 41
+- Done: 42
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -50,7 +50,7 @@
 | [base-039](tasks/039-recognise-safe-0-1-implication-and-sum-formulations.md) | Recognise safe 0..1 implication and sum formulations | done | base-036 |
 | [base-040](tasks/040-report-unreachable-declarations-in-complete-model-roots.md) | Report unreachable declarations in complete model roots | done | base-033 |
 | [base-041](tasks/041-report-globals-in-reified-and-half-reified-contexts.md) | Report globals in reified and half-reified contexts | done | base-036 |
-| [base-042](tasks/042-recognise-unmarked-likely-symmetry-breaking-globals.md) | Recognise unmarked likely symmetry-breaking globals | ready | base-033 |
+| [base-042](tasks/042-recognise-unmarked-likely-symmetry-breaking-globals.md) | Recognise unmarked likely symmetry-breaking globals | done | base-033 |
 | [base-043](tasks/043-check-search-coverage-through-direct-definitions.md) | Check search coverage through direct definitions | ready | base-036 |
 | [base-044](tasks/044-complete-search-coverage-through-callable-definitions.md) | Complete search coverage through callable definitions | blocked | base-043 |
 | [base-045](tasks/045-measure-complete-model-coverage-for-every-thesis-rule.md) | Measure complete-model coverage for every thesis rule | blocked | base-037, base-038, base-039, base-040, base-042, base-044, base-041 |

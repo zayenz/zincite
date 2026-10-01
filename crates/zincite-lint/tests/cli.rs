@@ -628,7 +628,7 @@ fn constant_variable_selection_keeps_context_limits_and_status_precedence() {
             .iter()
             .filter(|r| !r.is_available())
             .count(),
-        2
+        1
     );
     std::fs::remove_dir_all(directory).unwrap();
 }

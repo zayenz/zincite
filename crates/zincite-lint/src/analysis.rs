@@ -11,8 +11,9 @@ use crate::{
     element::check_element, global_uses::check_global_uses, lint_items, lint_with_options,
     resolve_bindings, resolve_callables, resolve_compact_ifs, resolve_definitions, resolve_domains,
     resolve_effective_zero_one, resolve_global_uses, resolve_instantiations,
-    resolve_integer_bounds, resolve_unused_declarations,
-    unbounded_variable::check_unbounded_variables, unused_declarations::check_unused_declarations,
+    resolve_integer_bounds, resolve_symmetry_uses, resolve_unused_declarations,
+    symmetry::check_symmetry_uses, unbounded_variable::check_unbounded_variables,
+    unused_declarations::check_unused_declarations,
 };
 
 #[derive(Debug)]
@@ -198,6 +199,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
     let mut capture_incomplete = false;
     let mut element_incomplete = false;
     let mut global_incomplete = false;
+    let mut symmetry_incomplete = false;
     let mut decision_incomplete = Vec::new();
     let mut unused_state = ModelRootState::Complete;
     let mut unused_incomplete = false;
@@ -238,7 +240,8 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 )
             })
             .collect();
-        if options.rules.contains(&Rule::ReifiedGlobal)
+        if options.rules.contains(&Rule::UnmarkedSymmetryBreaking)
+            || options.rules.contains(&Rule::ReifiedGlobal)
             || options.rules.contains(&Rule::ElementPredicate)
             || options.rules.contains(&Rule::CompactIf)
             || !decision_rules.is_empty()
@@ -248,6 +251,13 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             || options.rules.contains(&Rule::UnusedDeclaration)
         {
             let calls = resolve_callables(context, &facts);
+            if options.rules.contains(&Rule::UnmarkedSymmetryBreaking) {
+                let symmetry = resolve_symmetry_uses(context, &facts, &calls);
+                let (findings, limitations) = check_symmetry_uses(context, &symmetry);
+                symmetry_incomplete = !limitations.is_empty();
+                result.findings.extend(findings);
+                result.limitations.extend(limitations);
+            }
             if options.rules.contains(&Rule::UnusedDeclaration) {
                 let usage = resolve_unused_declarations(context, &facts, &calls);
                 unused_state = usage.root_state;
@@ -363,6 +373,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     || (rule == Rule::GlobalVariableInFunction && capture_incomplete)
                     || (rule == Rule::ElementPredicate && element_incomplete)
                     || (rule == Rule::ReifiedGlobal && global_incomplete)
+                    || (rule == Rule::UnmarkedSymmetryBreaking && symmetry_incomplete)
                     || (rule == Rule::ArrayIndexStart && array_incomplete)
                     || (rule == Rule::CompactIf && compact_incomplete)
                     || (rule == Rule::EffectiveZeroOne && effective_incomplete)

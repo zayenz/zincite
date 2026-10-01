@@ -20,6 +20,7 @@ mod instantiations;
 mod model;
 mod naming;
 mod rules;
+mod symmetry;
 mod types;
 mod unbounded_variable;
 mod unused_declarations;
@@ -56,6 +57,7 @@ pub use model::{
     SourceLocation, load_model,
 };
 pub use rules::{LintOptions, Rule};
+pub use symmetry::{SymmetryFacts, SymmetryUse, SymmetryUseOutcome, resolve_symmetry_uses};
 pub use types::{TypeInst, TypeKind};
 pub use unused_declarations::{
     DeclarationUsage, ModelRootState, UsageFacts, UsageOutcome, resolve_unused_declarations,

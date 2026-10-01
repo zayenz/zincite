@@ -80,6 +80,7 @@ impl Rule {
                 | Self::GlobalVariableInFunction
                 | Self::ElementPredicate
                 | Self::ReifiedGlobal
+                | Self::UnmarkedSymmetryBreaking
                 | Self::DecisionVariableOperator
                 | Self::DecisionVariableGenerator
                 | Self::DecisionVariableCondition
