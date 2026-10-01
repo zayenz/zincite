@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 79
-- Ready: 8
-- Blocked: 16
-- Done: 55
+- Ready: 9
+- Blocked: 14
+- Done: 56
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -66,9 +66,9 @@
 | [base-055](tasks/055-resolve-rule-families-and-per-root-lint-configuration.md) | Resolve rule families and per-root lint configuration | done | base-054 |
 | [base-056](tasks/056-support-personal-presets-and-typed-rule-parameters.md) | Support personal presets and typed rule parameters | done | base-055 |
 | [base-057](tasks/057-interpret-numeric-intervals-and-intermediate-expression-boun.md) | Interpret numeric intervals and intermediate expression bounds | done | base-034, base-035, base-036 |
-| [base-058](tasks/058-interpret-guarded-truth-and-partial-expression-definedness.md) | Interpret guarded truth and partial-expression definedness | ready | base-057 |
-| [base-059](tasks/059-interpret-optional-presence-and-comprehension-cardinality.md) | Interpret optional presence and comprehension cardinality | blocked | base-034, base-035, base-058 |
-| [base-060](tasks/060-interpret-iteration-coverage-binding-use-and-expansion-size.md) | Interpret iteration coverage, binding use and expansion size | blocked | base-032, base-034, base-035, base-058 |
+| [base-058](tasks/058-interpret-guarded-truth-and-partial-expression-definedness.md) | Interpret guarded truth and partial-expression definedness | done | base-057 |
+| [base-059](tasks/059-interpret-optional-presence-and-comprehension-cardinality.md) | Interpret optional presence and comprehension cardinality | ready | base-034, base-035, base-058 |
+| [base-060](tasks/060-interpret-iteration-coverage-binding-use-and-expansion-size.md) | Interpret iteration coverage, binding use and expansion size | ready | base-032, base-034, base-035, base-058 |
 | [base-061](tasks/061-report-index-set-mismatches-and-off-by-one-accesses.md) | Report index-set mismatches and off-by-one accesses | blocked | base-054, base-060 |
 | [base-062](tasks/062-report-length-mistakes-caused-by-hidden-optional-values.md) | Report length mistakes caused by hidden optional values | blocked | base-054, base-059 |
 | [base-063](tasks/063-report-actionable-partial-expression-hazards.md) | Report actionable partial-expression hazards | blocked | base-054, base-059, base-061 |

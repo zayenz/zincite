@@ -240,16 +240,7 @@ impl<'context> Producer<'context> {
             .collect()
     }
     fn reference(&self, file: FileId, node: &SyntaxNode) -> Option<DeclarationId> {
-        let start =
-            self.tokens(file, node).first()?.range.start + self.context.files[file].byte_offset;
-        self.bindings
-            .references
-            .iter()
-            .find(|r| r.file == file && r.location.range.start == start)
-            .and_then(|r| match r.resolution {
-                BindingResolution::Resolved(id) => Some(id),
-                _ => None,
-            })
+        resolved_reference(self.context, self.bindings, file, node)
     }
     fn instantiation(&self, file: FileId, node: &SyntaxNode) -> Instantiation {
         let location = self.context.files[file].location(node.range());
@@ -260,42 +251,13 @@ impl<'context> Producer<'context> {
             .map_or(Instantiation::Unknown, |e| e.instantiation)
     }
     fn annotations_safe(&self, file: FileId, node: &SyntaxNode) -> bool {
-        node.child_nodes()
-            .filter(|n| n.kind() == NodeKind::Annotation)
-            .all(|annotation| {
-                annotation.child_nodes().next().is_some_and(|value| {
-                    value.kind() == NodeKind::Expression
-                        && self
-                            .tokens(file, value)
-                            .first()
-                            .is_some_and(|t| t.kind == TokenKind::StringLiteral)
-                })
-            })
+        annotations_safe(self.context, file, node)
     }
     fn call(&self, file: FileId, node: &SyntaxNode) -> Option<DeclarationId> {
-        let head = self.tokens(file, node).into_iter().find(|t| {
-            matches!(
-                t.kind,
-                TokenKind::Identifier | TokenKind::QuotedIdentifier | TokenKind::InfixIdentifier
-            )
-        })?;
-        let start = head.range.start + self.context.files[file].byte_offset;
-        self.calls
-            .calls
-            .iter()
-            .find(|c| c.file == file && c.location.range.start == start)
-            .and_then(|c| match c.outcome {
-                CallOutcome::Resolved { declaration, .. } => Some(declaration),
-                _ => None,
-            })
+        resolved_call(self.context, self.calls, file, node)
     }
     fn core_forall(&self, id: DeclarationId) -> bool {
-        let declaration = &self.bindings.declarations[id.0];
-        let source = &self.context.files[declaration.file];
-        declaration.name == "forall"
-            && declaration.role == DeclarationRole::Function
-            && source.kind == SourceKind::StandardLibrary
-            && source.implicit
+        core_callable(self.context, self.bindings, id, "forall")
     }
     fn forwarded_argument<'node>(
         &self,
@@ -307,70 +269,13 @@ impl<'context> Producer<'context> {
     where
         'context: 'node,
     {
-        let declaration = &self.bindings.declarations[id.0];
-        let source: &'context crate::ModelFile = &self.context.files[declaration.file];
-        let node = find_node(
-            source.parsed.tree(),
-            &declaration.syntax_range,
-            declaration.role,
-        )?;
-        // Compiler-switchable library wrappers can have identity bodies. Accept
-        // ordinary user forwarding bodies without declaration annotations only.
-        if source.kind == SourceKind::StandardLibrary
-            || node.child_nodes().any(|n| n.kind() == NodeKind::Annotation)
-        {
-            return None;
-        }
-        let signature = self.calls.signatures.iter().find(|s| s.declaration == id)?;
-        if signature.return_type.optional || signature.return_type.kind != TypeKind::Bool {
-            return None;
-        }
-        let body = node
-            .child_nodes()
-            .filter(|n| is_expression(n.kind()))
-            .last()?;
-        let body = unwrap_parentheses(body);
-        if body.kind() != NodeKind::Expression {
-            return None;
-        }
-        let formal = self.reference(declaration.file, body)?;
-        let formal = &self.bindings.declarations[formal.0];
-        if formal.role != DeclarationRole::Parameter
-            || formal.file != declaration.file
-            || formal.syntax_range.start < node.range().start
-            || formal.syntax_range.end > node.range().end
-        {
-            return None;
-        }
-        let position = signature
-            .parameters
-            .iter()
-            .position(|p| p.name.as_deref() == Some(formal.name.as_str()))?;
-        let mut positional = 0;
-        for argument in call.child_nodes() {
-            if argument.kind() == NodeKind::NamedArgument {
-                let token = self.tokens(file, argument).first().copied()?;
-                let name = source_name(&self.context.files[file].parsed, token);
-                if name == formal.name {
-                    return argument
-                        .child_nodes()
-                        .next()
-                        .map(|value| (file, item, value));
-                }
-            } else {
-                if positional == position {
-                    return Some((file, item, argument));
-                }
-                positional += 1;
-            }
-        }
-        let parameter = node
-            .child_nodes()
-            .find(|n| n.kind() == NodeKind::ParameterList)?
-            .child_nodes()
-            .nth(position)?;
-        let value = parameter.child_nodes().find(|n| is_expression(n.kind()))?;
-        Some((declaration.file, declaration.item, value))
+        transparent_boolean_argument(
+            self.context,
+            self.bindings,
+            self.calls,
+            (file, item, call),
+            id,
+        )
     }
     fn walk(
         &mut self,
@@ -826,4 +731,153 @@ fn significant_tokens<'a>(
             .then_some(token)
         })
         .collect()
+}
+
+/// Shared callable boundaries for definition and guarded interpretation.
+pub(super) fn core_callable(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    id: DeclarationId,
+    name: &str,
+) -> bool {
+    let declaration = &bindings.declarations[id.0];
+    let source = &context.files[declaration.file];
+    declaration.name == name
+        && declaration.role == DeclarationRole::Function
+        && source.kind == SourceKind::StandardLibrary
+        && source.implicit
+}
+pub(super) fn resolved_call(
+    context: &ModelContext,
+    calls: &CallableFacts,
+    file: FileId,
+    node: &SyntaxNode,
+) -> Option<DeclarationId> {
+    let start = crate::domains::tokens(&context.files[file].parsed, node)
+        .into_iter()
+        .find(|t| {
+            matches!(
+                t.kind,
+                TokenKind::Identifier | TokenKind::QuotedIdentifier | TokenKind::InfixIdentifier
+            )
+        })?
+        .range
+        .start
+        + context.files[file].byte_offset;
+    calls
+        .calls
+        .iter()
+        .find(|c| c.file == file && c.location.range.start == start)
+        .and_then(|c| match c.outcome {
+            CallOutcome::Resolved { declaration, .. } => Some(declaration),
+            _ => None,
+        })
+}
+pub(super) fn resolved_reference(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    file: FileId,
+    node: &SyntaxNode,
+) -> Option<DeclarationId> {
+    let start = crate::domains::tokens(&context.files[file].parsed, node)
+        .first()?
+        .range
+        .start
+        + context.files[file].byte_offset;
+    bindings
+        .references
+        .iter()
+        .find(|r| r.file == file && r.location.range.start == start)
+        .and_then(|r| match r.resolution {
+            BindingResolution::Resolved(id) => Some(id),
+            _ => None,
+        })
+}
+pub(super) fn transparent_boolean_argument<'a>(
+    context: &'a ModelContext,
+    bindings: &BindingFacts,
+    calls: &CallableFacts,
+    site: (FileId, usize, &'a SyntaxNode),
+    id: DeclarationId,
+) -> Option<(FileId, usize, &'a SyntaxNode)> {
+    let (file, item, call) = site;
+    let declaration = &bindings.declarations[id.0];
+    let source: &'a crate::ModelFile = &context.files[declaration.file];
+    let node = find_node(
+        source.parsed.tree(),
+        &declaration.syntax_range,
+        declaration.role,
+    )?;
+    // Compiler-switchable library wrappers can have identity bodies. Accept
+    // ordinary user forwarding bodies without declaration annotations only.
+    if source.kind == SourceKind::StandardLibrary
+        || node.child_nodes().any(|n| n.kind() == NodeKind::Annotation)
+    {
+        return None;
+    }
+    let signature = calls.signatures.iter().find(|s| s.declaration == id)?;
+    if signature.return_type.optional || signature.return_type.kind != TypeKind::Bool {
+        return None;
+    }
+    let body = node
+        .child_nodes()
+        .filter(|n| is_expression(n.kind()))
+        .last()?;
+    let body = unwrap_parentheses(body);
+    if body.kind() != NodeKind::Expression {
+        return None;
+    }
+    let formal = resolved_reference(context, bindings, declaration.file, body)?;
+    let formal = &bindings.declarations[formal.0];
+    if formal.role != DeclarationRole::Parameter
+        || formal.file != declaration.file
+        || formal.syntax_range.start < node.range().start
+        || formal.syntax_range.end > node.range().end
+    {
+        return None;
+    }
+    let position = signature
+        .parameters
+        .iter()
+        .position(|p| p.name.as_deref() == Some(formal.name.as_str()))?;
+    let mut positional = 0;
+    for argument in call.child_nodes() {
+        if argument.kind() == NodeKind::NamedArgument {
+            let token = crate::domains::tokens(&context.files[file].parsed, argument)
+                .first()
+                .copied()?;
+            let name = source_name(&context.files[file].parsed, token);
+            if name == formal.name {
+                return argument
+                    .child_nodes()
+                    .next()
+                    .map(|value| (file, item, value));
+            }
+        } else {
+            if positional == position {
+                return Some((file, item, argument));
+            }
+            positional += 1;
+        }
+    }
+    let parameter = node
+        .child_nodes()
+        .find(|n| n.kind() == NodeKind::ParameterList)?
+        .child_nodes()
+        .nth(position)?;
+    let value = parameter.child_nodes().find(|n| is_expression(n.kind()))?;
+    Some((declaration.file, declaration.item, value))
+}
+
+pub(super) fn annotations_safe(context: &ModelContext, file: FileId, node: &SyntaxNode) -> bool {
+    node.child_nodes()
+        .filter(|n| n.kind() == NodeKind::Annotation)
+        .all(|annotation| {
+            annotation.child_nodes().next().is_some_and(|value| {
+                value.kind() == NodeKind::Expression
+                    && crate::domains::tokens(&context.files[file].parsed, value)
+                        .first()
+                        .is_some_and(|t| t.kind == TokenKind::StringLiteral)
+            })
+        })
 }

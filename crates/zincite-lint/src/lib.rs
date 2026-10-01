@@ -17,6 +17,7 @@ mod domains;
 mod effective_zero_one;
 mod element;
 mod global_uses;
+mod guarded;
 mod instantiations;
 mod model;
 mod naming;
@@ -61,6 +62,11 @@ pub use effective_zero_one::{
     resolve_effective_zero_one,
 };
 pub use global_uses::{GlobalUse, GlobalUseFacts, GlobalUseOutcome, resolve_global_uses};
+pub use guarded::{
+    GuardActivation, GuardAssumption, GuardAssumptionKind, GuardContext, GuardEvaluation,
+    GuardObligation, GuardObligationKind, GuardedExpression, GuardedFacts, GuardedLimitation,
+    GuardedOutcome, resolve_guarded_facts,
+};
 pub use instantiations::{ExpressionInstantiation, InstantiationFacts, resolve_instantiations};
 pub use model::{
     FileId, IncludeEdge, ModelContext, ModelFile, ModelOptions, SourceDiagnostic, SourceKind,

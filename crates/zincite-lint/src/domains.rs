@@ -460,7 +460,7 @@ impl Walker<'_> {
         }
     }
 }
-fn tokens<'a>(
+pub(super) fn tokens<'a>(
     parsed: &'a zincite_syntax::ParsedFile,
     node: &SyntaxNode,
 ) -> Vec<&'a zincite_syntax::Token> {
@@ -873,7 +873,7 @@ impl NumericOutcome {
             Inconclusive
         }
     }
-    fn interval(&self) -> Option<(i64, i64)> {
+    pub(super) fn interval(&self) -> Option<(i64, i64)> {
         match self {
             Self::Exact(n) => Some((*n, *n)),
             Self::Interval { lower, upper } => Some((*lower, *upper)),
@@ -1651,7 +1651,7 @@ pub(super) fn core_arithmetic(
     }
     Ok(())
 }
-fn invariant_integer(bound: &NumericBound) -> Result<Option<i64>, String> {
+pub(super) fn invariant_integer(bound: &NumericBound) -> Result<Option<i64>, String> {
     match bound {
         NumericBound::Defined { .. } | NumericBound::Symbol(_) | NumericBound::Unknown => Ok(None),
         NumericBound::Arithmetic { operands, .. }
