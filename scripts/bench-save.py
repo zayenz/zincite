@@ -4,11 +4,15 @@ import argparse
 import hashlib
 import json
 import math
+import os
+import sys
 import platform
 from pathlib import Path
 import re
 import statistics
 import subprocess
+import signal
+import threading
 import tempfile
 import time
 from datetime import datetime, timezone
@@ -84,7 +88,229 @@ def cases(external):
     return result
 
 
+def file_digest(path):
+    value = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            value.update(chunk)
+    return value.hexdigest()
+
+
+def file_invoke(command, directory, name, timeout):
+    """Keep complete streams; wait4's RSS belongs to this exact child."""
+    stdout = directory / (name + ".stdout")
+    stderr = directory / (name + ".stderr")
+    timed_out = False
+    usage = None
+    start = time.perf_counter()
+    with stdout.open("xb") as output, stderr.open("xb") as errors:
+        child = subprocess.Popen(command, stdout=output, stderr=errors, cwd=ROOT)
+        if all(hasattr(os, name) for name in ("wait4", "waitid", "WNOWAIT")):
+            expired = threading.Event()
+            def deadline():
+                # WNOWAIT leaves the PID reserved until the sole wait4 reaper runs.
+                if os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
+                    expired.set()
+                    os.kill(child.pid, signal.SIGKILL)
+            watchdog = threading.Timer(max(0, timeout - (time.perf_counter() - start)), deadline)
+            watchdog.start()
+            os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOWAIT)
+            elapsed = time.perf_counter() - start
+            watchdog.cancel()
+            watchdog.join()
+            _, status, usage = os.wait4(child.pid, 0)
+            child.returncode = os.waitstatus_to_exitcode(status)
+            timed_out = expired.is_set() and child.returncode == -signal.SIGKILL
+        else:
+            try:
+                child.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                child.kill()
+                child.wait()
+            elapsed = time.perf_counter() - start
+    system = platform.system()
+    rss = usage.ru_maxrss if usage else None
+    return {"command": command, "wall_seconds": elapsed,
+            "child_cpu_seconds": usage.ru_utime + usage.ru_stime if usage else None,
+            "returncode": child.returncode, "timeout": timed_out,
+            "deadline_seconds": timeout,
+            "peak_child_rss_raw": rss,
+            "peak_child_rss_unit": "bytes" if system == "Darwin" else "KiB" if system == "Linux" else None,
+            "peak_child_rss_mib": rss / (1024 ** 2 if system == "Darwin" else 1024) if rss is not None and system in ("Darwin", "Linux") else None,
+            "rss_method": "per-child os.wait4 high-water value" if usage else "unavailable",
+            "stdout": str(stdout), "stderr": str(stderr),
+            "stdout_bytes": stdout.stat().st_size, "stderr_bytes": stderr.stat().st_size,
+            "stdout_sha256": file_digest(stdout), "stderr_sha256": file_digest(stderr)}
+
+
+def load_probe(path, manifest, process, selection):
+    """Aggregate current outcomes; leave unfinished roots explicitly unobserved."""
+    observed = set()
+    selected = manifest["preset_rules"][selection]
+    totals = {"observed_roots": 0, "warnings": 0, "errors": 0, "limitations": 0,
+              "structurally_complete_roots": 0, "complete_resolved_roots": 0,
+              "complete_roots_all_selected_completed": 0, "repeated_loaded_files": 0,
+              "repeated_loaded_bytes": 0}
+    partitions = {rule: {} for rule in selected}
+    states, dependencies, drops, phases = {}, {}, [], {}
+    complete = None
+    invalid_lines = []
+    with path.open() as stream:
+        for index, line in enumerate(stream, 1):
+            try:
+                row = json.loads(line)
+            except ValueError:
+                invalid_lines.append(index)
+                continue
+            if row["kind"] == "manifest":
+                assert selected == row["rules"]
+                assert row["files"] == manifest["files"]
+            elif row["kind"] == "root":
+                assert row["path"] not in observed
+                observed.add(row["path"])
+                analysis, source = row["analysis"], row["source"]
+                assert set(analysis["rules"]) == set(selected)
+                totals["observed_roots"] += 1
+                for key in ("warnings", "errors", "limitations"):
+                    totals[key] += analysis[key]
+                state = source["root_state"]
+                states[state] = states.get(state, 0) + 1
+                structural = state == "complete"
+                resolved = structural and source.get("dependencies_resolved", False)
+                totals["structurally_complete_roots"] += structural
+                totals["complete_resolved_roots"] += bool(resolved)
+                totals["complete_roots_all_selected_completed"] += bool(resolved and all(rule["outcome"] == "Completed" for rule in analysis["rules"].values()))
+                for rule, execution in analysis["rules"].items():
+                    outcome = execution["outcome"]
+                    partitions[rule][outcome] = partitions[rule].get(outcome, 0) + 1
+                for dependency in source["loaded_files"]:
+                    canonical = dependency["canonical_path"]
+                    totals["repeated_loaded_files"] += 1
+                    totals["repeated_loaded_bytes"] += dependency["bytes"]
+                    if canonical in dependencies:
+                        assert dependencies[canonical]["bytes"] == dependency["bytes"]
+                    else:
+                        dependencies[canonical] = dependency
+                for phase, values in row["phases"].items():
+                    entry = phases.setdefault(phase, {key: 0 for key in values})
+                    for key, value in values.items():
+                        entry[key] = max(entry[key], value) if key in ("peak_delta_bytes", "retained_delta_bytes") else entry[key] + value
+            elif row["kind"] == "drop":
+                drops.append({"path": row["path"], "baseline": row["baseline_live_bytes"], "after_drop": row["after_drop_live_bytes"]})
+            elif row["kind"] == "complete":
+                complete = row
+    expected = {row["path"] for row in manifest["files"]}
+    assert observed <= expected
+    reason = "probe deadline" if process["timeout"] else "probe did not report this root"
+    unobserved = [{"path": row["path"], "outcome": "Unobserved", "reason": reason} for row in manifest["files"] if row["path"] not in observed]
+    for counts in partitions.values():
+        counts["Unobserved"] = counts.get("Unobserved", 0) + len(unobserved)
+        assert sum(counts.values()) == len(expected)
+    return {"process": process, "selected_rules": selected, "totals": totals,
+            "rule_outcome_partitions": partitions, "root_states": states,
+            "unobserved_roots": unobserved, "unobserved_applies_to_all_selected_rules": True,
+            "invalid_json_lines": invalid_lines, "complete_record": complete,
+            "dependency_union": list(dependencies.values()),
+            "unique_loaded_files": len(dependencies),
+            "unique_loaded_bytes": sum(row["bytes"] for row in dependencies.values()),
+            "phase_attribution": phases, "drop_snapshots": drops,
+            "all_reported_scopes_return_to_baseline": all(row["baseline"] == row["after_drop"] for row in drops)}
+
+
+def batch_main(arguments):
+    parser = argparse.ArgumentParser(description="Native sequential batch timing with current structured coverage; no source writes.")
+    parser.add_argument("paths", type=Path, nargs="+", help="explicit file or directory roots; canonical discovery comes from the Rust probe")
+    parser.add_argument("--formatter", type=Path, default=ROOT / "target/release/zincite-fmt")
+    parser.add_argument("--linter", type=Path, default=ROOT / "target/release/zincite-lint")
+    parser.add_argument("--probe", type=Path, default=ROOT / "target/release/examples/profile-phases")
+    parser.add_argument("--selection", choices=("format", "default", "thesis", "all"), action="append")
+    parser.add_argument("--repeat", type=int, default=2)
+    parser.add_argument("--timeout", type=float, default=300)
+    parser.add_argument("--probe-timeout", type=float, default=300)
+    parser.add_argument("-I", "--include-dir", type=Path, action="append", default=[])
+    parser.add_argument("--stdlib-dir", type=Path)
+    parser.add_argument("--output", type=Path, required=True, help="new ignored report directory outside inputs")
+    args = parser.parse_args(arguments)
+    if args.repeat < 1 or any(not math.isfinite(value) or value <= 0 for value in (args.timeout, args.probe_timeout)):
+        parser.error("repeat and finite deadlines must be positive")
+    output = args.output.resolve()
+    inputs = [path.absolute() for path in args.paths]
+    if output.exists():
+        parser.error(f"report already exists: {output}")
+    if any(output == path.resolve() or path.is_dir() and output.is_relative_to(path.resolve()) for path in inputs):
+        parser.error("report output must be outside every input root")
+    binaries = {name: path.resolve() for name, path in (("formatter", args.formatter), ("linter", args.linter), ("probe", args.probe))}
+    if any(not path.is_file() for path in binaries.values()):
+        parser.error("build or supply all three release binaries")
+    output.mkdir(parents=True)
+    model = []
+    if args.stdlib_dir:
+        model += ["--stdlib-dir", str(args.stdlib_dir.resolve())]
+    for path in args.include_dir:
+        model += ["-I", str(path.resolve())]
+    positional = [str(path) for path in inputs]
+    probe = str(binaries["probe"])
+    manifest_run = file_invoke([probe, "batch", "--manifest-only", *positional], output, "manifest", args.probe_timeout)
+    if manifest_run["timeout"] or manifest_run["returncode"] not in (0, 2):
+        parser.error("manifest probe failed; raw evidence retained")
+    with Path(manifest_run["stdout"]).open() as source:
+        manifest = json.loads(source.readline())
+    assert manifest["kind"] == "manifest"
+    originals = {row["canonical_path"]: file_digest(Path(row["canonical_path"])) for row in manifest["files"]}
+    dependency_dirs = [*args.include_dir]
+    if args.stdlib_dir or os.environ.get("MZN_STDLIB_DIR"):
+        dependency_dirs.append(args.stdlib_dir or Path(os.environ["MZN_STDLIB_DIR"]))
+    dependency_manifest_run = None
+    if dependency_dirs:
+        dependency_manifest_run = file_invoke([probe, "batch", "--manifest-only", *[str(path.resolve()) for path in dependency_dirs]], output, "dependency-manifest", args.probe_timeout)
+        if dependency_manifest_run["timeout"] or dependency_manifest_run["returncode"] not in (0, 2):
+            parser.error("dependency manifest failed; raw evidence retained")
+        with Path(dependency_manifest_run["stdout"]).open() as source:
+            dependency_manifest = json.loads(source.readline())
+        originals.update({row["canonical_path"]: file_digest(Path(row["canonical_path"])) for row in dependency_manifest["files"]})
+    count = len(manifest["files"])
+    input_bytes = sum(row["bytes"] for row in manifest["files"])
+    report = {"revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+              "platform": platform.platform(), "machine": platform.machine(), "python": platform.python_version(),
+              "rustc": subprocess.check_output(["rustc", "--version"], text=True).strip(),
+              "binaries": {name: {"path": str(path), "sha256": file_digest(path)} for name, path in binaries.items()},
+              "positional_paths": positional, "model_options": model, "MZN_STDLIB_DIR": os.environ.get("MZN_STDLIB_DIR"),
+              "cache_label": "fresh processes; ordinary warm filesystem caches; first use is not controlled cold I/O",
+              "manifest": manifest, "manifest_process": manifest_run, "dependency_manifest_process": dependency_manifest_run, "input_count": count, "input_bytes": input_bytes,
+              "original_sha256": originals, "runs": [], "coverage": {}}
+    report_path = output / "report.json"
+    def save():
+        report_path.write_text(json.dumps(report, indent=2) + "\n")
+    save()
+    with (output / "runs.jsonl").open("x") as log:
+        for selection in args.selection or ("format", "default", "thesis", "all"):
+            command = ([str(binaries["formatter"]), "--check", *positional] if selection == "format" else
+                       [str(binaries["linter"]), "--rules", selection, *model, *positional])
+            for trial in range(args.repeat):
+                row = file_invoke(command, output, selection + "-" + str(trial), args.timeout)
+                row.update(selection=selection, trial=trial, first_use=trial == 0,
+                           discovered_input_count=count, discovered_input_bytes=input_bytes,
+                           completed_root_count=count if not row["timeout"] and row["returncode"] in (0, 1, 2) else None)
+                row["attempted_input_mib_per_second"] = input_bytes / 1024 ** 2 / row["wall_seconds"] if row["completed_root_count"] is not None else None
+                report["runs"].append(row)
+                log.write(json.dumps(row) + "\n"); log.flush(); save()
+                print(f"{selection} trial={trial} wall={row['wall_seconds']:.3f}s status={row['returncode']} timeout={row['timeout']} RSS={row['peak_child_rss_mib']}MiB", flush=True)
+            if selection != "format":
+                process = file_invoke([probe, "batch", "--rules", selection, *model, *positional], output, selection + "-coverage", args.probe_timeout)
+                report["coverage"][selection] = load_probe(Path(process["stdout"]), manifest, process, selection)
+                save()
+    changed = [path for path, value in originals.items() if file_digest(Path(path)) != value]
+    report["originals_rehashed"] = len(originals)
+    report["original_changes"] = changed
+    report["binaries_unchanged"] = all(file_digest(path) == report["binaries"][name]["sha256"] for name, path in binaries.items())
+    save()
+    return int(bool(changed or not report["binaries_unchanged"] or any(row["timeout"] or row["returncode"] not in (0, 1, 2) for row in report["runs"])))
+
+
 def main():
+    if sys.argv[1:2] == ["batch"]:
+        return batch_main(sys.argv[2:])
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, default=ROOT / "target/release/zincite-fmt")
     parser.add_argument("--samples", type=int, default=50, help="fresh processes per case/settings; below 50 is smoke-only")
