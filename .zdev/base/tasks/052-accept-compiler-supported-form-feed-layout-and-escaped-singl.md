@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-052"
 key = "lexer-corpus-compatibility"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -27,11 +27,20 @@ Read the area brief and scripts/syntax-corpus-checkpoint.md. scripts/syntax-gap-
 
 ## Done when
 
-- [ ] Both retained reductions and affected corpus files pass lossless parsing with exact spelling and ranges.
-- [ ] Formatting preserves the accepted lexical bytes and is stable on focused examples; malformed nearby escapes still diagnose.
-- [ ] Document the lexical extensions beside the scanner behavior and report the affected-file reconciliation.
+- [x] Both retained reductions and affected corpus files pass lossless parsing with exact spelling and ranges.
+- [x] Formatting follows the existing editable-whitespace policy, preserves escaped-single-quote spelling and protected text, and is stable on focused examples; malformed nearby escapes still diagnose.
+- [x] Document the lexical extensions beside the scanner behavior and report the affected-file reconciliation.
 
 ## Validation
 
 - Run required workspace fmt, clippy with -D warnings and tests.
 - Use a few public lossless/escape checks, original/formatted MiniZinc 2.10.1 model-check-only reductions and the affected corpus files; never rewrite originals.
+
+## Result
+
+Accept form-feed layout and escaped single quotes through direct scanner cases, retaining precise source ranges, recovery and stable formatting under the existing whitespace policy.
+
+Validation:
+
+- Independent Cargo fmt, Clippy with -D warnings, workspace tests and zdev check pass.
+- Both reductions, five affected originals and protected-text control pass lossless fidelity and stable formatting; 16 MiniZinc 2.10.1 model-check-only checks pass, malformed escapes still diagnose, and originals retain hashes and modes.

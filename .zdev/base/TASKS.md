@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 79
-- Ready: 8
+- Ready: 7
 - Blocked: 23
-- Done: 48
+- Done: 49
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -60,7 +60,7 @@
 | [base-049](tasks/049-measure-batch-and-semantic-lint-speed-and-memory.md) | Measure batch and semantic-lint speed and memory | done | base-022, base-029, base-045 |
 | [base-050](tasks/050-verify-corpus-processing-and-full-thesis-lint-coverage.md) | Verify corpus processing and full thesis lint coverage | blocked | base-028, base-045, base-026, base-029, base-048, base-049, base-075, base-076, base-078, base-079 |
 | [base-051](tasks/051-reduce-measured-punctuation-dispatch-cost-in-the-lexer.md) | Reduce measured punctuation dispatch cost in the lexer | done | — |
-| [base-052](tasks/052-accept-compiler-supported-form-feed-layout-and-escaped-singl.md) | Accept compiler-supported form-feed layout and escaped single quotes | ready | — |
+| [base-052](tasks/052-accept-compiler-supported-form-feed-layout-and-escaped-singl.md) | Accept compiler-supported form-feed layout and escaped single quotes | done | — |
 | [base-053](tasks/053-accept-the-four-remaining-compiler-supported-item-and-callab.md) | Accept the four remaining compiler-supported item and callable families | ready | — |
 | [base-054](tasks/054-describe-lint-families-and-capabilities-in-one-rule-catalogu.md) | Describe lint families and capabilities in one rule catalogue | ready | base-030 |
 | [base-055](tasks/055-resolve-rule-families-and-per-root-lint-configuration.md) | Resolve rule families and per-root lint configuration | blocked | base-054 |

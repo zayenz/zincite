@@ -64,6 +64,46 @@ fn retains_all_bytes_and_recovers_after_lexical_errors() {
 }
 
 #[test]
+fn accepts_compiler_layout_and_quote_escape_without_relaxing_other_escapes() {
+    let source = concat!(
+        "int: x=1;\u{c}solve satisfy;\r\n",
+        r#"output ["A \'quote", "雪 \'\(x)\' end"];"#,
+    );
+    let lexed = lex(source);
+    assert_coverage(&lexed);
+    assert!(lexed.diagnostics().is_empty());
+    for (spelling, kind) in [
+        ("\u{c}", TokenKind::Whitespace),
+        (r#""A \'quote""#, TokenKind::StringLiteral),
+        (r#""雪 \'\("#, TokenKind::StringHead),
+        (r#")\' end""#, TokenKind::StringTail),
+    ] {
+        let start = source.find(spelling).unwrap();
+        assert!(
+            lexed.tokens().iter().any(|token| {
+                token.kind == kind && token.range == (start..start + spelling.len())
+            })
+        );
+    }
+
+    let malformed = lex(r#"output ["bad\q", "bad\x"]; int: after = 1;"#);
+    assert_coverage(&malformed);
+    assert_eq!(malformed.diagnostics().len(), 2);
+    for (escape, message) in [
+        ("\\q", "invalid string escape"),
+        ("\\x", "expected one or two hexadecimal escape digits"),
+    ] {
+        let start = malformed.source().find(escape).unwrap();
+        assert!(malformed.diagnostics().iter().any(|diagnostic| {
+            diagnostic.range == (start..start + 2) && diagnostic.message == message
+        }));
+    }
+    assert!(malformed.tokens().iter().any(|token| {
+        token.kind == TokenKind::Identifier && &malformed.source()[token.range.clone()] == "after"
+    }));
+}
+
+#[test]
 fn distinguishes_numeral_and_operator_boundaries() {
     use TokenKind::*;
     let lexed = lex(

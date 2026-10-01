@@ -365,7 +365,8 @@ impl Scanner<'_> {
         let start = self.position;
         self.advance();
         match self.current() {
-            Some('n' | 't' | '"' | '\\') => self.advance(),
+            // MiniZinc 2.10.1 also accepts \' in double-quoted strings.
+            Some('n' | 't' | '"' | '\'' | '\\') => self.advance(),
             Some('0'..='7') => {
                 for _ in 0..3 {
                     if !matches!(self.current(), Some('0'..='7')) {
@@ -407,7 +408,8 @@ struct Interpolation {
 }
 
 fn is_whitespace(character: char) -> bool {
-    matches!(character, ' ' | '\t' | '\r' | '\n')
+    // MiniZinc 2.10.1 accepts form feed as layout, including between items.
+    matches!(character, ' ' | '\t' | '\r' | '\n' | '\u{c}')
 }
 
 fn is_identifier_continue(character: char) -> bool {
