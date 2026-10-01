@@ -791,6 +791,457 @@ pub struct IntegerBoundsFacts {
     pub expressions: Vec<ExpressionBounds>,
 }
 
+/// A conservative integer value. Intervals are inclusive hulls, not a claim
+/// that every enclosed integer is possible. Symbolic endpoints retain binding
+/// identity and parameter-default dependence; they are never solved algebraically.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NumericOutcome {
+    Exact(i64),
+    Interval {
+        lower: i64,
+        upper: i64,
+    },
+    Symbolic {
+        lower: NumericBound,
+        upper: NumericBound,
+    },
+    Unknown(String),
+    Unsupported(String),
+}
+
+/// A proof that all derived values are outside a declared domain. Overlapping
+/// hulls, symbolic endpoints and lost correlations remain inconclusive.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NumericDomainRelation {
+    ExactOutside,
+    Disjoint,
+    Inconclusive,
+}
+
+impl NumericOutcome {
+    /// Some(true) proves exclusion; Some(false) identifies the exact value.
+    /// Interval containment is inconclusive, including holes in a sparse hull.
+    pub fn excludes(&self, value: i64) -> Option<bool> {
+        match self {
+            Self::Exact(n) => Some(*n != value),
+            Self::Interval { lower, upper } if value < *lower || value > *upper => Some(true),
+            _ => None,
+        }
+    }
+
+    /// Compare against an independently retained declared requirement. Exact
+    /// sparse-set membership is checked without treating its hull as the set.
+    /// A merely overlapping interval does not establish an actual failing value.
+    pub fn domain_relation(&self, required: &NumericDeclaration) -> NumericDomainRelation {
+        use NumericDomainRelation::*;
+        let (Some((lower, upper)), Some((l, u))) = (self.interval(), required.required.interval())
+        else {
+            return Inconclusive;
+        };
+        let mut domain = &required.declared;
+        while let Domain::Named { domain: inner, .. } = domain {
+            domain = inner;
+        }
+        if let Domain::LiteralSet(values) = domain {
+            let values = values
+                .iter()
+                .map(invariant_integer)
+                .collect::<Result<Option<Vec<_>>, _>>();
+            let Ok(Some(values)) = values else {
+                return Inconclusive;
+            };
+            if let Self::Exact(n) = self {
+                return if values.contains(n) {
+                    Inconclusive
+                } else {
+                    ExactOutside
+                };
+            }
+            return if values.iter().all(|n| *n < lower || *n > upper) {
+                Disjoint
+            } else {
+                Inconclusive
+            };
+        }
+        if upper < l || lower > u {
+            if matches!(self, Self::Exact(_)) {
+                ExactOutside
+            } else {
+                Disjoint
+            }
+        } else {
+            Inconclusive
+        }
+    }
+    fn interval(&self) -> Option<(i64, i64)> {
+        match self {
+            Self::Exact(n) => Some((*n, *n)),
+            Self::Interval { lower, upper } => Some((*lower, *upper)),
+            _ => None,
+        }
+    }
+    fn endpoints(&self) -> Option<(NumericBound, NumericBound)> {
+        match self {
+            Self::Symbolic { lower, upper } => Some((lower.clone(), upper.clone())),
+            _ => self
+                .interval()
+                .map(|(l, u)| (NumericBound::Integer(l), NumericBound::Integer(u))),
+        }
+    }
+    fn invariant_bounds(self) -> IntegerBoundsOutcome {
+        match self {
+            Self::Exact(n) => IntegerBoundsOutcome::Known { lower: n, upper: n },
+            Self::Interval { lower, upper } => IntegerBoundsOutcome::Known { lower, upper },
+            Self::Symbolic { .. } => {
+                IntegerBoundsOutcome::Unknown("numeric value depends on parameters".into())
+            }
+            Self::Unknown(reason) => IntegerBoundsOutcome::Unknown(reason),
+            Self::Unsupported(reason) => IntegerBoundsOutcome::Unsupported(reason),
+        }
+    }
+}
+impl From<IntegerBoundsOutcome> for NumericOutcome {
+    fn from(outcome: IntegerBoundsOutcome) -> Self {
+        match outcome {
+            IntegerBoundsOutcome::Known { lower, upper } => numeric_interval(lower, upper),
+            IntegerBoundsOutcome::Unknown(reason) => Self::Unknown(reason),
+            IntegerBoundsOutcome::Unsupported(reason) => Self::Unsupported(reason),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct NumericDeclaration {
+    pub declaration: DeclarationId,
+    pub location: SourceLocation,
+    /// The original domain, including named identity and sparse membership.
+    pub declared: Domain,
+    pub required: NumericOutcome,
+    /// Derived independently; never intersected with the declared requirement.
+    pub value: NumericOutcome,
+}
+#[derive(Clone, Debug)]
+pub struct NumericDefinition {
+    pub target: DeclarationId,
+    pub file: FileId,
+    pub location: SourceLocation,
+    /// The written initializer of a parameter can be replaced by instance data.
+    /// Its RHS outcome is not an enforced value or conflict proof for the target.
+    pub parameter_default: bool,
+    /// Interpretation of the written RHS, independently of the target's domain.
+    pub outcome: NumericOutcome,
+}
+impl NumericDefinition {
+    /// A parameter default cannot prove an instance-domain conflict. Other
+    /// supported enforced RHS values can be compared with their own target.
+    pub fn domain_relation(&self, required: &NumericDeclaration) -> NumericDomainRelation {
+        if self.parameter_default || self.target != required.declaration {
+            NumericDomainRelation::Inconclusive
+        } else {
+            self.outcome.domain_relation(required)
+        }
+    }
+}
+#[derive(Clone, Debug)]
+pub struct NumericExpression {
+    pub file: FileId,
+    pub location: SourceLocation,
+    pub instantiation: crate::Instantiation,
+    pub outcome: NumericOutcome,
+}
+#[derive(Clone, Debug)]
+pub struct NumericLimitation {
+    pub file: FileId,
+    pub location: SourceLocation,
+    pub reason: String,
+}
+#[derive(Debug, Default)]
+pub struct NumericFacts {
+    pub declarations: Vec<NumericDeclaration>,
+    pub definitions: Vec<NumericDefinition>,
+    pub expressions: Vec<NumericExpression>,
+    pub limitations: Vec<NumericLimitation>,
+}
+
+/// Interpret scalar integers without enabling lint. All prerequisites must come
+/// from this retained ModelContext; their declaration IDs and locations cannot
+/// be mixed with another model or a changed source.
+///
+/// Supports integer literals, aliases, parentheses/annotations, resolved core
+/// unary +/-, +, -, *, and closed div/mod, plus supported scalar unconditional
+/// definitions. Checked i64 arithmetic never wraps. Parameter defaults retain
+/// identity instead of becoming instance-invariant values; independently known
+/// parameter domains still bound arithmetic. A cycle cannot establish its own
+/// value; independent domain or definition anchors remain usable.
+///
+/// Float, option, array-access, arbitrary call and control/iteration expressions
+/// are outside this integer subset. Unsupported integer expressions and unsafe
+/// definitions retain located limitations separately from facts and lint findings.
+/// Ordinary uncertainty (missing data, cycles, conditional definitions, interval
+/// division) is not an unsupported-operation finding. Sparse sets use hulls for
+/// arithmetic; no correlation reasoning, solver or symbolic algebra is performed.
+/// This producer does not change resolve_integer_bounds or selected-rule behavior.
+pub fn resolve_numeric_facts(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    instantiations: &crate::InstantiationFacts,
+    domains: &DomainFacts,
+    definitions: &crate::DefinitionFacts,
+) -> NumericFacts {
+    let mut interpreter = Bounds {
+        context,
+        bindings,
+        calls,
+        domains,
+        definitions: Some(definitions),
+        declarations: vec![None; bindings.declarations.len()],
+        active: Vec::new(),
+    };
+    let mut facts = NumericFacts::default();
+    for declaration in &bindings.declarations {
+        if !context.files[declaration.file].warnings_enabled()
+            || !matches!(
+                declaration.role,
+                DeclarationRole::Value | DeclarationRole::Local | DeclarationRole::Parameter
+            )
+            || !matches!(
+                calls.declarations[declaration.id.0].ty.kind,
+                crate::TypeKind::Int | crate::TypeKind::Float | crate::TypeKind::Unknown(_)
+            )
+        {
+            continue;
+        }
+        let required = interpreter.requirement(declaration.id);
+        let value = interpreter.declaration(declaration.id);
+        retain_numeric_limitation(
+            &mut facts,
+            declaration.file,
+            &declaration.location,
+            &required,
+        );
+        retain_numeric_limitation(&mut facts, declaration.file, &declaration.location, &value);
+        facts.declarations.push(NumericDeclaration {
+            declaration: declaration.id,
+            location: declaration.location.clone(),
+            declared: domains.declarations[declaration.id.0].domain.clone(),
+            required,
+            value,
+        });
+    }
+    for definition in &definitions.definitions {
+        if !context.files[definition.file].warnings_enabled()
+            || !matches!(
+                calls.declarations[definition.target.0].ty.kind,
+                crate::TypeKind::Int | crate::TypeKind::Float | crate::TypeKind::Unknown(_)
+            )
+        {
+            continue;
+        }
+        let outcome = interpreter.definition(definition);
+        retain_numeric_limitation(&mut facts, definition.file, &definition.value, &outcome);
+        facts.definitions.push(NumericDefinition {
+            target: definition.target,
+            file: definition.file,
+            location: definition.value.clone(),
+            parameter_default: calls.declarations[definition.target.0].ty.instantiation
+                == crate::Instantiation::Parameter
+                && definition.file == bindings.declarations[definition.target.0].file
+                && definition.location.range
+                    == context.files[definition.file]
+                        .location(
+                            bindings.declarations[definition.target.0]
+                                .syntax_range
+                                .clone(),
+                        )
+                        .range,
+            outcome,
+        });
+    }
+    for expression in &calls.expressions {
+        let source = &context.files[expression.file];
+        if !source.warnings_enabled()
+            || !source.parsed.diagnostics().is_empty()
+            || !matches!(
+                expression.ty.kind,
+                crate::TypeKind::Int | crate::TypeKind::Float | crate::TypeKind::Unknown(_)
+            )
+        {
+            continue;
+        }
+        let range = expression.location.range.start - source.byte_offset
+            ..expression.location.range.end - source.byte_offset;
+        let Some(node) = expression_node(source.parsed.tree(), &range) else {
+            continue;
+        };
+        let outcome = interpreter.expression(expression.file, node);
+        retain_numeric_limitation(&mut facts, expression.file, &expression.location, &outcome);
+        let instantiation = instantiations
+            .expressions
+            .iter()
+            .find(|e| e.file == expression.file && e.location.range == expression.location.range)
+            .map_or(crate::Instantiation::Unknown, |e| e.instantiation);
+        facts.expressions.push(NumericExpression {
+            file: expression.file,
+            location: expression.location.clone(),
+            instantiation,
+            outcome,
+        });
+    }
+    facts
+}
+fn retain_numeric_limitation(
+    facts: &mut NumericFacts,
+    file: FileId,
+    location: &SourceLocation,
+    outcome: &NumericOutcome,
+) {
+    if let NumericOutcome::Unsupported(reason) = outcome
+        && !facts
+            .limitations
+            .iter()
+            .any(|l| l.file == file && l.location.range == location.range && l.reason == *reason)
+    {
+        facts.limitations.push(NumericLimitation {
+            file,
+            location: location.clone(),
+            reason: reason.clone(),
+        });
+    }
+}
+fn supported_definition(definition: &crate::Definition) -> bool {
+    definition.enforcement == crate::DefinitionEnforcement::Enforced
+        && definition.coverage == crate::DefinitionCoverage::Scalar
+        && definition.safety == crate::DefinitionSafety::Supported
+}
+fn expression_node<'a>(
+    node: &'a SyntaxNode,
+    range: &std::ops::Range<usize>,
+) -> Option<&'a SyntaxNode> {
+    if node.range() == *range && crate::callables::is_expression(node.kind()) {
+        return Some(node);
+    }
+    node.child_nodes()
+        .filter(|n| n.range().start <= range.start && n.range().end >= range.end)
+        .find_map(|n| expression_node(n, range))
+}
+fn numeric_interval(lower: i64, upper: i64) -> NumericOutcome {
+    if lower == upper {
+        NumericOutcome::Exact(lower)
+    } else {
+        NumericOutcome::Interval { lower, upper }
+    }
+}
+fn numeric_arithmetic(
+    operator: TokenKind,
+    values: &[NumericOutcome],
+    instance_invariant: bool,
+) -> NumericOutcome {
+    use NumericOutcome::*;
+    let supported_operator = matches!(
+        operator,
+        TokenKind::Plus | TokenKind::Minus | TokenKind::Star | TokenKind::Div | TokenKind::Mod
+    );
+    if !supported_operator && !instance_invariant {
+        return Unsupported("integer operator is outside bounded arithmetic".into());
+    }
+    if let Some(reason) = values.iter().find_map(|v| {
+        if let Unsupported(r) = v {
+            Some(r)
+        } else {
+            None
+        }
+    }) {
+        return Unsupported(reason.clone());
+    }
+    let unknown = values
+        .iter()
+        .find_map(|v| if let Unknown(r) = v { Some(r) } else { None });
+    // Keep the invariant producer's uncertainty precedence. The definition-aware
+    // path can still identify an invalid closed divisor with an unknown dividend.
+    if matches!(operator, TokenKind::Div | TokenKind::Mod)
+        && values.get(1) == Some(&Exact(0))
+        && (!instance_invariant || unknown.is_none())
+    {
+        return Unsupported("integer division by zero".into());
+    }
+    if let Some(reason) = unknown {
+        return Unknown(reason.clone());
+    }
+    if !supported_operator {
+        return Unsupported("integer operator is outside bounded arithmetic".into());
+    }
+    let intervals: Option<Vec<_>> = values.iter().map(NumericOutcome::interval).collect();
+    if let Some(intervals) = intervals {
+        let result = match intervals.as_slice() {
+            [(l, u)] if operator == TokenKind::Plus => Some((*l, *u)),
+            [(l, u)] if operator == TokenKind::Minus => u.checked_neg().zip(l.checked_neg()),
+            [(a, b), (c, d)] => match operator {
+                TokenKind::Plus => a.checked_add(*c).zip(b.checked_add(*d)),
+                TokenKind::Minus => a.checked_sub(*d).zip(b.checked_sub(*c)),
+                TokenKind::Star => [
+                    a.checked_mul(*c),
+                    a.checked_mul(*d),
+                    b.checked_mul(*c),
+                    b.checked_mul(*d),
+                ]
+                .into_iter()
+                .collect::<Option<Vec<_>>>()
+                .map(|p| (*p.iter().min().unwrap(), *p.iter().max().unwrap())),
+                TokenKind::Div | TokenKind::Mod if a == b && c == d => {
+                    (if operator == TokenKind::Div {
+                        a.checked_div(*c)
+                    } else {
+                        a.checked_rem(*c)
+                    })
+                    .map(|n| (n, n))
+                }
+                TokenKind::Div | TokenKind::Mod => {
+                    return Unknown("division/remainder needs closed invariant operands".into());
+                }
+                _ => return Unsupported("integer operator arity is unsupported".into()),
+            },
+            _ => return Unsupported("integer operator arity is unsupported".into()),
+        };
+        return result
+            .map(|(l, u)| numeric_interval(l, u))
+            .unwrap_or_else(|| {
+                Unsupported("integer arithmetic overflow or division by zero".into())
+            });
+    }
+    let endpoints: Option<Vec<_>> = values.iter().map(NumericOutcome::endpoints).collect();
+    let Some(endpoints) = endpoints else {
+        return Unknown("numeric operands are unknown".into());
+    };
+    let arithmetic = |operands| NumericBound::Arithmetic { operator, operands };
+    let (lower, upper) = match endpoints.as_slice() {
+        [(l, u)] if operator == TokenKind::Plus => (l.clone(), u.clone()),
+        [(l, u)] if operator == TokenKind::Minus => {
+            (arithmetic(vec![u.clone()]), arithmetic(vec![l.clone()]))
+        }
+        [(a, b), (c, d)] if operator == TokenKind::Plus => (
+            arithmetic(vec![a.clone(), c.clone()]),
+            arithmetic(vec![b.clone(), d.clone()]),
+        ),
+        [(a, b), (c, d)] if operator == TokenKind::Minus => (
+            arithmetic(vec![a.clone(), d.clone()]),
+            arithmetic(vec![b.clone(), c.clone()]),
+        ),
+        [(a, b), (c, d)] if operator == TokenKind::Star && a == b && c == d => {
+            let bound = arithmetic(vec![a.clone(), c.clone()]);
+            (bound.clone(), bound)
+        }
+        [(..), (..)] if matches!(operator, TokenKind::Div | TokenKind::Mod) => {
+            return Unknown("division/remainder needs closed invariant operands".into());
+        }
+        _ => return Unknown("symbolic product interval cannot be ordered without data".into()),
+    };
+    if let Err(reason) = invariant_integer(&lower).and_then(|_| invariant_integer(&upper)) {
+        return Unsupported(reason);
+    }
+    Symbolic { lower, upper }
+}
+
 /// Retain nonempty integer intervals independently of lint. Prerequisites must
 /// belong to this context. Numeric parameter definitions remain instance-dependent;
 /// this producer never substitutes their defaults into an invariant bound.
@@ -801,11 +1252,14 @@ pub fn resolve_integer_bounds(
     calls: &crate::CallableFacts,
     domains: &DomainFacts,
 ) -> IntegerBoundsFacts {
-    let interpreter = Bounds {
+    let mut interpreter = Bounds {
         context,
         bindings,
         calls,
         domains,
+        definitions: None,
+        declarations: Vec::new(),
+        active: Vec::new(),
     };
     let mut facts = IntegerBoundsFacts::default();
     for (file, source) in context.files.iter().enumerate() {
@@ -821,9 +1275,12 @@ struct Bounds<'a> {
     bindings: &'a BindingFacts,
     calls: &'a crate::CallableFacts,
     domains: &'a DomainFacts,
+    definitions: Option<&'a crate::DefinitionFacts>,
+    declarations: Vec<Option<NumericOutcome>>,
+    active: Vec<DeclarationId>,
 }
 impl Bounds<'_> {
-    fn walk(&self, file: FileId, node: &SyntaxNode, facts: &mut IntegerBoundsFacts) {
+    fn walk(&mut self, file: FileId, node: &SyntaxNode, facts: &mut IntegerBoundsFacts) {
         let location = self.context.files[file].location(node.range());
         if self.calls.expressions.iter().any(|e| {
             e.file == file
@@ -836,7 +1293,7 @@ impl Bounds<'_> {
             facts.expressions.push(ExpressionBounds {
                 file,
                 location,
-                outcome: self.expression(file, node),
+                outcome: self.expression(file, node).invariant_bounds(),
             });
         }
         for child in node.child_nodes() {
@@ -861,8 +1318,8 @@ impl Bounds<'_> {
                 }
             })
     }
-    fn expression(&self, file: FileId, node: &SyntaxNode) -> IntegerBoundsOutcome {
-        use IntegerBoundsOutcome::*;
+    fn expression(&mut self, file: FileId, node: &SyntaxNode) -> NumericOutcome {
+        use NumericOutcome::*;
         let range = self.context.files[file].location(node.range()).range;
         if self
             .calls
@@ -872,6 +1329,13 @@ impl Bounds<'_> {
             .is_some_and(|e| crate::value_safety::optional(&e.ty))
         {
             return Unsupported("optional integer bounds require a presence proof".into());
+        }
+        if self.definitions.is_some()
+            && self.calls.expressions.iter().any(|e| {
+                e.file == file && e.location.range == range && e.ty.kind == crate::TypeKind::Float
+            })
+        {
+            return Unsupported("floating-point bounds are outside integer interpretation".into());
         }
         let children: Vec<_> = node.child_nodes().collect();
         match node.kind() {
@@ -892,7 +1356,7 @@ impl Bounds<'_> {
                     }
                     .bound(file, node);
                     return match invariant_integer(&value) {
-                        Ok(Some(n)) => Known { lower: n, upper: n },
+                        Ok(Some(n)) => Exact(n),
                         Ok(None) => Unknown("numeric value depends on parameters".into()),
                         Err(reason) => Unsupported(reason),
                     };
@@ -900,16 +1364,25 @@ impl Bounds<'_> {
                 let Some(id) = self.reference(file, node) else {
                     return Unsupported("integer reference is unresolved or ambiguous".into());
                 };
-                if let Err(reason) = self.type_operations(id) {
-                    return Unsupported(reason);
+                if self.definitions.is_some() {
+                    self.declaration(id)
+                } else {
+                    if let Err(reason) = self.type_operations(id) {
+                        return Unsupported(reason);
+                    }
+                    self.domain(&self.domains.declarations[id.0].domain).into()
                 }
-                self.domain(&self.domains.declarations[id.0].domain)
             }
             NodeKind::ArrayAccessExpression => {
+                if self.definitions.is_some() {
+                    return Unsupported(
+                        "numeric array access requires an index-membership proof".into(),
+                    );
+                }
                 let Some(id) = children.first().and_then(|n| self.reference(file, n)) else {
                     return Unsupported("array identity is unavailable".into());
                 };
-                self.array_elements(id)
+                self.array_elements(id).into()
             }
             NodeKind::UnaryExpression | NodeKind::BinaryExpression => {
                 let Some(operator) = tokens(&self.context.files[file].parsed, node)
@@ -938,83 +1411,138 @@ impl Bounds<'_> {
                     Err(reason) => return Unsupported(reason),
                 }
                 let values: Vec<_> = children.iter().map(|n| self.expression(file, n)).collect();
-                if let Some(reason) = values.iter().find_map(|v| {
-                    if let Unsupported(r) = v {
-                        Some(r)
-                    } else {
-                        None
-                    }
-                }) {
-                    return Unsupported(reason.clone());
-                }
-                if let Some(reason) = values
-                    .iter()
-                    .find_map(|v| if let Unknown(r) = v { Some(r) } else { None })
-                {
-                    return Unknown(reason.clone());
-                }
-                let intervals: Vec<_> = values
-                    .iter()
-                    .filter_map(|v| {
-                        if let Known { lower, upper } = v {
-                            Some((*lower, *upper))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                let result = match intervals.as_slice() {
-                    [(l, u)] if operator == TokenKind::Plus => Some((*l, *u)),
-                    [(l, u)] if operator == TokenKind::Minus => {
-                        u.checked_neg().zip(l.checked_neg())
-                    }
-                    [(a, b), (c, d)] => match operator {
-                        TokenKind::Plus => a.checked_add(*c).zip(b.checked_add(*d)),
-                        TokenKind::Minus => a.checked_sub(*d).zip(b.checked_sub(*c)),
-                        TokenKind::Star => {
-                            let products = [
-                                a.checked_mul(*c),
-                                a.checked_mul(*d),
-                                b.checked_mul(*c),
-                                b.checked_mul(*d),
-                            ];
-                            products
-                                .into_iter()
-                                .collect::<Option<Vec<_>>>()
-                                .map(|p| (*p.iter().min().unwrap(), *p.iter().max().unwrap()))
-                        }
-                        TokenKind::Div | TokenKind::Mod if *c == 0 && *d == 0 => {
-                            return Unsupported("integer division by zero".into());
-                        }
-                        TokenKind::Div | TokenKind::Mod if a == b && c == d => {
-                            (if operator == TokenKind::Div {
-                                a.checked_div(*c)
-                            } else {
-                                a.checked_rem(*c)
-                            })
-                            .map(|n| (n, n))
-                        }
-                        TokenKind::Div | TokenKind::Mod => {
-                            return Unknown(
-                                "division/remainder needs closed invariant operands".into(),
-                            );
-                        }
-                        _ => {
-                            return Unsupported(
-                                "integer operator is outside bounded arithmetic".into(),
-                            );
-                        }
-                    },
-                    _ => return Unsupported("integer operator arity is unsupported".into()),
-                };
-                result
-                    .map(|(lower, upper)| Known { lower, upper })
-                    .unwrap_or_else(|| {
-                        Unsupported("integer arithmetic overflow or division by zero".into())
-                    })
+                numeric_arithmetic(operator, &values, self.definitions.is_none())
             }
             _ => Unsupported("integer expression is outside bounded interpretation".into()),
         }
+    }
+    fn requirement(&self, id: DeclarationId) -> NumericOutcome {
+        let ty = &self.calls.declarations[id.0].ty;
+        if crate::value_safety::optional(ty) {
+            return NumericOutcome::Unsupported(
+                "optional integer bounds require a presence proof".into(),
+            );
+        }
+        if let Err(reason) = self.type_operations(id) {
+            return NumericOutcome::Unsupported(reason);
+        }
+        self.numeric_domain(&self.domains.declarations[id.0].domain)
+    }
+    fn numeric_domain(&self, domain: &Domain) -> NumericOutcome {
+        if let Domain::Named {
+            declaration,
+            domain,
+        } = domain
+        {
+            let ty = &self.calls.declarations[declaration.0].ty;
+            if ty.instantiation == crate::Instantiation::Parameter
+                && matches!(ty.kind, crate::TypeKind::Set(_))
+            {
+                return NumericOutcome::Unknown(
+                    "numeric domain membership depends on a parameter set".into(),
+                );
+            }
+            if let Err(reason) = self.type_operations(*declaration) {
+                return NumericOutcome::Unsupported(reason);
+            }
+            return self.numeric_domain(domain);
+        }
+        if let Domain::Range { lower, upper } = domain {
+            match (invariant_integer(lower), invariant_integer(upper)) {
+                (Err(reason), _) | (_, Err(reason)) => return NumericOutcome::Unsupported(reason),
+                (Ok(Some(_)), Ok(Some(_))) => {}
+                _ => {
+                    return NumericOutcome::Symbolic {
+                        lower: lower.clone(),
+                        upper: upper.clone(),
+                    };
+                }
+            }
+        }
+        self.domain(domain).into()
+    }
+    fn declaration(&mut self, id: DeclarationId) -> NumericOutcome {
+        if let Some(value) = &self.declarations[id.0] {
+            return value.clone();
+        }
+        let required = self.requirement(id);
+        if self.active.contains(&id) {
+            // An active equality cannot establish its own value. Written bounds
+            // are independent anchors and remain usable even in a cycle.
+            return required;
+        }
+        let ty = &self.calls.declarations[id.0].ty;
+        if !matches!(ty.kind, crate::TypeKind::Int) || crate::value_safety::optional(ty) {
+            return NumericOutcome::Unsupported(
+                "declaration is not a supported scalar integer".into(),
+            );
+        }
+        self.active.push(id);
+        let value = if ty.instantiation == crate::Instantiation::Parameter {
+            // Data can replace written defaults. Preserve identity, never the
+            // default as an exact value of every model instance.
+            if required.interval().is_some() {
+                required
+            } else {
+                NumericOutcome::Symbolic {
+                    lower: NumericBound::Symbol(id),
+                    upper: NumericBound::Symbol(id),
+                }
+            }
+        } else if ty.instantiation == crate::Instantiation::Unknown {
+            NumericOutcome::Unknown("declaration instantiation is unknown".into())
+        } else {
+            let definitions = self.definitions.unwrap();
+            definitions
+                .definitions
+                .iter()
+                .filter(|d| d.target == id && supported_definition(d))
+                .map(|d| self.definition(d))
+                .find(|value| {
+                    matches!(
+                        value,
+                        NumericOutcome::Exact(_)
+                            | NumericOutcome::Interval { .. }
+                            | NumericOutcome::Symbolic { .. }
+                    )
+                })
+                .unwrap_or(required)
+        };
+        self.active.pop();
+        self.declarations[id.0] = Some(value.clone());
+        value
+    }
+    fn definition(&mut self, definition: &crate::Definition) -> NumericOutcome {
+        use NumericOutcome::*;
+        if definition.enforcement != crate::DefinitionEnforcement::Enforced {
+            return match &definition.enforcement {
+                crate::DefinitionEnforcement::Unsupported(reason) => Unsupported(reason.clone()),
+                _ => Unknown("definition is conditional".into()),
+            };
+        }
+        if definition.coverage != crate::DefinitionCoverage::Scalar {
+            return Unsupported("numeric interpretation supports scalar definitions only".into());
+        }
+        match &definition.safety {
+            crate::DefinitionSafety::Unsupported(reason) => return Unsupported(reason.clone()),
+            crate::DefinitionSafety::Unknown(reason) => return Unknown(reason.clone()),
+            crate::DefinitionSafety::Supported => {}
+        }
+        if definition.cyclic
+            && definition
+                .dependencies
+                .iter()
+                .any(|id| self.active.contains(id))
+        {
+            return Unknown("cyclic definition cannot establish its own value".into());
+        }
+        let source = &self.context.files[definition.file];
+        let range = definition.value.range.start - source.byte_offset
+            ..definition.value.range.end - source.byte_offset;
+        let Some(node) = expression_node(source.parsed.tree(), &range) else {
+            return Unsupported("definition value syntax is unavailable".into());
+        };
+        self.expression(definition.file, node)
     }
     fn type_operations(&self, id: DeclarationId) -> Result<(), String> {
         let d = &self.bindings.declarations[id.0];

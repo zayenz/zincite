@@ -52,7 +52,9 @@ pub use definitions::{
 };
 pub use domains::{
     ArrayIndexSet, DeclarationDomain, Domain, DomainFacts, ExpressionBounds, IntegerBoundsFacts,
-    IntegerBoundsOutcome, NumericBound, resolve_domains, resolve_integer_bounds,
+    IntegerBoundsOutcome, NumericBound, NumericDeclaration, NumericDefinition,
+    NumericDomainRelation, NumericExpression, NumericFacts, NumericLimitation, NumericOutcome,
+    resolve_domains, resolve_integer_bounds, resolve_numeric_facts,
 };
 pub use effective_zero_one::{
     EffectiveZeroOneFact, EffectiveZeroOneFacts, EffectiveZeroOneFamily, EffectiveZeroOneOutcome,
