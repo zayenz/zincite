@@ -31,7 +31,7 @@ fn run_with_library(
 }
 
 #[test]
-fn model_configuration_does_not_load_dependencies_for_syntax_defaults_or_unavailable_rules() {
+fn model_configuration_keeps_syntax_defaults_independent_and_loads_semantic_inputs() {
     let source = "include \"missing_dependency.mzn\"; int: good_name = 1;";
     for arguments in [
         vec![],
@@ -57,8 +57,7 @@ fn model_configuration_does_not_load_dependencies_for_syntax_defaults_or_unavail
         assert_eq!(output.status.code(), Some(2));
         assert!(output.stdout.is_empty());
         let stderr = String::from_utf8(output.stderr).unwrap();
-        assert!(stderr.contains("unavailable rules (not implemented)"));
-        assert!(!stderr.contains("missing_input") && !stderr.contains("cannot load"));
+        assert!(stderr.contains("missing_input") && !stderr.contains("unavailable rules"));
     }
     for arguments in [
         vec!["-I"],
@@ -216,7 +215,7 @@ fn directory_inputs_include_hidden_ignored_files_and_continue_after_errors() {
 }
 
 #[test]
-fn rule_selection_preserves_defaults_and_reports_unavailable_rules() {
+fn rule_selection_preserves_defaults_and_runs_all_catalogue_rules() {
     let source = "int: BadName = 1; constraint true;";
     let default = run(&[], source);
     assert_eq!(default.status.code(), Some(1));
@@ -240,13 +239,10 @@ fn rule_selection_preserves_defaults_and_reports_unavailable_rules() {
     assert!(suppressed.stdout.is_empty() && suppressed.stderr.is_empty());
     for selection in ["thesis", "all", "search-coverage", "naming,search-coverage"] {
         let output = run(&["--rules", selection], "");
-        assert_eq!(output.status.code(), Some(2));
+        assert_eq!(output.status.code(), Some(0));
         assert!(output.stdout.is_empty());
-        assert!(
-            String::from_utf8(output.stderr)
-                .unwrap()
-                .contains("unavailable rules (not implemented)")
-        );
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains("analysis limitation") && !stderr.contains("unavailable rules"));
     }
     for arguments in [
         vec!["--rules"],
@@ -262,7 +258,7 @@ fn rule_selection_preserves_defaults_and_reports_unavailable_rules() {
         run(&["--rules", "thesis", empty.to_str().unwrap()], "")
             .status
             .code(),
-        Some(2)
+        Some(0)
     );
     std::fs::remove_dir(empty).unwrap();
 }
@@ -628,7 +624,7 @@ fn constant_variable_selection_keeps_context_limits_and_status_precedence() {
             .iter()
             .filter(|r| !r.is_available())
             .count(),
-        1
+        0
     );
     std::fs::remove_dir_all(directory).unwrap();
 }
@@ -877,4 +873,72 @@ fn unused_declaration_selection_respects_complete_roots_limits_and_status_preced
     assert_eq!(data_output.status.code(), Some(0));
     assert!(data_output.stderr.is_empty());
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn search_selection_keeps_direct_limits_suppression_and_status_precedence() {
+    let directory = std::env::temp_dir().join(format!("zincite-search-cli-{}", std::process::id()));
+    let library = directory.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(library.join("std/stdlib.mzn"), concat!(
+        "annotation input_order; annotation indomain_min; annotation complete;\n",
+        "annotation int_search(array[int] of var int: x,ann: select,ann: choice,ann: explore);\n"
+    )).unwrap();
+    let root = directory.join("root.mzn");
+    let source = "var 0..9: seed; var 0..9: missing; solve :: int_search([seed],input_order,indomain_min,complete) satisfy;";
+    std::fs::write(&root, source).unwrap();
+    let args = [
+        "--rules",
+        "search-coverage",
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        root.to_str().unwrap(),
+    ];
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let diagnostics = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(diagnostics.matches("warning [search-coverage]").count(), 1);
+    assert!(
+        diagnostics.contains("bytes 26..33:") && diagnostics.contains("'missing'"),
+        "{diagnostics}"
+    );
+    assert_eq!(diagnostics.matches("analysis limitation:").count(), 1);
+    assert!(diagnostics.contains("direct definitions only") && diagnostics.contains("base-044"));
+    for selection in ["thesis", "all"] {
+        let mut selected = args;
+        selected[1] = selection;
+        let output = run(&selected, "");
+        assert_eq!(output.status.code(), Some(1));
+        let diagnostics = String::from_utf8(output.stderr).unwrap();
+        assert!(diagnostics.contains("warning [search-coverage]"));
+        assert!(
+            diagnostics.contains("direct definitions only")
+                && !diagnostics.contains("unavailable rules")
+        );
+    }
+    std::fs::write(&root, "var 0..9: seed;\n% zincite-lint: ignore search-coverage\nvar 0..9: missing; solve :: int_search([seed],input_order,indomain_min,complete) satisfy;").unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("warning ["));
+    std::fs::write(&root, source).unwrap();
+    let broken = directory.join("broken.mzn");
+    std::fs::write(&broken, "var int: broken=;").unwrap();
+    let mut independent = args.to_vec();
+    independent.push(broken.to_str().unwrap());
+    let output = run(&independent, "");
+    assert_eq!(output.status.code(), Some(2));
+    let diagnostics = String::from_utf8(output.stderr).unwrap();
+    assert!(diagnostics.contains("warning [search-coverage]") && diagnostics.contains("error:"));
+    let stdin = run(&["--rules", "search-coverage"], source);
+    assert_eq!(stdin.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&stdin.stderr).contains("requires a ModelContext"));
+    let data = run(
+        &["--rules", "search-coverage", "--stdin-filepath", "data.dzn"],
+        "seed=2;",
+    );
+    assert_eq!(data.status.code(), Some(0));
+    assert!(data.stdout.is_empty() && data.stderr.is_empty());
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    std::fs::remove_dir_all(directory).unwrap();
 }

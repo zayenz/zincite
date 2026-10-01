@@ -11,7 +11,8 @@ use crate::{
     element::check_element, global_uses::check_global_uses, lint_items, lint_with_options,
     resolve_bindings, resolve_callables, resolve_compact_ifs, resolve_definitions, resolve_domains,
     resolve_effective_zero_one, resolve_global_uses, resolve_instantiations,
-    resolve_integer_bounds, resolve_symmetry_uses, resolve_unused_declarations,
+    resolve_integer_bounds, resolve_search_coverage, resolve_symmetry_uses,
+    resolve_unused_declarations, search_coverage::check_search_coverage,
     symmetry::check_symmetry_uses, unbounded_variable::check_unbounded_variables,
     unused_declarations::check_unused_declarations,
 };
@@ -192,6 +193,8 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
     let data = FileMode::from_path(&context.root) == FileMode::Data;
     let shared_incomplete = !context.limitations.is_empty() || !context.errors.is_empty();
     let mut array_incomplete = false;
+    let mut search_state = ModelRootState::Complete;
+    let mut search_incomplete = false;
     let mut compact_incomplete = false;
     let mut effective_incomplete = false;
     let mut constant_incomplete = false;
@@ -208,6 +211,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
         let domains = if options.rules.contains(&Rule::ArrayIndexStart)
             || options.rules.contains(&Rule::ConstantVariable)
             || options.rules.contains(&Rule::UnboundedVariable)
+            || options.rules.contains(&Rule::SearchCoverage)
             || options.rules.contains(&Rule::EffectiveZeroOne)
         {
             Some(resolve_domains(context, &facts))
@@ -247,6 +251,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             || !decision_rules.is_empty()
             || options.rules.contains(&Rule::ConstantVariable)
             || options.rules.contains(&Rule::UnboundedVariable)
+            || options.rules.contains(&Rule::SearchCoverage)
             || options.rules.contains(&Rule::EffectiveZeroOne)
             || options.rules.contains(&Rule::UnusedDeclaration)
         {
@@ -279,6 +284,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 || options.rules.contains(&Rule::CompactIf)
                 || options.rules.contains(&Rule::ConstantVariable)
                 || options.rules.contains(&Rule::UnboundedVariable)
+                || options.rules.contains(&Rule::SearchCoverage)
                 || options.rules.contains(&Rule::EffectiveZeroOne)
             {
                 let instantiations = resolve_instantiations(context, &facts, &calls);
@@ -315,6 +321,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 }
                 if options.rules.contains(&Rule::ConstantVariable)
                     || options.rules.contains(&Rule::UnboundedVariable)
+                    || options.rules.contains(&Rule::SearchCoverage)
                 {
                     let definitions = resolve_definitions(
                         context,
@@ -323,6 +330,23 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                         &instantiations,
                         domains.as_ref().unwrap(),
                     );
+                    if options.rules.contains(&Rule::SearchCoverage) {
+                        let search = resolve_search_coverage(
+                            context,
+                            &facts,
+                            &calls,
+                            &instantiations,
+                            domains.as_ref().unwrap(),
+                            &definitions,
+                        );
+                        search_state = search.root_state;
+                        search_incomplete = !search.limitations.is_empty()
+                            || search_state == ModelRootState::Incomplete;
+                        result
+                            .findings
+                            .extend(check_search_coverage(context, &facts, &search));
+                        result.limitations.extend(search.limitations);
+                    }
                     if options.rules.contains(&Rule::UnboundedVariable) {
                         let checked = check_unbounded_variables(
                             context,
@@ -363,6 +387,10 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 RuleOutcome::Inapplicable {
                     reason: "standalone data has no model context".into(),
                 }
+            } else if rule == Rule::SearchCoverage && search_state == ModelRootState::Fragment {
+                RuleOutcome::Inapplicable {
+                    reason: "a fragment without a solve item has no solve search to check".into(),
+                }
             } else if rule == Rule::UnusedDeclaration && unused_state == ModelRootState::Fragment {
                 RuleOutcome::Inapplicable {
                     reason: "a model fragment without a solve item cannot establish unused exports"
@@ -378,6 +406,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     || (rule == Rule::CompactIf && compact_incomplete)
                     || (rule == Rule::EffectiveZeroOne && effective_incomplete)
                     || (rule == Rule::UnusedDeclaration && unused_incomplete)
+                    || (rule == Rule::SearchCoverage && search_incomplete)
                     || (rule == Rule::ConstantVariable && constant_incomplete)
                     || (rule == Rule::UnboundedVariable && unbounded_incomplete)
                     || decision_incomplete.contains(&rule))

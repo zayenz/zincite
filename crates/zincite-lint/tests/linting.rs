@@ -282,10 +282,7 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
     for selection in ["thesis", "all", "search-coverage", "naming,search-coverage"] {
         let options = LintOptions::from_selection(selection).unwrap();
         let errors = lint_with_options(&parsed, &options).unwrap_err();
-        assert!(
-            errors[0].message.contains("unavailable rules")
-                && errors[0].message.contains("search-coverage")
-        );
+        assert!(errors[0].message.contains("ModelContext"));
         assert_eq!(errors[0].range, 0..0);
     }
     for selection in ["", "unknown", "naming,", "default,naming"] {

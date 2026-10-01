@@ -20,6 +20,8 @@ mod instantiations;
 mod model;
 mod naming;
 mod rules;
+mod search;
+mod search_coverage;
 mod symmetry;
 mod types;
 mod unbounded_variable;
@@ -57,6 +59,9 @@ pub use model::{
     SourceLocation, load_model,
 };
 pub use rules::{LintOptions, Rule};
+pub use search::{
+    SearchCoverage, SearchDeclaration, SearchFacts, SearchValue, resolve_search_coverage,
+};
 pub use symmetry::{SymmetryFacts, SymmetryUse, SymmetryUseOutcome, resolve_symmetry_uses};
 pub use types::{TypeInst, TypeKind};
 pub use unused_declarations::{

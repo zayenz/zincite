@@ -1264,6 +1264,40 @@ impl<'a> Engine<'a> {
                     *actual = default.as_ref();
                 }
             }
+            // Pinned standard searches and array1d coerce multidimensional
+            // arrays to row-major one-dimensional inputs. Keep this limited
+            // to retained standard identities; ordinary user matching is unchanged.
+            let d = &self.bindings.declarations[id.0];
+            let standard_view = self.context.files[d.file].kind
+                == crate::SourceKind::StandardLibrary
+                && self.context.files[d.file].implicit
+                && matches!(
+                    d.name.as_str(),
+                    "array1d" | "int_search" | "bool_search" | "float_search" | "set_search"
+                );
+            let coerced: Vec<_> = assigned
+                .iter()
+                .zip(&signature.parameters)
+                .map(|(actual, formal)| {
+                    actual.map(|actual| {
+                        let mut actual = actual.clone();
+                        if standard_view
+                            && let (
+                                TypeKind::Array { indices, .. },
+                                TypeKind::Array {
+                                    indices: target, ..
+                                },
+                            ) = (&mut actual.kind, &formal.ty.kind)
+                            && indices.len() > 1
+                            && target.len() == 1
+                        {
+                            *indices = vec![TypeInst::par(TypeKind::Int)];
+                        }
+                        actual
+                    })
+                })
+                .collect();
+            let assigned: Vec<_> = coerced.iter().map(Option::as_ref).collect();
             let mut variables = BTreeMap::new();
             let mut state = Match::Yes;
             for (actual, formal) in assigned.iter().zip(&signature.parameters) {

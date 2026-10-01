@@ -142,7 +142,7 @@ fn complete_family_markers_user_overloads_suppression_ranges_and_advisory_cli() 
             .filter(|r| !r.is_available())
             .copied()
             .collect::<Vec<_>>(),
-        [Rule::SearchCoverage]
+        Vec::<Rule>::new()
     );
     std::fs::remove_dir_all(directory).unwrap();
 }

@@ -277,16 +277,15 @@ fn incomplete_context_and_shared_reporter_keep_rule_execution_and_status_distinc
             .contains("error: cannot resolve include")
     );
     for selection in ["thesis", "all", "naming,search-coverage"] {
-        let unavailable = analyze_model(&context, &LintOptions::from_selection(selection).unwrap());
-        assert_eq!(unavailable.status(), 2);
-        assert!(unavailable.findings.is_empty());
+        let analyzed = analyze_model(&context, &LintOptions::from_selection(selection).unwrap());
+        assert_eq!(analyzed.status(), 0);
         assert!(
-            unavailable
+            analyzed
                 .rules
                 .iter()
-                .all(|rule| matches!(rule.outcome, RuleOutcome::NotRun { .. }))
+                .any(|rule| matches!(rule.outcome, RuleOutcome::Limited { .. }))
         );
-        assert!(unavailable.errors[0].message.contains("unavailable rules"));
+        assert!(analyzed.errors.is_empty());
     }
     std::fs::remove_dir_all(directory).unwrap();
 }

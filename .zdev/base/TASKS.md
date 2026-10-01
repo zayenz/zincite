@@ -4,8 +4,8 @@
 
 - Total: 74
 - Ready: 7
-- Blocked: 25
-- Done: 42
+- Blocked: 24
+- Done: 43
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -51,8 +51,8 @@
 | [base-040](tasks/040-report-unreachable-declarations-in-complete-model-roots.md) | Report unreachable declarations in complete model roots | done | base-033 |
 | [base-041](tasks/041-report-globals-in-reified-and-half-reified-contexts.md) | Report globals in reified and half-reified contexts | done | base-036 |
 | [base-042](tasks/042-recognise-unmarked-likely-symmetry-breaking-globals.md) | Recognise unmarked likely symmetry-breaking globals | done | base-033 |
-| [base-043](tasks/043-check-search-coverage-through-direct-definitions.md) | Check search coverage through direct definitions | ready | base-036 |
-| [base-044](tasks/044-complete-search-coverage-through-callable-definitions.md) | Complete search coverage through callable definitions | blocked | base-043 |
+| [base-043](tasks/043-check-search-coverage-through-direct-definitions.md) | Check search coverage through direct definitions | done | base-036 |
+| [base-044](tasks/044-complete-search-coverage-through-callable-definitions.md) | Complete search coverage through callable definitions | ready | base-043 |
 | [base-045](tasks/045-measure-complete-model-coverage-for-every-thesis-rule.md) | Measure complete-model coverage for every thesis rule | blocked | base-037, base-038, base-039, base-040, base-042, base-044, base-041 |
 | [base-046](tasks/046-reduce-repeated-layout-measurement-work.md) | Reduce repeated layout measurement work | ready | base-022, base-027 |
 | [base-047](tasks/047-reduce-the-live-syntax-and-formatting-working-set.md) | Reduce the live syntax and formatting working set | ready | base-022 |

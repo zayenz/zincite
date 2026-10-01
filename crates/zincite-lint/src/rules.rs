@@ -85,6 +85,7 @@ impl Rule {
                 | Self::DecisionVariableGenerator
                 | Self::DecisionVariableCondition
                 | Self::UnusedDeclaration
+                | Self::SearchCoverage
         )
     }
 
