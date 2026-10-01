@@ -23,6 +23,7 @@ mod naming;
 mod rules;
 mod search;
 mod search_coverage;
+pub mod settings;
 mod symmetry;
 mod types;
 mod unbounded_variable;

@@ -15,6 +15,18 @@ pub enum RuleFamily {
 }
 
 impl RuleFamily {
+    pub fn from_name(name: &str) -> Option<Self> {
+        [
+            Self::Correctness,
+            Self::Suspicious,
+            Self::Modelling,
+            Self::Performance,
+            Self::Style,
+        ]
+        .into_iter()
+        .find(|family| family.as_str() == name)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Correctness => "correctness",
@@ -276,26 +288,13 @@ impl LintOptions {
         self.rules.iter().any(|rule| rule.requires_model())
     }
 
-    /// Resolve a preset or comma-separated IDs. Availability is checked before
-    /// execution, so callers can inspect the complete registered presets.
+    /// Expand comma-separated IDs, `family:NAME`, `preset:default|thesis|all`
+    /// and the legacy `default`/`thesis`/`all` selectors. First occurrence wins.
+    /// Availability is checked separately before execution.
     pub fn from_selection(selection: &str) -> Result<Self, String> {
-        let rules = match selection {
-            "default" => Rule::DEFAULT.to_vec(),
-            "thesis" => Rule::THESIS.to_vec(),
-            "all" => Rule::DEFAULT.into_iter().chain(Rule::THESIS).collect(),
-            _ => {
-                let mut rules = Vec::new();
-                for id in selection.split(',') {
-                    let rule =
-                        Rule::from_id(id).ok_or_else(|| format!("unknown rule ID '{id}'"))?;
-                    if !rules.contains(&rule) {
-                        rules.push(rule);
-                    }
-                }
-                rules
-            }
-        };
-        Ok(Self { rules })
+        Ok(Self {
+            rules: expand_selectors(selection.split(','))?,
+        })
     }
 
     /// Reject selected rules that are registered but not implemented yet.
@@ -315,4 +314,46 @@ impl LintOptions {
             ))
         }
     }
+}
+
+// One expander for CLI lists and explicit settings; family membership comes
+// from the catalogue and empty registered families are valid selections.
+pub(crate) fn expand_selectors<'a>(
+    selectors: impl IntoIterator<Item = &'a str>,
+) -> Result<Vec<Rule>, String> {
+    let mut rules = Vec::new();
+    for selector in selectors {
+        let expanded = if let Some(name) = selector.strip_prefix("family:") {
+            let family = RuleFamily::from_name(name)
+                .ok_or_else(|| format!("unknown rule family '{name}'"))?;
+            Rule::DEFAULT
+                .into_iter()
+                .chain(Rule::THESIS)
+                .filter(|rule| rule.metadata().family == family)
+                .collect()
+        } else {
+            let name = selector.strip_prefix("preset:").unwrap_or(selector);
+            let preset = match name {
+                "default" => Some(Rule::DEFAULT.to_vec()),
+                "thesis" => Some(Rule::THESIS.to_vec()),
+                "all" => Some(Rule::DEFAULT.into_iter().chain(Rule::THESIS).collect()),
+                _ => None,
+            };
+            let exact = Rule::from_id(selector);
+            match (preset, exact) {
+                (Some(_), Some(_)) => {
+                    return Err(format!("ambiguous rule selector '{selector}'"));
+                }
+                (Some(preset), None) => preset,
+                (None, Some(rule)) => vec![rule],
+                (None, None) => return Err(format!("unknown rule selector '{selector}'")),
+            }
+        };
+        for rule in expanded {
+            if !rules.contains(&rule) {
+                rules.push(rule);
+            }
+        }
+    }
+    Ok(rules)
 }

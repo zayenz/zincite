@@ -7,3 +7,4 @@ description = "MiniZinc source lint advice"
 
 [dependencies]
 zincite-syntax = { path = "../zincite-syntax" }
+toml = { version = "1.1.2", default-features = false, features = ["parse", "serde", "std"] }

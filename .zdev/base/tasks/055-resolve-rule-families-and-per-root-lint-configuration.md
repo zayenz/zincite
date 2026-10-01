@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-055"
 key = "lint-config"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -25,12 +25,21 @@ LintOptions::from_selection currently accepts one preset or comma-separated IDs;
 
 ## Done when
 
-- [ ] Implement select/extend-select/ignore expansion, existing --rules compatibility and CLI replacement semantics; unavailable rules remain errors.
-- [ ] Implement nearest per-root configuration, --config, --isolated and stdin-path lookup; root settings apply to its include closure and libraries receive explicit settings.
-- [ ] Expose --show-settings with expanded IDs and settings paths; reject invalid selectors/settings before processing or writing.
-- [ ] Existing exact next-item suppressions and plain lint exit statuses remain unchanged.
+- [x] Implement select/extend-select/ignore expansion, existing --rules compatibility and CLI replacement semantics; unavailable rules remain errors.
+- [x] Implement nearest per-root configuration, --config, --isolated and stdin-path lookup; root settings apply to its include closure and libraries receive explicit settings.
+- [x] Expose --show-settings with expanded IDs and settings paths; reject invalid selectors/settings before processing or writing.
+- [x] Existing exact next-item suppressions and plain lint exit statuses remain unchanged.
 
 ## Validation
 
 - Run the area Cargo checks for Rust changes and zdev check for record changes. Use the focused testing level in the brief.
 - Use a compact nested-directory example covering nearest-file precedence, CLI override, stdin discovery and unknown settings; check family inclusion and exclusions.
+
+## Result
+
+Resolved catalogue selectors and explicit per-root lint settings with nearest, explicit and isolated CLI modes, stdin anchors and all-root preflight.
+
+Validation:
+
+- Independent verifier PASS on Wc28690c97d8ec88c; coordinator comparison equal. Cargo fmt, workspace Clippy with -D warnings and workspace tests pass.
+- Focused selector, nested configuration, override, include closure, suppression and 0/1/2 checks pass; held-open stdin settings inspection and parent-directory traversal regression verified.

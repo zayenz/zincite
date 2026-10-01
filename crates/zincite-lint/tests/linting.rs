@@ -350,7 +350,11 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
         assert!(errors[0].message.contains("ModelContext"));
         assert_eq!(errors[0].range, 0..0);
     }
-    for selection in ["", "unknown", "naming,", "default,naming"] {
+    assert_eq!(
+        LintOptions::from_selection("default,naming").unwrap(),
+        LintOptions::default()
+    );
+    for selection in ["", "unknown", "naming,"] {
         assert!(LintOptions::from_selection(selection).is_err());
     }
     for source in [
@@ -359,4 +363,100 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
     ] {
         assert!(lint(&parse(source)).is_err());
     }
+}
+
+#[test]
+fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
+    use zincite_lint::{LintOptions, lint_with_options, settings::LintSettings};
+    let expanded =
+        LintOptions::from_selection("missing-constraint-label,family:style,preset:thesis,all")
+            .unwrap();
+    assert_eq!(
+        expanded.rules,
+        [Rule::MissingConstraintLabel, Rule::Naming]
+            .into_iter()
+            .chain(Rule::THESIS)
+            .collect::<Vec<_>>()
+    );
+    for (legacy, prefixed) in [
+        ("default", "preset:default"),
+        ("thesis", "preset:thesis"),
+        ("all", "preset:all"),
+    ] {
+        assert_eq!(
+            LintOptions::from_selection(legacy),
+            LintOptions::from_selection(prefixed)
+        );
+    }
+    assert!(
+        LintOptions::from_selection("family:correctness")
+            .unwrap()
+            .rules
+            .is_empty()
+    );
+    for bad in [
+        "family:",
+        "family:unknown",
+        "preset:",
+        "preset:unknown",
+        "preset:naming",
+        "family:style,",
+        "family:style:extra",
+    ] {
+        assert!(LintOptions::from_selection(bad).is_err(), "{bad}");
+    }
+    let settings = LintSettings::from_toml(
+        r#"
+        [lint]
+        select = ["missing-constraint-label", "array-index-start", "family:style"]
+        extend-select = ["preset:default", "family:correctness"]
+        ignore = ["naming"]
+    "#,
+    )
+    .unwrap();
+    assert_eq!(
+        settings.resolve().unwrap().rules,
+        [Rule::MissingConstraintLabel, Rule::ArrayIndexStart]
+    );
+    assert_eq!(
+        LintSettings::from_toml("[lint]")
+            .unwrap()
+            .resolve()
+            .unwrap(),
+        LintOptions::default()
+    );
+    assert!(
+        LintSettings::from_toml("[lint]\nselect=[]")
+            .unwrap()
+            .resolve()
+            .unwrap()
+            .rules
+            .is_empty()
+    );
+    for (source, setting) in [
+        ("[other]", "other"),
+        ("lint=1", "lint"),
+        ("[lint]\noptions={}", "lint.options"),
+        ("[lint]\nselect=1", "lint.select"),
+        ("[lint]\nignore=[true]", "lint.ignore[0]"),
+        (
+            "[lint]\nselect=[]\nextend-select=['unknown']",
+            "lint.extend-select",
+        ),
+        ("[lint]\nselect=[]\nignore=['unknown']", "lint.ignore"),
+        ("[lint]\nselect=[", "TOML"),
+    ] {
+        let error = LintSettings::from_toml(source)
+            .and_then(|settings| settings.resolve())
+            .unwrap_err();
+        assert!(error.contains(setting), "{error}");
+    }
+    let options = LintSettings::from_toml("[lint]\nselect=['family:style']\nignore=['naming']")
+        .unwrap()
+        .resolve()
+        .unwrap();
+    let parsed = parse("int: BadName=1; constraint true;");
+    let warnings = lint_with_options(&parsed, &options).unwrap();
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].rule, Rule::MissingConstraintLabel);
 }

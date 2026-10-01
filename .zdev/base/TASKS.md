@@ -4,8 +4,8 @@
 
 - Total: 79
 - Ready: 7
-- Blocked: 20
-- Done: 52
+- Blocked: 19
+- Done: 53
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -63,8 +63,8 @@
 | [base-052](tasks/052-accept-compiler-supported-form-feed-layout-and-escaped-singl.md) | Accept compiler-supported form-feed layout and escaped single quotes | done | — |
 | [base-053](tasks/053-accept-the-four-remaining-compiler-supported-item-and-callab.md) | Accept the four remaining compiler-supported item and callable families | done | — |
 | [base-054](tasks/054-describe-lint-families-and-capabilities-in-one-rule-catalogu.md) | Describe lint families and capabilities in one rule catalogue | done | base-030 |
-| [base-055](tasks/055-resolve-rule-families-and-per-root-lint-configuration.md) | Resolve rule families and per-root lint configuration | ready | base-054 |
-| [base-056](tasks/056-support-personal-presets-and-typed-rule-parameters.md) | Support personal presets and typed rule parameters | blocked | base-055 |
+| [base-055](tasks/055-resolve-rule-families-and-per-root-lint-configuration.md) | Resolve rule families and per-root lint configuration | done | base-054 |
+| [base-056](tasks/056-support-personal-presets-and-typed-rule-parameters.md) | Support personal presets and typed rule parameters | ready | base-055 |
 | [base-057](tasks/057-interpret-numeric-intervals-and-intermediate-expression-boun.md) | Interpret numeric intervals and intermediate expression bounds | ready | base-034, base-035, base-036 |
 | [base-058](tasks/058-interpret-guarded-truth-and-partial-expression-definedness.md) | Interpret guarded truth and partial-expression definedness | blocked | base-057 |
 | [base-059](tasks/059-interpret-optional-presence-and-comprehension-cardinality.md) | Interpret optional presence and comprehension cardinality | blocked | base-034, base-035, base-058 |

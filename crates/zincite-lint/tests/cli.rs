@@ -343,6 +343,7 @@ fn capture_selection_loads_model_roots_and_keeps_stdin_data_and_error_precedence
         1
     );
     assert!(!stderr.contains("analysis limitation"));
+    let capture_stderr = stderr.clone();
     assert!(run(&[root.to_str().unwrap()], "").status.success());
     let failed = directory.join("failed.mzn");
     std::fs::write(&failed, "include \"missing.mzn\";").unwrap();
@@ -388,6 +389,20 @@ fn capture_selection_loads_model_roots_and_keeps_stdin_data_and_error_precedence
     }
     assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
     assert_eq!(std::fs::read_to_string(&shared).unwrap(), included);
+    // The selected root's settings govern its closure, even where an included
+    // file has a nearer configuration of its own.
+    std::fs::write(
+        directory.join("zincite.toml"),
+        "[lint]\nselect=['global-variable-in-function']",
+    )
+    .unwrap();
+    std::fs::write(includes.join("zincite.toml"), "[lint]\nselect=[]").unwrap();
+    let configured = run(&arguments[2..], "");
+    assert_eq!(configured.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8(configured.stderr).unwrap(),
+        capture_stderr
+    );
     std::fs::remove_dir_all(directory).unwrap();
 }
 
@@ -978,4 +993,166 @@ fn search_selection_keeps_completion_suppression_and_status_precedence() {
     assert!(data.stdout.is_empty() && data.stderr.is_empty());
     assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn nearest_settings_cli_replacement_and_stdin_anchors_share_one_preflight() {
+    let dir = std::env::temp_dir().join(format!("zincite-settings-{}", std::process::id()));
+    let nested = dir.join("nested");
+    std::fs::create_dir_all(&nested).unwrap();
+    let parent_config = dir.join("zincite.toml");
+    let nested_config = nested.join("zincite.toml");
+    std::fs::write(&parent_config, "[lint]\nselect=['naming']").unwrap();
+    std::fs::write(
+        &nested_config,
+        "[lint]\nselect=['missing-constraint-label']\nextend-select=['naming']\nignore=['naming']",
+    )
+    .unwrap();
+    let source = "int: BadName=1; constraint true;";
+    let parent = dir.join("parent.mzn");
+    let child = nested.join("child.mzn");
+    std::fs::write(&parent, source).unwrap();
+    std::fs::write(&child, source).unwrap();
+    let parent_path = parent.to_str().unwrap();
+    let child_path = child.to_str().unwrap();
+    let output = run(&[parent_path, child_path], "");
+    assert_eq!(output.status.code(), Some(1));
+    let text = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(text.matches("warning [naming]").count(), 1);
+    assert_eq!(
+        text.matches("warning [missing-constraint-label]").count(),
+        1
+    );
+    for arguments in [
+        vec!["--rules", "naming", child_path],
+        vec!["--config", parent_config.to_str().unwrap(), child_path],
+    ] {
+        let text = String::from_utf8(run(&arguments, "").stderr).unwrap();
+        assert!(text.contains("warning [naming]"));
+        assert!(!text.contains("missing-constraint-label"));
+    }
+    let isolated = String::from_utf8(run(&["--isolated", child_path], "").stderr).unwrap();
+    assert!(
+        isolated.contains("warning [naming]")
+            && isolated.contains("warning [missing-constraint-label]")
+    );
+    let unconfigured = dir.join("unconfigured");
+    std::fs::create_dir_all(unconfigured.join("unrelated")).unwrap();
+    std::fs::write(
+        unconfigured.join("unrelated/zincite.toml"),
+        "[lint]\nselect=[]",
+    )
+    .unwrap();
+    std::fs::write(unconfigured.join("model.mzn"), source).unwrap();
+    let relative_parent = unconfigured.join("unrelated/../model.mzn");
+    let output = run(&[relative_parent.to_str().unwrap()], "");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("warning [naming]")
+    );
+    let unsaved = nested.join("unsaved.mzn");
+    let anchored = run(&["--stdin-filepath", unsaved.to_str().unwrap()], source);
+    assert_eq!(anchored.status.code(), Some(1));
+    let text = String::from_utf8(anchored.stderr).unwrap();
+    assert!(
+        text.contains("warning [missing-constraint-label]") && !text.contains("warning [naming]")
+    );
+    let plain = run(&[], source);
+    assert!(
+        String::from_utf8(plain.stderr)
+            .unwrap()
+            .contains("warning [naming]")
+    );
+    let explicit_stdin = run(&["--config", parent_config.to_str().unwrap()], source);
+    assert!(
+        String::from_utf8(explicit_stdin.stderr)
+            .unwrap()
+            .contains("warning [naming]")
+    );
+    let shown = run(
+        &[
+            "--show-settings",
+            "--stdin-filepath",
+            unsaved.to_str().unwrap(),
+        ],
+        "not valid MiniZinc",
+    );
+    assert!(shown.status.success() && shown.stderr.is_empty());
+    assert_eq!(
+        String::from_utf8(shown.stdout).unwrap(),
+        format!(
+            "Root: {}\nSettings: {}\nRules: missing-constraint-label\n",
+            unsaved.display(),
+            nested_config.canonicalize().unwrap().display()
+        )
+    );
+    std::fs::write(&child, "include \"missing.mzn\"; not valid MiniZinc").unwrap();
+    let shown = run(&["--show-settings", "--rules", "thesis", child_path], "");
+    assert!(shown.status.success() && shown.stderr.is_empty());
+    let shown = String::from_utf8(shown.stdout).unwrap();
+    assert!(shown.contains("array-index-start") && shown.contains("decision-variable-condition"));
+    // Plain library calls use explicit options regardless of nearby files.
+    let parsed = zincite_syntax::parse(source);
+    assert_eq!(zincite_lint::lint(&parsed).unwrap().len(), 2);
+    assert_eq!(std::fs::read_to_string(&parent).unwrap(), source);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn invalid_configuration_preflights_all_roots_and_empty_input_directories() {
+    let dir = std::env::temp_dir().join(format!("zincite-settings-errors-{}", std::process::id()));
+    let nested = dir.join("nested");
+    let empty = dir.join("empty");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::create_dir_all(&empty).unwrap();
+    let config = nested.join("zincite.toml");
+    let parent = dir.join("parent.mzn");
+    let child = nested.join("child.mzn");
+    std::fs::write(dir.join("zincite.toml"), "[lint]\nselect=['naming']").unwrap();
+    std::fs::write(&parent, "int: BadName=1;").unwrap();
+    std::fs::write(&child, "constraint true;").unwrap();
+    for (settings, field) in [
+        ("[other]", "other"),
+        ("[lint]\nunknown=true", "lint.unknown"),
+        ("[lint]\nselect=1", "lint.select"),
+        ("[lint]\nselect=['unknown']", "lint.select"),
+        ("[lint]\nignore=['family:unknown']", "lint.ignore"),
+        ("[lint]\nselect=[", "TOML"),
+    ] {
+        std::fs::write(&config, settings).unwrap();
+        for args in [
+            vec![parent.to_str().unwrap(), child.to_str().unwrap()],
+            vec![
+                "--show-settings",
+                parent.to_str().unwrap(),
+                child.to_str().unwrap(),
+            ],
+            vec!["--rules", "naming", child.to_str().unwrap()],
+            vec![
+                "--config",
+                config.to_str().unwrap(),
+                empty.to_str().unwrap(),
+            ],
+        ] {
+            let output = run(&args, "");
+            assert_eq!(output.status.code(), Some(2));
+            assert!(output.stdout.is_empty());
+            let error = String::from_utf8(output.stderr).unwrap();
+            assert!(
+                error.contains(config.to_str().unwrap()) && error.contains(field),
+                "{error}"
+            );
+            assert!(!error.contains("warning ["));
+        }
+    }
+    for args in [
+        vec!["--config", config.to_str().unwrap(), "--isolated"],
+        vec!["--isolated", "--config", config.to_str().unwrap()],
+        vec!["--rules", "family:unknown", empty.to_str().unwrap()],
+    ] {
+        assert_eq!(run(&args, "").status.code(), Some(2));
+    }
+    std::fs::remove_dir_all(dir).unwrap();
 }

@@ -1,24 +1,38 @@
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use zincite_lint::settings::LintSettings;
 use zincite_lint::{
     LintOptions, ModelOptions, Rule, analyze_file, analyze_model, load_model, write_analysis,
 };
 use zincite_syntax::{FileMode, parse_with_mode};
 
 const HELP: &str = "Usage: zincite-lint [--list-rules | --explain RULE]
-       zincite-lint [--rules SELECTION] [-I DIR] [--stdlib-dir DIR] [--stdin-filepath PATH] [FILE|DIR...|-]
+       zincite-lint [--rules SELECTION] [--config PATH | --isolated] [--show-settings] [-I DIR] [--stdlib-dir DIR] [--stdin-filepath PATH] [FILE|DIR...|-]
 
 Report MiniZinc modelling advice on stderr without rewriting source.
 No input or '-' reads stdin; stdin cannot be mixed with files.
---stdin-filepath PATH selects the stdin language mode and diagnostic path.
+--stdin-filepath PATH selects the stdin language mode, diagnostic path and settings lookup anchor.
+An unsaved filepath works for settings lookup; plain stdin does not discover settings.
 Directories recursively discover .mzn/.dzn files, including hidden/ignored files.
 Discovery skips .git, visits directory symlinks once and sorts directory entries.
 Overlapping inputs use the first path to each file.
 .dzn paths use assignment-only data syntax; other paths use model syntax.
 
---rules default|thesis|all or comma-separated rule IDs selects exactly that set.
-Omitted --rules selects default; repeated --rules and unknown IDs are errors.
+--rules accepts comma-separated IDs, family:NAME, preset:default|thesis|all,
+or legacy default/thesis/all. Expansion preserves first occurrence and removes duplicates.
+Families are correctness, suspicious, modelling, performance and style.
+Unknown/empty selectors and repeated --rules are errors.
+
+Each root uses its nearest ancestor zincite.toml; ancestor files are not merged.
+Its [lint] table accepts select, extend-select and ignore arrays of selectors.
+Absent select uses default; select = [] selects no rules. Extend then ignore; ignore wins.
+--rules replaces all configured selection, additions and exclusions after validating the file.
+--config PATH applies one settings file to all roots; --isolated disables discovery.
+--config and --isolated are mutually exclusive. Include closures use their root's settings.
+Invalid settings for any root fail before analysis or partial settings output.
+--show-settings prints root labels, settings paths and expanded IDs without reading models/stdin.
+Custom presets, rule options and fixes are not supported yet.
 The thesis preset selects its fourteen catalogue rules; all includes the defaults.
 --list-rules lists rule IDs, families, availability, fix support and preset membership.
 --explain RULE describes a rule's purpose, required facts, limitations and options.
@@ -44,7 +58,7 @@ The shared parser covers MiniZinc 2.10.1 model/data syntax; reserved
 variant_record and case syntax is unsupported. Full semantic validity and solver
 performance are not checked.
 Syntax errors omit lint rules for that file. Independent files are processed.
-Exit codes: 0 clean, 1 unsuppressed warnings, 2 input/parse/directive/usage/dependency errors.
+Exit codes: 0 clean, 1 unsuppressed warnings, 2 input/parse/directive/configuration/usage/dependency errors.
 Analysis limitations alone retain status 0 or 1.
 -h, --help shows this help.
 ";
@@ -76,16 +90,36 @@ fn run() -> Result<u8, String> {
     let Arguments {
         paths,
         stdin_filepath,
-        options,
+        cli_options,
+        configuration,
+        show_settings,
         model,
     } = parse_arguments(
         arguments,
         std::env::var_os("MZN_STDLIB_DIR").map(PathBuf::from),
     )?;
-    options
-        .check_available()
-        .map_err(|message| format!("zincite-lint: {message}"))?;
-    if paths.is_empty() {
+    let inputs = (!paths.is_empty()).then(|| zincite_syntax::inputs::discover_inputs(&paths));
+    let anchors = match &inputs {
+        Some(inputs) => inputs
+            .files
+            .iter()
+            .map(|path| Some(path.as_path()))
+            .collect(),
+        None => vec![stdin_filepath.as_deref()],
+    };
+    let settings = preflight_settings(&anchors, &configuration, cli_options.as_ref())?;
+    if show_settings {
+        let mut output = io::stdout().lock();
+        for (anchor, settings) in anchors.iter().zip(&settings) {
+            let label = anchor.map_or_else(|| "<stdin>".into(), |path| path.to_string_lossy());
+            write_settings(&mut output, &label, settings)
+                .map_err(|error| format!("stdout: {error}"))?;
+        }
+    }
+    let Some(inputs) = inputs else {
+        if show_settings {
+            return Ok(0);
+        }
         let mut bytes = Vec::new();
         io::stdin()
             .read_to_end(&mut bytes)
@@ -95,14 +129,17 @@ fn run() -> Result<u8, String> {
             |path| path.to_string_lossy().into_owned(),
         );
         let mode = stdin_filepath.map_or(FileMode::Model, FileMode::from_path);
-        return check_source(&label, bytes, mode, &options);
-    }
-    let inputs = zincite_syntax::inputs::discover_inputs(&paths);
+        return check_source(&label, bytes, mode, &settings[0].options);
+    };
     let mut status = if inputs.errors.is_empty() { 0 } else { 2 };
     for (path, error) in inputs.errors {
         let _ = writeln!(io::stderr(), "{}: {error}", path.display());
     }
-    for path in inputs.files {
+    if show_settings {
+        return Ok(status);
+    }
+    for (path, settings) in inputs.files.into_iter().zip(settings) {
+        let options = settings.options;
         let label = path.to_string_lossy();
         let result = if options.requires_model() && FileMode::from_path(&path) == FileMode::Model {
             let context = load_model(&path, &model);
@@ -220,8 +257,136 @@ fn write_rule_explanation(rule: Rule, output: &mut impl Write) -> io::Result<()>
 struct Arguments {
     paths: Vec<PathBuf>,
     stdin_filepath: Option<PathBuf>,
-    options: LintOptions,
+    cli_options: Option<LintOptions>,
+    configuration: Configuration,
+    show_settings: bool,
     model: ModelOptions,
+}
+
+enum Configuration {
+    Discover,
+    Explicit(PathBuf),
+    Isolated,
+}
+
+#[derive(Clone)]
+struct ResolvedSettings {
+    path: Option<PathBuf>,
+    options: LintOptions,
+}
+
+// Validate every root before any input analysis or settings output. Explicit
+// settings and CLI selectors are validated even when discovery finds no roots.
+fn preflight_settings(
+    anchors: &[Option<&Path>],
+    configuration: &Configuration,
+    cli_options: Option<&LintOptions>,
+) -> Result<Vec<ResolvedSettings>, String> {
+    if let Some(options) = cli_options {
+        options
+            .check_available()
+            .map_err(|error| format!("zincite-lint: {error}"))?;
+    }
+    let explicit = match configuration {
+        Configuration::Explicit(path) => Some(read_settings(path, cli_options)?),
+        _ => None,
+    };
+    anchors
+        .iter()
+        .map(|anchor| {
+            if let Some(settings) = &explicit {
+                return Ok(settings.clone());
+            }
+            if matches!(configuration, Configuration::Discover)
+                && let Some(anchor) = anchor
+                && let Some(path) = nearest_settings(anchor)?
+            {
+                return read_settings(&path, cli_options);
+            }
+            let options = cli_options.cloned().unwrap_or_default();
+            options
+                .check_available()
+                .map_err(|error| format!("zincite-lint: {error}"))?;
+            Ok(ResolvedSettings {
+                path: None,
+                options,
+            })
+        })
+        .collect()
+}
+
+fn read_settings(
+    path: &Path,
+    cli_options: Option<&LintOptions>,
+) -> Result<ResolvedSettings, String> {
+    let source =
+        std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let configured = LintSettings::from_toml(&source)
+        .and_then(|settings| settings.resolve())
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    let options = cli_options.cloned().unwrap_or(configured);
+    options
+        .check_available()
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    Ok(ResolvedSettings {
+        path: Some(path.to_path_buf()),
+        options,
+    })
+}
+
+fn nearest_settings(anchor: &Path) -> Result<Option<PathBuf>, String> {
+    let absolute = if anchor.is_absolute() {
+        anchor.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| format!("current directory: {error}"))?
+            .join(anchor)
+    };
+    // Resolve the containing directory, not the file: stdin's filepath may be
+    // unsaved. Start at the nearest existing directory if its parents are new.
+    let mut directory = absolute.parent();
+    let parent = loop {
+        let Some(path) = directory else {
+            return Ok(None);
+        };
+        match path.canonicalize() {
+            Ok(parent) => break parent,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => directory = path.parent(),
+            Err(error) => return Err(format!("{}: {error}", path.display())),
+        }
+    };
+    for directory in parent.ancestors() {
+        let candidate = directory.join("zincite.toml");
+        match std::fs::symlink_metadata(&candidate) {
+            Ok(_) => return Ok(Some(candidate)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("{}: {error}", candidate.display())),
+        }
+    }
+    Ok(None)
+}
+
+fn write_settings(
+    output: &mut impl Write,
+    label: &str,
+    settings: &ResolvedSettings,
+) -> io::Result<()> {
+    writeln!(output, "Root: {label}")?;
+    match &settings.path {
+        Some(path) => writeln!(output, "Settings: {}", path.display())?,
+        None => writeln!(output, "Settings: none")?,
+    }
+    writeln!(
+        output,
+        "Rules: {}",
+        settings
+            .options
+            .rules
+            .iter()
+            .map(|rule| rule.id())
+            .collect::<Vec<_>>()
+            .join(",")
+    )
 }
 
 fn parse_arguments(
@@ -231,6 +396,8 @@ fn parse_arguments(
     let mut paths = Vec::new();
     let mut stdin_filepath = None;
     let mut options = None;
+    let mut configuration = Configuration::Discover;
+    let mut show_settings = false;
     let mut model = ModelOptions::default();
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
@@ -248,6 +415,22 @@ fn parse_arguments(
                 LintOptions::from_selection(selection)
                     .map_err(|message| format!("zincite-lint: {message}"))?,
             );
+        } else if argument == "--config" {
+            if !matches!(configuration, Configuration::Discover) {
+                return Err("zincite-lint: use --config or --isolated once, not both".into());
+            }
+            configuration = Configuration::Explicit(PathBuf::from(
+                arguments
+                    .next()
+                    .ok_or("zincite-lint: --config requires a path")?,
+            ));
+        } else if argument == "--isolated" {
+            if !matches!(configuration, Configuration::Discover) {
+                return Err("zincite-lint: use --config or --isolated once, not both".into());
+            }
+            configuration = Configuration::Isolated;
+        } else if argument == "--show-settings" {
+            show_settings = true;
         } else if argument == "-I" {
             model.include_dirs.push(PathBuf::from(
                 arguments
@@ -292,7 +475,9 @@ fn parse_arguments(
     Ok(Arguments {
         paths,
         stdin_filepath,
-        options: options.unwrap_or_default(),
+        cli_options: options,
+        configuration,
+        show_settings,
         model,
     })
 }
