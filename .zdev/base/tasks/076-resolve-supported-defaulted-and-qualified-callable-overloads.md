@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-076"
 key = "semantic-call-ranking"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -26,11 +26,19 @@ Read brief Interpretation before policy and scripts/semantic-corpus-checkpoint.m
 
 ## Done when
 
-- [ ] Compare applicable candidates on the correct supplied-argument correspondence while retaining all instantiated formal types and default dependencies in the resolved result. Resolve the supported defaulted present-array versus optional-array control and the original all_different call after loader repair.
-- [ ] Respect strict instantiation/optionality coercion when comparing supported generic and concrete candidates. Resolve absent(opt int) to its parameter operation and parameter integer <= to a parameter operation without erasing genuine generic or incomparable ambiguity.
-- [ ] Check actual consumer consequences: the optional guard has a Parameter fact and its decision-variable-condition analysis completes; parameter <= retains its already-Parameter guard result; element/global/unused consumers no longer receive the demonstrated invented ambiguities. Retain unrelated unsupported conditional, partiality or symbolic limits.
+- [x] Compare applicable candidates on the correct supplied-argument correspondence while retaining all instantiated formal types and default dependencies in the resolved result. Resolve the supported defaulted present-array versus optional-array control and the original all_different call after loader repair.
+- [x] Respect strict instantiation/optionality coercion when comparing supported generic and concrete candidates. Resolve absent(opt int) to its parameter operation and parameter integer <= to a parameter operation without erasing genuine generic or incomparable ambiguity.
+- [x] Check actual consumer consequences: the optional guard has a Parameter fact and its decision-variable-condition analysis completes; parameter <= retains its already-Parameter guard result; element/global/unused consumers no longer receive the demonstrated invented ambiguities. Retain unrelated unsupported conditional, partiality or symbolic limits.
 
 ## Validation
 
 - Use a few combined public CallableFacts/selected-analysis regressions including an applicable user overload and unknown-candidate control; preserve source ranges and default scope.
 - Run pinned MiniZinc 2.10.1 compiler-only controls, required workspace fmt/clippy/tests and selected installed-core/global replays. No solver, broad type matrix or full-corpus campaign is needed for this repair.
+
+## Result
+
+Rank callable overloads by supplied positional and named arguments while retaining complete instantiated formals and declaration-scoped defaults. The demonstrated choose_present and all_different ambiguities resolve; existing parameter guards and genuine ambiguity remain intact. Record bounded consumer outcomes and remaining limitations in the semantic checkpoint.
+
+Validation:
+
+- Independent whole-task verifier passed against W88ff43d8f36502e2 with no findings; post-review and completion comparisons were equal. Regression failed before repair and passes after it. Formatting, workspace Clippy with warnings denied and all 189 workspace tests pass. Six pinned MiniZinc 2.10.1 compiler-only controls and six public-fact controls plus twelve thesis14/all26 library/native pairs reproduced exact streams and statuses. Include graphs and sources are preserved; remaining generic-body, conditional and symbolic limitations are documented. All owned processes are terminal and reaped.

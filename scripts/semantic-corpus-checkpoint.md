@@ -363,3 +363,87 @@ edit those sources or run a full corpus campaign. Corpus acceptance still needs
 its final gate, callable-ranking repair, unresolved syntax/dependencies and
 rule-local limitations; this bounded result establishes the standard include
 re-entry repair only.
+
+## Base-076 bounded callable-ranking repair
+
+Base-076 ranks applicable overloads using only the arguments supplied by the
+caller, in their corresponding positional or named formal slots. Omitted
+defaults still undergo applicability and lexical-scope type checks. The resolved
+operation retains every instantiated formal type; its declaration identity keeps
+defaults in their original scope for consumers. Component coercion, strict qualifier ordering, the
+unknown-candidate veto and genuine competing implementations keep their existing
+behavior.
+
+The public regression fails on the old matcher: `choose_present(values)` is
+Ambiguous between a defaulted present-array operation and an optional-array
+operation. It now selects the present-array declaration and retains both formal
+types. The combined check also covers reordered named arguments, a default in a
+middle slot, caller shadowing, a retained dependency on the declaration-scoped
+default, genuinely competing defaults and Parameter guards. Seventeen focused
+checks pass, reusing the existing user-overload, unknown-candidate, incomparable,
+prototype/implementation, default-output, conditional and partiality checks.
+
+Fresh installed-library facts reproduce and resolve the two default-ranking
+failures. The original `choose_present` call at `300..314` selects its present-array
+declaration at `10..24` with its second formal intact. The original `all_different`
+call at `73..86` selects the present-array operation in `std/all_different.mzn`
+at `830..843`, retaining the defaulted `except` formal as `set of int`.
+The distinct-name globals control selects that same operation. All three public
+Sudoku `alldifferent` calls select the defaulted present-array synonym.
+
+The historical qualifier probes above do not reproduce a current ranking defect.
+Before and after this repair, `absent(opt int)` selects the parameter generic in
+`stdlib_opt.mzn` at `3399..3405`; parameter integer `<=` selects the parameter
+generic in `stdlib_compare.mzn` at `3512..3516`. Their enclosing guards at
+`170..193` and `63..76` remain Parameter. The complete public-fact streams for
+both controls are byte-identical before and after. Their individual
+decision-variable-condition analyses complete with no errors, limitations or
+findings. No qualifier or consumer code needed a change.
+
+All six unchanged controls pass pinned MiniZinc 2.10.1 model-check-only with an
+explicit installed stdlib: the four original reductions, distinctly named
+globals control and public Sudoku. Commands have 60-second deadlines and retained
+full streams; none runs a solver. Twelve before and twelve after thesis14/all26
+library/native pairs finish within their 120-second deadlines. Every pair agrees
+on complete stderr and status. Canonical files, first paths, source flags and
+include edges equal their pre-repair graphs, with zero load errors throughout.
+The original shadowed `globals.mzn` fixture and base-075 evidence stay intact.
+
+The table records the current outcomes. Limitations show before → after counts;
+Completed/Limited partitions are the current per-rule results. No rule is
+Inapplicable or NotRun in these replays, and no analysis error occurs.
+
+| Input | Thesis14: status; warnings; limits; Completed/Limited | All26: status; warnings; limits; Completed/Limited |
+| --- | --- | --- |
+| `choose_present` reduction | 1; 4; 5 → 2; 13/1 | 1; 4; 6 → 3; 24/2 |
+| Optional guard | 0; 0; 3 → 3; 12/2 | 0; 0; 5 → 5; 23/3 |
+| Parameter comparison | 0; 0; 3 → 3; 12/2 | 1; 1; 5 → 5; 23/3 |
+| Original `all_different` | 0; 0; 5 → 15; 12/2 | 1; 1; 6 → 16; 23/3 |
+| Distinct-name globals | 0; 0; 5 → 15; 12/2 | 1; 1; 6 → 16; 23/3 |
+| Public Sudoku | 0; 0; 18 → 5; 13/1 | 1; 3; 21 → 8; 24/2 |
+
+The located ambiguity limitations disappear from element-predicate and
+unused-declaration for the repaired calls. Element-predicate now completes on
+all four affected inputs; reified-global also completes on Sudoku instead of
+reporting its three ambiguous global calls. Global-variable-in-function remains
+Completed throughout. The `choose_present` reduction now reports the unselected
+optional overload, its unused present-overload formals and search-coverage
+advice for `values`. It retains the separate unknown `not`/`occurs` facts.
+
+Resolving a root call can expose more unfinished body analysis. The small
+`all_different` and globals controls now retain unknown generic-body operations
+at installed `all_different.mzn` ranges `910..1073`, and search-coverage reports
+unsupported body control flow at `900..1090`. Their old root-call ambiguity is
+gone; unused-declaration and search-coverage remain Limited. Sudoku retains five
+unused-declaration limitations for `not`, `occurs`, generic synonym-body
+`all_different`/`array1d` and `int_search`. All26 also retains vacuous-constraint
+limits for opaque calls. The optional/comparison controls retain their unrelated
+conditional search, unused-declaration and suspicious-domain limits. These are
+recorded by source range and cause. Their per-rule outcomes remain Limited.
+
+Evidence under `target/base076` includes original ownership and input pins,
+`default-ranking-red.log`, `focused-green.log`, preserved baseline/current
+binaries, `before-closures/`, `compiler-controls/`, `before-replays/`,
+`after-replays/` and `reconciliation.json`. External sources and historical
+base-045/base-075 artifacts remain unchanged. This bounded repair does not run
+a corpus campaign, certify Safe fixes, or establish full corpus acceptance.

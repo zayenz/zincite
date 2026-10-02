@@ -1269,7 +1269,6 @@ impl<'a> Engine<'a> {
                         .collect()
                 })
                 .unwrap_or_default();
-            let omitted: Vec<_> = assigned.iter().map(Option::is_none).collect();
             for (actual, default) in assigned.iter_mut().zip(&defaults) {
                 if actual.is_none() {
                     *actual = default.as_ref();
@@ -1379,7 +1378,8 @@ impl<'a> Engine<'a> {
                 unknown.push(id);
                 continue;
             }
-            let mut actual_targets: Vec<_> = arguments
+            // Rank only supplied arguments; defaults remain in the complete targets.
+            let actual_targets: Vec<_> = arguments
                 .iter()
                 .enumerate()
                 .map(|(position, (name, _))| {
@@ -1395,7 +1395,7 @@ impl<'a> Engine<'a> {
                     .clone()
                 })
                 .collect();
-            let mut patterns: Vec<_> = arguments
+            let patterns: Vec<_> = arguments
                 .iter()
                 .enumerate()
                 .map(|(position, (name, _))| {
@@ -1412,12 +1412,6 @@ impl<'a> Engine<'a> {
                     .clone()
                 })
                 .collect();
-            for (position, omitted) in omitted.iter().enumerate() {
-                if *omitted {
-                    actual_targets.push(targets[position].clone());
-                    patterns.push(signature.parameters[position].ty.clone());
-                }
-            }
             let return_type = substitute(&signature.return_type, &variables);
             matches.push((id, actual_targets, patterns, return_type, targets));
         }

@@ -431,3 +431,140 @@ fn element_fix_facts_require_actual_indices_total_operands_and_core_equality() {
     assert!(annotated.findings[0].fix.is_none(), "{annotated:?}");
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn supplied_argument_ranking_retains_defaults_scope_and_parameter_guards() {
+    use zincite_lint::*;
+    let (directory, options) = setup("default-ranking");
+    let root = directory.join("root.mzn");
+    let included = directory.join("included.mzn");
+    write(
+        &options.stdlib_dir.as_ref().unwrap().join("std/stdlib.mzn"),
+        "function var bool: '='(var int:a,var int:b);",
+    );
+    let declarations = concat!(
+        "predicate choose_present(array[int] of var int:xs,int:tag=default_tag)=true;\n",
+        "predicate choose_present(array[int] of var opt int:xs)=true;\n",
+        "predicate mapped(var int:result,int:needle=default_tag,array[int] of var int:xs)=result=needle;\n",
+        "predicate mapped(var opt int:result,array[int] of var opt int:xs)=true;\n",
+        "predicate competing(int:x=1)=true; predicate competing(int:x=2)=true;\n",
+        "function bool: keep(opt $T:x)=true; function var bool: keep(var opt $$E:x)=true;\n",
+        "function bool: '<='($T:a,$T:b); function var bool: '<='(var opt $$E:a,var opt $$E:b);\n",
+    );
+    let source = concat!(
+        "include \"included.mzn\"; int:default_tag; int:limit; opt int:maybe;\n",
+        "array[1..2] of var 1..3:values; var int:result;\n",
+        "constraint choose_present(values); constraint choose_present(xs:values);\n",
+        "constraint choose_present(tag:1,xs:values);\n",
+        "constraint let {var int:default_tag;} in choose_present(values);\n",
+        "constraint mapped(xs:values,result:result); constraint competing();\n",
+        "constraint if keep(maybe) then true else false endif;\n",
+        "constraint if 1<=limit then true else false endif; solve satisfy;\n",
+    );
+    write(&root, source);
+    write(&included, declarations);
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    for marker in [
+        "choose_present(values)",
+        "choose_present(xs:values)",
+        "choose_present(tag:1,xs:values)",
+        "mapped(xs:values,result:result)",
+    ] {
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            ..
+        } = outcome(&calls, &root, source, marker)
+        else {
+            panic!("{marker}: {:?}", outcome(&calls, &root, source, marker));
+        };
+        let selected = &bindings.declarations[declaration.0];
+        assert_eq!(selected.location.path, included);
+        let signature = calls
+            .signatures
+            .iter()
+            .find(|s| s.declaration == *declaration)
+            .unwrap();
+        assert_eq!(parameters.len(), signature.parameters.len());
+        assert_eq!(
+            parameters.len(),
+            if marker.starts_with("mapped") { 3 } else { 2 }
+        );
+        assert!(signature.parameters[1].has_default);
+        assert_eq!(parameters[1].kind, TypeKind::Int);
+        assert_eq!(parameters[1].instantiation, Instantiation::Parameter);
+        let array_slot = if marker.starts_with("mapped") { 2 } else { 0 };
+        let TypeKind::Array { element, .. } = &parameters[array_slot].kind else {
+            panic!("missing array parameter");
+        };
+        assert!(!element.optional);
+    }
+    for call in calls
+        .calls
+        .iter()
+        .filter(|c| c.location.path == root && c.name == "choose_present")
+    {
+        assert!(matches!(call.outcome, CallOutcome::Resolved { .. }));
+        assert_eq!(&source[call.location.range.clone()], "choose_present");
+    }
+    assert!(matches!(
+        outcome(&calls, &root, source, "competing()"),
+        CallOutcome::Ambiguous { candidates } if candidates.len()==2
+    ));
+    let global = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "default_tag" && d.top_level)
+        .unwrap();
+    for reference in bindings
+        .references
+        .iter()
+        .filter(|r| r.location.path == included && r.name == "default_tag")
+    {
+        assert_eq!(reference.resolution, BindingResolution::Resolved(global.id));
+    }
+    let inst = resolve_instantiations(&context, &bindings, &calls);
+    for marker in ["keep(maybe)", "1<=limit"] {
+        let start = source.find(marker).unwrap();
+        let fact = inst
+            .expressions
+            .iter()
+            .filter(|f| {
+                f.location.path == root
+                    && f.location.range.start <= start
+                    && f.location.range.end >= start + marker.len()
+            })
+            .min_by_key(|f| f.location.range.len())
+            .unwrap();
+        assert_eq!(fact.instantiation, Instantiation::Parameter);
+    }
+    let domains = resolve_domains(&context, &bindings);
+    let definitions = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+    let result = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "result" && d.top_level)
+        .unwrap();
+    assert!(
+        definitions
+            .definitions
+            .iter()
+            .any(|d| d.target == result.id && d.dependencies.contains(&global.id)),
+        "{definitions:?}"
+    );
+    let analysis = analyze_model(
+        &context,
+        &LintOptions::from_selection("decision-variable-condition").unwrap(),
+    );
+    assert!(
+        analysis.errors.is_empty() && analysis.limitations.is_empty(),
+        "{analysis:?}"
+    );
+    assert!(analysis.findings.is_empty());
+    assert_eq!(analysis.rules[0].outcome, RuleOutcome::Completed);
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    std::fs::remove_dir_all(directory).unwrap();
+}
