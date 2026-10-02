@@ -1221,9 +1221,9 @@ fn personal_settings_inspect_effective_options_and_keep_cli_replacement_read_onl
             .unwrap(),
         names
     );
-    let unavailable = run(&["--rules", "all"], "");
-    assert_eq!(unavailable.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&unavailable.stderr).contains("unavailable rules"));
+    let all = run(&["--rules", "all"], "");
+    assert_eq!(all.status.code(), Some(0));
+    assert!(!String::from_utf8_lossy(&all.stderr).contains("unavailable rules"));
     let inspect = run(
         &["--show-settings", "--rules", "suspicious-shadowing"],
         "invalid input",
@@ -1323,7 +1323,7 @@ fn index_mismatch_selection_and_suppression_keep_status_and_source_contracts() {
     assert_eq!(output.status.code(), Some(2));
     let text = String::from_utf8_lossy(&output.stderr);
     assert!(text.contains("warning [index-set-mismatch]") && text.contains("error:"));
-    assert_eq!(run(&["--rules", "all"], "").status.code(), Some(2));
+    assert_eq!(run(&["--rules", "all"], "").status.code(), Some(0));
     assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -1442,7 +1442,7 @@ fn hidden_optionality_selection_suppression_and_limits_keep_status_and_source_co
     let family = run(&["--rules", "family:suspicious"], "");
     assert_eq!(family.status.code(), Some(0));
     assert!(!String::from_utf8_lossy(&family.stderr).contains("unavailable rules"));
-    assert_eq!(run(&["--rules", "all"], "").status.code(), Some(2));
+    assert_eq!(run(&["--rules", "all"], "").status.code(), Some(0));
     assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -1873,5 +1873,88 @@ fn global_pattern_selection_suppression_and_statuses_remain_read_only() {
             && text.contains("nonempty")
     );
     assert_eq!(std::fs::read_to_string(root).unwrap(), source);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn expensive_comprehension_threshold_selection_and_source_are_explicit() {
+    let dir = std::env::temp_dir().join(format!("zincite-expansion-cli-{}", std::process::id()));
+    let library = dir.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(
+        library.join("std/stdlib.mzn"),
+        "function set of int:'..'(int:a,int:b);",
+    )
+    .unwrap();
+    let root = dir.join("root.mzn");
+    let source = concat!(
+        "array[int] of int:equal=[1 | _,_ in 1..3];\n",
+        "% zincite-lint: ignore expensive-comprehension\narray[int] of int:suppressed=[1 | _,_ in 1..4];\n",
+        "array[int] of int:above=[1 | i in 1..3,j in 1..4]; solve satisfy;\n"
+    );
+    std::fs::write(&root, source).unwrap();
+    std::fs::write(dir.join("zincite.toml"),"[lint]\nselect=['preset:small']\n[lint.presets.small]\nselect=['family:performance']\n[lint.presets.small.options.expensive-comprehension]\nmax-candidates=20\n[lint.options.expensive-comprehension]\nmax-candidates=9\n").unwrap();
+    for selection in [
+        None,
+        Some("expensive-comprehension"),
+        Some("family:performance"),
+        Some("all"),
+    ] {
+        let mut args = vec![
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            root.to_str().unwrap(),
+        ];
+        if let Some(selection) = selection {
+            args.extend(["--rules", selection]);
+        }
+        let output = run(&args, "");
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8(output.stderr).unwrap();
+        assert_eq!(
+            text.matches("warning [expensive-comprehension]").count(),
+            1,
+            "{text}"
+        );
+        assert!(
+            text.contains("count 12 exceeds max-candidates 9")
+                && !text.contains("unavailable rules")
+        );
+    }
+    let shown = run(
+        &["--show-settings", root.to_str().unwrap()],
+        "invalid input",
+    );
+    assert!(shown.status.success());
+    let text = String::from_utf8(shown.stdout).unwrap();
+    assert!(
+        text.contains("max-candidates: 9")
+            && text.contains("Rules: compact-if,effective-zero-one,reified-global,unbounded-variable,decision-variable-operator,decision-variable-generator,decision-variable-condition,expensive-comprehension"),
+        "{text}"
+    );
+    let default = run(
+        &[
+            "--rules",
+            "default",
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            root.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(default.status.code(), Some(0));
+    let list = run(&["--list-rules"], "invalid");
+    assert!(
+        String::from_utf8(list.stdout)
+            .unwrap()
+            .contains("expensive-comprehension\tperformance\tavailable\tnone\topt-in")
+    );
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
     std::fs::remove_dir_all(dir).unwrap();
 }

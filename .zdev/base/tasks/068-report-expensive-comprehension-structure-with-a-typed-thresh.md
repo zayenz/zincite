@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-068"
 key = "lint-expensive-comprehension"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -25,11 +25,19 @@ Consume iteration candidate bounds and dependencies. The threshold is defined in
 
 ## Done when
 
-- [ ] Deliver expensive-comprehension in family performance for candidate upper bounds above max-candidates and supported repeated invariant aggregate/filter structures.
-- [ ] Explain concrete counts or symbolic dimensions and filter dependencies; distinguish potential expansion from measured enumeration.
-- [ ] Do not suggest moving partial expressions or filters across invalid scopes; test option overrides and suppression.
+- [x] Deliver expensive-comprehension in family performance for candidate upper bounds above max-candidates and supported repeated invariant aggregate/filter structures.
+- [x] Explain concrete counts or symbolic dimensions and filter dependencies; distinguish potential expansion from measured enumeration.
+- [x] Do not suggest moving partial expressions or filters across invalid scopes; test option overrides and suppression.
 
 ## Validation
 
 - Run the area Cargo checks for Rust changes and zdev check for record changes. Use the focused testing level in the brief.
 - Check threshold boundary and override, symbolic product, a safely earlier filter, repeated invariant aggregate and a partial expression that cannot be hoisted.
+
+## Result
+
+Add expensive comprehension diagnostics for checked candidate counts, symbolic products and safe earlier filter or invariant aggregate structure.
+
+Validation:
+
+- Independent PASS; cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings and cargo test --workspace passed (166 tests). Focused threshold, option override, suppression, symbolic dimension, scope, guard, partiality, skipped evaluation, effect and annotation checks passed; verified snapshot unchanged.

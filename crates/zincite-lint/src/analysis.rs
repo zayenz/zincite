@@ -214,6 +214,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
     let mut unused_incomplete = false;
     let mut unused_generator_incomplete = false;
     let mut patterns_incomplete = false;
+    let mut comprehension_incomplete = false;
     if !data && options.requires_model() {
         let facts = resolve_bindings(context);
         if options.rules.contains(&Rule::SuspiciousShadowing) {
@@ -236,6 +237,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             || options.rules.contains(&Rule::VacuousConstraint)
             || options.rules.contains(&Rule::UnusedGeneratorBinding)
             || options.rules.contains(&Rule::GlobalConstraintOpportunity)
+            || options.rules.contains(&Rule::ExpensiveComprehension)
             || options.rules.contains(&Rule::EffectiveZeroOne)
         {
             Some(resolve_domains(context, &facts))
@@ -282,6 +284,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             || options.rules.contains(&Rule::VacuousConstraint)
             || options.rules.contains(&Rule::UnusedGeneratorBinding)
             || options.rules.contains(&Rule::GlobalConstraintOpportunity)
+            || options.rules.contains(&Rule::ExpensiveComprehension)
             || options.rules.contains(&Rule::EffectiveZeroOne)
             || options.rules.contains(&Rule::UnusedDeclaration)
         {
@@ -321,6 +324,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 || options.rules.contains(&Rule::VacuousConstraint)
                 || options.rules.contains(&Rule::UnusedGeneratorBinding)
                 || options.rules.contains(&Rule::GlobalConstraintOpportunity)
+                || options.rules.contains(&Rule::ExpensiveComprehension)
                 || options.rules.contains(&Rule::EffectiveZeroOne)
             {
                 let instantiations = resolve_instantiations(context, &facts, &calls);
@@ -364,6 +368,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     || options.rules.contains(&Rule::VacuousConstraint)
                     || options.rules.contains(&Rule::UnusedGeneratorBinding)
                     || options.rules.contains(&Rule::GlobalConstraintOpportunity)
+                    || options.rules.contains(&Rule::ExpensiveComprehension)
                 {
                     let definitions = resolve_definitions(
                         context,
@@ -378,6 +383,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                         || options.rules.contains(&Rule::VacuousConstraint)
                         || options.rules.contains(&Rule::UnusedGeneratorBinding)
                         || options.rules.contains(&Rule::GlobalConstraintOpportunity)
+                        || options.rules.contains(&Rule::ExpensiveComprehension)
                     {
                         let domains = domains.as_ref().unwrap();
                         let numeric = crate::resolve_numeric_facts(
@@ -425,6 +431,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                             || options.rules.contains(&Rule::VacuousConstraint)
                             || options.rules.contains(&Rule::UnusedGeneratorBinding)
                             || options.rules.contains(&Rule::GlobalConstraintOpportunity)
+                            || options.rules.contains(&Rule::ExpensiveComprehension)
                         {
                             let iteration = crate::resolve_iteration_facts(
                                 context,
@@ -436,6 +443,29 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                                 &optional,
                                 &guarded,
                             );
+                            if options.rules.contains(&Rule::ExpensiveComprehension) {
+                                let structure = crate::resolve_comprehension_structure(
+                                    context,
+                                    &facts,
+                                    &calls,
+                                    &instantiations,
+                                    domains,
+                                    &numeric,
+                                    &optional,
+                                    &guarded,
+                                    &iteration,
+                                );
+                                let (findings, limitations) =
+                                    crate::expensive_comprehension::check_comprehensions(
+                                        context,
+                                        &facts,
+                                        &structure,
+                                        options.parameters.comprehension_max_candidates,
+                                    );
+                                comprehension_incomplete = !limitations.is_empty();
+                                result.findings.extend(findings);
+                                result.limitations.extend(limitations);
+                            }
                             if options.rules.contains(&Rule::GlobalConstraintOpportunity) {
                                 let patterns = crate::resolve_global_patterns(
                                     context, &facts, &calls, &optional, &guarded, &iteration,
@@ -574,6 +604,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     || (rule == Rule::VacuousConstraint && vacuous_incomplete)
                     || (rule == Rule::UnusedGeneratorBinding && unused_generator_incomplete)
                     || (rule == Rule::GlobalConstraintOpportunity && patterns_incomplete)
+                    || (rule == Rule::ExpensiveComprehension && comprehension_incomplete)
                     || (rule == Rule::CompactIf && compact_incomplete)
                     || (rule == Rule::EffectiveZeroOne && effective_incomplete)
                     || (rule == Rule::UnusedDeclaration && unused_incomplete)

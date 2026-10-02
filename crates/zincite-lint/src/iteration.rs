@@ -712,6 +712,7 @@ impl Producer<'_> {
         file: FileId,
         node: &SyntaxNode,
         scopes: &BTreeMap<usize, usize>,
+        entry: &SourceLocation,
     ) -> IterationExpression {
         let location = self.location(file, node);
         let (dependencies, unresolved) = self.deps(file, node);
@@ -730,6 +731,11 @@ impl Producer<'_> {
             let d = &self.bindings.declarations[id.0];
             matches!(d.role, DeclarationRole::Generator | DeclarationRole::Local)
                 && !scopes.contains_key(&id.0)
+                // A resolved immutable enclosing local already exists at this
+                // iteration entry; a body-local alias does not exist there.
+                && !(d.role == DeclarationRole::Local
+                    && d.instantiation == Instantiation::Parameter
+                    && d.file == file && d.location.range.end <= entry.range.start)
                 && !(d.file == file
                     && contains(
                         &location,
@@ -920,7 +926,7 @@ impl Producer<'_> {
                 if index_set.universe.is_some() {
                     candidates = upper_bound(candidates);
                 }
-                self.expression_walk(file, source, &scopes, &mut expressions);
+                self.expression_walk(file, source, &scopes, &location, &mut expressions);
                 for id in &bindings {
                     scopes.insert(id.0, position + 1);
                     known.insert(
@@ -942,7 +948,7 @@ impl Producer<'_> {
                     .filter(|n| n.kind() == NodeKind::WhereFilter)
                 {
                     if let Some(condition) = filter.child_nodes().next() {
-                        let e = self.expression(file, condition, &scopes);
+                        let e = self.expression(file, condition, &scopes, &location);
                         let truth = e
                             .guarded
                             .as_ref()
@@ -1020,7 +1026,7 @@ impl Producer<'_> {
                             selected_domain,
                             coverage: filter_coverage,
                         });
-                        self.expression_walk(file, condition, &scopes, &mut expressions);
+                        self.expression_walk(file, condition, &scopes, &location, &mut expressions);
                     }
                 }
                 let source_instantiation = self
@@ -1046,7 +1052,7 @@ impl Producer<'_> {
                 });
             }
         }
-        self.expression_walk(file, head, &scopes, &mut expressions);
+        self.expression_walk(file, head, &scopes, &location, &mut expressions);
         let uses = self.uses(file, node, &generators);
         let selected = if coverage == IterationCoverage::Empty {
             CandidateCount::Exact(0)
@@ -1240,13 +1246,14 @@ impl Producer<'_> {
         file: FileId,
         node: &SyntaxNode,
         scopes: &BTreeMap<usize, usize>,
+        entry: &SourceLocation,
         out: &mut Vec<IterationExpression>,
     ) {
         if is_expression(node.kind()) {
-            out.push(self.expression(file, node, scopes));
+            out.push(self.expression(file, node, scopes, entry));
         }
         for child in node.child_nodes() {
-            self.expression_walk(file, child, scopes, out);
+            self.expression_walk(file, child, scopes, entry, out);
         }
     }
     fn uses(

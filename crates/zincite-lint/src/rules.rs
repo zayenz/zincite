@@ -311,8 +311,8 @@ impl Rule {
                 "expensive-comprehension",
                 RuleFamily::Performance,
                 "Advise on comprehension candidate-count upper bounds and symbolic expansion structure.",
-                "Iteration bounds, multiplicity and parameter dependence.",
-                "Detection is not implemented. The threshold applies only to known upper bounds; symbolic estimates remain structural advice. An upper bound is potential expansion, not measured runtime or proof of compiler enumeration.",
+                "Checked iteration bounds, ordered dimensions, resolved dependencies and prospective raw evaluation safety.",
+                "Known pre-filter candidate counts warn strictly above max-candidates. Symbolic products describe ordered dimensions and dependencies without an invented number. Supported whole par filters and repeated core aggregates receive earlier-prefix advice only with retained guards, proved raw totality and nonempty repeated crossed sources. Decision filters, unknown/empty crossed domains, partial or opaque/effectful evaluation and semantic annotations withhold movement advice. Arithmetic multiplicity and optional present counts remain distinct. The compiler may already optimize the structure; no enumeration, runtime, speedup or source-fix claim is offered.",
             ),
         };
         RuleMetadata {
@@ -322,8 +322,7 @@ impl Rule {
             requirements,
             limitations,
             requires_model: !Self::DEFAULT.contains(&self),
-            // The expansion-cost rule remains registered without a detection body.
-            available: self != Self::ExpensiveComprehension,
+            available: true,
             fix_support: FixSupport::None,
             options: match self {
                 Self::SuspiciousShadowing => &["ignore-names: exact binding names; default []"],

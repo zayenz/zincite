@@ -232,6 +232,95 @@ pub fn resolve_guarded_facts_with_options(
         Some(options),
     )
 }
+
+// Reuse the interpreter for one prospective iteration placement. The caller
+// supplies the next generator source's original context, before that generator
+// and its filters. This does not mutate the original expressions or obligations.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn evaluate_iteration_prefix(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &CallableFacts,
+    instantiations: &InstantiationFacts,
+    domains: &DomainFacts,
+    numeric: &NumericFacts,
+    options: &OptionalFacts,
+    candidate: &GuardedExpression,
+    prefix: &GuardContext,
+) -> Result<GuardedFacts, String> {
+    let node = node_at(context, candidate.file, &candidate.location)
+        .ok_or("candidate source is unavailable")?;
+    let mut assumptions = Vec::new();
+    for assumption in &prefix.assumptions {
+        if assumption.file == candidate.file
+            && (contains_range(&candidate.location.range, &assumption.location.range)
+                || contains_range(&assumption.location.range, &candidate.location.range))
+        {
+            continue;
+        }
+        let source = node_at(context, assumption.file, &assumption.location)
+            .ok_or("prefix assumption source is unavailable")?;
+        assumptions.push(match &assumption.kind {
+            GuardAssumptionKind::Condition { expected } => Assumption::Condition {
+                file: assumption.file,
+                node: source,
+                expected: *expected,
+                global: assumption.global,
+            },
+            GuardAssumptionKind::GeneratorMembership {
+                declaration,
+                domain,
+            } => Assumption::Membership {
+                file: assumption.file,
+                source,
+                declaration: *declaration,
+                domain: domain.clone(),
+            },
+        });
+    }
+    let mut producer = Producer {
+        context,
+        bindings,
+        calls,
+        instantiations,
+        domains,
+        numeric,
+        options: Some(options),
+        facts: GuardedFacts::default(),
+    };
+    producer.walk(
+        candidate.file,
+        candidate.item,
+        node,
+        Scope {
+            assumptions,
+            activation: prefix.activation,
+            evaluation: GuardEvaluation::Strict,
+            enforcement: DefinitionEnforcement::Conditional,
+            boolean: None,
+        },
+    );
+    Ok(producer.facts)
+}
+pub(crate) fn node_at<'a>(
+    context: &'a ModelContext,
+    file: FileId,
+    location: &SourceLocation,
+) -> Option<&'a SyntaxNode> {
+    fn find<'a>(node: &'a SyntaxNode, range: &std::ops::Range<usize>) -> Option<&'a SyntaxNode> {
+        if node.range() == *range {
+            return Some(node);
+        }
+        node.child_nodes().find_map(|c| find(c, range))
+    }
+    let source = &context.files[file];
+    let range = location.range.start.checked_sub(source.byte_offset)?
+        ..location.range.end.checked_sub(source.byte_offset)?;
+    find(source.parsed.tree(), &range)
+}
+fn contains_range(outer: &std::ops::Range<usize>, inner: &std::ops::Range<usize>) -> bool {
+    outer.start <= inner.start && inner.end <= outer.end
+}
 fn interpret<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
