@@ -19,11 +19,11 @@ fn catalogue_exposes_current_capabilities_and_preserves_presets() {
         Rule::ReifiedGlobal.metadata().family,
         RuleFamily::Performance
     );
-    for rule in Rule::DEFAULT
-        .into_iter()
-        .chain(Rule::THESIS)
-        .chain([Rule::IndexSetMismatch, Rule::HiddenOptionality])
-    {
+    for rule in Rule::DEFAULT.into_iter().chain(Rule::THESIS).chain([
+        Rule::IndexSetMismatch,
+        Rule::HiddenOptionality,
+        Rule::PartialExpression,
+    ]) {
         let metadata = rule.metadata();
         assert_eq!(metadata.id, rule.id());
         assert!(metadata.available && rule.is_available());
@@ -45,6 +45,16 @@ fn catalogue_exposes_current_capabilities_and_preserves_presets() {
             .unwrap()
             .rules
             .contains(&Rule::HiddenOptionality)
+    );
+    assert_eq!(
+        Rule::PartialExpression.metadata().family,
+        RuleFamily::Suspicious
+    );
+    assert!(
+        zincite_lint::LintOptions::from_selection("family:suspicious")
+            .unwrap()
+            .rules
+            .contains(&Rule::PartialExpression)
     );
     assert_eq!(Rule::DEFAULT.len(), 2);
     assert_eq!(Rule::THESIS.len(), 14);
@@ -332,6 +342,7 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
                     "expensive-comprehension",
                     "index-set-mismatch",
                     "hidden-optionality",
+                    "partial-expression",
                 ])
                 .collect(),
         ),
@@ -408,7 +419,11 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
             .into_iter()
             .chain(Rule::THESIS)
             .chain(Rule::ADDITIONAL)
-            .chain([Rule::IndexSetMismatch, Rule::HiddenOptionality])
+            .chain([
+                Rule::IndexSetMismatch,
+                Rule::HiddenOptionality,
+                Rule::PartialExpression
+            ])
             .collect::<Vec<_>>()
     );
     for (legacy, prefixed) in [

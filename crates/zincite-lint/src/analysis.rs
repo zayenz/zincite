@@ -196,6 +196,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
     let mut array_incomplete = false;
     let mut index_mismatch_incomplete = false;
     let mut optionality_incomplete = false;
+    let mut partial_incomplete = false;
     let mut search_state = ModelRootState::Complete;
     let mut search_incomplete = false;
     let mut compact_incomplete = false;
@@ -217,6 +218,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             || options.rules.contains(&Rule::SearchCoverage)
             || options.rules.contains(&Rule::IndexSetMismatch)
             || options.rules.contains(&Rule::HiddenOptionality)
+            || options.rules.contains(&Rule::PartialExpression)
             || options.rules.contains(&Rule::EffectiveZeroOne)
         {
             Some(resolve_domains(context, &facts))
@@ -259,6 +261,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             || options.rules.contains(&Rule::SearchCoverage)
             || options.rules.contains(&Rule::IndexSetMismatch)
             || options.rules.contains(&Rule::HiddenOptionality)
+            || options.rules.contains(&Rule::PartialExpression)
             || options.rules.contains(&Rule::EffectiveZeroOne)
             || options.rules.contains(&Rule::UnusedDeclaration)
         {
@@ -294,6 +297,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 || options.rules.contains(&Rule::SearchCoverage)
                 || options.rules.contains(&Rule::IndexSetMismatch)
                 || options.rules.contains(&Rule::HiddenOptionality)
+                || options.rules.contains(&Rule::PartialExpression)
                 || options.rules.contains(&Rule::EffectiveZeroOne)
             {
                 let instantiations = resolve_instantiations(context, &facts, &calls);
@@ -333,6 +337,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     || options.rules.contains(&Rule::SearchCoverage)
                     || options.rules.contains(&Rule::IndexSetMismatch)
                     || options.rules.contains(&Rule::HiddenOptionality)
+                    || options.rules.contains(&Rule::PartialExpression)
                 {
                     let definitions = resolve_definitions(
                         context,
@@ -343,6 +348,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     );
                     if options.rules.contains(&Rule::IndexSetMismatch)
                         || options.rules.contains(&Rule::HiddenOptionality)
+                        || options.rules.contains(&Rule::PartialExpression)
                     {
                         let domains = domains.as_ref().unwrap();
                         let numeric = crate::resolve_numeric_facts(
@@ -385,7 +391,9 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                             result.findings.extend(findings);
                             result.limitations.extend(limitations);
                         }
-                        if options.rules.contains(&Rule::IndexSetMismatch) {
+                        if options.rules.contains(&Rule::IndexSetMismatch)
+                            || options.rules.contains(&Rule::PartialExpression)
+                        {
                             let iteration = crate::resolve_iteration_facts(
                                 context,
                                 &facts,
@@ -396,13 +404,29 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                                 &optional,
                                 &guarded,
                             );
-                            let (findings, limitations) =
-                                crate::index_set_mismatch::check_index_set_mismatches(
-                                    context, &facts, &guarded, &iteration,
-                                );
-                            index_mismatch_incomplete = !limitations.is_empty();
-                            result.findings.extend(findings);
-                            result.limitations.extend(limitations);
+                            if options.rules.contains(&Rule::IndexSetMismatch) {
+                                let (findings, limitations) =
+                                    crate::index_set_mismatch::check_index_set_mismatches(
+                                        context, &facts, &guarded, &iteration,
+                                    );
+                                index_mismatch_incomplete = !limitations.is_empty();
+                                result.findings.extend(findings);
+                                result.limitations.extend(limitations);
+                            }
+                            if options.rules.contains(&Rule::PartialExpression) {
+                                let (findings, limitations) =
+                                    crate::partial_expression::check_partial_expressions(
+                                        context,
+                                        &facts,
+                                        &calls,
+                                        &guarded,
+                                        &iteration,
+                                        &result.findings,
+                                    );
+                                partial_incomplete = !limitations.is_empty();
+                                result.findings.extend(findings);
+                                result.limitations.extend(limitations);
+                            }
                         }
                     }
                     if options.rules.contains(&Rule::SearchCoverage) {
@@ -480,6 +504,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     || (rule == Rule::ArrayIndexStart && array_incomplete)
                     || (rule == Rule::IndexSetMismatch && index_mismatch_incomplete)
                     || (rule == Rule::HiddenOptionality && optionality_incomplete)
+                    || (rule == Rule::PartialExpression && partial_incomplete)
                     || (rule == Rule::CompactIf && compact_incomplete)
                     || (rule == Rule::EffectiveZeroOne && effective_incomplete)
                     || (rule == Rule::UnusedDeclaration && unused_incomplete)

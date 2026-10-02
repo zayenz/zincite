@@ -25,6 +25,7 @@ mod iteration;
 mod model;
 mod naming;
 mod optional;
+mod partial_expression;
 mod rules;
 mod search;
 mod search_coverage;

@@ -99,6 +99,7 @@ pub enum Rule {
     ExpensiveComprehension,
     IndexSetMismatch,
     HiddenOptionality,
+    PartialExpression,
 }
 
 impl Rule {
@@ -128,7 +129,11 @@ impl Rule {
             .into_iter()
             .chain(Self::THESIS)
             .chain(Self::ADDITIONAL)
-            .chain([Self::IndexSetMismatch, Self::HiddenOptionality])
+            .chain([
+                Self::IndexSetMismatch,
+                Self::HiddenOptionality,
+                Self::PartialExpression,
+            ])
     }
 
     /// Return the single catalogue entry for this rule. Extend this match when
@@ -260,6 +265,13 @@ impl Rule {
                 "Explain when length counts comprehension slots rather than selected or present optional values.",
                 "Resolved standard length/comparison calls, optional collection capacity/presence and guarded contexts.",
                 "Direct integer comparisons and supported array aliases are considered. Advice is conditional on count intent; optional types and unknown data alone are not a mistake. Parameter filters, ordinary aggregates, capacity display, zero/all-present and inactive cases stay quiet. Unsupported required facts report limitations. No replacement count or source fix is offered.",
+            ),
+            Self::PartialExpression => (
+                "partial-expression",
+                RuleFamily::Suspicious,
+                "Explain failed definedness requirements and incompatible candidate indices in their guarded and Boolean context.",
+                "Scoped nonzero, index, nonempty and presence obligations; exact iteration membership and resolved default capture.",
+                "Supported div/mod, array indexing, empty min/max and absent deopt are considered. Unknown facts alone stay quiet. Advice distinguishes failure when evaluated from incompatible candidates, without claiming execution, runtime crashes or infeasibility. Guards, assertions, inactive/empty iterations and supported default capture protect operations; relational Boolean collapse alone does not. Joint indexing advice is deduplicated at the same unsuppressed access. Unsupported required facts report limitations. No fix or rewrite is offered.",
             ),
             Self::SuspiciousShadowing => (
                 "suspicious-shadowing",

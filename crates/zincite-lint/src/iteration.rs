@@ -10,9 +10,9 @@ use crate::domains::{
 use crate::{
     BindingFacts, BindingResolution, CallableFacts, Cardinality, CollectionCardinality,
     DeclarationId, DeclarationRole, Domain, DomainFacts, FileId, GuardObligation,
-    GuardedExpression, GuardedFacts, GuardedOutcome, Instantiation, InstantiationFacts,
-    ModelContext, NumericBound, NumericFacts, NumericOutcome, OptionalFacts, SourceLocation,
-    TypeKind,
+    GuardObligationKind, GuardedExpression, GuardedFacts, GuardedOutcome, Instantiation,
+    InstantiationFacts, ModelContext, NumericBound, NumericFacts, NumericOutcome, OptionalFacts,
+    SourceLocation, TypeKind,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
@@ -198,6 +198,59 @@ impl IterationFacts {
         self.iterations
             .iter()
             .find(|i| i.file == file && i.location.range == location.range)
+    }
+    /// Whether exact interpreted candidates fail to fit this index dimension.
+    /// All enclosing traversals must have known positive candidate/selected
+    /// counts and supported full/proper-partial coverage. This is membership
+    /// evidence, not proof that a candidate occurs in a satisfiable model.
+    /// The obligation and these facts must come from the same ModelContext.
+    pub fn has_incompatible_index_candidates(&self, obligation: &GuardObligation) -> bool {
+        let GuardObligationKind::Index {
+            array,
+            dimension,
+            selection: Some(selection),
+            ..
+        } = &obligation.kind
+        else {
+            return false;
+        };
+        if !selection.exact
+            || !self
+                .iterations
+                .iter()
+                .filter(|i| {
+                    i.file == obligation.file
+                        && i.location.range.start <= obligation.operation.range.start
+                        && obligation.operation.range.end <= i.location.range.end
+                })
+                .all(|i| {
+                    matches!(i.candidates,CandidateCount::Exact(n) if n>0)
+                        && matches!(i.selected,CandidateCount::Exact(n) if n>0)
+                        && matches!(
+                            i.coverage,
+                            IterationCoverage::Full | IterationCoverage::ProperPartial
+                        )
+                })
+        {
+            return false;
+        }
+        let Some(target) = self
+            .arrays
+            .iter()
+            .find(|a| a.declaration == *array)
+            .and_then(|a| a.dimensions.get(dimension - 1))
+        else {
+            return false;
+        };
+        let candidate = IterationIndexSet {
+            file: obligation.file,
+            location: obligation.operand.clone(),
+            domain: selection.domain.clone(),
+            universe: None,
+            cardinality: Cardinality::Unknown,
+            array_dimension: None,
+        };
+        candidate.subset_of(target) == GuardedOutcome::Refuted
     }
     pub fn index_set(&self, file: FileId, location: &SourceLocation) -> Option<&IterationIndexSet> {
         self.index_sets

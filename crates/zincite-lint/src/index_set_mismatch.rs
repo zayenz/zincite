@@ -1,9 +1,8 @@
 //! Diagnostic policy over interpreted index spaces; no condition interpretation.
 use crate::{
-    BindingFacts, CandidateCount, Cardinality, Domain, FileFinding, FileId, GuardActivation,
-    GuardObligationKind, GuardedFacts, GuardedOutcome, IterationCoverage, IterationFacts,
-    IterationIndexSet, ModelContext, NumericBound, Rule, Severity, SourceDiagnostic,
-    SourceLocation,
+    BindingFacts, Cardinality, Domain, FileFinding, FileId, GuardActivation, GuardObligationKind,
+    GuardedFacts, GuardedOutcome, IterationCoverage, IterationFacts, IterationIndexSet,
+    ModelContext, NumericBound, Rule, Severity, SourceDiagnostic, SourceLocation,
 };
 use zincite_syntax::{NodeKind, SyntaxNode};
 
@@ -100,11 +99,7 @@ pub(super) fn check_index_set_mismatches(
                             (Domain::Enum(a), Domain::Enum(b)) if a != b)
                     });
                     let refuted = obligation.outcome == GuardedOutcome::Refuted;
-                    let coarse = selection.as_ref().is_some_and(|s| s.exact)
-                        && exact_traversals(iteration, file, &location)
-                        && candidate
-                            .as_ref()
-                            .is_some_and(|c| c.subset_of(target) == GuardedOutcome::Refuted);
+                    let coarse = iteration.has_incompatible_index_candidates(obligation);
                     if enum_mismatch || refuted || coarse {
                         let declaration = &bindings.declarations[array.0];
                         let space = candidate
@@ -174,20 +169,6 @@ fn collect_accesses<'a>(node: &'a SyntaxNode, out: &mut Vec<&'a SyntaxNode>) {
 }
 fn contains(a: &SourceLocation, b: &SourceLocation) -> bool {
     a.range.start <= b.range.start && b.range.end <= a.range.end
-}
-fn exact_traversals(facts: &IterationFacts, file: FileId, location: &SourceLocation) -> bool {
-    facts
-        .iterations
-        .iter()
-        .filter(|i| i.file == file && contains(&i.location, location))
-        .all(|i| {
-            matches!(i.candidates,CandidateCount::Exact(n) if n>0)
-                && matches!(i.selected,CandidateCount::Exact(n) if n>0)
-                && matches!(
-                    i.coverage,
-                    IterationCoverage::Full | IterationCoverage::ProperPartial
-                )
-        })
 }
 fn bare(mut d: &Domain) -> &Domain {
     while let Domain::Named { domain, .. } = d {

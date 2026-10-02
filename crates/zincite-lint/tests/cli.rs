@@ -35,11 +35,12 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     let list = run(&["--list-rules"], "not valid MiniZinc");
     assert!(list.status.success() && list.stderr.is_empty());
     let list = String::from_utf8(list.stdout).unwrap();
-    assert_eq!(list.lines().count(), 21);
+    assert_eq!(list.lines().count(), 22);
     assert!(list.contains("naming\tstyle\tavailable\tnone\tdefault"));
     assert!(list.contains("search-coverage\tmodelling\tavailable\tnone\tthesis"));
     assert!(list.contains("index-set-mismatch\tcorrectness\tavailable\tnone\topt-in"));
     assert!(list.contains("hidden-optionality\tsuspicious\tavailable\tnone\topt-in"));
+    assert!(list.contains("partial-expression\tsuspicious\tavailable\tnone\topt-in"));
     let explanation = run_with_library(
         &["--explain", "element-predicate"],
         "not valid MiniZinc",
@@ -1446,5 +1447,100 @@ fn hidden_optionality_selection_suppression_and_limits_keep_status_and_source_co
     );
     assert_eq!(run(&["--rules", "all"], "").status.code(), Some(2));
     assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn partial_expression_cli_reports_scoped_hazards_and_keeps_status_precedence() {
+    let dir = std::env::temp_dir().join(format!("zincite-partial-cli-{}", std::process::id()));
+    let library = dir.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(
+        library.join("std/stdlib.mzn"),
+        "function int: 'div'(int:a,int:b); function int: min(set of int:a);",
+    )
+    .unwrap();
+    let root = dir.join("root.mzn");
+    let source = "int:bad=1 div 0; solve satisfy;";
+    std::fs::write(&root, source).unwrap();
+    let args = [
+        "--isolated",
+        "--rules",
+        "partial-expression",
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        root.to_str().unwrap(),
+    ];
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let text = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(text.matches("warning [partial-expression]").count(), 1);
+    assert!(text.contains("divisor must be nonzero") && !text.contains("analysis limitation"));
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    let broken = dir.join("broken.mzn");
+    std::fs::write(&broken, "var int: =;").unwrap();
+    let output = run(
+        &[
+            "--isolated",
+            "--rules",
+            "partial-expression",
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            broken.to_str().unwrap(),
+            root.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("warning [partial-expression]")
+    );
+    std::fs::write(
+        &root,
+        "% zincite-lint: ignore partial-expression\nint:bad=1 div 0; solve satisfy;",
+    )
+    .unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    std::fs::write(&root, "set of int:S; int:x=min(S); solve satisfy;").unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    std::fs::write(
+        &root,
+        "function int:opaque()=1; int:x=min(opaque()); solve satisfy;",
+    )
+    .unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("analysis limitation: partial-expression")
+    );
+    let stdin = run(&["--rules", "partial-expression"], source);
+    assert_eq!(stdin.status.code(), Some(0));
+    assert!(
+        String::from_utf8(stdin.stderr)
+            .unwrap()
+            .contains("requires a ModelContext")
+    );
+    let explanation = run(&["--explain", "partial-expression"], "");
+    assert!(explanation.status.success());
+    let text = String::from_utf8(explanation.stdout).unwrap();
+    assert!(text.contains("suspicious") && text.contains("no"));
+    assert_eq!(
+        zincite_lint::LintOptions::from_selection("family:suspicious")
+            .unwrap()
+            .rules
+            .iter()
+            .filter(|r| **r == zincite_lint::Rule::PartialExpression)
+            .count(),
+        1
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }
