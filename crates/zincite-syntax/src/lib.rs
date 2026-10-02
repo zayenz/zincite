@@ -21,6 +21,7 @@
 
 use std::ops::Range;
 use std::path::Path;
+use std::sync::OnceLock;
 
 pub mod inputs;
 mod lexer;
@@ -64,7 +65,11 @@ pub fn parse_with_mode(source: impl Into<String>, mode: FileMode) -> ParsedFile 
     }
     let (tree, diagnostics) = parser::parse(&lexed.tokens, &lexed.source, mode);
     lexed.diagnostics.extend(diagnostics);
-    ParsedFile { lexed, tree }
+    ParsedFile {
+        lexed,
+        tree,
+        line_starts: OnceLock::new(),
+    }
 }
 
 /// Owned source, its lossless tree, and lexical/parser diagnostics.
@@ -72,11 +77,48 @@ pub fn parse_with_mode(source: impl Into<String>, mode: FileMode) -> ParsedFile 
 pub struct ParsedFile {
     lexed: LexedSource,
     tree: SyntaxNode,
+    line_starts: OnceLock<Vec<usize>>,
 }
 
 impl ParsedFile {
     pub fn source(&self) -> &str {
         self.lexed.source()
+    }
+
+    /// Return the one-based line and Unicode scalar column at a byte offset.
+    /// CR and LF each end a line; CRLF is one break, including an offset between
+    /// its two bytes. Line boundaries are indexed on demand and owned by this
+    /// parsed source. Parsing or formatting alone does not build them.
+    ///
+    /// Panics if the offset exceeds the source length or is not a UTF-8 boundary,
+    /// just as slicing the source at that offset does.
+    pub fn line_column(&self, byte_offset: usize) -> (usize, usize) {
+        let source = self.source();
+        let prefix = &source[..byte_offset];
+        if byte_offset == 0 {
+            return (1, 1);
+        }
+        let starts = self.line_starts.get_or_init(|| {
+            let mut starts = vec![0];
+            let bytes = source.as_bytes();
+            for (index, &byte) in bytes.iter().enumerate() {
+                if byte == b'\r' || (byte == b'\n' && (index == 0 || bytes[index - 1] != b'\r')) {
+                    starts.push(index + 1);
+                }
+            }
+            starts
+        });
+        let line = starts.partition_point(|&start| start <= prefix.len());
+        let mut start = starts[line - 1];
+        // A CR already counts as a break before its following LF is consumed.
+        if start < byte_offset
+            && start > 0
+            && source.as_bytes()[start - 1] == b'\r'
+            && source.as_bytes()[start] == b'\n'
+        {
+            start += 1;
+        }
+        (line, source[start..byte_offset].chars().count() + 1)
     }
 
     pub fn tokens(&self) -> &[Token] {

@@ -105,7 +105,7 @@ pub fn analyze_file(
 ) -> AnalysisResult {
     let path = path.as_ref();
     let location =
-        |range| SourceLocation::new(path.to_path_buf(), parsed.source(), range, byte_offset);
+        |range| SourceLocation::from_parsed(path.to_path_buf(), parsed, range, byte_offset);
     if let Some(result) = unavailable(options, location(0..0)) {
         return result;
     }

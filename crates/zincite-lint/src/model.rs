@@ -60,6 +60,21 @@ impl SourceLocation {
         }
     }
 
+    pub(crate) fn from_parsed(
+        path: PathBuf,
+        parsed: &ParsedFile,
+        range: Range<usize>,
+        byte_offset: usize,
+    ) -> Self {
+        let (line, column) = parsed.line_column(range.start);
+        Self {
+            path,
+            range: range.start + byte_offset..range.end + byte_offset,
+            line,
+            column,
+        }
+    }
+
     fn at_path(path: &Path) -> Self {
         Self::new(path.to_path_buf(), "", 0..0, 0)
     }
@@ -100,12 +115,7 @@ impl ModelFile {
     }
 
     pub fn location(&self, range: Range<usize>) -> SourceLocation {
-        SourceLocation::new(
-            self.path.clone(),
-            self.parsed.source(),
-            range,
-            self.byte_offset,
-        )
+        SourceLocation::from_parsed(self.path.clone(), &self.parsed, range, self.byte_offset)
     }
 
     pub fn warnings_enabled(&self) -> bool {
@@ -285,7 +295,12 @@ impl Loader<'_> {
                 Err(errors) => {
                     for error in errors {
                         self.error(
-                            SourceLocation::new(path.to_path_buf(), text, error.range, byte_offset),
+                            SourceLocation::from_parsed(
+                                path.to_path_buf(),
+                                &parsed,
+                                error.range,
+                                byte_offset,
+                            ),
                             error.message,
                         );
                     }
@@ -295,7 +310,12 @@ impl Loader<'_> {
         } else {
             for error in parsed.diagnostics() {
                 self.error(
-                    SourceLocation::new(path.to_path_buf(), text, error.range.clone(), byte_offset),
+                    SourceLocation::from_parsed(
+                        path.to_path_buf(),
+                        &parsed,
+                        error.range.clone(),
+                        byte_offset,
+                    ),
                     error.message.clone(),
                 );
             }

@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-078"
 key = "source-location-prefix-cost"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -27,9 +27,9 @@ Read brief Performance and format-on-save, background/performance.md and scripts
 
 ## Done when
 
-- [ ] Remove repeated prefix scanning from the measured lint location workload using the smallest concrete consumer change; preserve byte-for-byte native diagnostics/status and the complete current per-rule findings/errors/limitations on matched controls.
-- [ ] Meet matched fresh native targets of at most2.5 seconds for25000 warnings,0.6 seconds for10000 warnings and12 seconds for20 shared semantic roots; demonstrate the diagnostic growth no longer follows the measured repeated-prefix pattern. Record child CPU, allocation traffic/live/peak and RSS, investigate any regression and preserve exact scope release.
-- [ ] Replay full current native default/thesis/all commands and structured coverage with finite adequate deadlines after the change, without dropping roots; keep incomplete counts Unobserved and final acceptance blocked by remaining syntax/loading/semantic/performance gaps.
+- [x] Remove repeated prefix scanning from the measured lint location workload using the smallest concrete consumer change; preserve byte-for-byte native diagnostics/status and the complete current per-rule findings/errors/limitations on matched controls.
+- [x] Meet matched fresh native targets of at most2.5 seconds for25000 warnings,0.6 seconds for10000 warnings and12 seconds for20 shared semantic roots; demonstrate the diagnostic growth no longer follows the measured repeated-prefix pattern. Record child CPU, allocation traffic/live/peak and RSS, investigate any regression and preserve exact scope release.
+- [x] Replay full current native default/thesis/all commands and structured coverage with finite adequate deadlines after the change, without dropping roots; keep incomplete counts Unobserved and final acceptance blocked by remaining syntax/loading/semantic/performance gaps.
 
 ## Validation
 
@@ -37,3 +37,13 @@ Read brief Performance and format-on-save, background/performance.md and scripts
 - Retain exact before/after release binaries and inputs; run at least two fresh matched repeats for the100/1000/10000/25000 warning family and1/3/10/20 shared roots with installed2.10.1 core and all preset. Keep complete file-backed diagnostics, statuses, child CPU/RSS and native/probe outcome reconciliation.
 - Use separate existing allocation/drop attribution to check per-root results/context/position data release; preserve standalone SourceLocation caller behavior and default/thesis/all shared/missing/rejected/BOM controls.
 - Run full native default/thesis/all over the same three known roots, re-discover the actual denominator, rehash originals, and report attempted throughput separately from completed semantic coverage. Preserve finite cutoffs and existing075/076/077 blockers; do not claim full semantic acceptance from this performance repair.
+
+## Result
+
+Use a lazy parsed-source line index for lint locations; exact diagnostics and current rule outcomes are preserved, native targets and save budgets pass, and incomplete full coverage remains explicit.
+
+Validation:
+
+- Independent PASS at Wcb1f8777e6a8e00f; cargo fmt/clippy/workspace tests pass (189 tests), plus 510 public location comparisons.
+- Matched fresh warning targets pass at 0.263–0.269s for 10000 and 0.607–0.609s for 25000; current-all20 shared roots pass at 7.091–7.224s.
+- Exact native streams/status and per-rule outcomes reconcile; complete-closure hashes, 7441 full-corpus input pins, allocation/drop and dense-save recheck pass. Full semantic deadlines and acceptance gaps remain documented.

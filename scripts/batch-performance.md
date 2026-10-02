@@ -1,6 +1,6 @@
 # Batch performance checkpoint
 
-The [base-074 comparison below](#expanded-lint-comparison-base-074) records the current 26-rule checkpoint. The original base-049 measurements below remain historical evidence.
+The [base-078 source-location repair below](#source-location-repair--base-078) records fresh current measurements and coverage. Base-074 and base-049 remain historical evidence; their finite cutoffs and limitations are preserved.
 
 The base-049 sequential default-lint command visited all 6,417 discovered roots in 146.1–162.3 seconds. Formatter checks and semantic lint commands retain their finite deadline results below; incomplete commands have no completed-root count or full-batch throughput. The targeted controls identify repeated source-prefix scans in lint and repeated matrix row classification in formatting. Their follow-ups remain separate from the existing dense-save work.
 
@@ -239,3 +239,78 @@ No optimization or budget relaxation was made here. The current native cutoffs,
 limited semantic outcomes and prior save-budget misses prevent full performance
 or semantic acceptance. The checkpoint supplies integration/accounting evidence
 for the coordinator and subsequent repairs.
+
+## Source-location repair — base-078
+
+This checkpoint uses HEAD `3b4ab1e9a04a0029f5109dd931002da7e7caa589` plus the recorded source-location change. `target/benchmarks/base078/` contains immutable before/after release binaries, input and standard-library hashes, commands, complete streams and child usage. The installed MiniZinc version receipt reports 2.10.1; no compiler or solver analysis ran for this task. Builds, tests, native timings and allocation observations ran sequentially on the same macOS arm64 host. Filesystem caches and host scheduling were uncontrolled. The first default 100-warning process took 0.312 seconds before and 0.333 seconds after, with only 0.007/0.009 seconds of child CPU; these rows are retained, without a controlled-cold claim.
+
+### Source ownership and compatibility
+
+`ParsedFile::line_column` stores a lazy line-boundary vector in the parsed source. `ModelFile::location`, source-local analysis and loader diagnostics with a parsed source use it. Standalone `SourceLocation::new` and ownerless errors keep their existing behavior. A zero-byte query returns `(1,1)` after slice validation and does not initialize the vector; clean source-local preflight therefore avoids a needless full scan. Parsing and formatting do not build line storage. A lookup still counts Unicode scalar columns within the relevant line, so very long single lines can retain repeated within-line work. This change adds no cross-root cache or semantic interpretation.
+
+The private public-API replay checks 510 repeated reverse lookups through externally constructed `ModelFile` values. Empty source, Unicode, CR, LF, CRLF midpoint, EOF and BOM-adjusted ranges agree exactly with standalone location construction. Both APIs retain invalid UTF-8-boundary/out-of-range panics. Existing public loader, lint and CLI checks pass; no tracked timing or layout tests were added.
+
+### Matched native controls
+
+The warning budgets apply to the original two IDs, `naming,missing-constraint-label`. The additional `all` runs select the current 26 IDs and produce twice as many warnings on these controls. The shared-root target uses current `all`. Each row below contains both fresh native repeats, in seconds. All completed rows exit 1; four before expanded-rule rows retain their 300-second deadline, status -9 and unknown completed-root count.
+
+| Control | Before wall | After wall | Before child CPU | After child CPU |
+| --- | --- | --- | --- | --- |
+| Default, 100 warnings | 0.312 / 0.007 | 0.333 / 0.008 | 0.007 / 0.006 | 0.009 / 0.006 |
+| Default, 1,000 warnings | 0.037 / 0.036 | 0.030 / 0.029 | 0.035 / 0.035 | 0.028 / 0.027 |
+| Default, 10,000 warnings | 0.986 / 0.986 | 0.263 / 0.269 | 0.981 / 0.982 | 0.258 / 0.263 |
+| Default, 25,000 warnings | 5.205 / 5.226 | 0.607 / 0.609 | 5.194 / 5.192 | 0.603 / 0.604 |
+| All, 100 control declarations | 1.185 / 1.189 | 0.385 / 0.383 | 1.182 / 1.184 | 0.377 / 0.375 |
+| All, 1,000 control declarations | 6.386 / 6.516 | 0.479 / 0.495 | 6.373 / 6.423 | 0.476 / 0.487 |
+| All, 10,000 control declarations | timeout / timeout | 5.539 / 5.524 | 299.523 / 299.621 (censored) | 5.483 / 5.465 |
+| All, 25,000 control declarations | timeout / timeout | 30.132 / 31.226 | 299.670 / 299.546 (censored) | 30.023 / 29.839 |
+| All, 1 shared root | 1.183 / 1.180 | 0.363 / 0.362 | 1.178 / 1.176 | 0.360 / 0.359 |
+| All, 3 shared roots | 3.527 / 3.538 | 1.109 / 1.677 | 3.521 / 3.531 | 1.084 / 1.113 |
+| All, 10 shared roots | 11.738 / 11.769 | 3.757 / 3.691 | 11.722 / 11.740 | 3.581 / 3.582 |
+| All, 20 shared roots | 23.495 / 23.294 | 7.149 / 7.224 | 23.466 / 23.272 | 7.129 / 7.163 |
+
+Both repeats meet the 0.6-second target for 10,000 default warnings, 2.5 seconds for 25,000 and 12 seconds for 20 shared roots. Default growth from 10,000 to 25,000 is now about 2.3 times, versus 5.3 times before. Expanded `all` still grows substantially faster and retains other analysis costs; these results do not establish linear cost for every rule.
+
+Native RSS is the exact child's Darwin `os.wait4` high-water value in bytes, converted to MiB. Default 10,000 changes from 14.750/14.750 to 14.859/14.828 MiB; default 25,000 changes from 29.344/29.313 to 29.391/29.406 MiB. Shared 20 changes from 33.109/31.953 to 33.250/36.391 MiB. Expanded 25,000 finishes at 121.844/124.109 MiB; its censored before peaks at 99.719/100.656 MiB cover less work and do not provide a matched completed-memory comparison. Raw small-case wall tails and all CPU/RSS rows remain in `before-matched/` and `after-matched/`.
+
+`reconciliation.json` checks all 24 native pairs. Every complete before control has exact stdout, stderr and status after the change. The four censored before streams remain prefix observations. The bounded seven-root replay adds shared includes, data, rejected syntax, BOM, invalid UTF-8 and missing dependencies under default/thesis/all (2/14/26 IDs). Its 21 structured before/after root pairs have identical source/dependency data and complete rule outcomes, findings, errors and limitations. All six native before/after pairs match, and every native stderr/status matches its separate companion probe. These are matched controls, not full semantic acceptance.
+
+### Separate allocation and drop observations
+
+The unchanged `profile-phases batch` probe measures allocation traffic, live deltas and phase peaks separately from native timing. Default 10,000 analysis requests 12,240,887 bytes before and 12,503,007 after; retained analysis grows from 3,870,080 to 4,001,152 bytes. Default 25,000 requests 27,457,343 to 27,981,607 bytes and retains 9,675,080 to 9,937,224 bytes. These increases include the lazy line vectors (131,072 and 262,144 retained bytes), which drop with the owning source.
+
+The shared-20 probe adds 6,304 bytes to maximum load retained/peak deltas and 87,584 bytes to maximum analysis retained/peak deltas (analysis peak 12,951,883 to 13,039,467 bytes). Total analysis traffic changes from 725,818,560 to 729,312,320 bytes. This bounds the local instrumented memory increase; it does not explain the separate native RSS dispersion.
+
+All reported per-root scopes return exactly to their recorded live baseline, including parsed sources, model contexts, analyses and the new vectors. The 20-root probe retains 20 complete/resolved roots, 20 warnings, 40 limitations and zero roots with all 26 selected rules Completed. Expanded 25,000 observes 50,000 warnings and two limitations; analysis requests 27,445,446,466 bytes over 313,941,728 allocations, with a 72,303,320-byte scoped peak. Requested bytes are allocation traffic, neither retained memory nor RSS. Source-local default roots intentionally have no dependency assessment. Full rule partitions, phase counters and drop snapshots remain in `before-observations/` and `after-observations/`.
+
+### Full current replay and remaining gates
+
+The current native and separate structured commands use the original three positional roots, installed standard library and 600-second deadlines for each process. Discovery finds 6,417 canonical roots (641,084,859 bytes). The unrelated dangling `partridge-packing/.#solve-log.txt` remains a discovery error. No root was excluded to obtain a completed subset.
+
+| Selection | Native wall / child CPU (s) | Native RSS (MiB) | Status and native completed roots | Structured observed / missing roots |
+| --- | --- | --- | --- | --- |
+| Default, 2 IDs | 90.256 / 41.374 | 7,543.250 | 2; 6,417 attempted through completion | 6,417 / 0 |
+| Thesis, 14 IDs | 600.120 / 473.241 | 5,196.250 | -9, deadline; unknown | 518 / 5,899 |
+| All, 26 IDs | 600.237 / 430.759 | 2,943.406 | -9, deadline; unknown | 516 / 5,901 |
+
+Default attempted-input throughput is 6.774 MiB/s. Its 7,543.25 MiB native high-water mark (about 7.37 GiB) remains a substantial full-batch cost. These rows have no fresh matched full-before run, so they do not attribute a full-corpus speed or RSS change to this repair. Completed source-local default analysis also does not establish resolved semantic coverage.
+
+The default probe reports 235,909 warnings and 202 errors. Both default rule partitions contain 6,396 Completed, 16 NotRun and five Unobserved invalid-UTF8 roots. All root records are present; the five per-rule Unobserved results remain explicit. Thesis observes 13,108 warnings, zero errors in its observed prefix and 3,756 limitations; all observes 3,481 warnings, zero prefix errors and 5,256 limitations. Their missing root records become Unobserved in every selected rule partition, each with the full 6,417 denominator. Zero observed prefix errors does not establish an error-free corpus. Thesis has 83 complete/resolved roots and all has 81; neither has a root with every selected rule Completed. The native completed counts remain unknown for both killed processes.
+
+Every reported root drop returns to its exact live baseline. This does not cover the active scope killed at a deadline or explain OS high-water memory. `full-audit.json` reconciles all records, partitions and drops. The full pre-campaign root/stdlib map and the two supplemental `.mzn.model` inputs rehash unchanged: 7,441 paths, with no drift. Default native/probe complete stderr and status match exactly; semantic deadline streams remain separate prefix observations.
+
+The independently established base-075 standard-include repair and base-076 default-overload repair remain documented in `semantic-corpus-checkpoint.md`. This location change adds no loading or callable support. The bounded shared replay still retains installed optional-operator limitations and search-coverage advice. Current full syntax, dependency, semantic and performance gaps continue to block final acceptance; these three local performance targets do not complete the corpus gate.
+
+### Fresh complete-closure replay
+
+The initial bounded hash map covered 1,053 roots and standard-library files but omitted two imported files: `base047/shared-includes/shared.mzn` and `base049/controls/shared-roots/common.mzn`. Their matching diagnostics are not a substitute for pre-campaign hashes. A separate fresh replay captures the complete 1,055-path closure before and after, leaving all original measurements intact. Every hash remains unchanged.
+
+This replay repeats shared 1/3/10/20 and the seven-root default/thesis/all controls with the immutable before/after executables. All 14 native pairs have exact complete stdout, stderr and status; all 55 structured root pairs have identical sources, dependency identities and full rule results, with exact reported scope drops. Fresh shared-20 wall times are 23.277/23.321 seconds before and 7.130/7.091 after, again below 12 seconds. Their RSS values are 30.859/32.141 MiB before and 35.563/30.391 after; the dispersion remains visible. `closure-replay-index.json`, `closure-audit.json` and `closure-pins-{before,after}.json` retain the commands, outcomes and hash timing.
+
+### Format-on-save recheck and validation
+
+The existing save driver records 50 fresh `--stdin-filepath` samples for ordinary-changed and the 966,669-byte dense array under default and nested EditorConfig settings. All 200 before/after sample pairs preserve output hash, byte count, status and stderr. Dense p95 changes from 90.303/90.791 to 90.577/90.791 ms; after median child CPU is 79.655/79.806 ms. Five interleaved native before/after dense saves per setting retain exact full output bytes; every after RSS value lies between 63.9375 and 63.984375 MiB. Both 100 ms/64 MiB budgets remain met, with the same narrow memory margin. Ordinary medians change from 4.244/4.321 to 4.500/4.533 ms (CPU 2.715/2.755 to 2.856/2.937 ms); all raw tails remain visible. The new lazy vector is not initialized by formatting. The save driver's denied `time -l` capability rows remain retained; separate per-child `wait4` captures supply native RSS.
+
+`commands.json` records exact commands, merged logs, exit status and reaped receipts. `before-binaries.json` and `after-binaries.json` pin formatter, linter, probe and library copies; `controls.json`, `environment.json`, `original-inputs.json` and the closure/full maps pin their inputs and environment. Native measurements use the existing `scripts/bench-save.py batch` driver, while `profile-phases batch` runs separately for attribution. `location-check.rs` exercises the public location APIs; `reconciliation.json`, `closure-audit.json`, `full-audit.json` and `save-audit.json` retain the comparisons. The original duplicate-`--lib` build rejection, setup notes, capability failures and all deadline rows remain identifiable. No solver, corpus acceptance replacement, semantic optimization or new tracked test was added.
+
+Final `cargo fmt --all -- --check`, `cargo clippy --offline --workspace --all-targets -- -D warnings` and `cargo test --offline --workspace` pass. Read-only `zdev check base --format json` and `git diff --check` also pass. The final ownership manifest retains the unchanged HEAD/main/empty index and six foreign files; all owned command handles are terminal and reaped.

@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 79
-- Ready: 2
+- Ready: 1
 - Blocked: 1
-- Done: 76
+- Done: 77
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -86,5 +86,5 @@
 | [base-075](tasks/075-load-compiler-supported-standard-include-re-entries.md) | Load compiler-supported standard include re-entries | done | — |
 | [base-076](tasks/076-resolve-supported-defaulted-and-qualified-callable-overloads.md) | Resolve supported defaulted and qualified callable overloads | done | base-075 |
 | [base-077](tasks/077-close-the-remaining-dense-save-memory-and-latency-budgets.md) | Close the remaining dense-save memory and latency budgets | done | — |
-| [base-078](tasks/078-avoid-repeated-source-prefix-scans-for-lint-locations.md) | Avoid repeated source-prefix scans for lint locations | ready | — |
+| [base-078](tasks/078-avoid-repeated-source-prefix-scans-for-lint-locations.md) | Avoid repeated source-prefix scans for lint locations | done | — |
 | [base-079](tasks/079-avoid-repeated-row-classification-while-measuring-matrix-wid.md) | Avoid repeated row classification while measuring matrix widths | ready | — |
