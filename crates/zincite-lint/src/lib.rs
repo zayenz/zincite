@@ -35,6 +35,8 @@ mod symmetry;
 mod types;
 mod unbounded_variable;
 mod unused_declarations;
+mod unused_generator;
+pub use unused_generator::{GeneratorBindingUsage, resolve_generator_binding_usage};
 mod vacuous_constraint;
 mod value_safety;
 pub use analysis::{

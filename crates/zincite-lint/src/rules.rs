@@ -101,6 +101,7 @@ pub enum Rule {
     HiddenOptionality,
     PartialExpression,
     VacuousConstraint,
+    UnusedGeneratorBinding,
 }
 
 impl Rule {
@@ -135,6 +136,7 @@ impl Rule {
                 Self::HiddenOptionality,
                 Self::PartialExpression,
                 Self::VacuousConstraint,
+                Self::UnusedGeneratorBinding,
             ])
     }
 
@@ -281,6 +283,13 @@ impl Rule {
                 "Report proved empty quantifiers, rejecting filters and constant constraint or condition truth.",
                 "Guarded Boolean truth/definedness, optional present counts and iteration filter/coverage facts.",
                 "Supported empty forall/exists, impossible where filters, true constraints and false conditions/constraints are considered. Facts under guards remain conditional on those assumptions. Unknown parameters and partial self-comparisons stay quiet; relational false differs from numeric totality and assertion abort. Optional capacity does not prove present elements. Upstream evaluation must be defined before empty quantifier identities are reported. Advice guesses neither intent nor feasibility and offers no removal, reordering or fix. Unsupported required facts report limitations.",
+            ),
+            Self::UnusedGeneratorBinding => (
+                "unused-generator-binding",
+                RuleFamily::Suspicious,
+                "Identify unused generator names while retaining every iteration and evaluation.",
+                "Resolved uses across remaining domains, filters, bodies and annotations; iteration multiplicity and guarded obligations.",
+                "Anonymous and underscore-prefixed names are exempt. Core Boolean repetition is distinguished from arithmetic terms/factors; unknown aggregate semantics authorize no identity. Partiality obligations remain in diagnostics and prospective anonymization metadata. No generator removal, hoisting or source fix is implemented.",
             ),
             Self::SuspiciousShadowing => (
                 "suspicious-shadowing",

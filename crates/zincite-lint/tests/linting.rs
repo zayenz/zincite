@@ -24,6 +24,7 @@ fn catalogue_exposes_current_capabilities_and_preserves_presets() {
         Rule::HiddenOptionality,
         Rule::PartialExpression,
         Rule::VacuousConstraint,
+        Rule::UnusedGeneratorBinding,
     ]) {
         let metadata = rule.metadata();
         assert_eq!(metadata.id, rule.id());
@@ -345,6 +346,7 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
                     "hidden-optionality",
                     "partial-expression",
                     "vacuous-constraint",
+                    "unused-generator-binding",
                 ])
                 .collect(),
         ),
@@ -425,7 +427,8 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
                 Rule::IndexSetMismatch,
                 Rule::HiddenOptionality,
                 Rule::PartialExpression,
-                Rule::VacuousConstraint
+                Rule::VacuousConstraint,
+                Rule::UnusedGeneratorBinding
             ])
             .collect::<Vec<_>>()
     );

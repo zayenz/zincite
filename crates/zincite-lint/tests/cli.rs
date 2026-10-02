@@ -35,7 +35,7 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     let list = run(&["--list-rules"], "not valid MiniZinc");
     assert!(list.status.success() && list.stderr.is_empty());
     let list = String::from_utf8(list.stdout).unwrap();
-    assert_eq!(list.lines().count(), 23);
+    assert_eq!(list.lines().count(), 24);
     assert!(list.contains("naming\tstyle\tavailable\tnone\tdefault"));
     assert!(list.contains("search-coverage\tmodelling\tavailable\tnone\tthesis"));
     assert!(list.contains("index-set-mismatch\tcorrectness\tavailable\tnone\topt-in"));
@@ -1713,5 +1713,70 @@ fn vacuity_cli_keeps_opt_in_selection_suppression_and_statuses() {
         std::fs::read_to_string(&root).unwrap(),
         "constraint true; solve satisfy;"
     );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn unused_generator_selection_suppression_and_metadata_preserve_source_and_status() {
+    let dir = std::env::temp_dir().join(format!(
+        "zincite-unused-generator-cli-{}",
+        std::process::id()
+    ));
+    let library = dir.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(library.join("std/stdlib.mzn"), "function set of int:'..'(int:a,int:b); function bool:forall(array[int] of bool:a); function int:sum(array[int] of int:a);").unwrap();
+    let root = dir.join("root.mzn");
+    let source = "% zincite-lint: ignore unused-generator-binding\nconstraint :: \"Repeated check\" forall(hidden in 1..3)(true);\nint:total=sum(term in 1..3)(2); solve satisfy;";
+    std::fs::write(&root, source).unwrap();
+    let args = [
+        "--rules",
+        "unused-generator-binding",
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        root.to_str().unwrap(),
+    ];
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let text = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(
+        text.matches("warning [unused-generator-binding]").count(),
+        1
+    );
+    assert!(text.contains("'term'") && text.contains("does not make iterations removable"));
+    assert_eq!(
+        run(&["--rules", "default", args[2], args[3], args[4]], "")
+            .status
+            .code(),
+        Some(0)
+    );
+    let explain = run(&["--explain", "unused-generator-binding"], "invalid input");
+    assert!(explain.status.success());
+    let text = String::from_utf8(explain.stdout).unwrap();
+    assert!(
+        text.contains("Family: suspicious")
+            && text.contains("Availability: available")
+            && text.contains("Fix support: none")
+            && text.contains("Partiality obligations")
+    );
+    let stdin = run(&["--rules", "unused-generator-binding"], source);
+    assert_eq!(stdin.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&stdin.stderr).contains("requires a ModelContext"));
+    let broken = dir.join("broken.mzn");
+    std::fs::write(&broken, "int:bad=;").unwrap();
+    let mixed = run(
+        &[
+            args[0],
+            args[1],
+            args[2],
+            args[3],
+            broken.to_str().unwrap(),
+            args[4],
+        ],
+        "",
+    );
+    assert_eq!(mixed.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&mixed.stderr).contains("warning [unused-generator-binding]"));
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
     std::fs::remove_dir_all(dir).unwrap();
 }
