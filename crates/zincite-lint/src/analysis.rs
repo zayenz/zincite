@@ -204,6 +204,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
     let mut constant_incomplete = false;
     let mut unbounded_incomplete = false;
     let mut capture_incomplete = false;
+    let mut shadowing_incomplete = false;
     let mut element_incomplete = false;
     let mut global_incomplete = false;
     let mut symmetry_incomplete = false;
@@ -212,6 +213,16 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
     let mut unused_incomplete = false;
     if !data && options.requires_model() {
         let facts = resolve_bindings(context);
+        if options.rules.contains(&Rule::SuspiciousShadowing) {
+            let (findings, limitations) = crate::shadowing::check_shadowing(
+                context,
+                &facts,
+                &options.parameters.shadowing_ignore_names,
+            );
+            shadowing_incomplete = !limitations.is_empty();
+            result.findings.extend(findings);
+            result.limitations.extend(limitations);
+        }
         let domains = if options.rules.contains(&Rule::ArrayIndexStart)
             || options.rules.contains(&Rule::ConstantVariable)
             || options.rules.contains(&Rule::UnboundedVariable)
@@ -498,6 +509,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             } else if rule.requires_model()
                 && (shared_incomplete
                     || (rule == Rule::GlobalVariableInFunction && capture_incomplete)
+                    || (rule == Rule::SuspiciousShadowing && shadowing_incomplete)
                     || (rule == Rule::ElementPredicate && element_incomplete)
                     || (rule == Rule::ReifiedGlobal && global_incomplete)
                     || (rule == Rule::UnmarkedSymmetryBreaking && symmetry_incomplete)

@@ -58,6 +58,10 @@ pub struct Declaration {
     pub name: String,
     pub role: DeclarationRole,
     pub top_level: bool,
+    /// Lookup before this declaration is bound, excluding its own lexical frame.
+    /// Callable formals use the enclosing scope, as their defaults do. Top-level
+    /// declarations have no enclosing binding; ambiguity is retained explicitly.
+    pub shadowed: BindingResolution,
     pub instantiation: Instantiation,
 }
 
@@ -182,6 +186,17 @@ impl<'a> Builder<'a> {
             let source = &self.context.files[file];
             let token = &source.parsed.tokens()[index];
             let name = identity(&source.parsed.source()[token.range.clone()]);
+            let shadowed = match scopes {
+                None => BindingResolution::Unresolved,
+                Some(scopes) => {
+                    let outer = if role == DeclarationRole::Parameter {
+                        scopes
+                    } else {
+                        &scopes[..scopes.len().saturating_sub(1)]
+                    };
+                    self.lookup(&name, outer)
+                }
+            };
             let id = DeclarationId(self.facts.declarations.len());
             self.facts.declarations.push(Declaration {
                 id,
@@ -192,6 +207,7 @@ impl<'a> Builder<'a> {
                 name: name.clone(),
                 role,
                 top_level,
+                shadowed,
                 instantiation: Instantiation::Unknown,
             });
             self.types.push(ty.map(|ty| (file, ty)));

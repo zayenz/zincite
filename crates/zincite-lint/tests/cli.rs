@@ -1436,15 +1436,10 @@ fn hidden_optionality_selection_suppression_and_limits_keep_status_and_source_co
     assert_eq!(output.status.code(), Some(2));
     let text = String::from_utf8_lossy(&output.stderr);
     assert!(text.contains("warning [hidden-optionality]") && text.contains("error:"));
-    // Family expansion includes this available rule; the retained placeholder
-    // still makes the whole family unavailable for execution.
+    // All suspicious-family rules are now available; plain stdin remains limited.
     let family = run(&["--rules", "family:suspicious"], "");
-    assert_eq!(family.status.code(), Some(2));
-    let text = String::from_utf8_lossy(&family.stderr);
-    assert!(
-        text.contains("suspicious-shadowing") && !text.contains("hidden-optionality"),
-        "{text}"
-    );
+    assert_eq!(family.status.code(), Some(0));
+    assert!(!String::from_utf8_lossy(&family.stderr).contains("unavailable rules"));
     assert_eq!(run(&["--rules", "all"], "").status.code(), Some(2));
     assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
     std::fs::remove_dir_all(dir).unwrap();
@@ -1542,5 +1537,81 @@ fn partial_expression_cli_reports_scoped_hazards_and_keeps_status_precedence() {
             .count(),
         1
     );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn shadowing_settings_presets_and_exact_suppression_keep_sources_read_only() {
+    let dir = std::env::temp_dir().join(format!("zincite-shadowing-cli-{}", std::process::id()));
+    let library = dir.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(library.join("std/stdlib.mzn"), "").unwrap();
+    let root = dir.join("root.mzn");
+    let source = concat!(
+        "var 0..9: decision;\n",
+        "function int: local()=let {int:decision=1;} in decision;\n",
+        "% zincite-lint: ignore suspicious-shadowing\n",
+        "function int: suppressed(int:decision)=decision;\n",
+        "solve satisfy;\n",
+    );
+    std::fs::write(&root, source).unwrap();
+    let config = dir.join("zincite.toml");
+    let preset = "[lint]\nselect=['preset:personal']\n[lint.presets.personal]\nselect=['suspicious-shadowing']\n[lint.presets.personal.options.suspicious-shadowing]\nignore-names=['decision']\n";
+    std::fs::write(&config, preset).unwrap();
+    let args = [
+        "--config",
+        config.to_str().unwrap(),
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        root.to_str().unwrap(),
+    ];
+    let allowed = run(&args, "");
+    assert_eq!(allowed.status.code(), Some(0));
+    assert!(allowed.stdout.is_empty() && allowed.stderr.is_empty());
+    std::fs::write(
+        &config,
+        format!("{preset}[lint.options.suspicious-shadowing]\nignore-names=[]\n"),
+    )
+    .unwrap();
+    let warning = run(&args, "");
+    assert_eq!(warning.status.code(), Some(1));
+    assert!(warning.stdout.is_empty());
+    let text = String::from_utf8(warning.stderr).unwrap();
+    assert_eq!(text.matches("warning [suspicious-shadowing]").count(), 1);
+    assert!(
+        text.contains(&format!("{}:1:11 bytes 10..18", root.display())),
+        "{text}"
+    );
+    let selected = run(
+        &[
+            args[0], args[1], args[2], args[3], "--rules", "naming", args[4],
+        ],
+        "",
+    );
+    assert_eq!(selected.status.code(), Some(0));
+    let explanation = run(&["--explain", "suspicious-shadowing"], "invalid input");
+    assert!(explanation.status.success());
+    let text = String::from_utf8(explanation.stdout).unwrap();
+    assert!(
+        text.contains("Availability: available")
+            && text.contains("ignore-names")
+            && text.contains("Fix support: none")
+    );
+    let stdin = run(&["--rules", "suspicious-shadowing"], source);
+    assert_eq!(stdin.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&stdin.stderr).contains("requires a ModelContext"));
+    let data = run(
+        &[
+            "--rules",
+            "suspicious-shadowing",
+            "--stdin-filepath",
+            "data.dzn",
+            "--isolated",
+        ],
+        "decision=1;",
+    );
+    assert_eq!(data.status.code(), Some(0));
+    assert!(data.stderr.is_empty());
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
     std::fs::remove_dir_all(dir).unwrap();
 }

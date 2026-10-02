@@ -549,13 +549,14 @@ fn personal_presets_merge_typed_options_and_reject_ambiguous_or_invalid_settings
         LintSettings::default().resolve().unwrap().parameters,
         RuleOptions::default()
     );
-    assert!(Rule::ADDITIONAL.iter().all(|rule| !rule.is_available()));
+    assert!(Rule::SuspiciousShadowing.is_available());
+    assert!(!Rule::ExpensiveComprehension.is_available());
     assert!(
         zincite_lint::LintOptions::from_selection("all")
             .unwrap()
             .check_available()
             .unwrap_err()
-            .contains("suspicious-shadowing")
+            .contains("expensive-comprehension")
     );
     // Registered disabled rules accept exact-ID suppressions, without executing them.
     assert!(
