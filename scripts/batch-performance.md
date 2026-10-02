@@ -314,3 +314,209 @@ The existing save driver records 50 fresh `--stdin-filepath` samples for ordinar
 `commands.json` records exact commands, merged logs, exit status and reaped receipts. `before-binaries.json` and `after-binaries.json` pin formatter, linter, probe and library copies; `controls.json`, `environment.json`, `original-inputs.json` and the closure/full maps pin their inputs and environment. Native measurements use the existing `scripts/bench-save.py batch` driver, while `profile-phases batch` runs separately for attribution. `location-check.rs` exercises the public location APIs; `reconciliation.json`, `closure-audit.json`, `full-audit.json` and `save-audit.json` retain the comparisons. The original duplicate-`--lib` build rejection, setup notes, capability failures and all deadline rows remain identifiable. No solver, corpus acceptance replacement, semantic optimization or new tracked test was added.
 
 Final `cargo fmt --all -- --check`, `cargo clippy --offline --workspace --all-targets -- -D warnings` and `cargo test --offline --workspace` pass. Read-only `zdev check base --format json` and `git diff --check` also pass. The final ownership manifest retains the unchanged HEAD/main/empty index and six foreign files; all owned command handles are terminal and reaped.
+
+
+## Matrix width repair — base-079
+
+Matrix layout now classifies each row once in its own layout scope. The local
+`(row, indexed)` vector supplies the existing index-width calculation, cell
+rendering and per-column width closure. The closure no longer scans each row's
+children for a colon for every column. Row order, classification, rendered cells,
+width decisions, shared breaks and output bytes stay unchanged. The vector drops
+when that layout calculation returns; no public API, parser, CST, layout engine,
+cache, probe or driver changes.
+
+The baseline is HEAD `918f327216a1a122f54e8e66effcc74361a6d4bd` on
+2026-10-02, macOS 26.6.2 arm64, Apple M1 Max with 64 GiB, Rust 1.98.1 and
+Python 3.14.6. Immutable before/after release executables, exact input hashes,
+source pins and full command receipts live in `target/benchmarks/base079`.
+Cargo's release settings are unchanged. Builds, native checks, allocation/drop
+probes, save samples, corpus campaigns and tests run sequentially. Host load and
+ordinary warm filesystem caches remain uncontrolled; first uses are separate.
+
+### Matched native checks and output fidelity
+
+Each version has two fresh file-backed `zincite-fmt --check` processes per case,
+with a 120-second deadline, complete stdout/stderr, child CPU and exact-child
+Darwin `wait4` RSS. Every check completes with status 1, empty stdout and empty
+stderr. A separate full-source formatter run per version/case retains output;
+all six before/after outputs are byte-identical. Two observations are not p95.
+
+| Case | Input bytes | Before wall s | After wall s | Before child CPU s | After child CPU s | Before RSS MiB | After RSS MiB |
+| --- | ---: | --- | --- | --- | --- | --- | --- |
+| public-wide | 885,733 | 9.515204 / 9.578185 | 0.367222 / 0.364887 | 9.486472 / 9.552512 | 0.364142 / 0.361733 | 104.968750 / 105.562500 | 106.656250 / 105.078125 |
+| small-table | 619,533 | 0.080956 / 0.081027 | 0.082091 / 0.080935 | 0.078232 / 0.078349 | 0.078857 / 0.078205 | 49.921875 / 49.984375 | 50.000000 / 50.000000 |
+| large-table | 27,775,980 | 3.827149 / 3.720487 | 3.780931 / 3.692232 | 3.820246 / 3.714110 | 3.763152 / 3.678816 | 2221.984375 / 2221.953125 | 2222.015625 / 2222.000000 |
+| wide-5000 | 30,014 | 0.278210 / 0.273328 | 0.019601 / 0.018390 | 0.275570 / 0.271389 | 0.017380 / 0.016757 | 6.265625 / 6.265625 | 6.343750 / 6.328125 |
+| wide-15000 | 90,014 | 2.429597 / 2.386802 | 0.047523 / 0.046790 | 2.425523 / 2.384120 | 0.045539 / 0.045134 | 14.640625 / 15.625000 | 14.625000 / 14.593750 |
+| wide-30000 | 180,014 | 10.851250 / 10.755378 | 0.090804 / 0.090281 | 10.841687 / 10.750073 | 0.088500 / 0.087745 | 32.953125 / 27.343750 | 27.156250 / 27.125000 |
+
+Both 30,000-column checks pass the 0.5-second target; both public-wide checks
+pass one second. Fixed-row child CPU rises from about 0.017 seconds at 5,000
+columns to 0.045 at 15,000 and 0.088 at 30,000. This is roughly proportional
+rather than the retained baseline's quadratic growth. The small and large public
+table controls show no material native regression. This local result does not
+identify every cost in the full formatter batch.
+
+The existing developer checker runs separately with an adequate 120-second
+limit on the public wide and 30,000-column synthetic inputs. Before and after
+both pass exact token/tree coverage, original spelling/structure/protected-byte
+preservation, clean parse/reparse and second-pass stability. Three independent
+parse/format/lint scopes per input return exactly to their recorded live baseline.
+The probe checks the caller's `ParsedFile` source and lints it after formatting,
+so formatting still leaves the borrowed parse usable.
+
+### Separate allocation attribution
+
+The unchanged phase probe retains the CST during formatting. These are format
+phase counters and instrumented times, separate from native process wall/RSS.
+Requested bytes describe allocation traffic; retained/peak deltas describe tracked
+heap bytes, not the operating system's high-water value.
+
+| Case | Format ms before → after | Allocation calls before → after | Requested bytes before → after | Retained bytes before → after | Peak delta bytes before → after |
+| --- | --- | --- | --- | --- | --- |
+| wide-5000 | 268.754 → 12.709 | 255,149 → 255,151 | 9,013,982 → 9,014,110 | 65,536 → 65,536 | 1,757,223 → 1,757,223 |
+| wide-15000 | 2418.091 → 38.419 | 765,163 → 765,165 | 20,557,123 → 20,557,251 | 262,144 → 262,144 | 3,690,423 → 3,690,423 |
+| wide-30000 | 10737.274 → 80.490 | 1,530,176 → 1,530,178 | 41,115,868 → 41,115,996 | 524,288 → 524,288 | 7,380,751 → 7,380,751 |
+| public-wide | 9409.815 → 322.422 | 6,250,076 → 6,250,148 | 196,600,862 → 198,862,238 | 2,469,836 → 2,469,836 | 15,857,904 → 15,857,904 |
+
+The local vectors add allocation traffic while eliminating the repeated scans.
+Public-wide format traffic increases by 2,261,376 bytes and 72 calls, with the
+same retained/peak counters. Its formatting phase still makes about 6.25 million
+allocation calls and requests about 199 MB. Scope-drop checks prove release of
+tracked live allocations; they do not establish a native allocator plateau or
+attribute full-batch high-water memory. No further profiler was needed to confirm
+that this change removes the specifically measured fixed-row CPU growth.
+
+### Unchanged formal save budgets
+
+The existing save driver now includes the public wide matrix alongside all 13
+established named cases. Every case/settings entry has 50 fresh stdin saves,
+complete stdout capture, separate decoded UTF-8 diagnostic capture, status and
+child CPU. Default/nested EditorConfig both resolve to the established four-space,
+LF, width-120 settings. Separate native stdin saves retain raw complete streams
+and exact-child RSS with 30-second watchdogs. All 1,400 sample statuses and
+outputs match those native controls. Known-case hashes remain identical to prior
+current outputs; invalid syntax still exits 2 with no stdout.
+
+| Save shape | Settings | Input bytes | p50 ms | p95 ms | min–max ms | Native stdin RSS MiB | 100 ms / 64 MiB gate |
+| --- | --- | ---: | ---: | ---: | --- | ---: | --- |
+| dense-1000000 | D | 966,669 | 88.609 | 90.949 | 87.618–92.103 | 63.953125 | pass |
+| dense-1000000 | N | 966,669 | 88.918 | 90.624 | 87.485–91.616 | 63.968750 | pass |
+| public-wide | D | 885,733 | 376.136 | 380.463 | 370.734–382.619 | 106.296875 | FAIL latency and RSS |
+| public-wide | N | 885,733 | 375.980 | 382.080 | 369.993–416.748 | 105.125000 | FAIL latency and RSS |
+
+The public-wide input is 885,733 bytes, so both misses belong to the unchanged
+100 ms / 64 MiB formal gate. Passing its separate one-second optimization target
+does not pass format-on-save acceptance. All established representative cases
+within 1 MiB still pass their own latency/RSS gates; the supported 1.93 MB dense
+case remains outside those interactive size budgets. No hard case or tail was
+removed. Denied `time -l` capability attempts remain in the raw save report;
+separate `wait4` measurements provide the available RSS.
+
+Campaign first use is 5.383 ms wall / 3.131 ms child CPU on an executable already
+used by the matched controls. The first `--help` on each immutable executable
+copy is retained separately in the matched reports. These are neither controlled
+cold-cache measurements nor evidence that the material fresh-copy launch delay
+documented in base-048 has disappeared.
+
+A bounded follow-up must address the public-wide save shape using the retained
+885,733-byte input, complete identical output and both configuration variants.
+It should attribute the remaining cell-rendering allocation/CPU work separately
+from retained parser memory, then keep only a measured local improvement and
+recheck 100 ms / 64 MiB with the established dense/small controls. The present
+repair does not broaden into that optimization or relax its gate.
+
+### Two full native formatter repeats
+
+The same three positional directories are rediscovered for the fresh campaign:
+the Challenge checkout, `~/minizinc`, and the 2026 supplement. The manifest has
+6,417 canonical roots and 641,084,859 bytes. All original source hashes and the
+formatter's existing EditorConfig sidecars are pinned before execution and
+rehashed unchanged afterward. Formatting does not load includes or semantic
+sidecars. Each fresh `zincite-fmt --check` has a finite 900-second deadline.
+
+| Repeat | Native wall s | Child CPU s | Native RSS MiB | Status | Attempted roots through completion |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 0 | 109.376963 | 108.456146 | 8083.250000 | 2 | 6,417 |
+| 1 | 110.226764 | 108.209802 | 8715.890625 | 2 | 6,417 |
+
+Both commands finish, with exact matching complete stdout/stderr and status 2.
+The existing dangling non-source file remains a discovery error; input/syntax
+errors also remain in stderr. Completed attempts do not establish that every
+input is valid or formats successfully. Native RSS reaches about 7.89/8.51 GiB,
+a substantial remaining batch cost. No completed-root count was inferred from a
+stderr prefix, and no timed-out root was excluded. The historical base-049
+300-second cutoffs stay retained. This fresh completion follows the current
+source state; it does not attribute all improvement from that older revision to
+this single row-classification change.
+
+### Fresh syntax/format corpus and validation
+
+The fresh existing corpus runner uses the current pinned checker without
+`--rules`, ten-second per-file deadlines and a finite 1,800-second campaign
+limit. It attempts all 6,417 canonical inputs, rehashes every original unchanged
+and reaches no campaign cutoff. The checker campaign takes 268.562 seconds.
+There are 6,390 clean completions and 27 retained gaps: six timeouts, 12 syntax
+assessments, four model-constructs-in-data inputs and five invalid UTF-8 files.
+No row is Unobserved. All jointly reported raw results are identical to base-077
+(6,394 rows); the remaining 17 former timeouts now complete cleanly. Input paths,
+sizes and hashes match that campaign exactly. Rejected/timeout rows and all raw
+streams remain in `target/corpus/base079-final`; this is not complete language
+or semantic acceptance.
+
+The public wide and synthetic 30,000-column inputs have the separate adequate
+120-second before/after fidelity controls above. Current small/27.8 MB table
+supplements also pass exact token/tree coverage, spelling/structure/protected
+bytes, clean parse/reparse and idempotence within 120-second limits. Their
+checker wall times are 0.191 and 8.811 seconds, with native RSS 136.703125 and
+4,726.343750 MiB. Separate three-scope drop probes complete in 0.249/11.312
+seconds and return exactly to their tracked live baselines. All native streams
+and original input pins remain retained; these drop observations do not erase
+the full native high-water or the remaining six corpus timeouts.
+
+Required `cargo fmt --all -- --check`,
+`cargo clippy --offline --workspace --all-targets -- -D warnings` and
+`cargo test --offline --workspace` pass (189 existing tests).
+`git diff --check` passes. No tracked test was added: existing public matrix,
+comment/protected-range, width-break, BOM/settings and layout checks cover the
+unchanged behavior. The initial private reconciliation helper incorrectly
+expected the checker fields to say `match` instead of the established `ok`;
+its script and setup note remain retained. Corrected reconciliation passes
+without changing source behavior. Earlier denied capabilities, first-use tails,
+base-049 cutoffs and base-077/078 evidence stay intact.
+
+Repeat from the repository root with new report output paths:
+
+```sh
+cargo build --offline --release -p zincite-fmt --bin zincite-fmt \
+  --example profile-phases --example check-corpus-file -p zincite-lint --bin zincite-lint
+python3 scripts/bench-save.py batch \
+  /private/tmp/portfolio-150-mzn-challenge-a844 /Users/zayenz/minizinc \
+  /private/tmp/zincite-base023-mznc2026-probs \
+  --selection format --native-only --repeat 2 --timeout 900 --probe-timeout 120 \
+  --output target/benchmarks/NEW-FORMAT-REPORT
+python3 scripts/bench-save.py --samples 50 \
+  --external /private/tmp/portfolio-150-mzn-challenge-a844/2021/ATSP/atsp.mzn \
+  --external /private/tmp/portfolio-150-mzn-challenge-a844/2021/java-routing/trip_7_4.mzn \
+  --external /private/tmp/portfolio-150-mzn-challenge-a844/2019/groupsplitter/u7g2pref1.dzn \
+  --output target/benchmarks/NEW-SAVE-REPORT.json
+python3 scripts/check-corpus.py \
+  --challenge /private/tmp/portfolio-150-mzn-challenge-a844 \
+  --local /Users/zayenz/minizinc --supplement /private/tmp/zincite-base023-mznc2026-probs \
+  --binary target/release/examples/check-corpus-file --timeout 10 --campaign-timeout 1800 \
+  --output target/corpus/NEW-FORMAT-CORPUS
+```
+
+The ignored `target/benchmarks/base079` contains exact before/after binaries,
+controls, source/configuration pins, commands and every native/probe stream.
+`matched.py`, `save-campaign.py`, `save-native.py`, `full-format.py` and
+`table-supplement.py` record supplementary recipes with exclusive output paths;
+use a new report directory when replaying. `reconciliation.json` and
+`corpus-audit.json` retain exact comparisons, while the compact validation and
+ownership indices identify the frozen files and all terminal/reaped commands.
+Only `crates/zincite-fmt/src/lib.rs` and these two performance reports change.
+The six foreign files, external originals and index remain unchanged; task
+records, lifecycle and commit belong to the coordinator. Current wide-save
+latency/memory misses, high full-batch RSS, corpus gaps and existing incomplete
+semantic acceptance continue to block the final gate.

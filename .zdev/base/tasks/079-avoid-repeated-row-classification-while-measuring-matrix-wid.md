@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-079"
 key = "matrix-width-row-classification-cost"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -27,9 +27,9 @@ Read brief Performance and format-on-save and scripts/batch-performance.md. Thre
 
 ## Done when
 
-- [ ] Avoid repeated whole-row classification scans during per-column width calculation and retain byte-identical matched formatting outputs/statuses; public wide and synthetic30000 remain clean parse/reparse, coverage/spelling/structure/protected-byte/idempotence controls.
-- [ ] Meet matched native --check targets of at most0.5 seconds on30000-column/three-row data and1 second on the public wide matrix, with fixed-row CPU growth roughly proportional to columns. These are bounded optimization targets; independently measure the unchanged formal save budgets and retain any miss as a final acceptance blocker.
-- [ ] Replay both fresh full native formatter checks over every currently discovered root under finite adequate deadlines, reporting RSS and actual completion without assuming the local fix explains all prior300-second cutoffs. Full native replay is required acceptance evidence; preserve any residual cutoff/high-water gap and existing077/050 gating.
+- [x] Avoid repeated whole-row classification scans during per-column width calculation and retain byte-identical matched formatting outputs/statuses; public wide and synthetic30000 remain clean parse/reparse, coverage/spelling/structure/protected-byte/idempotence controls.
+- [x] Meet matched native --check targets of at most0.5 seconds on30000-column/three-row data and1 second on the public wide matrix, with fixed-row CPU growth roughly proportional to columns. These are bounded optimization targets; independently measure the unchanged formal save budgets and retain any miss as a final acceptance blocker.
+- [x] Replay both fresh full native formatter checks over every currently discovered root under finite adequate deadlines, reporting RSS and actual completion without assuming the local fix explains all prior300-second cutoffs. Full native replay is required acceptance evidence; preserve any residual cutoff/high-water gap and existing077/050 gating.
 
 ## Validation
 
@@ -38,3 +38,13 @@ Read brief Performance and format-on-save and scripts/batch-performance.md. Thre
 - Reuse finite adequate existing fidelity/drop checks for public wide and synthetic30000, and verify ParsedFile remains usable after formatting. Compare requested/live/peak allocations and native per-child RSS; do not treat released scopes as a general allocator plateau.
 - Use the existing50-fresh-sample save protocol for the up-to1MiB wide shape with default/nested EditorConfig, separately retaining first use and native RSS; preserve unchanged100ms/64MiB acceptance criteria and any concrete miss. Do not infer p95 from the two native checks.
 - Run two full native formatter --check repeats over the same three known roots with actual discovery and unchanged original hashes. Run the existing fresh syntax/format corpus without --rules after layout changes, retaining rejects/timeouts and adequate wide/table supplemental checks; no new full semantic campaign is needed for this formatter repair.
+
+## Result
+
+Reuse matrix-row classification within each layout; matched outputs are exact and local timing targets pass. Full formatter repeats complete; formal wide-save failures, corpus gaps and high batch RSS remain final acceptance blockers.
+
+Validation:
+
+- Independent PASS at Wafd231f2614007da; required Cargo fmt/clippy/workspace tests pass (189 tests), with source/caller and report review.
+- Two matched checks pass at 0.090804/0.090281s for synthetic30000 and 0.367222/0.364887s for public wide. Six control outputs match; source fidelity, allocation and exact scope-drop checks pass.
+- Both full native repeats complete all6417 attempts with status2/no timeout; fresh corpus retains6390 clean/27 gaps/0Unobserved. Input/config/binary/raw stream pins and1400 save samples reconcile; wide saves still fail100ms/64MiB while established dense/small gates pass.

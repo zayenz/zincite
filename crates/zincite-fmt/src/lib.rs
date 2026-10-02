@@ -1298,10 +1298,14 @@ impl Formatter<'_> {
     // when neighboring columns move on the next formatting pass.
     fn matrix_layout(&self, node: &SyntaxNode) -> MatrixLayout {
         let indent = (self.indent + 1) * self.options.indent_size.get();
-        let index_width = node
+        let matrix_rows: Vec<_> = node
             .child_nodes()
-            .filter(|row| self.matrix_row_has_index(row))
-            .map(|row| {
+            .map(|row| (row, self.matrix_row_has_index(row)))
+            .collect();
+        let index_width = matrix_rows
+            .iter()
+            .filter(|(_, indexed)| *indexed)
+            .map(|(row, _)| {
                 let mut rendered =
                     self.render_matrix_cell(row.child_nodes().next().unwrap(), indent + 2, 1);
                 let index_width = rendered.current_columns().saturating_sub(indent + 2) + 2;
@@ -1325,8 +1329,7 @@ impl Formatter<'_> {
         let base = indent + 2 + index_width;
         let mut rows = Vec::new();
         let mut forced_breaks = Vec::new();
-        for row in node.child_nodes() {
-            let indexed = self.matrix_row_has_index(row);
+        for &(row, indexed) in &matrix_rows {
             let mut cells = Vec::new();
             for (position, child) in row.children().iter().enumerate() {
                 let SyntaxElement::Node(cell) = child else {
@@ -1399,11 +1402,10 @@ impl Formatter<'_> {
             .take(forced_breaks.len().saturating_sub(1))
         {
             let width_at = |start| {
-                node.child_nodes()
+                matrix_rows
+                    .iter()
                     .zip(&rows)
-                    .filter_map(|(row, cells)| {
-                        cells.get(column + usize::from(self.matrix_row_has_index(row)))
-                    })
+                    .filter_map(|((_, indexed), cells)| cells.get(column + usize::from(*indexed)))
                     .map(|cell| {
                         self.columns_from(cell.slot.split('\n').next().unwrap_or_default(), start)
                             - start

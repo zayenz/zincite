@@ -1,5 +1,9 @@
 # Save command acceptance checkpoint
 
+The base-048 case set below is historical. The base-079 wide-matrix recheck at
+the end adds a representative shape that fails the unchanged save budget.
+Final save acceptance therefore remains blocked despite the earlier passing set.
+
 The existing one-shot release command meets the unchanged repeated-save budgets
 on the user's M1 Max. No Rust, CLI configuration or benchmark-driver change was
 needed. The [editor recipe](../docs/format-on-save.md) uses the edited buffer on
@@ -167,3 +171,33 @@ retains 44 corpus gaps, large public-table results and native RSS growth across
 independent files despite released tracked allocations. Those limitations remain.
 Task records, index, completion and commit belong to the coordinator. The six
 pre-existing foreign files remain unchanged and unstaged.
+
+
+## Base-079: wide-matrix save gate
+
+The local row-classification repair preserves exact matrix output and meets its
+bounded native `--check` targets. The newly measured public wide matrix still
+fails the unchanged format-on-save gate. Its input is 885,733 bytes:
+`2019/groupsplitter/u7g2pref1.dzn` from the read-only Challenge checkout.
+Fifty fresh stdin processes per default/nested EditorConfig entry retain full
+stdout, separate diagnostics, status and child CPU. Separate matched native stdin
+saves capture raw complete streams and exact-child `wait4` RSS. Each save exits 0
+and matches the prior formatting output. No samples are removed or pooled.
+
+| Shape | Default p95 ms | Nested p95 ms | Default RSS MiB | Nested RSS MiB | 100 ms / 64 MiB |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Public wide matrix | 380.463 | 382.080 | 106.296875 | 105.125000 | FAIL both |
+| Dense 966,669-byte array | 90.949 | 90.624 | 63.953125 | 63.968750 | pass |
+
+All 13 established named cases remain in the same 50-sample campaign; each
+representative input up to 1 MiB retains its passing per-case gate. The new wide
+shape prevents a final acceptance claim. The [matrix checkpoint](batch-performance.md#matrix-width-repair--base-079)
+records the native targets, exact outputs, allocation/drop observations, full
+native repeats, corpus gaps and bounded follow-up recommendation. Actual source
+and binary pins plus all 1,400 samples and separate native streams remain under
+`target/benchmarks/base079`. The existing driver/probe are unchanged.
+
+First campaign use is 5.383 ms wall / 3.131 ms child CPU after earlier matched
+invocations on that executable. First `--help` observations for immutable copies
+remain separate. The base-048 fresh-copy launch limitation remains; this recheck
+does not establish controlled cold-cache startup performance.

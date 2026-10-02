@@ -4,8 +4,8 @@
 
 - Total: 79
 - Ready: 1
-- Blocked: 1
-- Done: 77
+- Blocked: 0
+- Done: 78
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -58,7 +58,7 @@
 | [base-047](tasks/047-reduce-the-live-syntax-and-formatting-working-set.md) | Reduce the live syntax and formatting working set | done | base-022 |
 | [base-048](tasks/048-verify-and-document-an-unobtrusive-save-command.md) | Verify and document an unobtrusive save command | done | base-046, base-047, base-077 |
 | [base-049](tasks/049-measure-batch-and-semantic-lint-speed-and-memory.md) | Measure batch and semantic-lint speed and memory | done | base-022, base-029, base-045 |
-| [base-050](tasks/050-verify-corpus-processing-and-full-thesis-lint-coverage.md) | Verify corpus processing and full thesis lint coverage | blocked | base-028, base-045, base-026, base-029, base-048, base-049, base-075, base-076, base-078, base-079 |
+| [base-050](tasks/050-verify-corpus-processing-and-full-thesis-lint-coverage.md) | Verify corpus processing and full thesis lint coverage | ready | base-028, base-045, base-026, base-029, base-048, base-049, base-075, base-076, base-078, base-079 |
 | [base-051](tasks/051-reduce-measured-punctuation-dispatch-cost-in-the-lexer.md) | Reduce measured punctuation dispatch cost in the lexer | done | — |
 | [base-052](tasks/052-accept-compiler-supported-form-feed-layout-and-escaped-singl.md) | Accept compiler-supported form-feed layout and escaped single quotes | done | — |
 | [base-053](tasks/053-accept-the-four-remaining-compiler-supported-item-and-callab.md) | Accept the four remaining compiler-supported item and callable families | done | — |
@@ -87,4 +87,4 @@
 | [base-076](tasks/076-resolve-supported-defaulted-and-qualified-callable-overloads.md) | Resolve supported defaulted and qualified callable overloads | done | base-075 |
 | [base-077](tasks/077-close-the-remaining-dense-save-memory-and-latency-budgets.md) | Close the remaining dense-save memory and latency budgets | done | — |
 | [base-078](tasks/078-avoid-repeated-source-prefix-scans-for-lint-locations.md) | Avoid repeated source-prefix scans for lint locations | done | — |
-| [base-079](tasks/079-avoid-repeated-row-classification-while-measuring-matrix-wid.md) | Avoid repeated row classification while measuring matrix widths | ready | — |
+| [base-079](tasks/079-avoid-repeated-row-classification-while-measuring-matrix-wid.md) | Avoid repeated row classification while measuring matrix widths | done | — |
