@@ -480,6 +480,72 @@ pub(super) fn tokens<'a>(
         })
         .collect()
 }
+/// Written Cartesian slots include anonymous binders, which have no ID.
+pub(super) fn generator_slots(parsed: &zincite_syntax::ParsedFile, node: &SyntaxNode) -> usize {
+    tokens(parsed, node)
+        .into_iter()
+        .take_while(|t| !matches!(t.kind, TokenKind::In | TokenKind::Equal))
+        .filter(|t| {
+            matches!(
+                t.kind,
+                TokenKind::Identifier | TokenKind::QuotedIdentifier | TokenKind::Anonymous
+            )
+        })
+        .count()
+}
+
+/// The selected standard index-set helper and its ordered array dimension.
+pub(super) fn resolved_index_domain(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    domains: &DomainFacts,
+    file: FileId,
+    node: &SyntaxNode,
+) -> Option<(DeclarationId, usize, Domain)> {
+    if node.kind() != NodeKind::CallExpression {
+        return None;
+    }
+    let id = crate::definitions::resolved_call(context, calls, file, node)?;
+    let name = &bindings.declarations[id.0].name;
+    if !crate::definitions::core_callable(context, bindings, id, name) {
+        return None;
+    }
+    let (dimension, rank) = if name == "index_set" {
+        (1, 1)
+    } else {
+        let (d, r) = name.strip_prefix("index_set_")?.split_once("of")?;
+        (d.parse::<usize>().ok()?, r.parse::<usize>().ok()?)
+    };
+    let mut argument = node.child_nodes().next()?;
+    while matches!(
+        argument.kind(),
+        NodeKind::ParenthesizedExpression | NodeKind::AnnotatedExpression
+    ) {
+        argument = argument.child_nodes().next()?;
+    }
+    if argument.kind() != NodeKind::Expression {
+        return None;
+    }
+    let array = crate::definitions::resolved_reference(context, bindings, file, argument)?;
+    let mut domain = &domains.declarations[array.0].domain;
+    while let Domain::Named { domain: inner, .. } = domain {
+        domain = inner;
+    }
+    if let Domain::Array { indices, .. } = domain {
+        if indices.len() != rank {
+            return None;
+        }
+        Some((
+            array,
+            dimension,
+            indices.get(dimension.checked_sub(1)?)?.clone(),
+        ))
+    } else {
+        None
+    }
+}
+
 fn arithmetic_failure() -> NumericBound {
     NumericBound::Unsupported("integer arithmetic overflow or division by zero".into())
 }

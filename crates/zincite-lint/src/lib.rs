@@ -19,6 +19,7 @@ mod element;
 mod global_uses;
 mod guarded;
 mod instantiations;
+mod iteration;
 mod model;
 mod naming;
 mod optional;
@@ -69,6 +70,12 @@ pub use guarded::{
     GuardedOutcome, resolve_guarded_facts, resolve_guarded_facts_with_options,
 };
 pub use instantiations::{ExpressionInstantiation, InstantiationFacts, resolve_instantiations};
+pub use iteration::{
+    CandidateCount, CandidateFactor, IterationArray, IterationBindingUse, IterationCoverage,
+    IterationDependency, IterationExpression, IterationFact, IterationFacts, IterationGenerator,
+    IterationIndexSet, IterationLimitation, IterationMultiplicity, IterationUseRegion,
+    resolve_iteration_facts,
+};
 pub use model::{
     FileId, IncludeEdge, ModelContext, ModelFile, ModelOptions, SourceDiagnostic, SourceKind,
     SourceLocation, load_model,

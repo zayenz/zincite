@@ -1,7 +1,7 @@
 //! Option presence and collection counts, independent of guarded definedness.
 use crate::callables::{core_operation, is_expression};
 use crate::definitions::{resolved_call, resolved_reference};
-use crate::domains::{expression_domain, invariant_integer, tokens};
+use crate::domains::{expression_domain, generator_slots, invariant_integer, tokens};
 use crate::{
     BindingFacts, CallableFacts, DeclarationId, DeclarationRole, DefinitionCoverage,
     DefinitionEnforcement, DefinitionFacts, Domain, DomainFacts, FileId, Instantiation,
@@ -643,7 +643,7 @@ impl Producer<'_> {
                 }
                 // `i,j in S` is an independent Cartesian product, not one
                 // candidate per written generator node.
-                for _ in 0..declarations.len().max(1) {
+                for _ in 0..generator_slots(&self.context.files[file].parsed, generator) {
                     candidates = multiply(candidates, count.clone());
                     capacity = multiply(capacity, count.clone());
                 }

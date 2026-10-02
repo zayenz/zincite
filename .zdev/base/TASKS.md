@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 79
-- Ready: 9
-- Blocked: 13
-- Done: 57
+- Ready: 13
+- Blocked: 8
+- Done: 58
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -68,15 +68,15 @@
 | [base-057](tasks/057-interpret-numeric-intervals-and-intermediate-expression-boun.md) | Interpret numeric intervals and intermediate expression bounds | done | base-034, base-035, base-036 |
 | [base-058](tasks/058-interpret-guarded-truth-and-partial-expression-definedness.md) | Interpret guarded truth and partial-expression definedness | done | base-057 |
 | [base-059](tasks/059-interpret-optional-presence-and-comprehension-cardinality.md) | Interpret optional presence and comprehension cardinality | done | base-034, base-035, base-058 |
-| [base-060](tasks/060-interpret-iteration-coverage-binding-use-and-expansion-size.md) | Interpret iteration coverage, binding use and expansion size | ready | base-032, base-034, base-035, base-058 |
-| [base-061](tasks/061-report-index-set-mismatches-and-off-by-one-accesses.md) | Report index-set mismatches and off-by-one accesses | blocked | base-054, base-060 |
+| [base-060](tasks/060-interpret-iteration-coverage-binding-use-and-expansion-size.md) | Interpret iteration coverage, binding use and expansion size | done | base-032, base-034, base-035, base-058 |
+| [base-061](tasks/061-report-index-set-mismatches-and-off-by-one-accesses.md) | Report index-set mismatches and off-by-one accesses | ready | base-054, base-060 |
 | [base-062](tasks/062-report-length-mistakes-caused-by-hidden-optional-values.md) | Report length mistakes caused by hidden optional values | ready | base-054, base-059 |
 | [base-063](tasks/063-report-actionable-partial-expression-hazards.md) | Report actionable partial-expression hazards | blocked | base-054, base-059, base-061 |
 | [base-064](tasks/064-report-suspicious-lexical-shadowing.md) | Report suspicious lexical shadowing | ready | base-056, base-032 |
-| [base-065](tasks/065-report-vacuous-constraints-and-conditions.md) | Report vacuous constraints and conditions | blocked | base-054, base-060, base-059 |
-| [base-066](tasks/066-report-unused-generator-bindings-without-changing-multiplici.md) | Report unused generator bindings without changing multiplicity | blocked | base-054, base-060 |
-| [base-067](tasks/067-recognise-bounded-global-constraint-opportunities.md) | Recognise bounded global-constraint opportunities | blocked | base-054, base-060 |
-| [base-068](tasks/068-report-expensive-comprehension-structure-with-a-typed-thresh.md) | Report expensive comprehension structure with a typed threshold | blocked | base-056, base-060 |
+| [base-065](tasks/065-report-vacuous-constraints-and-conditions.md) | Report vacuous constraints and conditions | ready | base-054, base-060, base-059 |
+| [base-066](tasks/066-report-unused-generator-bindings-without-changing-multiplici.md) | Report unused generator bindings without changing multiplicity | ready | base-054, base-060 |
+| [base-067](tasks/067-recognise-bounded-global-constraint-opportunities.md) | Recognise bounded global-constraint opportunities | ready | base-054, base-060 |
+| [base-068](tasks/068-report-expensive-comprehension-structure-with-a-typed-thresh.md) | Report expensive comprehension structure with a typed threshold | ready | base-056, base-060 |
 | [base-069](tasks/069-report-concrete-missing-callable-input-preconditions.md) | Report concrete missing callable input preconditions | blocked | base-054, base-060, base-063 |
 | [base-070](tasks/070-report-conflicting-domains-and-risky-intermediate-ranges.md) | Report conflicting domains and risky intermediate ranges | ready | base-054, base-057 |
 | [base-071](tasks/071-represent-conditional-lint-fixes-as-validated-source-edit-pl.md) | Represent conditional lint fixes as validated source edit plans | ready | base-054 |

@@ -4,7 +4,9 @@ use crate::definitions::{
     annotations_safe, core_callable, resolved_call, resolved_reference,
     transparent_boolean_argument,
 };
-use crate::domains::{expression_domain, invariant_integer, same_members, tokens};
+use crate::domains::{
+    expression_domain, invariant_integer, resolved_index_domain, same_members, tokens,
+};
 use crate::{
     BindingFacts, CallableFacts, Cardinality, DeclarationId, DefinitionEnforcement, Domain,
     DomainFacts, FileId, Instantiation, InstantiationFacts, ModelContext, NumericFacts,
@@ -1872,39 +1874,15 @@ impl<'a> Producer<'a> {
         }
     }
     fn index_domain(&self, file: FileId, node: &SyntaxNode) -> Option<Domain> {
-        if node.kind() != NodeKind::CallExpression {
-            return None;
-        }
-        let id = resolved_call(self.context, self.calls, file, node)?;
-        let name = &self.bindings.declarations[id.0].name;
-        if !core_callable(self.context, self.bindings, id, name) {
-            return None;
-        }
-        let dimension = if name == "index_set" {
-            1
-        } else {
-            name.strip_prefix("index_set_")?
-                .split("of")
-                .next()?
-                .parse::<usize>()
-                .ok()?
-        };
-        let array = node
-            .child_nodes()
-            .next()
-            .and_then(|n| resolved_reference(self.context, self.bindings, file, unwrap(n)))?;
-        if self.array_domain_error(array).is_some() {
-            return None;
-        }
-        let mut domain = &self.domains.declarations[array.0].domain;
-        while let Domain::Named { domain: inner, .. } = domain {
-            domain = inner;
-        }
-        if let Domain::Array { indices, .. } = domain {
-            indices.get(dimension.checked_sub(1)?).cloned()
-        } else {
-            None
-        }
+        let (array, _, domain) = resolved_index_domain(
+            self.context,
+            self.bindings,
+            self.calls,
+            self.domains,
+            file,
+            node,
+        )?;
+        self.array_domain_error(array).is_none().then_some(domain)
     }
     fn domain(&self, file: FileId, node: &SyntaxNode) -> Domain {
         self.index_domain(file, unwrap(node))
