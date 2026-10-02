@@ -52,6 +52,7 @@ pub(super) fn check_names(
             };
             if !valid {
                 warnings.push(LintDiagnostic {
+                    fix: None,
                     rule: Rule::Naming,
                     severity: Severity::Warning,
                     range: token.range.clone(),

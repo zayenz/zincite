@@ -43,7 +43,7 @@ pub(super) fn check_element(
                     && source.kind == SourceKind::StandardLibrary
                     && context.standard_element.as_ref() == Some(&source.canonical_path)
                 {
-                    result.findings.push(FileFinding {location:call.location.clone(),rule:Rule::ElementPredicate,severity:Severity::Warning,message:"consider indexing equality (value = array[index]) to make this element constraint easier to read".into()});
+                    result.findings.push(FileFinding { fix: None,location:call.location.clone(),rule:Rule::ElementPredicate,severity:Severity::Warning,message:"consider indexing equality (value = array[index]) to make this element constraint easier to read".into()});
                 }
                 continue;
             }

@@ -582,6 +582,7 @@ fn names(bindings: &BindingFacts, ids: &[DeclarationId]) -> String {
 }
 fn finding(location: &SourceLocation, message: String) -> FileFinding {
     FileFinding {
+        fix: None,
         location: location.clone(),
         rule: Rule::ExpensiveComprehension,
         severity: Severity::Warning,

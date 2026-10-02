@@ -117,7 +117,7 @@ pub(super) fn check_index_set_mismatches(
                         } else {
                             "has some candidate indices outside the index set"
                         };
-                        findings.push(FileFinding {
+                        findings.push(FileFinding { fix: None,
                             location: location.clone(),
                             rule: Rule::IndexSetMismatch,
                             severity: Severity::Warning,

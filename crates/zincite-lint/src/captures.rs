@@ -42,7 +42,7 @@ pub(super) fn check_captures(context: &ModelContext, facts: &BindingFacts) -> Ca
                 }
                 match declaration.instantiation {
                     Instantiation::Decision => {
-                        result.findings.push(FileFinding {
+                        result.findings.push(FileFinding { fix: None,
                             location: reference.location.clone(),
                             rule: Rule::GlobalVariableInFunction,
                             severity: Severity::Warning,

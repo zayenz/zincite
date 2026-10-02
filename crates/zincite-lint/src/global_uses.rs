@@ -432,7 +432,7 @@ pub(super) fn check_global_uses(
             continue;
         }
         match &usage.outcome {
-            GlobalUseOutcome::DecisionDependent => findings.push(FileFinding { location: usage.location.clone(), rule: Rule::ReifiedGlobal, severity: Severity::Warning, message: "this Boolean-valued global use may require reification or half-reification; consider whether an enforced formulation expresses the model more clearly".into() }),
+            GlobalUseOutcome::DecisionDependent => findings.push(FileFinding { fix: None, location: usage.location.clone(), rule: Rule::ReifiedGlobal, severity: Severity::Warning, message: "this Boolean-valued global use may require reification or half-reification; consider whether an enforced formulation expresses the model more clearly".into() }),
             GlobalUseOutcome::Unsupported(reason) => limitations.push(SourceDiagnostic { location: usage.location.clone(), message: format!("reified-global: {reason}") }),
             _ => {}
         }

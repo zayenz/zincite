@@ -282,6 +282,7 @@ fn context_message(
 }
 fn finding(location: SourceLocation, message: String) -> FileFinding {
     FileFinding {
+        fix: None,
         location,
         rule: Rule::VacuousConstraint,
         severity: Severity::Warning,

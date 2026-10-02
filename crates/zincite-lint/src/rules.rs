@@ -38,7 +38,8 @@ impl RuleFamily {
     }
 }
 
-/// Implemented fix capability, not a promise about possible future rewrites.
+/// Implemented rule-level capability, independent of an individual finding's
+/// optional fix. Infrastructure alone does not supply a fix producer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FixSupport {
     /// No fix producer is implemented for the rule.

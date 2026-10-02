@@ -17,6 +17,11 @@ mod domains;
 mod effective_zero_one;
 mod element;
 mod expensive_comprehension;
+mod fixes;
+pub use fixes::{
+    EditPlanError, Fix, FixConflict, FixSafety, PreparedEdits, SourceSnapshot, TextEdit,
+    prepare_edits,
+};
 mod global_patterns;
 mod global_uses;
 mod guarded;
@@ -120,6 +125,8 @@ pub enum Severity {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct LintDiagnostic {
+    /// Optional producer-supplied fix in original snapshot coordinates.
+    pub fix: Option<Fix>,
     pub rule: Rule,
     pub severity: Severity,
     pub range: Range<usize>,
@@ -254,6 +261,7 @@ fn missing_labels(node: &SyntaxNode, parsed: &ParsedFile, warnings: &mut Vec<Lin
                 // use that range when there is no written constraint keyword.
                 .unwrap_or_else(|| node.child_nodes().next().unwrap().range());
             warnings.push(LintDiagnostic {
+                fix: None,
                 rule: Rule::MissingConstraintLabel,
                 severity: Severity::Warning,
                 range,

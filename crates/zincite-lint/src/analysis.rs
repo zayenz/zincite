@@ -19,6 +19,8 @@ use crate::{
 
 #[derive(Debug)]
 pub struct FileFinding {
+    /// Optional producer-supplied atomic fix; capability is separate rule metadata.
+    pub fix: Option<crate::Fix>,
     pub location: SourceLocation,
     pub rule: Rule,
     pub severity: Severity,
@@ -57,12 +59,18 @@ impl AnalysisResult {
     }
 }
 
-fn finding(diagnostic: LintDiagnostic, location: SourceLocation) -> FileFinding {
-    FileFinding {
-        location,
-        rule: diagnostic.rule,
-        severity: diagnostic.severity,
-        message: diagnostic.message,
+impl FileFinding {
+    /// Attach a supplied original-file location to a syntax diagnostic.
+    /// Fix snapshots and edit ranges already include any BOM; they are forwarded
+    /// unchanged rather than shifted with the diagnostic location.
+    pub fn from_diagnostic(diagnostic: LintDiagnostic, location: SourceLocation) -> Self {
+        Self {
+            fix: diagnostic.fix,
+            location,
+            rule: diagnostic.rule,
+            severity: diagnostic.severity,
+            message: diagnostic.message,
+        }
     }
 }
 
@@ -117,7 +125,7 @@ pub fn analyze_file(
                 .into_iter()
                 .map(|warning| {
                     let position = location(warning.range.clone());
-                    finding(warning, position)
+                    FileFinding::from_diagnostic(warning, position)
                 })
                 .collect()
         }
@@ -188,7 +196,9 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
         };
         for warning in lint_items(&file.parsed, suppressions, options) {
             let location = file.location(warning.range.clone());
-            result.findings.push(finding(warning, location));
+            result
+                .findings
+                .push(FileFinding::from_diagnostic(warning, location));
         }
     }
     let data = FileMode::from_path(&context.root) == FileMode::Data;

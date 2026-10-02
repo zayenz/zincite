@@ -182,6 +182,7 @@ pub(super) fn check_unused_generators(
             }
         }
         findings.push(FileFinding {
+            fix: None,
             location: binding.location.clone(),
             rule: Rule::UnusedGeneratorBinding,
             severity: Severity::Warning,

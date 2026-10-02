@@ -480,7 +480,7 @@ pub(super) fn check_effective_zero_one(
             continue;
         }
         match &fact.outcome {
-            EffectiveZeroOneOutcome::Eligible{formulation}=>result.findings.push(FileFinding{location:fact.location.clone(),rule:Rule::EffectiveZeroOne,severity:Severity::Warning,message:format!("consider {formulation} as an equivalent formulation for these proved zero/one values; compare readability for your model")}),
+            EffectiveZeroOneOutcome::Eligible{formulation}=>result.findings.push(FileFinding{fix:None,location:fact.location.clone(),rule:Rule::EffectiveZeroOne,severity:Severity::Warning,message:format!("consider {formulation} as an equivalent formulation for these proved zero/one values; compare readability for your model")}),
             EffectiveZeroOneOutcome::Unsupported(reason)=>result.limitations.push(SourceDiagnostic{location:fact.location.clone(),message:format!("effective-zero-one: {reason}")}),
             EffectiveZeroOneOutcome::NotApplicable|EffectiveZeroOneOutcome::Unknown(_)=>{},
         }

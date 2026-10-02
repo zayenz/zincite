@@ -195,7 +195,7 @@ pub(super) fn check_numeric_contracts(
                 "conservative possible conflict: the derived interval hull overlaps but is not contained in the required domain; the hull may contain impossible values or lose correlations, so no actual failing value or model-feasibility witness is proved"
             }
         };
-        findings.push(FileFinding {
+        findings.push(FileFinding { fix: None,
             rule: Rule::SuspiciousDomain,
             severity: Severity::Warning,
             location: contract.location.clone(),

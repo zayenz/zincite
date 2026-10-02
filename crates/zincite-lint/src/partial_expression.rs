@@ -141,6 +141,7 @@ pub(super) fn check_partial_expressions(
                             && f.message == message
                     }) {
                         findings.push(FileFinding {
+                            fix: None,
                             location: location.clone(),
                             rule: Rule::PartialExpression,
                             severity: Severity::Warning,

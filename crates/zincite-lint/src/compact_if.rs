@@ -178,7 +178,7 @@ pub(super) fn check_compact_ifs(context: &ModelContext, facts: &CompactIfFacts) 
                 } else {
                     "bool2int(condition) * value"
                 };
-                result.findings.push(FileFinding {
+                result.findings.push(FileFinding { fix: None,
                     location: fact.location.clone(),
                     rule: Rule::CompactIf,
                     severity: Severity::Warning,

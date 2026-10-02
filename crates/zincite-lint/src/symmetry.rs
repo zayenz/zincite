@@ -202,7 +202,7 @@ pub(super) fn check_symmetry_uses(
             continue;
         }
         match &usage.outcome {
-            SymmetryUseOutcome::Unmarked => findings.push(FileFinding { location: usage.location.clone(), rule: Rule::UnmarkedSymmetryBreaking, severity: Severity::Warning, message: "is this constraint intended to break symmetry? If so, consider symmetry_breaking_constraint(...); it may instead express required model logic".into() }),
+            SymmetryUseOutcome::Unmarked => findings.push(FileFinding { fix: None, location: usage.location.clone(), rule: Rule::UnmarkedSymmetryBreaking, severity: Severity::Warning, message: "is this constraint intended to break symmetry? If so, consider symmetry_breaking_constraint(...); it may instead express required model logic".into() }),
             SymmetryUseOutcome::Unsupported(reason) => limitations.push(SourceDiagnostic { location: usage.location.clone(), message: format!("unmarked-symmetry-breaking: {reason}") }),
             SymmetryUseOutcome::Marked => {}
         }

@@ -51,7 +51,7 @@ pub(super) fn check_shadowing(
             continue;
         }
         let location = &outer.location;
-        findings.push(FileFinding {
+        findings.push(FileFinding { fix: None,
             location: inner.location.clone(),
             rule: Rule::SuspiciousShadowing,
             severity: Severity::Warning,

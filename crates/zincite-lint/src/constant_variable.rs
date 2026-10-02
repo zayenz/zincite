@@ -67,7 +67,7 @@ pub(super) fn check_constant_variables(
             continue;
         }
         advised.push(definition.target);
-        result.findings.push(FileFinding {
+        result.findings.push(FileFinding { fix: None,
             location: definition.location.clone(), rule: Rule::ConstantVariable, severity: Severity::Warning,
             message: format!("consider declaring '{}' as a parameter to express its intent; this definition gives the whole value a parameter expression", bindings.declarations[definition.target.0].name),
         });

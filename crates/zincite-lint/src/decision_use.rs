@@ -107,6 +107,7 @@ impl Checker<'_> {
                 _=>unreachable!(),
             };
             self.result.findings.push(FileFinding {
+                fix: None,
                 location,
                 rule: self.rule,
                 severity: Severity::Warning,

@@ -98,7 +98,7 @@ pub(super) fn check_unbounded_variables(
                 message: format!("unbounded-variable: {reason} for '{}'", declaration.name),
             });
         } else {
-            result.findings.push(FileFinding {
+            result.findings.push(FileFinding { fix: None,
                 location: declaration.location.clone(),
                 rule: Rule::UnboundedVariable,
                 severity: Severity::Warning,

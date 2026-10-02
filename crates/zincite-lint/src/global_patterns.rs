@@ -622,7 +622,7 @@ pub(super) fn check_global_patterns(
             }
             _ => continue,
         };
-        findings.push(FileFinding {
+        findings.push(FileFinding { fix: None,
             location: fact.location.clone(),
             rule: Rule::GlobalConstraintOpportunity,
             severity: Severity::Warning,

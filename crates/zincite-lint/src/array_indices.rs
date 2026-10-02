@@ -18,7 +18,7 @@ pub(super) fn check_array_indices(context: &ModelContext, facts: &DomainFacts) -
             continue;
         }
         match index.domain.numeric_minimum() {
-            Ok(Some(lower)) if lower != 1 => result.findings.push(FileFinding {
+            Ok(Some(lower)) if lower != 1 => result.findings.push(FileFinding { fix: None,
                 location: index.location.clone(),
                 rule: Rule::ArrayIndexStart,
                 severity: Severity::Warning,

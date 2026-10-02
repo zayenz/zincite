@@ -34,6 +34,7 @@ pub(super) fn check_search_coverage(
             continue;
         }
         findings.push(FileFinding {
+            fix: None,
             location: d.location.clone(),
             rule: Rule::SearchCoverage,
             severity: Severity::Warning,

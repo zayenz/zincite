@@ -293,7 +293,7 @@ pub(super) fn check_input_preconditions(
             ),
             _ => continue,
         };
-        findings.push(FileFinding {
+        findings.push(FileFinding { fix: None,
             location: o.operation.clone(),
             rule: Rule::MissingInputPrecondition,
             severity: Severity::Warning,

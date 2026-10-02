@@ -630,7 +630,7 @@ pub(super) fn check_unused_declarations(
         if unused_outer {
             continue;
         }
-        findings.push(FileFinding {location:d.location.clone(),rule:Rule::UnusedDeclaration,
+        findings.push(FileFinding { fix: None,location:d.location.clone(),rule:Rule::UnusedDeclaration,
             severity:Severity::Warning,message:format!("declaration '{}' is unreachable from this model's constraints, solve and output; consider whether it is needed",d.name)});
     }
     findings
