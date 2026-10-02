@@ -104,6 +104,7 @@ pub enum Rule {
     UnusedGeneratorBinding,
     GlobalConstraintOpportunity,
     MissingInputPrecondition,
+    SuspiciousDomain,
 }
 
 impl Rule {
@@ -141,6 +142,7 @@ impl Rule {
                 Self::UnusedGeneratorBinding,
                 Self::GlobalConstraintOpportunity,
                 Self::MissingInputPrecondition,
+                Self::SuspiciousDomain,
             ])
     }
 
@@ -308,6 +310,13 @@ impl Rule {
                 "Report binding names that conceal another binding in a surrounding scope.",
                 "Lexical scopes and binding identities.",
                 "Parameters, let declarations and generators are checked against visible enclosing value bindings. Disjoint scopes, field labels, underscore-prefixed names and exact ignore-names exceptions stay quiet. Ambiguous outer bindings report a limitation; types and callable names are not value bindings. Findings identify both declarations; no renaming or fix is offered.",
+            ),
+            Self::SuspiciousDomain => (
+                "suspicious-domain",
+                RuleFamily::Suspicious,
+                "Compare complete integer definitions with their explicit destination domains.",
+                "Independent checked numeric RHS and actual declared membership, with definition enforcement/safety.",
+                "Scalar initializer, immutable let-local and enforced equality contracts. Exact/disjoint values prove a contract contradiction; overlapping noncontained interval hulls supply conservative possible-conflict advice without an actual failing value or feasibility witness. Parameter defaults, symbolic/unknown values and checked overflow do not prove conflicts; candidate limitations are located. Unbounded declarations, unrelated nested intermediates, arbitrary magnitude/backend limits and automatic fixes are outside this rule.",
             ),
             Self::MissingInputPrecondition => (
                 "missing-input-precondition",

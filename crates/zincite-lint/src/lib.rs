@@ -34,6 +34,7 @@ mod search;
 mod search_coverage;
 pub mod settings;
 mod shadowing;
+mod suspicious_domain;
 mod symmetry;
 mod types;
 mod unbounded_variable;
@@ -270,3 +271,4 @@ fn missing_labels(node: &SyntaxNode, parsed: &ParsedFile, warnings: &mut Vec<Lin
 pub use input_preconditions::{
     CallableInputFact, InputObligationKey, InputRequirement, resolve_callable_input_facts,
 };
+pub use suspicious_domain::{NumericContract, NumericContractRelation, resolve_numeric_contracts};

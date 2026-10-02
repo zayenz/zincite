@@ -35,7 +35,7 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     let list = run(&["--list-rules"], "not valid MiniZinc");
     assert!(list.status.success() && list.stderr.is_empty());
     let list = String::from_utf8(list.stdout).unwrap();
-    assert_eq!(list.lines().count(), 26);
+    assert_eq!(list.lines().count(), 27);
     assert!(list.contains("naming\tstyle\tavailable\tnone\tdefault"));
     assert!(list.contains("search-coverage\tmodelling\tavailable\tnone\tthesis"));
     assert!(list.contains("index-set-mismatch\tcorrectness\tavailable\tnone\topt-in"));
@@ -2047,6 +2047,107 @@ fn callable_input_contract_selection_locations_and_suppression_are_read_only() {
     assert_eq!(
         std::fs::read_to_string(root).unwrap(),
         "include \"included.mzn\"; output [show(divide(1)),show(suppressed(1))]; solve satisfy;"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn domain_contract_selection_locations_limits_and_suppression_preserve_source() {
+    let dir = std::env::temp_dir().join(format!("zincite-domain-cli-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        "function var int:'+'(var int:a,var int:b); function var bool:'='(var int:a,var int:b);",
+    )
+    .unwrap();
+    let root = dir.join("root.mzn");
+    let included = dir.join("included.mzn");
+    let source = "\u{feff}% π\r\nvar 0..1:outside=2+3;\r\n% zincite-lint: ignore suspicious-domain\r\nvar 0..1:suppressed=4;\r\n";
+    std::fs::write(&included, source).unwrap();
+    let root_source = "include \"included.mzn\"; var 0..1:guarded;\n% zincite-lint: ignore suspicious-domain\nconstraint :: \"explicit contract\" guarded=3; solve satisfy;";
+    std::fs::write(&root, root_source).unwrap();
+    for selection in ["suspicious-domain", "family:suspicious", "all"] {
+        let output = run(
+            &[
+                "--isolated",
+                "--stdlib-dir",
+                dir.join("library").to_str().unwrap(),
+                "--rules",
+                selection,
+                root.to_str().unwrap(),
+            ],
+            "",
+        );
+        let text = String::from_utf8(output.stderr).unwrap();
+        assert_eq!(output.status.code(), Some(1), "{text}");
+        assert!(output.stdout.is_empty());
+        assert_eq!(
+            text.matches("warning [suspicious-domain]").count(),
+            1,
+            "{text}"
+        );
+        assert!(
+            text.contains("included.mzn:2:")
+                && text.contains("proved domain contradiction")
+                && text.contains("derives 5")
+                && text.contains("requires 0..1"),
+            "{text}"
+        );
+    }
+    let explain = run(&["--explain", "suspicious-domain"], "");
+    assert!(explain.status.success() && explain.stderr.is_empty());
+    let text = String::from_utf8(explain.stdout).unwrap();
+    assert!(
+        text.contains("Family: suspicious")
+            && text.contains("Availability: available")
+            && text.contains("Fix support: none")
+            && text.contains("hulls"),
+        "{text}"
+    );
+    let list = run(&["--list-rules"], "");
+    assert!(
+        String::from_utf8(list.stdout)
+            .unwrap()
+            .contains("suspicious-domain\tsuspicious\tavailable\tnone\topt-in")
+    );
+    let unknown = dir.join("unknown.mzn");
+    std::fs::write(&unknown, "int:N; var 0..1:unknown=N; solve satisfy;").unwrap();
+    let clean = run(
+        &[
+            "--isolated",
+            "--stdlib-dir",
+            dir.join("library").to_str().unwrap(),
+            "--rules",
+            "suspicious-domain",
+            unknown.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(clean.status.code(), Some(0));
+    assert!(clean.stdout.is_empty());
+    assert!(
+        String::from_utf8(clean.stderr)
+            .unwrap()
+            .contains("analysis limitation: suspicious-domain:")
+    );
+    assert_eq!(
+        run(&["--rules", "suspicious-domain"], "var 0..")
+            .status
+            .code(),
+        Some(2)
+    );
+    let defaults = run(&["--isolated", root.to_str().unwrap()], "");
+    assert_eq!(
+        defaults.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&defaults.stderr)
+    );
+    assert_eq!(std::fs::read_to_string(&included).unwrap(), source);
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), root_source);
+    assert_eq!(
+        std::fs::read_to_string(unknown).unwrap(),
+        "int:N; var 0..1:unknown=N; solve satisfy;"
     );
     std::fs::remove_dir_all(dir).unwrap();
 }

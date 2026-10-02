@@ -216,6 +216,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
     let mut patterns_incomplete = false;
     let mut comprehension_incomplete = false;
     let mut input_incomplete = false;
+    let mut domain_contract_incomplete = false;
     if !data && options.requires_model() {
         let facts = resolve_bindings(context);
         if options.rules.contains(&Rule::SuspiciousShadowing) {
@@ -240,6 +241,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             || options.rules.contains(&Rule::GlobalConstraintOpportunity)
             || options.rules.contains(&Rule::ExpensiveComprehension)
             || options.rules.contains(&Rule::MissingInputPrecondition)
+            || options.rules.contains(&Rule::SuspiciousDomain)
             || options.rules.contains(&Rule::EffectiveZeroOne)
         {
             Some(resolve_domains(context, &facts))
@@ -288,6 +290,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             || options.rules.contains(&Rule::GlobalConstraintOpportunity)
             || options.rules.contains(&Rule::ExpensiveComprehension)
             || options.rules.contains(&Rule::MissingInputPrecondition)
+            || options.rules.contains(&Rule::SuspiciousDomain)
             || options.rules.contains(&Rule::EffectiveZeroOne)
             || options.rules.contains(&Rule::UnusedDeclaration)
         {
@@ -329,6 +332,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 || options.rules.contains(&Rule::GlobalConstraintOpportunity)
                 || options.rules.contains(&Rule::ExpensiveComprehension)
                 || options.rules.contains(&Rule::MissingInputPrecondition)
+                || options.rules.contains(&Rule::SuspiciousDomain)
                 || options.rules.contains(&Rule::EffectiveZeroOne)
             {
                 let instantiations = resolve_instantiations(context, &facts, &calls);
@@ -374,6 +378,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     || options.rules.contains(&Rule::GlobalConstraintOpportunity)
                     || options.rules.contains(&Rule::ExpensiveComprehension)
                     || options.rules.contains(&Rule::MissingInputPrecondition)
+                    || options.rules.contains(&Rule::SuspiciousDomain)
                 {
                     let definitions = resolve_definitions(
                         context,
@@ -390,6 +395,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                         || options.rules.contains(&Rule::GlobalConstraintOpportunity)
                         || options.rules.contains(&Rule::ExpensiveComprehension)
                         || options.rules.contains(&Rule::MissingInputPrecondition)
+                        || options.rules.contains(&Rule::SuspiciousDomain)
                     {
                         let domains = domains.as_ref().unwrap();
                         let numeric = crate::resolve_numeric_facts(
@@ -400,47 +406,44 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                             domains,
                             &definitions,
                         );
-                        let optional = crate::resolve_optional_facts(
-                            context,
-                            &facts,
-                            &calls,
-                            &instantiations,
-                            domains,
-                            &numeric,
-                            &definitions,
-                        );
-                        let guarded = crate::resolve_guarded_facts_with_options(
-                            context,
-                            &facts,
-                            &calls,
-                            &instantiations,
-                            domains,
-                            &numeric,
-                            &optional,
-                        );
-                        if options.rules.contains(&Rule::HiddenOptionality) {
+                        if options.rules.contains(&Rule::SuspiciousDomain) {
+                            let contracts = crate::resolve_numeric_contracts(
+                                context,
+                                &facts,
+                                &definitions,
+                                &numeric,
+                            );
                             let (findings, limitations) =
-                                crate::hidden_optionality::check_hidden_optionality(
-                                    context,
-                                    &facts,
-                                    &calls,
-                                    &instantiations,
-                                    &optional,
-                                    &guarded,
+                                crate::suspicious_domain::check_numeric_contracts(
+                                    context, &facts, &contracts,
                                 );
-                            optionality_incomplete = !limitations.is_empty();
+                            domain_contract_incomplete = !limitations.is_empty();
                             result.findings.extend(findings);
                             result.limitations.extend(limitations);
                         }
-                        if options.rules.contains(&Rule::IndexSetMismatch)
-                            || options.rules.contains(&Rule::PartialExpression)
-                            || options.rules.contains(&Rule::VacuousConstraint)
-                            || options.rules.contains(&Rule::UnusedGeneratorBinding)
-                            || options.rules.contains(&Rule::GlobalConstraintOpportunity)
-                            || options.rules.contains(&Rule::ExpensiveComprehension)
-                            || options.rules.contains(&Rule::MissingInputPrecondition)
+                        if [
+                            Rule::IndexSetMismatch,
+                            Rule::HiddenOptionality,
+                            Rule::PartialExpression,
+                            Rule::VacuousConstraint,
+                            Rule::UnusedGeneratorBinding,
+                            Rule::GlobalConstraintOpportunity,
+                            Rule::ExpensiveComprehension,
+                            Rule::MissingInputPrecondition,
+                        ]
+                        .iter()
+                        .any(|rule| options.rules.contains(rule))
                         {
-                            let iteration = crate::resolve_iteration_facts(
+                            let optional = crate::resolve_optional_facts(
+                                context,
+                                &facts,
+                                &calls,
+                                &instantiations,
+                                domains,
+                                &numeric,
+                                &definitions,
+                            );
+                            let guarded = crate::resolve_guarded_facts_with_options(
                                 context,
                                 &facts,
                                 &calls,
@@ -448,10 +451,30 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                                 domains,
                                 &numeric,
                                 &optional,
-                                &guarded,
                             );
-                            if options.rules.contains(&Rule::ExpensiveComprehension) {
-                                let structure = crate::resolve_comprehension_structure(
+                            if options.rules.contains(&Rule::HiddenOptionality) {
+                                let (findings, limitations) =
+                                    crate::hidden_optionality::check_hidden_optionality(
+                                        context,
+                                        &facts,
+                                        &calls,
+                                        &instantiations,
+                                        &optional,
+                                        &guarded,
+                                    );
+                                optionality_incomplete = !limitations.is_empty();
+                                result.findings.extend(findings);
+                                result.limitations.extend(limitations);
+                            }
+                            if options.rules.contains(&Rule::IndexSetMismatch)
+                                || options.rules.contains(&Rule::PartialExpression)
+                                || options.rules.contains(&Rule::VacuousConstraint)
+                                || options.rules.contains(&Rule::UnusedGeneratorBinding)
+                                || options.rules.contains(&Rule::GlobalConstraintOpportunity)
+                                || options.rules.contains(&Rule::ExpensiveComprehension)
+                                || options.rules.contains(&Rule::MissingInputPrecondition)
+                            {
+                                let iteration = crate::resolve_iteration_facts(
                                     context,
                                     &facts,
                                     &calls,
@@ -460,89 +483,102 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                                     &numeric,
                                     &optional,
                                     &guarded,
-                                    &iteration,
                                 );
-                                let (findings, limitations) =
-                                    crate::expensive_comprehension::check_comprehensions(
-                                        context,
-                                        &facts,
-                                        &structure,
-                                        options.parameters.comprehension_max_candidates,
-                                    );
-                                comprehension_incomplete = !limitations.is_empty();
-                                result.findings.extend(findings);
-                                result.limitations.extend(limitations);
-                            }
-                            if options.rules.contains(&Rule::GlobalConstraintOpportunity) {
-                                let patterns = crate::resolve_global_patterns(
-                                    context, &facts, &calls, &optional, &guarded, &iteration,
-                                );
-                                let (findings, limitations) =
-                                    crate::global_patterns::check_global_patterns(
-                                        context, &facts, &patterns,
-                                    );
-                                patterns_incomplete = !limitations.is_empty();
-                                result.findings.extend(findings);
-                                result.limitations.extend(limitations);
-                            }
-                            if options.rules.contains(&Rule::UnusedGeneratorBinding) {
-                                let usage = crate::resolve_generator_binding_usage(
-                                    &facts, &guarded, &iteration,
-                                );
-                                let (findings, limitations) =
-                                    crate::unused_generator::check_unused_generators(
-                                        context, &facts, &usage,
-                                    );
-                                unused_generator_incomplete = !limitations.is_empty();
-                                result.findings.extend(findings);
-                                result.limitations.extend(limitations);
-                            }
-                            if options.rules.contains(&Rule::IndexSetMismatch) {
-                                let (findings, limitations) =
-                                    crate::index_set_mismatch::check_index_set_mismatches(
-                                        context, &facts, &guarded, &iteration,
-                                    );
-                                index_mismatch_incomplete = !limitations.is_empty();
-                                result.findings.extend(findings);
-                                result.limitations.extend(limitations);
-                            }
-                            let mut input_keys = Vec::new();
-                            if options.rules.contains(&Rule::MissingInputPrecondition) {
-                                let inputs = crate::resolve_callable_input_facts(
-                                    context, &facts, &calls, &guarded, &iteration,
-                                );
-                                let (findings, limitations, keys) =
-                                    crate::input_preconditions::check_input_preconditions(
-                                        context, &facts, &inputs,
-                                    );
-                                input_incomplete = !limitations.is_empty();
-                                result.findings.extend(findings);
-                                result.limitations.extend(limitations);
-                                input_keys = keys;
-                            }
-                            if options.rules.contains(&Rule::PartialExpression) {
-                                let (findings, limitations) =
-                                    crate::partial_expression::check_partial_expressions(
+                                if options.rules.contains(&Rule::ExpensiveComprehension) {
+                                    let structure = crate::resolve_comprehension_structure(
                                         context,
                                         &facts,
                                         &calls,
+                                        &instantiations,
+                                        domains,
+                                        &numeric,
+                                        &optional,
                                         &guarded,
                                         &iteration,
-                                        &result.findings,
-                                        &input_keys,
                                     );
-                                partial_incomplete = !limitations.is_empty();
-                                result.findings.extend(findings);
-                                result.limitations.extend(limitations);
-                            }
-                            if options.rules.contains(&Rule::VacuousConstraint) {
-                                let (findings, limitations) =
-                                    crate::vacuous_constraint::check_vacuous_constraints(
-                                        context, &facts, &calls, &guarded, &optional, &iteration,
+                                    let (findings, limitations) =
+                                        crate::expensive_comprehension::check_comprehensions(
+                                            context,
+                                            &facts,
+                                            &structure,
+                                            options.parameters.comprehension_max_candidates,
+                                        );
+                                    comprehension_incomplete = !limitations.is_empty();
+                                    result.findings.extend(findings);
+                                    result.limitations.extend(limitations);
+                                }
+                                if options.rules.contains(&Rule::GlobalConstraintOpportunity) {
+                                    let patterns = crate::resolve_global_patterns(
+                                        context, &facts, &calls, &optional, &guarded, &iteration,
                                     );
-                                vacuous_incomplete = !limitations.is_empty();
-                                result.findings.extend(findings);
-                                result.limitations.extend(limitations);
+                                    let (findings, limitations) =
+                                        crate::global_patterns::check_global_patterns(
+                                            context, &facts, &patterns,
+                                        );
+                                    patterns_incomplete = !limitations.is_empty();
+                                    result.findings.extend(findings);
+                                    result.limitations.extend(limitations);
+                                }
+                                if options.rules.contains(&Rule::UnusedGeneratorBinding) {
+                                    let usage = crate::resolve_generator_binding_usage(
+                                        &facts, &guarded, &iteration,
+                                    );
+                                    let (findings, limitations) =
+                                        crate::unused_generator::check_unused_generators(
+                                            context, &facts, &usage,
+                                        );
+                                    unused_generator_incomplete = !limitations.is_empty();
+                                    result.findings.extend(findings);
+                                    result.limitations.extend(limitations);
+                                }
+                                if options.rules.contains(&Rule::IndexSetMismatch) {
+                                    let (findings, limitations) =
+                                        crate::index_set_mismatch::check_index_set_mismatches(
+                                            context, &facts, &guarded, &iteration,
+                                        );
+                                    index_mismatch_incomplete = !limitations.is_empty();
+                                    result.findings.extend(findings);
+                                    result.limitations.extend(limitations);
+                                }
+                                let mut input_keys = Vec::new();
+                                if options.rules.contains(&Rule::MissingInputPrecondition) {
+                                    let inputs = crate::resolve_callable_input_facts(
+                                        context, &facts, &calls, &guarded, &iteration,
+                                    );
+                                    let (findings, limitations, keys) =
+                                        crate::input_preconditions::check_input_preconditions(
+                                            context, &facts, &inputs,
+                                        );
+                                    input_incomplete = !limitations.is_empty();
+                                    result.findings.extend(findings);
+                                    result.limitations.extend(limitations);
+                                    input_keys = keys;
+                                }
+                                if options.rules.contains(&Rule::PartialExpression) {
+                                    let (findings, limitations) =
+                                        crate::partial_expression::check_partial_expressions(
+                                            context,
+                                            &facts,
+                                            &calls,
+                                            &guarded,
+                                            &iteration,
+                                            &result.findings,
+                                            &input_keys,
+                                        );
+                                    partial_incomplete = !limitations.is_empty();
+                                    result.findings.extend(findings);
+                                    result.limitations.extend(limitations);
+                                }
+                                if options.rules.contains(&Rule::VacuousConstraint) {
+                                    let (findings, limitations) =
+                                        crate::vacuous_constraint::check_vacuous_constraints(
+                                            context, &facts, &calls, &guarded, &optional,
+                                            &iteration,
+                                        );
+                                    vacuous_incomplete = !limitations.is_empty();
+                                    result.findings.extend(findings);
+                                    result.limitations.extend(limitations);
+                                }
                             }
                         }
                     }
@@ -628,6 +664,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     || (rule == Rule::GlobalConstraintOpportunity && patterns_incomplete)
                     || (rule == Rule::ExpensiveComprehension && comprehension_incomplete)
                     || (rule == Rule::MissingInputPrecondition && input_incomplete)
+                    || (rule == Rule::SuspiciousDomain && domain_contract_incomplete)
                     || (rule == Rule::CompactIf && compact_incomplete)
                     || (rule == Rule::EffectiveZeroOne && effective_incomplete)
                     || (rule == Rule::UnusedDeclaration && unused_incomplete)

@@ -991,8 +991,9 @@ pub struct NumericDefinition {
     pub target: DeclarationId,
     pub file: FileId,
     pub location: SourceLocation,
-    /// The written initializer of a parameter can be replaced by instance data.
-    /// Its RHS outcome is not an enforced value or conflict proof for the target.
+    /// A model parameter's written initializer can be replaced by instance data.
+    /// Immutable let-local initializers are enforced definitions, not defaults.
+    /// A default's RHS outcome is not an enforced value or target-conflict proof.
     pub parameter_default: bool,
     /// Interpretation of the written RHS, independently of the target's domain.
     pub outcome: NumericOutcome,
@@ -1112,6 +1113,7 @@ pub fn resolve_numeric_facts(
             location: definition.value.clone(),
             parameter_default: calls.declarations[definition.target.0].ty.instantiation
                 == crate::Instantiation::Parameter
+                && bindings.declarations[definition.target.0].role != DeclarationRole::Local
                 && definition.file == bindings.declarations[definition.target.0].file
                 && definition.location.range
                     == context.files[definition.file]
@@ -1544,7 +1546,9 @@ impl Bounds<'_> {
             );
         }
         self.active.push(id);
-        let value = if ty.instantiation == crate::Instantiation::Parameter {
+        let value = if ty.instantiation == crate::Instantiation::Parameter
+            && self.bindings.declarations[id.0].role != DeclarationRole::Local
+        {
             // Data can replace written defaults. Preserve identity, never the
             // default as an exact value of every model instance.
             if required.interval().is_some() {
