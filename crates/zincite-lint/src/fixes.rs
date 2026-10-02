@@ -1,6 +1,6 @@
 //! Read-only planning of atomic edits against exact original UTF-8 source.
-//! Callers supply only eligible fixes from selected, unsuppressed findings.
-//! This module neither proves fix safety nor reparses, reads or writes files.
+//! Callers supply findings from selected, unsuppressed diagnostics.
+//! Eligibility and syntax validation do not prove semantic safety. No file IO occurs.
 
 use std::fmt;
 use std::ops::Range;
@@ -242,5 +242,130 @@ fn overlaps(a: &Range<usize>, b: &Range<usize>) -> bool {
         a.start <= b.start && b.start <= a.end
     } else {
         a.start < b.end && b.start < a.end
+    }
+}
+
+/// Edit eligibility, independent of which diagnostics are selected.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FixOptions {
+    pub fixable: Vec<crate::Rule>,
+    pub unfixable: Vec<crate::Rule>,
+    pub unsafe_fixes: bool,
+}
+impl Default for FixOptions {
+    fn default() -> Self {
+        Self {
+            fixable: crate::Rule::all().collect(),
+            unfixable: Vec::new(),
+            unsafe_fixes: false,
+        }
+    }
+}
+impl FixOptions {
+    pub fn allows(&self, rule: crate::Rule, safety: &FixSafety) -> bool {
+        self.fixable.contains(&rule)
+            && !self.unfixable.contains(&rule)
+            && (matches!(safety, FixSafety::Safe) || self.unsafe_fixes)
+    }
+}
+
+/// One omitted atomic group, identified in the supplied findings.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OmittedFix {
+    pub finding: usize,
+    pub title: String,
+    pub conflicts_with: Vec<usize>,
+}
+#[derive(Debug, PartialEq, Eq)]
+pub struct PreparedFixes {
+    pub candidate: String,
+    pub conflicts: Vec<OmittedFix>,
+}
+#[derive(Debug, PartialEq, Eq)]
+pub enum FixPreparationError {
+    Edits(EditPlanError),
+    Syntax(Vec<crate::SourceDiagnostic>),
+}
+impl fmt::Display for FixPreparationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Edits(error) => error.fmt(f),
+            Self::Syntax(errors) => {
+                write!(f, "fix candidate has {} syntax error(s)", errors.len())
+            }
+        }
+    }
+}
+impl std::error::Error for FixPreparationError {}
+
+/// Prepare eligible atomic fixes from selected, unsuppressed findings for this
+/// file. Include-only findings and other files are ignored. Conflicts identify
+/// their original finding indices and titles. The complete candidate is parsed
+/// as model or data according to its path, including original BOM coordinates.
+/// Parsing establishes syntax only; it does not strengthen the producer's
+/// applicability or safety claim. Neither this function nor prepare_edits writes.
+pub fn prepare_fixes(
+    snapshot: &SourceSnapshot,
+    current_source: &str,
+    findings: &[crate::FileFinding],
+    options: &FixOptions,
+) -> Result<PreparedFixes, FixPreparationError> {
+    let eligible: Vec<_> = findings
+        .iter()
+        .enumerate()
+        .filter_map(|(index, finding)| {
+            let fix = finding.fix.as_ref()?;
+            (finding.location.path == snapshot.path() && options.allows(finding.rule, &fix.safety))
+                .then_some((index, fix))
+        })
+        .collect();
+    let groups: Vec<_> = eligible.iter().map(|(_, fix)| (*fix).clone()).collect();
+    let prepared =
+        prepare_edits(snapshot, current_source, &groups).map_err(FixPreparationError::Edits)?;
+    validate_candidate(snapshot, &prepared.candidate)?;
+    let conflicts = prepared
+        .conflicts
+        .into_iter()
+        .map(|conflict| OmittedFix {
+            finding: eligible[conflict.group].0,
+            title: eligible[conflict.group].1.title.clone(),
+            conflicts_with: conflict
+                .conflicts_with
+                .into_iter()
+                .map(|group| eligible[group].0)
+                .collect(),
+        })
+        .collect();
+    Ok(PreparedFixes {
+        candidate: prepared.candidate,
+        conflicts,
+    })
+}
+
+pub(crate) fn validate_candidate(
+    snapshot: &SourceSnapshot,
+    candidate: &str,
+) -> Result<(), FixPreparationError> {
+    let text = candidate.strip_prefix('\u{feff}').unwrap_or(candidate);
+    let offset = candidate.len() - text.len();
+    let parsed =
+        zincite_syntax::parse_with_mode(text, zincite_syntax::FileMode::from_path(snapshot.path()));
+    let errors: Vec<_> = parsed
+        .diagnostics()
+        .iter()
+        .map(|diagnostic| crate::SourceDiagnostic {
+            location: crate::SourceLocation::new(
+                snapshot.path().to_path_buf(),
+                text,
+                diagnostic.range.clone(),
+                offset,
+            ),
+            message: diagnostic.message.clone(),
+        })
+        .collect();
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(FixPreparationError::Syntax(errors))
     }
 }

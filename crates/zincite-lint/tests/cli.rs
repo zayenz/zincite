@@ -1088,9 +1088,13 @@ fn nearest_settings_cli_replacement_and_stdin_anchors_share_one_preflight() {
     assert_eq!(
         String::from_utf8(shown.stdout).unwrap(),
         format!(
-            "Root: {}\nSettings: {}\nRules: missing-constraint-label\nsuspicious-shadowing.ignore-names: []\nexpensive-comprehension.max-candidates: 1000000\n",
+            "Root: {}\nSettings: {}\nRules: missing-constraint-label\nfixable: {}\nunfixable: \nsuspicious-shadowing.ignore-names: []\nexpensive-comprehension.max-candidates: 1000000\n",
             unsaved.display(),
-            nested_config.canonicalize().unwrap().display()
+            nested_config.canonicalize().unwrap().display(),
+            zincite_lint::Rule::all()
+                .map(|rule| rule.id())
+                .collect::<Vec<_>>()
+                .join(",")
         )
     );
     std::fs::write(&child, "include \"missing.mzn\"; not valid MiniZinc").unwrap();
@@ -2149,5 +2153,162 @@ fn domain_contract_selection_locations_limits_and_suppression_preserve_source() 
         std::fs::read_to_string(unknown).unwrap(),
         "int:N; var 0..1:unknown=N; solve satisfy;"
     );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn fix_modes_validate_all_explicit_paths_and_settings_before_analysis() {
+    let dir = std::env::temp_dir().join(format!("zincite-fix-preflight-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("first")).unwrap();
+    std::fs::create_dir_all(dir.join("later")).unwrap();
+    let first = dir.join("first/model.mzn");
+    let later = dir.join("later/model.mzn");
+    let source = "int:BadName=1; solve satisfy;\r\n";
+    std::fs::write(&first, source).unwrap();
+    std::fs::write(&later, source).unwrap();
+    let a = first.to_str().unwrap();
+    let b = later.to_str().unwrap();
+    for arguments in [
+        vec!["--fix", "--diff", a],
+        vec!["--unsafe-fixes", a],
+        vec!["--fix"],
+        vec!["--diff", "-"],
+        vec!["--fix", "--stdin-filepath", a],
+        vec!["--diff", "--show-settings", a],
+        vec!["--fix", a, dir.to_str().unwrap()],
+    ] {
+        let result = run(&arguments, "");
+        assert_eq!(
+            result.status.code(),
+            Some(2),
+            "{arguments:?}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(result.stdout.is_empty());
+    }
+    std::fs::write(
+        dir.join("later/zincite.toml"),
+        "[lint]\nselect=[]\nfixable=['misspelled']\n",
+    )
+    .unwrap();
+    let result = run(&["--fix", a, b], "");
+    assert_eq!(result.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&result.stderr).contains("lint.fixable"));
+    assert!(!String::from_utf8_lossy(&result.stderr).contains("warning[naming]"));
+    let config = dir.join("first/zincite.toml");
+    std::fs::write(
+        &config,
+        "[lint]\nselect=[]\nfixable=['family:style']\nunfixable=['naming']\n",
+    )
+    .unwrap();
+    let settings = run(&["--show-settings", "--rules", "naming", a], "");
+    assert_eq!(settings.status.code(), Some(0));
+    let text = String::from_utf8(settings.stdout).unwrap();
+    assert!(text.contains("Rules: naming\n"));
+    assert!(text.contains("fixable: naming,missing-constraint-label\n"));
+    assert!(text.contains("unfixable: naming\n"));
+    let result = run(&["--fix", "--rules", "naming", a], "");
+    assert_eq!(result.status.code(), Some(1));
+    std::fs::write(&config, "[lint]\nselect=[]\nunfixable=['bad-rule']\n").unwrap();
+    assert_eq!(
+        run(&["--show-settings", "--rules", "naming", a], "")
+            .status
+            .code(),
+        Some(2)
+    );
+    assert_eq!(std::fs::read_to_string(&first).unwrap(), source);
+    assert_eq!(std::fs::read_to_string(&later).unwrap(), source);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn diagnostic_only_rules_keep_native_fix_diff_bytes_and_statuses() {
+    let dir = std::env::temp_dir().join(format!("zincite-fix-native-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let root = dir.join("model.mzn");
+    let dependency = dir.join("dependency.mzn");
+    std::fs::write(&dependency, "int:BadDependency=1;\r\n").unwrap();
+    let library = dir.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    let system = library.join("std/stdlib.mzn");
+    std::fs::write(&system, "").unwrap();
+    for (source, status) in [
+        ("\u{feff}% π\r\nint:good_name=1; solve satisfy;\r\n", 0),
+        ("int:BadName=1; solve satisfy;", 1),
+        ("int: x=;", 2),
+    ] {
+        std::fs::write(&root, source).unwrap();
+        for mode in [None, Some("--fix"), Some("--diff")] {
+            let mut arguments = vec!["--isolated", "--rules", "naming"];
+            if let Some(mode) = mode {
+                arguments.push(mode);
+            }
+            arguments.push(root.to_str().unwrap());
+            let result = run(&arguments, "");
+            assert_eq!(
+                result.status.code(),
+                Some(status),
+                "{mode:?}: {}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            assert!(result.stdout.is_empty());
+            assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+        }
+    }
+    #[cfg(unix)]
+    {
+        let alias = dir.join("alias.mzn");
+        std::os::unix::fs::symlink(&root, &alias).unwrap();
+        for paths in [
+            [root.to_str().unwrap(), alias.to_str().unwrap()],
+            [alias.to_str().unwrap(), root.to_str().unwrap()],
+        ] {
+            assert_eq!(
+                run(&["--fix", paths[0], paths[1]], "").status.code(),
+                Some(2)
+            );
+        }
+    }
+    let result = run(
+        &[
+            "--diff",
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            system.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(result.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&result.stderr).contains("standard-library"));
+    std::fs::write(&root, "include \"dependency.mzn\"; solve satisfy;\r\n").unwrap();
+    for mode in ["--fix", "--diff"] {
+        let result = run(
+            &[
+                mode,
+                "--rules",
+                "unused-declaration",
+                "--stdlib-dir",
+                library.to_str().unwrap(),
+                root.to_str().unwrap(),
+            ],
+            "",
+        );
+        assert_eq!(
+            result.status.code(),
+            Some(1),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(result.stdout.is_empty());
+    }
+    assert_eq!(
+        std::fs::read_to_string(&dependency).unwrap(),
+        "int:BadDependency=1;\r\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&root).unwrap(),
+        "include \"dependency.mzn\"; solve satisfy;\r\n"
+    );
+    assert!(std::fs::read(&system).unwrap().is_empty());
     std::fs::remove_dir_all(dir).unwrap();
 }

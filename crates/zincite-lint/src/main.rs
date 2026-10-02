@@ -3,14 +3,16 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use zincite_lint::settings::LintSettings;
 use zincite_lint::{
-    LintOptions, ModelOptions, Rule, analyze_file, analyze_model, load_model, write_analysis,
+    AnalysisResult, FixOptions, LintOptions, ModelOptions, PreparedFixes, Rule, SourceSnapshot,
+    analyze_file, analyze_model, load_model, prepare_fixes, replace_fixed_file, write_analysis,
+    write_fix_diff,
 };
 use zincite_syntax::{FileMode, parse_with_mode};
 
 const HELP: &str = "Usage: zincite-lint [--list-rules | --explain RULE]
-       zincite-lint [--rules SELECTION] [--config PATH | --isolated] [--show-settings] [-I DIR] [--stdlib-dir DIR] [--stdin-filepath PATH] [FILE|DIR...|-]
+       zincite-lint [--rules SELECTION] [--config PATH | --isolated] [--show-settings | --fix | --diff] [--unsafe-fixes] [-I DIR] [--stdlib-dir DIR] [--stdin-filepath PATH] [FILE|DIR...|-]
 
-Report MiniZinc modelling advice on stderr without rewriting source.
+Report MiniZinc modelling advice on stderr. Ordinary linting never rewrites source.
 No input or '-' reads stdin; stdin cannot be mixed with files.
 --stdin-filepath PATH selects the stdin language mode, diagnostic path and settings lookup anchor.
 An unsaved filepath works for settings lookup; plain stdin does not discover settings.
@@ -36,7 +38,18 @@ Personal preset members use existing selectors; they cannot include other person
 Options merge defaults, the selected personal preset, then lint.options overrides.
 --rules retains configured effective options; a named personal preset selects its own bundle.
 --show-settings also prints exact ignored names and the positive candidate threshold.
-Fixes are not supported yet.
+[lint].fixable defaults to all rules; unfixable defaults to none and wins exclusions.
+These rule/family/built-in preset selectors restrict fixes without selecting diagnostics.
+--rules retains fix restrictions. --show-settings prints their resolved IDs.
+--fix applies eligible fixes once to explicit regular user files, then reanalyses all roots.
+--diff previews eligible fixes without writes and reports original diagnostics/status.
+Safe fixes alone are eligible; --unsafe-fixes explicitly admits described unsafe fixes.
+--fix and --diff are mutually exclusive and cannot be used with stdin, directories,
+symlinks or --show-settings. --unsafe-fixes requires --fix or --diff.
+Include-only and configured standard-library files are never rewritten.
+Conflicting atomic groups are all omitted and reported; independent groups survive.
+Every candidate must parse and its original file must still match before replacement.
+Current rule producers supply no edits, so fix modes leave their diagnostics and bytes unchanged.
 The thesis preset selects its fourteen rules; all includes every registered rule,
 including unavailable rules that fail execution. Default remains two rules.
 --list-rules lists rule IDs, families, availability, fix support and preset membership.
@@ -99,10 +112,22 @@ fn run() -> Result<u8, String> {
         configuration,
         show_settings,
         model,
+        mode,
+        unsafe_fixes,
     } = parse_arguments(
         arguments,
         std::env::var_os("MZN_STDLIB_DIR").map(PathBuf::from),
     )?;
+    if mode != Mode::Ordinary {
+        let paths = explicit_fix_paths(&paths, &model)?;
+        let anchors: Vec<_> = paths.iter().map(|path| Some(path.as_path())).collect();
+        let mut settings =
+            preflight_settings(&anchors, &configuration, cli_selection.as_deref(), true)?;
+        for settings in &mut settings {
+            settings.fixes.unsafe_fixes = unsafe_fixes;
+        }
+        return run_fixes(&paths, &settings, &model, mode);
+    }
     let inputs = (!paths.is_empty()).then(|| zincite_syntax::inputs::discover_inputs(&paths));
     let anchors = match &inputs {
         Some(inputs) => inputs
@@ -164,6 +189,167 @@ fn run() -> Result<u8, String> {
             Ok(file_status) => status = status.max(file_status),
             Err(message) => {
                 let _ = writeln!(io::stderr(), "{message}");
+                status = 2;
+            }
+        }
+    }
+    Ok(status)
+}
+
+// Validate every written alias before deduplication. Ordinary discovery remains
+// read-only and keeps its existing directory/symlink behavior.
+fn explicit_fix_paths(paths: &[PathBuf], model: &ModelOptions) -> Result<Vec<PathBuf>, String> {
+    let standard = model
+        .stdlib_dir
+        .as_ref()
+        .map(|path| {
+            path.canonicalize()
+                .map_err(|error| format!("{}: {error}", path.display()))
+        })
+        .transpose()?;
+    let mut seen = std::collections::BTreeSet::new();
+    let mut files = Vec::new();
+    for path in paths {
+        let metadata = std::fs::symlink_metadata(path)
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        if !metadata.file_type().is_file() {
+            return Err(format!(
+                "{}: --fix/--diff require regular non-symlink files",
+                path.display()
+            ));
+        }
+        let canonical = path
+            .canonicalize()
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        if standard
+            .as_ref()
+            .is_some_and(|standard| canonical.starts_with(standard))
+        {
+            return Err(format!(
+                "{}: --fix/--diff refuse configured standard-library files",
+                path.display()
+            ));
+        }
+        if seen.insert(canonical) {
+            files.push(path.clone());
+        }
+    }
+    Ok(files)
+}
+
+// Retain original bytes only when a root finding supplies an edit. Semantic
+// include contexts are dropped on return; include-only findings are diagnostic.
+fn analyze_fix_root(
+    path: &Path,
+    options: &LintOptions,
+    model: &ModelOptions,
+    retain: bool,
+) -> Result<(AnalysisResult, Option<SourceSnapshot>), String> {
+    if options.requires_model() && FileMode::from_path(path) == FileMode::Model {
+        let context = load_model(path, model);
+        let result = analyze_model(&context, options);
+        let snapshot = if retain
+            && result
+                .findings
+                .iter()
+                .any(|finding| finding.location.path == path && finding.fix.is_some())
+        {
+            context
+                .root_file
+                .map(|file| context.files[file].source_snapshot())
+        } else {
+            None
+        };
+        return Ok((result, snapshot));
+    }
+    let source =
+        std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let text = source.strip_prefix('\u{feff}').unwrap_or(&source);
+    let offset = source.len() - text.len();
+    let parsed = parse_with_mode(text, FileMode::from_path(path));
+    let result = analyze_file(&parsed, path, offset, options);
+    let snapshot = (retain && result.findings.iter().any(|finding| finding.fix.is_some()))
+        .then(|| SourceSnapshot::new(path, source));
+    Ok((result, snapshot))
+}
+
+fn run_fixes(
+    paths: &[PathBuf],
+    settings: &[ResolvedSettings],
+    model: &ModelOptions,
+    mode: Mode,
+) -> Result<u8, String> {
+    let mut status = 0;
+    let mut prepared: Vec<(SourceSnapshot, PreparedFixes)> = Vec::new();
+    for (path, settings) in paths.iter().zip(settings) {
+        let analyzed = analyze_fix_root(path, &settings.options, model, true);
+        match analyzed {
+            Err(error) => {
+                writeln!(io::stderr(), "{error}").map_err(|error| format!("stderr: {error}"))?;
+                status = 2;
+            }
+            Ok((result, snapshot)) => {
+                if mode == Mode::Diff {
+                    status = status.max(
+                        write_analysis(&result, &mut io::stderr())
+                            .map_err(|error| format!("stderr: {error}"))?,
+                    );
+                } else if !result.errors.is_empty() {
+                    status = 2;
+                }
+                if result.errors.is_empty()
+                    && let Some(snapshot) = snapshot
+                {
+                    match prepare_fixes(
+                        &snapshot,
+                        snapshot.source(),
+                        &result.findings,
+                        &settings.fixes,
+                    ) {
+                        Err(error) => {
+                            writeln!(io::stderr(), "{}: {error}", path.display())
+                                .map_err(|error| format!("stderr: {error}"))?;
+                            status = 2;
+                        }
+                        Ok(candidate) => {
+                            for conflict in &candidate.conflicts {
+                                writeln!(io::stderr(), "{}: omitted fix '{}' (finding {}): conflicts with findings {:?}", path.display(), conflict.title, conflict.finding, conflict.conflicts_with)
+                                    .map_err(|error| format!("stderr: {error}"))?;
+                            }
+                            if mode == Mode::Diff {
+                                write_fix_diff(&snapshot, &candidate.candidate, &mut io::stdout())
+                                    .map_err(|error| format!("stdout: {error}"))?;
+                            } else if candidate.candidate != snapshot.source() {
+                                prepared.push((snapshot, candidate));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if mode == Mode::Diff {
+        return Ok(status);
+    }
+    for (snapshot, candidate) in prepared {
+        if let Err(error) = replace_fixed_file(&snapshot, &candidate.candidate) {
+            writeln!(io::stderr(), "{}: {error}", snapshot.path().display())
+                .map_err(|error| format!("stderr: {error}"))?;
+            status = 2;
+        }
+    }
+    // All explicit writes finish before any final include closure is loaded.
+    // The final diagnostics never feed another preparation/application pass.
+    for (path, settings) in paths.iter().zip(settings) {
+        match analyze_fix_root(path, &settings.options, model, false) {
+            Ok((result, _)) => {
+                status = status.max(
+                    write_analysis(&result, &mut io::stderr())
+                        .map_err(|error| format!("stderr: {error}"))?,
+                )
+            }
+            Err(error) => {
+                writeln!(io::stderr(), "{error}").map_err(|error| format!("stderr: {error}"))?;
                 status = 2;
             }
         }
@@ -275,6 +461,15 @@ struct Arguments {
     configuration: Configuration,
     show_settings: bool,
     model: ModelOptions,
+    mode: Mode,
+    unsafe_fixes: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Ordinary,
+    Fix,
+    Diff,
 }
 
 enum Configuration {
@@ -287,6 +482,7 @@ enum Configuration {
 struct ResolvedSettings {
     path: Option<PathBuf>,
     options: LintOptions,
+    fixes: FixOptions,
 }
 
 // Validate every root before any input analysis or settings output. Explicit
@@ -340,6 +536,9 @@ fn preflight_settings(
             Ok(ResolvedSettings {
                 path: None,
                 options,
+                fixes: defaults
+                    .resolve_fixes()
+                    .map_err(|error| format!("zincite-lint: {error}"))?,
             })
         })
         .collect()
@@ -352,12 +551,16 @@ fn read_settings(
 ) -> Result<ResolvedSettings, String> {
     let source =
         std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
-    let options = LintSettings::from_toml(&source)
-        .and_then(|settings| match cli_selection {
-            Some(selection) => settings.resolve_selection(selection),
-            None => settings.resolve(),
-        })
+    let settings =
+        LintSettings::from_toml(&source).map_err(|error| format!("{}: {error}", path.display()))?;
+    let fixes = settings
+        .resolve_fixes()
         .map_err(|error| format!("{}: {error}", path.display()))?;
+    let options = match cli_selection {
+        Some(selection) => settings.resolve_selection(selection),
+        None => settings.resolve(),
+    }
+    .map_err(|error| format!("{}: {error}", path.display()))?;
     if execute {
         options
             .check_available()
@@ -366,6 +569,7 @@ fn read_settings(
     Ok(ResolvedSettings {
         path: Some(path.to_path_buf()),
         options,
+        fixes,
     })
 }
 
@@ -422,6 +626,20 @@ fn write_settings(
             .collect::<Vec<_>>()
             .join(",")
     )?;
+    for (name, rules) in [
+        ("fixable", &settings.fixes.fixable),
+        ("unfixable", &settings.fixes.unfixable),
+    ] {
+        writeln!(
+            output,
+            "{name}: {}",
+            rules
+                .iter()
+                .map(|rule| rule.id())
+                .collect::<Vec<_>>()
+                .join(",")
+        )?;
+    }
     writeln!(
         output,
         "suspicious-shadowing.ignore-names: {}",
@@ -452,10 +670,26 @@ fn parse_arguments(
     let mut rule_selection = None;
     let mut configuration = Configuration::Discover;
     let mut show_settings = false;
+    let mut mode = Mode::Ordinary;
+    let mut unsafe_fixes = false;
     let mut model = ModelOptions::default();
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
-        if argument == "--rules" {
+        if argument == "--fix" || argument == "--diff" {
+            if mode != Mode::Ordinary {
+                return Err("zincite-lint: use --fix or --diff once, not both".into());
+            }
+            mode = if argument == "--fix" {
+                Mode::Fix
+            } else {
+                Mode::Diff
+            };
+        } else if argument == "--unsafe-fixes" {
+            if unsafe_fixes {
+                return Err("zincite-lint: repeated --unsafe-fixes".into());
+            }
+            unsafe_fixes = true;
+        } else if argument == "--rules" {
             if rule_selection.is_some() {
                 return Err("zincite-lint: repeated --rules".into());
             }
@@ -522,6 +756,12 @@ fn parse_arguments(
     if stdin_filepath.is_some() && !paths.is_empty() {
         return Err("zincite-lint: --stdin-filepath requires stdin".into());
     }
+    if unsafe_fixes && mode == Mode::Ordinary {
+        return Err("zincite-lint: --unsafe-fixes requires --fix or --diff".into());
+    }
+    if mode != Mode::Ordinary && (paths.is_empty() || show_settings) {
+        return Err("zincite-lint: --fix/--diff require explicit files and cannot use stdin or --show-settings".into());
+    }
     model.stdlib_dir = model.stdlib_dir.or(stdlib_fallback);
     Ok(Arguments {
         paths,
@@ -530,6 +770,8 @@ fn parse_arguments(
         configuration,
         show_settings,
         model,
+        mode,
+        unsafe_fixes,
     })
 }
 

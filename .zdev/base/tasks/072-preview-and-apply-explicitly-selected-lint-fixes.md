@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-072"
 key = "lint-fix-cli"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -25,12 +25,20 @@ Read the brief Fixes contract. Reuse the formatter's safe write behaviour where 
 
 ## Done when
 
-- [ ] Implement mutually exclusive --fix/--diff and explicit --unsafe-fixes, with configuration fixable/unfixable selection independent of lint selection.
-- [ ] Reject stdin/directories and invalid modes before writes; apply only to explicit regular files, preserve permissions and refuse symlinks, stale sources and parse-invalid candidates.
-- [ ] Apply one pass, reanalyse resulting sources and report remaining findings/errors with the specified exits; conflicts are reported and include-only/system files stay untouched.
-- [ ] Library clients can plan/apply in memory independently; CLI write failures leave affected originals intact and independent files proceed.
+- [x] Implement mutually exclusive --fix/--diff and explicit --unsafe-fixes, with configuration fixable/unfixable selection independent of lint selection.
+- [x] Reject stdin/directories and invalid modes before writes; apply only to explicit regular files, preserve permissions and refuse symlinks, stale sources and parse-invalid candidates.
+- [x] Apply one pass, reanalyse resulting sources and report remaining findings/errors with the specified exits; conflicts are reported and include-only/system files stay untouched.
+- [x] Library clients can plan/apply in memory independently; CLI write failures leave affected originals intact and independent files proceed.
 
 ## Validation
 
 - Run the area Cargo checks for Rust changes and zdev check for record changes. Use the focused testing level in the brief.
 - Use temporary files to verify preview, safe/unsafe eligibility, restrictions, conflict handling, a parse-invalid edit, stale source, permissions/symlink refusal and documented post-fix exits. Real producers land in the next task.
+
+## Result
+
+Added explicit lint fix and diff modes, independent fix restrictions, validated in-memory candidates and previews, and permission-preserving one-pass replacements followed by final analysis. Existing rules remain diagnostic-only.
+
+Validation:
+
+- Independent whole-task verification passed at W5e158f592bd780e0: Cargo fmt, workspace Clippy and all 183 workspace tests, zdev check and diff check. Focused public and native checks cover eligibility, modes, stale/invalid candidates, permissions, symlinks, conflicts, independent failures and final exits. Verified source and foreign-file snapshot comparisons remained equal.

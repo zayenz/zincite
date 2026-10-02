@@ -17,10 +17,12 @@ mod domains;
 mod effective_zero_one;
 mod element;
 mod expensive_comprehension;
+mod fix_files;
+pub use fix_files::{FileFixError, replace_fixed_file, write_fix_diff};
 mod fixes;
 pub use fixes::{
-    EditPlanError, Fix, FixConflict, FixSafety, PreparedEdits, SourceSnapshot, TextEdit,
-    prepare_edits,
+    EditPlanError, Fix, FixConflict, FixOptions, FixPreparationError, FixSafety, OmittedFix,
+    PreparedEdits, PreparedFixes, SourceSnapshot, TextEdit, prepare_edits, prepare_fixes,
 };
 mod global_patterns;
 mod global_uses;

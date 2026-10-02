@@ -88,6 +88,17 @@ pub struct ModelFile {
 }
 
 impl ModelFile {
+    /// Retain exact original root bytes on demand, including the BOM removed by
+    /// the loader. Calling this for an edit does not copy every included source.
+    pub fn source_snapshot(&self) -> crate::SourceSnapshot {
+        let source = self.parsed.source();
+        if self.byte_offset == 3 {
+            crate::SourceSnapshot::new(&self.path, format!("\u{feff}{source}"))
+        } else {
+            crate::SourceSnapshot::new(&self.path, source)
+        }
+    }
+
     pub fn location(&self, range: Range<usize>) -> SourceLocation {
         SourceLocation::new(
             self.path.clone(),

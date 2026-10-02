@@ -19,7 +19,7 @@
 //! All definitions are validated, including disabled rules and unused presets.
 
 use crate::rules::expand_selectors;
-use crate::{LintOptions, Rule, RuleFamily};
+use crate::{FixOptions, LintOptions, Rule, RuleFamily};
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 
@@ -75,6 +75,10 @@ pub struct LintSettings {
     pub select: Option<Vec<String>>,
     pub extend_select: Vec<String>,
     pub ignore: Vec<String>,
+    /// Fix eligibility is independent of diagnostic selection; absent means all.
+    pub fixable: Option<Vec<String>>,
+    /// Exclusions win over fixable. These selectors never enable diagnostics.
+    pub unfixable: Vec<String>,
     pub presets: BTreeMap<String, PersonalPreset>,
     pub options: RuleOptionOverrides,
 }
@@ -101,6 +105,8 @@ impl LintSettings {
                 "select" => settings.select = Some(strings(value, &path)?),
                 "extend-select" => settings.extend_select = strings(value, &path)?,
                 "ignore" => settings.ignore = strings(value, &path)?,
+                "fixable" => settings.fixable = Some(strings(value, &path)?),
+                "unfixable" => settings.unfixable = strings(value, &path)?,
                 "options" => settings.options = parse_options(value, &path)?,
                 "presets" => {
                     for (name, value) in value.as_table().ok_or("lint.presets: expected a table")? {
@@ -130,6 +136,7 @@ impl LintSettings {
             }
         }
         settings.validate_presets()?;
+        settings.resolve_fixes()?;
         Ok(settings)
     }
 
@@ -137,6 +144,7 @@ impl LintSettings {
     /// remain inspectable and fail only when execution is requested.
     pub fn resolve(&self) -> Result<LintOptions, String> {
         self.validate_presets()?;
+        self.resolve_fixes()?;
         let mut selected = None;
         let mut rules = match &self.select {
             Some(selectors) => self.expand(selectors, "lint.select", Some(&mut selected))?,
@@ -176,6 +184,24 @@ impl LintSettings {
             self.options.apply(&mut parameters);
         }
         Ok(LintOptions { rules, parameters })
+    }
+
+    /// Resolve rule IDs, families and built-in presets for edits only. CLI
+    /// diagnostic replacement leaves these restrictions intact. Unsafe edits
+    /// remain disabled until the caller explicitly enables them.
+    pub fn resolve_fixes(&self) -> Result<FixOptions, String> {
+        let fixable = match &self.fixable {
+            Some(selectors) => expand_selectors(selectors.iter().map(String::as_str))
+                .map_err(|error| format!("lint.fixable: {error}"))?,
+            None => Rule::all().collect(),
+        };
+        let unfixable = expand_selectors(self.unfixable.iter().map(String::as_str))
+            .map_err(|error| format!("lint.unfixable: {error}"))?;
+        Ok(FixOptions {
+            fixable,
+            unfixable,
+            unsafe_fixes: false,
+        })
     }
 
     fn validate_presets(&self) -> Result<(), String> {

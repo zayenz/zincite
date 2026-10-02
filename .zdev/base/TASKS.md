@@ -4,8 +4,8 @@
 
 - Total: 79
 - Ready: 5
-- Blocked: 5
-- Done: 69
+- Blocked: 4
+- Done: 70
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -80,8 +80,8 @@
 | [base-069](tasks/069-report-concrete-missing-callable-input-preconditions.md) | Report concrete missing callable input preconditions | done | base-054, base-060, base-063 |
 | [base-070](tasks/070-report-conflicting-domains-and-risky-intermediate-ranges.md) | Report conflicting domains and risky intermediate ranges | done | base-054, base-057 |
 | [base-071](tasks/071-represent-conditional-lint-fixes-as-validated-source-edit-pl.md) | Represent conditional lint fixes as validated source edit plans | done | base-054 |
-| [base-072](tasks/072-preview-and-apply-explicitly-selected-lint-fixes.md) | Preview and apply explicitly selected lint fixes | ready | base-055, base-071 |
-| [base-073](tasks/073-deliver-semantic-fixes-for-unused-generator-names-and-elemen.md) | Deliver semantic fixes for unused generator names and element calls | blocked | base-072, base-066, base-033, base-058 |
+| [base-072](tasks/072-preview-and-apply-explicitly-selected-lint-fixes.md) | Preview and apply explicitly selected lint fixes | done | base-055, base-071 |
+| [base-073](tasks/073-deliver-semantic-fixes-for-unused-generator-names-and-elemen.md) | Deliver semantic fixes for unused generator names and element calls | ready | base-072, base-066, base-033, base-058 |
 | [base-074](tasks/074-validate-expanded-lint-families-presets-and-fixes-together.md) | Validate expanded lint families, presets and fixes together | blocked | base-061, base-062, base-063, base-064, base-065, base-066, base-067, base-068, base-069, base-070, base-073, base-049 |
 | [base-075](tasks/075-load-compiler-supported-standard-include-re-entries.md) | Load compiler-supported standard include re-entries | ready | — |
 | [base-076](tasks/076-resolve-supported-defaulted-and-qualified-callable-overloads.md) | Resolve supported defaulted and qualified callable overloads | blocked | base-075 |
