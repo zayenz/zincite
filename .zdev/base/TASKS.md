@@ -4,8 +4,8 @@
 
 - Total: 79
 - Ready: 3
-- Blocked: 2
-- Done: 74
+- Blocked: 1
+- Done: 75
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -56,7 +56,7 @@
 | [base-045](tasks/045-measure-complete-model-coverage-for-every-thesis-rule.md) | Measure complete-model coverage for every thesis rule | done | base-037, base-038, base-039, base-040, base-042, base-044, base-041 |
 | [base-046](tasks/046-reduce-repeated-layout-measurement-work.md) | Reduce repeated layout measurement work | done | base-022, base-027 |
 | [base-047](tasks/047-reduce-the-live-syntax-and-formatting-working-set.md) | Reduce the live syntax and formatting working set | done | base-022 |
-| [base-048](tasks/048-verify-and-document-an-unobtrusive-save-command.md) | Verify and document an unobtrusive save command | blocked | base-046, base-047, base-077 |
+| [base-048](tasks/048-verify-and-document-an-unobtrusive-save-command.md) | Verify and document an unobtrusive save command | ready | base-046, base-047, base-077 |
 | [base-049](tasks/049-measure-batch-and-semantic-lint-speed-and-memory.md) | Measure batch and semantic-lint speed and memory | done | base-022, base-029, base-045 |
 | [base-050](tasks/050-verify-corpus-processing-and-full-thesis-lint-coverage.md) | Verify corpus processing and full thesis lint coverage | blocked | base-028, base-045, base-026, base-029, base-048, base-049, base-075, base-076, base-078, base-079 |
 | [base-051](tasks/051-reduce-measured-punctuation-dispatch-cost-in-the-lexer.md) | Reduce measured punctuation dispatch cost in the lexer | done | — |
@@ -85,6 +85,6 @@
 | [base-074](tasks/074-validate-expanded-lint-families-presets-and-fixes-together.md) | Validate expanded lint families, presets and fixes together | done | base-061, base-062, base-063, base-064, base-065, base-066, base-067, base-068, base-069, base-070, base-073, base-049 |
 | [base-075](tasks/075-load-compiler-supported-standard-include-re-entries.md) | Load compiler-supported standard include re-entries | done | — |
 | [base-076](tasks/076-resolve-supported-defaulted-and-qualified-callable-overloads.md) | Resolve supported defaulted and qualified callable overloads | done | base-075 |
-| [base-077](tasks/077-close-the-remaining-dense-save-memory-and-latency-budgets.md) | Close the remaining dense-save memory and latency budgets | ready | — |
+| [base-077](tasks/077-close-the-remaining-dense-save-memory-and-latency-budgets.md) | Close the remaining dense-save memory and latency budgets | done | — |
 | [base-078](tasks/078-avoid-repeated-source-prefix-scans-for-lint-locations.md) | Avoid repeated source-prefix scans for lint locations | ready | — |
 | [base-079](tasks/079-avoid-repeated-row-classification-while-measuring-matrix-wid.md) | Avoid repeated row classification while measuring matrix widths | ready | — |

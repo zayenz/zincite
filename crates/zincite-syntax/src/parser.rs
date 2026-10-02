@@ -1074,6 +1074,9 @@ impl Parser<'_> {
         children: &mut Vec<SyntaxElement>,
     ) -> Result<NodeKind, &'static str> {
         use TokenKind::*;
+        if let Some(capacity) = self.flat_integer_array_capacity() {
+            children.reserve_exact(capacity.saturating_sub(children.len()));
+        }
         self.bump(children);
         let mut keyed_entries = 0;
         let mut has_bare_entries = false;
@@ -1130,6 +1133,24 @@ impl Parser<'_> {
             "expected ',' or ']' after array entry",
         )?;
         Ok(kind)
+    }
+
+    fn flat_integer_array_capacity(&self) -> Option<usize> {
+        let opening = self.significant(self.position)?;
+        for (offset, token) in self.tokens[opening + 1..].iter().enumerate() {
+            match token.kind {
+                TokenKind::RightBracket => {
+                    // Each integer becomes one node; trivia and separators stay
+                    // token leaves. Only large flat arrays need this reservation.
+                    let capacity = opening + offset + 2 - self.position;
+                    return (capacity >= 1024).then_some(capacity);
+                }
+                TokenKind::IntegerLiteral | TokenKind::Comma => {}
+                kind if is_trivia(kind) => {}
+                _ => return None,
+            }
+        }
+        None
     }
 
     fn array_entry_head(&mut self) -> Result<SyntaxNode, &'static str> {

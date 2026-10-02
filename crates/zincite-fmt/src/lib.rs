@@ -1114,9 +1114,53 @@ impl Formatter<'_> {
         if self.measuring || self.options.max_line_length.is_none() {
             return false;
         }
+        if self
+            .flat_integer_array_size(node)
+            .is_some_and(|(columns, _)| columns > self.options.max_line_length.unwrap().get())
+        {
+            return true;
+        }
         let mut preview = self.preview();
         preview.expression_before(node, space, suffix);
         preview.exceeds_width(self.current_columns(), suffix)
+    }
+
+    // A large flat array with no written breaks renders inline in the preview.
+    // Its literal and delimiter bytes alone can prove that it exceeds the width.
+    // Every other shape retains the ordinary rendered measurement.
+    fn flat_integer_array_size(&self, node: &SyntaxNode) -> Option<(usize, usize)> {
+        if node.kind() != NodeKind::ArrayLiteral || node.children().len() < 1024 {
+            return None;
+        }
+        let mut columns = 0usize;
+        let mut entries = 0usize;
+        for child in node.children() {
+            let index = match child {
+                SyntaxElement::Node(entry) if entry.kind() == NodeKind::Expression => {
+                    let [SyntaxElement::Token(index)] = entry.children() else {
+                        return None;
+                    };
+                    if self.parsed.tokens()[*index].kind != TokenKind::IntegerLiteral {
+                        return None;
+                    }
+                    entries += 1;
+                    *index
+                }
+                SyntaxElement::Token(index) => *index,
+                _ => return None,
+            };
+            let token = &self.parsed.tokens()[index];
+            match token.kind {
+                TokenKind::IntegerLiteral
+                | TokenKind::LeftBracket
+                | TokenKind::RightBracket
+                | TokenKind::Comma => columns = columns.saturating_add(token.range.len()),
+                TokenKind::Whitespace
+                    if !self.parsed.source()[token.range.clone()].contains(['\r', '\n']) => {}
+                _ => return None,
+            }
+        }
+        Some((columns, entries))
     }
 
     fn token_exceeds_width(&self, index: usize, space: bool, suffix: usize) -> bool {
@@ -1465,6 +1509,26 @@ impl Formatter<'_> {
         let multiline = self.has_delimited_line_break(node, opening, closing)
             || self.measuring_prefix && node.child_nodes().next().is_some()
             || self.node_exceeds_width(node, leading_space, self.suffix_columns);
+        if multiline
+            && !self.measuring
+            && self.options.indent_style == IndentStyle::Space
+            && let Some((columns, entries)) = self.flat_integer_array_size(node)
+        {
+            // Reserve the admitted flat shape's literal/delimiter bytes and
+            // per-entry indentation/newline space, with room for its close
+            // and adjacent punctuation. Rendering still controls every byte.
+            let capacity = self
+                .indent
+                .checked_add(1)
+                .and_then(|indent| indent.checked_mul(self.options.indent_size.get()))
+                .and_then(|indent| indent.checked_add(1))
+                .and_then(|per_entry| per_entry.checked_mul(entries))
+                .and_then(|layout| layout.checked_add(columns))
+                .and_then(|layout| layout.checked_add(32));
+            if let Some(capacity) = capacity {
+                self.output.reserve_exact(capacity);
+            }
+        }
         let mut first = true;
         let mut first_entry = true;
         let mut continuation = false;

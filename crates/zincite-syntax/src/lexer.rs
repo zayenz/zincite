@@ -2,6 +2,34 @@ use crate::{Diagnostic, Token, TokenKind};
 use std::ops::Range;
 
 pub(super) fn scan(source: &str) -> (Vec<Token>, Vec<Diagnostic>) {
+    let mut tokens = Vec::new();
+    let diagnostics = scan_with(source, |token| tokens.push(token));
+    (tokens, diagnostics)
+}
+
+pub(super) fn protected_ranges(source: &str) -> Result<Vec<Range<usize>>, Vec<Diagnostic>> {
+    let mut ranges = Vec::new();
+    let diagnostics = scan_with(source, |token| {
+        if matches!(
+            token.kind,
+            TokenKind::LineComment
+                | TokenKind::BlockComment
+                | TokenKind::StringLiteral
+                | TokenKind::StringHead
+                | TokenKind::StringMiddle
+                | TokenKind::StringTail
+        ) {
+            ranges.push(token.range);
+        }
+    });
+    if diagnostics.is_empty() {
+        Ok(ranges)
+    } else {
+        Err(diagnostics)
+    }
+}
+
+fn scan_with(source: &str, mut emit: impl FnMut(Token)) -> Vec<Diagnostic> {
     let mut scanner = Scanner {
         source,
         position: 0,
@@ -9,7 +37,6 @@ pub(super) fn scan(source: &str) -> (Vec<Token>, Vec<Diagnostic>) {
         interpolations: Vec::new(),
         after_field_dot: false,
     };
-    let mut tokens = Vec::new();
     while scanner.position < source.len() {
         let start = scanner.position;
         let kind = scanner.next_kind();
@@ -20,7 +47,7 @@ pub(super) fn scan(source: &str) -> (Vec<Token>, Vec<Diagnostic>) {
             scanner.after_field_dot = kind == TokenKind::Dot;
         }
         debug_assert!(scanner.position > start);
-        tokens.push(Token {
+        emit(Token {
             kind,
             range: start..scanner.position,
         });
@@ -31,7 +58,7 @@ pub(super) fn scan(source: &str) -> (Vec<Token>, Vec<Diagnostic>) {
             message: "unterminated string interpolation".to_owned(),
         });
     }
-    (tokens, scanner.diagnostics)
+    scanner.diagnostics
 }
 
 struct Scanner<'a> {

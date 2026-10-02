@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-077"
 key = "dense-save-budget-follow-up"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -26,9 +26,9 @@ Read brief Performance and format-on-save, background/performance.md and scripts
 
 ## Done when
 
-- [ ] Use allocation/native RSS evidence to select and validate a bounded local change to the measured construction or rendered-token seams, with no unexplained regression on smaller real/synthetic save cases.
-- [ ] Meet 100 ms p95 and 64 MiB native child RSS on the representative 966669-byte dense save with both default and nested EditorConfig settings; retain concrete misses as acceptance blockers if the bounded change cannot meet them.
-- [ ] Preserve exact measured outputs/statuses and supported corpus behavior, borrowed ParsedFile reuse and independent-file allocation release; document native high-water retention limitations separately from application live allocations.
+- [x] Use allocation/native RSS evidence to select and validate a bounded local change to the measured construction or rendered-token seams, with no unexplained regression on smaller real/synthetic save cases.
+- [x] Meet 100 ms p95 and 64 MiB native child RSS on the representative 966669-byte dense save with both default and nested EditorConfig settings; retain concrete misses as acceptance blockers if the bounded change cannot meet them.
+- [x] Preserve exact measured outputs/statuses and supported corpus behavior, borrowed ParsedFile reuse and independent-file allocation release; document native high-water retention limitations separately from application live allocations.
 
 ## Validation
 
@@ -36,3 +36,13 @@ Read brief Performance and format-on-save, background/performance.md and scripts
 - Retain fresh release baseline/after binaries and exact inputs; use at least 50 fresh save samples per small case/settings variant, separate first-use and per-child Darwin RSS bytes, plus at least five matched interleaved public-table comparisons with complete output/status evidence.
 - Use the existing phase/allocation probe and bounded distinct-file native checks; preserve token/leaf coverage, ranges, recovery, protected bytes and retained ParsedFile usability after formatting.
 - Run a fresh all-6417 syntax/format corpus branch without --rules, preserving rejection/timeout rows, plus a finite adequate public-table supplemental replay and representative default/thesis/all shared-include replay. Report unchanged budgets and any remaining blockers explicitly.
+
+## Result
+
+Bounded scanner, parser capacity and formatter changes meet dense-save budgets in both settings while preserving source and output behavior; native batch high-water growth remains documented.
+
+Validation:
+
+- Independent verifier PASS at Wa4e49b323b5e4976; final snapshot comparisons equal, required Cargo checks and all 189 tests pass.
+- Fresh 26 variants x 50 saves, 400 matched controls and five public-table pairs preserve outputs/statuses; dense p95 90.513/91.347 ms and native RSS 63.9375/63.984375 MiB meet unchanged budgets.
+- All 6417 syntax/format inputs accounted for with 6373 completions and 44 retained gaps; supplemental table/shared-include replays, exact allocation drops and foreign/input preservation checked.

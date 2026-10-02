@@ -1,8 +1,8 @@
 use std::ops::Range;
 
-use zincite_syntax::{Diagnostic, TokenKind, lex};
+use zincite_syntax::{Diagnostic, lexical_protected_ranges};
 
-use crate::FormatOptions;
+use crate::{FormatOptions, LineEnding};
 
 /// Convert only editable layout, keeping rendered literals/comments and raw
 /// directive spans exact, including text copied through matrix cell previews.
@@ -11,27 +11,7 @@ pub(super) fn apply_layout(
     mut protected: Vec<Range<usize>>,
     options: &FormatOptions,
 ) -> Result<String, Vec<Diagnostic>> {
-    let lexed = lex(output);
-    if !lexed.diagnostics().is_empty() {
-        return Err(lexed.diagnostics().to_vec());
-    }
-    protected.extend(
-        lexed
-            .tokens()
-            .iter()
-            .filter(|token| {
-                matches!(
-                    token.kind,
-                    TokenKind::LineComment
-                        | TokenKind::BlockComment
-                        | TokenKind::StringLiteral
-                        | TokenKind::StringHead
-                        | TokenKind::StringMiddle
-                        | TokenKind::StringTail
-                )
-            })
-            .map(|token| token.range.clone()),
-    );
+    protected.extend(lexical_protected_ranges(&output)?);
     protected.sort_by_key(|range| range.start);
     let mut merged: Vec<Range<usize>> = Vec::new();
     for range in protected {
@@ -41,7 +21,18 @@ pub(super) fn apply_layout(
             merged.push(range);
         }
     }
-    let source = lexed.into_source();
+    let source = output;
+    if options.line_ending == LineEnding::Lf {
+        let mut position = 0;
+        let mut unchanged = true;
+        for range in &merged {
+            unchanged &= already_lf(&source[position..range.start], options);
+            position = range.end;
+        }
+        if unchanged && already_lf(&source[position..], options) {
+            return Ok(source);
+        }
+    }
     let mut result = String::with_capacity(source.len());
     let mut position = 0;
     for range in merged {
@@ -51,6 +42,15 @@ pub(super) fn apply_layout(
     }
     editable(&source[position..], &mut result, options);
     Ok(result)
+}
+
+fn already_lf(text: &str, options: &FormatOptions) -> bool {
+    let bytes = text.as_bytes();
+    !bytes.contains(&b'\r')
+        && (!options.trim_trailing_whitespace
+            || !bytes
+                .windows(2)
+                .any(|pair| matches!(pair, [b' ' | b'\t', b'\n'])))
 }
 
 fn editable(text: &str, output: &mut String, options: &FormatOptions) {

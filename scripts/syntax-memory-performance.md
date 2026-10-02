@@ -1,5 +1,9 @@
 # Syntax memory performance checkpoint
 
+The first section retains the base-047 checkpoint. The base-077 section below
+records the current measurements and closes the measured dense-save budgets.
+Syntax and semantic coverage gaps remain explicit.
+
 Finished CST child buffers now use exact-length owned slices. On the dense
 966,669-byte save, retained parse allocation falls from 140,464,461 to
 66,132,733 bytes, and separate native child RSS falls from about 143 to
@@ -245,3 +249,247 @@ The six pre-existing foreign files retain exact bytes, modes and unstaged status
 Only four code/probe paths and this report belong to the implementation;
 `ownership.json` records the final checks. Task records, lifecycle, index and
 commit remain with the coordinator.
+
+## Base-077: current dense-save budget results
+
+The fresh 966,669-byte dense save meets both unchanged budgets in both settings.
+Default p95 is 90.513 ms with 63.937500 MiB native child RSS; nested EditorConfig
+p95 is 91.347 ms with 63.984375 MiB. The limit is 100 ms / 64 MiB. The memory
+margin is narrow: the higher observation is only 0.015625 MiB below the limit.
+These are measurements on the specified local machine, not a guarantee for
+other hardware or an acceptance claim for the remaining corpus and batch gaps.
+
+The fresh baseline is HEAD `29021e599c6b9a67165d9d3d7c4d67792fde5877`.
+Measurements use release binaries on macOS 26.6.2 arm64, Apple M1 Max with
+64 GiB, Rust 1.98.1 and Python 3.14.6. Filesystem caches are ordinarily warm;
+host load is uncontrolled. Builds, timed saves, native controls and the corpus
+campaign ran sequentially. Independent coordinator reviews read completed
+reports without launching competing builds or measurements.
+
+The retained changes keep the recursive CST, owned source, all tokens, usize
+ranges, node distinctions, recovery and borrowed traversal:
+
+- The existing Scanner loop now serves a protected-range collector as well as
+  full lexing. Final layout validates the whole rendered source and keeps only
+  comment/string ranges; field-dot state, interpolation and EOF diagnostics
+  still follow the same loop. Range merging and protected bytes remain exact.
+- Large flat integer arrays reserve their immediate child buffer before normal
+  parsing. The hint changes capacity; grammar and recovery still validate every
+  token. Other shapes use the existing allocation path.
+- Parsing finishes token buffers of at least 65,536 tokens before constructing
+  the CST. Public `lex` storage and source/token identity remain unchanged.
+- A large flat integer array with no comments, nested/annotated entries or
+  written line breaks has an integer/delimiter width lower bound. A proved
+  over-width result avoids the redundant rendered preview. Unproved shapes
+  retain the original preview. The same admitted multiline, space-indented
+  shape reserves anticipated output bytes; rendering still determines every byte.
+- Layout returns the existing rendered String only when every editable gap
+  already has LF and requires no space/tab trimming before a newline. It first
+  validates the whole source and merges protection. Conversion handles every
+  other case; EOF whitespace and protected-boundary whitespace keep their
+  previous behavior.
+
+### Separate candidate evidence
+
+Each bounded candidate has its own immutable formatter/linter/checker/probe
+copies and raw results under `target/benchmarks/base077`. Each candidate used
+50 fresh saves for ordinary, nested-grown, dense 100 KiB and dense 1 MiB in
+both settings (400 processes), plus separate complete file-backed native and
+allocation/drop controls. The baseline and final full campaigns each used
+26 variants × 50 processes (1,300). All observed expected statuses and output
+hashes match the baseline. Invalid input retains its expected status 2.
+
+| Version | Dense default p95 ms | Dense nested p95 ms | Default native RSS MiB | Nested native RSS MiB |
+| --- | ---: | ---: | ---: | ---: |
+| Fresh baseline | 110.558 | 110.053 | 90.062500 | 90.062500 |
+| Protected-range Scanner | 111.231 | 112.540 | 68.390625 | 68.406250 |
+| Plus child reservation | 116.622 | 116.574 | 66.984375 | 68.609375 |
+| Plus large token finishing | 112.468 | 113.494 | 68.281250 | 67.031250 |
+| Plus proved width shortcut | 95.866 | 95.794 | 67.015625 | 67.031250 |
+| Plus unchanged-layout return | 90.721 | 90.226 | 64.515625 | 64.531250 |
+| Plus output reservation | 92.638 | 92.005 | 63.953125 | 63.968750 |
+| Final full campaign | 90.513 | 91.347 | 63.937500 | 63.984375 |
+
+Scanner/child/token changes alone did not meet both budgets. They lowered
+construction/storage peaks but slightly increased dense child CPU. The coupled
+width and layout/output changes removed measured repeated rendering and spare
+output storage. The earlier base-047 trimming-only rejection remains intact;
+trimming was reassessed after the dominant formatting allocation changed.
+Every intermediate miss and noisy row remains in its original report.
+
+The successful two-second instrumented format sample had 385 of 1,409 samples
+under `node_exceeds_width`, including repeated expression rendering. This is
+an interval-specific attribution, not a whole-save CPU percentage. Initial
+sandboxed attaches failed with status 255 and no stack evidence; the own-child
+native retry succeeded. Both attempts and every child receipt are retained in
+`sample-phases.json` and `sample-phases-native.json`.
+
+Dense allocation controls are independent of native RSS and save latency:
+
+| Phase / quantity | Fresh baseline bytes | Final bytes |
+| --- | ---: | ---: |
+| Lex retained / peak | 26,132,493 / 26,132,493 | 26,132,493 / 26,132,493 |
+| Parse retained / construction peak | 66,132,733 / 81,409,013 | 56,967,013 / 56,967,093 |
+| Format retained output / additional peak | 2,633,338 / 29,360,128 | 2,633,365 / 2,633,365 |
+
+Dense token count remains 666,671 and output length 2,633,338 bytes. Parse
+requested allocation traffic is 175,184,581 → 107,298,765 bytes; format traffic
+is 65,547,874 → 2,633,461 bytes. Requested traffic is neither simultaneous
+live storage nor native RSS. The existing three independent parse/format/lint
+drop scopes return exactly to their live baseline on ordinary, nested-grown,
+dense 100 KiB and dense 1 MiB. Formatting borrows a still-usable `ParsedFile`.
+
+### Full fresh save samples
+
+D means default values; N means nested EditorConfig. Both use 4-space
+indentation, LF, a final newline, trailing-whitespace trimming and width 120.
+Each row has 50 fresh IPC saves. RSS is a separate own-child file-backed save,
+using Darwin `os.wait4` bytes with complete stdout/stderr and a 30-second
+watchdog; it is not a sum or an in-process live-allocation count. The denied
+`/usr/bin/time -l` capability rows remain visible in each driver report.
+
+| Case | Settings | Input bytes | Baseline p95 ms | Final p50 ms | Final p95 ms | Final min–max ms | Median child CPU ms | Native RSS MiB |
+| --- | --- | ---: | ---: | ---: | ---: | --- | ---: | ---: |
+| ordinary-changed | D | 1,163 | 5.272 | 4.334 | 4.869 | 4.174–5.013 | 2.743 | 2.000000 |
+| ordinary-changed | N | 1,163 | 5.541 | 4.386 | 4.999 | 4.206–5.386 | 2.809 | 2.015625 |
+| ordinary-formatted | D | 1,324 | 5.853 | 4.433 | 5.478 | 4.251–5.874 | 2.755 | 2.015625 |
+| ordinary-formatted | N | 1,324 | 5.598 | 4.514 | 5.508 | 4.271–5.674 | 2.848 | 2.031250 |
+| invalid-edited | D | 33 | 4.846 | 4.138 | 4.738 | 3.914–5.604 | 2.513 | 1.781250 |
+| invalid-edited | N | 33 | 5.182 | 4.150 | 4.852 | 3.912–5.234 | 2.539 | 1.812500 |
+| matrix | D | 676 | 5.274 | 4.633 | 5.426 | 4.290–6.107 | 2.892 | 2.031250 |
+| matrix | N | 676 | 5.239 | 4.684 | 5.240 | 4.293–5.682 | 2.918 | 2.046875 |
+| nested | D | 1,133 | 5.567 | 5.243 | 5.986 | 4.858–11.228 | 3.411 | 2.156250 |
+| nested | N | 1,133 | 6.016 | 5.289 | 6.564 | 4.929–9.928 | 3.450 | 2.250000 |
+| matrix-grown | D | 6,971 | 8.031 | 6.979 | 7.729 | 6.657–8.068 | 5.193 | 2.937500 |
+| matrix-grown | N | 6,971 | 8.082 | 7.019 | 8.321 | 6.755–9.277 | 5.259 | 3.015625 |
+| nested-grown | D | 4,493 | 27.844 | 26.172 | 27.645 | 25.537–28.879 | 23.699 | 3.546875 |
+| nested-grown | N | 4,493 | 28.093 | 26.207 | 27.623 | 25.644–28.128 | 23.788 | 3.828125 |
+| dense-10000 | D | 9,669 | 6.265 | 5.032 | 5.863 | 4.703–6.470 | 3.294 | 2.546875 |
+| dense-10000 | N | 9,669 | 6.215 | 5.052 | 6.008 | 4.856–6.296 | 3.328 | 2.562500 |
+| dense-100000 | D | 96,669 | 15.959 | 12.933 | 13.954 | 12.587–14.690 | 10.433 | 9.281250 |
+| dense-100000 | N | 96,669 | 16.253 | 13.120 | 13.946 | 12.695–14.101 | 10.497 | 9.312500 |
+| dense-1000000 | D | 966,669 | 110.558 | 89.227 | 90.513 | 88.049–92.543 | 80.378 | 63.937500 |
+| dense-1000000 | N | 966,669 | 110.053 | 89.355 | 91.347 | 88.021–92.086 | 80.658 | 63.984375 |
+| dense-2000000 | D | 1,933,338 | 220.863 | 175.871 | 179.786 | 170.811–214.966 | 161.272 | 124.421875 |
+| dense-2000000 | N | 1,933,338 | 224.357 | 176.286 | 187.952 | 171.330–248.739 | 161.211 | 124.453125 |
+| external-0-atsp.mzn | D | 6,899 | 6.508 | 5.281 | 6.036 | 5.052–6.200 | 3.299 | 2.328125 |
+| external-0-atsp.mzn | N | 6,899 | 6.484 | 5.370 | 6.099 | 5.140–6.484 | 3.376 | 2.406250 |
+| external-1-trip_7_4.mzn | D | 85,229 | 14.694 | 13.933 | 15.425 | 13.153–17.490 | 11.116 | 6.546875 |
+| external-1-trip_7_4.mzn | N | 85,229 | 14.275 | 14.122 | 15.334 | 13.214–15.445 | 11.188 | 6.656250 |
+
+Every measured input through 100 KiB meets 50 ms / 32 MiB in both settings;
+the dense input through 1 MiB meets 100 ms / 64 MiB. The 1.93 MB rows are
+retained growth controls above that budget range. Small nested/trip wall tails
+remain visible; small child CPU controls are close to baseline. All 1,300
+final samples were accepted, with no timeouts or deleted tails. Complete
+native stdout matches the baseline byte for byte for all 26 variants. The
+invalid-edited stderr paths name the respective before-native/final-native
+input; line 1, column 32, bytes 31..32, the expected-expression message and
+status 2 are unchanged. Both original stderr streams remain retained.
+
+The matched control alternates before/final processes for four representative
+cases in both settings, 50 per version/case/settings (800 processes). All
+400 paired outputs were byte-compared. Dense paired p95 is 110.223 / 113.653 ms
+before and 91.245 / 91.867 ms final. Median child CPU is 98.170 / 98.300 ms
+before and 80.156 / 79.980 ms final. Separate paired final RSS is
+63.937500 / 63.968750 MiB. `paired-controls.json` retains full distributions,
+commands, output pairs and native streams.
+
+First-use observations are separate: baseline wall 356.631 ms / child CPU
+6.289 ms, final wall 308.461 ms / child CPU 6.180 ms. The wall/CPU gap and
+uncontrolled caches/load prevent a controlled-cold or warmed p95 conclusion
+from those individual observations.
+
+### Public table and independent files
+
+Five matched interleaved fresh saves per version read the unchanged
+27,775,980-byte public table and write retained stdout files. Each has a
+120-second deadline. All ten status-0 outputs are byte-identical:
+78,976,026 bytes, SHA256
+`0b9603395712dc833f3b4c3c0ea02f55c7ef81022811675838d66b5c2e66b706`.
+
+| Version | Median wall ms | Wall range ms | Median child CPU ms | Native RSS range MiB |
+| --- | ---: | --- | ---: | --- |
+| Before | 3910.459 | 3858.866–4328.079 | 3883.515 | 2786.203–2967.594 |
+| Final | 3770.140 | 3735.391–3819.748 | 3745.667 | 2222.047–2545.625 |
+
+Five samples support medians/ranges, not p95. These supplemental file-backed
+measurements retain the same options and I/O between versions and show no
+observed table regression. Their elapsed times are separate from the adequate
+finite syntax/format checker replay.
+
+Native `--check` runs on 1/3/10/20 distinct canonical dense files retain
+expected status 1, empty stdout and identical complete before/final stderr.
+Final RSS is 63.875 / 94.531 / 201.859 / 355.000 MiB, versus baseline
+89.953 / 221.297 / 665.813 / 730.938 MiB. Native high-water still grows across
+independent files. The exact instrumented per-file drop result proves release
+of tracked live allocations; it does not prove constant native RSS or identify
+the cause of the observed retention. This remains a batch-memory limitation.
+
+### Fresh corpus and shared interpretation
+
+The fresh no-`--rules` syntax/format campaign inventories and attempts all
+6,417 canonical Challenge/local/2026-supplement inputs. Per-file deadlines are
+10 seconds; the finite campaign limit is 1,800 seconds and was not reached.
+All originals are rehashed after the run, with zero changes or missing files.
+There are 6,373 clean completions and 44 retained gaps: 23 timeouts, five UTF8
+failures, 12 syntax assessments and four model-constructs-in-data cases.
+No rows are Unobserved. Clean completions preserve token/tree coverage,
+spelling, structure, protected bytes, clean reparse and idempotence.
+
+Compared with the historical base-047 branch, 24 syntax-assessment rows now
+complete. The fresh before binary produces exactly the same reports as final
+on those 24 inputs, so these coverage gains predate base-077. The public-table
+checker additionally completes within its 120-second deadline and preserves
+all fidelity checks. No full semantic corpus campaign or solver run occurred.
+
+The representative shared-include/missing-dependency replay preserves the
+original fixtures and exact before/final library reports and native streams:
+18 library reports (nine pairs), 18 individual native runs (nine pairs), and
+six independent multi-root runs (three pairs). Actual selections remain two
+default rules, 14 thesis rules and 26 all rules. The broken include remains
+source-local under default, with no dependency analysis; thesis/all retain
+status 2, one unresolved include edge and its located load error. Every
+per-rule outcome, finding, error and limitation remains available in
+`shared-replay.json`; this is bounded behavior preservation, not full semantic
+acceptance.
+
+### Repeating and inspecting the checks
+
+Fresh immutable binaries, inputs, configs, intermediate failures and complete
+streams live under `target/benchmarks/base077`. Corpus inventory, original
+hashes, every raw child stream and all 6,417 rows live under
+`target/corpus/base077-final`. The compact validation index and final ownership
+pins identify exact source, foreign, input, historical artifact and binary
+bytes. The existing save driver and phase probe are unchanged; small copied
+supplementary helpers add only finite deadlines, full stream capture and
+per-child RSS. They do not modify external originals.
+
+```sh
+cargo build --offline --release -p zincite-fmt --bin zincite-fmt \
+  --example profile-phases --example check-corpus-file \
+  -p zincite-lint --lib --bin zincite-lint
+python3 scripts/bench-save.py --binary target/benchmarks/base077/final/zincite-fmt \
+  --samples 50 \
+  --external /private/tmp/portfolio-150-mzn-challenge-a844/2021/ATSP/atsp.mzn \
+  --external /private/tmp/portfolio-150-mzn-challenge-a844/2021/java-routing/trip_7_4.mzn \
+  --output target/benchmarks/NEW-SAVE-REPORT.json
+python3 scripts/check-corpus.py \
+  --challenge /private/tmp/portfolio-150-mzn-challenge-a844 \
+  --local /Users/zayenz/minizinc \
+  --supplement /private/tmp/zincite-base023-mznc2026-probs \
+  --binary target/benchmarks/base077/final/check-corpus-file \
+  --timeout 10 --campaign-timeout 1800 --output target/corpus/NEW-REPORT
+cargo fmt --all -- --check
+cargo clippy --offline --workspace --all-targets -- -D warnings
+cargo test --offline --workspace
+```
+
+Final fmt, Clippy and workspace tests pass (189 existing tests). No tracked
+test was added. A private public-API replay also matches protected ranges or
+lexical diagnostics against full lex for six lexical edge cases and 13 named
+inputs. The initial formatting/Clippy failures, denied sampler attempts and
+first overlapping Cargo run remain retained; sequential checks on final Rust
+bytes supersede them. No build/test/corpus work overlapped timed measurements.
+Task records, index and commits remain with the coordinator. The six foreign
+paths and prior base-047/075/076 evidence retain exact bytes and modes.

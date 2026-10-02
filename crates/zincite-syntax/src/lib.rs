@@ -57,6 +57,11 @@ impl FileMode {
 /// user-defined requires the model and is outside syntax checking.
 pub fn parse_with_mode(source: impl Into<String>, mode: FileMode) -> ParsedFile {
     let mut lexed = lex(source);
+    // Finish large token buffers before constructing the CST. Small files keep
+    // their existing allocation path; token indices and owned source stay exact.
+    if lexed.tokens.len() >= 65_536 {
+        lexed.tokens.shrink_to_fit();
+    }
     let (tree, diagnostics) = parser::parse(&lexed.tokens, &lexed.source, mode);
     lexed.diagnostics.extend(diagnostics);
     ParsedFile { lexed, tree }
@@ -279,6 +284,14 @@ pub fn lex(source: impl Into<String>) -> LexedSource {
         tokens,
         diagnostics,
     }
+}
+
+/// Validate the complete source and return byte ranges of comments and string
+/// chunks, including interpolated literals, without retaining every token.
+/// Expressions inside interpolation remain editable. Lexical errors, including
+/// unterminated interpolation at EOF, reject the complete result.
+pub fn lexical_protected_ranges(source: &str) -> Result<Vec<Range<usize>>, Vec<Diagnostic>> {
+    lexer::protected_ranges(source)
 }
 
 /// Source text and its tokens. Read-only access keeps their ranges valid.
