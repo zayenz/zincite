@@ -289,3 +289,169 @@ fn incomplete_context_and_shared_reporter_keep_rule_execution_and_status_distinc
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn standard_reentries_reuse_canonical_files_edges_and_core_availability() {
+    let directory = temporary("standard-reentries");
+    let library = directory.join("library");
+    let root = directory.join("root.mzn");
+    let source =
+        "\u{feff}% é\r\ninclude \"first.mzn\"; include \"sub/../first.mzn\"; solve satisfy;\r\n";
+    write(&root, source);
+    write(library.join("std/stdlib.mzn"), "include \"first.mzn\";");
+    write(library.join("std/first.mzn"), "include \"second.mzn\";");
+    write(
+        library.join("std/second.mzn"),
+        "include \"sub/../first.mzn\";",
+    );
+    std::fs::create_dir_all(library.join("std/sub")).unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(library.clone()),
+        ..ModelOptions::default()
+    };
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    assert!(context.limitations.is_empty());
+    assert_eq!(context.files.len(), 4);
+    let canonical: std::collections::BTreeSet<_> =
+        context.files.iter().map(|f| &f.canonical_path).collect();
+    assert_eq!(canonical.len(), context.files.len());
+    let first = context
+        .files
+        .iter()
+        .position(|f| f.path == library.join("std/first.mzn"))
+        .unwrap();
+    let second = context
+        .files
+        .iter()
+        .position(|f| f.path == library.join("std/second.mzn"))
+        .unwrap();
+    let root_id = context.root_file.unwrap();
+    let root_edges: Vec<_> = context
+        .includes
+        .iter()
+        .filter(|e| e.from == root_id)
+        .collect();
+    assert_eq!(root_edges.len(), 2);
+    for (edge, spelling) in root_edges
+        .iter()
+        .zip(["\"first.mzn\"", "\"sub/../first.mzn\""])
+    {
+        assert_eq!(edge.target, Some(first));
+        assert_eq!(&source[edge.location.range.clone()], spelling);
+        assert_eq!(
+            (edge.location.line, edge.location.path.as_path()),
+            (2, root.as_path())
+        );
+    }
+    assert_eq!(context.includes.len(), 5);
+    for edge in &context.includes {
+        assert!(edge.target.is_some());
+        let original = std::fs::read_to_string(&context.files[edge.from].path).unwrap();
+        assert!(original[edge.location.range.clone()].starts_with('"'));
+    }
+    assert!(
+        context
+            .includes
+            .iter()
+            .any(|e| e.from == first && e.target == Some(second))
+    );
+    let back = context
+        .includes
+        .iter()
+        .find(|e| e.from == second && e.target == Some(first))
+        .unwrap();
+    assert_eq!(
+        &context.files[second].parsed.source()[back.location.range.clone()],
+        "\"sub/../first.mzn\""
+    );
+    for (id, file) in context.files.iter().enumerate() {
+        if id == root_id {
+            assert_eq!(file.kind, SourceKind::User);
+            assert!(file.explicit && !file.implicit);
+        } else {
+            assert_eq!(file.kind, SourceKind::StandardLibrary);
+            assert!(file.implicit && !file.explicit && !file.warnings_enabled());
+        }
+    }
+    let explicit = load_model(library.join("std/first.mzn"), &options);
+    assert!(explicit.errors.is_empty(), "{:?}", explicit.errors);
+    let selected = &explicit.files[explicit.root_file.unwrap()];
+    assert_eq!(selected.kind, SourceKind::StandardLibrary);
+    assert!(selected.explicit && selected.implicit && selected.warnings_enabled());
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn self_user_and_mixed_cycles_keep_located_errors_and_target_edges() {
+    for case in [
+        "self-user",
+        "self-standard",
+        "user",
+        "mixed-standard-target",
+        "mixed-user-target",
+    ] {
+        let directory = temporary(case);
+        let library = directory.join("library");
+        let root = directory.join("root.mzn");
+        write(library.join("std/stdlib.mzn"), "annotation core;");
+        let (entry, error_path, target_path) = match case {
+            "self-user" => {
+                write(&root, "include \"root.mzn\";");
+                (root.clone(), root.clone(), root.clone())
+            }
+            "self-standard" => {
+                let path = library.join("std/first.mzn");
+                write(&path, "include \"sub/../first.mzn\";");
+                std::fs::create_dir_all(library.join("std/sub")).unwrap();
+                (path.clone(), path.clone(), path)
+            }
+            "user" => {
+                write(&root, "include \"bridge.mzn\";");
+                write(directory.join("bridge.mzn"), "include \"root.mzn\";");
+                (root.clone(), directory.join("bridge.mzn"), root.clone())
+            }
+            "mixed-standard-target" => {
+                write(&root, "include \"first.mzn\";");
+                write(
+                    library.join("std/first.mzn"),
+                    "include \"../../bridge.mzn\";",
+                );
+                write(directory.join("bridge.mzn"), "include \"first.mzn\";");
+                (
+                    root.clone(),
+                    library.join("std/../../bridge.mzn"),
+                    library.join("std/first.mzn"),
+                )
+            }
+            _ => {
+                write(&root, "include \"first.mzn\";");
+                write(library.join("std/first.mzn"), "include \"../../root.mzn\";");
+                (root.clone(), library.join("std/first.mzn"), root.clone())
+            }
+        };
+        let context = load_model(
+            entry,
+            &ModelOptions {
+                stdlib_dir: Some(library),
+                ..ModelOptions::default()
+            },
+        );
+        assert_eq!(context.errors.len(), 1, "{case}: {:?}", context.errors);
+        let error = &context.errors[0];
+        assert!(error.message.contains("include cycle"));
+        assert_eq!(error.location.path, error_path);
+        let edge = context
+            .includes
+            .iter()
+            .find(|e| e.location == error.location)
+            .unwrap();
+        assert_eq!(
+            context.files[edge.target.unwrap()].canonical_path,
+            target_path.canonicalize().unwrap()
+        );
+        let original = std::fs::read_to_string(error_path).unwrap();
+        assert!(original[error.location.range.clone()].starts_with('"'));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}

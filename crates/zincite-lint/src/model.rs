@@ -231,11 +231,19 @@ impl Loader<'_> {
         if let Some(&id) = self.loaded.get(&canonical) {
             self.context.files[id].implicit |= implicit;
             self.context.files[id].explicit |= explicit;
-            if self.active.contains(&canonical) {
-                self.error(
-                    location,
-                    format!("include cycle through '{}'", path.display()),
-                );
+            if let Some(start) = self.active.iter().position(|active| active == &canonical) {
+                // Standard closures reuse non-self back-edges. Every file in the
+                // cycle segment must be standard; a user root before it is allowed.
+                let standard_reentry = start + 1 < self.active.len()
+                    && self.active[start..].iter().all(|active| {
+                        self.context.files[self.loaded[active]].kind == SourceKind::StandardLibrary
+                    });
+                if !standard_reentry {
+                    self.error(
+                        location,
+                        format!("include cycle through '{}'", path.display()),
+                    );
+                }
             }
             return Some(id);
         }

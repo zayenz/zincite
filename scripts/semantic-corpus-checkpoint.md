@@ -294,3 +294,72 @@ The measurement integration is complete. Corpus acceptance is unproven while
 valid-input loading/ranking gaps, syntax work, deadlines and rule-local limits
 remain. Base-050 must assess their repairs and actual coverage; the 591 resolved
 closures and reviewed advice are not a substitute for that gate.
+
+## Base-075 bounded standard-include repair
+
+Base-075 changes the loader's active canonical-file check. A non-self back-edge
+now reuses the existing file when every file from the repeated target through the
+including file belongs to the configured standard library. A user root before
+that segment is allowed. Self-includes and segments containing a user file still
+produce the original located error and retain their target edge. The loader keeps
+relative-first lookup, ordered include directories, canonical deduplication,
+first readable paths, implicit/explicit flags and original include ranges.
+
+Five public loader checks pass. The new checks cover aliased standard back-edges,
+a user root outside their segment, implicit core availability, explicit standard
+roots, BOM/CRLF ranges, standard and user self-includes, user cycles and both mixed
+cycle target classifications. The initial standard re-entry check fails on the
+old loader at the retained `second.mzn` include range `8..26`. The existing checks
+continue to cover search order, missing/unreadable/malformed dependencies,
+independent roots, suppressions and reporter status.
+
+The replay uses the original small `all_different` model, the retained self-include,
+the unchanged public `2023/sudoku_fixed/sudoku_fixed.mzn`, and a globals reduction.
+The planner named that reduction `globals.mzn` while it includes `"globals.mzn"`.
+Zincite's relative-first lookup therefore reaches the reduction itself: its one
+self-cycle remains an error. A separate `root-globals.mzn` contains exactly the
+same 105 bytes (SHA256
+`a0b93c5efa8d9c19ae8e793c01716c268701c2e6c1b54435fa4815f4371272cd`)
+and exercises the installed globals closure. The original shadowed input and its
+results remain intact. No search-order exception was added.
+
+MiniZinc 2.10.1 build 33348285743 accepts the small model, both globals filenames
+and public Sudoku with `--model-check-only` and an explicit installed standard
+library. It rejects the retained self-include with a cyclic-include error. All
+five commands finish within their 60-second deadlines; none runs a solver.
+Compiler acceptance of the shadowed filename does not change Zincite's explicit
+relative-first search contract.
+
+The table records fresh library/native results. Each pair has identical complete
+stderr bytes and exit status. Files and include edges, their target IDs, source
+classifications, flags and original ranges equal the pre-repair library replay.
+Only the accepted standard cycle errors disappear. The earlier base-045 corpus
+counts above remain historical evidence.
+
+| Input | Canonical files / edges | Load errors before → after | Thesis14: status; warnings; limits; Completed/Limited | All26: status; warnings; limits; Completed/Limited |
+| --- | --- | --- | --- | --- |
+| Original `all_different` | 65 / 79 | 4 → 0 | 0; 0; 5; 11/3 | 1; 1; 6; 22/4 |
+| Shadowed `globals.mzn` | 23 / 23 | 1 → 1 | 2; 0; 1; 0/14 | 2; 1; 2; 0/26 |
+| Retained self-include | 23 / 23 | 1 → 1 | 2; 0; 0; 0/14 | 2; 0; 0; 0/26 |
+| Public Sudoku | 484 / 657 | 16 → 0 | 0; 0; 18; 11/3 | 1; 3; 21; 22/4 |
+| Distinctly named globals reduction | 484 / 657 | 16 → 0 | 0; 0; 5; 11/3 | 1; 1; 6; 22/4 |
+
+Accepted controls have no analysis errors; each rejected control retains one.
+All selected rule outcomes are recorded: none is Inapplicable or NotRun here.
+The small model and globals reduction still have ambiguous `all_different` and
+unknown `not`/`occurs` callable facts. Their Limited rules are unused-declaration,
+element-predicate and search-coverage; All26 also limits vacuous-constraint.
+Sudoku instead limits unused-declaration, element-predicate and reified-global,
+plus vacuous-constraint under All26. Its All26 warnings are one missing label and
+two expensive-comprehension findings. These limitations remain independent of
+loading, and zero warnings under thesis do not imply complete semantic analysis.
+
+Ignored evidence is under `target/base075`: original ownership and input pins,
+`standard-reentry-red.log`, the corrected focused logs, `baseline-closures/`,
+`counterpart-baseline/`, `compiler-controls/`, `analysis-controls/`, binary pins
+and the final validation logs. The replay pins and rechecks external controls,
+the installed closure, compiler and retained base-045 reports/probes. It does not
+edit those sources or run a full corpus campaign. Corpus acceptance still needs
+its final gate, callable-ranking repair, unresolved syntax/dependencies and
+rule-local limitations; this bounded result establishes the standard include
+re-entry repair only.
