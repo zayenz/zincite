@@ -1602,23 +1602,49 @@ pub(super) fn core_operation(
     }
 }
 
-/// Interpret one actually selected body with its concrete formal types. The
-/// original context-free facts remain unchanged, including unknown candidates.
-pub(super) fn instantiated_body(
+/// Match a prospective equality using the existing concrete type-inst matcher.
+/// Local operator names are conservatively withheld rather than reconstructed
+/// from source spelling. The ordinary fact resolver remains unchanged.
+pub(super) fn prospective_core_equality(
     context: &ModelContext,
     bindings: &BindingFacts,
     facts: &CallableFacts,
-    id: DeclarationId,
-    parameters: &[TypeInst],
-) -> CallableFacts {
-    let declaration = &bindings.declarations[id.0];
-    let node = find_node(
-        context.files[declaration.file].parsed.tree(),
-        &declaration.syntax_range,
-        declaration.role,
+    file: FileId,
+    operands: &[TypeInst],
+) -> bool {
+    if bindings.declarations.iter().any(|d| {
+        d.name == "="
+            && ((!d.top_level && d.file == file)
+                || (d.top_level
+                    && !matches!(
+                        d.role,
+                        DeclarationRole::Function
+                            | DeclarationRole::Predicate
+                            | DeclarationRole::Annotation
+                    )))
+    }) {
+        return false;
+    }
+    let ids: Vec<_> = bindings
+        .declarations
+        .iter()
+        .filter(|d| d.top_level && d.name == "=")
+        .map(|d| d.id)
+        .collect();
+    let mut engine = engine_from_facts(context, bindings, facts);
+    let arguments: Vec<_> = operands.iter().cloned().map(|ty| (None, ty)).collect();
+    matches!(
+        engine.choose(&ids, &arguments),
+        CallOutcome::Resolved { declaration, .. }
+            if crate::definitions::core_callable(context, bindings, declaration, "=")
     )
-    .unwrap();
-    let mut engine = Engine {
+}
+fn engine_from_facts<'a>(
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    facts: &CallableFacts,
+) -> Engine<'a> {
+    Engine {
         context,
         bindings,
         nodes: bindings
@@ -1640,7 +1666,26 @@ pub(super) fn instantiated_body(
         expressions: BTreeMap::new(),
         calls: BTreeMap::new(),
         active_calls: Vec::new(),
-    };
+    }
+}
+
+/// Interpret one actually selected body with its concrete formal types. The
+/// original context-free facts remain unchanged, including unknown candidates.
+pub(super) fn instantiated_body(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    facts: &CallableFacts,
+    id: DeclarationId,
+    parameters: &[TypeInst],
+) -> CallableFacts {
+    let declaration = &bindings.declarations[id.0];
+    let node = find_node(
+        context.files[declaration.file].parsed.tree(),
+        &declaration.syntax_range,
+        declaration.role,
+    )
+    .unwrap();
+    let mut engine = engine_from_facts(context, bindings, facts);
     for d in &bindings.declarations {
         if d.file == declaration.file
             && node.range().start <= d.syntax_range.start

@@ -55,7 +55,7 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
         "Availability: available",
         "Requires model context: yes",
         "Required facts:",
-        "Fix support: none",
+        "Fix support: sometimes",
         "Options: none",
         "Limitations: User lookalikes",
     ] {
@@ -1761,8 +1761,8 @@ fn unused_generator_selection_suppression_and_metadata_preserve_source_and_statu
     assert!(
         text.contains("Family: suspicious")
             && text.contains("Availability: available")
-            && text.contains("Fix support: none")
-            && text.contains("Partiality obligations")
+            && text.contains("Fix support: sometimes")
+            && text.contains("Generator-call shorthand")
     );
     let stdin = run(&["--rules", "unused-generator-binding"], source);
     assert_eq!(stdin.status.code(), Some(0));
@@ -2310,5 +2310,94 @@ fn diagnostic_only_rules_keep_native_fix_diff_bytes_and_statuses() {
         "include \"dependency.mzn\"; solve satisfy;\r\n"
     );
     assert!(std::fs::read(&system).unwrap().is_empty());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn semantic_fixes_preview_apply_once_and_respect_selection_suppression_and_roots() {
+    let dir = std::env::temp_dir().join(format!("zincite-semantic-fix-cli-{}", std::process::id()));
+    let library = dir.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(library.join("std/stdlib.mzn"), "function set of int:'..'(int:a,int:b); function int:sum(array[int] of int:a); function var bool:'='(var $T:a,var $T:b);\n").unwrap();
+    let system = library.join("std/element.mzn");
+    std::fs::write(
+        &system,
+        "predicate element(var $$E:i,array[$$E] of var $$T:x,var $$T:y)=y=x[i];\n",
+    )
+    .unwrap();
+    let root = dir.join("root.mzn");
+    let included = dir.join("included.mzn");
+    let config = dir.join("zincite.toml");
+    let included_source = "int:included_total=sum([2 | included_unused in 1..3]);\n";
+    std::fs::write(&included, included_source).unwrap();
+    let source = concat!(
+        "\u{feff}include \"element.mzn\"; include \"included.mzn\"; % é\r\n",
+        "int:total=sum([2 /* repeated */ | unused_index in 1..3]);\r\n",
+        "array[0..2] of var int:xs; var 0..2:index; var int:value;\r\n",
+        "constraint :: \"kept\" element(index /* i */,xs /* a */,value /* y */); solve satisfy;\r\n"
+    );
+    std::fs::write(&root, source).unwrap();
+    let invoke = |mode: &str| {
+        run(
+            &[
+                mode,
+                "--rules",
+                "unused-generator-binding,element-predicate",
+                "--stdlib-dir",
+                library.to_str().unwrap(),
+                root.to_str().unwrap(),
+            ],
+            "",
+        )
+    };
+    let preview = invoke("--diff");
+    assert_eq!(
+        preview.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&preview.stderr)
+    );
+    let diff = String::from_utf8(preview.stdout).unwrap();
+    assert!(
+        diff.contains("_ in 1..3")
+            && diff.contains("(value /* y */) = (xs /* a */)[(index /* i */)]"),
+        "{diff}"
+    );
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    let applied = invoke("--fix");
+    // Include-only diagnostics remain, but its bytes receive no implicit edits.
+    assert_eq!(applied.status.code(), Some(1));
+    let changed = std::fs::read_to_string(&root).unwrap();
+    assert!(
+        changed.contains("_ in 1..3")
+            && changed.contains("(value /* y */) = (xs /* a */)[(index /* i */)]")
+    );
+    assert_eq!(std::fs::read_to_string(&included).unwrap(), included_source);
+    assert_eq!(
+        std::fs::read_to_string(&system).unwrap(),
+        "predicate element(var $$E:i,array[$$E] of var $$T:x,var $$T:y)=y=x[i];\n"
+    );
+    assert_eq!(invoke("--fix").status.code(), Some(1));
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), changed);
+    assert!(invoke("--diff").stdout.is_empty());
+    std::fs::write(&root, source).unwrap();
+    std::fs::write(&config,"[lint]\nselect=[]\nfixable=['family:suspicious']\nunfixable=['unused-generator-binding']\n").unwrap();
+    assert_eq!(invoke("--fix").status.code(), Some(1));
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    std::fs::write(
+        &root,
+        source.replace(
+            "constraint ::",
+            "% zincite-lint: ignore element-predicate\r\nconstraint ::",
+        ),
+    )
+    .unwrap();
+    std::fs::write(&config, "[lint]\nfixable=['element-predicate']\n").unwrap();
+    let suppressed = std::fs::read_to_string(&root).unwrap();
+    assert_eq!(invoke("--fix").status.code(), Some(1));
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), suppressed);
+    let list = String::from_utf8(run(&["--list-rules"], "").stdout).unwrap();
+    assert!(list.contains("element-predicate\tmodelling\tavailable\tsometimes\tthesis"));
+    assert!(list.contains("unused-generator-binding\tsuspicious\tavailable\tsometimes\topt-in"));
     std::fs::remove_dir_all(dir).unwrap();
 }

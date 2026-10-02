@@ -62,7 +62,8 @@ impl FixSupport {
 
 /// Inspectable rule documentation shared by library callers and CLI discovery.
 /// Availability means the rule is implemented; analysis of a particular input
-/// can still be limited or inapplicable. All current rules are diagnostic-only.
+/// can still be limited or inapplicable. Fix support records implemented edits,
+/// subject to each finding's proved applicability conditions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RuleMetadata {
     pub id: &'static str,
@@ -197,8 +198,8 @@ impl Rule {
                 "element-predicate",
                 RuleFamily::Modelling,
                 "Recommend indexing equality for a resolved standard-library three-argument element predicate.",
-                "Lexical bindings and resolved callable signatures, types and standard-library identity.",
-                "User lookalikes do not match. Ambiguous, unresolved or unsupported calls report limitations; advice is not full type checking or an implemented source rewrite.",
+                "Lexical bindings, selected callable bodies/types, actual array domains and guarded operand totality.",
+                "User lookalikes do not match. A Safe indexing-equality fix requires the supported standard body, matching nonoptional scalar types, actual index membership, total operands and core equality; unknown, optional, opaque, named or annotated unsupported forms retain advice only. Ambiguous, unresolved or unsupported calls report limitations.",
             ),
             Self::ReifiedGlobal => (
                 "reified-global",
@@ -303,7 +304,7 @@ impl Rule {
                 RuleFamily::Suspicious,
                 "Identify unused generator names while retaining every iteration and evaluation.",
                 "Resolved uses across remaining domains, filters, bodies and annotations; iteration multiplicity and guarded obligations.",
-                "Anonymous and underscore-prefixed names are exempt. Core Boolean repetition is distinguished from arithmetic terms/factors; unknown aggregate semantics authorize no identity. Partiality obligations remain in diagnostics and prospective anonymization metadata. No generator removal, hoisting or source fix is implemented.",
+                "Anonymous and underscore-prefixed names are exempt. A Safe fix replaces only a completely unused membership name in an array, set or indexed comprehension with _, preserving multiplicity and evaluation. Generator-call shorthand, assignment and unknown/partial evaluation remain advice-only. No generator removal or hoisting is offered.",
             ),
             Self::SuspiciousShadowing => (
                 "suspicious-shadowing",
@@ -342,7 +343,11 @@ impl Rule {
             limitations,
             requires_model: !Self::DEFAULT.contains(&self),
             available: true,
-            fix_support: FixSupport::None,
+            fix_support: if matches!(self, Self::ElementPredicate | Self::UnusedGeneratorBinding) {
+                FixSupport::Sometimes
+            } else {
+                FixSupport::None
+            },
             options: match self {
                 Self::SuspiciousShadowing => &["ignore-names: exact binding names; default []"],
                 Self::ExpensiveComprehension => &[

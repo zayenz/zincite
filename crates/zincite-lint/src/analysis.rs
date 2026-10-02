@@ -227,6 +227,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
     let mut comprehension_incomplete = false;
     let mut input_incomplete = false;
     let mut domain_contract_incomplete = false;
+    let mut fix_snapshots = std::collections::BTreeMap::new();
     if !data && options.requires_model() {
         let facts = resolve_bindings(context);
         if options.rules.contains(&Rule::SuspiciousShadowing) {
@@ -239,7 +240,8 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             result.findings.extend(findings);
             result.limitations.extend(limitations);
         }
-        let domains = if options.rules.contains(&Rule::ArrayIndexStart)
+        let domains = if options.rules.contains(&Rule::ElementPredicate)
+            || options.rules.contains(&Rule::ArrayIndexStart)
             || options.rules.contains(&Rule::ConstantVariable)
             || options.rules.contains(&Rule::UnboundedVariable)
             || options.rules.contains(&Rule::SearchCoverage)
@@ -322,13 +324,8 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     .extend(check_unused_declarations(context, &facts, &usage));
                 result.limitations.extend(usage.limitations);
             }
-            if options.rules.contains(&Rule::ElementPredicate) {
-                let elements = check_element(context, &facts, &calls);
-                element_incomplete = !elements.limitations.is_empty();
-                result.findings.extend(elements.findings);
-                result.limitations.extend(elements.limitations);
-            }
-            if options.rules.contains(&Rule::ReifiedGlobal)
+            if options.rules.contains(&Rule::ElementPredicate)
+                || options.rules.contains(&Rule::ReifiedGlobal)
                 || !decision_rules.is_empty()
                 || options.rules.contains(&Rule::CompactIf)
                 || options.rules.contains(&Rule::ConstantVariable)
@@ -377,7 +374,8 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     result.findings.extend(checked.findings);
                     result.limitations.extend(checked.limitations);
                 }
-                if options.rules.contains(&Rule::ConstantVariable)
+                if options.rules.contains(&Rule::ElementPredicate)
+                    || options.rules.contains(&Rule::ConstantVariable)
                     || options.rules.contains(&Rule::UnboundedVariable)
                     || options.rules.contains(&Rule::SearchCoverage)
                     || options.rules.contains(&Rule::IndexSetMismatch)
@@ -397,7 +395,8 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                         &instantiations,
                         domains.as_ref().unwrap(),
                     );
-                    if options.rules.contains(&Rule::IndexSetMismatch)
+                    if options.rules.contains(&Rule::ElementPredicate)
+                        || options.rules.contains(&Rule::IndexSetMismatch)
                         || options.rules.contains(&Rule::HiddenOptionality)
                         || options.rules.contains(&Rule::PartialExpression)
                         || options.rules.contains(&Rule::VacuousConstraint)
@@ -432,6 +431,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                             result.limitations.extend(limitations);
                         }
                         if [
+                            Rule::ElementPredicate,
                             Rule::IndexSetMismatch,
                             Rule::HiddenOptionality,
                             Rule::PartialExpression,
@@ -462,6 +462,28 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                                 &numeric,
                                 &optional,
                             );
+                            if options.rules.contains(&Rule::ElementPredicate) {
+                                let rewrites = crate::resolve_element_rewrites(
+                                    context,
+                                    &facts,
+                                    &calls,
+                                    &instantiations,
+                                    domains,
+                                    &numeric,
+                                    &optional,
+                                    &guarded,
+                                );
+                                let elements = check_element(
+                                    context,
+                                    &facts,
+                                    &calls,
+                                    &rewrites,
+                                    &mut fix_snapshots,
+                                );
+                                element_incomplete = !elements.limitations.is_empty();
+                                result.findings.extend(elements.findings);
+                                result.limitations.extend(elements.limitations);
+                            }
                             if options.rules.contains(&Rule::HiddenOptionality) {
                                 let (findings, limitations) =
                                     crate::hidden_optionality::check_hidden_optionality(
@@ -535,7 +557,10 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                                     );
                                     let (findings, limitations) =
                                         crate::unused_generator::check_unused_generators(
-                                            context, &facts, &usage,
+                                            context,
+                                            &facts,
+                                            &usage,
+                                            &mut fix_snapshots,
                                         );
                                     unused_generator_incomplete = !limitations.is_empty();
                                     result.findings.extend(findings);

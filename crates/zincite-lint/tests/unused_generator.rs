@@ -82,7 +82,7 @@ fn full_chain_uses_and_repetition_advice_preserve_declaration_identity() {
     );
     assert_eq!(
         Rule::UnusedGeneratorBinding.metadata().fix_support,
-        FixSupport::None
+        FixSupport::Sometimes
     );
     assert!(
         LintOptions::from_selection("family:suspicious")
@@ -104,7 +104,10 @@ fn unused_name_facts_retain_unknown_refuted_and_unsupported_evaluation_safety() 
         "int:unknown=sum(unknown_index in 1..2)(1 div d);\n",
         "int:failed=sum(failed_index in 1..2)(1 div 0);\n",
         "int:unsupported=sum(opaque_index in 1..2)(opaque(1));\n",
-        "int:known=sum(known_index in 1..2)(2); solve satisfy;\n",
+        "int:known=sum(known_index in 1..2)(2);\n",
+        "array[int] of int:unknown_values=[1 div d | unknown_array in 1..2];\n",
+        "array[int] of int:failed_values=[1 div 0 | failed_array in 1..2];\n",
+        "array[int] of int:opaque_values=[opaque(1) | opaque_array in 1..2]; solve satisfy;\n",
     );
     let (dir, context) = model("safety", source);
     let bindings = resolve_bindings(&context);
@@ -129,7 +132,7 @@ fn unused_name_facts_retain_unknown_refuted_and_unsupported_evaluation_safety() 
         &context, &bindings, &calls, &inst, &domains, &numeric, &optional, &guarded,
     );
     let usage = resolve_generator_binding_usage(&bindings, &guarded, &iteration);
-    assert_eq!(usage.len(), 4);
+    assert_eq!(usage.len(), 7);
     assert!(usage[3].anonymization_eligible);
     assert!(
         usage[..3]
@@ -158,7 +161,11 @@ fn unused_name_facts_retain_unknown_refuted_and_unsupported_evaluation_safety() 
         &context,
         &LintOptions::from_selection("unused-generator-binding").unwrap(),
     );
-    assert_eq!(result.findings.len(), 4, "{result:?}");
+    assert_eq!(result.findings.len(), 7, "{result:?}");
+    assert!(
+        result.findings.iter().all(|finding| finding.fix.is_none()),
+        "{result:?}"
+    );
     assert!(result.findings[0].message.contains("unknown"));
     assert!(
         result.findings[1]
@@ -170,5 +177,82 @@ fn unused_name_facts_retain_unknown_refuted_and_unsupported_evaluation_safety() 
         RuleOutcome::Limited { .. }
     ));
     assert_eq!(result.status(), 1);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn comprehension_fixes_preserve_anonymous_cartesian_terms_and_trivia() {
+    let source = concat!(
+        "\u{feff}% é retained\r\n",
+        "int:total=sum([2 /* same repeated term */ | 'unused one', extra in 1..3]);\r\n",
+        "set of int:values={2 | unused_set in 1..3};\r\n",
+        "array[int] of int:indexed=[position:2 | unused_key in 1..1,position in 1..3];\r\n",
+        "constraint :: \"kept annotation\" forall(shorthand in 1..3)(true);\r\n",
+        "array[int] of int:kept=[used | used in 1..2];\r\n",
+        "solve satisfy;\r\n",
+    );
+    let (dir, context) = model("fix", source);
+    let options = LintOptions::from_selection("unused-generator-binding").unwrap();
+    let result = analyze_model(&context, &options);
+    let fixes: Vec<_> = result
+        .findings
+        .iter()
+        .filter_map(|f| f.fix.as_ref())
+        .collect();
+    assert_eq!(fixes.len(), 4, "{result:?}");
+    assert!(
+        fixes
+            .iter()
+            .all(|f| f.safety == FixSafety::Safe && f.edits.len() == 1)
+    );
+    let root = &context.files[context.root_file.unwrap()];
+    let prepared = prepare_fixes(
+        &root.source_snapshot(),
+        source,
+        &result.findings,
+        &FixOptions::default(),
+    )
+    .unwrap();
+    let expected = source
+        .replace("'unused one'", "_")
+        .replace("extra in", "_ in")
+        .replace("unused_set in", "_ in")
+        .replace("unused_key in", "_ in");
+    assert_eq!(prepared.candidate, expected);
+    assert!(prepared.candidate.contains("/* same repeated term */"));
+    assert!(prepared.candidate.contains(":: \"kept annotation\""));
+    assert!(
+        result
+            .findings
+            .iter()
+            .find(|f| &source[f.location.range.clone()] == "shorthand")
+            .unwrap()
+            .fix
+            .is_none()
+    );
+    replace_fixed_file(&root.source_snapshot(), &prepared.candidate).unwrap();
+    let final_context = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..ModelOptions::default()
+        },
+    );
+    let remaining = analyze_model(&final_context, &options);
+    assert!(
+        remaining.findings.iter().all(|f| f.fix.is_none()),
+        "{remaining:?}"
+    );
+    assert_eq!(
+        prepare_fixes(
+            &final_context.files[final_context.root_file.unwrap()].source_snapshot(),
+            &expected,
+            &remaining.findings,
+            &FixOptions::default()
+        )
+        .unwrap()
+        .candidate,
+        expected
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }

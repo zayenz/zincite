@@ -254,6 +254,35 @@ pub(crate) fn evaluate_iteration_prefix(
 ) -> Result<GuardedFacts, String> {
     let node = node_at(context, candidate.file, &candidate.location)
         .ok_or("candidate source is unavailable")?;
+    let scope = retained_scope(context, candidate, prefix)?;
+    let mut producer = Producer {
+        context,
+        bindings,
+        calls,
+        instantiations,
+        domains,
+        numeric,
+        options: Some(options),
+        facts: GuardedFacts::default(),
+    };
+    producer.walk(
+        candidate.file,
+        candidate.item,
+        node,
+        Scope {
+            evaluation: GuardEvaluation::Strict,
+            enforcement: DefinitionEnforcement::Conditional,
+            boolean: None,
+            ..scope
+        },
+    );
+    Ok(producer.facts)
+}
+fn retained_scope<'a>(
+    context: &'a ModelContext,
+    candidate: &GuardedExpression,
+    prefix: &GuardContext,
+) -> Result<Scope<'a>, String> {
     let mut assumptions = Vec::new();
     for assumption in &prefix.assumptions {
         if assumption.file == candidate.file
@@ -282,7 +311,34 @@ pub(crate) fn evaluate_iteration_prefix(
             },
         });
     }
-    let mut producer = Producer {
+    Ok(Scope {
+        assumptions,
+        activation: prefix.activation,
+        evaluation: prefix.evaluation,
+        enforcement: prefix.enforcement.clone(),
+        boolean: prefix.nearest_boolean.clone(),
+    })
+}
+
+/// Query the same actual-array membership used by written accesses, at the
+/// retained call context. No synthetic CST or final Boolean totality is used.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prospective_index_membership(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &CallableFacts,
+    instantiations: &InstantiationFacts,
+    domains: &DomainFacts,
+    numeric: &NumericFacts,
+    options: &OptionalFacts,
+    call: &GuardedExpression,
+    index: &SyntaxNode,
+    array: DeclarationId,
+) -> GuardedOutcome {
+    let Ok(scope) = retained_scope(context, call, &call.context) else {
+        return GuardedOutcome::Unknown;
+    };
+    let producer = Producer {
         context,
         bindings,
         calls,
@@ -292,20 +348,21 @@ pub(crate) fn evaluate_iteration_prefix(
         options: Some(options),
         facts: GuardedFacts::default(),
     };
-    producer.walk(
-        candidate.file,
-        candidate.item,
-        node,
-        Scope {
-            assumptions,
-            activation: prefix.activation,
-            evaluation: GuardEvaluation::Strict,
-            enforcement: DefinitionEnforcement::Conditional,
-            boolean: None,
-        },
-    );
-    Ok(producer.facts)
+    let mut domain = &domains.declarations[array.0].domain;
+    while let Domain::Named { domain: inner, .. } = domain {
+        domain = inner;
+    }
+    let Domain::Array { indices, .. } = domain else {
+        return GuardedOutcome::Unknown;
+    };
+    let [domain] = indices.as_slice() else {
+        return GuardedOutcome::Unknown;
+    };
+    producer
+        .index_membership(call.file, index, array, 1, domain, &scope)
+        .1
 }
+
 pub(crate) fn node_at<'a>(
     context: &'a ModelContext,
     file: FileId,
@@ -1154,36 +1211,11 @@ impl<'a> Producer<'a> {
                 "sliced dimensions with omitted bounds are unsupported",
             );
         }
-        let domain_error = self.array_domain_error(array);
         let mut result = combine(&values);
         result.numeric = None;
         for (dimension, (index, domain)) in children[1..].iter().zip(indices).enumerate() {
-            let invariant = domain_error.as_ref().map_or_else(
-                || self.invariant_membership(file, index, domain),
-                |reason| GuardedOutcome::Unsupported(reason.clone()),
-            );
-            let selection = self.index_space(file, index, scope);
-            let outcome = if invariant == GuardedOutcome::Unknown
-                && (self.guarded_membership(file, index, domain, scope)
-                    || self.guarded_array_membership(file, index, array, dimension + 1, scope)
-                    || selection.as_ref().is_some_and(|s| {
-                        s.array_dimension.is_some_and(|source| {
-                            self.matching_array_indices(
-                                file,
-                                index,
-                                source,
-                                (array, dimension + 1),
-                                scope,
-                            )
-                        }) || (s.exact
-                            && !self.replaceable_set(domain)
-                            && intersect_index_domains(&s.domain, domain)
-                                .is_some_and(|d| same_members(&s.domain, &d) == Ok(Some(true))))
-                    })) {
-                GuardedOutcome::Proven
-            } else {
-                invariant.clone()
-            };
+            let (invariant, outcome, selection) =
+                self.index_membership(file, index, array, dimension + 1, domain, scope);
             self.obligation(
                 file,
                 node,
@@ -1200,6 +1232,37 @@ impl<'a> Producer<'a> {
             result.definedness = conjoin(&result.definedness, &outcome);
         }
         result
+    }
+    fn index_membership(
+        &self,
+        file: FileId,
+        index: &SyntaxNode,
+        array: DeclarationId,
+        dimension: usize,
+        domain: &Domain,
+        scope: &Scope<'a>,
+    ) -> (GuardedOutcome, GuardedOutcome, Option<GuardedIndexSpace>) {
+        let invariant = self.array_domain_error(array).as_ref().map_or_else(
+            || self.invariant_membership(file, index, domain),
+            |reason| GuardedOutcome::Unsupported(reason.clone()),
+        );
+        let selection = self.index_space(file, index, scope);
+        let outcome = if invariant == GuardedOutcome::Unknown
+            && (self.guarded_membership(file, index, domain, scope)
+                || self.guarded_array_membership(file, index, array, dimension, scope)
+                || selection.as_ref().is_some_and(|s| {
+                    s.array_dimension.is_some_and(|source| {
+                        self.matching_array_indices(file, index, source, (array, dimension), scope)
+                    }) || (s.exact
+                        && !self.replaceable_set(domain)
+                        && intersect_index_domains(&s.domain, domain)
+                            .is_some_and(|d| same_members(&s.domain, &d) == Ok(Some(true))))
+                })) {
+            GuardedOutcome::Proven
+        } else {
+            invariant.clone()
+        };
+        (invariant, outcome, selection)
     }
     fn let_value(
         &mut self,

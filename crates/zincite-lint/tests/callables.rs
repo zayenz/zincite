@@ -325,3 +325,109 @@ fn lattice_minima_unknown_candidates_and_rule_local_limits_do_not_guess() {
     assert_eq!(Rule::DEFAULT.len(), 2);
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn element_fix_facts_require_actual_indices_total_operands_and_core_equality() {
+    use zincite_lint::*;
+    let (directory, options) = setup("fix");
+    write(
+        &options.stdlib_dir.as_ref().unwrap().join("std/stdlib.mzn"),
+        concat!(
+            "function set of int: '..'(int:a,int:b);\n",
+            "function var bool: '='(var $T:a,var $T:b);\n",
+            "function int: 'div'(int:a,int:b); function var bool: 'in'(var int:a,set of int:b);\n",
+        ),
+    );
+    let root = directory.join("root.mzn");
+    let source = concat!(
+        "\u{feff}include \"element.mzn\"; % é\r\n",
+        "array[0..2] of var 0..5:xs; var 0..2:index; var int:value; var bool:flag;\r\n",
+        "constraint :: \"kept label\" flag <-> element /* head */ (index /* i */, xs /* a */, value /* y */);\r\n",
+        "int:unknown; var int:choice; function int:opaque(int:x);\r\n",
+        "constraint if choice in 0..2 then element(choice,xs,value) else true endif;\r\n",
+        "constraint element(unknown,xs,value); constraint element(3,xs,value);\r\n",
+        "constraint element(1 div 0,xs,value); constraint element(opaque(1),xs,value);\r\n",
+        "constraint element(i:index,x:xs,y:value);\r\n",
+        "array[0..2] of var opt int:optional; var opt int:optional_value; constraint element(index,optional,optional_value);\r\n",
+        "enum X={A,B}; enum Y={C,D}; array[X] of var int:typed; Y:wrong; constraint element(wrong,typed,value);\r\n",
+        "solve satisfy;\r\n",
+    );
+    write(&root, source);
+    let context = load_model(&root, &options);
+    let lint = LintOptions::from_selection("element-predicate").unwrap();
+    let result = analyze_model(&context, &lint);
+    assert!(result.errors.is_empty(), "{result:?}");
+    let fixes: Vec<_> = result
+        .findings
+        .iter()
+        .filter_map(|f| f.fix.as_ref())
+        .collect();
+    assert_eq!(fixes.len(), 2, "{result:?}");
+    assert_eq!(fixes[0].safety, FixSafety::Safe);
+    let snapshot = context.files[context.root_file.unwrap()].source_snapshot();
+    let prepared =
+        prepare_fixes(&snapshot, source, &result.findings, &FixOptions::default()).unwrap();
+    assert!(
+        prepared
+            .candidate
+            .contains("flag <-> ( /* head */ ( value /* y */) = ( xs /* a */)[(index /* i */)])"),
+        "{}",
+        prepared.candidate
+    );
+    for comment in [
+        "/* head */",
+        "/* i */",
+        "/* a */",
+        "/* y */",
+        "\"kept label\"",
+        "% é",
+    ] {
+        assert_eq!(prepared.candidate.matches(comment).count(), 1);
+    }
+    assert!(prepared.candidate.starts_with('\u{feff}') && prepared.candidate.contains("\r\n"));
+    replace_fixed_file(&snapshot, &prepared.candidate).unwrap();
+    let final_context = load_model(&root, &options);
+    assert!(
+        analyze_model(&final_context, &lint)
+            .findings
+            .iter()
+            .all(|f| f.fix.is_none())
+    );
+    // A selected user equality and a user element lookalike retain no Safe fix.
+    write(
+        &root,
+        "include \"element.mzn\"; function var bool:'='(var int:a,var int:b)=true; array[0..2] of var int:xs; var 0..2:index; var int:value; constraint element(index,xs,value); solve satisfy;",
+    );
+    assert!(
+        analyze_model(&load_model(&root, &options), &lint)
+            .findings
+            .iter()
+            .all(|f| f.fix.is_none())
+    );
+    write(
+        &root,
+        "predicate element(var int:i,array[int] of var int:a,var int:y)=true; array[0..2] of var int:xs; var 0..2:index; var int:value; constraint element(index,xs,value); solve satisfy;",
+    );
+    assert!(
+        analyze_model(&load_model(&root, &options), &lint)
+            .findings
+            .is_empty()
+    );
+    // Unknown formal annotations on a configured standard implementation with
+    // the same written relation must still withhold the Safe rewrite.
+    write(
+        &options.stdlib_dir.as_ref().unwrap().join("std/element.mzn"),
+        &format!(
+            "annotation semantic;\n{}",
+            ELEMENT.replace("var $$T: y)", "var $$T: y :: semantic)")
+        ),
+    );
+    write(
+        &root,
+        "include \"element.mzn\"; array[0..2] of var int:xs; var 0..2:index; var int:value; constraint element(index,xs,value); solve satisfy;",
+    );
+    let annotated = analyze_model(&load_model(&root, &options), &lint);
+    assert_eq!(annotated.findings.len(), 1, "{annotated:?}");
+    assert!(annotated.findings[0].fix.is_none(), "{annotated:?}");
+    std::fs::remove_dir_all(directory).unwrap();
+}

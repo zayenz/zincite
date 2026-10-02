@@ -16,8 +16,10 @@ mod definitions;
 mod domains;
 mod effective_zero_one;
 mod element;
+pub use element::{ElementRewrite, resolve_element_rewrites};
 mod expensive_comprehension;
 mod fix_files;
+mod semantic_fixes;
 pub use fix_files::{FileFixError, replace_fixed_file, write_fix_diff};
 mod fixes;
 pub use fixes::{

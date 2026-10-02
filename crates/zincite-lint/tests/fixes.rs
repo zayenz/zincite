@@ -283,7 +283,12 @@ fn selected_unsuppressed_findings_supply_groups_and_conversion_keeps_bom_coordin
     assert!(model.findings[0].message.contains("BadName"));
     assert_eq!(std::fs::read_to_string(path).unwrap(), source);
     std::fs::remove_dir_all(dir).unwrap();
-    assert!(Rule::all().all(|r| r.metadata().fix_support == FixSupport::None));
+    assert!(Rule::all().all(|r| r.metadata().fix_support
+        == if matches!(r, Rule::ElementPredicate | Rule::UnusedGeneratorBinding) {
+            FixSupport::Sometimes
+        } else {
+            FixSupport::None
+        }));
     assert_eq!(Rule::DEFAULT.len(), 2);
     assert_eq!(Rule::THESIS.len(), 14);
     assert_eq!(snapshot.source(), source);

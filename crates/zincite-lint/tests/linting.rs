@@ -30,7 +30,14 @@ fn catalogue_exposes_current_capabilities_and_preserves_presets() {
         let metadata = rule.metadata();
         assert_eq!(metadata.id, rule.id());
         assert!(metadata.available && rule.is_available());
-        assert_eq!(metadata.fix_support, FixSupport::None);
+        assert_eq!(
+            metadata.fix_support,
+            if matches!(rule, Rule::ElementPredicate | Rule::UnusedGeneratorBinding) {
+                FixSupport::Sometimes
+            } else {
+                FixSupport::None
+            }
+        );
         assert!(metadata.options.is_empty());
         assert!(!metadata.purpose.is_empty() && !metadata.limitations.is_empty());
     }

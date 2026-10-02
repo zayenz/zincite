@@ -19,10 +19,10 @@ pub struct GeneratorBindingUsage {
     pub repetitions: Option<u64>,
     pub obligations: Vec<GuardObligation>,
     pub evaluation_definedness: Vec<(SourceLocation, GuardedOutcome)>,
-    /// Conservative candidate eligibility only, not an implemented fix. A later
-    /// producer must preserve every generator, domain, filter, body, annotation
-    /// and evaluation. Unknown/unsupported safety or assignment syntax withholds
-    /// this flag; that does not prove that anonymization is unsafe.
+    /// Conservative semantic candidate eligibility. The fix consumer separately
+    /// checks comprehension syntax and preserves every generator, domain, filter,
+    /// body, annotation and evaluation. Unknown/unsupported safety or assignment
+    /// syntax withholds this flag; that does not prove anonymization is unsafe.
     pub anonymization_eligible: bool,
 }
 
@@ -104,6 +104,7 @@ pub(super) fn check_unused_generators(
     context: &ModelContext,
     bindings: &BindingFacts,
     usage: &[GeneratorBindingUsage],
+    snapshots: &mut std::collections::BTreeMap<crate::FileId, crate::SourceSnapshot>,
 ) -> (Vec<FileFinding>, Vec<SourceDiagnostic>) {
     let mut findings = Vec::new();
     let mut limitations = Vec::new();
@@ -182,7 +183,16 @@ pub(super) fn check_unused_generators(
             }
         }
         findings.push(FileFinding {
-            fix: None,
+            fix: if fact.anonymization_eligible
+                && comprehension_binder(context, binding, &fact.iteration)
+            {
+                Some(crate::semantic_fixes::unused_name(
+                    crate::semantic_fixes::snapshot(context, binding.file, snapshots),
+                    &binding.location,
+                ))
+            } else {
+                None
+            },
             location: binding.location.clone(),
             rule: Rule::UnusedGeneratorBinding,
             severity: Severity::Warning,
@@ -194,4 +204,24 @@ pub(super) fn check_unused_generators(
 
 fn contains(outer: &SourceLocation, inner: &SourceLocation) -> bool {
     outer.range.start <= inner.range.start && inner.range.end <= outer.range.end
+}
+
+fn comprehension_binder(
+    context: &ModelContext,
+    binding: &crate::Declaration,
+    iteration: &SourceLocation,
+) -> bool {
+    let Some(node) = crate::guarded::node_at(context, binding.file, iteration) else {
+        return false;
+    };
+    matches!(
+        node.kind(),
+        zincite_syntax::NodeKind::ArrayComprehension
+            | zincite_syntax::NodeKind::SetComprehension
+            | zincite_syntax::NodeKind::IndexedArrayComprehension
+    ) && node
+        .child_nodes()
+        .filter(|n| n.kind() == zincite_syntax::NodeKind::GeneratorList)
+        .flat_map(|list| list.child_nodes())
+        .any(|generator| generator.range() == binding.syntax_range)
 }

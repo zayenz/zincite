@@ -49,7 +49,8 @@ symlinks or --show-settings. --unsafe-fixes requires --fix or --diff.
 Include-only and configured standard-library files are never rewritten.
 Conflicting atomic groups are all omitted and reported; independent groups survive.
 Every candidate must parse and its original file must still match before replacement.
-Current rule producers supply no edits, so fix modes leave their diagnostics and bytes unchanged.
+Unused-generator-binding and element-predicate offer Safe edits only when their conditions hold.
+Other advice, and these rules when required facts are unproved, remains diagnostic-only.
 The thesis preset selects its fourteen rules; all includes every registered rule,
 including unavailable rules that fail execution. Default remains two rules.
 --list-rules lists rule IDs, families, availability, fix support and preset membership.
