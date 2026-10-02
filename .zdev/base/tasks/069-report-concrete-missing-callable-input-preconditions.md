@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-069"
 key = "lint-input-preconditions"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -25,11 +25,19 @@ Use guarded obligations and index/emptiness facts in user callable bodies. Begin
 
 ## Done when
 
-- [ ] Deliver missing-input-precondition in family modelling when a supported operation requires a condition neither declared nor established by a guard/assertion.
-- [ ] Recognize declared domains, explicit assertions and safe conditional handling; unresolved operation meaning does not establish a missing contract.
-- [ ] Describe the obligation at the callable boundary and deduplicate against partial-expression when both select the same underlying obligation; do not insert assertions automatically.
+- [x] Deliver missing-input-precondition in family modelling when a supported operation requires a condition neither declared nor established by a guard/assertion.
+- [x] Recognize declared domains, explicit assertions and safe conditional handling; unresolved operation meaning does not establish a missing contract.
+- [x] Describe the obligation at the callable boundary and deduplicate against partial-expression when both select the same underlying obligation; do not insert assertions automatically.
 
 ## Validation
 
 - Run the area Cargo checks for Rust changes and zdev check for record changes. Use the focused testing level in the brief.
 - Check mismatched-array assumptions, nonempty aggregation, numeric preconditions, matching declared/guarded/asserted contracts and joint selection with partial-expression.
+
+## Result
+
+Added opt-in missing-input-precondition advice for concrete callable input assumptions, with declared and scoped protection and exact obligation deduplication against partial-expression.
+
+Validation:
+
+- Independent whole-task review passed with no findings; formatting, workspace Clippy and 170 workspace tests passed. Focused public and CLI checks cover array identities, nonempty and numeric conditions, guards/assertions, suppression and source preservation; installed-library replay passed. Verification snapshot Wf712787aa0530982 remained equal.

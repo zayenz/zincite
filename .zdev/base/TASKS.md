@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 79
-- Ready: 7
+- Ready: 6
 - Blocked: 6
-- Done: 66
+- Done: 67
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -77,7 +77,7 @@
 | [base-066](tasks/066-report-unused-generator-bindings-without-changing-multiplici.md) | Report unused generator bindings without changing multiplicity | done | base-054, base-060 |
 | [base-067](tasks/067-recognise-bounded-global-constraint-opportunities.md) | Recognise bounded global-constraint opportunities | done | base-054, base-060 |
 | [base-068](tasks/068-report-expensive-comprehension-structure-with-a-typed-thresh.md) | Report expensive comprehension structure with a typed threshold | done | base-056, base-060 |
-| [base-069](tasks/069-report-concrete-missing-callable-input-preconditions.md) | Report concrete missing callable input preconditions | ready | base-054, base-060, base-063 |
+| [base-069](tasks/069-report-concrete-missing-callable-input-preconditions.md) | Report concrete missing callable input preconditions | done | base-054, base-060, base-063 |
 | [base-070](tasks/070-report-conflicting-domains-and-risky-intermediate-ranges.md) | Report conflicting domains and risky intermediate ranges | ready | base-054, base-057 |
 | [base-071](tasks/071-represent-conditional-lint-fixes-as-validated-source-edit-pl.md) | Represent conditional lint fixes as validated source edit plans | ready | base-054 |
 | [base-072](tasks/072-preview-and-apply-explicitly-selected-lint-fixes.md) | Preview and apply explicitly selected lint fixes | blocked | base-055, base-071 |

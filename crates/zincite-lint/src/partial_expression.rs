@@ -18,6 +18,7 @@ pub(super) fn check_partial_expressions(
     guarded: &GuardedFacts,
     iteration: &IterationFacts,
     prior_findings: &[FileFinding],
+    input_keys: &[crate::InputObligationKey],
 ) -> (Vec<FileFinding>, Vec<SourceDiagnostic>) {
     let mut findings = Vec::new();
     let mut limitations = Vec::new();
@@ -82,6 +83,11 @@ pub(super) fn check_partial_expressions(
                     {
                         continue;
                     }
+                    if crate::input_preconditions::obligation_key(obligation)
+                        .is_some_and(|key| input_keys.contains(&key))
+                    {
+                        continue;
+                    }
                     let failed = obligation.outcome == GuardedOutcome::Refuted;
                     let candidate = matches!(obligation.kind, GuardObligationKind::Index { .. })
                         && obligation.outcome != GuardedOutcome::Proven
@@ -91,6 +97,9 @@ pub(super) fn check_partial_expressions(
                     }
                     let requirement = match &obligation.kind {
                         GuardObligationKind::Nonzero => "the divisor must be nonzero".into(),
+                        GuardObligationKind::Positive => {
+                            "the logarithm input must be strictly positive".into()
+                        }
                         GuardObligationKind::Presence => "deopt requires a present value".into(),
                         GuardObligationKind::Nonempty { aggregate } => {
                             format!("{aggregate} requires a nonempty collection of present values")
@@ -178,7 +187,7 @@ pub(super) fn check_partial_expressions(
     });
     (findings, limitations)
 }
-fn collect_nodes<'a>(node: &'a SyntaxNode, out: &mut Vec<&'a SyntaxNode>) {
+pub(super) fn collect_nodes<'a>(node: &'a SyntaxNode, out: &mut Vec<&'a SyntaxNode>) {
     out.push(node);
     for child in node.child_nodes() {
         collect_nodes(child, out);
@@ -187,7 +196,11 @@ fn collect_nodes<'a>(node: &'a SyntaxNode, out: &mut Vec<&'a SyntaxNode>) {
 fn contains(a: &SourceLocation, b: &SourceLocation) -> bool {
     a.path == b.path && a.range.start <= b.range.start && b.range.end <= a.range.end
 }
-fn empty_iteration(facts: &IterationFacts, file: FileId, location: &SourceLocation) -> bool {
+pub(super) fn empty_iteration(
+    facts: &IterationFacts,
+    file: FileId,
+    location: &SourceLocation,
+) -> bool {
     facts.iterations.iter().any(|i| {
         i.file == file && contains(&i.body, location) && i.coverage == IterationCoverage::Empty
     })
@@ -215,18 +228,24 @@ fn operation_identity(
         node.kind(),
         NodeKind::CallExpression | NodeKind::GeneratorCallExpression
     ) {
-        if node.kind() == NodeKind::CallExpression && node.child_nodes().count() != 1 {
-            return None;
-        }
         let token = *tokens(parsed, node).first()?;
         let name = parsed.source()[token.range.clone()].trim_matches('\'');
-        if matches!(name, "min" | "max" | "deopt") {
+        if node.kind() == NodeKind::CallExpression
+            && node.child_nodes().count() != 1
+            && !(name == "log" && node.child_nodes().count() == 2)
+        {
+            return None;
+        }
+        if matches!(
+            name,
+            "min" | "max" | "deopt" | "ln" | "log10" | "log2" | "log"
+        ) {
             return Some(core_operation(context, bindings, calls, file, node, name));
         }
     }
     None
 }
-fn captured_by_default(
+pub(super) fn captured_by_default(
     context: &ModelContext,
     bindings: &BindingFacts,
     calls: &CallableFacts,

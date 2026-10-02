@@ -73,6 +73,8 @@ pub struct GuardContext {
 #[derive(Clone, Debug)]
 pub enum GuardObligationKind {
     Nonzero,
+    /// Scalar core logarithms require a strictly positive integer input.
+    Positive,
     /// deopt requires a present value, separately from operand evaluation.
     Presence,
     Index {
@@ -93,6 +95,8 @@ pub enum GuardObligationKind {
 pub struct GuardedIndexSpace {
     pub domain: Domain,
     pub exact: bool,
+    /// Resolved index-set source, independent of domain/cardinality equality.
+    pub array_dimension: Option<(DeclarationId, usize)>,
 }
 #[derive(Clone, Debug)]
 pub struct GuardObligation {
@@ -658,6 +662,23 @@ impl<'a> Producer<'a> {
             scope.boolean = Some(self.location(file, node));
         }
         let mut result = match node.kind() {
+            NodeKind::FunctionDeclaration
+            | NodeKind::PredicateDeclaration
+            | NodeKind::TestDeclaration => {
+                let values: Vec<_> = children
+                    .iter()
+                    .map(|child| {
+                        let mut own = scope.clone();
+                        if is_expression(child.kind()) {
+                            own.assumptions.clear();
+                            own.boolean = None;
+                            own.enforcement = DefinitionEnforcement::Conditional;
+                        }
+                        self.walk(file, item, child, own)
+                    })
+                    .collect();
+                combine(&values)
+            }
             NodeKind::Constraint => {
                 scope.enforcement = if annotations_safe(self.context, file, node) {
                     DefinitionEnforcement::Enforced
@@ -726,7 +747,8 @@ impl<'a> Producer<'a> {
             | NodeKind::ArrayComprehension
             | NodeKind::SetComprehension
             | NodeKind::IndexedArrayComprehension => self.generated(file, item, node, &scope),
-            NodeKind::LetExpression | NodeKind::FieldAccessExpression => {
+            NodeKind::LetExpression => self.let_value(file, item, node, &scope),
+            NodeKind::FieldAccessExpression => {
                 for child in children {
                     self.walk(file, item, child, scope.clone());
                 }
@@ -1143,11 +1165,20 @@ impl<'a> Producer<'a> {
             let selection = self.index_space(file, index, scope);
             let outcome = if invariant == GuardedOutcome::Unknown
                 && (self.guarded_membership(file, index, domain, scope)
+                    || self.guarded_array_membership(file, index, array, dimension + 1, scope)
                     || selection.as_ref().is_some_and(|s| {
-                        s.exact
+                        s.array_dimension.is_some_and(|source| {
+                            self.matching_array_indices(
+                                file,
+                                index,
+                                source,
+                                (array, dimension + 1),
+                                scope,
+                            )
+                        }) || (s.exact
                             && !self.replaceable_set(domain)
                             && intersect_index_domains(&s.domain, domain)
-                                .is_some_and(|d| same_members(&s.domain, &d) == Ok(Some(true)))
+                                .is_some_and(|d| same_members(&s.domain, &d) == Ok(Some(true))))
                     })) {
                 GuardedOutcome::Proven
             } else {
@@ -1167,6 +1198,50 @@ impl<'a> Producer<'a> {
                 scope,
             );
             result.definedness = conjoin(&result.definedness, &outcome);
+        }
+        result
+    }
+    fn let_value(
+        &mut self,
+        file: FileId,
+        item: usize,
+        node: &'a SyntaxNode,
+        scope: &Scope<'a>,
+    ) -> Evaluation {
+        let mut own = scope.clone();
+        let mut values = Vec::new();
+        for child in node.child_nodes() {
+            if child.kind() != NodeKind::LetBlock {
+                values.push(self.walk(file, item, child, own.clone()));
+                continue;
+            }
+            for local in child.child_nodes() {
+                let value = self.walk(file, item, local, own.clone());
+                // Only a direct, unconditionally evaluated local assertion
+                // establishes a success contract for the later let result.
+                if local.kind() == NodeKind::Constraint
+                    && annotations_safe(self.context, file, local)
+                    && let Some(assertion) = local.child_nodes().find(|n| is_expression(n.kind()))
+                    && annotations_safe(self.context, file, assertion)
+                    && self.core_call(file, unwrap(assertion), "assert")
+                    && let Some(condition) = unwrap(assertion).child_nodes().next()
+                {
+                    let truth = self
+                        .facts
+                        .expression(file, &self.location(file, condition))
+                        .and_then(|g| g.truth.clone())
+                        .unwrap_or(GuardedOutcome::Unknown);
+                    own.activation = activate(own.activation, &truth, true);
+                    self.assume(&mut own.assumptions, file, condition, true, false);
+                }
+                values.push(value);
+            }
+        }
+        let mut result = combine(&values);
+        if let Some(last) = values.last() {
+            result.truth = last.truth.clone();
+            result.numeric = last.numeric.clone();
+            result.presence = last.presence.clone();
         }
         result
     }
@@ -1259,6 +1334,60 @@ impl<'a> Producer<'a> {
             .map(|n| self.walk(file, item, n, own.clone()))
             .collect();
         let mut result = combine(&values);
+        if self.core_call(file, node, "int2float")
+            && children.len() == 1
+            && self
+                .ty(file, children[0])
+                .is_some_and(|t| !t.optional && t.kind == TypeKind::Int)
+        {
+            return result;
+        }
+        if ["ln", "log10", "log2", "log"]
+            .iter()
+            .any(|name| self.core_call(file, node, name))
+        {
+            let Some(argument) = children.first() else {
+                return self.unsupported(file, node, "logarithm input is unavailable");
+            };
+            let integer = self.integer_log_input(file, argument);
+            let invariant = if children.len() == 1
+                && self
+                    .ty(file, node)
+                    .is_some_and(|t| !t.optional && t.kind == TypeKind::Float)
+            {
+                integer.map_or_else(
+                    || {
+                        GuardedOutcome::Unsupported(
+                            "only scalar nonoptional logarithms of integer inputs are interpreted"
+                                .into(),
+                        )
+                    },
+                    |n| self.positive(file, n),
+                )
+            } else {
+                GuardedOutcome::Unsupported(
+                    "optional or general log(base,value) is outside positive-input interpretation"
+                        .into(),
+                )
+            };
+            let outcome = if invariant == GuardedOutcome::Unknown
+                && integer.is_some_and(|n| self.guarded_positive(file, n, scope))
+            {
+                GuardedOutcome::Proven
+            } else {
+                invariant.clone()
+            };
+            self.obligation(
+                file,
+                node,
+                argument,
+                GuardObligationKind::Positive,
+                (invariant, outcome.clone()),
+                scope,
+            );
+            result.definedness = conjoin(&result.definedness, &outcome);
+            return result;
+        }
         if self.core_call(file, node, "bool2int") {
             if children.len() != 1
                 || !self
@@ -1336,6 +1465,9 @@ impl<'a> Producer<'a> {
             if let GuardedOutcome::Unsupported(reason) = nonempty {
                 return self.unsupported(file, node, reason);
             }
+            return result;
+        }
+        if self.core_call(file, node, "index_sets_agree") && children.len() == 2 {
             return result;
         }
         if self.index_domain(file, node).is_some() {
@@ -1782,6 +1914,68 @@ impl<'a> Producer<'a> {
             None => GuardedOutcome::Unknown,
         }
     }
+    fn integer_log_input<'n>(&self, file: FileId, node: &'n SyntaxNode) -> Option<&'n SyntaxNode> {
+        let node = unwrap(node);
+        if self
+            .ty(file, node)
+            .is_some_and(|t| !t.optional && t.kind == TypeKind::Int)
+        {
+            Some(node)
+        } else if self.core_call(file, node, "int2float") && node.child_nodes().count() == 1 {
+            node.child_nodes().next().filter(|n| {
+                self.ty(file, n)
+                    .is_some_and(|t| !t.optional && t.kind == TypeKind::Int)
+            })
+        } else {
+            None
+        }
+    }
+    fn positive(&self, file: FileId, node: &SyntaxNode) -> GuardedOutcome {
+        if let Some(NumericOutcome::Unsupported(reason)) = self.numeric(file, node) {
+            return GuardedOutcome::Unsupported(reason);
+        }
+        match self.numeric(file, node).and_then(|n| n.interval()) {
+            Some((lower, _)) if lower > 0 => GuardedOutcome::Proven,
+            Some((_, upper)) if upper <= 0 => GuardedOutcome::Refuted,
+            _ => GuardedOutcome::Unknown,
+        }
+    }
+    fn guarded_positive(&self, file: FileId, node: &SyntaxNode, scope: &Scope<'a>) -> bool {
+        scope.assumptions.iter().any(|a| {
+            let Assumption::Condition {
+                file: f,
+                node: condition,
+                expected,
+                ..
+            } = a
+            else {
+                return false;
+            };
+            if contains_subject(*f, condition, file, node) {
+                return false;
+            }
+            let condition = unwrap(condition);
+            let c: Vec<_> = condition.child_nodes().collect();
+            if c.len() != 2 || self.core_operator(*f, condition).is_err() {
+                return false;
+            }
+            let (other, op) = if self.same(file, node, *f, c[0]) {
+                (c[1], self.operator(*f, condition))
+            } else if self.same(file, node, *f, c[1]) {
+                (c[0], self.operator(*f, condition).map(reverse_comparison))
+            } else {
+                return false;
+            };
+            let Some(NumericOutcome::Exact(n)) = self.numeric(*f, other) else {
+                return false;
+            };
+            match (op, *expected) {
+                (Some(TokenKind::Greater), true) | (Some(TokenKind::LessEqual), false) => n >= 0,
+                (Some(TokenKind::GreaterEqual), true) | (Some(TokenKind::Less), false) => n > 0,
+                _ => false,
+            }
+        })
+    }
     fn guarded_nonzero(&self, file: FileId, node: &SyntaxNode, scope: &Scope<'a>) -> bool {
         scope.assumptions.iter().any(|a| {
             let Assumption::Condition {
@@ -1839,7 +2033,7 @@ impl<'a> Producer<'a> {
                 resolved_reference(self.context, self.bindings, bf, b),
             )
         {
-            return a == b;
+            return self.scalar_alias_identity(a) == self.scalar_alias_identity(b);
         }
         if a.kind() != b.kind() {
             return false;
@@ -1857,6 +2051,49 @@ impl<'a> Producer<'a> {
                     && self.context.files[af].parsed.source()[a.range.clone()]
                         == self.context.files[bf].parsed.source()[b.range.clone()]
             })
+    }
+    fn scalar_alias_identity(&self, mut id: DeclarationId) -> DeclarationId {
+        let mut active = std::collections::BTreeSet::new();
+        while active.insert(id.0) {
+            let d = &self.bindings.declarations[id.0];
+            if d.role != crate::DeclarationRole::Local
+                || d.instantiation != Instantiation::Parameter
+            {
+                break;
+            }
+            let ty = &self.calls.declarations[id.0].ty;
+            if ty.optional || !matches!(ty.kind, TypeKind::Int | TypeKind::Bool | TypeKind::Float) {
+                break;
+            }
+            let Some(node) = crate::callables::find_node(
+                self.context.files[d.file].parsed.tree(),
+                &d.syntax_range,
+                d.role,
+            ) else {
+                break;
+            };
+            if !annotations_safe(self.context, d.file, node) {
+                break;
+            }
+            let Some(rhs) = node.child_nodes().find(|n| is_expression(n.kind())) else {
+                break;
+            };
+            if !annotations_safe(self.context, d.file, rhs)
+                || unwrap(rhs).kind() != NodeKind::Expression
+            {
+                break;
+            }
+            let Some(other) = resolved_reference(self.context, self.bindings, d.file, unwrap(rhs))
+            else {
+                break;
+            };
+            let other_ty = &self.calls.declarations[other.0].ty;
+            if other_ty.optional || other_ty.kind != ty.kind {
+                break;
+            }
+            id = other;
+        }
+        id
     }
     // A conservative invariant condition query: no scoped assumptions and no
     // second walk or duplicate observable facts. Other condition forms remain unknown.
@@ -2189,6 +2426,133 @@ impl<'a> Producer<'a> {
             _ => GuardedOutcome::Unknown,
         }
     }
+    fn guarded_array_membership(
+        &self,
+        file: FileId,
+        node: &SyntaxNode,
+        array: DeclarationId,
+        dimension: usize,
+        scope: &Scope<'a>,
+    ) -> bool {
+        let target = (array, dimension);
+        scope.assumptions.iter().any(|a| {
+            let source = match a {
+                Assumption::Membership {
+                    file: f,
+                    source,
+                    declaration,
+                    ..
+                } if resolved_reference(self.context, self.bindings, file, unwrap(node))
+                    == Some(*declaration) =>
+                {
+                    resolved_index_domain(
+                        self.context,
+                        self.bindings,
+                        self.calls,
+                        self.domains,
+                        *f,
+                        source,
+                    )
+                    .map(|(a, d, _)| (a, d))
+                }
+                Assumption::Condition {
+                    file: f,
+                    node: condition,
+                    expected: true,
+                    ..
+                } => {
+                    if contains_subject(*f, condition, file, node) {
+                        return false;
+                    }
+                    let condition = unwrap(condition);
+                    let c: Vec<_> = condition.child_nodes().collect();
+                    if c.len() == 2
+                        && self.operator(*f, condition) == Some(TokenKind::In)
+                        && self.core_operator(*f, condition).is_ok()
+                        && self.same(file, node, *f, c[0])
+                    {
+                        resolved_index_domain(
+                            self.context,
+                            self.bindings,
+                            self.calls,
+                            self.domains,
+                            *f,
+                            c[1],
+                        )
+                        .map(|(a, d, _)| (a, d))
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            source.is_some_and(|source| {
+                self.matching_array_indices(file, node, source, target, scope)
+            })
+        })
+    }
+    fn matching_array_indices(
+        &self,
+        file: FileId,
+        subject: &SyntaxNode,
+        source: (DeclarationId, usize),
+        target: (DeclarationId, usize),
+        scope: &Scope<'a>,
+    ) -> bool {
+        if source == target {
+            return true;
+        }
+        scope.assumptions.iter().any(|a| {
+            let Assumption::Condition {
+                file: f,
+                node: condition,
+                expected: true,
+                ..
+            } = a
+            else {
+                return false;
+            };
+            if contains_subject(*f, condition, file, subject) {
+                return false;
+            }
+            let condition = unwrap(condition);
+            let c: Vec<_> = condition.child_nodes().collect();
+            if c.len() != 2 {
+                return false;
+            }
+            if matches!(
+                self.operator(*f, condition),
+                Some(TokenKind::Equal | TokenKind::DoubleEqual)
+            ) && self.core_operator(*f, condition).is_ok()
+            {
+                let pair = |n| {
+                    resolved_index_domain(
+                        self.context,
+                        self.bindings,
+                        self.calls,
+                        self.domains,
+                        *f,
+                        n,
+                    )
+                    .map(|(a, d, _)| (a, d))
+                };
+                matches!((pair(c[0]), pair(c[1])), (Some(a), Some(b))
+                    if (a == source && b == target) || (b == source && a == target))
+            } else if self.core_call(*f, condition, "index_sets_agree") && source.1 == target.1 {
+                let pair = |n| resolved_reference(self.context, self.bindings, *f, unwrap(n));
+                let rank = |id: DeclarationId| match &self.calls.declarations[id.0].ty.kind {
+                    TypeKind::Array { indices, .. } => Some(indices.len()),
+                    _ => None,
+                };
+                rank(source.0) == rank(target.0)
+                    && rank(source.0).is_some()
+                    && matches!((pair(c[0]), pair(c[1])), (Some(a), Some(b))
+                        if (a == source.0 && b == target.0) || (b == source.0 && a == target.0))
+            } else {
+                false
+            }
+        })
+    }
     fn guarded_membership(
         &self,
         file: FileId,
@@ -2249,6 +2613,7 @@ impl<'a> Producer<'a> {
                 .ok()?;
             let domain = self.domain(file, node);
             return Some(GuardedIndexSpace {
+                array_dimension: None,
                 exact: index_domain_interval(&domain).is_some()
                     || matches!(bare_index_domain(&domain), Domain::LiteralSet(v) if v.is_empty()),
                 domain,
@@ -2258,12 +2623,14 @@ impl<'a> Producer<'a> {
             && let Some(TypeKind::Enum(id)) = self.ty(file, node).map(|ty| &ty.kind)
         {
             return Some(GuardedIndexSpace {
+                array_dimension: None,
                 domain: Domain::Enum(*id),
                 exact: false,
             });
         }
         if let Some(NumericOutcome::Exact(n)) = self.numeric(file, node) {
             return Some(GuardedIndexSpace {
+                array_dimension: None,
                 domain: Domain::LiteralSet(vec![crate::NumericBound::Integer(n)]),
                 exact: true,
             });
@@ -2368,7 +2735,31 @@ impl<'a> Producer<'a> {
         if offset != 0 {
             domain = shift_index_domain(&domain, Some(offset));
         }
-        Some(GuardedIndexSpace { domain, exact })
+        Some(GuardedIndexSpace {
+            domain,
+            exact,
+            array_dimension: if offset == 0 {
+                scope.assumptions.iter().find_map(|a| match a {
+                    Assumption::Membership {
+                        file: f,
+                        source,
+                        declaration,
+                        ..
+                    } if *declaration == id => resolved_index_domain(
+                        self.context,
+                        self.bindings,
+                        self.calls,
+                        self.domains,
+                        *f,
+                        source,
+                    )
+                    .map(|(a, d, _)| (a, d)),
+                    _ => None,
+                })
+            } else {
+                None
+            },
+        })
     }
     fn membership(
         &self,

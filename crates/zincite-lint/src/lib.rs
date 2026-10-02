@@ -22,6 +22,7 @@ mod global_uses;
 mod guarded;
 mod hidden_optionality;
 mod index_set_mismatch;
+mod input_preconditions;
 mod instantiations;
 mod iteration;
 mod model;
@@ -265,3 +266,7 @@ fn missing_labels(node: &SyntaxNode, parsed: &ParsedFile, warnings: &mut Vec<Lin
         missing_labels(child, parsed, warnings);
     }
 }
+
+pub use input_preconditions::{
+    CallableInputFact, InputObligationKey, InputRequirement, resolve_callable_input_facts,
+};

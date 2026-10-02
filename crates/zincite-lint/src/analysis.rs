@@ -215,6 +215,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
     let mut unused_generator_incomplete = false;
     let mut patterns_incomplete = false;
     let mut comprehension_incomplete = false;
+    let mut input_incomplete = false;
     if !data && options.requires_model() {
         let facts = resolve_bindings(context);
         if options.rules.contains(&Rule::SuspiciousShadowing) {
@@ -238,6 +239,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             || options.rules.contains(&Rule::UnusedGeneratorBinding)
             || options.rules.contains(&Rule::GlobalConstraintOpportunity)
             || options.rules.contains(&Rule::ExpensiveComprehension)
+            || options.rules.contains(&Rule::MissingInputPrecondition)
             || options.rules.contains(&Rule::EffectiveZeroOne)
         {
             Some(resolve_domains(context, &facts))
@@ -285,6 +287,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             || options.rules.contains(&Rule::UnusedGeneratorBinding)
             || options.rules.contains(&Rule::GlobalConstraintOpportunity)
             || options.rules.contains(&Rule::ExpensiveComprehension)
+            || options.rules.contains(&Rule::MissingInputPrecondition)
             || options.rules.contains(&Rule::EffectiveZeroOne)
             || options.rules.contains(&Rule::UnusedDeclaration)
         {
@@ -325,6 +328,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 || options.rules.contains(&Rule::UnusedGeneratorBinding)
                 || options.rules.contains(&Rule::GlobalConstraintOpportunity)
                 || options.rules.contains(&Rule::ExpensiveComprehension)
+                || options.rules.contains(&Rule::MissingInputPrecondition)
                 || options.rules.contains(&Rule::EffectiveZeroOne)
             {
                 let instantiations = resolve_instantiations(context, &facts, &calls);
@@ -369,6 +373,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     || options.rules.contains(&Rule::UnusedGeneratorBinding)
                     || options.rules.contains(&Rule::GlobalConstraintOpportunity)
                     || options.rules.contains(&Rule::ExpensiveComprehension)
+                    || options.rules.contains(&Rule::MissingInputPrecondition)
                 {
                     let definitions = resolve_definitions(
                         context,
@@ -384,6 +389,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                         || options.rules.contains(&Rule::UnusedGeneratorBinding)
                         || options.rules.contains(&Rule::GlobalConstraintOpportunity)
                         || options.rules.contains(&Rule::ExpensiveComprehension)
+                        || options.rules.contains(&Rule::MissingInputPrecondition)
                     {
                         let domains = domains.as_ref().unwrap();
                         let numeric = crate::resolve_numeric_facts(
@@ -432,6 +438,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                             || options.rules.contains(&Rule::UnusedGeneratorBinding)
                             || options.rules.contains(&Rule::GlobalConstraintOpportunity)
                             || options.rules.contains(&Rule::ExpensiveComprehension)
+                            || options.rules.contains(&Rule::MissingInputPrecondition)
                         {
                             let iteration = crate::resolve_iteration_facts(
                                 context,
@@ -499,6 +506,20 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                                 result.findings.extend(findings);
                                 result.limitations.extend(limitations);
                             }
+                            let mut input_keys = Vec::new();
+                            if options.rules.contains(&Rule::MissingInputPrecondition) {
+                                let inputs = crate::resolve_callable_input_facts(
+                                    context, &facts, &calls, &guarded, &iteration,
+                                );
+                                let (findings, limitations, keys) =
+                                    crate::input_preconditions::check_input_preconditions(
+                                        context, &facts, &inputs,
+                                    );
+                                input_incomplete = !limitations.is_empty();
+                                result.findings.extend(findings);
+                                result.limitations.extend(limitations);
+                                input_keys = keys;
+                            }
                             if options.rules.contains(&Rule::PartialExpression) {
                                 let (findings, limitations) =
                                     crate::partial_expression::check_partial_expressions(
@@ -508,6 +529,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                                         &guarded,
                                         &iteration,
                                         &result.findings,
+                                        &input_keys,
                                     );
                                 partial_incomplete = !limitations.is_empty();
                                 result.findings.extend(findings);
@@ -605,6 +627,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     || (rule == Rule::UnusedGeneratorBinding && unused_generator_incomplete)
                     || (rule == Rule::GlobalConstraintOpportunity && patterns_incomplete)
                     || (rule == Rule::ExpensiveComprehension && comprehension_incomplete)
+                    || (rule == Rule::MissingInputPrecondition && input_incomplete)
                     || (rule == Rule::CompactIf && compact_incomplete)
                     || (rule == Rule::EffectiveZeroOne && effective_incomplete)
                     || (rule == Rule::UnusedDeclaration && unused_incomplete)

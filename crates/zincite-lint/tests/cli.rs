@@ -35,7 +35,7 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     let list = run(&["--list-rules"], "not valid MiniZinc");
     assert!(list.status.success() && list.stderr.is_empty());
     let list = String::from_utf8(list.stdout).unwrap();
-    assert_eq!(list.lines().count(), 25);
+    assert_eq!(list.lines().count(), 26);
     assert!(list.contains("naming\tstyle\tavailable\tnone\tdefault"));
     assert!(list.contains("search-coverage\tmodelling\tavailable\tnone\tthesis"));
     assert!(list.contains("index-set-mismatch\tcorrectness\tavailable\tnone\topt-in"));
@@ -1956,5 +1956,97 @@ fn expensive_comprehension_threshold_selection_and_source_are_explicit() {
             .contains("expensive-comprehension\tperformance\tavailable\tnone\topt-in")
     );
     assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn callable_input_contract_selection_locations_and_suppression_are_read_only() {
+    let dir = std::env::temp_dir().join(format!("zincite-input-cli-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        "function int:'div'(int:a,int:b); function string:show(any $T:x);",
+    )
+    .unwrap();
+    let root = dir.join("root.mzn");
+    let included = dir.join("included.mzn");
+    let source = "\u{feff}% π\r\nfunction int:divide(int:d)=10 div d;\r\n% zincite-lint: ignore missing-input-precondition\r\nfunction int:suppressed(int:d)=10 div d;\r\n";
+    std::fs::write(&included, source).unwrap();
+    std::fs::write(
+        &root,
+        "include \"included.mzn\"; output [show(divide(1)),show(suppressed(1))]; solve satisfy;",
+    )
+    .unwrap();
+    for selection in ["missing-input-precondition", "family:modelling", "all"] {
+        let output = run(
+            &[
+                "--isolated",
+                "--stdlib-dir",
+                dir.join("library").to_str().unwrap(),
+                "--rules",
+                selection,
+                root.to_str().unwrap(),
+            ],
+            "",
+        );
+        let text = String::from_utf8(output.stderr).unwrap();
+        assert_eq!(output.status.code(), Some(1), "{text}");
+        assert!(output.stdout.is_empty());
+        assert_eq!(
+            text.matches("warning [missing-input-precondition]").count(),
+            1,
+            "{text}"
+        );
+        assert!(
+            text.contains("included.mzn:2:")
+                && text.contains("callable 'divide'")
+                && text.contains("nonzero")
+        );
+    }
+    let explanation = run(&["--explain", "missing-input-precondition"], "");
+    assert!(explanation.status.success());
+    let text = String::from_utf8(explanation.stdout).unwrap();
+    assert!(
+        text.contains("modelling") && text.contains("nonempty") && text.contains("integer inputs")
+    );
+    let list = run(&["--list-rules"], "");
+    assert!(
+        String::from_utf8(list.stdout)
+            .unwrap()
+            .contains("missing-input-precondition\tmodelling\tavailable\tnone\topt-in")
+    );
+    for selection in ["default", "thesis"] {
+        let output = run(
+            &[
+                "--isolated",
+                "--stdlib-dir",
+                dir.join("library").to_str().unwrap(),
+                "--rules",
+                selection,
+                root.to_str().unwrap(),
+            ],
+            "",
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    assert_eq!(
+        run(
+            &["--rules", "missing-input-precondition"],
+            "function int:broken("
+        )
+        .status
+        .code(),
+        Some(2)
+    );
+    assert_eq!(std::fs::read_to_string(included).unwrap(), source);
+    assert_eq!(
+        std::fs::read_to_string(root).unwrap(),
+        "include \"included.mzn\"; output [show(divide(1)),show(suppressed(1))]; solve satisfy;"
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }

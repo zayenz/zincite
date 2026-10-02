@@ -103,6 +103,7 @@ pub enum Rule {
     VacuousConstraint,
     UnusedGeneratorBinding,
     GlobalConstraintOpportunity,
+    MissingInputPrecondition,
 }
 
 impl Rule {
@@ -139,6 +140,7 @@ impl Rule {
                 Self::VacuousConstraint,
                 Self::UnusedGeneratorBinding,
                 Self::GlobalConstraintOpportunity,
+                Self::MissingInputPrecondition,
             ])
     }
 
@@ -306,6 +308,13 @@ impl Rule {
                 "Report binding names that conceal another binding in a surrounding scope.",
                 "Lexical scopes and binding identities.",
                 "Parameters, let declarations and generators are checked against visible enclosing value bindings. Disjoint scopes, field labels, underscore-prefixed names and exact ignore-names exceptions stay quiet. Ambiguous outer bindings report a limitation; types and callable names are not value bindings. Findings identify both declarations; no renaming or fix is offered.",
+            ),
+            Self::MissingInputPrecondition => (
+                "missing-input-precondition",
+                RuleFamily::Modelling,
+                "Explain an unvalidated formal-input condition required by a supported callable body operation.",
+                "Resolved callable/formal identities, scoped operation requirements and actual index/present-count evidence.",
+                "General user callable bodies only; defaults and model-global assumptions do not validate formals. Covers array membership/matching dimensions, nonempty min/max present values, div/mod nonzero operands, and scalar core ln/log10/log2 with integer inputs (including int2float). Direct float, optional logarithms, general log and unresolved operation meaning remain unsupported, not guessed contracts. Guards, successful local/lazy assertions, inactive evaluations and supported default capture protect the actual operation. Advice is no failing-input, feasibility or runtime claim and inserts no assertion or fix.",
             ),
             Self::ExpensiveComprehension => (
                 "expensive-comprehension",

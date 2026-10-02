@@ -349,6 +349,7 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
                     "vacuous-constraint",
                     "unused-generator-binding",
                     "global-constraint-opportunity",
+                    "missing-input-precondition",
                 ])
                 .collect(),
         ),
@@ -431,7 +432,8 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
                 Rule::PartialExpression,
                 Rule::VacuousConstraint,
                 Rule::UnusedGeneratorBinding,
-                Rule::GlobalConstraintOpportunity
+                Rule::GlobalConstraintOpportunity,
+                Rule::MissingInputPrecondition
             ])
             .collect::<Vec<_>>()
     );

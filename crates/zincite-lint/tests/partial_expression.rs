@@ -11,6 +11,7 @@ const CORE: &str = concat!(
     "function var bool: forall(array[int] of var bool:a); function var int: sum(array[int] of var int:a);\n",
     "function var int: min(array[int] of var int:a); function var int: max(array[int] of var int:a);\n",
     "function bool: assert(bool:c,string:m); function $T: assert(bool:c,string:m,$T:v);\n",
+    "function float:ln(float:x); function float:log(float:b,float:x); function float:int2float(int:x);\n",
     "function $T: deopt(opt $T:x); function var $T: deopt(var opt $T:x);\n",
     "function $T: 'default'(opt $T:x,$T:y); function var $T: 'default'(var opt $T:x,var $T:y);\n",
 );
@@ -56,7 +57,7 @@ fn spellings<'a>(context: &'a ModelContext, result: &AnalysisResult) -> Vec<&'a 
 fn exact_requirements_report_locations_and_keep_source_unchanged() {
     let source = concat!(
         "\u{feff}% π\r\narray[1..3] of int:a;\r\n",
-        "int:d=1 div 0; int:r=4 mod 0; int:v=a[4];\r\n",
+        "int:d=1 div 0; int:r=4 mod 0; int:v=a[4]; float:logarithm=ln(0); float:positive=ln(int2float(1));\r\n",
         "var int:lo=min([]); var int:hi=max(i in 1..0)(i);\r\n",
         "int:p=let {opt int:missing=<>;} in deopt(missing); solve satisfy;\r\n",
     );
@@ -67,6 +68,7 @@ fn exact_requirements_report_locations_and_keep_source_unchanged() {
             "1 div 0",
             "4 mod 0",
             "a[4]",
+            "ln(0)",
             "min([])",
             "max(i in 1..0)(i)",
             "deopt(missing)"
@@ -94,8 +96,28 @@ fn exact_requirements_report_locations_and_keep_source_unchanged() {
         result.findings[2].message.contains("dimension 1")
             && result.findings[2].message.contains("declared at")
     );
-    assert!(result.findings[3].message.contains("nonempty"));
-    assert!(result.findings[5].message.contains("present value"));
+    assert!(result.findings[3].message.contains("strictly positive"));
+    assert!(result.findings[4].message.contains("nonempty"));
+    assert!(result.findings[6].message.contains("present value"));
+    std::fs::remove_dir_all(dir).unwrap();
+    let (dir, _, result) = model(
+        "logarithm-subset",
+        "float:x; float:a=ln(x); float:b=log(2,3); solve satisfy;",
+        "partial-expression",
+    );
+    assert!(result.findings.is_empty());
+    assert_eq!(result.status(), 0);
+    assert!(matches!(
+        result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    assert!(
+        result
+            .limitations
+            .iter()
+            .any(|l| l.message.contains("log(base,value)")),
+        "{result:?}"
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }
 #[test]
