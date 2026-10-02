@@ -197,6 +197,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
     let mut index_mismatch_incomplete = false;
     let mut optionality_incomplete = false;
     let mut partial_incomplete = false;
+    let mut vacuous_incomplete = false;
     let mut search_state = ModelRootState::Complete;
     let mut search_incomplete = false;
     let mut compact_incomplete = false;
@@ -230,6 +231,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             || options.rules.contains(&Rule::IndexSetMismatch)
             || options.rules.contains(&Rule::HiddenOptionality)
             || options.rules.contains(&Rule::PartialExpression)
+            || options.rules.contains(&Rule::VacuousConstraint)
             || options.rules.contains(&Rule::EffectiveZeroOne)
         {
             Some(resolve_domains(context, &facts))
@@ -273,6 +275,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             || options.rules.contains(&Rule::IndexSetMismatch)
             || options.rules.contains(&Rule::HiddenOptionality)
             || options.rules.contains(&Rule::PartialExpression)
+            || options.rules.contains(&Rule::VacuousConstraint)
             || options.rules.contains(&Rule::EffectiveZeroOne)
             || options.rules.contains(&Rule::UnusedDeclaration)
         {
@@ -309,6 +312,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 || options.rules.contains(&Rule::IndexSetMismatch)
                 || options.rules.contains(&Rule::HiddenOptionality)
                 || options.rules.contains(&Rule::PartialExpression)
+                || options.rules.contains(&Rule::VacuousConstraint)
                 || options.rules.contains(&Rule::EffectiveZeroOne)
             {
                 let instantiations = resolve_instantiations(context, &facts, &calls);
@@ -349,6 +353,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     || options.rules.contains(&Rule::IndexSetMismatch)
                     || options.rules.contains(&Rule::HiddenOptionality)
                     || options.rules.contains(&Rule::PartialExpression)
+                    || options.rules.contains(&Rule::VacuousConstraint)
                 {
                     let definitions = resolve_definitions(
                         context,
@@ -360,6 +365,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     if options.rules.contains(&Rule::IndexSetMismatch)
                         || options.rules.contains(&Rule::HiddenOptionality)
                         || options.rules.contains(&Rule::PartialExpression)
+                        || options.rules.contains(&Rule::VacuousConstraint)
                     {
                         let domains = domains.as_ref().unwrap();
                         let numeric = crate::resolve_numeric_facts(
@@ -404,6 +410,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                         }
                         if options.rules.contains(&Rule::IndexSetMismatch)
                             || options.rules.contains(&Rule::PartialExpression)
+                            || options.rules.contains(&Rule::VacuousConstraint)
                         {
                             let iteration = crate::resolve_iteration_facts(
                                 context,
@@ -435,6 +442,15 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                                         &result.findings,
                                     );
                                 partial_incomplete = !limitations.is_empty();
+                                result.findings.extend(findings);
+                                result.limitations.extend(limitations);
+                            }
+                            if options.rules.contains(&Rule::VacuousConstraint) {
+                                let (findings, limitations) =
+                                    crate::vacuous_constraint::check_vacuous_constraints(
+                                        context, &facts, &calls, &guarded, &optional, &iteration,
+                                    );
+                                vacuous_incomplete = !limitations.is_empty();
                                 result.findings.extend(findings);
                                 result.limitations.extend(limitations);
                             }
@@ -517,6 +533,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     || (rule == Rule::IndexSetMismatch && index_mismatch_incomplete)
                     || (rule == Rule::HiddenOptionality && optionality_incomplete)
                     || (rule == Rule::PartialExpression && partial_incomplete)
+                    || (rule == Rule::VacuousConstraint && vacuous_incomplete)
                     || (rule == Rule::CompactIf && compact_incomplete)
                     || (rule == Rule::EffectiveZeroOne && effective_incomplete)
                     || (rule == Rule::UnusedDeclaration && unused_incomplete)

@@ -35,6 +35,7 @@ mod symmetry;
 mod types;
 mod unbounded_variable;
 mod unused_declarations;
+mod vacuous_constraint;
 mod value_safety;
 pub use analysis::{
     AnalysisResult, FileFinding, RuleExecution, RuleOutcome, analyze_file, analyze_model,
@@ -76,9 +77,9 @@ pub use guarded::{
 pub use instantiations::{ExpressionInstantiation, InstantiationFacts, resolve_instantiations};
 pub use iteration::{
     CandidateCount, CandidateFactor, IterationArray, IterationBindingUse, IterationCoverage,
-    IterationDependency, IterationExpression, IterationFact, IterationFacts, IterationGenerator,
-    IterationIndexSet, IterationLimitation, IterationMultiplicity, IterationUseRegion,
-    resolve_iteration_facts,
+    IterationDependency, IterationExpression, IterationFact, IterationFacts, IterationFilter,
+    IterationGenerator, IterationIndexSet, IterationLimitation, IterationMultiplicity,
+    IterationUseRegion, resolve_iteration_facts,
 };
 pub use model::{
     FileId, IncludeEdge, ModelContext, ModelFile, ModelOptions, SourceDiagnostic, SourceKind,

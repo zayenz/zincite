@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 79
-- Ready: 11
+- Ready: 10
 - Blocked: 6
-- Done: 62
+- Done: 63
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -73,7 +73,7 @@
 | [base-062](tasks/062-report-length-mistakes-caused-by-hidden-optional-values.md) | Report length mistakes caused by hidden optional values | done | base-054, base-059 |
 | [base-063](tasks/063-report-actionable-partial-expression-hazards.md) | Report actionable partial-expression hazards | done | base-054, base-059, base-061 |
 | [base-064](tasks/064-report-suspicious-lexical-shadowing.md) | Report suspicious lexical shadowing | done | base-056, base-032 |
-| [base-065](tasks/065-report-vacuous-constraints-and-conditions.md) | Report vacuous constraints and conditions | ready | base-054, base-060, base-059 |
+| [base-065](tasks/065-report-vacuous-constraints-and-conditions.md) | Report vacuous constraints and conditions | done | base-054, base-060, base-059 |
 | [base-066](tasks/066-report-unused-generator-bindings-without-changing-multiplici.md) | Report unused generator bindings without changing multiplicity | ready | base-054, base-060 |
 | [base-067](tasks/067-recognise-bounded-global-constraint-opportunities.md) | Recognise bounded global-constraint opportunities | ready | base-054, base-060 |
 | [base-068](tasks/068-report-expensive-comprehension-structure-with-a-typed-thresh.md) | Report expensive comprehension structure with a typed threshold | ready | base-056, base-060 |

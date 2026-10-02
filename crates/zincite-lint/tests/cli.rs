@@ -35,12 +35,13 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     let list = run(&["--list-rules"], "not valid MiniZinc");
     assert!(list.status.success() && list.stderr.is_empty());
     let list = String::from_utf8(list.stdout).unwrap();
-    assert_eq!(list.lines().count(), 22);
+    assert_eq!(list.lines().count(), 23);
     assert!(list.contains("naming\tstyle\tavailable\tnone\tdefault"));
     assert!(list.contains("search-coverage\tmodelling\tavailable\tnone\tthesis"));
     assert!(list.contains("index-set-mismatch\tcorrectness\tavailable\tnone\topt-in"));
     assert!(list.contains("hidden-optionality\tsuspicious\tavailable\tnone\topt-in"));
     assert!(list.contains("partial-expression\tsuspicious\tavailable\tnone\topt-in"));
+    assert!(list.contains("vacuous-constraint\tsuspicious\tavailable\tnone\topt-in"));
     let explanation = run_with_library(
         &["--explain", "element-predicate"],
         "not valid MiniZinc",
@@ -1613,5 +1614,104 @@ fn shadowing_settings_presets_and_exact_suppression_keep_sources_read_only() {
     assert_eq!(data.status.code(), Some(0));
     assert!(data.stderr.is_empty());
     assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn vacuity_cli_keeps_opt_in_selection_suppression_and_statuses() {
+    let dir = std::env::temp_dir().join(format!("zincite-vacuity-cli-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(dir.join("library/std/stdlib.mzn"), "").unwrap();
+    let root = dir.join("root.mzn");
+    let library = dir.join("library");
+    let args = [
+        "--isolated",
+        "--rules",
+        "vacuous-constraint",
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        root.to_str().unwrap(),
+    ];
+    std::fs::write(&root, "constraint true; solve satisfy;").unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("warning [vacuous-constraint]")
+    );
+    std::fs::write(
+        &root,
+        "% zincite-lint: ignore vacuous-constraint\nconstraint true; solve satisfy;",
+    )
+    .unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    std::fs::write(&root, "bool:p; constraint p; solve satisfy;").unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    std::fs::write(
+        &root,
+        "function bool:opaque(); constraint opaque(); solve satisfy;",
+    )
+    .unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("analysis limitation: vacuous-constraint")
+    );
+    let broken = dir.join("broken.mzn");
+    std::fs::write(&broken, "var int: =;").unwrap();
+    std::fs::write(&root, "constraint true; solve satisfy;").unwrap();
+    let output = run(
+        &[
+            "--isolated",
+            "--rules",
+            "vacuous-constraint",
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            broken.to_str().unwrap(),
+            root.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("warning [vacuous-constraint]")
+    );
+    assert!(
+        zincite_lint::LintOptions::from_selection("family:suspicious")
+            .unwrap()
+            .rules
+            .contains(&zincite_lint::Rule::VacuousConstraint)
+    );
+    let stdin = run(
+        &["--rules", "vacuous-constraint"],
+        "constraint true; solve satisfy;",
+    );
+    assert_eq!(stdin.status.code(), Some(0));
+    assert!(
+        String::from_utf8(stdin.stderr)
+            .unwrap()
+            .contains("requires a ModelContext")
+    );
+    let explanation = run(&["--explain", "vacuous-constraint"], "");
+    assert!(explanation.status.success());
+    assert!(
+        String::from_utf8(explanation.stdout)
+            .unwrap()
+            .contains("no")
+    );
+    assert_eq!(
+        std::fs::read_to_string(&root).unwrap(),
+        "constraint true; solve satisfy;"
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }

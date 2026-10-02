@@ -357,3 +357,33 @@ fn cartesian_products_coverage_and_multiplicity_remain_separate_from_presence() 
     }
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn rejecting_filters_do_not_relabel_inherited_emptiness() {
+    let source = "int:N=3; bool:keep; function bool:opaque(int:i); array[int] of int:a=[i | i in 1..3 where i>3,j in 1..2 where keep]; array[int] of int:b=[i | i in 1..N where i>N]; array[int] of int:c=[i | i in 1..3 where opaque(i)]; array[int] of int:d=[i | i in 1..3 where i in {1,4}]; solve satisfy;";
+    let (dir, context, _, facts) = model("filters", source);
+    let first = iteration(
+        &context,
+        &facts,
+        "[i | i in 1..3 where i>3,j in 1..2 where keep]",
+    );
+    assert_eq!(first.filters[0].coverage, IterationCoverage::Empty);
+    assert!(!first.filters[0].incoming_empty);
+    assert!(first.filters[0].prior_domain.is_some());
+    assert_eq!(first.filters[0].truth, GuardedOutcome::Refuted);
+    let intersection = &iteration(&context, &facts, "[i | i in 1..3 where i in {1,4}]").filters[0];
+    assert!(intersection.prior_domain.is_some() && intersection.selected_domain.is_some());
+    assert_eq!(intersection.coverage, IterationCoverage::ProperPartial);
+    assert!(first.filters[1].incoming_empty);
+    assert_eq!(first.filters[1].truth, GuardedOutcome::Unknown);
+    assert_eq!(first.filters[1].coverage, IterationCoverage::Unknown);
+    assert_eq!(
+        iteration(&context, &facts, "[i | i in 1..N where i>N]").filters[0].coverage,
+        IterationCoverage::Unknown
+    );
+    assert!(matches!(
+        iteration(&context, &facts, "[i | i in 1..3 where opaque(i)]").filters[0].definedness,
+        GuardedOutcome::Unsupported(_)
+    ));
+    std::fs::remove_dir_all(dir).unwrap();
+}

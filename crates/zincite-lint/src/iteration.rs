@@ -164,12 +164,26 @@ pub struct IterationExpression {
     pub guarded: Option<GuardedExpression>,
     pub obligations: Vec<GuardObligation>,
 }
+/// A filter's own interpreted evidence, separate from inherited emptiness.
+/// Membership intersections apply only to the supported scalar binding subset.
+#[derive(Clone, Debug)]
+pub struct IterationFilter {
+    pub location: SourceLocation,
+    pub truth: GuardedOutcome,
+    pub definedness: GuardedOutcome,
+    pub incoming_empty: bool,
+    pub prior_domain: Option<Domain>,
+    pub selected_domain: Option<Domain>,
+    /// Coverage supplied by this filter; Unknown does not prove rejection.
+    pub coverage: IterationCoverage,
+}
 #[derive(Clone, Debug)]
 pub struct IterationFact {
     pub file: FileId,
     pub location: SourceLocation,
     pub body: SourceLocation,
     pub generators: Vec<IterationGenerator>,
+    pub filters: Vec<IterationFilter>,
     pub uses: Vec<IterationBindingUse>,
     pub expressions: Vec<IterationExpression>,
     /// Before filtering. Decision-set universes supply only an upper bound.
@@ -821,6 +835,7 @@ impl Producer<'_> {
         let mut candidates = CandidateCount::Exact(1);
         let mut coverage = IterationCoverage::Full;
         let mut filtered_domains = BTreeMap::new();
+        let mut filters = Vec::new();
         for list in node
             .child_nodes()
             .filter(|n| n.kind() == NodeKind::GeneratorList)
@@ -928,33 +943,65 @@ impl Producer<'_> {
                 {
                     if let Some(condition) = filter.child_nodes().next() {
                         let e = self.expression(file, condition, &scopes);
-                        match e
+                        let truth = e
                             .guarded
                             .as_ref()
-                            .filter(|g| g.definedness == GuardedOutcome::Proven)
-                            .and_then(|g| g.truth.as_ref())
-                        {
-                            Some(GuardedOutcome::Refuted) => coverage = IterationCoverage::Empty,
-                            Some(GuardedOutcome::Proven) => {}
+                            .and_then(|g| g.truth.clone())
+                            .unwrap_or(GuardedOutcome::Unknown);
+                        let definedness = e
+                            .guarded
+                            .as_ref()
+                            .map(|g| g.definedness.clone())
+                            .unwrap_or(GuardedOutcome::Unknown);
+                        let incoming_empty = coverage == IterationCoverage::Empty
+                            || matches!(
+                                candidates,
+                                CandidateCount::Exact(0) | CandidateCount::UpperBound(0)
+                            );
+                        let prior_domain = (bindings.len() == 1).then(|| {
+                            filtered_domains
+                                .get(&position)
+                                .unwrap_or(&index_set.domain)
+                                .clone()
+                        });
+                        let mut selected_domain = None;
+                        let mut filter_coverage = IterationCoverage::Unknown;
+                        match (&truth, &definedness) {
+                            (GuardedOutcome::Refuted, GuardedOutcome::Proven) => {
+                                filter_coverage = IterationCoverage::Empty;
+                                coverage = IterationCoverage::Empty;
+                            }
+                            (GuardedOutcome::Proven, GuardedOutcome::Proven) => {
+                                filter_coverage = IterationCoverage::Full
+                            }
                             _ => {
-                                if bindings.len() == 1 {
+                                if !incoming_empty
+                                    && definedness == GuardedOutcome::Proven
+                                    && bindings.len() == 1
+                                {
                                     if let Some(d) = self.filter_domain(
                                         file,
                                         condition,
                                         bindings[0],
-                                        filtered_domains
-                                            .get(&position)
-                                            .unwrap_or(&index_set.domain),
+                                        prior_domain.as_ref().unwrap(),
                                     ) {
                                         let count = self.count(&d);
                                         if count == Cardinality::Exact(0) {
+                                            filter_coverage = IterationCoverage::Empty;
                                             coverage = IterationCoverage::Empty;
                                         } else if same_members(&d, &index_set.domain)
                                             == Ok(Some(false))
-                                            && coverage == IterationCoverage::Full
                                         {
-                                            coverage = IterationCoverage::ProperPartial;
+                                            filter_coverage = IterationCoverage::ProperPartial;
+                                            if coverage == IterationCoverage::Full {
+                                                coverage = IterationCoverage::ProperPartial;
+                                            }
+                                        } else if same_members(&d, prior_domain.as_ref().unwrap())
+                                            == Ok(Some(true))
+                                        {
+                                            filter_coverage = IterationCoverage::Full;
                                         }
+                                        selected_domain = Some(d.clone());
                                         filtered_domains.insert(position, d);
                                     } else if coverage != IterationCoverage::Empty {
                                         coverage = IterationCoverage::Unknown;
@@ -964,6 +1011,15 @@ impl Producer<'_> {
                                 }
                             }
                         }
+                        filters.push(IterationFilter {
+                            location: self.location(file, condition),
+                            truth,
+                            definedness,
+                            incoming_empty,
+                            prior_domain,
+                            selected_domain,
+                            coverage: filter_coverage,
+                        });
                         self.expression_walk(file, condition, &scopes, &mut expressions);
                     }
                 }
@@ -1062,6 +1118,7 @@ impl Producer<'_> {
                 location,
                 body: self.location(file, head),
                 generators,
+                filters,
                 uses,
                 expressions,
                 candidates,

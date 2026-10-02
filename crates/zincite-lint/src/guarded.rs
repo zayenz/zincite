@@ -936,6 +936,19 @@ impl<'a> Producer<'a> {
                 | TokenKind::Not
         ) {
             result.truth = Some(logical(operator, &values));
+            if matches!(operator, TokenKind::And | TokenKind::Or)
+                && children.len() == 2
+                && values
+                    .iter()
+                    .all(|v| v.definedness == GuardedOutcome::Proven)
+                && self.boolean_complements(file, children[0], children[1])
+            {
+                result.truth = Some(if operator == TokenKind::And {
+                    GuardedOutcome::Refuted
+                } else {
+                    GuardedOutcome::Proven
+                });
+            }
         } else if children.len() == 2
             && matches!(
                 operator,
@@ -965,6 +978,28 @@ impl<'a> Producer<'a> {
             );
         }
         result
+    }
+    // Total Boolean operands may have crossed a relational boundary. Their
+    // raw numeric obligations remain in the facts; this identity permits no edits.
+    fn boolean_complements(&self, file: FileId, left: &SyntaxNode, right: &SyntaxNode) -> bool {
+        if ![left, right]
+            .iter()
+            .all(|n| self.ty(file, n).is_some_and(|t| t.kind == TypeKind::Bool))
+        {
+            return false;
+        }
+        [(left, right), (right, left)]
+            .iter()
+            .any(|(subject, negated)| {
+                let negated = unwrap(negated);
+                negated.kind() == NodeKind::UnaryExpression
+                    && self.operator(file, negated) == Some(TokenKind::Not)
+                    && self.core_operator(file, negated).is_ok()
+                    && negated
+                        .child_nodes()
+                        .next()
+                        .is_some_and(|n| self.same(file, subject, file, n))
+            })
     }
     fn access(
         &mut self,

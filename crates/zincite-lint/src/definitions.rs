@@ -743,7 +743,9 @@ pub(super) fn core_callable(
     let declaration = &bindings.declarations[id.0];
     let source = &context.files[declaration.file];
     declaration.name == name
-        && declaration.role == DeclarationRole::Function
+        && (declaration.role == DeclarationRole::Function
+            || declaration.role == DeclarationRole::Predicate
+                && matches!(name, "forall" | "exists"))
         && source.kind == SourceKind::StandardLibrary
         && source.implicit
 }

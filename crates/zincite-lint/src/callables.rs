@@ -1583,14 +1583,12 @@ pub(super) fn core_operation(
     name: &str,
 ) -> Result<bool, String> {
     match operation_fact(context, calls, file, node).map(|fact| &fact.outcome) {
-        Some(CallOutcome::Resolved { declaration, .. }) => {
-            let declaration = &bindings.declarations[declaration.0];
-            let source = &context.files[declaration.file];
-            Ok(declaration.name == name
-                && declaration.role == DeclarationRole::Function
-                && source.kind == crate::SourceKind::StandardLibrary
-                && source.implicit)
-        }
+        Some(CallOutcome::Resolved { declaration, .. }) => Ok(crate::definitions::core_callable(
+            context,
+            bindings,
+            *declaration,
+            name,
+        )),
         Some(CallOutcome::Intrinsic {
             name: intrinsic, ..
         }) => Ok(name == "+" && intrinsic == "unary+" && node.kind() == NodeKind::UnaryExpression),

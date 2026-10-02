@@ -100,6 +100,7 @@ pub enum Rule {
     IndexSetMismatch,
     HiddenOptionality,
     PartialExpression,
+    VacuousConstraint,
 }
 
 impl Rule {
@@ -133,6 +134,7 @@ impl Rule {
                 Self::IndexSetMismatch,
                 Self::HiddenOptionality,
                 Self::PartialExpression,
+                Self::VacuousConstraint,
             ])
     }
 
@@ -272,6 +274,13 @@ impl Rule {
                 "Explain failed definedness requirements and incompatible candidate indices in their guarded and Boolean context.",
                 "Scoped nonzero, index, nonempty and presence obligations; exact iteration membership and resolved default capture.",
                 "Supported div/mod, array indexing, empty min/max and absent deopt are considered. Unknown facts alone stay quiet. Advice distinguishes failure when evaluated from incompatible candidates, without claiming execution, runtime crashes or infeasibility. Guards, assertions, inactive/empty iterations and supported default capture protect operations; relational Boolean collapse alone does not. Joint indexing advice is deduplicated at the same unsuppressed access. Unsupported required facts report limitations. No fix or rewrite is offered.",
+            ),
+            Self::VacuousConstraint => (
+                "vacuous-constraint",
+                RuleFamily::Suspicious,
+                "Report proved empty quantifiers, rejecting filters and constant constraint or condition truth.",
+                "Guarded Boolean truth/definedness, optional present counts and iteration filter/coverage facts.",
+                "Supported empty forall/exists, impossible where filters, true constraints and false conditions/constraints are considered. Facts under guards remain conditional on those assumptions. Unknown parameters and partial self-comparisons stay quiet; relational false differs from numeric totality and assertion abort. Optional capacity does not prove present elements. Upstream evaluation must be defined before empty quantifier identities are reported. Advice guesses neither intent nor feasibility and offers no removal, reordering or fix. Unsupported required facts report limitations.",
             ),
             Self::SuspiciousShadowing => (
                 "suspicious-shadowing",

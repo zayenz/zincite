@@ -566,3 +566,48 @@ fn optional_guards_default_and_aggregates_keep_presence_separate_from_totality()
     );
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn boolean_complements_require_total_operands_and_keep_raw_partiality() {
+    let source = concat!(
+        "var bool:p; int:d; function bool:opaque();\n",
+        "bool:no=p /\\ not p; bool:yes=p \\/ not p;\n",
+        "bool:relational=(1 div d=0) /\\ not(1 div d=0);\n",
+        "bool:abort=assert(false,\"abort\",p) /\\ not assert(false,\"abort\",p);\n",
+        "bool:unknown=opaque() \\/ not opaque(); solve satisfy;\n",
+    );
+    let (dir, context, facts) = model("complements", source);
+    assert_eq!(
+        expression(&context, &facts, "p /\\ not p").truth,
+        Some(GuardedOutcome::Refuted)
+    );
+    assert_eq!(
+        expression(&context, &facts, "p \\/ not p").truth,
+        Some(GuardedOutcome::Proven)
+    );
+    assert_eq!(
+        expression(&context, &facts, "(1 div d=0) /\\ not(1 div d=0)").truth,
+        Some(GuardedOutcome::Refuted)
+    );
+    assert!(
+        facts
+            .obligations
+            .iter()
+            .any(|o| matches!(o.kind, GuardObligationKind::Nonzero)
+                && o.outcome == GuardedOutcome::Unknown)
+    );
+    assert_ne!(
+        expression(
+            &context,
+            &facts,
+            "assert(false,\"abort\",p) /\\ not assert(false,\"abort\",p)"
+        )
+        .definedness,
+        GuardedOutcome::Proven
+    );
+    assert_ne!(
+        expression(&context, &facts, "opaque() \\/ not opaque()").truth,
+        Some(GuardedOutcome::Proven)
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}

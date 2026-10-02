@@ -23,6 +23,7 @@ fn catalogue_exposes_current_capabilities_and_preserves_presets() {
         Rule::IndexSetMismatch,
         Rule::HiddenOptionality,
         Rule::PartialExpression,
+        Rule::VacuousConstraint,
     ]) {
         let metadata = rule.metadata();
         assert_eq!(metadata.id, rule.id());
@@ -343,6 +344,7 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
                     "index-set-mismatch",
                     "hidden-optionality",
                     "partial-expression",
+                    "vacuous-constraint",
                 ])
                 .collect(),
         ),
@@ -422,7 +424,8 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
             .chain([
                 Rule::IndexSetMismatch,
                 Rule::HiddenOptionality,
-                Rule::PartialExpression
+                Rule::PartialExpression,
+                Rule::VacuousConstraint
             ])
             .collect::<Vec<_>>()
     );
