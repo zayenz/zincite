@@ -1,6 +1,8 @@
 # Batch performance checkpoint
 
-The current sequential default-lint command visits all 6,417 discovered roots in 146.1–162.3 seconds. Formatter checks and semantic lint commands retain their finite deadline results below; incomplete commands have no completed-root count or full-batch throughput. The targeted controls identify repeated source-prefix scans in lint and repeated matrix row classification in formatting. Their follow-ups remain separate from the existing dense-save work.
+The [base-074 comparison below](#expanded-lint-comparison-base-074) records the current 26-rule checkpoint. The original base-049 measurements below remain historical evidence.
+
+The base-049 sequential default-lint command visited all 6,417 discovered roots in 146.1–162.3 seconds. Formatter checks and semantic lint commands retain their finite deadline results below; incomplete commands have no completed-root count or full-batch throughput. The targeted controls identify repeated source-prefix scans in lint and repeated matrix row classification in formatting. Their follow-ups remain separate from the existing dense-save work.
 
 Base-049 adds an explicit `batch` branch to `scripts/bench-save.py` and a matching developer observation branch to `profile-phases`. Production parser, formatting and lint APIs and commands are unchanged. The existing save branch remains available. This is a measurement checkpoint, with current errors, limitations and Unobserved outcomes retained. It does not establish full semantic or performance acceptance.
 
@@ -121,3 +123,119 @@ The matrix cost is distinct from base-077's measured child-buffer and rendered-t
 Historical base-045 semantic reports and base-047 fidelity/save evidence remain historical. In particular, the old per-file checker skipped model loading on rejected syntax and cannot certify this current native semantic route.
 
 The measurement labels follow the distinction between project timing and profiling in the [Ruff guide](https://github.com/astral-sh/ruff/blob/main/CONTRIBUTING.md), explicit cache conditions in [uv's benchmarks](https://github.com/astral-sh/uv/blob/main/BENCHMARKS.md), and first diagnostics versus rechecks in [ty's benchmark guide](https://github.com/astral-sh/ruff/blob/main/scripts/ty_benchmark/README.md). Their infrastructure is unnecessary for this checkpoint.
+
+## Expanded lint comparison: base-074
+
+This checkpoint compares explicit selections at HEAD
+`1cc9aa7b8669e619840037cedc4260b7c844f5d4` against the retained base-049 native
+linter at `86995b2f2a7a9e98761e438561d8ca14ac821c50`. The historical `all`
+preset contained 16 IDs; current `all` contains 26. The comparison therefore
+uses the same ordered explicit historical16 list in both revisions, then
+measures new10 and joint26 separately. `target/base074/baseline-performance-pin.json`
+retains all three ordered lists. Current catalogue resolution produced manifests;
+the actual timed native binary and its selection are recorded independently.
+Historical raw reports, four retained binaries and 312 controls were preserved.
+
+The two Python drivers and two Rust developer examples accept existing selectors.
+The batch driver's `--native-only` option omits companion coverage explicitly;
+omitted coverage is not zero or completed. Its default behavior still collects
+the companion. Short `sN` stream filenames support long explicit lists. Timing
+uses the existing fresh-process launch-to-exit timer, child CPU and Darwin
+`os.wait4` RSS in bytes. Full stdout/stderr, exit/deadline and first-use rows are
+retained. Current release settings, hardware and cache labels are in every
+report. Measurements, builds, tests and profiles ran sequentially. Host scheduling
+and filesystem caches remained uncontrolled.
+
+### Matched native controls
+
+`target/base074/matched/` contains 12 reports and 24 native trials. All four
+selections use identical bytes, positional paths, include/stdlib options and
+per-case original hash maps. Two trials provide observations and spread, not p95
+or statistical confidence. The bounded control contains seven roots including
+data, rejected syntax, missing dependencies and invalid UTF-8; status 2 is its
+expected retained input-error result. The shared control has 20 distinct roots
+loading the same dependencies. The diagnostic control has 10,000 warnings in
+170,015 source bytes.
+
+| Selection / control | Wall seconds, trials 0 / 1 | Child CPU seconds, trials 0 / 1 | RSS MiB, trials 0 / 1 | Native statuses | Completed native roots per trial |
+| --- | ---: | ---: | ---: | --- | --- |
+| baseline16 / bounded-final | 7.21 / 8.10 | 6.95 / 7.17 | 30.83 / 30.23 | 2 / 2 | 7 / 7 |
+| baseline16 / shared-roots-20 | 27.41 / 26.46 | 23.84 / 23.81 | 34.27 / 34.72 | 1 / 1 | 20 / 20 |
+| baseline16 / diagnostics-10000 | 7.22 / 8.85 | 6.61 / 6.57 | 41.80 / 41.34 | 1 / 1 | 1 / 1 |
+| current16 / bounded-final | 7.19 / 7.80 | 7.04 / 7.09 | 31.59 / 32.22 | 2 / 2 | 7 / 7 |
+| current16 / shared-roots-20 | 23.77 / 23.82 | 23.50 / 23.40 | 34.70 / 33.72 | 1 / 1 | 20 / 20 |
+| current16 / diagnostics-10000 | 16.34 / 16.91 | 16.14 / 16.25 | 56.73 / 56.22 | 1 / 1 | 1 / 1 |
+| current10 / bounded-final | 6.33 / 6.47 | 6.30 / 6.32 | 29.75 / 30.89 | 2 / 2 | 7 / 7 |
+| current10 / shared-roots-20 | 20.86 / 21.29 | 20.80 / 21.01 | 31.31 / 31.23 | 0 / 0 | 20 / 20 |
+| current10 / diagnostics-10000 | 180.01 / 180.01 | 178.17 / 178.09 | 49.97 / 50.22 | -9 / -9 | unknown / unknown |
+| current26 / bounded-final | 7.53 / 6.98 | 7.05 / 6.96 | 34.55 / 32.59 | 2 / 2 | 7 / 7 |
+| current26 / shared-roots-20 | 23.52 / 23.44 | 23.31 / 23.29 | 34.77 / 35.61 | 1 / 1 | 20 / 20 |
+| current26 / diagnostics-10000 | 180.00 / 180.01 | 177.68 / 178.14 | 56.72 / 55.16 | -9 / -9 | unknown / unknown |
+
+Current16 bounded/shared child CPU stays close to the retained native control;
+the longer baseline shared wall times are retained scheduling observations.
+On the diagnostic control, current16 CPU rises from 6.61/6.57 to 16.14/16.25
+seconds and RSS from 41.80/41.34 to 56.73/56.22 MiB. This is a reproducible
+comparable-ID added cost. New10 and joint26 both reach the 180-second diagnostic
+deadline. Those killed commands have no completed-root count or full-analysis
+throughput. Status 0 on a completed native command also does not establish that
+all selected semantic rules completed; separate observations retain limitations.
+
+### Full current native attempts
+
+Both selections use the same three positional directories and explicit installed
+stdlib as base-049. Native discovery records 6,417 canonical roots and 641,084,859
+bytes. All 7,439 original hashes match the historical full map. The unrelated
+dangling non-source artifact still produces a separate discovery error. Neither
+full current native selection completed within its 120-second deadline:
+
+| Selection | Wall seconds, trials 0 / 1 | Child CPU seconds, trials 0 / 1 | RSS MiB, trials 0 / 1 | Statuses | Completed roots |
+| --- | ---: | ---: | ---: | --- | --- |
+| new10 | 120.01 / 120.01 | 114.66 / 112.12 | 163.11 / 174.31 | -9 / -9 | unknown / unknown |
+| joint26 | 120.01 / 120.01 | 118.59 / 118.50 | 176.38 / 181.84 | -9 / -9 | unknown / unknown |
+
+These reports collected native timing without companion coverage. Emitted
+stderr is a prefix observation, not corpus-wide totals, processed-root counts or
+semantic completion. Both reports recheck unchanged originals and native/probe
+binaries. The separate per-file campaign and its Unobserved remainder are in
+[lint-expansion-checkpoint.md](lint-expansion-checkpoint.md).
+
+### Separate allocation and coverage observations
+
+`target/base074/observations/` records bounded16, bounded10, bounded26, shared26
+and diagnostics16 outside timed comparisons. Native and probe full stderr/status
+match for each case. All 42 independent root scopes return exactly to their
+recorded allocation baseline. This establishes release of retained per-root
+work in these controls; native RSS remains a process high-water measurement.
+Allocation traffic and phase peaks are neither summed live memory nor RSS.
+
+For bounded26, analysis requests 217,112,958 allocation bytes, versus 217,043,402
+for current16; both have a scoped peak delta of 12,973,982 bytes. Shared26 observes
+20 complete/resolved roots, 20 warnings and 40 limitations, with zero roots whose
+26 selected rules all completed. Diagnostics16 observes one complete/resolved
+root, 10,000 warnings and two limitations, again zero all-selected completion.
+Bounded10 observes three resolved roots with all ten completed, but the other
+bounded roots retain their errors/inapplicability. Raw per-rule partitions and
+phase counters remain in each report.
+
+### Added-cost attribution and acceptance gaps
+
+The first sandboxed `sample` attaches failed and remain under `profiles/`.
+A permitted retry records two-second intervals under `profiles-retry/`:
+current16 has 1,210 of 1,462 top stacks in `SourceLocation::new`, mainly through
+integer bounds; current10 has 1,353 of 1,489 through instantiations, optional,
+callable and definition facts. A later current10 interval at 30–32 seconds has
+1,480 of 1,488 top stacks there through iteration walking. `SourceLocation::new`
+scans the source prefix for each location. These intervals establish a dominant
+observed cost at the existing base-078 seam. They do not attribute the entire
+180-second run or exclude later bottlenecks. Profiled native times are separate
+from the matched table.
+
+Base-078 already owns source-location repair, diagnostic controls, shared roots
+and full current replay, so this checkpoint proposes no duplicate follow-up.
+Base-075 include-loading, base-076 callable semantics, base-077 dense-save,
+base-079 matrix-width work and the final acceptance gates also remain necessary.
+No optimization or budget relaxation was made here. The current native cutoffs,
+limited semantic outcomes and prior save-budget misses prevent full performance
+or semantic acceptance. The checkpoint supplies integration/accounting evidence
+for the coordinator and subsequent repairs.

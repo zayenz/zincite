@@ -239,7 +239,7 @@ fn location_sample(
 
 fn semantic_report(
     path: &std::path::Path,
-    parsed: &ParsedFile,
+    parsed: Option<&ParsedFile>,
     byte_offset: usize,
     preset: &str,
     model_options: &zincite_lint::ModelOptions,
@@ -247,29 +247,57 @@ fn semantic_report(
     use zincite_lint::{RuleOutcome, SourceKind};
     let options = zincite_lint::LintOptions::from_selection(preset).unwrap();
     let data = zincite_syntax::FileMode::from_path(path) == zincite_syntax::FileMode::Data;
-    let context = (!data && parsed.diagnostics().is_empty())
-        .then(|| zincite_lint::load_model(path, model_options));
+    // Match native routing: only model-dependent selections load the include closure.
+    // Rejected model syntax still goes through that route.
+    let context =
+        (!data && options.requires_model()).then(|| zincite_lint::load_model(path, model_options));
     let result = if let Some(context) = &context {
         zincite_lint::analyze_model(context, &options)
     } else {
-        zincite_lint::analyze_file(parsed, path, byte_offset, &options)
+        zincite_lint::analyze_file(
+            parsed.expect("source-local input was parsed"),
+            path,
+            byte_offset,
+            &options,
+        )
     };
-    let solves = context.as_ref().map_or(0, |c| {
-        c.files
-            .iter()
-            .filter(|f| f.kind == SourceKind::User)
-            .flat_map(|f| f.parsed.tree().child_nodes())
-            .filter(|n| {
-                matches!(
-                    n.kind(),
-                    NodeKind::Solve | NodeKind::SolveMinimize | NodeKind::SolveMaximize
-                )
+    let parsed = context
+        .as_ref()
+        .and_then(|c| c.root_file.map(|id| &c.files[id].parsed))
+        .or(parsed);
+    let solves = context.as_ref().map_or_else(
+        || {
+            parsed.map_or(0, |p| {
+                p.tree()
+                    .child_nodes()
+                    .filter(|n| {
+                        matches!(
+                            n.kind(),
+                            NodeKind::Solve | NodeKind::SolveMinimize | NodeKind::SolveMaximize
+                        )
+                    })
+                    .count()
             })
-            .count()
-    });
+        },
+        |c| {
+            c.files
+                .iter()
+                .filter(|f| f.kind == SourceKind::User)
+                .flat_map(|f| f.parsed.tree().child_nodes())
+                .filter(|n| {
+                    matches!(
+                        n.kind(),
+                        NodeKind::Solve | NodeKind::SolveMinimize | NodeKind::SolveMaximize
+                    )
+                })
+                .count()
+        },
+    );
     let root_state = if data {
         "data"
-    } else if !parsed.diagnostics().is_empty() {
+    } else if parsed.is_none() {
+        "input_error"
+    } else if parsed.is_some_and(|p| !p.diagnostics().is_empty()) {
         "syntax_rejected"
     } else if solves == 0 {
         "fragment"
@@ -279,13 +307,14 @@ fn semantic_report(
         "multiple_solve"
     };
     let dependencies = context.as_ref().map_or("null".into(), |c| {
+        let files = c.files.iter().map(|file| format!("{{\"canonical_path\":{},\"bytes\":{}}}", quoted(&file.canonical_path.to_string_lossy()), file.parsed.source().len() + file.byte_offset)).collect::<Vec<_>>().join(",");
         let user_files = c.files.iter().filter(|f| f.kind == SourceKind::User).count();
         let unresolved = c.includes.iter().filter(|e| e.target.is_none()).count();
         let errors: Vec<_> = c.errors.iter().take(12)
             .map(|e| location_sample(&e.location, &e.message, Some(c))).collect();
         let limits: Vec<_> = c.limitations.iter().take(12)
             .map(|e| location_sample(&e.location, &e.message, Some(c))).collect();
-        format!("{{\"loaded_files\":{},\"user_files\":{user_files},\"standard_files\":{},\"include_edges\":{},\"unresolved_include_edges\":{unresolved},\"implicit_core_loaded\":{},\"load_error_count\":{},\"load_limitation_count\":{},\"resolved\":{},\"error_samples\":[{}],\"limitation_samples\":[{}]}}",
+        format!("{{\"files\":[{files}],\"loaded_files\":{},\"user_files\":{user_files},\"standard_files\":{},\"include_edges\":{},\"unresolved_include_edges\":{unresolved},\"implicit_core_loaded\":{},\"load_error_count\":{},\"load_limitation_count\":{},\"resolved\":{},\"error_samples\":[{}],\"limitation_samples\":[{}]}}",
             c.files.len(), c.files.len()-user_files, c.includes.len(), c.implicit_core.is_some(), c.errors.len(), c.limitations.len(),
             c.errors.is_empty() && unresolved == 0 && c.implicit_core.is_some(), errors.join(","), limits.join(","))
     });
@@ -314,14 +343,19 @@ fn semantic_report(
         .take(12)
         .map(|e| location_sample(&e.location, &e.message, context.as_ref()))
         .collect();
-    let (tokens, tree) = coverage(parsed);
+    let (tokens, tree) = parsed.map_or(("null".into(), "null".into()), |p| {
+        let (tokens, tree) = coverage(p);
+        (tokens.to_string(), tree.to_string())
+    });
+    let parse_count = parsed.map_or("null".into(), |p| p.diagnostics().len().to_string());
+    let parse_errors = parsed.map_or("[]".into(), |p| messages(p.diagnostics()));
     println!(
         "{{\"input_status\":\"ok\",\"check_kind\":\"semantic\",\"selection\":{},\"file_mode\":{},\"root_state\":{},\"loaded_solve_count\":{solves},\"dependencies\":{dependencies},\"parse_count\":{},\"parse_errors\":{},\"token_coverage\":{tokens},\"tree_coverage\":{tree},\"analysis_status\":{},\"warning_count\":{},\"error_count\":{},\"limitation_count\":{},\"rules\":{{{}}},\"error_samples\":[{}],\"limitation_samples\":[{}],\"sample_limits\":{{\"findings_per_rule\":3,\"errors\":12,\"limitations\":12,\"message_characters\":512}}}}",
         quoted(preset),
         quoted(if data { "data" } else { "model" }),
         quoted(root_state),
-        parsed.diagnostics().len(),
-        messages(parsed.diagnostics()),
+        parse_count,
+        parse_errors,
         result.status(),
         result.findings.len(),
         result.errors.len(),
@@ -333,6 +367,36 @@ fn semantic_report(
 }
 
 fn main() {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--selected-rules")) {
+        let selection = std::env::args()
+            .nth(2)
+            .expect("--selected-rules requires a selection");
+        assert_eq!(
+            std::env::args_os().count(),
+            3,
+            "unexpected selection arguments"
+        );
+        let options =
+            zincite_lint::LintOptions::from_selection(&selection).unwrap_or_else(|message| {
+                eprintln!("{message}");
+                std::process::exit(2)
+            });
+        options.check_available().unwrap_or_else(|message| {
+            eprintln!("{message}");
+            std::process::exit(2)
+        });
+        let rules = options
+            .rules
+            .iter()
+            .map(|r| quoted(r.id()))
+            .collect::<Vec<_>>()
+            .join(",");
+        println!(
+            "{{\"selection\":{},\"rules\":[{rules}]}}",
+            quoted(&selection)
+        );
+        return;
+    }
     let path = std::env::args_os()
         .nth(1)
         .expect("usage: check-corpus-file FILE");
@@ -344,16 +408,39 @@ fn main() {
         match flag.to_str() {
             Some("--rules") => {
                 let selection = value.to_str().expect("selection must be UTF-8");
-                assert!(
-                    matches!(selection, "thesis" | "all"),
-                    "semantic preset must be thesis or all"
+                assert!(preset.is_none(), "repeated --rules");
+                let options = zincite_lint::LintOptions::from_selection(selection).unwrap_or_else(
+                    |message| {
+                        eprintln!("{message}");
+                        std::process::exit(2)
+                    },
                 );
+                options.check_available().unwrap_or_else(|message| {
+                    eprintln!("{message}");
+                    std::process::exit(2)
+                });
                 preset = Some(selection.to_owned());
             }
             Some("--stdlib-dir") => model_options.stdlib_dir = Some(value.into()),
             Some("-I") => model_options.include_dirs.push(value.into()),
             _ => panic!("unknown checker option"),
         }
+    }
+    let mode = zincite_syntax::FileMode::from_path(&path);
+    if let Some(selection) = &preset
+        && mode == zincite_syntax::FileMode::Model
+        && zincite_lint::LintOptions::from_selection(selection)
+            .unwrap()
+            .requires_model()
+    {
+        semantic_report(
+            std::path::Path::new(&path),
+            None,
+            0,
+            selection,
+            &model_options,
+        );
+        return;
     }
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
@@ -382,7 +469,7 @@ fn main() {
     if let Some(preset) = preset {
         semantic_report(
             std::path::Path::new(&path),
-            &parsed,
+            Some(&parsed),
             byte_offset,
             &preset,
             &model_options,

@@ -144,10 +144,9 @@ def file_invoke(command, directory, name, timeout):
             "stdout_sha256": file_digest(stdout), "stderr_sha256": file_digest(stderr)}
 
 
-def load_probe(path, manifest, process, selection):
+def load_probe(path, manifest, process, selected):
     """Aggregate current outcomes; leave unfinished roots explicitly unobserved."""
     observed = set()
-    selected = manifest["preset_rules"][selection]
     totals = {"observed_roots": 0, "warnings": 0, "errors": 0, "limitations": 0,
               "structurally_complete_roots": 0, "complete_resolved_roots": 0,
               "complete_roots_all_selected_completed": 0, "repeated_loaded_files": 0,
@@ -224,7 +223,8 @@ def batch_main(arguments):
     parser.add_argument("--formatter", type=Path, default=ROOT / "target/release/zincite-fmt")
     parser.add_argument("--linter", type=Path, default=ROOT / "target/release/zincite-lint")
     parser.add_argument("--probe", type=Path, default=ROOT / "target/release/examples/profile-phases")
-    parser.add_argument("--selection", choices=("format", "default", "thesis", "all"), action="append")
+    parser.add_argument("--selection", action="append", help="format or any existing lint selector expression")
+    parser.add_argument("--native-only", action="store_true", help="omit instrumented companion coverage, for retained native binary comparisons")
     parser.add_argument("--repeat", type=int, default=2)
     parser.add_argument("--timeout", type=float, default=300)
     parser.add_argument("--probe-timeout", type=float, default=300)
@@ -269,6 +269,25 @@ def batch_main(arguments):
         with Path(dependency_manifest_run["stdout"]).open() as source:
             dependency_manifest = json.loads(source.readline())
         originals.update({row["canonical_path"]: file_digest(Path(row["canonical_path"])) for row in dependency_manifest["files"]})
+    selections = args.selection or ("format", "default", "thesis", "all")
+    if len(set(selections)) != len(selections):
+        parser.error("repeated selection; use --repeat for trials")
+    selected_rules, labels = {}, {}
+    for index, selection in enumerate(selections):
+        labels[selection] = f"s{index}"
+        if selection == "format":
+            continue
+        process = file_invoke([probe, "batch", "--manifest-only", "--rules", selection, *positional], output, f"s{index}-manifest", args.probe_timeout)
+        if process["timeout"] or process["returncode"] not in (0, 2):
+            parser.error("selection manifest failed; raw evidence retained")
+        try:
+            with Path(process["stdout"]).open() as source:
+                selected = json.loads(source.readline())
+        except (ValueError, OSError):
+            parser.error("selection manifest failed; raw evidence retained")
+        if selected.get("kind") != "manifest" or selected["files"] != manifest["files"] or selected["selection"] != selection:
+            parser.error("selection manifest does not match input discovery")
+        selected_rules[selection] = selected["rules"]
     count = len(manifest["files"])
     input_bytes = sum(row["bytes"] for row in manifest["files"])
     report = {"revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
@@ -278,17 +297,21 @@ def batch_main(arguments):
               "positional_paths": positional, "model_options": model, "MZN_STDLIB_DIR": os.environ.get("MZN_STDLIB_DIR"),
               "cache_label": "fresh processes; ordinary warm filesystem caches; first use is not controlled cold I/O",
               "manifest": manifest, "manifest_process": manifest_run, "dependency_manifest_process": dependency_manifest_run, "input_count": count, "input_bytes": input_bytes,
-              "original_sha256": originals, "runs": [], "coverage": {}}
+              "original_sha256": originals, "runs": [], "coverage": {},
+              "selection_rules": selected_rules, "selection_labels": labels,
+              "coverage_collected": not args.native_only,
+              "manifest_binary": str(binaries["probe"]),
+              "timed_native_binary": str(binaries["linter"])}
     report_path = output / "report.json"
     def save():
         report_path.write_text(json.dumps(report, indent=2) + "\n")
     save()
     with (output / "runs.jsonl").open("x") as log:
-        for selection in args.selection or ("format", "default", "thesis", "all"):
+        for selection in selections:
             command = ([str(binaries["formatter"]), "--check", *positional] if selection == "format" else
                        [str(binaries["linter"]), "--rules", selection, *model, *positional])
             for trial in range(args.repeat):
-                row = file_invoke(command, output, selection + "-" + str(trial), args.timeout)
+                row = file_invoke(command, output, labels[selection] + "-" + str(trial), args.timeout)
                 row.update(selection=selection, trial=trial, first_use=trial == 0,
                            discovered_input_count=count, discovered_input_bytes=input_bytes,
                            completed_root_count=count if not row["timeout"] and row["returncode"] in (0, 1, 2) else None)
@@ -296,9 +319,9 @@ def batch_main(arguments):
                 report["runs"].append(row)
                 log.write(json.dumps(row) + "\n"); log.flush(); save()
                 print(f"{selection} trial={trial} wall={row['wall_seconds']:.3f}s status={row['returncode']} timeout={row['timeout']} RSS={row['peak_child_rss_mib']}MiB", flush=True)
-            if selection != "format":
-                process = file_invoke([probe, "batch", "--rules", selection, *model, *positional], output, selection + "-coverage", args.probe_timeout)
-                report["coverage"][selection] = load_probe(Path(process["stdout"]), manifest, process, selection)
+            if selection != "format" and not args.native_only:
+                process = file_invoke([probe, "batch", "--rules", selection, *model, *positional], output, labels[selection] + "-coverage", args.probe_timeout)
+                report["coverage"][selection] = load_probe(Path(process["stdout"]), manifest, process, selected_rules[selection])
                 save()
     changed = [path for path, value in originals.items() if file_digest(Path(path)) != value]
     report["originals_rehashed"] = len(originals)

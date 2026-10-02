@@ -313,9 +313,6 @@ fn batch() -> Result<u8, String> {
             }
             let value = arguments.next().ok_or("--rules requires a selection")?;
             let value = value.to_str().ok_or("selection must be UTF-8")?;
-            if !matches!(value, "default" | "thesis" | "all") {
-                return Err("batch rules must be default, thesis or all".into());
-            }
             selection = Some(value.to_owned());
         } else if argument == "--stdlib-dir" {
             if model.stdlib_dir.is_some() {
