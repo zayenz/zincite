@@ -1730,3 +1730,94 @@ pub(super) fn invariant_integer(bound: &NumericBound) -> Result<Option<i64>, Str
         _ => integer(bound).map_err(str::to_owned),
     }
 }
+
+pub(super) fn bare_index_domain(mut d: &Domain) -> &Domain {
+    while let Domain::Named { domain, .. } = d {
+        d = domain;
+    }
+    d
+}
+
+pub(super) fn index_domain_interval(d: &Domain) -> Option<(i64, i64)> {
+    match bare_index_domain(d) {
+        Domain::Range { lower, upper } => Some((
+            invariant_integer(lower).ok()??,
+            invariant_integer(upper).ok()??,
+        )),
+        Domain::LiteralSet(v) => {
+            let v: Option<Vec<_>> = v
+                .iter()
+                .map(|n| invariant_integer(n).ok().flatten())
+                .collect();
+            let v = v?;
+            Some((*v.iter().min()?, *v.iter().max()?))
+        }
+        _ => None,
+    }
+}
+
+pub(super) fn index_domain_member(d: &Domain, n: i64) -> Option<bool> {
+    match bare_index_domain(d) {
+        Domain::Range { .. } => index_domain_interval(d).map(|(l, u)| l <= n && n <= u),
+        Domain::LiteralSet(v) => {
+            let values: Option<Vec<_>> = v
+                .iter()
+                .map(|n| invariant_integer(n).ok().flatten())
+                .collect();
+            Some(values?.contains(&n))
+        }
+        _ => None,
+    }
+}
+
+pub(super) fn intersect_index_domains(a: &Domain, b: &Domain) -> Option<Domain> {
+    if let Domain::LiteralSet(values) = bare_index_domain(a) {
+        let mut out = Vec::new();
+        for v in values {
+            let n = invariant_integer(v).ok()??;
+            if index_domain_member(b, n)? {
+                out.push(NumericBound::Integer(n));
+            }
+        }
+        return Some(Domain::LiteralSet(out));
+    }
+    if matches!(bare_index_domain(a), Domain::Range { .. })
+        && matches!(bare_index_domain(b), Domain::Range { .. })
+    {
+        let (l, u) = index_domain_interval(a)?;
+        let (x, y) = index_domain_interval(b)?;
+        return Some(Domain::Range {
+            lower: NumericBound::Integer(l.max(x)),
+            upper: NumericBound::Integer(u.min(y)),
+        });
+    }
+    if matches!(bare_index_domain(b), Domain::LiteralSet(_)) {
+        return intersect_index_domains(b, a);
+    }
+    None
+}
+
+pub(super) fn shift_index_domain(d: &Domain, delta: Option<i64>) -> Domain {
+    let Some(delta) = delta else {
+        return Domain::Unsupported("index offset overflow".into());
+    };
+    let shift = |b: &NumericBound| match invariant_integer(b) {
+        Ok(Some(n)) => n
+            .checked_add(delta)
+            .map(NumericBound::Integer)
+            .unwrap_or_else(|| NumericBound::Unsupported("index offset overflow".into())),
+        _ => NumericBound::Arithmetic {
+            operator: TokenKind::Plus,
+            operands: vec![b.clone(), NumericBound::Integer(delta)],
+        },
+    };
+    match bare_index_domain(d) {
+        Domain::Range { lower, upper } => Domain::Range {
+            lower: shift(lower),
+            upper: shift(upper),
+        },
+        Domain::LiteralSet(values) => Domain::LiteralSet(values.iter().map(shift).collect()),
+        _ if delta == 0 => d.clone(),
+        _ => Domain::Unsupported("offset of an opaque index set".into()),
+    }
+}

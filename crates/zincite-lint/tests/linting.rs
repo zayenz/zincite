@@ -19,7 +19,11 @@ fn catalogue_exposes_current_capabilities_and_preserves_presets() {
         Rule::ReifiedGlobal.metadata().family,
         RuleFamily::Performance
     );
-    for rule in Rule::DEFAULT.into_iter().chain(Rule::THESIS) {
+    for rule in Rule::DEFAULT
+        .into_iter()
+        .chain(Rule::THESIS)
+        .chain([Rule::IndexSetMismatch])
+    {
         let metadata = rule.metadata();
         assert_eq!(metadata.id, rule.id());
         assert!(metadata.available && rule.is_available());
@@ -27,6 +31,11 @@ fn catalogue_exposes_current_capabilities_and_preserves_presets() {
         assert!(metadata.options.is_empty());
         assert!(!metadata.purpose.is_empty() && !metadata.limitations.is_empty());
     }
+    assert_eq!(
+        Rule::IndexSetMismatch.metadata().family,
+        RuleFamily::Correctness
+    );
+    assert!(Rule::IndexSetMismatch.requires_model());
     assert_eq!(Rule::DEFAULT.len(), 2);
     assert_eq!(Rule::THESIS.len(), 14);
     assert!(Rule::from_id("unknown-rule").is_none());
@@ -308,7 +317,11 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
             defaults
                 .into_iter()
                 .chain(thesis)
-                .chain(["suspicious-shadowing", "expensive-comprehension"])
+                .chain([
+                    "suspicious-shadowing",
+                    "expensive-comprehension",
+                    "index-set-mismatch",
+                ])
                 .collect(),
         ),
     ] {
@@ -384,6 +397,7 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
             .into_iter()
             .chain(Rule::THESIS)
             .chain(Rule::ADDITIONAL)
+            .chain([Rule::IndexSetMismatch])
             .collect::<Vec<_>>()
     );
     for (legacy, prefixed) in [
@@ -396,11 +410,11 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
             LintOptions::from_selection(prefixed)
         );
     }
-    assert!(
+    assert_eq!(
         LintOptions::from_selection("family:correctness")
             .unwrap()
-            .rules
-            .is_empty()
+            .rules,
+        [Rule::IndexSetMismatch]
     );
     for bad in [
         "family:",
@@ -424,7 +438,11 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
     .unwrap();
     assert_eq!(
         settings.resolve().unwrap().rules,
-        [Rule::MissingConstraintLabel, Rule::ArrayIndexStart]
+        [
+            Rule::MissingConstraintLabel,
+            Rule::ArrayIndexStart,
+            Rule::IndexSetMismatch
+        ]
     );
     assert_eq!(
         LintSettings::from_toml("[lint]")

@@ -5,7 +5,8 @@ use crate::definitions::{
     transparent_boolean_argument,
 };
 use crate::domains::{
-    expression_domain, invariant_integer, resolved_index_domain, same_members, tokens,
+    bare_index_domain, expression_domain, index_domain_interval, intersect_index_domains,
+    invariant_integer, resolved_index_domain, same_members, shift_index_domain, tokens,
 };
 use crate::{
     BindingFacts, CallableFacts, Cardinality, DeclarationId, DefinitionEnforcement, Domain,
@@ -78,11 +79,20 @@ pub enum GuardObligationKind {
         array: DeclarationId,
         dimension: usize,
         domain: Domain,
+        /// Scoped possible index membership, independent of per-value safety.
+        selection: Option<GuardedIndexSpace>,
     },
     Nonempty {
         aggregate: String,
     },
     Assertion,
+}
+/// A scoped index space. Exact means supported membership/condition operations
+/// retain its members; it does not prove a traversal is executed or nonempty.
+#[derive(Clone, Debug)]
+pub struct GuardedIndexSpace {
+    pub domain: Domain,
+    pub exact: bool,
 }
 #[derive(Clone, Debug)]
 pub struct GuardObligation {
@@ -163,9 +173,13 @@ impl GuardedFacts {
 ///
 /// Supports core integer arithmetic/comparisons, membership, Boolean operators,
 /// if/elseif/else, generator membership/filters, core forall and transparent
-/// Boolean forwarding, scalar array-index dimensions, div/mod, assertions and
-/// directly known nonoptional min/max/sum/product emptiness. No option presence,
-/// general cardinality, arbitrary function bodies or solver reasoning is added.
+/// Boolean forwarding, scalar and written closed-range array-index dimensions,
+/// div/mod, assertions and directly known nonoptional min/max/sum/product emptiness.
+/// Index obligations also expose resolved enum types and scoped generator
+/// membership shifted by a checked constant, narrowed by supported closed
+/// membership/comparison guards. Exact membership differs from a numeric hull.
+/// No option presence, general cardinality, arbitrary function bodies or solver
+/// reasoning is added.
 /// Opaque calls, unresolved/user operators, unsupported controls and unavailable
 /// types retain located limitations. These facts never issue warnings or edits
 /// and do not change existing definition or selected-lint safety behavior.
@@ -984,6 +998,16 @@ impl<'a> Producer<'a> {
                 "sliced or mismatched array dimensions are unsupported",
             );
         }
+        if children[1..].iter().any(|index| {
+            let index = unwrap(index);
+            index.kind() == NodeKind::RangeExpression && index.child_nodes().count() != 2
+        }) {
+            return self.unsupported(
+                file,
+                node,
+                "sliced dimensions with omitted bounds are unsupported",
+            );
+        }
         let domain_error = self.array_domain_error(array);
         let mut result = combine(&values);
         result.numeric = None;
@@ -992,9 +1016,15 @@ impl<'a> Producer<'a> {
                 || self.invariant_membership(file, index, domain),
                 |reason| GuardedOutcome::Unsupported(reason.clone()),
             );
+            let selection = self.index_space(file, index, scope);
             let outcome = if invariant == GuardedOutcome::Unknown
-                && self.guarded_membership(file, index, domain, scope)
-            {
+                && (self.guarded_membership(file, index, domain, scope)
+                    || selection.as_ref().is_some_and(|s| {
+                        s.exact
+                            && !self.replaceable_set(domain)
+                            && intersect_index_domains(&s.domain, domain)
+                                .is_some_and(|d| same_members(&s.domain, &d) == Ok(Some(true)))
+                    })) {
                 GuardedOutcome::Proven
             } else {
                 invariant.clone()
@@ -1007,6 +1037,7 @@ impl<'a> Producer<'a> {
                     array,
                     dimension: dimension + 1,
                     domain: domain.clone(),
+                    selection,
                 },
                 (invariant, outcome.clone()),
                 scope,
@@ -2053,6 +2084,142 @@ impl<'a> Producer<'a> {
             _ => false,
         })
     }
+    fn index_space(
+        &self,
+        file: FileId,
+        node: &SyntaxNode,
+        scope: &Scope<'a>,
+    ) -> Option<GuardedIndexSpace> {
+        let node = unwrap(node);
+        if matches!(
+            node.kind(),
+            NodeKind::RangeExpression | NodeKind::SetLiteral
+        ) {
+            crate::domains::core_arithmetic(self.context, self.bindings, self.calls, file, node)
+                .ok()?;
+            let domain = self.domain(file, node);
+            return Some(GuardedIndexSpace {
+                exact: index_domain_interval(&domain).is_some()
+                    || matches!(bare_index_domain(&domain), Domain::LiteralSet(v) if v.is_empty()),
+                domain,
+            });
+        }
+        if node.kind() == NodeKind::Expression
+            && let Some(TypeKind::Enum(id)) = self.ty(file, node).map(|ty| &ty.kind)
+        {
+            return Some(GuardedIndexSpace {
+                domain: Domain::Enum(*id),
+                exact: false,
+            });
+        }
+        if let Some(NumericOutcome::Exact(n)) = self.numeric(file, node) {
+            return Some(GuardedIndexSpace {
+                domain: Domain::LiteralSet(vec![crate::NumericBound::Integer(n)]),
+                exact: true,
+            });
+        }
+        let (binding, offset) = if node.kind() == NodeKind::Expression {
+            (node, 0)
+        } else if node.kind() == NodeKind::BinaryExpression {
+            self.core_operator(file, node).ok()?;
+            let children: Vec<_> = node.child_nodes().collect();
+            let [left, right] = children.as_slice() else {
+                return None;
+            };
+            match self.operator(file, node)? {
+                TokenKind::Plus => {
+                    if let Some(NumericOutcome::Exact(n)) = self.numeric(file, right) {
+                        (unwrap(left), n)
+                    } else if let Some(NumericOutcome::Exact(n)) = self.numeric(file, left) {
+                        (unwrap(right), n)
+                    } else {
+                        return None;
+                    }
+                }
+                TokenKind::Minus => {
+                    let NumericOutcome::Exact(n) = self.numeric(file, right)? else {
+                        return None;
+                    };
+                    (unwrap(left), n.checked_neg()?)
+                }
+                _ => return None,
+            }
+        } else {
+            return None;
+        };
+        if binding.kind() != NodeKind::Expression {
+            return None;
+        }
+        let id = resolved_reference(self.context, self.bindings, file, binding)?;
+        let mut domain = scope.assumptions.iter().find_map(|a| match a {
+            Assumption::Membership {
+                declaration,
+                domain,
+                ..
+            } if *declaration == id => Some(domain.clone()),
+            _ => None,
+        })?;
+        let mut exact = matches!(bare_index_domain(&domain), Domain::Enum(_))
+            || (!self.replaceable_set(&domain) && index_domain_interval(&domain).is_some());
+        for assumption in &scope.assumptions {
+            let Assumption::Condition {
+                file: f,
+                node: condition,
+                expected,
+                ..
+            } = assumption
+            else {
+                continue;
+            };
+            if contains_subject(*f, condition, file, node) {
+                continue;
+            }
+            let condition = unwrap(condition);
+            if self.invariant_truth(*f, condition)
+                == if *expected {
+                    GuardedOutcome::Proven
+                } else {
+                    GuardedOutcome::Refuted
+                }
+            {
+                continue;
+            }
+            let children: Vec<_> = condition.child_nodes().collect();
+            let narrowed = if let [left, right] = children.as_slice() {
+                if self.same(file, binding, *f, left) && self.core_operator(*f, condition).is_ok() {
+                    if self.operator(*f, condition) == Some(TokenKind::In) && *expected {
+                        crate::domains::core_arithmetic(
+                            self.context,
+                            self.bindings,
+                            self.calls,
+                            *f,
+                            right,
+                        )
+                        .ok()
+                        .and_then(|_| intersect_index_domains(&domain, &self.domain(*f, right)))
+                    } else if let Some(NumericOutcome::Exact(n)) = self.numeric(*f, right) {
+                        comparison_index_domain(self.operator(*f, condition)?, n, *expected)
+                            .and_then(|target| intersect_index_domains(&domain, &target))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            if let Some(narrowed) = narrowed {
+                domain = narrowed;
+            } else {
+                exact = false;
+            }
+        }
+        if offset != 0 {
+            domain = shift_index_domain(&domain, Some(offset));
+        }
+        Some(GuardedIndexSpace { domain, exact })
+    }
     fn membership(
         &self,
         file: FileId,
@@ -2353,4 +2520,31 @@ fn presence_outcome(presence: &Presence) -> GuardedOutcome {
         Presence::Unsupported(reason) => GuardedOutcome::Unsupported(reason.clone()),
         _ => GuardedOutcome::Unknown,
     }
+}
+
+fn comparison_index_domain(operator: TokenKind, n: i64, expected: bool) -> Option<Domain> {
+    let op = if expected {
+        operator
+    } else {
+        match operator {
+            TokenKind::Less => TokenKind::GreaterEqual,
+            TokenKind::LessEqual => TokenKind::Greater,
+            TokenKind::Greater => TokenKind::LessEqual,
+            TokenKind::GreaterEqual => TokenKind::Less,
+            TokenKind::NotEqual => TokenKind::Equal,
+            _ => return None,
+        }
+    };
+    let (l, u) = match op {
+        TokenKind::Less => (i64::MIN, n.checked_sub(1)?),
+        TokenKind::LessEqual => (i64::MIN, n),
+        TokenKind::Greater => (n.checked_add(1)?, i64::MAX),
+        TokenKind::GreaterEqual => (n, i64::MAX),
+        TokenKind::Equal | TokenKind::DoubleEqual => (n, n),
+        _ => return None,
+    };
+    Some(Domain::Range {
+        lower: crate::NumericBound::Integer(l),
+        upper: crate::NumericBound::Integer(u),
+    })
 }

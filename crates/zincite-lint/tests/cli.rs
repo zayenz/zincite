@@ -35,9 +35,10 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     let list = run(&["--list-rules"], "not valid MiniZinc");
     assert!(list.status.success() && list.stderr.is_empty());
     let list = String::from_utf8(list.stdout).unwrap();
-    assert_eq!(list.lines().count(), 19);
+    assert_eq!(list.lines().count(), 20);
     assert!(list.contains("naming\tstyle\tavailable\tnone\tdefault"));
     assert!(list.contains("search-coverage\tmodelling\tavailable\tnone\tthesis"));
+    assert!(list.contains("index-set-mismatch\tcorrectness\tavailable\tnone\topt-in"));
     let explanation = run_with_library(
         &["--explain", "element-predicate"],
         "not valid MiniZinc",
@@ -1238,5 +1239,87 @@ fn personal_settings_inspect_effective_options_and_keep_cli_replacement_read_onl
         error.contains(config.to_str().unwrap())
             && error.contains("lint.options.expensive-comprehension.max-candidates")
     );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn index_mismatch_selection_and_suppression_keep_status_and_source_contracts() {
+    let dir =
+        std::env::temp_dir().join(format!("zincite-index-mismatch-cli-{}", std::process::id()));
+    let library = dir.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(library.join("std/stdlib.mzn"), "").unwrap();
+    let root = dir.join("root.mzn");
+    let source = "array[1..3] of int:a;\n% zincite-lint: ignore index-set-mismatch\nint:suppressed=a[4]; int:reported=a[5]; solve satisfy;";
+    std::fs::write(&root, source).unwrap();
+    for selection in ["index-set-mismatch", "family:correctness"] {
+        let output = run(
+            &[
+                "--rules",
+                selection,
+                "--stdlib-dir",
+                library.to_str().unwrap(),
+                root.to_str().unwrap(),
+            ],
+            "",
+        );
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8(output.stderr).unwrap();
+        assert_eq!(
+            text.matches("warning [index-set-mismatch]").count(),
+            1,
+            "{text}"
+        );
+        assert!(text.contains("array 'a' dimension 1") && text.contains("declared at"));
+        assert!(!text.contains("analysis limitation:"), "{text}");
+    }
+    assert_eq!(run(&[root.to_str().unwrap()], "").status.code(), Some(0));
+    let explanation = run(&["--explain", "index-set-mismatch"], "invalid input");
+    assert!(explanation.status.success() && explanation.stderr.is_empty());
+    let explanation = String::from_utf8(explanation.stdout).unwrap();
+    for text in [
+        "Family: correctness",
+        "Availability: available",
+        "Fix support: none",
+        "Options: none",
+        "not a guaranteed runtime error",
+    ] {
+        assert!(explanation.contains(text), "{explanation}");
+    }
+    let unsupported =
+        "array[1..2,1..2] of int:grid; array[int,int] of int:s=grid[..,1..2]; solve satisfy;";
+    let output = run(
+        &[
+            "--rules",
+            "index-set-mismatch",
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            "--stdin-filepath",
+            root.to_str().unwrap(),
+        ],
+        unsupported,
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("analysis limitation:"));
+    let broken = dir.join("broken.mzn");
+    std::fs::write(&broken, "int:x=;").unwrap();
+    let output = run(
+        &[
+            "--rules",
+            "index-set-mismatch",
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            root.to_str().unwrap(),
+            broken.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(output.status.code(), Some(2));
+    let text = String::from_utf8_lossy(&output.stderr);
+    assert!(text.contains("warning [index-set-mismatch]") && text.contains("error:"));
+    assert_eq!(run(&["--rules", "all"], "").status.code(), Some(2));
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
     std::fs::remove_dir_all(dir).unwrap();
 }

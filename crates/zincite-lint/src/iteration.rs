@@ -2,8 +2,10 @@
 use crate::callables::{core_operation, find_node, is_expression};
 use crate::definitions::{core_callable, resolved_call, resolved_reference};
 use crate::domains::{
-    core_arithmetic, expression_domain, generator_slots, invariant_integer, resolved_index_domain,
-    same_members, tokens,
+    bare_index_domain as bare, core_arithmetic, expression_domain, generator_slots,
+    index_domain_interval as interval, index_domain_member as member,
+    intersect_index_domains as intersection, invariant_integer, resolved_index_domain,
+    same_members, shift_index_domain as shifted, tokens,
 };
 use crate::{
     BindingFacts, BindingResolution, CallableFacts, Cardinality, CollectionCardinality,
@@ -1220,12 +1222,7 @@ fn inside_kind(
             .child_nodes()
             .any(|n| inside_kind(n, range, offset, kind))
 }
-fn bare(mut d: &Domain) -> &Domain {
-    while let Domain::Named { domain, .. } = d {
-        d = domain;
-    }
-    d
-}
+
 fn closed_count(d: &Domain) -> Cardinality {
     match bare(d) {
         Domain::Range { lower, upper } => {
@@ -1260,36 +1257,7 @@ fn range_count(l: i64, u: i64) -> Result<u64, String> {
     }
     u64::try_from(i128::from(u) - i128::from(l) + 1).map_err(|_| "iteration count overflow".into())
 }
-fn interval(d: &Domain) -> Option<(i64, i64)> {
-    match bare(d) {
-        Domain::Range { lower, upper } => Some((
-            invariant_integer(lower).ok()??,
-            invariant_integer(upper).ok()??,
-        )),
-        Domain::LiteralSet(v) => {
-            let v: Option<Vec<_>> = v
-                .iter()
-                .map(|n| invariant_integer(n).ok().flatten())
-                .collect();
-            let v = v?;
-            Some((*v.iter().min()?, *v.iter().max()?))
-        }
-        _ => None,
-    }
-}
-fn member(d: &Domain, n: i64) -> Option<bool> {
-    match bare(d) {
-        Domain::Range { .. } => interval(d).map(|(l, u)| l <= n && n <= u),
-        Domain::LiteralSet(v) => {
-            let values: Option<Vec<_>> = v
-                .iter()
-                .map(|n| invariant_integer(n).ok().flatten())
-                .collect();
-            Some(values?.contains(&n))
-        }
-        _ => None,
-    }
-}
+
 fn relation(a: &Domain, b: &Domain, disjoint: bool) -> GuardedOutcome {
     if let Err(e) = same_members(a, b) {
         return GuardedOutcome::Unsupported(e);
@@ -1361,54 +1329,7 @@ fn relation(a: &Domain, b: &Domain, disjoint: bool) -> GuardedOutcome {
         None => GuardedOutcome::Unknown,
     }
 }
-fn intersection(a: &Domain, b: &Domain) -> Option<Domain> {
-    if let Domain::LiteralSet(values) = bare(a) {
-        let mut out = Vec::new();
-        for v in values {
-            let n = invariant_integer(v).ok()??;
-            if member(b, n)? {
-                out.push(NumericBound::Integer(n));
-            }
-        }
-        return Some(Domain::LiteralSet(out));
-    }
-    if matches!(bare(a), Domain::Range { .. }) && matches!(bare(b), Domain::Range { .. }) {
-        let (l, u) = interval(a)?;
-        let (x, y) = interval(b)?;
-        return Some(Domain::Range {
-            lower: NumericBound::Integer(l.max(x)),
-            upper: NumericBound::Integer(u.min(y)),
-        });
-    }
-    if matches!(bare(b), Domain::LiteralSet(_)) {
-        return intersection(b, a);
-    }
-    None
-}
-fn shifted(d: &Domain, delta: Option<i64>) -> Domain {
-    let Some(delta) = delta else {
-        return Domain::Unsupported("index offset overflow".into());
-    };
-    let shift = |b: &NumericBound| match invariant_integer(b) {
-        Ok(Some(n)) => n
-            .checked_add(delta)
-            .map(NumericBound::Integer)
-            .unwrap_or_else(|| NumericBound::Unsupported("index offset overflow".into())),
-        _ => NumericBound::Arithmetic {
-            operator: TokenKind::Plus,
-            operands: vec![b.clone(), NumericBound::Integer(delta)],
-        },
-    };
-    match bare(d) {
-        Domain::Range { lower, upper } => Domain::Range {
-            lower: shift(lower),
-            upper: shift(upper),
-        },
-        Domain::LiteralSet(values) => Domain::LiteralSet(values.iter().map(shift).collect()),
-        _ if delta == 0 => d.clone(),
-        _ => Domain::Unsupported("offset of an opaque index set".into()),
-    }
-}
+
 fn bound_interval(b: &NumericBound, known: &BTreeMap<usize, Domain>) -> Option<(i64, i64)> {
     if let Some(n) = invariant_integer(b).ok()? {
         return Some((n, n));

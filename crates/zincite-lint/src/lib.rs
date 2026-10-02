@@ -18,6 +18,7 @@ mod effective_zero_one;
 mod element;
 mod global_uses;
 mod guarded;
+mod index_set_mismatch;
 mod instantiations;
 mod iteration;
 mod model;
@@ -66,8 +67,8 @@ pub use effective_zero_one::{
 pub use global_uses::{GlobalUse, GlobalUseFacts, GlobalUseOutcome, resolve_global_uses};
 pub use guarded::{
     GuardActivation, GuardAssumption, GuardAssumptionKind, GuardContext, GuardEvaluation,
-    GuardObligation, GuardObligationKind, GuardedExpression, GuardedFacts, GuardedLimitation,
-    GuardedOutcome, resolve_guarded_facts, resolve_guarded_facts_with_options,
+    GuardObligation, GuardObligationKind, GuardedExpression, GuardedFacts, GuardedIndexSpace,
+    GuardedLimitation, GuardedOutcome, resolve_guarded_facts, resolve_guarded_facts_with_options,
 };
 pub use instantiations::{ExpressionInstantiation, InstantiationFacts, resolve_instantiations};
 pub use iteration::{

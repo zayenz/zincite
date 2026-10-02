@@ -97,6 +97,7 @@ pub enum Rule {
     DecisionVariableCondition,
     SuspiciousShadowing,
     ExpensiveComprehension,
+    IndexSetMismatch,
 }
 
 impl Rule {
@@ -126,6 +127,7 @@ impl Rule {
             .into_iter()
             .chain(Self::THESIS)
             .chain(Self::ADDITIONAL)
+            .chain([Self::IndexSetMismatch])
     }
 
     /// Return the single catalogue entry for this rule. Extend this match when
@@ -243,6 +245,13 @@ impl Rule {
                 "Advise on decision-dependent if/elseif conditions and generator where filters.",
                 "Lexical bindings, resolved callable types and condition/filter instantiation.",
                 "Decisions appearing only in a branch or body are not matches. Parameter-only conditions stay quiet; unknown facts report limitations. Reformulation advice has no solving-speed guarantee.",
+            ),
+            Self::IndexSetMismatch => (
+                "index-set-mismatch",
+                RuleFamily::Correctness,
+                "Report proved incompatible array index spaces and neighbour offsets.",
+                "Resolved array dimensions, iteration membership and scoped guarded index obligations.",
+                "Closed scalar/range indices, enum identities and checked neighbour offsets are supported. Guarded subsets and non-one-based arrays are valid. Unknown restricting guards, parameter relations and overapproximations stay quiet; unsupported required accesses report limitations. A candidate mismatch is not a guaranteed runtime error. No source rewrite is offered.",
             ),
             Self::SuspiciousShadowing => (
                 "suspicious-shadowing",
