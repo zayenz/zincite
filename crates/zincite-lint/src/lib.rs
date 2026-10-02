@@ -16,6 +16,7 @@ mod definitions;
 mod domains;
 mod effective_zero_one;
 mod element;
+mod global_patterns;
 mod global_uses;
 mod guarded;
 mod hidden_optionality;
@@ -69,6 +70,9 @@ pub use domains::{
 pub use effective_zero_one::{
     EffectiveZeroOneFact, EffectiveZeroOneFacts, EffectiveZeroOneFamily, EffectiveZeroOneOutcome,
     resolve_effective_zero_one,
+};
+pub use global_patterns::{
+    GlobalPattern, GlobalPatternFact, GlobalPatternOutcome, resolve_global_patterns,
 };
 pub use global_uses::{GlobalUse, GlobalUseFacts, GlobalUseOutcome, resolve_global_uses};
 pub use guarded::{

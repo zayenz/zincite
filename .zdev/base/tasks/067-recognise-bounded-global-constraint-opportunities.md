@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-067"
 key = "lint-global-patterns"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -25,11 +25,19 @@ Use resolved standard callable identity and iteration coverage. Start with compl
 
 ## Done when
 
-- [ ] Deliver global-constraint-opportunity in family modelling for a complete pairwise disequality pattern and a supported whole-array occurrence-count/cardinality pattern.
-- [ ] Document and check each pattern's equality/index/coverage/totality conditions; partial pairs, user overloads, filtered coverage and annotations cannot be silently discarded.
-- [ ] Explain the candidate global and excluded cases without claiming faster solving; keep initial suggestions diagnostic-only.
+- [x] Deliver global-constraint-opportunity in family modelling for a complete pairwise disequality pattern and a supported whole-array occurrence-count/cardinality pattern.
+- [x] Document and check each pattern's equality/index/coverage/totality conditions; partial pairs, user overloads, filtered coverage and annotations cannot be silently discarded.
+- [x] Explain the candidate global and excluded cases without claiming faster solving; keep initial suggestions diagnostic-only.
 
 ## Validation
 
 - Run the area Cargo checks for Rust changes and zdev check for record changes. Use the focused testing level in the brief.
 - Check both complete patterns and counterexamples for partial pairs, shifted indices, nonmatching occurrence coverage and an overloaded predicate.
+
+## Result
+
+Added diagnostic-only global-constraint-opportunity advice for complete pairwise disequalities and matching whole-array occurrence bounds, with resolved identities, actual indices, raw totality and conservative exclusions.
+
+Validation:
+
+- Independent whole-task PASS at W51413513a2042acc; formatting, workspace Clippy with warnings denied, all 162 workspace tests and zdev check passed. Installed MiniZinc standard-library replay produced both expected warnings without limitations or source changes; root post-verification snapshot comparison equal.

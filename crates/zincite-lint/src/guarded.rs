@@ -1170,6 +1170,32 @@ impl<'a> Producer<'a> {
             .map(|n| self.walk(file, item, n, own.clone()))
             .collect();
         let mut result = combine(&values);
+        if self.core_call(file, node, "bool2int") {
+            if children.len() != 1
+                || !self
+                    .ty(file, children[0])
+                    .is_some_and(|t| !t.optional && t.kind == TypeKind::Bool)
+                || !self
+                    .ty(file, node)
+                    .is_some_and(|t| !t.optional && t.kind == TypeKind::Int)
+            {
+                return self.unsupported(
+                    file,
+                    node,
+                    "only scalar nonoptional bool2int is interpreted",
+                );
+            }
+            // Boolean relational totality belongs to this argument. Its raw
+            // numeric obligations remain separate in the argument's facts.
+            if result.definedness == GuardedOutcome::Proven {
+                result.numeric = Some(match values[0].truth {
+                    Some(GuardedOutcome::Proven) => NumericOutcome::Exact(1),
+                    Some(GuardedOutcome::Refuted) => NumericOutcome::Exact(0),
+                    _ => NumericOutcome::Interval { lower: 0, upper: 1 },
+                });
+            }
+            return result;
+        }
         for name in [
             "min", "max", "sum", "product", "forall", "exists", "length", "card",
         ] {

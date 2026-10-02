@@ -35,13 +35,14 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     let list = run(&["--list-rules"], "not valid MiniZinc");
     assert!(list.status.success() && list.stderr.is_empty());
     let list = String::from_utf8(list.stdout).unwrap();
-    assert_eq!(list.lines().count(), 24);
+    assert_eq!(list.lines().count(), 25);
     assert!(list.contains("naming\tstyle\tavailable\tnone\tdefault"));
     assert!(list.contains("search-coverage\tmodelling\tavailable\tnone\tthesis"));
     assert!(list.contains("index-set-mismatch\tcorrectness\tavailable\tnone\topt-in"));
     assert!(list.contains("hidden-optionality\tsuspicious\tavailable\tnone\topt-in"));
     assert!(list.contains("partial-expression\tsuspicious\tavailable\tnone\topt-in"));
     assert!(list.contains("vacuous-constraint\tsuspicious\tavailable\tnone\topt-in"));
+    assert!(list.contains("global-constraint-opportunity\tmodelling\tavailable\tnone\topt-in"));
     let explanation = run_with_library(
         &["--explain", "element-predicate"],
         "not valid MiniZinc",
@@ -1778,5 +1779,99 @@ fn unused_generator_selection_suppression_and_metadata_preserve_source_and_statu
     assert_eq!(mixed.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&mixed.stderr).contains("warning [unused-generator-binding]"));
     assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn global_pattern_selection_suppression_and_statuses_remain_read_only() {
+    let dir = std::env::temp_dir().join(format!("zincite-pattern-cli-{}", std::process::id()));
+    let library = dir.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(library.join("std/stdlib.mzn"),"function set of int:'..'(int:a,int:b); function set of int:index_set(array[int] of var int:a); function bool:'<'(int:a,int:b); function var bool:'!='(var int:a,var int:b); predicate forall(array[int] of var opt bool:a); annotation semantic;").unwrap();
+    let root = dir.join("root.mzn");
+    let source = "array[2..4] of var int:xs; constraint forall(i,j in index_set(xs) where i<j)(xs[i]!=xs[j]); solve satisfy;";
+    std::fs::write(&root, source).unwrap();
+    let args = [
+        "--isolated",
+        "--rules",
+        "global-constraint-opportunity",
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        root.to_str().unwrap(),
+    ];
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let text = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(
+        text.matches("warning [global-constraint-opportunity]")
+            .count(),
+        1
+    );
+    assert!(text.contains("all_different(xs)"));
+    std::fs::write(
+        &root,
+        source.replace(
+            "constraint",
+            "\n% zincite-lint: ignore global-constraint-opportunity\nconstraint",
+        ),
+    )
+    .unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    std::fs::write(&root,"int:N; array[2..4] of var int:xs; constraint forall(i,j in 1..N where i<j)(xs[i]!=xs[j]); solve satisfy;").unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        output.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    std::fs::write(&root, source.replace("; solve", " :: semantic; solve")).unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("analysis limitation: global-constraint-opportunity")
+    );
+    std::fs::write(&root, source).unwrap();
+    let broken = dir.join("broken.mzn");
+    std::fs::write(&broken, "int:bad=;").unwrap();
+    let output = run(
+        &[
+            args[0],
+            args[1],
+            args[2],
+            args[3],
+            args[4],
+            broken.to_str().unwrap(),
+            args[5],
+        ],
+        "",
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("warning [global-constraint-opportunity]")
+    );
+    assert!(
+        zincite_lint::LintOptions::from_selection("family:modelling")
+            .unwrap()
+            .rules
+            .contains(&zincite_lint::Rule::GlobalConstraintOpportunity)
+    );
+    let explain = run(
+        &["--explain", "global-constraint-opportunity"],
+        "invalid input",
+    );
+    assert!(explain.status.success());
+    let text = String::from_utf8(explain.stdout).unwrap();
+    assert!(
+        text.contains("Fix support: none")
+            && text.contains("Options: none")
+            && text.contains("whole-array")
+            && text.contains("nonempty")
+    );
+    assert_eq!(std::fs::read_to_string(root).unwrap(), source);
     std::fs::remove_dir_all(dir).unwrap();
 }

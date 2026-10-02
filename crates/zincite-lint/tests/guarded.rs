@@ -8,6 +8,8 @@ use zincite_lint::{
 };
 
 const CORE: &str = concat!(
+    "function int: bool2int(bool:x); function var int: bool2int(var bool:x);\n",
+    "function opt int: bool2int(opt bool:x); function array[$I] of int: bool2int(array[$I] of bool:x); function set of int: bool2int(set of bool:x);\n",
     "function bool: '='(int: a,int: b); function bool: '!='(int: a,int: b);\n",
     "function bool: '<'(int: a,int: b); function bool: '<='(int: a,int: b);\n",
     "function bool: '>'(int: a,int: b); function bool: '>='(int: a,int: b);\n",
@@ -609,5 +611,67 @@ fn boolean_complements_require_total_operands_and_keep_raw_partiality() {
         expression(&context, &facts, "opaque() \\/ not opaque()").truth,
         Some(GuardedOutcome::Proven)
     );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn scalar_bool2int_retains_boolean_and_raw_partiality_boundaries() {
+    let source = concat!(
+        "bool:p; int:d; function bool:opaque();\n",
+        "int:yes=bool2int(true); int:no=bool2int(false); int:unknown=bool2int(p);\n",
+        "int:relational=bool2int(1 div 0=0); int:abort=bool2int(assert(false,\"abort\",true));\n",
+        "int:opaque_value=bool2int(opaque()); opt bool:q; opt int:o=bool2int(q); array[int] of int:a=bool2int([true]); set of int:s=bool2int({true}); solve satisfy;\n",
+    );
+    let (dir, context, facts) = model("bool2int", source);
+    assert_eq!(
+        expression(&context, &facts, "bool2int(true)").numeric,
+        Some(NumericOutcome::Exact(1))
+    );
+    assert_eq!(
+        expression(&context, &facts, "bool2int(false)").numeric,
+        Some(NumericOutcome::Exact(0))
+    );
+    assert_eq!(
+        expression(&context, &facts, "bool2int(p)").numeric,
+        Some(NumericOutcome::Interval { lower: 0, upper: 1 })
+    );
+    assert_eq!(
+        expression(&context, &facts, "bool2int(1 div 0=0)").numeric,
+        Some(NumericOutcome::Exact(0))
+    );
+    assert_eq!(
+        expression(&context, &facts, "1 div 0=0").raw_definedness,
+        GuardedOutcome::Refuted
+    );
+    assert!(
+        facts
+            .obligations
+            .iter()
+            .any(|o| matches!(o.kind, GuardObligationKind::Nonzero)
+                && o.outcome == GuardedOutcome::Refuted)
+    );
+    assert_ne!(
+        expression(&context, &facts, "bool2int(assert(false,\"abort\",true))").definedness,
+        GuardedOutcome::Proven
+    );
+    assert!(matches!(
+        expression(&context, &facts, "bool2int(opaque())").definedness,
+        GuardedOutcome::Unsupported(_)
+    ));
+    for conversion in ["bool2int(q)", "bool2int([true])", "bool2int({true})"] {
+        assert!(matches!(
+            expression(&context, &facts, conversion).definedness,
+            GuardedOutcome::Unsupported(_)
+        ));
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+    let (dir, context, facts) = model(
+        "user-bool2int",
+        "function int:bool2int(bool:x)=7; int:v=bool2int(true); solve satisfy;",
+    );
+    assert!(matches!(
+        expression(&context, &facts, "bool2int(true)").definedness,
+        GuardedOutcome::Unsupported(_)
+    ));
     std::fs::remove_dir_all(dir).unwrap();
 }

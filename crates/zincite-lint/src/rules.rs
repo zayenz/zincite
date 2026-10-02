@@ -102,6 +102,7 @@ pub enum Rule {
     PartialExpression,
     VacuousConstraint,
     UnusedGeneratorBinding,
+    GlobalConstraintOpportunity,
 }
 
 impl Rule {
@@ -137,6 +138,7 @@ impl Rule {
                 Self::PartialExpression,
                 Self::VacuousConstraint,
                 Self::UnusedGeneratorBinding,
+                Self::GlobalConstraintOpportunity,
             ])
     }
 
@@ -283,6 +285,13 @@ impl Rule {
                 "Report proved empty quantifiers, rejecting filters and constant constraint or condition truth.",
                 "Guarded Boolean truth/definedness, optional present counts and iteration filter/coverage facts.",
                 "Supported empty forall/exists, impossible where filters, true constraints and false conditions/constraints are considered. Facts under guards remain conditional on those assumptions. Unknown parameters and partial self-comparisons stay quiet; relational false differs from numeric totality and assertion abort. Optional capacity does not prove present elements. Upstream evaluation must be defined before empty quantifier identities are reported. Advice guesses neither intent nor feasibility and offers no removal, reordering or fix. Unsupported required facts report limitations.",
+            ),
+            Self::GlobalConstraintOpportunity => (
+                "global-constraint-opportunity",
+                RuleFamily::Modelling,
+                "Recognise complete pairwise disequalities and whole-array occurrence bounds.",
+                "Resolved core calls, matching nonoptional equality types, actual index membership, guarded raw totality and enforced context.",
+                "Complete two-index pairwise disequality can suggest all_different. Matching whole-array indicator sums bounded by par lower/upper arrays can suggest modern four-argument open global_cardinality, leaving values outside cover unrestricted. The initial count pattern requires proved nonempty xs. Partial pairs, shifts, extra filters, mismatched indices/types, optional or partial equality, user overloads and unsupported semantic annotations withhold advice. Unknown facts stay quiet; unsupported required facts report limitations. No fix, source-equivalence transformation or faster-solving claim is offered.",
             ),
             Self::UnusedGeneratorBinding => (
                 "unused-generator-binding",
