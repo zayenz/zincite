@@ -18,6 +18,7 @@ mod effective_zero_one;
 mod element;
 mod global_uses;
 mod guarded;
+mod hidden_optionality;
 mod index_set_mismatch;
 mod instantiations;
 mod iteration;

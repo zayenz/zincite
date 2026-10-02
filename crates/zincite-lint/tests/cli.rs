@@ -35,10 +35,11 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     let list = run(&["--list-rules"], "not valid MiniZinc");
     assert!(list.status.success() && list.stderr.is_empty());
     let list = String::from_utf8(list.stdout).unwrap();
-    assert_eq!(list.lines().count(), 20);
+    assert_eq!(list.lines().count(), 21);
     assert!(list.contains("naming\tstyle\tavailable\tnone\tdefault"));
     assert!(list.contains("search-coverage\tmodelling\tavailable\tnone\tthesis"));
     assert!(list.contains("index-set-mismatch\tcorrectness\tavailable\tnone\topt-in"));
+    assert!(list.contains("hidden-optionality\tsuspicious\tavailable\tnone\topt-in"));
     let explanation = run_with_library(
         &["--explain", "element-predicate"],
         "not valid MiniZinc",
@@ -1319,6 +1320,130 @@ fn index_mismatch_selection_and_suppression_keep_status_and_source_contracts() {
     assert_eq!(output.status.code(), Some(2));
     let text = String::from_utf8_lossy(&output.stderr);
     assert!(text.contains("warning [index-set-mismatch]") && text.contains("error:"));
+    assert_eq!(run(&["--rules", "all"], "").status.code(), Some(2));
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn hidden_optionality_selection_suppression_and_limits_keep_status_and_source_contracts() {
+    let dir = std::env::temp_dir().join(format!(
+        "zincite-hidden-optionality-cli-{}",
+        std::process::id()
+    ));
+    let library = dir.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(
+        library.join("std/stdlib.mzn"),
+        concat!(
+            "function int:length(array[$I] of any $T:x); function set of int:'..'(int:a,int:b);\n",
+            "function var bool:'='(any $T:a,any $T:b);\n",
+        ),
+    )
+    .unwrap();
+    let root = dir.join("root.mzn");
+    // A directive on the producer does not suppress advice at a later use.
+    let source = concat!(
+        "var bool:keep;\n% zincite-lint: ignore hidden-optionality\n",
+        "array[int] of var opt int:xs=[i | i in 1..3 where keep];\n",
+        "% zincite-lint: ignore hidden-optionality\nconstraint::\"suppressed\" length(xs)=1;\n",
+        "constraint::\"reported\" length(xs)=2; array[1..3] of int:a; int:outside=a[4]; solve satisfy;\n",
+    );
+    std::fs::write(&root, source).unwrap();
+    for selection in [
+        "hidden-optionality",
+        "hidden-optionality,index-set-mismatch",
+    ] {
+        let output = run(
+            &[
+                "--rules",
+                selection,
+                "--stdlib-dir",
+                library.to_str().unwrap(),
+                root.to_str().unwrap(),
+            ],
+            "",
+        );
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8(output.stderr).unwrap();
+        assert_eq!(
+            text.matches("warning [hidden-optionality]").count(),
+            1,
+            "{text}"
+        );
+        assert_eq!(
+            text.matches("warning [index-set-mismatch]").count(),
+            usize::from(selection.contains("index-set-mismatch")),
+            "{text}"
+        );
+        assert!(
+            text.contains("if this comparison intends to count selected or present elements")
+                && text.contains("3 slots")
+                && !text.contains("analysis limitation:"),
+            "{text}"
+        );
+    }
+    assert_eq!(run(&[root.to_str().unwrap()], "").status.code(), Some(0));
+    let explanation = run(&["--explain", "hidden-optionality"], "invalid input");
+    assert!(explanation.status.success() && explanation.stderr.is_empty());
+    let explanation = String::from_utf8(explanation.stdout).unwrap();
+    for text in [
+        "Family: suspicious",
+        "Availability: available",
+        "Fix support: none",
+        "Options: none",
+        "capacity",
+        "present",
+    ] {
+        assert!(explanation.contains(text), "{explanation}");
+    }
+    let unsupported = "var bool:keep; constraint length([i | i,j in 1..9223372036854775807 where keep])=1; solve satisfy;";
+    let unsupported_path = dir.join("unsupported.mzn");
+    std::fs::write(&unsupported_path, unsupported).unwrap();
+    let output = run(
+        &[
+            "--rules",
+            "hidden-optionality",
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            unsupported_path.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("analysis limitation: hidden-optionality: collection count overflow"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let broken = dir.join("broken.mzn");
+    std::fs::write(&broken, "int:x=;").unwrap();
+    let output = run(
+        &[
+            "--rules",
+            "hidden-optionality",
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            root.to_str().unwrap(),
+            broken.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(output.status.code(), Some(2));
+    let text = String::from_utf8_lossy(&output.stderr);
+    assert!(text.contains("warning [hidden-optionality]") && text.contains("error:"));
+    // Family expansion includes this available rule; the retained placeholder
+    // still makes the whole family unavailable for execution.
+    let family = run(&["--rules", "family:suspicious"], "");
+    assert_eq!(family.status.code(), Some(2));
+    let text = String::from_utf8_lossy(&family.stderr);
+    assert!(
+        text.contains("suspicious-shadowing") && !text.contains("hidden-optionality"),
+        "{text}"
+    );
     assert_eq!(run(&["--rules", "all"], "").status.code(), Some(2));
     assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
     std::fs::remove_dir_all(dir).unwrap();

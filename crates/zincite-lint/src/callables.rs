@@ -1478,22 +1478,28 @@ impl<'a> Engine<'a> {
             })
             .collect();
         matches.retain(|candidate| !prototypes.contains(&candidate.0));
+        // Written patterns break ties between equivalent instantiated inputs.
+        // A bounded par/nonoptional input precedes its var/optional lift, but
+        // scalar `any` accepts actual qualifiers without declaring them narrower.
         let minima: Vec<_> = matches
             .iter()
             .filter(|candidate| {
                 matches.iter().all(|other| {
                     candidate.1.len() == other.1.len()
                         && candidate.1.iter().zip(&other.1).all(|(a, b)| coerces(a, b))
-                        && (!candidate
-                            .1
+                        && (!candidate.1.iter().zip(&other.1).zip(&candidate.2).all(
+                            |((a, b), pattern)| {
+                                coerces(b, a)
+                                    || (matches!(
+                                        pattern.kind,
+                                        TypeKind::Variable { any: true, .. }
+                                    ) && a.kind == b.kind)
+                            },
+                        ) || candidate
+                            .2
                             .iter()
-                            .zip(&other.1)
-                            .all(|(a, b)| a.kind == b.kind)
-                            || candidate
-                                .2
-                                .iter()
-                                .zip(&other.2)
-                                .all(|(a, b)| pattern_narrower(a, b)))
+                            .zip(&other.2)
+                            .all(|(a, b)| pattern_narrower(a, b)))
                 })
             })
             .collect();

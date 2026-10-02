@@ -22,7 +22,7 @@ fn catalogue_exposes_current_capabilities_and_preserves_presets() {
     for rule in Rule::DEFAULT
         .into_iter()
         .chain(Rule::THESIS)
-        .chain([Rule::IndexSetMismatch])
+        .chain([Rule::IndexSetMismatch, Rule::HiddenOptionality])
     {
         let metadata = rule.metadata();
         assert_eq!(metadata.id, rule.id());
@@ -36,6 +36,16 @@ fn catalogue_exposes_current_capabilities_and_preserves_presets() {
         RuleFamily::Correctness
     );
     assert!(Rule::IndexSetMismatch.requires_model());
+    assert_eq!(
+        Rule::HiddenOptionality.metadata().family,
+        RuleFamily::Suspicious
+    );
+    assert!(
+        zincite_lint::LintOptions::from_selection("family:suspicious")
+            .unwrap()
+            .rules
+            .contains(&Rule::HiddenOptionality)
+    );
     assert_eq!(Rule::DEFAULT.len(), 2);
     assert_eq!(Rule::THESIS.len(), 14);
     assert!(Rule::from_id("unknown-rule").is_none());
@@ -321,6 +331,7 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
                     "suspicious-shadowing",
                     "expensive-comprehension",
                     "index-set-mismatch",
+                    "hidden-optionality",
                 ])
                 .collect(),
         ),
@@ -397,7 +408,7 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
             .into_iter()
             .chain(Rule::THESIS)
             .chain(Rule::ADDITIONAL)
-            .chain([Rule::IndexSetMismatch])
+            .chain([Rule::IndexSetMismatch, Rule::HiddenOptionality])
             .collect::<Vec<_>>()
     );
     for (legacy, prefixed) in [

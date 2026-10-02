@@ -98,6 +98,7 @@ pub enum Rule {
     SuspiciousShadowing,
     ExpensiveComprehension,
     IndexSetMismatch,
+    HiddenOptionality,
 }
 
 impl Rule {
@@ -127,7 +128,7 @@ impl Rule {
             .into_iter()
             .chain(Self::THESIS)
             .chain(Self::ADDITIONAL)
-            .chain([Self::IndexSetMismatch])
+            .chain([Self::IndexSetMismatch, Self::HiddenOptionality])
     }
 
     /// Return the single catalogue entry for this rule. Extend this match when
@@ -252,6 +253,13 @@ impl Rule {
                 "Report proved incompatible array index spaces and neighbour offsets.",
                 "Resolved array dimensions, iteration membership and scoped guarded index obligations.",
                 "Closed scalar/range indices, enum identities and checked neighbour offsets are supported. Guarded subsets and non-one-based arrays are valid. Unknown restricting guards, parameter relations and overapproximations stay quiet; unsupported required accesses report limitations. A candidate mismatch is not a guaranteed runtime error. No source rewrite is offered.",
+            ),
+            Self::HiddenOptionality => (
+                "hidden-optionality",
+                RuleFamily::Suspicious,
+                "Explain when length counts comprehension slots rather than selected or present optional values.",
+                "Resolved standard length/comparison calls, optional collection capacity/presence and guarded contexts.",
+                "Direct integer comparisons and supported array aliases are considered. Advice is conditional on count intent; optional types and unknown data alone are not a mistake. Parameter filters, ordinary aggregates, capacity display, zero/all-present and inactive cases stay quiet. Unsupported required facts report limitations. No replacement count or source fix is offered.",
             ),
             Self::SuspiciousShadowing => (
                 "suspicious-shadowing",

@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 79
-- Ready: 13
+- Ready: 12
 - Blocked: 7
-- Done: 59
+- Done: 60
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -70,7 +70,7 @@
 | [base-059](tasks/059-interpret-optional-presence-and-comprehension-cardinality.md) | Interpret optional presence and comprehension cardinality | done | base-034, base-035, base-058 |
 | [base-060](tasks/060-interpret-iteration-coverage-binding-use-and-expansion-size.md) | Interpret iteration coverage, binding use and expansion size | done | base-032, base-034, base-035, base-058 |
 | [base-061](tasks/061-report-index-set-mismatches-and-off-by-one-accesses.md) | Report index-set mismatches and off-by-one accesses | done | base-054, base-060 |
-| [base-062](tasks/062-report-length-mistakes-caused-by-hidden-optional-values.md) | Report length mistakes caused by hidden optional values | ready | base-054, base-059 |
+| [base-062](tasks/062-report-length-mistakes-caused-by-hidden-optional-values.md) | Report length mistakes caused by hidden optional values | done | base-054, base-059 |
 | [base-063](tasks/063-report-actionable-partial-expression-hazards.md) | Report actionable partial-expression hazards | ready | base-054, base-059, base-061 |
 | [base-064](tasks/064-report-suspicious-lexical-shadowing.md) | Report suspicious lexical shadowing | ready | base-056, base-032 |
 | [base-065](tasks/065-report-vacuous-constraints-and-conditions.md) | Report vacuous constraints and conditions | ready | base-054, base-060, base-059 |
