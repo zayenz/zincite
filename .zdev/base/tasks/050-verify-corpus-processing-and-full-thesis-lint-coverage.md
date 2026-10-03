@@ -7,7 +7,7 @@ status = "open"
 complexity = "standard"
 afk = true
 priority = "low"
-blocked_by = ["base-028", "base-045", "base-026", "base-029", "base-048", "base-049", "base-075", "base-076", "base-078", "base-079"]
+blocked_by = ["base-026", "base-028", "base-029", "base-045", "base-048", "base-049", "base-075", "base-076", "base-078", "base-079", "base-080", "base-081", "base-082", "base-083"]
 +++
 # Verify corpus processing and full thesis lint coverage
 
