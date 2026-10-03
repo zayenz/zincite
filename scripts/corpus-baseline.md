@@ -1,5 +1,13 @@
 # Full corpus baseline
 
+This document retains the historical base-023 baseline and base-024 recheck.
+The [base-080 checkpoint](formatter-corpus-checkpoint.md#base-080-current-system-assessment)
+now reconciles all 6,417 inputs: 6,396 clean syntax/format fidelity results and
+21 checked negative or encoding-limited inputs. All six former large-data
+timeouts pass current MiniZinc eligibility, fidelity and staged compilation.
+The final accounting preserves the first campaign cutoff and its bounded
+continuation; it does not claim complete thesis lint or performance acceptance.
+
 This release-library acceptance run was collected on 2026-09-30. It checks syntax,
 lossless coverage, default formatting and the two current lint rules. It does not
 establish compiler/type/solver acceptance or check EditorConfig combinations.

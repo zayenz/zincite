@@ -271,6 +271,12 @@ shared contract for the next tasks; completed task records remain historical.
   deliberately invalid files must produce diagnostics and remain untouched.
   A warning is a successful lint run, not a failed corpus check. Zero warnings
   on third-party models is not a completion condition.
+- For corpus acceptance, first check whether the installed current MiniZinc
+  system can parse and process the original input. Record its version and build;
+  the current system is MiniZinc 2.10.1. Historical Challenge files rejected by
+  that system are classified compiler failures, not required Zincite successes.
+  Missing data, dependencies or a usable pairing are availability gaps, not
+  evidence that the source is broken. Keep every input in the accounting.
 - MiniZinc 2.10.1 remains the baseline. Accept demonstrated compiler-supported
   source forms needed by the corpus even where the printed grammar is narrower;
   document each extension and retain meaningful CST nodes. Historical Challenge
@@ -287,7 +293,16 @@ shared contract for the next tasks; completed task records remain historical.
   pairs and include trees, with the formatted include tree staged together.
   Do not guess pairs by taking a Cartesian product of nearby files. Use known
   project invocations or simple explicit entries, report missing pairings, and
-  do not require solving. Historical compiler incompatibilities remain visible.
+  do not solve. Pre-check original known instances by compiling to FlatZinc with
+  the Gecode backend (`minizinc --compile --solver gecode`), using finite limits
+  and temporary output files. Compile the complete formatted instance with the
+  same compiler, backend, data and settings. Compare generated FlatZinc bytes
+  and record equal outputs or investigate differences; a byte difference alone
+  does not prove a semantic change, and normalization must not hide one.
+  Model-only checks may establish source validity when data is unavailable,
+  but do not establish successful instance compilation. Record compiler,
+  backend, unavailable-data and timeout outcomes separately. Historical compiler
+  incompatibilities remain visible.
 
 ### Commands and rule selection
 
