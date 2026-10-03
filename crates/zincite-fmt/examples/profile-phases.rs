@@ -214,6 +214,17 @@ fn model_json(context: &zincite_lint::ModelContext) -> String {
     )
 }
 
+// A flushed marker identifies this probe's pending phase if it is censored.
+fn begin_phase(path: &std::path::Path, phase: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    println!(
+        "{{\"kind\":\"begin\",\"path\":{},\"phase\":{}}}",
+        quoted(&path.to_string_lossy()),
+        quoted(phase)
+    );
+    std::io::stdout().flush()
+}
+
 // Follow the native lint route, including model loading for rejected .mzn roots.
 // Reporting runs outside phase snapshots and no context survives this function.
 fn observe_root(
@@ -227,8 +238,11 @@ fn observe_root(
     let mode = FileMode::from_path(path);
     let label = path.to_string_lossy();
     let (row, status) = if options.requires_model() && mode == FileMode::Model {
+        begin_phase(path, "load")?;
         let (context, load) = measure(|| load_model(path, model));
+        begin_phase(path, "analyze")?;
         let (analysis, analyze) = measure(|| analyze_model(&context, options));
+        begin_phase(path, "render")?;
         let (status, render) = measure(|| write_analysis(&analysis, &mut std::io::stderr()));
         let row = format!(
             "{{\"kind\":\"root\",\"path\":{},\"source\":{},\"analysis\":{},\"phases\":{{{},{},{}}}}}",
@@ -241,6 +255,7 @@ fn observe_root(
         );
         (row, status?)
     } else {
+        begin_phase(path, "read_parse")?;
         let (input, load) = measure(|| {
             let bytes = std::fs::read(path).map_err(|error| format!("{label}: {error}"))?;
             let source = String::from_utf8(bytes).map_err(|error| {
@@ -256,7 +271,9 @@ fn observe_root(
         });
         match input {
             Ok((source, parsed, offset)) => {
+                begin_phase(path, "analyze")?;
                 let (analysis, analyze) = measure(|| analyze_file(&parsed, path, offset, options));
+                begin_phase(path, "render")?;
                 let (status, render) =
                     measure(|| write_analysis(&analysis, &mut std::io::stderr()));
                 let metadata = format!(
@@ -455,14 +472,14 @@ fn main() {
     let mut arguments = std::env::args().skip(1);
     let path = arguments
         .next()
-        .expect("usage: profile-phases FILE [all|lex|parse|format|drop] [seconds]");
+        .expect("usage: profile-phases FILE [all|lex|parse|format|drop|retention] [seconds]");
     let selected = arguments.next().unwrap_or_else(|| "all".into());
     let seconds: f64 = arguments
         .next()
         .map_or(0.0, |value| value.parse().expect("seconds must be numeric"));
     assert!(matches!(
         selected.as_str(),
-        "all" | "lex" | "parse" | "format" | "drop"
+        "all" | "lex" | "parse" | "format" | "drop" | "retention"
     ));
     assert!(seconds.is_finite() && seconds >= 0.0);
     let source = std::fs::read_to_string(&path).expect("read UTF-8 input");
@@ -471,7 +488,7 @@ fn main() {
         "input_bytes={} phase={selected} repeat_seconds={seconds}",
         source.len()
     );
-    if selected == "drop" {
+    if selected == "drop" || selected == "retention" {
         let baseline = LIVE.load(Relaxed);
         for iteration in 1..=3 {
             let parsed = zincite_syntax::parse_with_mode(source.clone(), mode);
@@ -487,6 +504,16 @@ fn main() {
             println!(
                 "iteration={iteration} baseline_live_bytes={baseline} after_drop_live_bytes={live}"
             );
+        }
+        if selected == "retention" {
+            use std::io::Write;
+            println!(
+                "post_drop_hold pid={} live_bytes={} seconds={seconds}",
+                std::process::id(),
+                LIVE.load(Relaxed)
+            );
+            std::io::stdout().flush().expect("flush hold marker");
+            std::thread::sleep(std::time::Duration::from_secs_f64(seconds));
         }
         return;
     }

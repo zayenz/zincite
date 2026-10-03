@@ -4,8 +4,8 @@
 
 - Total: 83
 - Ready: 2
-- Blocked: 2
-- Done: 79
+- Blocked: 1
+- Done: 80
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -90,5 +90,5 @@
 | [base-079](tasks/079-avoid-repeated-row-classification-while-measuring-matrix-wid.md) | Avoid repeated row classification while measuring matrix widths | done | — |
 | [base-080](tasks/080-resolve-and-classify-the-remaining-corpus-processing-gaps.md) | Resolve and classify the remaining corpus processing gaps | done | — |
 | [base-081](tasks/081-meet-the-public-wide-matrix-save-budget-with-a-measured-loca.md) | Meet the public wide-matrix save budget with a measured local repair | ready | base-080 |
-| [base-082](tasks/082-attribute-the-remaining-full-batch-rss-and-expanded-lint-cut.md) | Attribute the remaining full-batch RSS and expanded-lint cutoffs | ready | base-080 |
-| [base-083](tasks/083-complete-supported-semantic-facts-and-thesis-execution-cover.md) | Complete supported semantic facts and thesis execution coverage | blocked | base-080, base-082 |
+| [base-082](tasks/082-attribute-the-remaining-full-batch-rss-and-expanded-lint-cut.md) | Attribute the remaining full-batch RSS and expanded-lint cutoffs | done | base-080 |
+| [base-083](tasks/083-complete-supported-semantic-facts-and-thesis-execution-cover.md) | Complete supported semantic facts and thesis execution coverage | ready | base-080, base-082 |

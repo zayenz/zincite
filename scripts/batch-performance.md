@@ -520,3 +520,188 @@ The six foreign files, external originals and index remain unchanged; task
 records, lifecycle and commit belong to the coordinator. Current wide-save
 latency/memory misses, high full-batch RSS, corpus gaps and existing incomplete
 semantic acceptance continue to block the final gate.
+
+## Base082: current batch resource attribution
+
+This checkpoint measures HEAD `97c58b3` with the pending base081 formatter and
+private boxed-node changes. Those changes remain unaccepted. Base082 changes
+only the attribution example, benchmark reporting and this report; it does not
+repair production lint or declare the performance gates passed.
+
+The current corpus uses `/private/tmp/zincite-base080-challenge-a844`,
+`/Users/zayenz/minizinc` and `/private/tmp/zincite-base023-mznc2026-probs`:
+2,040 + 4,287 + 90 = 6,417 source files, 641,084,859 bytes. The recovered
+Challenge tree is revision `a8448864fc56162583f24aaf9c25653d93f83765`. The
+old archive paths in earlier reports are historical commands. They are not
+current replay inputs.
+
+Raw evidence is in `target/benchmarks/base082/`. `current-source.json` and
+`current-binaries.json` pin the current build separately from the retained
+base078/base079 and base081 snapshots. `current-originals.json` pins 7,759
+original source, control, standard-library, configuration and `.model` import
+files before measurement. `campaign-environment.json` records load averages
+812.816/783.038/776.164. Wall time and child CPU remain separate observations;
+these loads do not establish the cause or share of any delay.
+
+### Completion reporting
+
+The driver now records the actual native binary for each selection. A mixed
+formatter/linter campaign has no single `timed_native_binary`; the per-selection
+map and each run's binary hash identify its executable. Native commands do not
+emit per-root completion counts, so their `completed_root_count` and completion-
+based throughput remain unavailable. Earlier driver counts were inferred from
+terminal status 0/1/2. A valid formatter `--check` reaching status 2 is consistent
+with finishing its loop, but status alone is not a structured completion record.
+
+The separate allocation probe retains explicit root, drop and complete records.
+Its new flushed `begin` records identify that probe's last unfinished phase if
+censored. They do not identify a native command's currently executing root.
+Coverage remains specific to the companion process and its exact rule partition;
+no native count is borrowed from it.
+
+### Independent dense files
+
+Each file has 966,669 bytes and a distinct canonical path. These are single fresh
+native observations, not p95 measurements. The formatter used `--check`; lint
+used `--rules all`. All commands finished without a timeout, with formatter
+status 1 and lint status 0. The allocation companions completed all 1/3/10/20
+roots and returned every scope to its measured baseline. In the 20-root
+companion, the largest retained/peak read-parse delta was 47,266,978 bytes.
+The native RSS still grew across the measured file counts; scope release does
+not establish a native memory bound.
+
+| Files | Format wall/CPU (s) | Format RSS (MiB) | All lint wall/CPU (s) | All lint RSS (MiB) |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 1.620/0.096 | 53.828125 | 1.074/0.064 | 51.468750 |
+| 3 | 2.636/0.257 | 72.625000 | 0.593/0.160 | 66.859375 |
+| 10 | 14.636/0.813 | 179.968750 | 5.845/0.502 | 177.484375 |
+| 20 | 23.617/1.616 | 333.109375 | 14.583/0.994 | 330.578125 |
+
+A separate owned probe parsed, formatted and ran default lint on the same
+one-file input three times, dropping each scope. Its tracked live bytes returned
+to 968,560 after each iteration; the original input remained held. During a
+finite post-drop hold, `heap` observed 193 allocations/996,928 bytes. `vmmap`
+reported a 52.7M physical footprint and `MALLOC_LARGE (empty)` regions with 43.2M
+resident/dirty pages, plus resident empty small regions. This demonstrates
+freed allocator-region residency in this process. It does not prove a whole-
+batch plateau or attribute all of the older multi-GiB peaks to allocator
+retention. The probe's wait4 high-water was 71.78125 MiB; footprint, current
+resident regions, tracked allocations and wait4 high-water are different values.
+
+### Expanded analysis
+
+The retained diagnostic family contains 100/1,000/10,000 simple constraints.
+Native default/thesis/all commands and separate allocation companions each
+completed their single root without a timeout. Default emitted one warning per
+constraint; all emitted two. The model companions retained two limitations,
+including `unused-declaration` Limited; registration does not imply complete
+analysis. `controls/*/report.json` retains every actual partition over the
+2/14/26 selected rules.
+
+| Constraints | Default wall/CPU (s) | Thesis wall/CPU (s) | All wall/CPU (s) | All RSS (MiB) |
+| ---: | ---: | ---: | ---: | ---: |
+| 100 | 0.182/0.007 | 7.465/0.401 | 8.593/0.405 | 25.953125 |
+| 1000 | 0.132/0.039 | 6.065/0.439 | 5.397/0.525 | 28.343750 |
+| 10000 | 1.772/0.320 | 30.902/1.787 | 91.856/5.826 | 63.046875 |
+
+For all rules, analyze allocation calls grew from 342,020 to 876,970 to
+50,776,266, and requested bytes from 37,708,010 to 87,486,421 to 4,483,837,806.
+A separate 25,000-constraint allocation probe completed in 554.336590 wall
+seconds/31.854014 child CPU seconds, status 1, 96.75 MiB high-water. Its analyze
+phase requested 27,445,446,466 bytes in 313,941,728 calls, with a 72,303,320-byte
+peak delta; the final root drop returned 2,396 live bytes to 2,396. All 26 rule
+partitions reconcile to one root, with no Unobserved roots. The large allocation
+traffic is not the same as retained live memory.
+
+Two separate three-second samples of that exact owned analysis child locate
+concrete work. The early interval captured 2,352 stacks under
+`analyze_model -> resolve_integer_bounds -> domains::Bounds::walk`, with 2,300
+collapsed top-of-stack observations in that walk. The source scans
+`calls.expressions` for every syntax node. The later interval captured 2,366
+stacks under `resolve_iteration_facts -> iteration::Producer::walk`, including
+source-location/column lookup and allocator calls. Its expression search
+constructs `self.location(file, node)` inside each comparison, repeatedly
+allocating a path and calculating a column. These are interval observations,
+not percentages of total CPU or an attribution of the entire batch.
+
+The necessary local repair begins by hoisting the invariant location/range out
+of the iteration search. Remaining repeated lookups warrant a bounded local
+membership/index experiment that preserves full file/range/type and unknown
+semantics. Public `CallableFacts.expressions` can be modified by consumers;
+a repair must not silently assume externally supplied facts are sorted. Reuse
+the existing fact/rule behavior checks and compare the same native diagnostic
+and shared-include families, allocation/drop evidence and full selected-rule
+partitions. Base082 makes no production repair.
+
+### Current full attempts and remaining boundary
+
+| Selection | Wall / child CPU (s) | Peak RSS (MiB) | Status | Timeout |
+| --- | ---: | ---: | ---: | --- |
+| format | 600.151558 / 50.074347 | 3051.531250 | -9 | yes |
+| default | 460.302800 / 45.624998 | 3551.703125 | 2 | no |
+| thesis | 600.034272 / 45.784223 | 111.734375 | -9 | yes |
+| all | 600.324593 / 188.971768 | 1675.468750 | -9 | yes |
+
+Each native attempt selected the full 6,417-file denominator and had a finite
+600-second deadline. The formatter/thesis/all cutoffs leave native completion
+unobserved. Default returned status 2 without a timeout; its completion count
+also remains unobserved. Different progress and wall/CPU gaps prevent treating
+these high-water values as equivalent amounts of completed work or as proof of
+a new memory bound. `full/native/report.json` and `runs.jsonl` retain all four
+commands, binaries, raw streams and exact wait4 resources. `full/commands.json`
+retains the native-driver receipt separately from its native children.
+
+The separate all-rules companion reached its 600-second deadline: 600.066809
+wall seconds, 41.609889 child CPU seconds, 102.5625 MiB RSS, status -9, reaped.
+It emitted 231 root/drop records: 199 standalone data roots and 32 complete
+resolved model roots. All 231 emitted drops returned to baseline. Each of its
+26 rule partitions sums to 6,417, including exactly 6,186 Unobserved roots;
+`full/all-coverage.json` retains every Completed/Inapplicable/Limited count.
+For example, both default rules completed on all 231 observed roots;
+`unused-declaration`, `search-coverage` and `vacuous-constraint` were Limited on
+all 32 observed models, and Inapplicable on the 199 data roots. There was no
+complete record. The last flushed begin identifies only this companion's
+`2010/bacp/bacp-27.mzn` analysis. The interrupted scope has no final allocation
+or drop record. This cutoff is not a source rejection or whole-corpus coverage.
+
+Repeat the native protocol with a new output directory and the same frozen
+binaries and inputs:
+
+```sh
+base082_bin=target/benchmarks/base082/current
+python3 scripts/bench-save.py batch \
+  /private/tmp/zincite-base080-challenge-a844 \
+  /Users/zayenz/minizinc /private/tmp/zincite-base023-mznc2026-probs \
+  --formatter "$base082_bin/zincite-fmt" \
+  --linter "$base082_bin/zincite-lint" --probe "$base082_bin/profile-phases" \
+  --stdlib-dir /Applications/MiniZincIDE.app/Contents/Resources/share/minizinc \
+  --native-only --repeat 1 --timeout 600 --probe-timeout 120 \
+  --output target/benchmarks/base082-replay
+```
+
+The retained private `base082-controls.py`, `base082-observe.py` and
+`base082-full.py` command receipts describe the exact sequential controls,
+post-drop observations and separate companion. Pin the source snapshot and
+binaries again before comparing a different build. The controls wrapper's
+outer tool identifier was not retained: its terminal marker and subsequent
+PID-21740 absence are recorded, and all seven driver children have terminal
+wait4 receipts. Its outer exit status and tool-reap observation are unavailable;
+they are not replaced with a guessed success. The known build, retry,
+observation, sampler and full-campaign handles are terminal and reaped.
+
+
+The remaining memory repair must distinguish an active root's live CST/facts
+from freed allocator pages in the native process. The independent controls show
+native growth and a post-drop allocator observation; they do not explain every
+full-corpus high-water page or prove bounded accumulation. Preserve the large
+inputs and separate native/phase measurements when checking a necessary
+syntax-storage or allocation-lifetime repair. No allocator replacement, cache,
+parallel engine or blanket representation change is established by this work.
+Expanded analysis retains the concrete lookup/location repair boundary above.
+Neither resource gap is silently accepted, and base081's save wall-time misses
+remain separate and unresolved.
+
+The attribution example passed Cargo formatting, Clippy and all 189 workspace
+tests. The initial test attempt failed at the existing CLI helper's BrokenPipe
+race; its complete streams remain separate from the successful focused/full
+retry and release build. No timing or reporting-only test was added.

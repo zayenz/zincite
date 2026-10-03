@@ -131,7 +131,7 @@ def file_invoke(command, directory, name, timeout):
             elapsed = time.perf_counter() - start
     system = platform.system()
     rss = usage.ru_maxrss if usage else None
-    return {"command": command, "wall_seconds": elapsed,
+    return {"command": command, "reaped": True, "wall_seconds": elapsed,
             "child_cpu_seconds": usage.ru_utime + usage.ru_stime if usage else None,
             "returncode": child.returncode, "timeout": timed_out,
             "deadline_seconds": timeout,
@@ -154,6 +154,7 @@ def load_probe(path, manifest, process, selected):
     partitions = {rule: {} for rule in selected}
     states, dependencies, drops, phases = {}, {}, [], {}
     complete = None
+    unfinished_phase = None
     invalid_lines = []
     with path.open() as stream:
         for index, line in enumerate(stream, 1):
@@ -165,7 +166,10 @@ def load_probe(path, manifest, process, selected):
             if row["kind"] == "manifest":
                 assert selected == row["rules"]
                 assert row["files"] == manifest["files"]
+            elif row["kind"] == "begin":
+                unfinished_phase = {"path": row["path"], "phase": row["phase"]}
             elif row["kind"] == "root":
+                unfinished_phase = None
                 assert row["path"] not in observed
                 observed.add(row["path"])
                 analysis, source = row["analysis"], row["source"]
@@ -210,6 +214,7 @@ def load_probe(path, manifest, process, selected):
             "rule_outcome_partitions": partitions, "root_states": states,
             "unobserved_roots": unobserved, "unobserved_applies_to_all_selected_rules": True,
             "invalid_json_lines": invalid_lines, "complete_record": complete,
+            "unfinished_phase": unfinished_phase,
             "dependency_union": list(dependencies.values()),
             "unique_loaded_files": len(dependencies),
             "unique_loaded_bytes": sum(row["bytes"] for row in dependencies.values()),
@@ -290,6 +295,7 @@ def batch_main(arguments):
         selected_rules[selection] = selected["rules"]
     count = len(manifest["files"])
     input_bytes = sum(row["bytes"] for row in manifest["files"])
+    native_binaries = {selection: str(binaries["formatter" if selection == "format" else "linter"]) for selection in selections}
     report = {"revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
               "platform": platform.platform(), "machine": platform.machine(), "python": platform.python_version(),
               "rustc": subprocess.check_output(["rustc", "--version"], text=True).strip(),
@@ -301,7 +307,8 @@ def batch_main(arguments):
               "selection_rules": selected_rules, "selection_labels": labels,
               "coverage_collected": not args.native_only,
               "manifest_binary": str(binaries["probe"]),
-              "timed_native_binary": str(binaries["linter"])}
+              "timed_native_binary": next(iter(native_binaries.values())) if len(set(native_binaries.values())) == 1 else None,
+              "timed_native_binaries": native_binaries}
     report_path = output / "report.json"
     def save():
         report_path.write_text(json.dumps(report, indent=2) + "\n")
@@ -314,7 +321,9 @@ def batch_main(arguments):
                 row = file_invoke(command, output, labels[selection] + "-" + str(trial), args.timeout)
                 row.update(selection=selection, trial=trial, first_use=trial == 0,
                            discovered_input_count=count, discovered_input_bytes=input_bytes,
-                           completed_root_count=count if not row["timeout"] and row["returncode"] in (0, 1, 2) else None)
+                           native_binary=command[0], native_binary_sha256=file_digest(Path(command[0])),
+                           completed_root_count=None,
+                           completion_observation="native command does not emit per-root completion counts")
                 row["attempted_input_mib_per_second"] = input_bytes / 1024 ** 2 / row["wall_seconds"] if row["completed_root_count"] is not None else None
                 report["runs"].append(row)
                 log.write(json.dumps(row) + "\n"); log.flush(); save()

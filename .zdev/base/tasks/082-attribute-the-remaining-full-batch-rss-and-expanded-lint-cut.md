@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-082"
 key = "batch-resource-attribution"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -27,13 +27,24 @@ Read brief Performance and format-on-save and scripts/batch-performance.md; reus
 
 ## Done when
 
-- [ ] Exact release binaries, the current three-root denominator, complete original/configuration/import closure hashes and finite full native statuses/CPU/RSS are retained; unavailable values and cutoff completion counts remain explicit.
-- [ ] A small bounded control set and independent profiler/allocation evidence locate the remaining expanded-analysis CPU/growth cost and distinguish live application storage from native high-water/retention to the extent actually observable.
-- [ ] The report identifies concrete necessary local repair seams and checks, or precisely documents an external observation limit; it does not silently accept unresolved superlinear/unbounded behavior or declare final acceptance passed.
-- [ ] Historical cutoffs and current full-batch observations remain intact, with exact per-rule denominators/Unobserved rows on any companion replay and all owned handles terminal/reaped.
+- [x] Exact release binaries, the current three-root denominator, complete original/configuration/import closure hashes and finite full native statuses/CPU/RSS are retained; unavailable values and cutoff completion counts remain explicit.
+- [x] A small bounded control set and independent profiler/allocation evidence locate the remaining expanded-analysis CPU/growth cost and distinguish live application storage from native high-water/retention to the extent actually observable.
+- [x] The report identifies concrete necessary local repair seams and checks, or precisely documents an external observation limit; it does not silently accept unresolved superlinear/unbounded behavior or declare final acceptance passed.
+- [x] Historical cutoffs and current full-batch observations remain intact, with exact per-rule denominators/Unobserved rows on any companion replay and all owned handles terminal/reaped.
 
 ## Validation
 
 - Builds, native measurements, allocation probes, profiling, tests and corpus work run sequentially. Reuse existing controls before repeating a complete campaign; retain finite deadlines and all failed attempts.
 - Record CPU attribution separately from fresh native wall/CPU/RSS and requested/live/peak allocations; reconcile complete streams/statuses and exact scope drops where measured.
 - Documentation/probe changes need only appropriate existing checks; run required Cargo checks for Rust changes and no reporting/timing-only tests. Preserve external originals/private content and coordinator-owned state.
+
+## Result
+
+Corrected native binary and completion reporting; measured allocator residency and expanded-analysis searches; retained bounded full-corpus results and concrete repair limits without declaring product acceptance.
+
+Validation:
+
+- Independent whole-task PASS at W730c646f6acf9480; post-verification snapshot comparison equal.
+- Cargo formatting, Clippy with warnings denied, and all 189 workspace tests passed independently; Python and diff checks passed.
+- Exact 6417-source denominator, 96 source pins and 7759 original/configuration/import pins physically checked; all native measurements and known process handles closed.
+- All 26 raw rule partitions reconcile: 231 observed roots and 6186 Unobserved; 231 reported drops equal baseline. Native cutoffs, missing completion counts and observational limits retained.
