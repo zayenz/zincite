@@ -4,7 +4,22 @@ Selected by the user on 2026-09-29: **Zincite**, with `zincite-fmt` and
 `zincite-lint` as executable names. Use the `zincite-` prefix for subcrates, starting
 with the candidate `zincite-syntax`, `zincite-fmt`, and `zincite-lint` boundaries.
 This supersedes the original `mznfmt`/`mznlint` naming preference. The checkout
-directory remains `mzn-tools`; no packages have been published.
+directory is `zincite`.
+
+## Name reservations, 2026-09-30
+
+Published empty `0.0.0-pre` releases on crates.io for
+[`zincite`](https://crates.io/crates/zincite),
+[`zincite-syntax`](https://crates.io/crates/zincite-syntax),
+[`zincite-fmt`](https://crates.io/crates/zincite-fmt), and
+[`zincite-lint`](https://crates.io/crates/zincite-lint).
+Each package contains an empty library, a placeholder README and the project's
+MIT and Apache-2.0 licenses, with no dependencies or executable commands. All four
+versions were confirmed in the public registry index. The packages link to
+[`zayenz/zincite`](https://github.com/zayenz/zincite).
+
+These releases reserve the names; they do not distribute the implementation.
+The development workspace remains at version `0.1.0`.
 
 The original shortlist is retained below to explain the choice.
 

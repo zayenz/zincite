@@ -1,0 +1,69 @@
+{
+  "minizinc_version": "2.10.1",
+  "minizinc_build": "33348285743",
+  "command": "minizinc --model-check-only FILE",
+  "cases": [
+    {
+      "family": "omitted_function",
+      "mode": "model",
+      "source": "int: identity(int: x) = x; int: y=identity(1); solve satisfy;\n",
+      "compiler_exit": 0,
+      "compiler_warning": "omitted function keyword is deprecated",
+      "zincite_parse_errors": [
+        "this expression syntax is unsupported"
+      ]
+    },
+    {
+      "family": "form_feed",
+      "mode": "model",
+      "source": "int: x=1;\fsolve satisfy;\n",
+      "compiler_exit": 0,
+      "compiler_warning": null,
+      "zincite_parse_errors": [
+        "unrecognized character '\\u{c}'",
+        "unsupported top-level item; expected a declaration, assignment, constraint, include, output or solve"
+      ]
+    },
+    {
+      "family": "escaped_single_quote",
+      "mode": "model",
+      "source": "output [\"A \\'quote\"]; solve satisfy;\n",
+      "compiler_exit": 0,
+      "compiler_warning": null,
+      "zincite_parse_errors": [
+        "invalid string escape",
+        "expected an expression"
+      ]
+    },
+    {
+      "family": "enum_constructor",
+      "mode": "model",
+      "source": "enum E; E=_(1..2); solve satisfy;\n",
+      "compiler_exit": 0,
+      "compiler_warning": null,
+      "zincite_parse_errors": [
+        "this expression syntax is unsupported"
+      ]
+    },
+    {
+      "family": "standalone_equality",
+      "mode": "model",
+      "source": "var int: x; x == 1; solve satisfy;\n",
+      "compiler_exit": 0,
+      "compiler_warning": null,
+      "zincite_parse_errors": [
+        "expected ':' after type"
+      ]
+    },
+    {
+      "family": "annotation_capture",
+      "mode": "model",
+      "source": "annotation tag; predicate p() ann: anns = tag in anns; constraint p() :: tag; solve satisfy;\n",
+      "compiler_exit": 0,
+      "compiler_warning": null,
+      "zincite_parse_errors": [
+        "expected ';' after item"
+      ]
+    }
+  ]
+}

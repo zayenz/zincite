@@ -266,3 +266,7 @@ This command reports the current compatibility baseline and makes no fixes.
 The [lexer dispatch comparison](lexer-dispatch-performance.md) records the base-051
 before/after save timings, native CPU attribution and remaining fit, memory and
 first-use work. It reuses the unchanged save driver and preserved release binaries.
+
+The [remaining syntax checkpoint](syntax-corpus-checkpoint.md) classifies the
+full post-library run, retains synthetic compiler-confirmed reproducers, and
+separates unsupported families from malformed, negative and non-model inputs.
