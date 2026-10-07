@@ -810,3 +810,17 @@ library and input pins and finish within the 60-second cap. Evidence is retained
 in `target/benchmarks/base083/semantic61-scalar-membership-prechecks/`; the
 overlap with the exhaustive capture is recorded. Their set-membership and
 scalar-maximum Zincite gaps remain unresolved.
+
+Current compiler source prechecks now cover all 263 complete, dependency-resolved
+models with thesis limitations in the first eight captured batches. Three
+parallel workers use the same compiler, Gecode configuration and standard
+library, with a 60-second cap per model and no solving. All checks finish
+without timeouts: 239 pass, while eight reject string arguments to `int_search`
+and sixteen reject undefined `is_output`. Every rejected stream was inspected;
+these classifications apply only to the exact checked originals. All 526
+retained streams and the ordered selection were checked, and 1,527 compiler,
+library and closure files remain unchanged. Evidence is retained in
+`target/benchmarks/base083/semantic61-first-eight-source-prechecks/`. These
+overlapping source checks establish neither instance compilation nor formatting
+equivalence. The compiler-accepted models' Zincite limitations remain work for
+base-083, alongside the uncaptured remainder of the corpus.
