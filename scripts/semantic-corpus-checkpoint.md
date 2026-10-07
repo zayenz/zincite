@@ -2453,3 +2453,16 @@ for correctness, but this control does not establish Navigation completion or
 an isolated speedup. No retry or sampler was run. Evidence and the independent
 root audit are under
 `target/benchmarks/base083/semantic62-draft-release17-navigation-control/`.
+
+The validated Routing Cartesian-sum candidate builds as optimized release
+eighteen in 12.252 seconds. Complete Cargo streams, all current before/after
+source and helper pins, thirteen optimized non-test artifacts, both binary
+origins and frozen copies, 22 library origins and frozen copies, and rustc
+were checked. The child is reaped without timeout, its group is empty and
+the verification error is null. Only the lint rlib/rmeta differ from release
+seventeen; frozen libraries total 28,229,877 bytes. Original sources remain
+unchanged. Original Routing outcomes, production integration and final corpus
+acceptance remain open. Evidence and the independent root audit are under
+`target/benchmarks/base083/semantic62-draft-workspace-semantic-release18/`,
+with artifacts in `semantic62-draft-routing373-binaries/` and
+`semantic62-routing373-libraries/`.
