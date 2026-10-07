@@ -735,3 +735,12 @@ tracked allocations are unchanged. These measured savings support retaining
 the small change; single native timings establish no CPU improvement. Evidence
 is retained in `target/benchmarks/base083/semantic61-alias-growth-control/`.
 Matched Project17 native measurements and final-corpus acceptance remain open.
+
+The retained semantic45 and semantic51 source prechecks identify 22 original
+corpus models rejected by the current MiniZinc compiler: six pass strings to
+`int_search` annotation arguments and sixteen reference an undefined `is_output`
+identifier. Their terminal receipts, complete compiler streams, source hashes
+and compiler/standard-library identities were rechecked. Reuse these exact
+classifications when matching final corpus rows; they do not classify other
+models or turn a Zincite timeout into invalid input. The old 5,595/822 physical
+availability split also does not describe current restored dependencies.
