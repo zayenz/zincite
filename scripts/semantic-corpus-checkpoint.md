@@ -1356,3 +1356,13 @@ deltas remain 975,316 and 583,963,393 bytes. Instrumented child CPU is
 Original-sweep and Cargo overlap are retained. These measurements establish no
 production-native benefit or growth result; the native pair is the next check.
 Evidence is in `target/benchmarks/base083/semantic62-cost4-sysadmin-first-stage/`.
+
+Release seven's generated-model recapture hits its fixed 300-second deadline
+during analysis. The child is reaped with return code -9 after 300.023 seconds;
+child CPU is 286.805 seconds and peak RSS is 726.625 MiB. The full 2,203-byte
+stdout contains the all-rule manifest and load/analyze beginnings, with no
+root, drop or completion record; stderr is empty. All 26 rule outcomes remain
+unobserved. Stream hashes and equal before/after records were checked. This
+cutoff is an open processing failure, not a successful semantic comparison.
+No retry or deadline change was made. Evidence is in
+`target/benchmarks/base083/semantic62-draft-release7-generated-all-control/`.
