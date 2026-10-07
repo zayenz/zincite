@@ -2292,3 +2292,22 @@ independent producers and rule checks. It therefore does not explain the
 full-rule 300-second cutoff or establish full-rule completion, a matched
 performance ratio or semantic acceptance. Evidence is under
 `target/benchmarks/base083/semantic62-navigation-release15-guarded-diagnostic/`.
+
+The Routing rank-three Boolean reshape and DecisionInt array-reflection
+repair is now included in `scripts/semantic-candidate.patch`; the separate
+unapplied draft is superseded and retained in commit `f5bf00e`. The candidate
+remains in the disposable workspace, with actual production sources frozen.
+The focused search case passes, and all six guarded groups pass, including
+nonempty literal reflection with Unknown definedness/no numeric value, empty
+top-level reflection Refuted, and no nonempty proof from an overridable
+formal default. A first guarded run exposed a missing integer-range declaration
+in the miniature standard-library fixture. Adding the concrete instantiated
+range signature fixed that fixture without changing production or expectations;
+the failed capture is retained. Formatting, clippy and all 193 workspace tests
+in 42 suite results pass. Complete streams, receipts and unchanged current
+maps were checked; every child is reaped without timeout and has an empty
+group/null verification error. The combined 20-file candidate is 228,702 bytes,
+SHA-256 `74a9dea0631996260c9be3dd6d585f3e61282958d3d86d7f834f8e4430ada97b`,
+and applies cleanly. Original Routing outcomes and final corpus acceptance
+remain to be checked with this candidate. Evidence is under
+`target/benchmarks/base083/semantic62-draft-workspace-routing-family1-green-v2-{guarded,fmt,clippy,workspace}/`.
