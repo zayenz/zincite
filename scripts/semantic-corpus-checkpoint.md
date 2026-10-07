@@ -2363,3 +2363,19 @@ checked. Separate build paths change library bytes; no binary parity or stock
 performance claim follows. The probe is ready for one selected all-rule
 Navigation trace at the existing cap; no model run has occurred yet. Evidence
 is under `target/benchmarks/base083/semantic62-navigation-release15-coordination-build/`.
+
+The single frozen-fifteen Navigation marker control reaches its unchanged
+300-second deadline (300.130 seconds). The child is reaped with return -9,
+its group is empty and verification error is null. Complete streams and
+current before/after maps were checked. All 78 observed markers parse in
+order; the pending scopes are `analyze_model` and `index_set_mismatch_check`.
+Every preceding marked producer/check ends. This locates the unfinished
+stage, without attributing CPU cost. The stdout has only its manifest and
+load/analyze beginnings: all 26 rules and the fourteen thesis rules remain
+Unobserved, with no root/drop/completion or semantic acceptance. Raw stderr
+and its separate marker stream match; ordinary diagnostic stderr is empty.
+Source inspection confirms repeated full expression/obligation scans per
+array access. The retained local-lookup repair needs adaptation and fresh
+validation against the current candidate. No retry or sampler was run.
+Evidence is under
+`target/benchmarks/base083/semantic62-navigation-release15-coordination-control/`.
