@@ -1169,3 +1169,24 @@ generated output models retain `chosen = 1`. The full streams, generated
 artifacts and 1,041 unchanged input pins were checked. Evidence is in
 `target/benchmarks/base083/semantic62-set-array-ranking-compiler-controls/`.
 Fresh candidate model outcomes remain pending.
+
+The release-five candidate completes the seven-root comparison with all roots,
+ordered drops and 26-rule rows accounted for. The direct-Set reduction has no
+limitations. The same six original models retain 28/54/11/98/48/215 limitations,
+versus 32/61/11/101/67/266 in the earlier candidate. Rel2onto and routing now
+complete unused-declaration and element-predicate analysis; routing also
+restores constant-variable completion. All 727 diagnostics, including multiline
+messages, complete streams and 1,934 input/helper/patch pins were checked.
+Evidence is in
+`target/benchmarks/base083/semantic62-draft-release5-ranking-slice-set-control/`.
+
+The separate four-root comparison accounts for all roots and 26-rule rows.
+Both in-bounds Boolean and integer reductions complete every rule with no
+warnings or limitations. The out-of-bounds Boolean case retains three warnings
+and two limitations. Depot2011 retains 59 warnings and eight limitations,
+including numeric and guarded inspection of its scalar `max(ADist,BDist)`.
+Complete streams, all 72 diagnostics and 1,951 input/helper/patch pins were
+checked. Evidence is in
+`target/benchmarks/base083/semantic62-draft-release5-minmax-bool-control/`.
+These overlapping bounded runs establish behavior only; remaining support gaps,
+performance attribution and full corpus acceptance remain open.
