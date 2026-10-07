@@ -888,3 +888,12 @@ multidimensional `length` view. MiniZinc's retained type checker inserts
 targets above rank one. These are matching repairs to investigate, with actual
 argument types, enum identities and ambiguity preserved. A matching view alone
 must not establish nonemptiness, index membership or whole-array definitions.
+
+The ninth batch's all-rule native attempt also reaches its unchanged
+1,800-second cap and is reaped with status -9 after 1,800.013 seconds. Its
+complete streams match the receipt: empty stdout and 1,054,780 bytes of stderr.
+The earlier stack sample applies only to its sampled interval; neither that
+sample nor the timeout identifies a native current root or proves whole-run
+cost attribution. The scheduled all-rule companion continues separately.
+Both native cutoffs remain unresolved processing failures, with no deadline
+relaxation, invalid-input waiver or task-completion claim.
