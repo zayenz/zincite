@@ -1491,3 +1491,19 @@ Live bytes return to the 2,394-byte baseline. Full streams, terminal receipt,
 equal maps and 1,777 current file pins were checked. This remains incomplete
 semantic coverage; the named-range collection-length gap is under repair.
 Evidence is in `target/benchmarks/base083/semantic62-draft-release9-routing-control/`.
+
+The isolated cost-four inventory run completes under the unchanged 1,800-second
+deadline: wall 1,616.910 seconds, child CPU 1,604.811 seconds and peak RSS
+2,917.391 MiB. The complete resolved root observes all 26 rules, with 4,233
+warnings, zero errors and 2,148 limitations; live bytes return to 2,380.
+Analyze records 1,022,542,538 allocation calls and 76,538,435,123 requested bytes,
+with retained/peak deltas of 3,581,673/2,056,316,089 bytes.
+
+Cost three times out after 1,800.052 seconds without a root, drop or completion
+record. The manifests match, but complete source/analysis/allocation comparisons
+and matched growth remain unavailable. This pair does not establish semantic
+parity, an isolated speedup or a completed growth check. Both full captures,
+terminal receipts, equal maps and 1,148 distinct current absolute file pins were
+checked. Original-sweep and observed peer-job overlap are retained. No extra
+native run or deadline change was made. Evidence is in
+`target/benchmarks/base083/semantic62-cost4-inventory-growth-probes/`.
