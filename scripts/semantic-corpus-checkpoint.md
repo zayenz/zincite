@@ -2240,3 +2240,15 @@ establish unchanged public facts and lower observed queue cost, while full
 selected native outcomes and final corpus acceptance remain separate.
 Evidence is under
 `target/benchmarks/base083/semantic62-unused-owner-queue-public-pair/`.
+
+The frozen release-fifteen full all-rule Navigation companion still times out
+at the unchanged 300-second cap (actual 300.088 seconds). Its child is reaped,
+its process group is empty and its group-verification error is null. Both
+complete streams, equal maps and all 1,104 physical runtime paths were checked.
+Only manifest/load/analyze begin records are emitted: no root, drop or complete
+record. The original remains Unobserved for all 26 rules and the 14 thesis IDs;
+semantic acceptance remains null. Public usage-facts parity and the improved
+queue cost do not establish full selected-analysis completion. A first native
+control with bounded attribution is being prepared to locate the remaining
+cost; the companion is not retried. Evidence is under
+`target/benchmarks/base083/semantic62-draft-release15-navigation-control/`.
