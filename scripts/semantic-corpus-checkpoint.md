@@ -2411,3 +2411,16 @@ MiniZinc/Gecode without solving (0.194 seconds); full streams, receipt, all
 checked. Tests-only failure reproduction and post-repair Rust gates remain
 pending. Evidence is under
 `target/benchmarks/base083/semantic62-routing373-preparation/compiler-precheck/`.
+
+The validated lookup candidate builds as optimized release seventeen in
+12.971 seconds. Complete Cargo streams, current before/after source/helper
+maps, thirteen optimized non-test artifacts, both binary origins/frozen copies,
+22 library origins/frozen copies and rustc were checked. All children are
+reaped without timeout, groups are empty and verification errors are null.
+Only the lint rlib/rmeta differ from release sixteen; frozen libraries total
+28,210,941 bytes. The original sources remain unchanged. These fixed artifacts
+permit current-model checks while the separate Routing regression proceeds;
+build success alone establishes no model completion or performance claim.
+Evidence is under
+`target/benchmarks/base083/semantic62-draft-workspace-semantic-release17/`
+and `semantic62-draft-index-lookups-binaries/`.
