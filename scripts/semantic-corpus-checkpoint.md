@@ -877,3 +877,14 @@ attribute its whole run or the earlier timeout. The sample and receipt remain
 in `target/benchmarks/base083/semantic61-shard008-all-native-sample*`; 90 source
 pins and the native binary remain unchanged. The sampled run's timing is not
 an isolated performance control. Corpus scheduling and deadlines are unchanged.
+
+Two additional matching gaps are located in the compiler-accepted ninth-batch
+prefix. `rel2onto.mzn:110:19` supplies a parameter Int set to `sum`, while
+`ecp.mzn:30:33` supplies a rank-two parameter Int array to `length`; Zincite
+reports no matching declaration at both original call heads. Current matching
+has neither general parameter-set-to-array correspondence nor the required
+multidimensional `length` view. MiniZinc's retained type checker inserts
+`set2array` for present parameter sets, rejecting decision/optional sets and
+targets above rank one. These are matching repairs to investigate, with actual
+argument types, enum identities and ambiguity preserved. A matching view alone
+must not establish nonemptiness, index membership or whole-array definitions.
