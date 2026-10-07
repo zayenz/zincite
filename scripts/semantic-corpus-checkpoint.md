@@ -1260,3 +1260,27 @@ The refreshed `semantic-candidate.patch` contains 13 Rust files, passes
 `git apply --check` and has SHA-256
 `545be5d1469de7144a1e5b2f45f0ec618b4160a0590ff88c5b1851e91292c6a8`.
 Full workspace gates and final release/corpus checks remain pending.
+
+The frozen candidate passes all required workspace gates: formatting, Clippy
+with warnings denied, and 193 tests across 42 successful suites, with no failures
+or ignored tests. Complete Clippy and test streams, terminal accounting and
+unchanged source/helper/patch maps were checked. Evidence is in
+`target/benchmarks/base083/semantic62-draft-workspace-show-adjacent-final-{clippy,workspace}/`.
+Its release-six build succeeds and freezes the native linter and companion
+probe in `semantic62-draft-length-minmax-show-binaries/`; both Cargo artifact
+events use optimization level three. Release-model outcomes remain pending.
+
+The root audit of batches 024–026 accounts for all 94 roots per preset, reads
+30 complete streams, verifies 24 receipt-bound streams and rehashes 1,116
+original inputs. There are no parser errors. The generated
+`ProjectPlannertest_15_6.mzn` compiles successfully with current MiniZinc/Gecode,
+without solving, and all 1,038 compiler/source/helper pins remain unchanged.
+The original checker completes all 14 thesis rules on this model. Its all-rule
+preset retains 855 limitations: 254 suspicious-domain, four index-set-mismatch,
+four partial-expression and 593 vacuous-constraint. Its 32,908
+decision-variable-operator warnings have 32,908 distinct written source ranges;
+this capture does not show analysis multiplying that advice. Fresh candidate
+outcomes for this compiler-valid model remain pending. Evidence is in
+`target/benchmarks/base083/exhaustive-semantic61/shards024-026-root-audit.json`,
+`shard026-diagnostic-review.json` and
+`target/benchmarks/base083/semantic61-shard026-generated-source-precheck/`.
