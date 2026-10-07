@@ -1907,3 +1907,15 @@ remain unchanged. Evidence is under
 `target/benchmarks/base083/semantic62-routing336-inspection-preparation/`.
 Passing focused checks, workspace gates, integration and final acceptance
 remain pending.
+
+The corrected routing checkpoint compiles, but its focused behavioral rerun
+still fails at the same completion assertion: inside, not_pref and cost retain
+the three direct-definition limitations. Three other search test groups pass.
+The owner returns one and Cargo returns 101 in 22.295 seconds, without timeout;
+the child is reaped and its process group is empty. Full streams, equal maps
+and all 90 actual, 106 original and 106 copy source pins were checked.
+Evidence is under
+`target/benchmarks/base083/semantic62-draft-workspace-routing336-green-v2-search/`.
+The directory name does not imply a passing result. The saved implementation
+is still incomplete; its concrete failing inspection paths need diagnosis
+before further repair or workspace gates.
