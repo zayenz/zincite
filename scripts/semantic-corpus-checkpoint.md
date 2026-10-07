@@ -2494,3 +2494,20 @@ its group is empty and the verification error is null. This companion supplies
 no fresh native performance ratio or whole-corpus acceptance. Evidence and the
 independent root audit are under
 `target/benchmarks/base083/semantic62-draft-release18-routing-control/`.
+
+Independent closed-shard 054–058 review reconciles 235 observed roots per
+selection and one unobserved root. Shard 054 has four nested 1,800-second
+cutoffs despite a terminal outer process; no root/drop/completion rows exist.
+Shards 055–058 preserve complete records, matching native/companion diagnostic
+streams and statuses, and restored drop baselines. Thesis totals are 956
+warnings, one error and 592 limitations; all totals are 6,824 warnings, one
+error and 1,428 limitations. A data parse error retains NotRun for all 14/26
+rules; compiler-invalid exclusion remains unestablished pending its current
+MiniZinc model/data precheck. The reviewer checked 100 closed artifacts; the
+root separately reconciled 35 receipts, their 70 full streams, rule partitions
+and all 1,263 physical originals. Five transitive imports omitted from local
+report maps are present in shared before pins and match now. Inner receipts
+lack separate group-verification fields; outer reaping/group evidence is
+retained. These frozen semantic61 results do not establish candidate acceptance.
+Evidence is in `target/benchmarks/base083/exhaustive-semantic61/` under
+`shards054-058-readonly-audit.{md,json}` and `shards054-058-root-check.json`.
