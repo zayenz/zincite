@@ -1919,3 +1919,21 @@ Evidence is under
 The directory name does not imply a passing result. The saved implementation
 is still incomplete; its concrete failing inspection paths need diagnosis
 before further repair or workspace gates.
+
+Temporary routing instrumentation identifies the first rejection at
+`diam[p] div 2`: initialized-source inspection retains unknown membership,
+then the definitionless integer evaluator rejects the array selection.
+That rejection propagates through radius into inside, not_pref and cost.
+All three definitions are Enforced; no aggregate safety rejection is observed.
+The parameter-Boolean guard hypothesis remains masked and unconfirmed.
+
+The diagnostic returns Cargo 101 with three passing search groups and the
+same failing completion assertion, in 24.727 seconds without timeout. Full
+streams, equal maps, instrumented copy sources, original sources and retained
+binaries were checked before restoration. The temporary instrumentation is
+retained only under
+`target/benchmarks/base083/semantic62-routing336-cause-diagnostic-preparation/`;
+the copy is restored to the exact saved candidate. This confirms a local
+repair target, not a passing repair. The next change will retain unknown
+values for already-inspected parameter integer selections while preserving
+invalid-source, selector, zero-divisor and checked-arithmetic handling.
