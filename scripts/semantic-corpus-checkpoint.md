@@ -2265,3 +2265,17 @@ remaining-cost attribution is available from this control. A single public
 shared-analysis pipeline diagnostic is being prepared instead; final corpus
 acceptance remains open. Evidence is under
 `target/benchmarks/base083/semantic62-draft-release15-navigation-native-control/`.
+
+The next Routing repair is saved separately in
+`scripts/semantic-routing-draft.patch`. It applies on top of the current
+release-fifteen candidate copy, after `scripts/semantic-candidate.patch`;
+it is not integrated into the production sources. It extends inspected
+rank-three Boolean reshapes and DecisionInt array-bound reflection while
+retaining Unknown values and output coverage. Static review found that formal
+array defaults could supply a false nonempty proof; the revised draft restricts
+literal-shape evidence to bare top-level Value declarations and includes an
+overridden-default negative case. The complete draft was read and its exact
+16,616 bytes match SHA-256
+`ec0a4bad29e5ac5a40cd2578835553acd241119748a7786b7c97ed3ac8ea09c9`.
+No draft changes have been applied to the candidate copy and no draft tests
+have run. Focused RED/GREEN validation and final acceptance remain pending.
