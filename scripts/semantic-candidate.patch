@@ -1579,7 +1579,7 @@
 +                        // integer interpreter has no array-selection evaluator.
 +                        let symbolic_selection = unwrap(child).kind()
 +                            == NodeKind::ArrayAccessExpression
-+                            && matches!(&inspected, DefinitionSafety::Unknown(_))
++                            && !matches!(&inspected, DefinitionSafety::Unsupported(_))
 +                            && ty(child).is_some_and(|t| {
 +                                t.known()
 +                                    && !optional(t)

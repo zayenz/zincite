@@ -1968,6 +1968,24 @@ The saved selection gate has not repaired the observed case. Its operand
 inspection result and type need to be observed directly before changing the
 gate; no additional production change is accepted from this trace alone.
 
+The operand-state diagnostic confirms that `diam[p]` is a known present
+parameter integer and its source inspection returns Supported. The original
+Unknown-only gate therefore excluded it even though its numeric value was
+unproved. The corrected gate admits either inspected result and still pushes
+an unknown operand value; Unsupported remains a veto.
+
+The unchanged focused search test now passes all four groups. The combined
+routing case completes while inside, not_pref and cost remain Unknown and
+have no supported whole-array output proof; its existing search and negative
+checks also pass. Cargo and the owner return zero in 26.671 seconds without
+timeout, with a reaped child and empty process group. Full streams, equal maps
+and all 349 resolved physical pins were checked. Evidence is under
+`target/benchmarks/base083/semantic62-draft-workspace-routing336-supported-selection-green-search/`.
+The reconstructed 19-file candidate is 210,518 bytes, SHA-256
+`55b847d8c125c94f1d4012ce1d83c1cd0340fd3207ff597bb8321105c3d5b308`,
+and passes the patch application check. Required workspace gates, original
+routing validation, integration and fresh final corpus acceptance remain pending.
+
 The frozen release-twelve navigation public iteration probe completes in
 52.496 seconds under a 300-second cap. Iteration facts takes 1.278 seconds,
 producing two array facts, five index sets, one iteration and no limitations.
