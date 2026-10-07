@@ -1714,3 +1714,12 @@ It passes `git apply --check --whitespace=error`. Evidence is under
 and `semantic62-draft-workspace-assigned-annotation-{red,green}-search/`.
 Workspace gates, original-model control, integration and fresh final corpus
 acceptance for this revision remain pending.
+
+The assigned-annotation candidate passes the required copy-workspace gates:
+formatting, Clippy with warnings denied, and all 193 tests across 42 successful
+suites. Workspace tests take 43.101 seconds. Complete streams, successful
+terminal receipts, equal maps and current 106 original/106 copy/90 actual
+source pins were checked. The saved candidate is unchanged. Evidence is in
+`target/benchmarks/base083/semantic62-draft-workspace-assigned-annotation-final-{fmt,clippy,workspace}/`.
+Original-model validation, integration and fresh final corpus acceptance
+remain pending.
