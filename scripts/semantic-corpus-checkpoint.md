@@ -1205,3 +1205,24 @@ Evidence is in
 `target/benchmarks/base083/semantic62-draft-release5-bnn-all-control/`.
 The candidates differ semantically and overlap the original sweep; their wall
 times do not establish a performance ratio or matched cost-only result.
+
+The current candidate code and public cases are saved in
+`semantic-candidate.patch`, relative to the tracked Rust source at commit
+`50b9288`. The patch contains all ten changed Rust files in the disposable copy
+and passes `git apply --check`; its SHA-256 is
+`53f21209032d44414ea5f563a7a86ed49e5e6accb325aa42ac6e483e922b2b3f`.
+This checkpoint preserves the code while the original corpus sweep continues
+to check its frozen source files. Apply it only after that run no longer depends
+on the original source. It does not mark base-083 complete.
+
+The latest length and scalar min/max inspection changes pass formatting,
+all-target compilation and the existing guarded, numeric and search groups
+(14 tests). They preserve unknown values, reject unsafe operands and retain
+annotation restrictions. Complete check streams, terminal process accounting,
+equal before/after maps and 358 input, copy, helper and patch pins were checked.
+Evidence is in
+`target/benchmarks/base083/semantic62-draft-workspace-length-minmax-v4-{fmt,numeric_facts}/`
+and `semantic62-draft-workspace-length-minmax-v2-{check,guarded,search}/`.
+Earlier failed checks remain retained; the final fixture correction supplies
+the range signature only in the new fixture context. Release-model comparisons,
+whole-workspace validation and independent task verification remain pending.
