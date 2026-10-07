@@ -1344,7 +1344,7 @@
          // A strict dependency on a named collection does not inspect its
          // initializer. Keep that evaluation check ahead of strict success.
          let aggregate = self.aggregate_source_safety(file, node, view, generators);
-@@ -5820,14 +6570,168 @@
+@@ -5820,14 +6570,210 @@
              self.expression_type(self.view(file, node, view), file, node)
                  .map(|e| &e.ty)
          };
@@ -1421,7 +1421,7 @@
 +            let children: Vec<_> = node.child_nodes().collect();
 +            if let Some(subject) = children.first().copied().map(unwrap)
 +                && subject.kind() == NodeKind::Expression
-+                && self.reference(file, subject).is_some()
++                && let Some(array) = self.reference(file, subject)
 +                && let Some(source) = ty(subject)
 +                && source.known()
 +                && !optional(source)
@@ -1444,12 +1444,54 @@
 +                        })
 +                })
 +            {
-+                return match self.initialized_children_safety(file, &children, view, generators) {
-+                    unsupported @ DefinitionSafety::Unsupported(_) => unsupported,
-+                    _ => {
-+                        DefinitionSafety::Unknown("scalar selection membership is unproved".into())
-+                    }
-+                };
++                if let unsupported @ DefinitionSafety::Unsupported(_) =
++                    self.initialized_children_safety(file, &children, view, generators)
++                {
++                    return unsupported;
++                }
++                if let Domain::Array { indices, .. } = &self.domains.declarations[array.0].domain
++                    && indices.iter().zip(&children[1..]).any(|(axis, selector)| {
++                        crate::domains::invariant_expression_integer(
++                            self.context,
++                            self.bindings,
++                            file,
++                            selector,
++                        )
++                        .is_ok_and(|value| {
++                            value.is_some_and(|value| {
++                                crate::domains::index_domain_member(axis, value) == Some(false)
++                            })
++                        })
++                    })
++                {
++                    return DefinitionSafety::Unsupported(
++                        "scalar selection is outside its declared index set".into(),
++                    );
++                }
++                let owner = &self.bindings.declarations[array.0];
++                if element.kind == TypeKind::Bool
++                    && matches!(crate::domains::tokens(&self.context.files[file].parsed, subject).as_slice(),
++                        [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
++                    && owner.role == DeclarationRole::Value
++                    && owner.top_level
++                    && let Some(written) = find_node(
++                        self.context.files[owner.file].parsed.tree(),
++                        &owner.syntax_range,
++                        owner.role,
++                    )
++                    && !written.child_nodes().any(|node| is_expression(node.kind()))
++                    && !self.literal_bool_index_membership(
++                        file,
++                        node,
++                        array,
++                        self.view(file, node, view),
++                    )
++                {
++                    return DefinitionSafety::Unsupported(
++                        "Boolean selection requires an index-membership proof".into(),
++                    );
++                }
++                return DefinitionSafety::Unknown("scalar selection membership is unproved".into());
 +            }
 +        }
 +        if ty(node).is_some_and(|t| {
@@ -1516,7 +1558,7 @@
              })
          {
              if !crate::definitions::annotations_safe(self.context, file, written) {
-@@ -5835,7 +6739,7 @@
+@@ -5835,7 +6781,7 @@
                      "parameter collection annotation is unsupported".into(),
                  );
              }
@@ -1525,7 +1567,7 @@
          }
          if node.kind() == NodeKind::ArrayComprehension {
              return self.integer_comprehension_safety(file, node, view, generators);
-@@ -6044,6 +6948,25 @@
+@@ -6044,6 +6990,25 @@
              NodeKind::BinaryExpression => {
                  let name =
                      operator(self.context, file, node).and_then(crate::bindings::symbolic_operator);
@@ -1551,7 +1593,7 @@
                  if !matches!(name, Some("+" | "-" | "*" | "div" | "mod"))
                      || children.len() != 2
                      || !self.core(file, node, view, name.unwrap())
-@@ -6057,7 +6980,8 @@
+@@ -6057,7 +7022,8 @@
                      let integer =
                          |t: &TypeInst| t.known() && !optional(t) && t.kind == TypeKind::Int;
                      if !crate::definitions::annotations_safe(self.context, file, written)
@@ -1561,7 +1603,7 @@
                              .is_none_or(|call| {
                                  !matches!(&call.outcome,
                                  CallOutcome::Resolved { parameters, return_type, .. }
-@@ -6071,16 +6995,45 @@
+@@ -6071,16 +7037,45 @@
                      let mut unsupported = None;
                      let mut values = Vec::new();
                      for child in &children {
@@ -1609,7 +1651,7 @@
                          }
                          // Inspect each operand independently: an unknown dividend
                          // cannot hide a literal zero divisor or invalid sibling.
-@@ -6181,7 +7134,7 @@
+@@ -6181,7 +7176,7 @@
                      if children.len() != 1
                          || children[0].kind() == NodeKind::NamedArgument
                          || ty(children[0]).is_none_or(|t| !t.known() || optional(t) || t.kind != TypeKind::Int)
@@ -1618,7 +1660,7 @@
                              .is_none_or(|call| {
                                  !matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                      if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
-@@ -6190,6 +7143,9 @@
+@@ -6190,6 +7185,9 @@
                      {
                          return DefinitionSafety::Unsupported(reason);
                      }
@@ -1628,7 +1670,7 @@
                      return self.direct_children_safety(file, &children, view, generators);
                  }
                  let integer_array = |t: &TypeInst| {
-@@ -6205,7 +7161,8 @@
+@@ -6205,7 +7203,8 @@
                      || children.len() != 1
                      || children[0].kind() == NodeKind::NamedArgument
                      || ty(children[0]).is_none_or(|t| !integer_array(t))
@@ -1638,7 +1680,7 @@
                          .is_none_or(|c| {
                              !matches!(&c.outcome, CallOutcome::Resolved { parameters, .. }
                              if parameters.len() == 1 && integer_array(&parameters[0]))
-@@ -6271,7 +7228,7 @@
+@@ -6271,7 +7270,7 @@
                  let extrema =
                      self.core(file, node, view, "min") || self.core(file, node, view, "max");
                  if !(extrema || self.core(file, node, view, "sum"))
@@ -1647,7 +1689,7 @@
                          .is_none_or(|c| {
                              !matches!(&c.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
-@@ -6486,6 +7443,106 @@
+@@ -6486,6 +7485,106 @@
          }
          safety
      }
@@ -1754,7 +1796,7 @@
      fn dependencies(
          &self,
          file: FileId,
-@@ -6493,6 +7550,7 @@
+@@ -6493,6 +7592,7 @@
          view: &CallableFacts,
          generators: &[&'a SyntaxNode],
      ) -> Result<Vec<DeclarationId>, String> {
@@ -1762,7 +1804,7 @@
          let node = unwrap(node);
          let facts = self.view(file, node, view);
          let ty = self.expression_type(facts, file, node).map(|e| &e.ty);
-@@ -6611,6 +7669,11 @@
+@@ -6611,6 +7711,11 @@
                  let id = self
                      .reference(file, subject)
                      .ok_or("array access identity unavailable")?;
@@ -1774,7 +1816,7 @@
                  if children.len() == 2
                      && self.named_selector_membership(file, id, children[1], facts)
                  {
-@@ -6689,10 +7752,28 @@
+@@ -6689,10 +7794,28 @@
                                  .is_some_and(|e| parameter_integers(&e.ty))
                          });
                      if !strings && !integers {
@@ -1807,7 +1849,7 @@
                      }
                  }
                  if name == "diff"
-@@ -6771,7 +7852,7 @@
+@@ -6771,7 +7894,7 @@
                          || children[0].kind() == NodeKind::NamedArgument
                          || ty.is_none_or(|t| t.kind != TypeKind::Int)
                          || self.expression_type(facts, file, children[0]).is_none_or(|e| !e.ty.known() || optional(&e.ty) || e.ty.kind != TypeKind::Int)
@@ -1816,7 +1858,7 @@
                              !matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
                                      && parameters[0].kind == TypeKind::Int)
-@@ -6791,7 +7872,7 @@
+@@ -6791,7 +7914,7 @@
                          || argument.is_none_or(|e| {
                              !e.ty.known() || optional(&e.ty) || e.ty.kind != TypeKind::Bool
                          })
@@ -1825,7 +1867,7 @@
                              matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameters[0].known()
                                      && !optional(&parameters[0]) && parameters[0].kind == TypeKind::Bool)
-@@ -6812,7 +7893,7 @@
+@@ -6812,7 +7935,7 @@
                          || ty.is_none_or(|t| {
                              t.kind != TypeKind::Int || t.instantiation != Instantiation::Parameter
                          })
@@ -1834,7 +1876,7 @@
                              matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameter_integers(&parameters[0]))
                          })
-@@ -6902,7 +7983,7 @@
+@@ -6902,7 +8025,7 @@
                              t.kind != TypeKind::Int || t.instantiation != Instantiation::Parameter
                          })
                          || argument.is_none_or(|e| !parameter_integers(&e.ty))
@@ -1843,7 +1885,7 @@
                              matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameter_integers(&parameters[0]))
                          })
-@@ -6939,27 +8020,36 @@
+@@ -6939,27 +8062,36 @@
                          {
                              return self.dependencies(file, args[0], view, generators);
                          }
@@ -1895,7 +1937,7 @@
                  }
                  let metadata = if self.core(file, node, view, "show_index_sets") {
                      Some((1, TypeKind::String))
-@@ -7031,7 +8121,7 @@
+@@ -7031,7 +8163,7 @@
                      && ty.is_some_and(|t| t.kind == TypeKind::Bool);
                  let count = self.core(file, node, view, "count")
                      && ty.is_some_and(|t| t.kind == TypeKind::Int)
@@ -1904,7 +1946,7 @@
                          matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                              if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
                                  && matches!(&parameters[0].kind, TypeKind::Array { element, .. } if element.kind == TypeKind::Bool))
-@@ -7039,7 +8129,7 @@
+@@ -7039,7 +8171,7 @@
                  let extrema = (self.core(file, node, view, "min")
                      || self.core(file, node, view, "max"))
                      && ty.is_some_and(|t| t.kind == TypeKind::Int)
@@ -1913,7 +1955,7 @@
                          matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                              if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
                                  && matches!(&parameters[0].kind, TypeKind::Array { indices, element }
-@@ -7060,7 +8150,24 @@
+@@ -7060,7 +8192,24 @@
                  let mut all = generators.to_vec();
                  all.extend(list.child_nodes());
                  if parameter_collection || quantifier || count || extrema {
@@ -1939,7 +1981,7 @@
                  } else {
                      self.iterations(file, &all, view)?;
                  }
-@@ -7305,7 +8412,7 @@
+@@ -7305,7 +8454,7 @@
              && self.core(file, node, view, "bool2int")
              && ty(node).is_some_and(|t| t.known() && !optional(t) && t.kind == TypeKind::Int)
              && ty(children[0]).is_some_and(|t| t.known() && !optional(t) && t.kind == TypeKind::Bool)

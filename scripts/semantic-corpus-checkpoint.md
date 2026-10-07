@@ -2074,3 +2074,19 @@ and passes the patch application check. The reviewed repair will put both
 negative membership guards on the selection itself after complete child
 inspection, covering nested Boolean operations while leaving initialized
 routing arrays Unknown. It has not yet been applied or validated.
+
+The reviewed membership repair is now applied in the copy. Complete child
+inspection precedes a negative-only closed-index-domain check and the existing
+strict membership check for original uninitialized Boolean arrays. Admission
+still returns Unknown; initialized routing arrays bypass the original-array
+restriction. Multiplication inspection is unchanged.
+
+All four numeric groups pass, including the direct out-of-range, unproved and
+nested unproved selection assertions. Cargo returns zero without timeout in
+3.036 seconds; its child is reaped and its process group is empty. Both full
+streams, equal maps and all 355 physical paths were checked. Evidence is under
+`target/benchmarks/base083/semantic62-draft-workspace-boolean-membership-green-numeric_facts/`.
+The reconstructed 19-file candidate is 212,769 bytes, SHA-256
+`f25f42a7cc05a3eaadc325b897e6f1539f8918abd07c16da578399310db74a36`,
+and passes the patch application check. Routing and required workspace gates
+are still pending; the candidate has not been integrated.
