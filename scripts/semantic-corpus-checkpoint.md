@@ -1366,3 +1366,14 @@ unobserved. Stream hashes and equal before/after records were checked. This
 cutoff is an open processing failure, not a successful semantic comparison.
 No retry or deadline change was made. Evidence is in
 `target/benchmarks/base083/semantic62-draft-release7-generated-all-control/`.
+
+The matched ordinary native CLI pair for the isolated cost-four repair also
+completes within 300 seconds. Both status-1 commands produce empty stdout and
+the same 375,901 stderr bytes, matching the prior instrumented probes.
+Cost-three/cost-four child CPU is 174.964/129.669 seconds, wall time
+177.902/133.411 seconds and peak RSS 894.500/893.766 MiB. Complete streams,
+commands, terminal receipts, equal maps and 358 distinct current file pins
+were independently checked. Original-sweep and generated-behavior overlap
+preclude an isolated speedup claim. Growth remains unverified; a matched
+instrumented pair on the accepted larger inventory model is the next check.
+Evidence is in `target/benchmarks/base083/semantic62-cost4-sysadmin-native-pair/`.
