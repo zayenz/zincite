@@ -1592,3 +1592,20 @@ the companion is 2,657,056 bytes, SHA-256
 Evidence is in `target/benchmarks/base083/semantic62-draft-workspace-semantic-release10/`
 and `semantic62-draft-routing-index-binaries/`. Original routing validation,
 actual integration and final corpus acceptance remain pending.
+
+Release ten's original routing control completes in 2.404 seconds under the
+unchanged 300-second deadline. All 26 outcomes are observed, with 180 warnings,
+zero errors and 208 limitations. Source metadata is identical to release nine,
+and live bytes return to the 2,394-byte baseline. Only `array-index-start`
+changes its rule row, from Limited to Completed.
+
+All 180 complete warning blocks are byte identical in the same order. Six
+array-index limitations and one vacuous-constraint limitation are removed.
+At line 129, search coverage changes its limitation from unsupported numeric
+arithmetic to unproved division/remainder operands; it remains Limited.
+The other 207 limitation blocks are unchanged and retain their order. Full
+streams, terminal receipt, equal maps and 1,910 current distinct physical pins
+were checked. Evidence is in
+`target/benchmarks/base083/semantic62-draft-release10-routing-control/`, including
+`root-block-audit.json`. This is a single-root partial-coverage result;
+actual integration and final corpus acceptance remain pending.
