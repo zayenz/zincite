@@ -14,6 +14,7 @@ const CORE: &str = concat!(
     "function var int: enum2int(var $$E: x); function array[int] of var int: enum2int(array[int] of var $$E: x);\n",
     "function array[int] of any $V: index2int(array[$$E] of any $V: x);\n",
     "function var bool: '/\\'(var bool: left,var bool: right);\n",
+    "function var bool: 'in'(var int: value,set of int: choices);\n",
     "function array[int] of var int: '++'(array[int] of var int: left,array[int] of var int: right);\n",
     "annotation input_order; annotation indomain_min; annotation complete;\n",
     "annotation seq_search(array[int] of ann: s);\n",
@@ -1619,6 +1620,9 @@ fn callable_outputs_keep_selected_direction_defaults_captures_and_array_extent()
         "predicate filtered_array(array[S] of var int: xs,array[S] of var int: ys)=forall(i in S where true)(ys[i]=xs[i]);\n",
         "function var int: opaque(var int: x)=x; predicate partly_supported(var int: source,var int: good,var int: bad)=good=source /\\ bad=opaque(source);\n",
         "predicate optional_output(var opt int: source,var opt int: result)=result=source;\n",
+        "predicate reciprocal(array[int] of var int: a,array[int] of var int: b)=forall(i in index_set(a))(a[i] in index_set(b) /\\ b[a[i]]=i) /\\ forall(j in index_set(b))(b[j] in index_set(a) /\\ a[b[j]]=j);\n",
+        "predicate half_reciprocal(array[int] of var int: a,array[int] of var int: b)=forall(i in index_set(a))(a[i] in index_set(b) /\\ b[a[i]]=i);\n",
+        "predicate filtered_reciprocal(array[int] of var int: a,array[int] of var int: b)=forall(i in index_set(a) where true)(a[i] in index_set(b) /\\ b[a[i]]=i) /\\ forall(j in index_set(b))(b[j] in index_set(a) /\\ a[b[j]]=j);\n",
     );
     let source = concat!(
         "\u{feff}% é\r\ninclude \"included.mzn\"; int: global_needle; array[1..2,1..2] of var 0..3: values;\n",
@@ -1626,6 +1630,7 @@ fn callable_outputs_keep_selected_direction_defaults_captures_and_array_extent()
         "set of int: S; array[S] of var int: array_input; array[S] of var int: array_output; array[S] of var int: filtered_output;\n",
         "array[S] of var int: converted_output; array[S] of var int: converted_filtered;\n",
         "array[S] of var opt int: converted_optional;\n",
+        "array[S] of var int: inverse_output; array[S] of var int: half_inverse; array[S] of var int: filtered_inverse; array[S] of var int: cycle_left; array[S] of var int: cycle_right;\n",
         "var int: misleading; var int: competing_output; var int: good; var int: bad; var int: forwarded; var opt int: optional_input; var opt int: optional_result;\n",
         "predicate capture_output(var int: out_value)=out_value=unsearched;\n",
         "var int: anchored; var int: unanchored; var int: conditional; array[1..2] of var int: partial; var bool: gate;\n",
@@ -1636,6 +1641,9 @@ fn callable_outputs_keep_selected_direction_defaults_captures_and_array_extent()
         "constraint copy_array(index2int(enum2int(array_input)),index2int(enum2int(converted_output)));\n",
         "constraint filtered_array(array_input,index2int(enum2int(converted_filtered)));\n",
         "constraint copy_array(array_input,index2int(enum2int(converted_optional)));\n",
+        "constraint reciprocal(index2int(enum2int(array_input)),index2int(enum2int(inverse_output)));\n",
+        "constraint half_reciprocal(array_input,index2int(enum2int(half_inverse))); constraint filtered_reciprocal(array_input,index2int(enum2int(filtered_inverse)));\n",
+        "constraint reciprocal(cycle_left,cycle_right);\n",
         "constraint capture_output(need_capture); constraint loop_a(counted,unanchored);\n",
         "constraint gate -> copy_value(counted,conditional); constraint copy_value(counted,partial[1]);\n",
         "solve :: seq_search([int_search(array1d(values),input_order,indomain_min,complete),int_search(array_input,input_order,indomain_min,complete),bool_search([gate],input_order,indomain_min,complete)]) satisfy;\n"
@@ -1715,6 +1723,23 @@ fn callable_outputs_keep_selected_direction_defaults_captures_and_array_extent()
         coverage(&bindings, &search, "converted_filtered"),
         SearchCoverage::WholeArray
     );
+    assert_eq!(
+        coverage(&bindings, &search, "inverse_output"),
+        SearchCoverage::WholeArray,
+        "{:?}",
+        search.limitations
+    );
+    for name in [
+        "half_inverse",
+        "filtered_inverse",
+        "cycle_left",
+        "cycle_right",
+    ] {
+        assert_ne!(
+            coverage(&bindings, &search, name),
+            SearchCoverage::WholeArray
+        );
+    }
     assert_eq!(
         coverage(&bindings, &search, "misleading"),
         SearchCoverage::Uncovered
