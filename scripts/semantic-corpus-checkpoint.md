@@ -1507,3 +1507,13 @@ terminal receipts, equal maps and 1,148 distinct current absolute file pins were
 checked. Original-sweep and observed peer-job overlap are retained. No extra
 native run or deadline change was made. Evidence is in
 `target/benchmarks/base083/semantic62-cost4-inventory-growth-probes/`.
+
+All four original shard-029 captures are now terminal: thesis/all native and
+thesis/all companion each time out at the unchanged 1,800-second deadline and
+are reaped. All eight receipt-bound streams were checked. Both companions stop
+after manifest/load/analyze beginnings, so all fourteen thesis and 26 expanded
+outcomes remain Unobserved, with no root/drop/completion record. No native
+completed-root count is inferred from empty output. All 1,038 retained compiler,
+model and standard-source pins were rehashed unchanged. This remains a valid
+processing failure; it does not close acceptance. Root evidence is in
+`target/benchmarks/base083/exhaustive-semantic61/shard029-root-terminal-audit.json`.
