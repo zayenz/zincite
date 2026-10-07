@@ -1889,3 +1889,21 @@ This public chain excludes private selected-analysis coordination and rule
 checking. It does not identify the full-analysis timeout's cause or establish
 semantic acceptance. Evidence is under
 `target/benchmarks/base083/semantic62-navigation-guarded-diagnostic/`.
+
+The routing inspection implementation is saved as a separate candidate
+checkpoint. It adds guarded inspection for the combined test's parameter
+tests, conditionals, selectors, Boolean operations, comprehensions, inline
+reshapes and Boolean-to-integer coercion. Inspected symbolic values remain
+Unknown; the existing strict dependency and output proof paths are retained.
+Only callable_definitions.rs changes from the preceding candidate.
+
+The first focused attempt fails to compile because one caller retained the
+old helper name. That caller is corrected in this checkpoint; the focused
+rerun is still pending. No passing test or completed repair is claimed.
+The reconstructed candidate contains 19 files and 209,057 bytes, SHA-256
+`a1da06169807944058e59aa9df94ef86be485668cc766e20519f9c816c59de4b`.
+It passes `git apply --check --whitespace=error`, and the original source pins
+remain unchanged. Evidence is under
+`target/benchmarks/base083/semantic62-routing336-inspection-preparation/`.
+Passing focused checks, workspace gates, integration and final acceptance
+remain pending.

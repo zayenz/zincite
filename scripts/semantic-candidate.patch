@@ -579,6 +579,15 @@
          {
              return Err(
                  "uncertain-bound parameter array requires the core rank-two integer array2d".into(),
+@@ -4733,7 +4915,7 @@
+         }
+         // Inspect every header and body even when an axis might be empty. Unknown
+         // cardinality or membership supplies no strict dependency or output proof.
+-        match self.parameter_collection_safety(file, collection, view, generators) {
++        match self.collection_construction_safety(file, collection, view, generators) {
+             DefinitionSafety::Unsupported(reason) => Err(reason),
+             _ => Ok(()),
+         }
 @@ -5121,14 +5303,14 @@
          }
          let witness: Vec<_> = parts[0].child_nodes().map(unwrap).collect();
@@ -605,7 +614,322 @@
                  !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
                      if parameters.len() == 2 && parameters.iter().all(|t| t.known() && t.kind == TypeKind::Int)
                          && !optional(&parameters[1]) && return_type.known() && !optional(return_type) && return_type.kind == TypeKind::Int)
-@@ -5773,17 +5955,293 @@
+@@ -5276,6 +5458,160 @@
+         let mut all = generators.to_vec();
+         all.extend(headers);
+         Ok((ids, parts[1], all))
++    }
++    fn parameter_test_safety(
++        &self,
++        file: FileId,
++        node: &'a SyntaxNode,
++        view: &CallableFacts,
++        generators: &[&'a SyntaxNode],
++        active: &mut Vec<DeclarationId>,
++    ) -> Option<DefinitionSafety> {
++        let written_call = node;
++        let node = unwrap(node);
++        if node.kind() != NodeKind::CallExpression {
++            return None;
++        }
++        let facts = self.view(file, node, view);
++        let CallOutcome::Resolved {
++            declaration: id,
++            parameters,
++            return_type,
++        } = &self.operation_fact(facts, file, node)?.outcome
++        else {
++            return None;
++        };
++        let declaration = &self.bindings.declarations[id.0];
++        if declaration.role != DeclarationRole::Test
++            || !declaration.top_level
++            || self.context.files[declaration.file].kind != SourceKind::User
++        {
++            return None;
++        }
++        let checked = (|| -> Result<(), String> {
++            let parameter = |t: &TypeInst, kind: TypeKind| {
++                t.known()
++                    && !optional(t)
++                    && t.instantiation == Instantiation::Parameter
++                    && t.kind == kind
++            };
++            let signature = self
++                .calls
++                .signatures
++                .iter()
++                .find(|s| s.declaration == *id)
++                .ok_or("parameter test signature unavailable")?;
++            if active.contains(id)
++                || !self.context.files[declaration.file]
++                    .parsed
++                    .diagnostics()
++                    .is_empty()
++                || parameters.len() != 1
++                || signature.parameters.len() != 1
++                || signature.parameters[0].has_default
++                || !parameter(&signature.parameters[0].ty, TypeKind::Int)
++                || signature.parameters[0].ty != parameters[0]
++                || !parameter(&signature.return_type, TypeKind::Bool)
++                || &signature.return_type != return_type
++                || self
++                    .expression_type(facts, file, node)
++                    .is_none_or(|e| &e.ty != return_type)
++            {
++                return Err(
++                    "parameter test specialization, default or cycle is unsupported".into(),
++                );
++            }
++            let written = find_node(
++                self.context.files[declaration.file].parsed.tree(),
++                &declaration.syntax_range,
++                declaration.role,
++            )
++            .ok_or("parameter test declaration unavailable")?;
++            let formal = formal_parameter(self.context, self.bindings, *id, 0)
++                .ok_or("parameter test formal unavailable")?;
++            let formal_declaration = &self.bindings.declarations[formal.0];
++            let formal_node = find_node(
++                self.context.files[formal_declaration.file].parsed.tree(),
++                &formal_declaration.syntax_range,
++                formal_declaration.role,
++            )
++            .ok_or("parameter test written formal unavailable")?;
++            let (actual_file, actual) =
++                call_argument(self.context, self.bindings, facts, file, node, *id, 0)
++                    .ok_or("parameter test actual unavailable")?;
++            let body = written
++                .child_nodes()
++                .find(|n| is_expression(n.kind()))
++                .ok_or("parameter test body unavailable")?;
++            if node.child_nodes().count() != 1
++                || self
++                    .expression_type(self.view(actual_file, actual, view), actual_file, actual)
++                    .is_none_or(|e| !parameter(&e.ty, TypeKind::Int))
++                || self
++                    .expression_type(self.calls, declaration.file, body)
++                    .is_none_or(|e| !parameter(&e.ty, TypeKind::Bool))
++            {
++                return Err("parameter test actual or body type is unsupported".into());
++            }
++            let mut nodes = vec![written];
++            while let Some(current) = nodes.pop() {
++                if !crate::definitions::annotations_safe(self.context, declaration.file, current) {
++                    return Err("parameter test annotation is unsupported".into());
++                }
++                nodes.extend(current.child_nodes());
++            }
++            let mut nodes = vec![written_call];
++            while let Some(current) = nodes.pop() {
++                if !crate::definitions::annotations_safe(self.context, file, current) {
++                    return Err("parameter test call annotation is unsupported".into());
++                }
++                nodes.extend(current.child_nodes());
++            }
++            active.push(*id);
++            let inspected = (|| -> Result<(), String> {
++                if let DefinitionSafety::Unsupported(reason) =
++                    self.initialized_source_safety(actual_file, actual, view, generators, active)
++                {
++                    return Err(reason);
++                }
++                let mut types: Vec<_> = formal_node.child_nodes().take(1).collect();
++                while let Some(ty) = types.pop() {
++                    if ty.kind() == NodeKind::DomainType {
++                        for domain in ty.child_nodes() {
++                            if let DefinitionSafety::Unsupported(reason) = self
++                                .initialized_source_safety(
++                                    declaration.file,
++                                    domain,
++                                    self.calls,
++                                    &[],
++                                    active,
++                                )
++                            {
++                                return Err(reason);
++                            }
++                        }
++                    } else {
++                        types.extend(ty.child_nodes());
++                    }
++                }
++                match self.initialized_source_safety(
++                    declaration.file,
++                    body,
++                    self.calls,
++                    &[],
++                    active,
++                ) {
++                    DefinitionSafety::Unsupported(reason) => Err(reason),
++                    _ => Ok(()),
++                }
++            })();
++            active.pop();
++            inspected
++        })();
++        Some(match checked {
++            Ok(()) => DefinitionSafety::Unknown("parameter test value is unproved".into()),
++            Err(reason) => DefinitionSafety::Unsupported(reason),
++        })
+     }
+     // Inspection only: a bare source dependency is not proof that its written
+     // initializer, domains and transitive initialized sources are supported.
+@@ -5294,6 +5630,15 @@
+                 return DefinitionSafety::Unsupported(
+                     "initialized source annotation is unsupported".into(),
+                 );
++            }
++            if let Some(checked) =
++                self.parameter_test_safety(file, current, view, generators, active)
++            {
++                match checked {
++                    unsupported @ DefinitionSafety::Unsupported(_) => return unsupported,
++                    unknown @ DefinitionSafety::Unknown(_) => safety = unknown,
++                    DefinitionSafety::Supported => {}
++                }
+             }
+             nodes.extend(current.child_nodes());
+             if current.kind() != NodeKind::Expression {
+@@ -5380,7 +5725,7 @@
+     }
+     // Inspect parameter collection construction without turning unproved index
+     // membership, cardinality or filtered iteration into output dependencies.
+-    fn parameter_collection_safety(
++    fn collection_construction_safety(
+         &self,
+         file: FileId,
+         node: &'a SyntaxNode,
+@@ -5400,6 +5745,7 @@
+             let present_parameter = |t: &TypeInst| {
+                 t.known() && !optional(t) && t.instantiation == Instantiation::Parameter
+             };
++            let present = |t: &TypeInst| t.known() && !optional(t);
+             let integer_set = |t: &TypeInst| {
+                 present_parameter(t)
+                     && matches!(&t.kind, TypeKind::Set(element) if element.kind == TypeKind::Int)
+@@ -5410,7 +5756,9 @@
+                     element.as_ref()
+                 }
+                 (TypeKind::Array { indices, element }, NodeKind::ArrayComprehension)
+-                    if present_parameter(ty)
++                    if present(ty)
++                        && (ty.instantiation == Instantiation::Parameter
++                            || element.kind == TypeKind::Bool)
+                         && indices.len() == 1
+                         && present_parameter(&indices[0])
+                         && indices[0].kind == TypeKind::Int
+@@ -5420,9 +5768,14 @@
+                     element.as_ref()
+                 }
+                 (TypeKind::Bool, NodeKind::GeneratorCallExpression)
+-                    if present_parameter(ty)
+-                        && (self.core(file, node, view, "exists")
+-                            || self.core(file, node, view, "forall")) =>
++                    if present(ty)
++                        && (self.core(file, node, view, "forall")
++                            || present_parameter(ty) && self.core(file, node, view, "exists")) =>
++                {
++                    ty
++                }
++                (TypeKind::Int, NodeKind::GeneratorCallExpression)
++                    if present(ty) && self.core(file, node, view, "sum") =>
+                 {
+                     ty
+                 }
+@@ -5443,9 +5796,33 @@
+             };
+             if list.kind() != NodeKind::GeneratorList
+                 || list.child_nodes().count() == 0
+-                || typed(body).is_none_or(|t| !present_parameter(t) || t.kind != element.kind)
++                || typed(body).is_none_or(|t| {
++                    !present(t)
++                        || if node.kind() == NodeKind::GeneratorCallExpression
++                            && element.kind == TypeKind::Int
++                        {
++                            !matches!(t.kind, TypeKind::Int | TypeKind::Bool)
++                                || !crate::types::coerces(t, element)
++                        } else {
++                            t.kind != element.kind
++                        }
++                })
+             {
+                 return Err("parameter collection body type is unsupported".into());
++            }
++            if node.kind() == NodeKind::GeneratorCallExpression
++                && self.operation_fact(facts, file, node).is_none_or(|call| {
++                    !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
++                        if parameters.len() == 1 && return_type == ty
++                            && present(&parameters[0])
++                            && matches!(&parameters[0].kind, TypeKind::Array { indices, element: formal }
++                                if indices.len() == 1 && present_parameter(&indices[0])
++                                    && indices[0].kind == TypeKind::Int && present(formal)
++                                    && formal.kind == element.kind
++                                    && typed(body).is_some_and(|actual| crate::types::coerces(actual, formal))))
++                })
++            {
++                return Err("collection selected signature is unsupported".into());
+             }
+             let mut nodes = vec![node];
+             while let Some(current) = nodes.pop() {
+@@ -5591,33 +5968,20 @@
+                 return Err("integer comprehension binder type is unsupported".into());
+             }
+             let source = unwrap(headers[0].child_nodes().next().unwrap());
+-            if crate::domains::parameter_integer_set_source(
+-                self.context,
+-                self.bindings,
+-                facts,
+-                file,
+-                source,
+-            )
+-            .is_none()
++            if self.expression_type(facts, file, source).is_none_or(|e| {
++                !e.ty.known()
++                    || optional(&e.ty)
++                    || e.ty.instantiation != Instantiation::Parameter
++                    || !matches!(&e.ty.kind, TypeKind::Set(element)
++                        if element.known() && !optional(element) && element.kind == TypeKind::Int
++                            && element.instantiation == Instantiation::Parameter)
++            }) {
++                return Err("integer comprehension source is unsupported".into());
++            }
++            if let DefinitionSafety::Unsupported(reason) =
++                self.initialized_source_safety(file, source, view, generators, &mut Vec::new())
+             {
+-                let endpoints: Vec<_> = source.child_nodes().collect();
+-                if source.kind() != NodeKind::RangeExpression
+-                    || !self.core(file, source, view, "..")
+-                    || endpoints.len() != 2
+-                    || endpoints.iter().any(|endpoint| {
+-                        !facts.expressions.iter().any(|e| {
+-                            e.file == file
+-                                && e.location.range
+-                                    == self.context.files[file].location(endpoint.range()).range
+-                                && e.ty.known()
+-                                && !optional(&e.ty)
+-                                && e.ty.kind == TypeKind::Int
+-                                && e.ty.instantiation == Instantiation::Parameter
+-                        })
+-                    })
+-                {
+-                    return Err("integer comprehension source is unsupported".into());
+-                }
++                return Err(reason);
+             }
+             let mut nodes = vec![node];
+             while let Some(current) = nodes.pop() {
+@@ -5628,8 +5992,7 @@
+             }
+             let mut all = generators.to_vec();
+             all.push(headers[0]);
+-            self.relation_iterations(file, &all, generators.len(), view, false)?;
+-            match self.direct_safety(file, body, view, &all) {
++            match self.initialized_source_safety(file, body, view, &all, &mut Vec::new()) {
+                 DefinitionSafety::Unsupported(reason) => Err(reason),
+                 _ => Ok(()),
+             }
+@@ -5773,17 +6136,380 @@
                  && (sum || t.instantiation == Instantiation::Parameter)
          };
          let children: Vec<_> = node.child_nodes().collect();
@@ -899,10 +1223,97 @@
 +            return None;
 +        }
 +        Some(arguments)
++    }
++    fn inline_reshape_safety(
++        &self,
++        file: FileId,
++        written: &'a SyntaxNode,
++        view: &CallableFacts,
++        generators: &[&'a SyntaxNode],
++    ) -> Option<DefinitionSafety> {
++        let node = unwrap(written);
++        let children: Vec<_> = node.child_nodes().collect();
++        if node.kind() != NodeKind::CallExpression
++            || !self.core(file, node, view, "array2d")
++            || children.len() != 3
++            || unwrap(children[2]).kind() != NodeKind::ArrayComprehension
++        {
++            return None;
++        }
++        let facts = self.view(file, node, view);
++        let typed = |n: &SyntaxNode| self.expression_type(facts, file, n).map(|e| &e.ty);
++        let parameter_int = |t: &TypeInst| {
++            t.known()
++                && !optional(t)
++                && t.instantiation == Instantiation::Parameter
++                && t.kind == TypeKind::Int
++        };
++        let array = |t: &TypeInst, rank: usize| {
++            t.known()
++                && !optional(t)
++                && matches!(&t.kind, TypeKind::Array { indices, element }
++                if indices.len() == rank && indices.iter().all(parameter_int)
++                    && element.known() && !optional(element)
++                    && matches!(element.kind, TypeKind::Int | TypeKind::Bool))
++        };
++        let valid = children.iter().all(|n| n.kind() != NodeKind::NamedArgument)
++            && children[..2].iter().all(|n| {
++                typed(n).is_some_and(|t| {
++                    t.known()
++                        && !optional(t)
++                        && t.instantiation == Instantiation::Parameter
++                        && matches!(&t.kind, TypeKind::Set(element) if parameter_int(element))
++                })
++            })
++            && typed(children[2]).is_some_and(|t| array(t, 1))
++            && typed(node).is_some_and(|t| array(t, 2))
++            && self.operation_fact(facts, file, node).is_some_and(|call| {
++                matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
++                    if parameters.len() == 3 && parameters.iter().zip(&children)
++                        .all(|(formal, actual)| typed(actual) == Some(formal))
++                        && typed(node) == Some(return_type))
++            });
++        let mut nodes = vec![written];
++        while let Some(current) = nodes.pop() {
++            if !crate::definitions::annotations_safe(self.context, file, current) {
++                return Some(DefinitionSafety::Unsupported(
++                    "inline reshape annotation is unsupported".into(),
++                ));
++            }
++            nodes.extend(current.child_nodes());
++        }
++        if !valid {
++            return Some(DefinitionSafety::Unsupported(
++                "inline reshape selected signature or type is unsupported".into(),
++            ));
++        }
++        Some(
++            match self.initialized_children_safety(file, &children, view, generators) {
++                unsupported @ DefinitionSafety::Unsupported(_) => unsupported,
++                _ => DefinitionSafety::Unknown("inline reshape cardinality is unproved".into()),
++            },
++        )
++    }
++    fn initialized_children_safety(
++        &self,
++        file: FileId,
++        nodes: &[&'a SyntaxNode],
++        view: &CallableFacts,
++        generators: &[&'a SyntaxNode],
++    ) -> DefinitionSafety {
++        let mut safety = DefinitionSafety::Supported;
++        for node in nodes {
++            match self.initialized_source_safety(file, node, view, generators, &mut Vec::new()) {
++                unsupported @ DefinitionSafety::Unsupported(_) => return unsupported,
++                unknown @ DefinitionSafety::Unknown(_) => safety = unknown,
++                DefinitionSafety::Supported => {}
++            }
++        }
++        safety
      }
      fn direct_safety(
          &self,
-@@ -5792,6 +6250,27 @@
+@@ -5792,6 +6518,30 @@
          view: &CallableFacts,
          generators: &[&'a SyntaxNode],
      ) -> DefinitionSafety {
@@ -927,10 +1338,220 @@
 +                None => DefinitionSafety::Unknown("array reshape cardinality is unproved".into()),
 +            };
 +        }
++        if let Some(safety) = self.inline_reshape_safety(file, node, view, generators) {
++            return safety;
++        }
          // A strict dependency on a named collection does not inspect its
          // initializer. Keep that evaluation check ahead of strict success.
          let aggregate = self.aggregate_source_safety(file, node, view, generators);
-@@ -6057,7 +6536,8 @@
+@@ -5820,14 +6570,168 @@
+             self.expression_type(self.view(file, node, view), file, node)
+                 .map(|e| &e.ty)
+         };
++        if let Some(safety) =
++            self.parameter_test_safety(file, written, view, generators, &mut Vec::new())
++        {
++            return safety;
++        }
++        if node.kind() == NodeKind::ConditionalExpression
++            && ty(node).is_some_and(|t| {
++                t.known() && !optional(t) && matches!(t.kind, TypeKind::Int | TypeKind::Bool)
++            })
++        {
++            let result = ty(node).unwrap();
++            let branches: Vec<_> = node.child_nodes().collect();
++            let mut values = Vec::new();
++            let mut complete = false;
++            for (position, branch) in branches.iter().enumerate() {
++                let parts: Vec<_> = branch.child_nodes().collect();
++                let body = if branch.kind() == NodeKind::ConditionalBranch && parts.len() == 2 {
++                    if ty(parts[0]).is_none_or(|t| {
++                        !t.known()
++                            || optional(t)
++                            || t.kind != TypeKind::Bool
++                            || t.instantiation != Instantiation::Parameter
++                    }) {
++                        return DefinitionSafety::Unsupported(
++                            "conditional inspection guard is unsupported".into(),
++                        );
++                    }
++                    values.push(parts[0]);
++                    parts[1]
++                } else if branch.kind() == NodeKind::ElseBranch
++                    && parts.len() == 1
++                    && position + 1 == branches.len()
++                {
++                    complete = true;
++                    parts[0]
++                } else {
++                    return DefinitionSafety::Unsupported(
++                        "conditional inspection branch is unsupported".into(),
++                    );
++                };
++                if ty(body).is_none_or(|t| {
++                    !t.known()
++                        || optional(t)
++                        || t.kind != result.kind
++                        || !crate::types::coerces(t, result)
++                }) {
++                    return DefinitionSafety::Unsupported(
++                        "conditional inspection body is unsupported".into(),
++                    );
++                }
++                values.push(body);
++            }
++            if !complete
++                || values.len() < 3
++                || !crate::definitions::annotations_safe(self.context, file, written)
++            {
++                return DefinitionSafety::Unsupported(
++                    "conditional inspection requires a safe complete else".into(),
++                );
++            }
++            return match self.initialized_children_safety(file, &values, view, generators) {
++                unsupported @ DefinitionSafety::Unsupported(_) => unsupported,
++                _ => DefinitionSafety::Unknown("conditional value is unproved".into()),
++            };
++        }
++        if node.kind() == NodeKind::ArrayAccessExpression
++            && ty(node).is_some_and(|t| {
++                t.known() && !optional(t) && matches!(t.kind, TypeKind::Int | TypeKind::Bool)
++            })
++        {
++            let children: Vec<_> = node.child_nodes().collect();
++            if let Some(subject) = children.first().copied().map(unwrap)
++                && subject.kind() == NodeKind::Expression
++                && self.reference(file, subject).is_some()
++                && let Some(source) = ty(subject)
++                && source.known()
++                && !optional(source)
++                && let TypeKind::Array { indices, element } = &source.kind
++                && matches!(indices.len(), 1 | 2)
++                && children.len() == indices.len() + 1
++                && element.known()
++                && !optional(element)
++                && Some(&element.kind) == ty(node).map(|t| &t.kind)
++                && indices.iter().zip(&children[1..]).all(|(axis, selector)| {
++                    axis.known()
++                        && !optional(axis)
++                        && axis.kind == TypeKind::Int
++                        && axis.instantiation == Instantiation::Parameter
++                        && ty(selector).is_some_and(|t| {
++                            t.known()
++                                && !optional(t)
++                                && t.kind == TypeKind::Int
++                                && t.instantiation == Instantiation::Parameter
++                        })
++                })
++            {
++                return match self.initialized_children_safety(file, &children, view, generators) {
++                    unsupported @ DefinitionSafety::Unsupported(_) => unsupported,
++                    _ => {
++                        DefinitionSafety::Unknown("scalar selection membership is unproved".into())
++                    }
++                };
++            }
++        }
++        if ty(node).is_some_and(|t| {
++            t.known()
++                && !optional(t)
++                && t.kind == TypeKind::Bool
++                && t.instantiation == Instantiation::Decision
++        }) {
++            let children: Vec<_> = node.child_nodes().collect();
++            let name =
++                operator(self.context, file, node).and_then(crate::bindings::symbolic_operator);
++            let operand_kind = match (node.kind(), name) {
++                (NodeKind::BinaryExpression, Some("=" | "!=" | "<" | "<=" | ">" | ">="))
++                    if children.len() == 2 =>
++                {
++                    Some(TypeKind::Int)
++                }
++                (NodeKind::BinaryExpression, Some("/\\" | "\\/" | "<->" | "->" | "<-"))
++                    if children.len() == 2 =>
++                {
++                    Some(TypeKind::Bool)
++                }
++                (NodeKind::UnaryExpression, Some("not")) if children.len() == 1 => {
++                    Some(TypeKind::Bool)
++                }
++                _ => None,
++            };
++            if let Some(kind) = operand_kind
++                && self.core(file, node, view, name.unwrap())
++                && crate::definitions::annotations_safe(self.context, file, written)
++                && children.iter().all(|n| ty(n).is_some_and(|t| t.known() && !optional(t) && t.kind == kind))
++                && self.operation_fact(self.view(file, node, view), file, node).is_some_and(|call| {
++                    matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
++                        if parameters.len() == children.len() && Some(return_type) == ty(node)
++                            && parameters.iter().zip(&children).all(|(formal, actual)| formal.known()
++                                && !optional(formal) && formal.kind == kind
++                                && ty(actual).is_some_and(|t| crate::types::coerces(t, formal))))
++                }) {
++                return match self.initialized_children_safety(file, &children, view, generators) {
++                    unsupported @ DefinitionSafety::Unsupported(_) => unsupported,
++                    _ => DefinitionSafety::Unknown("Boolean operation value is unproved".into()),
++                };
++            }
++        }
+         if (matches!(
+             node.kind(),
+             NodeKind::ArrayComprehension | NodeKind::SetComprehension
+         ) || node.kind() == NodeKind::GeneratorCallExpression
+-            && ty(node).is_some_and(|t| t.kind == TypeKind::Bool)
+-            && (self.core(file, node, view, "forall") || self.core(file, node, view, "exists")))
++            && (self.core(file, node, view, "forall")
++                || self.core(file, node, view, "exists")
++                || self.core(file, node, view, "sum")))
+             && ty(node).is_some_and(|t| {
+-                t.known() && !optional(t) && t.instantiation == Instantiation::Parameter
++                t.known()
++                    && !optional(t)
++                    && (t.instantiation == Instantiation::Parameter
++                        || t.kind == TypeKind::Bool
++                        || matches!(&t.kind, TypeKind::Array { element, .. }
++                        if element.kind == TypeKind::Bool)
++                        || node.kind() == NodeKind::GeneratorCallExpression
++                            && self.core(file, node, view, "sum"))
+             })
+         {
+             if !crate::definitions::annotations_safe(self.context, file, written) {
+@@ -5835,7 +6739,7 @@
+                     "parameter collection annotation is unsupported".into(),
+                 );
+             }
+-            return self.parameter_collection_safety(file, node, view, generators);
++            return self.collection_construction_safety(file, node, view, generators);
+         }
+         if node.kind() == NodeKind::ArrayComprehension {
+             return self.integer_comprehension_safety(file, node, view, generators);
+@@ -6044,6 +6948,25 @@
+             NodeKind::BinaryExpression => {
+                 let name =
+                     operator(self.context, file, node).and_then(crate::bindings::symbolic_operator);
++                if name == Some("*") && children.len() == 2
++                    && children.iter().any(|n| ty(n).is_some_and(|t| t.kind == TypeKind::Bool))
++                    && self.core(file, node, view, "*")
++                    && crate::definitions::annotations_safe(self.context, file, written)
++                    && children.iter().all(|n| ty(n).is_some_and(|t| t.known() && !optional(t)
++                        && matches!(t.kind, TypeKind::Int | TypeKind::Bool)))
++                    && self.operation_fact(self.view(file, node, view), file, node).is_some_and(|call| {
++                        matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
++                            if parameters.len() == 2 && return_type.known() && !optional(return_type)
++                                && return_type.kind == TypeKind::Int && Some(return_type) == ty(node)
++                                && parameters.iter().zip(&children).all(|(formal, actual)| formal.known()
++                                    && !optional(formal) && formal.kind == TypeKind::Int
++                                    && ty(actual).is_some_and(|t| crate::types::coerces(t, formal))))
++                    }) {
++                    return match self.initialized_children_safety(file, &children, view, generators) {
++                        unsupported @ DefinitionSafety::Unsupported(_) => unsupported,
++                        _ => DefinitionSafety::Unknown("coerced multiplication value is unproved".into()),
++                    };
++                }
+                 if !matches!(name, Some("+" | "-" | "*" | "div" | "mod"))
+                     || children.len() != 2
+                     || !self.core(file, node, view, name.unwrap())
+@@ -6057,7 +6980,8 @@
                      let integer =
                          |t: &TypeInst| t.known() && !optional(t) && t.kind == TypeKind::Int;
                      if !crate::definitions::annotations_safe(self.context, file, written)
@@ -940,7 +1561,7 @@
                              .is_none_or(|call| {
                                  !matches!(&call.outcome,
                                  CallOutcome::Resolved { parameters, return_type, .. }
-@@ -6081,6 +6561,21 @@
+@@ -6081,6 +7005,21 @@
                              DefinitionSafety::Unsupported(reason) => unsupported = Some(reason),
                              unknown @ DefinitionSafety::Unknown(_) => safety = unknown,
                              DefinitionSafety::Supported => {}
@@ -962,7 +1583,7 @@
                          }
                          // Inspect each operand independently: an unknown dividend
                          // cannot hide a literal zero divisor or invalid sibling.
-@@ -6181,7 +6676,7 @@
+@@ -6181,7 +7120,7 @@
                      if children.len() != 1
                          || children[0].kind() == NodeKind::NamedArgument
                          || ty(children[0]).is_none_or(|t| !t.known() || optional(t) || t.kind != TypeKind::Int)
@@ -971,7 +1592,7 @@
                              .is_none_or(|call| {
                                  !matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                      if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
-@@ -6190,6 +6685,9 @@
+@@ -6190,6 +7129,9 @@
                      {
                          return DefinitionSafety::Unsupported(reason);
                      }
@@ -981,7 +1602,7 @@
                      return self.direct_children_safety(file, &children, view, generators);
                  }
                  let integer_array = |t: &TypeInst| {
-@@ -6205,7 +6703,8 @@
+@@ -6205,7 +7147,8 @@
                      || children.len() != 1
                      || children[0].kind() == NodeKind::NamedArgument
                      || ty(children[0]).is_none_or(|t| !integer_array(t))
@@ -991,7 +1612,7 @@
                          .is_none_or(|c| {
                              !matches!(&c.outcome, CallOutcome::Resolved { parameters, .. }
                              if parameters.len() == 1 && integer_array(&parameters[0]))
-@@ -6271,7 +6770,7 @@
+@@ -6271,7 +7214,7 @@
                  let extrema =
                      self.core(file, node, view, "min") || self.core(file, node, view, "max");
                  if !(extrema || self.core(file, node, view, "sum"))
@@ -1000,7 +1621,7 @@
                          .is_none_or(|c| {
                              !matches!(&c.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
-@@ -6486,6 +6985,106 @@
+@@ -6486,6 +7429,106 @@
          }
          safety
      }
@@ -1107,7 +1728,7 @@
      fn dependencies(
          &self,
          file: FileId,
-@@ -6493,6 +7092,7 @@
+@@ -6493,6 +7536,7 @@
          view: &CallableFacts,
          generators: &[&'a SyntaxNode],
      ) -> Result<Vec<DeclarationId>, String> {
@@ -1115,7 +1736,7 @@
          let node = unwrap(node);
          let facts = self.view(file, node, view);
          let ty = self.expression_type(facts, file, node).map(|e| &e.ty);
-@@ -6611,6 +7211,11 @@
+@@ -6611,6 +7655,11 @@
                  let id = self
                      .reference(file, subject)
                      .ok_or("array access identity unavailable")?;
@@ -1127,7 +1748,7 @@
                  if children.len() == 2
                      && self.named_selector_membership(file, id, children[1], facts)
                  {
-@@ -6689,10 +7294,28 @@
+@@ -6689,10 +7738,28 @@
                                  .is_some_and(|e| parameter_integers(&e.ty))
                          });
                      if !strings && !integers {
@@ -1160,7 +1781,7 @@
                      }
                  }
                  if name == "diff"
-@@ -6771,7 +7394,7 @@
+@@ -6771,7 +7838,7 @@
                          || children[0].kind() == NodeKind::NamedArgument
                          || ty.is_none_or(|t| t.kind != TypeKind::Int)
                          || self.expression_type(facts, file, children[0]).is_none_or(|e| !e.ty.known() || optional(&e.ty) || e.ty.kind != TypeKind::Int)
@@ -1169,7 +1790,7 @@
                              !matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
                                      && parameters[0].kind == TypeKind::Int)
-@@ -6791,7 +7414,7 @@
+@@ -6791,7 +7858,7 @@
                          || argument.is_none_or(|e| {
                              !e.ty.known() || optional(&e.ty) || e.ty.kind != TypeKind::Bool
                          })
@@ -1178,7 +1799,7 @@
                              matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameters[0].known()
                                      && !optional(&parameters[0]) && parameters[0].kind == TypeKind::Bool)
-@@ -6812,7 +7435,7 @@
+@@ -6812,7 +7879,7 @@
                          || ty.is_none_or(|t| {
                              t.kind != TypeKind::Int || t.instantiation != Instantiation::Parameter
                          })
@@ -1187,7 +1808,7 @@
                              matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameter_integers(&parameters[0]))
                          })
-@@ -6902,7 +7525,7 @@
+@@ -6902,7 +7969,7 @@
                              t.kind != TypeKind::Int || t.instantiation != Instantiation::Parameter
                          })
                          || argument.is_none_or(|e| !parameter_integers(&e.ty))
@@ -1196,7 +1817,7 @@
                              matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameter_integers(&parameters[0]))
                          })
-@@ -6939,27 +7562,36 @@
+@@ -6939,27 +8006,36 @@
                          {
                              return self.dependencies(file, args[0], view, generators);
                          }
@@ -1248,7 +1869,7 @@
                  }
                  let metadata = if self.core(file, node, view, "show_index_sets") {
                      Some((1, TypeKind::String))
-@@ -7031,7 +7663,7 @@
+@@ -7031,7 +8107,7 @@
                      && ty.is_some_and(|t| t.kind == TypeKind::Bool);
                  let count = self.core(file, node, view, "count")
                      && ty.is_some_and(|t| t.kind == TypeKind::Int)
@@ -1257,7 +1878,7 @@
                          matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                              if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
                                  && matches!(&parameters[0].kind, TypeKind::Array { element, .. } if element.kind == TypeKind::Bool))
-@@ -7039,7 +7671,7 @@
+@@ -7039,7 +8115,7 @@
                  let extrema = (self.core(file, node, view, "min")
                      || self.core(file, node, view, "max"))
                      && ty.is_some_and(|t| t.kind == TypeKind::Int)
@@ -1266,7 +1887,7 @@
                          matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                              if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
                                  && matches!(&parameters[0].kind, TypeKind::Array { indices, element }
-@@ -7060,7 +7692,24 @@
+@@ -7060,7 +8136,24 @@
                  let mut all = generators.to_vec();
                  all.extend(list.child_nodes());
                  if parameter_collection || quantifier || count || extrema {
@@ -1292,7 +1913,7 @@
                  } else {
                      self.iterations(file, &all, view)?;
                  }
-@@ -7305,7 +7954,7 @@
+@@ -7305,7 +8398,7 @@
              && self.core(file, node, view, "bool2int")
              && ty(node).is_some_and(|t| t.known() && !optional(t) && t.kind == TypeKind::Int)
              && ty(children[0]).is_some_and(|t| t.known() && !optional(t) && t.kind == TypeKind::Bool)
