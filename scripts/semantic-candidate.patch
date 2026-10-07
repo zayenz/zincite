@@ -718,7 +718,7 @@
                              matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameter_integers(&parameters[0]))
                          })
-@@ -6939,27 +7366,35 @@
+@@ -6939,27 +7366,36 @@
                          {
                              return self.dependencies(file, args[0], view, generators);
                          }
@@ -745,8 +745,9 @@
                              .into(),
                      );
 +                }
-+                if let Some(argument) =
-+                    length_argument(self.context, self.bindings, facts, file, node)
++                if self.core(file, node, view, "length")
++                    && let Some(argument) =
++                        length_argument(self.context, self.bindings, facts, file, node)
 +                    && self
 +                        .expression_type(facts, file, argument)
 +                        .is_some_and(|e| matches!(e.ty.kind, TypeKind::Set(_)))
@@ -769,7 +770,7 @@
                  }
                  let metadata = if self.core(file, node, view, "show_index_sets") {
                      Some((1, TypeKind::String))
-@@ -7031,7 +7466,7 @@
+@@ -7031,7 +7467,7 @@
                      && ty.is_some_and(|t| t.kind == TypeKind::Bool);
                  let count = self.core(file, node, view, "count")
                      && ty.is_some_and(|t| t.kind == TypeKind::Int)
@@ -778,7 +779,7 @@
                          matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                              if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
                                  && matches!(&parameters[0].kind, TypeKind::Array { element, .. } if element.kind == TypeKind::Bool))
-@@ -7039,7 +7474,7 @@
+@@ -7039,7 +7475,7 @@
                  let extrema = (self.core(file, node, view, "min")
                      || self.core(file, node, view, "max"))
                      && ty.is_some_and(|t| t.kind == TypeKind::Int)
@@ -787,7 +788,7 @@
                          matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                              if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
                                  && matches!(&parameters[0].kind, TypeKind::Array { indices, element }
-@@ -7305,7 +7740,7 @@
+@@ -7305,7 +7741,7 @@
              && self.core(file, node, view, "bool2int")
              && ty(node).is_some_and(|t| t.known() && !optional(t) && t.kind == TypeKind::Int)
              && ty(children[0]).is_some_and(|t| t.known() && !optional(t) && t.kind == TypeKind::Bool)
@@ -1036,7 +1037,7 @@
              declarations: if definitions.is_some() {
                  vec![None; bindings.declarations.len()]
              } else {
-@@ -1584,6 +1602,167 @@
+@@ -1584,6 +1602,180 @@
              _ => None,
          }
      }
@@ -1151,6 +1152,19 @@
 +        // Only numeric interpretation has the actual instantiation facts needed
 +        // by the existing source inspector. Independent bounds stay unchanged.
 +        let instantiations = self.instantiations?;
++        let outcome = crate::callables::operation_head_start(self.context, file, node)
++            .and_then(|start| self.call_indices.get(&(file, start)))
++            .map(|&index| &self.calls.calls[index].outcome);
++        if crate::callables::core_operation_outcome(
++            self.context,
++            self.bindings,
++            outcome,
++            node.kind(),
++            "length",
++        ) != Ok(true)
++        {
++            return None;
++        }
 +        let argument = crate::callable_definitions::length_argument(
 +            self.context,
 +            self.bindings,
@@ -1204,7 +1218,7 @@
      fn expression(&mut self, file: FileId, node: &SyntaxNode) -> NumericOutcome {
          use NumericOutcome::*;
          let range = self.context.files[file].location(node.range()).range;
-@@ -1598,6 +1777,34 @@
+@@ -1598,6 +1790,34 @@
          }
          let children: Vec<_> = node.child_nodes().collect();
          match node.kind() {
@@ -1239,7 +1253,7 @@
              NodeKind::ParenthesizedExpression | NodeKind::AnnotatedExpression => children
                  .first()
                  .map(|n| self.expression(file, n))
-@@ -1635,6 +1842,9 @@
+@@ -1635,6 +1855,9 @@
              }
              NodeKind::ArrayAccessExpression => {
                  if self.definitions.is_some() {
@@ -1249,7 +1263,7 @@
                      return Unsupported(
                          "numeric array access requires an index-membership proof".into(),
                      );
-@@ -1643,6 +1853,65 @@
+@@ -1643,6 +1866,65 @@
                      return Unsupported("array identity is unavailable".into());
                  };
                  self.array_elements(id).into()
@@ -1315,7 +1329,7 @@
              }
              NodeKind::UnaryExpression | NodeKind::BinaryExpression => {
                  let Some(operator) = tokens(&self.context.files[file].parsed, node)
-@@ -1654,12 +1923,14 @@
+@@ -1654,12 +1936,14 @@
                  let Some(name) = crate::bindings::symbolic_operator(operator) else {
                      return Unsupported("integer operator is outside bounded arithmetic".into());
                  };
@@ -1334,7 +1348,7 @@
                      name,
                  ) {
                      Ok(true) => {}
-@@ -1673,6 +1944,9 @@
+@@ -1673,6 +1957,9 @@
                  let values: Vec<_> = children.iter().map(|n| self.expression(file, n)).collect();
                  numeric_arithmetic(operator, &values, self.definitions.is_none())
              }
@@ -1403,7 +1417,49 @@
              let (invariant, outcome, selection) =
                  self.index_membership(file, index, array, dimension + 1, domain, scope);
              self.obligation(
-@@ -1635,6 +1665,33 @@
+@@ -1555,6 +1585,41 @@
+                 .ty(file, children[0])
+                 .is_some_and(|t| !t.optional && t.kind == TypeKind::Int)
+         {
++            return result;
++        }
++        if children.len() == 1
++            && self.core_operation(file, node, "show") == Ok(true)
++            && annotations_safe(self.context, file, node)
++            && self.ty(file, children[0]).is_some_and(|t| {
++                t.known()
++                    && !t.optional
++                    && t.kind == TypeKind::Bool
++                    && matches!(
++                        t.instantiation,
++                        Instantiation::Parameter | Instantiation::Decision
++                    )
++            })
++            && self.ty(file, node).is_some_and(|t| {
++                t.known()
++                    && !t.optional
++                    && t.kind == TypeKind::String
++                    && t.instantiation == Instantiation::Parameter
++            })
++            && crate::callables::operation_fact(self.context, self.calls, file, node).is_some_and(
++                |call| {
++                    matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
++                        if parameters.len() == 1 && parameters[0].known() && !parameters[0].optional
++                            && parameters[0].kind == TypeKind::Bool
++                            && matches!(parameters[0].instantiation,
++                                Instantiation::Parameter | Instantiation::Decision)
++                            && return_type.known() && !return_type.optional
++                            && return_type.kind == TypeKind::String
++                            && return_type.instantiation == Instantiation::Parameter)
++                },
++            )
++        {
++            // Rendering a present scalar Boolean adds no evaluation hazard.
++            // Keep child partiality/assertions; infer no string content or truth.
+             return result;
+         }
+         if ["ln", "log10", "log2", "log"]
+@@ -1635,6 +1700,33 @@
              if !self.core_call(file, node, name) {
                  continue;
              }
@@ -1489,6 +1545,25 @@
                      let reason = guarded
                          .limitations
                          .iter()
+--- a/crates/zincite-lint/src/input_preconditions.rs
++++ b/crates/zincite-lint/src/input_preconditions.rs
+@@ -264,10 +264,14 @@
+             continue;
+         }
+         if let GuardedOutcome::Unsupported(reason) = &o.outcome {
+-            limits.push(SourceDiagnostic {
++            let diagnostic = SourceDiagnostic {
+                 location: o.operation.clone(),
+                 message: format!("missing-input-precondition: {reason}"),
+-            });
++            };
++            if limits.last() == Some(&diagnostic) {
++                continue;
++            }
++            limits.push(diagnostic);
+             continue;
+         }
+         let names = fact
 --- a/crates/zincite-lint/tests/callables.rs
 +++ b/crates/zincite-lint/tests/callables.rs
 @@ -402,6 +402,26 @@
@@ -1520,16 +1595,17 @@
  
 --- a/crates/zincite-lint/tests/guarded.rs
 +++ b/crates/zincite-lint/tests/guarded.rs
-@@ -8,6 +8,8 @@
+@@ -8,6 +8,9 @@
  };
  
  const CORE: &str = concat!(
++    "function string:show(bool:x); function string:show(var bool:x); function string:show(opt bool:x);\n",
 +    "function int: min(int:a,int:b); function int: max(int:a,int:b);\n",
 +    "function var int: min(var int:a,var int:b); function var int: max(var int:a,var int:b);\n",
      "function int: bool2int(bool:x); function var int: bool2int(var bool:x);\n",
      "function opt int: bool2int(opt bool:x); function array[$I] of int: bool2int(array[$I] of bool:x); function set of int: bool2int(set of bool:x);\n",
      "function bool: '='(int: a,int: b); function bool: '!='(int: a,int: b);\n",
-@@ -435,6 +437,39 @@
+@@ -435,6 +438,39 @@
      ));
      assert!(facts.limitations.iter().any(|l| l.reason.contains("user")));
      std::fs::remove_dir_all(dir).unwrap();
@@ -1569,6 +1645,46 @@
  }
  
  #[test]
+@@ -616,6 +652,39 @@
+ 
+ #[test]
+ fn scalar_bool2int_retains_boolean_and_raw_partiality_boundaries() {
++    for options in [false, true] {
++        let (dir, context, facts) = model_using_options(
++            if options { "show-options" } else { "show" },
++            "bool:p; var bool:q; opt bool:o; function bool:opaque(); annotation unsafe; string:a=show(p); string:b=show(q); string:c=show(assert(false,\"abort\",true)); string:d=show(opaque()); string:e=show(o); string:f=(show(p)::unsafe); solve satisfy;",
++            options,
++        );
++        for shown in ["show(p)", "show(q)"] {
++            let value = expression(&context, &facts, shown);
++            assert_eq!(value.definedness, GuardedOutcome::Proven);
++            assert_eq!(value.truth, None);
++            assert_eq!(value.numeric, None);
++        }
++        assert_ne!(
++            expression(&context, &facts, "show(assert(false,\"abort\",true))").definedness,
++            GuardedOutcome::Proven
++        );
++        for shown in ["show(opaque())", "show(o)", "show(p)::unsafe"] {
++            assert!(matches!(
++                expression(&context, &facts, shown).definedness,
++                GuardedOutcome::Unsupported(_)
++            ));
++        }
++        std::fs::remove_dir_all(dir).unwrap();
++    }
++    let (dir, context, facts) = model(
++        "user-show",
++        "function string:show(bool:x)=\"yes\"; string:s=show(true); solve satisfy;",
++    );
++    assert!(matches!(
++        expression(&context, &facts, "show(true)").definedness,
++        GuardedOutcome::Unsupported(_)
++    ));
++    std::fs::remove_dir_all(dir).unwrap();
+     let source = concat!(
+         "bool:p; int:d; function bool:opaque();\n",
+         "int:yes=bool2int(true); int:no=bool2int(false); int:unknown=bool2int(p);\n",
 --- a/crates/zincite-lint/tests/index_set_mismatch.rs
 +++ b/crates/zincite-lint/tests/index_set_mismatch.rs
 @@ -182,6 +182,74 @@
@@ -1646,6 +1762,43 @@
      let (dir, _, result) = model(
          "unsupported",
          "array[1..2,1..2] of int:grid; array[int,int] of int:slice=grid[..,1..2]; solve satisfy;",
+--- a/crates/zincite-lint/tests/input_preconditions.rs
++++ b/crates/zincite-lint/tests/input_preconditions.rs
+@@ -67,6 +67,34 @@
+ }
+ #[test]
+ fn arrays_keep_source_dimension_identity_and_explicit_matching_guards() {
++    let (dir, _, _, facts, result) = model(
++        "unsupported-alias",
++        "function array[int,int] of int:opaque(array[int,int] of int:a); function int:alias(array[int,int] of int:a,int:i,int:j)=let {array[int,int] of int:b=opaque(a);} in b[i,j]; solve satisfy;",
++        "missing-input-precondition",
++    );
++    assert_eq!(facts.len(), 2, "{facts:?}");
++    assert!(
++        facts
++            .iter()
++            .all(|fact| matches!(fact.obligation.outcome, GuardedOutcome::Unsupported(_)))
++    );
++    assert_eq!(
++        facts
++            .iter()
++            .map(|fact| match fact.obligation.kind {
++                GuardObligationKind::Index { dimension, .. } => dimension,
++                _ => panic!("{fact:?}"),
++            })
++            .collect::<Vec<_>>(),
++        [1, 2]
++    );
++    assert_eq!(result.limitations.len(), 1, "{result:?}");
++    assert!(result.findings.is_empty(), "{result:?}");
++    assert!(matches!(
++        result.rules[0].outcome,
++        RuleOutcome::Limited { .. }
++    ));
++    std::fs::remove_dir_all(dir).unwrap();
+     let source = concat!(
+         "function int:cross(array[int] of int:a,array[int] of int:b)=sum(i in index_set(a))(b[i]);\n",
+         "function int:own(array[int] of int:a)=sum(i in index_set(a))(a[i]);\n",
 --- a/crates/zincite-lint/tests/numeric_facts.rs
 +++ b/crates/zincite-lint/tests/numeric_facts.rs
 @@ -6,6 +6,9 @@
@@ -1845,3 +1998,29 @@
 +    );
      std::fs::remove_dir_all(dir).unwrap();
  }
+--- a/crates/zincite-lint/tests/vacuous_constraint.rs
++++ b/crates/zincite-lint/tests/vacuous_constraint.rs
+@@ -1,6 +1,7 @@
+ use std::path::PathBuf;
+ use zincite_lint::*;
+ const CORE: &str = concat!(
++    "function string:show(var bool:x);\n",
+     "function set of int: '..'(int:a,int:b); function int: 'div'(int:a,int:b); function var int: 'div'(var int:a,var int:b);\n",
+     "function var bool: '='(any $T:a,any $T:b); function bool: '>'(int:a,int:b);\n",
+     "function var bool: '/\\'(var bool:a,var bool:b); function var bool: '\\/'(var bool:a,var bool:b); function var bool: 'not'(var bool:a);\n",
+@@ -86,6 +87,15 @@
+ }
+ #[test]
+ fn partiality_optional_presence_and_upstream_evaluation_remain_distinct() {
++    let (dir, _, result) = model(
++        "show-condition",
++        "var bool:p; string:s=if show(p)=\"true\" then \"yes\" else \"no\" endif; solve satisfy;",
++        "vacuous-constraint",
++    );
++    assert!(result.findings.is_empty(), "{result:?}");
++    assert!(result.limitations.is_empty(), "{result:?}");
++    assert!(matches!(result.rules[0].outcome, RuleOutcome::Completed));
++    std::fs::remove_dir_all(dir).unwrap();
+     let source = concat!(
+         "var int:x; int:d; array[1..2] of var opt bool:unknown_values;\n",
+         "constraint x=x; constraint (1 div d)=(1 div d); constraint (1 div 0)=(1 div 0);\n",

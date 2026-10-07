@@ -1244,3 +1244,19 @@ all 1,039 compiler, standard-library, helper and original-source pins, and run
 no solver. These inputs are outside required valid-input compatibility under
 the compiler pre-check rule. The errors remain in the original capture.
 Evidence is in `target/benchmarks/base083/semantic61-shard022-parser-prechecks/`.
+
+The candidate patch now includes present scalar Boolean `show` inspection,
+removal of adjacent identical input-precondition limitations, and early length
+identity checks using the existing call indexes. Rendering preserves child
+partiality and supplies no string or truth value. The diagnostic repair retains
+both dimension obligations and the Limited outcome; it changes only identical
+adjacent limitation messages. Length classification keeps its semantic guards.
+Formatting, all-target compilation and the guarded, numeric, vacuous-constraint
+and input-precondition groups pass (16 tests). Complete streams, terminal
+receipts, unchanged maps and the source/helper/patch and frozen-binary pins were
+checked. Evidence is in
+`target/benchmarks/base083/semantic62-draft-workspace-show-adjacent-*/`.
+The refreshed `semantic-candidate.patch` contains 13 Rust files, passes
+`git apply --check` and has SHA-256
+`545be5d1469de7144a1e5b2f45f0ec618b4160a0590ff88c5b1851e91292c6a8`.
+Full workspace gates and final release/corpus checks remain pending.
