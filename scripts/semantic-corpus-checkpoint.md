@@ -586,3 +586,9 @@ the original model already assigns `neighbours`. Compilation finishes in
 1,038 original compiler, standard-library, model and data inputs match before
 and after. This strengthens this case's processing classification beyond the
 earlier source-only check while leaving semantic acceptance open.
+
+The immutable semantic57 formatter's copy also compiles with the same data and
+Gecode. The two complete FlatZinc outputs differ only on line 3, the generated
+command-line invocation comment containing the different file paths. All other
+bytes match. The comparison, formatter/compiler receipts and unchanged-original
+checks are retained alongside the original compilation evidence.
