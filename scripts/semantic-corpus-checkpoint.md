@@ -1562,3 +1562,13 @@ The corrected 17-file patch is 145,156 bytes, SHA-256
 `40e0405e92e45137ad7c915797bf3f90dba0fcb22fbfa6fb0abba9269db9be00`,
 and passes `git apply --check --whitespace=error`. Original-model validation,
 actual integration and fresh final corpus acceptance remain pending.
+
+Original shards 037–038 have checked terminal captures for another 35 roots.
+All 16 receipt-bound streams/hashes, ordered companion root/drop records,
+manifest IDs, final statuses and exact partitions were checked, with 1,057
+current original input/dependency pins unchanged. The large shard-037 model
+completes all fourteen thesis and all 26 expanded rules with zero limitations,
+retaining 94,878 thesis and 122,040 expanded warnings. Shard 038 retains two
+thesis and 87 expanded limitations. Evidence is in
+`target/benchmarks/base083/exhaustive-semantic61/shards037-038-root-audit.json`.
+These are original phase-61 captures; final-source acceptance remains pending.
