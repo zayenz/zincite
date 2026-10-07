@@ -729,8 +729,22 @@ impl<'a> Producer<'a> {
             }
             NodeKind::AnnotatedExpression => {
                 let harmless = children.iter().filter(|n| n.kind() == NodeKind::Annotation)
-                    .all(|n| n.child_nodes().next().is_some_and(|v| v.children().iter().any(|c|
-                        matches!(c, SyntaxElement::Token(i) if self.context.files[file].parsed.tokens()[*i].kind == TokenKind::StringLiteral))));
+                    .all(|n| n.child_nodes().next().is_some_and(|v| {
+                        if v.children().iter().any(|c| matches!(c, SyntaxElement::Token(i)
+                            if self.context.files[file].parsed.tokens()[*i].kind == TokenKind::StringLiteral)) {
+                            return true;
+                        }
+                        let value = unwrap(v);
+                        value.kind() == NodeKind::Expression
+                            && crate::domains::tokens(&self.context.files[file].parsed, value).len() == 1
+                            && self.reference(file, value).is_some_and(|id| {
+                                let declaration = &self.bindings.declarations[id.0];
+                                declaration.role == DeclarationRole::Annotation
+                                    && declaration.name == "domain"
+                                    && self.context.files[declaration.file].kind == SourceKind::StandardLibrary
+                                    && self.context.files[declaration.file].implicit
+                            })
+                    }));
                 if harmless {
                     if let Some(n) = children.first() {
                         self.clauses(file, item, n, view, generators, out);

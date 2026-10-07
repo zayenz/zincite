@@ -517,6 +517,13 @@ is retained in `target/benchmarks/base083/semantic56-project17-allocation-contro
 Original inputs, current source, artifacts and complete output streams were
 independently checked. Complete corpus acceptance remains pending.
 
+The seven retained diagnostic and shared-include regression controls also
+completed: 26 native runs and 13 companions preserve semantic55 statuses,
+diagnostics and analysis outcomes, and every reported scope returns to its
+starting level. All current streams and preserved comparison inputs were
+checked. These controls contain no enforced nonempty assumptions, so they check
+regressions and growth rather than the specific allocation benefit above.
+
 ## Base-083 remaining acceptance checks
 
 The reconciled `target/corpus/base080-complete/` run accounts for all 6,417
@@ -533,6 +540,14 @@ Completed rule outcomes and a Limited search outcome. The located limitation
 at line 105, bytes 3122..3145, is the `inverse` call annotated with `domain`.
 The current callable interpreter rejects non-string expression annotations
 before inspecting the call; the installed standard library declares `domain`
-as a propagation-strength hint. A fresh compiler precheck and focused capture
-are required before repairing this boundary. Any repair must retain underlying
-call prerequisites and reject unknown, ambiguous or shadowed annotations.
+as a propagation-strength hint. A fresh, pinned MiniZinc source check passes;
+the semantic56 focused capture confirms this boundary and a separate extrema
+proof limitation in `std/fzn_table_int.mzn`.
+
+The semantic57 repair accepts only a bare, uniquely resolved `domain`
+declaration from the implicit standard library. It preserves underlying call
+prerequisites. Existing search-fixture checks now accept the standard hint,
+retain unknown results for shadowed and unresolved annotations, and confirm
+that the hint cannot make a partial body total. Formatting, Clippy and all 193
+workspace tests pass. Fresh public-model captures and investigation of the
+separate table-body limitation remain pending.
