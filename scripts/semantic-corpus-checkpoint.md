@@ -2013,3 +2013,27 @@ streams, equal before/after maps and all 350 resolved physical pins for each
 gate were checked. Evidence is under
 `target/benchmarks/base083/semantic62-draft-workspace-routing336-final-{fmt,clippy,workspace}/`.
 The copy remains frozen while the membership regression is diagnosed.
+
+The frozen release-thirteen full navigation diagnostic reaches its 300-second
+cap during analysis. The child is reaped, its process group is empty, and all
+26 rules remain Unobserved: no root, drop or completion record is emitted.
+Full streams, equal maps and all 1,069 immutable physical pins were checked.
+Evidence is under
+`target/benchmarks/base083/semantic62-draft-release13-navigation-sampled-control/`.
+This diagnostic does not provide semantic acceptance or a timing ratio.
+
+One successful one-second sample was taken from the verified analysis child
+at an age of 194 seconds. All 84 main-thread samples pass through
+`resolve_unused_declarations` and `Producer::body_dependencies` into
+`_platform_memmove`. Independent disassembly places the sampled return address
+at the vector-removal shift of the remaining 72-byte demand entries. The
+current module matches the frozen source. This identifies the removal cost
+in that sample window, without establishing its share of total runtime.
+The sampler returns zero without timeout, is reaped, and has no remaining
+process group. Its complete raw sample and streams were checked.
+
+A private queue per declaration owner is being prepared for review. It will
+retain the existing matching-owner FIFO order and recursive append behavior.
+No queue repair has been applied or validated yet. The navigation model's
+successful current MiniZinc Gecode compilation remains the input-validity
+check; the analysis timeout does not make the model invalid.
