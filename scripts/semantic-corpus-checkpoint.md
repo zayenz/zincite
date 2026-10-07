@@ -1441,3 +1441,12 @@ The refreshed candidate is 129,739 bytes, SHA-256
 `44d94b6ab2503f9cca1a018d5d91e828beb8ae1afd0edf33e990933f5b90c5e0`,
 and passes `git apply --check --whitespace=error`. Final workspace gates and
 original Depot-model outcomes remain pending.
+
+The corrected Depot candidate passes all final copy-workspace gates:
+formatting, Clippy with warnings denied, and 193 tests across 42 successful
+suites. Complete streams, successful terminal receipts, equal maps and the
+106 copied-file plus 90 actual-source pins were checked. The workspace test
+command completed in 41.129 seconds. Evidence is in
+`target/benchmarks/base083/semantic62-draft-workspace-depot-v2-fixture-v2-{fmt,final-clippy,final-workspace}/`.
+The original Depot-model control, actual Rust integration and fresh final
+corpus acceptance remain pending.
