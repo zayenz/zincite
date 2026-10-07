@@ -1820,3 +1820,21 @@ the preserved before map. The diagnostic is terminal at the sampler's first
 guard, so no sample is attempted or retried. Evidence is under
 `target/benchmarks/base083/semantic62-navigation-numeric-diagnostic/`.
 A full selected-analysis control with the current candidate remains needed.
+
+Release thirteen builds from the frozen searched-array alias candidate and
+completes the original routing all-rule control in 2.233 seconds under the
+unchanged 300-second cap. Both owner handles return zero; all 26 rule rows
+are observed on the complete resolved original, and live bytes return to
+2,394. Build events, frozen binary origins, full control streams, equal maps
+and all 1,976 current physical control pins were checked.
+
+The repair removes exactly the 33 incorrect coordinate search warnings and
+one search limitation for ordinary unproved division at line 129. The
+remaining 180 warnings and 204 limitations are unchanged in order. Search
+still reports Limited, with zero findings; every other rule row is unchanged.
+Evidence is under
+`target/benchmarks/base083/semantic62-draft-workspace-semantic-release13/`,
+`semantic62-draft-array-alias-binaries/` and
+`semantic62-draft-release13-routing-control/`.
+The remaining support gaps, integration and fresh final corpus acceptance
+keep base-083 open.
