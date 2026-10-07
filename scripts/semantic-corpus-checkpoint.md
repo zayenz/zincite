@@ -1856,3 +1856,22 @@ remaining cause. The current and original cutoffs have different binaries
 and caps; no timing ratio, invalid-input exclusion or fresh corpus acceptance
 is claimed. Evidence is under
 `target/benchmarks/base083/semantic62-draft-release13-navigation-control/`.
+
+The combined routing producer regression is now retained in the candidate.
+Its present standard overload, set-to-array matching and written Set/Bool
+type checks pass. It keeps inspected arrays Unknown, with no supported
+whole-array output proof, and fails at the public completion check because
+inside, not_pref and cost each retain unsupported-definition limitations.
+The other three existing search test groups pass. This establishes a focused
+failing support case before production changes; it is not a passing repair.
+
+The RED owner returns one and Cargo returns 101, without timeout or surviving
+process group. Complete streams, equal maps and current 106 original/106
+copy/90 actual source pins were checked. The saved candidate was independently
+reconstructed; only its search test differs from the preceding candidate:
+19 files, 178,845 bytes, SHA-256
+`c02bc7224933c62bbffc6611385bb5aaf0ccf249439b8caeafbbb8b35e59fa99`.
+It passes the patch application check. Evidence is under
+`target/benchmarks/base083/semantic62-routing336-red-preparation/` and
+`semantic62-draft-workspace-routing336-red-search/`.
+Implementation, passing gates, integration and final acceptance remain pending.
