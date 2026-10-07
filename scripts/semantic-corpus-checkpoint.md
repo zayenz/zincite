@@ -834,3 +834,14 @@ all-rule captures continue separately. Preserve this processing failure and any
 unobserved outcomes; neither a timeout nor partial diagnostics establish that
 the corresponding original model is compiler-invalid. Evidence remains in
 `target/benchmarks/base083/exhaustive-semantic61/shard-008/`.
+
+The companion's current `sysadmin_4_2s.mzn` input from the 2020 BNN-planner
+submission passes a fresh Gecode compilation with MiniZinc 2.10.1. Compilation
+returns zero in 0.436 seconds, produces 302,666 bytes of FlatZinc, and has empty
+stdout and stderr; no solving occurs. The 1,037 compiler, library and input pins
+remain unchanged, and both output artifacts match their retained hashes.
+Evidence is retained in
+`target/benchmarks/base083/semantic61-bnn-source-precheck/`. This bounded check
+overlapped the exhaustive capture. The model is compiler-valid; the companion's
+observed analysis phase does not establish the cause of the earlier native
+timeout. Corpus capture and Zincite repairs remain pending.
