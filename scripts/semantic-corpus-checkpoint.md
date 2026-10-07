@@ -917,3 +917,29 @@ the existing outcome interpreter and diagnostic order. The revised patch passes
 source pins remain unchanged. Compilation, allocation/native measurements and
 behavioral validation remain pending. This prepared patch is not an applied
 repair or whole-task acceptance.
+
+The disposable candidate workspace now passes an offline all-target Cargo check
+in 6.225 seconds, returning zero without a timeout. The first attempt failed
+because the temporary copy omitted fixtures referenced by `include_str!`; its
+receipt remains retained. Adding the eleven tracked fixtures corrects that copy
+boundary. The second attempt's full streams were checked against its receipt,
+and all 106 copied files were checked: only the intended `domains.rs` candidate
+differs from the originals. All 90 actual sources, twelve capture helpers and
+five gate binaries remain unchanged. Evidence is retained in
+`target/benchmarks/base083/semantic62-draft-workspace-validation2/`. This is
+compilation of an unapplied candidate, with corpus overlap, not an authoritative
+workspace gate, behavioral proof or performance result.
+
+The ninth batch is now closed. Its outer driver returns one after 7,201.088
+seconds, without reaching its outer deadline, and is reaped with its process
+group empty. The raw cleanup EPERM remains recorded. All four scheduled
+attempts reached their own unchanged 1,800-second caps. The final all-rule
+companion is reaped with status -9 after 1,800.013 seconds; its full streams
+match the receipt, including 1,674,878 bytes of stdout and 1,054,780 bytes of
+stderr. Both companions report 52 complete, dependency-resolved root/drop pairs
+and twelve unobserved roots, with every selected-rule partition accounting for
+all 64 roots. The last unfinished phase remains the compiler-valid BNN model's
+analysis. The batch rechecks 1,086 original files with no changes and unchanged
+binaries; capture acceptance is false and semantic acceptance remains unset.
+The original coordinator has started the tenth batch. No process was stopped,
+deadline changed or unresolved root excluded.
