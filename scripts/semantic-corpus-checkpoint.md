@@ -788,3 +788,14 @@ unchanged. Receipts and complete streams are retained in
 checks overlapped the serial exhaustive capture; affected timing measurements
 must not be presented as isolated performance controls. Their success confirms
 compiler validity, not Zincite rule completion or formatting equivalence.
+
+The exact local ZipQueens and Chinese jobshop originals now pass current
+MiniZinc source checks with empty diagnostic streams. The self-contained English
+count1 original compiles with Gecode to nonempty FlatZinc without solving; its
+compiler stream contains the model's trace messages. All three checks complete
+within the 60-second cap and preserve 1,039 compiler, library and input pins.
+Evidence is retained in
+`target/benchmarks/base083/semantic61-current-source-prechecks/`. Source-only
+checks establish parsing and typing, not instance compilation or formatting
+equivalence. These checks also overlapped the exhaustive capture. The located
+`abs`, enum-successor and `trace` gaps still require Zincite repairs.
