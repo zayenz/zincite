@@ -479,3 +479,25 @@ pins the original, `0-native.stderr` contains the complete thesis diagnostics,
 and `0-native.json` records the completed native invocation and stream hash.
 These counts establish the scaling behavior of this captured model; they do
 not establish complete corpus coverage or explain its analysis cost.
+
+## Base-083 guarded scope sharing
+
+The retained native Project17 thesis replay finished within its 1,800-second
+deadline with byte-identical diagnostics to the unsampled semantic55 baseline.
+Its single late one-second sample places all 78 sampled stacks under guarded
+interpretation, including private scope and assumption-vector cloning. This
+identifies work present in that window, rather than its share of total runtime.
+
+Commit `c07e0ac` shares the private assumption vector between unchanged scopes.
+Existing mutation sites detach it before adding assumptions; callable bodies
+that discard assumptions receive a fresh empty vector. Original assumption
+order, queries and public snapshots remain unchanged.
+
+Formatting, Clippy and all 193 workspace tests pass. Full ordered public
+`GuardedFacts` from both interpreter entry points are byte-identical between
+semantic55 and semantic56 on the two retained compiler-positive controls.
+The complete paired outputs are 77,655 and 221,798 bytes. Evidence is retained
+in `target/benchmarks/base083/semantic56-guarded-parity/`; original source,
+compiler controls, executables and output hashes were independently checked.
+The matched unsampled native cost check and complete corpus acceptance remain
+pending.
