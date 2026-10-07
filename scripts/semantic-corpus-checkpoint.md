@@ -2399,3 +2399,15 @@ combined 20-file candidate includes the refactor and applies cleanly; its
 superseded standalone draft remains in commit `49655b0`. Production integration
 and current-model performance/outcome verification remain open. Evidence is
 under `target/benchmarks/base083/semantic62-draft-workspace-index-lookups-{baseline,after}-*/`.
+
+The Routing line-373 Cartesian-sum draft is independently reviewed and saved
+unapplied in `scripts/semantic-routing373-draft.patch`. It reuses ordered
+collection/reshape inspection, adds exact selected Float comparison/selection
+and closed nonnegative integer-power inspection, and grants only Unknown
+facts. Its public extension checks the actual Unknown target and retained
+Unsupported partial child. The 407-byte reduction compiles with current
+MiniZinc/Gecode without solving (0.194 seconds); full streams, receipt, all
+1,041 unchanged inputs and generated FlatZinc/output-specification files were
+checked. Tests-only failure reproduction and post-repair Rust gates remain
+pending. Evidence is under
+`target/benchmarks/base083/semantic62-routing373-preparation/compiler-precheck/`.
