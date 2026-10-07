@@ -1077,3 +1077,26 @@ checked. Audit totals remain in
 `target/benchmarks/base083/exhaustive-semantic61/shards013-018-root-audit.json`.
 Three reported errors still need current-compiler classification; semantic
 acceptance remains unproven.
+
+
+The three-cost-patch BNN candidate completes its bounded all-rule control in
+163.633 seconds, without timeout, with its child reaped and process group empty.
+It captures one complete, dependency-resolved root, all 26 rule rows and a drop
+back to baseline. Twenty-three rules complete; unbounded-variable,
+search-coverage and vacuous-constraint remain Limited. There are 1,094 warnings,
+no errors and 561 limitations. Full streams and 1,353 compiler, model, original,
+copy, helper and candidate-binary pins were independently checked. Evidence is
+in `target/benchmarks/base083/semantic62-draft-bnn-all-range-control/`.
+The sampled overlapping run does not establish a performance ratio or semantic
+parity with the earlier timed-out candidates. The newest one-second sample
+locates remaining work in index-set checking and its obligation lookup.
+
+Current MiniZinc rejects the newly reported tuple-interpolation comma syntax.
+The parameter-file model also lacks its required include in this configuration,
+which remains an unavailable dependency rather than invalid syntax. The
+crossword data passes Gecode instance checking with its companion model, without
+a solver run. Its non-UTF-8 bytes remain outside Zincite's explicit UTF-8 input
+boundary in the brief; this is an encoding exclusion, not compiler invalidity.
+The initial data-only and empty-model checks are retained as inconclusive.
+Evidence remains in `target/benchmarks/base083/semantic61-shards013-018-source-prechecks/`
+and `semantic61-shard017-data-{parser,instance}-precheck/`.
