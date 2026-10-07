@@ -1047,3 +1047,33 @@ Consumer inspection and guarded membership remain separate required repairs.
 The prepared parameter-set aggregate inspector likewise retains Unknown after
 inspection, without output guarantees; rank-two Boolean filters and additional
 aggregate forms remain located support gaps rather than implicitly supported.
+
+
+The public-lookup candidate's second BNN control also reaches its unchanged
+300-second cap, is reaped with status -9 after 300.028 seconds and leaves an
+empty process group. Its full streams again contain only the model manifest
+and load/analyze begin records: no root, drop or completion record. All 26
+selected rules remain Unobserved. The original failed outer accounting receipt
+is retained separately from its corrected saved accounting; no retry occurred.
+The compiler/model, authoritative source and helper pins were independently
+rehashed unchanged. Evidence is in
+`target/benchmarks/base083/semantic62-draft-bnn-all-lookup-control/`.
+
+A one-second sample locates repeated source-location construction in expression
+lookup predicates. A third cost draft uses the existing indexed expression-type
+helper and computes byte ranges directly where only those ranges are needed.
+In the disposable copy, all-target compilation and seven existing definition
+and search tests pass. Their complete streams and 317 source, copy, helper and
+patch pins were independently checked. Evidence is in
+`target/benchmarks/base083/semantic62-draft-workspace-range-{check,definitions,search}/`.
+These copy checks do not establish authoritative workspace validation or a
+performance improvement; the next bounded control result is pending.
+
+Six additional closed batches, indices 013–018, contain respectively
+64, 64, 39, 1, 64 and 22 roots. Both presets retain all 254 ordered root and drop
+records, with no Unobserved roots. Their 14/26-rule partitions, common-rule rows,
+24 full stream pairs and 1,276 unique original-file hashes were independently
+checked. Audit totals remain in
+`target/benchmarks/base083/exhaustive-semantic61/shards013-018-root-audit.json`.
+Three reported errors still need current-compiler classification; semantic
+acceptance remains unproven.
