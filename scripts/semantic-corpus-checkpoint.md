@@ -1537,3 +1537,16 @@ and `semantic62-draft-workspace-routing-index-v3-domains/`.
 The actual Rust files remain unchanged while the original sweep runs. This is a
 candidate checkpoint: final workspace gates, an original routing-model control,
 actual integration and fresh full corpus acceptance remain pending.
+
+Original sweep shards 030–036 have checked terminal native and companion
+captures for 293 roots. All 56 receipt-bound streams and hashes were checked;
+companion manifests, ordered root/drop records, final statuses and every rule
+partition agree with their reports. All 1,315 distinct original input/dependency
+pins remain unchanged. Evidence is in
+`target/benchmarks/base083/exhaustive-semantic61/shards030-036-root-audit.json`.
+
+Shard 032 retains five unsupported data-item errors in `wedding_test.dzn` and
+one unresolved include in `assignment-pool/tmp/analyze.mzn`. These are captured
+errors, with compiler validity still unclassified. Other batches retain semantic
+limitations; native completion counts remain unavailable. These original
+phase-61 captures do not establish acceptance for the current candidate.
