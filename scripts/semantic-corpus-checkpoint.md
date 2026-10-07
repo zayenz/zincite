@@ -824,3 +824,13 @@ library and closure files remain unchanged. Evidence is retained in
 overlapping source checks establish neither instance compilation nor formatting
 equivalence. The compiler-accepted models' Zincite limitations remain work for
 base-083, alongside the uncaptured remainder of the corpus.
+
+The ninth batch's native thesis check reaches the unchanged 1,800-second cap
+and is reaped with status -9 after 1,800.02 seconds. Its retained stdout is
+empty and stderr contains 287,741 bytes; both complete stream hashes were
+checked. The native interface provides no completed-root count, so this receipt
+does not identify which input caused the long run. The scheduled companion and
+all-rule captures continue separately. Preserve this processing failure and any
+unobserved outcomes; neither a timeout nor partial diagnostics establish that
+the corresponding original model is compiler-invalid. Evidence remains in
+`target/benchmarks/base083/exhaustive-semantic61/shard-008/`.
