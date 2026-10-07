@@ -2441,3 +2441,15 @@ and applies cleanly. The superseded draft remains in commit `13044d1`.
 Original Routing recapture, production integration and final corpus acceptance
 remain open. Evidence is under
 `target/benchmarks/base083/semantic62-draft-workspace-routing373-{red,green,green-v2}-*/`.
+
+The frozen release-seventeen Navigation companion still reaches its unchanged
+300-second deadline (300.075 seconds), with zero observed roots. The complete
+raw streams contain only the manifest and load/analyze beginnings; all 26
+selected rules and fourteen thesis rules remain Unobserved, with no drop or
+completion record and null semantic acceptance. The child is reaped, its group
+is empty and the verification error is null. Before/after and all 1,149 current
+input, frozen-binary and helper pins match. The lookup repair remains validated
+for correctness, but this control does not establish Navigation completion or
+an isolated speedup. No retry or sampler was run. Evidence and the independent
+root audit are under
+`target/benchmarks/base083/semantic62-draft-release17-navigation-control/`.
