@@ -663,3 +663,12 @@ compiler-valid reciprocal reduction, using the previous command with only the
 tool path changed. It returns zero with empty diagnostic streams; all 1,039
 retained input pins and the before evidence remain unchanged. The complete
 receipt is in `target/benchmarks/base083/semantic59-reciprocal-native-after/`.
+
+The remaining table gap has a compiler-valid reduction using the installed
+`fzn_table_int` body, with only the predicate name changed and a concrete model
+added. Gecode compilation succeeds without solving; the immutable semantic59
+linter retains the same extrema limitation at bytes 390..1006. All 1,039 input
+pins remain unchanged. This before control is retained in
+`target/benchmarks/base083/semantic60-table-compiler-before/`. The new public
+regression independently fails at the same symbolic-bound inspection gap and
+requires the inspected body to export no output guarantees.
