@@ -631,3 +631,11 @@ proof must use both complete reciprocal relations and retain the opposite array
 as a dependency. The checked public rows and complete output are retained in
 `target/benchmarks/base083/semantic58-black-hole-facts/`; original inputs,
 source, artifacts and both successful child receipts were independently checked.
+
+A small reduction with the same reciprocal body, converted actuals and bounded
+decision arrays also compiles to FlatZinc with Gecode without solving. The
+immutable semantic58 linter retains the computed-output inversion limitation
+at its single enforced call. The valid model and both complete receipts are
+retained in `target/benchmarks/base083/semantic59-reciprocal-compiler-before/`
+as `reciprocal-valid.mzn`, `compile-valid.json` and `before-native-valid.json`.
+This is the compiler-valid before control for the next body-proof repair.
