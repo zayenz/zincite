@@ -1468,3 +1468,16 @@ maps and 1,777 distinct current file pins were checked. Evidence is in
 `semantic62-draft-release9-depot-control/`. This single-root result does not
 establish full corpus acceptance or a timing improvement. Actual Rust
 integration and fresh final corpus evidence remain pending.
+
+The original sweep's shard 029 now has three checked terminal captures for
+compiler-positive `sysadmin_5_4s.mzn`: thesis native, thesis companion and all
+native each time out at the unchanged 1,800-second deadline. Both native
+commands emit no output; the thesis companion emits only its manifest and
+load/analyze beginnings, with no completed root or rule outcomes. All fourteen
+thesis outcomes remain Unobserved. Complete receipt-bound streams were checked,
+and the retained successful MiniZinc/Gecode no-solve precheck produces nonempty
+FlatZinc with equal before/after maps. The all companion is still running;
+this is partial shard evidence, not a completed shard or full sweep. These
+valid-model processing failures keep acceptance open. Evidence is in
+`target/benchmarks/base083/exhaustive-semantic61/shard-029/` and
+`semantic61-shard029-bnn-source-precheck/`.
