@@ -1747,7 +1747,11 @@ the opaque assigned-annotation limitation is removed.
 
 Search remains Limited and adds 33 warnings on scalar coordinates contained
 in `nXNd_1D`, reshaped into `nXNd` and searched through `array1d(nXNd)`.
-These warnings expose a possible transitive coverage gap and still require
-assessment; their increase is not accepted as correct advice. Evidence is in
+Independent code review confirms the transitive coverage gap: the search
+walker records the named array, while definition closure only propagates
+from dependencies to their target. It never follows the searched reshape
+back through its source array to these scalar constituents. The new warnings
+are not accepted as correct advice; a source-identity repair remains pending.
+Evidence is in
 `target/benchmarks/base083/semantic62-draft-release12-routing-control/`.
 Integration and fresh final corpus acceptance remain pending.
