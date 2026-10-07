@@ -2352,3 +2352,14 @@ the targeted repair on the compiler-accepted original, while remaining valid
 processing gaps keep acceptance open. The run overlaps the protected corpus;
 it supplies no isolated timing ratio or fresh native outcome. Evidence is under
 `target/benchmarks/base083/semantic62-draft-release16-routing-control/`.
+
+A separate frozen-fifteen diagnostic copy adds only 105 outer phase markers
+to `analysis.rs`; removing them restores its exact baseline bytes. All 106
+source files were checked against the frozen-fifteen map, and the actual
+workspace/current sixteen candidate remain unchanged. Its locked/offline
+probe-only optimized build completes in 17.440 seconds. Complete streams,
+current maps, selected probe origin/frozen copy, 22 libraries and rustc were
+checked. Separate build paths change library bytes; no binary parity or stock
+performance claim follows. The probe is ready for one selected all-rule
+Navigation trace at the existing cap; no model run has occurred yet. Evidence
+is under `target/benchmarks/base083/semantic62-navigation-release15-coordination-build/`.
