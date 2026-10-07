@@ -1937,3 +1937,17 @@ the copy is restored to the exact saved candidate. This confirms a local
 repair target, not a passing repair. The next change will retain unknown
 values for already-inspected parameter integer selections while preserving
 invalid-source, selector, zero-divisor and checked-arithmetic handling.
+
+The frozen release-twelve navigation public iteration probe completes in
+52.496 seconds under a 300-second cap. Iteration facts takes 1.278 seconds,
+producing two array facts, five index sets, one iteration and no limitations.
+Its required numeric, optional and option-aware guarded prerequisites run
+once; callable definitions and unrelated producers are omitted. All ten
+measured phases complete. Compilation and diagnostic return zero, their
+children are reaped, and the agent confirms both process groups are absent.
+Four full streams and all 1,074 current physical pins were checked; only the
+compiled helper is added to the preserved before map. No sampler is attempted.
+Evidence is under
+`target/benchmarks/base083/semantic62-navigation-iteration-diagnostic/`.
+The omitted private coordination and rule work still prevent attribution of
+the selected-analysis cutoff; no semantic acceptance or timing ratio follows.
