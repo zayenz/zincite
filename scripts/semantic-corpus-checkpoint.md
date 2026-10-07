@@ -549,5 +549,30 @@ declaration from the implicit standard library. It preserves underlying call
 prerequisites. Existing search-fixture checks now accept the standard hint,
 retain unknown results for shadowed and unresolved annotations, and confirm
 that the hint cannot make a partial body total. Formatting, Clippy and all 193
-workspace tests pass. Fresh public-model captures and investigation of the
-separate table-body limitation remain pending.
+workspace tests pass.
+
+The fresh semantic57 Black Hole captures now complete for selected search,
+thesis and all rules. Each library/native pair has identical statuses, full
+diagnostics and loaded-source graphs. The thirteen other thesis rules complete;
+search still reports two limitations. The all preset completes twenty-four
+rules and retains limitations in search and vacuous-constraint. Original
+compiler/model/standard-library inputs, current source, artifacts and complete
+streams were independently checked. These results do not establish corpus
+acceptance.
+
+The annotation rejection is replaced by a located limitation inside the
+standard inverse wrapper: `index2int(enum2int(invf))` is a computed output actual
+that the current interpreter cannot invert. Public facts retain whole-array
+coverage for searched `x` and Unknown for `y`, with no derived definition for
+`y`. The separate table limitation retains twelve target identities; its only
+uncovered target is the standard body's private decision `i`. Its domain uses
+`lt..ut`, whose extrema remain unsupported. The actual model supplies a
+two-element decision array and a parameter table with explicit nonempty axes
+`1..416` and `1..2`. Inspecting those prerequisites needs further support;
+discarding private targets would conceal the unfinished body inspection.
+
+The complete captures and public facts are retained in
+`target/benchmarks/base083/semantic57-black-hole-boundary/` and
+`target/benchmarks/base083/semantic57-black-hole-facts/`. Both helpers and all
+children finished within their existing deadlines. No limitation was suppressed
+and no Completed outcome was inferred from compiler success.
