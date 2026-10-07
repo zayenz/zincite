@@ -3365,30 +3365,73 @@
          crate::optional::core_optional_call(
 --- a/crates/zincite-lint/src/index_set_mismatch.rs
 +++ b/crates/zincite-lint/src/index_set_mismatch.rs
-@@ -4,7 +4,7 @@
+@@ -4,7 +4,8 @@
      GuardedFacts, GuardedOutcome, IterationCoverage, IterationFacts, IterationIndexSet,
      ModelContext, NumericBound, Rule, Severity, SourceDiagnostic, SourceLocation,
  };
 -use zincite_syntax::{NodeKind, SyntaxNode};
++use std::collections::HashMap;
 +use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
  
  pub(super) fn check_index_set_mismatches(
      context: &ModelContext,
-@@ -29,9 +29,8 @@
+@@ -12,6 +13,29 @@
+     guarded: &GuardedFacts,
+     iteration: &IterationFacts,
+ ) -> (Vec<FileFinding>, Vec<SourceDiagnostic>) {
++    let mut expression_indices = HashMap::with_capacity(guarded.expressions.len());
++    for (row, expression) in guarded.expressions.iter().enumerate() {
++        expression_indices
++            .entry((
++                expression.file,
++                expression.location.range.start,
++                expression.location.range.end,
++            ))
++            .or_insert(row);
++    }
++    let mut index_obligation_indices: HashMap<_, Vec<_>> = HashMap::new();
++    for (row, obligation) in guarded.obligations.iter().enumerate() {
++        if matches!(obligation.kind, GuardObligationKind::Index { .. }) {
++            index_obligation_indices
++                .entry((
++                    obligation.file,
++                    obligation.operation.range.start,
++                    obligation.operation.range.end,
++                ))
++                .or_default()
++                .push(row);
++        }
++    }
+     let mut findings = Vec::new();
+     let mut limitations = Vec::new();
+     for (file, source) in context.files.iter().enumerate() {
+@@ -29,9 +53,11 @@
              collect_accesses(node, &mut accesses);
              for access in accesses {
                  let location = source.location(access.range());
 -                if guarded
 -                    .expression(file, &location)
 -                    .is_some_and(|e| e.context.activation == GuardActivation::Inactive)
-+                let evaluation = guarded.expression(file, &location);
++                let key = (file, location.range.start, location.range.end);
++                let evaluation = expression_indices
++                    .get(&key)
++                    .map(|&row| &guarded.expressions[row]);
 +                if evaluation.is_some_and(|e| e.context.activation == GuardActivation::Inactive)
                      || iteration.iterations.iter().any(|i| {
                          i.file == file
                              && contains(&i.location, &location)
-@@ -45,6 +44,28 @@
-                     .filter(|o| matches!(o.kind, GuardObligationKind::Index { .. }))
-                     .collect();
+@@ -40,11 +66,33 @@
+                 {
+                     continue;
+                 }
+-                let obligations: Vec<_> = guarded
+-                    .obligations_at(file, &location)
+-                    .filter(|o| matches!(o.kind, GuardObligationKind::Index { .. }))
+-                    .collect();
++                let obligations = index_obligation_indices
++                    .get(&key)
++                    .map(Vec::as_slice)
++                    .unwrap_or(&[]);
                  if obligations.is_empty() {
 +                    let selectors: Vec<_> = access.child_nodes().skip(1).collect();
 +                    let full_axes = !selectors.is_empty() && selectors.iter().all(|selector| {
@@ -3415,6 +3458,16 @@
                      let reason = guarded
                          .limitations
                          .iter()
+@@ -55,7 +103,8 @@
+                     continue;
+                 }
+                 let mut reported = Vec::new();
+-                for obligation in obligations {
++                for &row in obligations {
++                    let obligation = &guarded.obligations[row];
+                     let GuardObligationKind::Index {
+                         array,
+                         dimension,
 --- a/crates/zincite-lint/src/input_preconditions.rs
 +++ b/crates/zincite-lint/src/input_preconditions.rs
 @@ -264,10 +264,14 @@

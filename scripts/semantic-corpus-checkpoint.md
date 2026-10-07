@@ -2388,3 +2388,14 @@ duplicate obligations, suppressions, full-axis handling and diagnostic order
 are preserved. It applies cleanly to the copy and remains unapplied. Focused
 baseline/after checks, workspace gates and current-model measurements remain
 required; the draft alone establishes no processing or performance improvement.
+
+The lookup refactor now passes the three existing index-set public tests both
+before and after its exact copy application; their complete stdout bytes match.
+Formatting, Clippy with warnings denied and all 193 workspace tests in 42 suite
+results pass. Complete streams, terminal receipts and current before/after maps
+were checked; all children are reaped without timeout, with empty groups and
+null verification errors. Only the copy's index-set checker changed. The saved
+combined 20-file candidate includes the refactor and applies cleanly; its
+superseded standalone draft remains in commit `49655b0`. Production integration
+and current-model performance/outcome verification remain open. Evidence is
+under `target/benchmarks/base083/semantic62-draft-workspace-index-lookups-{baseline,after}-*/`.
