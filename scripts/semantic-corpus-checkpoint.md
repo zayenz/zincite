@@ -1393,3 +1393,22 @@ The refreshed `semantic-candidate.patch` passes `git apply --check` and has
 SHA-256 `7c2d98ee621e9b4bd381a9546a80ace4f12f56856e6ff6db618cd807544cf390`.
 Full workspace gates and the generated-model recapture remain pending for
 this lookup repair.
+
+The lookup candidate passes Clippy with warnings denied and all 193 workspace
+tests across 42 successful suites. Its frozen release-eight generated-model
+control completes within the unchanged 300-second deadline (238.277 seconds).
+All 26 selected rules are observed: 23 Completed and three Limited, including
+all fourteen thesis rules Completed. The root is complete and resolved, with
+34,581 warnings, zero errors and 348 limitations; live bytes return to 2,408.
+
+The full source metadata matches release six. Every warning block is byte
+identical and in the same order. All 348 remaining limitation blocks also
+retain their exact bytes and original order. The 507 removed limitations are
+254 from suspicious-domain and 253 from vacuous-constraint, following the
+Boolean-conversion inspection repair. Only suspicious-domain's rule row changes
+from Limited to Completed; the other 25 rows match. Four complete streams,
+terminal receipts, equal maps and 1,893 distinct current pins were checked.
+The earlier release-seven cutoff remains retained. This single control does
+not establish full corpus acceptance or an isolated performance improvement.
+Evidence is in `target/benchmarks/base083/semantic62-draft-release8-generated-all-control/`
+and `semantic62-draft-workspace-initialized-source-lookups-final-{clippy,workspace}/`.
