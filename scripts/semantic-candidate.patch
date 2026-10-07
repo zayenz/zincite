@@ -2549,6 +2549,133 @@
          let helper = resolved_index_domain(
              self.context,
              self.bindings,
+--- a/crates/zincite-lint/src/search.rs
++++ b/crates/zincite-lint/src/search.rs
+@@ -340,10 +340,12 @@
+             self.uncertain(file, node, "annotation alias body is unavailable");
+             return;
+         };
+-        let Some(value) = declaration
++        let Some((value_file, value)) = declaration
+             .child_nodes()
+             .filter(|n| is_expression(n.kind()))
+             .last()
++            .map(|value| (d.file, value))
++            .or_else(|| self.assigned_annotation(id, declaration))
+         else {
+             self.uncertain(
+                 file,
+@@ -385,8 +387,109 @@
+             }
+         }
+         self.active.push(id);
+-        self.annotation(d.file, value, &arguments);
++        self.annotation(value_file, value, &arguments);
+         self.active.pop();
++    }
++    fn assigned_annotation(
++        &self,
++        id: DeclarationId,
++        declaration: &SyntaxNode,
++    ) -> Option<(FileId, &'a SyntaxNode)> {
++        let d = &self.bindings.declarations[id.0];
++        let ty = &self.calls.declarations[id.0].ty;
++        if d.role != DeclarationRole::Annotation
++            || !d.top_level
++            || self.context.files[d.file].kind != SourceKind::User
++            || !ty.known()
++            || optional(ty)
++            || ty.instantiation != Instantiation::Parameter
++            || ty.kind != TypeKind::Annotation
++            || declaration
++                .child_nodes()
++                .any(|node| node.kind() == NodeKind::ParameterList || is_expression(node.kind()))
++        {
++            return None;
++        }
++        let mut selected = None;
++        for (file, source) in self.context.files.iter().enumerate() {
++            if source.kind != SourceKind::User || !source.parsed.diagnostics().is_empty() {
++                continue;
++            }
++            for (item, assignment) in source.parsed.tree().child_nodes().enumerate() {
++                if assignment.kind() != NodeKind::Assignment {
++                    continue;
++                }
++                let target = assignment.children().iter().find_map(|child| match child {
++                    SyntaxElement::Token(index) => {
++                        let token = &source.parsed.tokens()[*index];
++                        matches!(
++                            token.kind,
++                            TokenKind::Identifier | TokenKind::QuotedIdentifier
++                        )
++                        .then_some(token)
++                    }
++                    _ => None,
++                })?;
++                let target_range = source.location(target.range.clone()).range;
++                let reference = self.bindings.references.iter().find(|reference| {
++                    reference.file == file
++                        && reference.item == item
++                        && reference.kind == crate::ReferenceKind::Value
++                        && reference.callable.is_none()
++                        && reference.location.range == target_range
++                })?;
++                match &reference.resolution {
++                    BindingResolution::Resolved(target) if *target == id => {}
++                    BindingResolution::Ambiguous(targets)
++                    | BindingResolution::Overloads(targets)
++                        if targets.contains(&id) =>
++                    {
++                        return None;
++                    }
++                    BindingResolution::Unresolved if reference.name == d.name => return None,
++                    _ => continue,
++                }
++                if selected.is_some() {
++                    return None;
++                }
++                let mut values = assignment
++                    .child_nodes()
++                    .filter(|node| is_expression(node.kind()));
++                let value = values.next()?;
++                if values.next().is_some() {
++                    return None;
++                }
++                let range = source.location(value.range()).range;
++                let ty = &self
++                    .calls
++                    .expressions
++                    .iter()
++                    .find(|expression| {
++                        expression.file == file && expression.location.range == range
++                    })?
++                    .ty;
++                if !ty.known()
++                    || optional(ty)
++                    || ty.instantiation != Instantiation::Parameter
++                    || ty.kind != TypeKind::Annotation
++                {
++                    return None;
++                }
++                // Do not strip annotations whose effect on this assigned body is unexamined.
++                let mut pending = vec![declaration, value];
++                while let Some(node) = pending.pop() {
++                    if matches!(
++                        node.kind(),
++                        NodeKind::Annotation | NodeKind::AnnotatedExpression
++                    ) {
++                        return None;
++                    }
++                    pending.extend(node.child_nodes());
++                }
++                selected = Some((file, value));
++            }
++        }
++        selected
+     }
+     fn reindex_safety(
+         &self,
 --- a/crates/zincite-lint/tests/callables.rs
 +++ b/crates/zincite-lint/tests/callables.rs
 @@ -402,6 +402,26 @@
@@ -3223,7 +3350,39 @@
      std::fs::remove_dir_all(dir).unwrap();
  }
  #[test]
-@@ -381,6 +453,54 @@
+@@ -205,6 +277,18 @@
+             1,
+         ),
+         (
++            "assigned-annotation",
++            "var 0..9: value; var 0..9: unrelated; annotation strategy; strategy=seq_search([int_search([value],input_order,indomain_min,complete)]); solve :: strategy satisfy;",
++            SearchCoverage::Scalar,
++            1,
++        ),
++        (
++            "multiple-annotation-assignments",
++            "var 0..9: value; annotation strategy; strategy=int_search([value],input_order,indomain_min,complete); strategy=int_search([value],input_order,indomain_min,complete); solve :: strategy satisfy;",
++            SearchCoverage::Unknown,
++            0,
++        ),
++        (
+             "cyclic",
+             "var int: value; ann: a=b; ann: b=a; solve :: a satisfy;",
+             SearchCoverage::Unknown,
+@@ -268,6 +352,12 @@
+             "{name}: {:?}",
+             search.limitations
+         );
++        if name == "assigned-annotation" {
++            assert_eq!(
++                coverage(&bindings, &search, "unrelated"),
++                SearchCoverage::Uncovered
++            );
++        }
+         let result = analyze_model(&context, &selected());
+         assert_eq!(
+             result.findings.len(),
+@@ -381,6 +471,54 @@
              result.rules[0].outcome,
              RuleOutcome::Limited { .. }
          ));
@@ -3278,7 +3437,7 @@
      }
      std::fs::remove_dir_all(dir).unwrap();
      let source = concat!(
-@@ -2415,5 +2535,58 @@
+@@ -2415,5 +2553,58 @@
          analyze_model(&supported, &selected()).rules[0].outcome,
          RuleOutcome::Completed
      ));

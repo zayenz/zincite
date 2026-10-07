@@ -1695,3 +1695,22 @@ were checked. Evidence is in
 `semantic62-draft-release11-routing-control/root-block-audit.json`.
 This grants no new coverage or boundedness finding; actual integration and
 fresh final corpus acceptance remain pending.
+
+The isolated candidate now follows one separately assigned search annotation
+through its resolved declaration identity and original RHS file. It requires
+a present scalar annotation and retains duplicate-assignment, cycle and
+annotation vetoes. The existing coverage walker inspects the body; this adds
+no general definition fallback or comprehension support.
+
+The focused regression fails before the repair because the assigned annotation
+is opaque, then all four search test groups pass after it. The positive case
+marks the searched variable covered and the unrelated variable uncovered;
+multiple assignments remain Unknown and Limited. Both complete captures,
+terminal receipts and equal source maps were checked. The candidate is saved
+in `semantic-candidate.patch`: 19 files, 161,063 bytes, SHA-256
+`8fad8abdc459cf950f1376d79bdd7e89a95ac8e2ebb89941d7f35107eb389fa5`.
+It passes `git apply --check --whitespace=error`. Evidence is under
+`target/benchmarks/base083/semantic62-search-assigned-annotation-preparation/`
+and `semantic62-draft-workspace-assigned-annotation-{red,green}-search/`.
+Workspace gates, original-model control, integration and fresh final corpus
+acceptance for this revision remain pending.
