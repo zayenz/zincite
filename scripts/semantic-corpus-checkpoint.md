@@ -1620,3 +1620,13 @@ slots are consumed. Evidence is in
 `target/benchmarks/base083/semantic62-cost4-sysadmin-native-attribution/`.
 This supplies no new CPU attribution, isolated performance or native growth
 claim; the proposed Bounds cost remains unmeasured.
+
+The large shard-037 expanded diagnostic stream contains 122,040 warnings:
+27,162 missing-constraint-label and 94,878 decision-variable-operator. All
+122,040 file/range/rule keys are distinct, with zero duplicate excess. These
+warnings arise at distinct written source locations; this capture provides no
+reason to change grouping or discard warnings. The source ranges remain useful
+for suppressions and individual advice. Evidence is in
+`target/benchmarks/base083/exhaustive-semantic61/shard037-diagnostic-scaling-root-audit.json`.
+The final native diagnostic's 367 distinct mapped original/cost-three/cost-four,
+dependency, metadata and frozen binary files were also rehashed unchanged.
