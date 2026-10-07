@@ -1377,3 +1377,19 @@ were independently checked. Original-sweep and generated-behavior overlap
 preclude an isolated speedup claim. Growth remains unverified; a matched
 instrumented pair on the accepted larger inventory model is the next check.
 Evidence is in `target/benchmarks/base083/semantic62-cost4-sysadmin-native-pair/`.
+
+The saved candidate now lends Bounds' existing call and first-expression maps
+to the initialized-source safety inspector. Per-file Value-reference rows
+preserve containment and original first-row selection; a separate sparse Float
+location set preserves the any-float veto without duplicating the full
+expression map. Initializer, domain, annotation, optionality and cycle checks
+are unchanged. Formatting, all-target compilation and 14 existing numeric,
+guarded and search tests pass. All ten streams, terminal receipts, equal maps
+and 302 distinct current pins were independently checked. Declaration syntax
+traversal remains a possible residual cost; no timing improvement is claimed.
+Evidence is in `target/benchmarks/base083/semantic62-initialized-source-lookups-preparation/`
+and `semantic62-draft-workspace-initialized-source-lookups-*/`.
+The refreshed `semantic-candidate.patch` passes `git apply --check` and has
+SHA-256 `7c2d98ee621e9b4bd381a9546a80ace4f12f56856e6ff6db618cd807544cf390`.
+Full workspace gates and the generated-model recapture remain pending for
+this lookup repair.
