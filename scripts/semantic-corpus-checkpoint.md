@@ -2547,3 +2547,14 @@ obligation order and duplicates, default checks and diagnostic behavior are
 preserved. Existing focused before/after tests, formatting, Clippy, workspace
 tests and finite performance validation remain pending. Actual and shared
 Rust sources are unchanged; this checkpoint does not establish task completion.
+
+The Routing lines 182/235 conditional draft and its public regression changes
+are saved unapplied in `scripts/semantic-routing-conditionals-draft.patch`
+(13,059 bytes, SHA-256
+`8ff290eba1d4daa95d7d32368480495b6e9f2502cbc1fe2a28d30a5ba708842c`). The draft inspects complete unproved conditionals before
+any branch contributes definitions, and narrowly inspects scalar core lb/ub
+array selections without proving their bounds. Root has read the complete
+formatted patch; independent static review is ongoing. Current MiniZinc
+compile-only precheck, regression RED/GREEN and required Cargo gates remain
+pending. Actual and shared Rust sources are unchanged, and the validated
+combined candidate is unchanged. This saves work without claiming acceptance.
