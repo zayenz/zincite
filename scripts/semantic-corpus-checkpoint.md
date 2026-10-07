@@ -1609,3 +1609,14 @@ were checked. Evidence is in
 `target/benchmarks/base083/semantic62-draft-release10-routing-control/`, including
 `root-block-audit.json`. This is a single-root partial-coverage result;
 actual integration and final corpus acceptance remain pending.
+
+The final bounded cost-four native diagnostic completes in 130.303 seconds,
+with status and both full streams identical to the prior native control
+(375,901-byte diagnostic stream). Its one authorized macOS sampling attempt
+fails with status 255: the sampler cannot inspect the owned process. It produces
+no sample file or call graph. Both receipts/full streams and equal maps were
+checked; no retry or privilege escalation occurred. All eight protocol child
+slots are consumed. Evidence is in
+`target/benchmarks/base083/semantic62-cost4-sysadmin-native-attribution/`.
+This supplies no new CPU attribution, isolated performance or native growth
+claim; the proposed Bounds cost remains unmeasured.
