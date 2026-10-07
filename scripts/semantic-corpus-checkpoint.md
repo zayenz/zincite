@@ -943,3 +943,13 @@ analysis. The batch rechecks 1,086 original files with no changes and unchanged
 binaries; capture acceptance is false and semantic acceptance remains unset.
 The original coordinator has started the tenth batch. No process was stopped,
 deadline changed or unresolved root excluded.
+
+The same disposable candidate also passes the six existing `domains` and
+`numeric_facts` public tests, with zero failures or ignored tests. The bounded
+offline command returns zero in 9.884 seconds without a timeout and is reaped
+with an empty process group. Full stdout/stderr match the retained receipt in
+`target/benchmarks/base083/semantic62-draft-workspace-focused-tests/`; all 106
+copied inputs and 90 actual Rust sources were checked unchanged afterward.
+These tests cover conservative bounds, cycles, unsafe definitions, unknown
+domains and retained locations. They support the prepared lookup change, but
+do not establish full BNN processing, corpus parity or performance improvement.
