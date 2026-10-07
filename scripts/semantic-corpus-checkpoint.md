@@ -723,3 +723,15 @@ Independent physical checks confirm all six retained streams, 1,039 original
 inputs, 90 current sources and 29 artifacts. The pair still supplies no valid
 allocation ratio because semantic60 was censored. The focused allocation
 comparison and matched native measurements remain pending; base-083 is open.
+
+The focused semantic60/61 comparison now passes on compiler-valid models with
+10 and 100 distinct assumptions and comparison expressions. Both public
+GuardedFacts entry points preserve their full ordered output, including unknown
+query truth and every original assumption range. Native diagnostics and all
+fourteen rule outcomes match; each probe restores its allocation baseline.
+The eligibility change avoids 380 allocation calls and 39,520 requested bytes
+at size 10, and 39,800 calls and 4,139,200 bytes at size 100. Retained and peak
+tracked allocations are unchanged. These measured savings support retaining
+the small change; single native timings establish no CPU improvement. Evidence
+is retained in `target/benchmarks/base083/semantic61-alias-growth-control/`.
+Matched Project17 native measurements and final-corpus acceptance remain open.
