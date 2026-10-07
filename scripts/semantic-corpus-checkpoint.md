@@ -672,3 +672,23 @@ pins remain unchanged. This before control is retained in
 `target/benchmarks/base083/semantic60-table-compiler-before/`. The new public
 regression independently fails at the same symbolic-bound inspection gap and
 requires the inspected body to export no output guarantees.
+
+The semantic60 repair extends the existing uncertain-bound callable inspector
+to the table body's rank-two index-set extrema, private integer selector and
+parameter transpose array. It checks declarations in order, rejects forward or
+cyclic local dependencies, and matches the constructor axes to both unfiltered
+Cartesian headers. Child inspection keeps unsupported operations as limitations;
+unknown bounds and membership create no values or output guarantees. The
+regression passes, including the filtered negative and no-output checks.
+Formatting, Clippy and all 193 workspace tests pass. Root and independent bounded
+review found no defect; the source checkpoint is `910d565`.
+
+Fresh optimized native/library Black Hole pairs now complete selected search
+coverage and all fourteen thesis rules with no limitations. The all preset
+completes twenty-five rules and retains the two vacuous-constraint limitations.
+All six captures preserve exact paired statuses, diagnostics and source graphs;
+the original inputs and artifacts remain unchanged. The compiler-valid table
+reduction also clears its previous extrema limitation with empty diagnostic
+streams. Evidence is retained in `target/benchmarks/base083/semantic60-black-hole-boundary/`
+and `target/benchmarks/base083/semantic60-table-native-after/`. These model-level
+results do not establish full-corpus acceptance; base-083 remains open.
