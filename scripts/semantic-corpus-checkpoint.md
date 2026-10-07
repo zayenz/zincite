@@ -1100,3 +1100,16 @@ boundary in the brief; this is an encoding exclusion, not compiler invalidity.
 The initial data-only and empty-model checks are retained as inconclusive.
 Evidence remains in `target/benchmarks/base083/semantic61-shards013-018-source-prechecks/`
 and `semantic61-shard017-data-{parser,instance}-precheck/`.
+
+
+A small BNN reduction isolates the remaining array-access definition limitation.
+Both present Boolean and bounded integer arrays compile to FlatZinc with current
+Gecode settings, without solving. For `objective = 1*x[1]` in a `1..4` array,
+phase-61 analysis reports two definition limitations for the Boolean case and
+none for the integer case. The out-of-bounds Boolean control is also compiler
+accepted with a partiality warning and retains Zincite's findings; it is not
+classified invalid. Six complete compiler/probe stream pairs and 1,041 input
+pins were checked. Evidence is in
+`target/benchmarks/base083/semantic62-bnn-array-access-reduction/`.
+This isolates a required support investigation without relaxing membership or
+partiality checks.
