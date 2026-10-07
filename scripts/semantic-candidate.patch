@@ -2197,11 +2197,11 @@
      "function int: bool2int(bool:x); function var int: bool2int(var bool:x);\n",
      "function opt int: bool2int(opt bool:x); function array[$I] of int: bool2int(array[$I] of bool:x); function set of int: bool2int(set of bool:x);\n",
      "function bool: '='(int: a,int: b); function bool: '!='(int: a,int: b);\n",
-@@ -205,6 +208,56 @@
+@@ -205,6 +208,52 @@
          std::fs::read_to_string(dir.join("root.mzn")).unwrap(),
          source
      );
-+    std::fs::write(dir.join("library/std/stdlib.mzn"), format!("{CORE}\nfunction array[int] of var int: '++'(array[int] of var int: left,array[int] of var int: right); function var bool: exists(array[int] of var bool: body);\n")).unwrap();
++    std::fs::write(dir.join("library/std/stdlib.mzn"), format!("{CORE}\nfunction array[int] of var int: '++'(array[int] of var int: left,array[int] of var int: right); function var bool: exists(array[int] of var bool: body); function set of int: index_set(array[int] of var int: a);\n")).unwrap();
 +    std::fs::write(
 +        dir.join("library/std/all_different.mzn"),
 +        "predicate alldifferent(array[$X] of var int: values,set of int: except={});\n",
@@ -2236,14 +2236,10 @@
 +        &facts,
 +        "alldifferent([left[i]|i in index_set(left)])",
 +    );
-+    assert!(
-+        !matches!(different.raw_definedness, GuardedOutcome::Unsupported(_)),
-+        "guarded={different:#?}; calls={:#?}; types={:#?}; selected signatures={:#?}; default source/CST={:#?}",
-+        calls.calls.iter().filter(|call| matches!(call.name.as_str(), "alldifferent" | "index_set")).collect::<Vec<_>>(),
-+        calls.expressions.iter().filter(|value| value.file == different.file && value.location.range.start >= different.location.range.start && value.location.range.end <= different.location.range.end).collect::<Vec<_>>(),
-+        calls.signatures.iter().filter(|signature| bindings.declarations[signature.declaration.0].name == "alldifferent").map(|signature| (&bindings.declarations[signature.declaration.0], signature)).collect::<Vec<_>>(),
-+        context.files.iter().find(|source| source.canonical_path.ends_with("all_different.mzn")).map(|source| (&source.canonical_path, source.kind, source.implicit, source.parsed.tree())),
-+    );
++    assert!(!matches!(
++        different.raw_definedness,
++        GuardedOutcome::Unsupported(_)
++    ));
 +    assert_eq!(different.truth, Some(GuardedOutcome::Unknown));
 +    let partial = expression(&context, &facts, "alldifferent([left[0]])");
 +    assert_eq!(partial.raw_definedness, GuardedOutcome::Refuted);
@@ -2254,7 +2250,7 @@
      std::fs::remove_dir_all(dir).unwrap();
  }
  
-@@ -435,6 +488,39 @@
+@@ -435,6 +484,39 @@
      ));
      assert!(facts.limitations.iter().any(|l| l.reason.contains("user")));
      std::fs::remove_dir_all(dir).unwrap();
@@ -2294,7 +2290,7 @@
  }
  
  #[test]
-@@ -616,6 +702,39 @@
+@@ -616,6 +698,39 @@
  
  #[test]
  fn scalar_bool2int_retains_boolean_and_raw_partiality_boundaries() {

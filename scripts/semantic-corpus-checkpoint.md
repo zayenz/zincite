@@ -1428,3 +1428,16 @@ source pins remain unchanged. Evidence is in
 `target/benchmarks/base083/semantic62-draft-depot-v2-merge/` and
 `semantic62-draft-workspace-depot-v2-{fmt,check,guarded,search,callables}/`.
 Actual Rust integration and task completion remain pending.
+
+The Depot guarded fixture is corrected locally: its additional `index_set`
+signature now accepts present `var int` arrays, consistent with the installed
+standard library's `any` element contract. Existing shared fixtures and
+production code are unchanged. Temporary diagnostic text is removed, and the
+expected unknown Boolean result is retained. All six guarded tests pass;
+complete streams, terminal receipt, equal maps and original source pins were
+checked. The earlier failure remains retained. Evidence is in
+`target/benchmarks/base083/semantic62-draft-workspace-depot-v2-fixture-v2-guarded/`.
+The refreshed candidate is 129,739 bytes, SHA-256
+`44d94b6ab2503f9cca1a018d5d91e828beb8ae1afd0edf33e990933f5b90c5e0`,
+and passes `git apply --check --whitespace=error`. Final workspace gates and
+original Depot-model outcomes remain pending.
