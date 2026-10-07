@@ -2090,3 +2090,18 @@ The reconstructed 19-file candidate is 212,769 bytes, SHA-256
 `f25f42a7cc05a3eaadc325b897e6f1539f8918abd07c16da578399310db74a36`,
 and passes the patch application check. Routing and required workspace gates
 are still pending; the candidate has not been integrated.
+
+The repaired candidate now passes routing and every required copy gate.
+The four search groups, including combined routing, pass in 18.911 seconds.
+Formatting and Clippy pass in 1.036 and 2.645 seconds. Workspace tests pass
+all 193 tests across 42 suites in 41.783 seconds, with no failures or ignored
+tests. All children are reaped without timeout, their process groups are empty,
+and their group-verification errors are null. Complete streams and matching
+before/after maps for all five focused/gate captures were checked, followed by
+physical rechecking of their 355 shared paths.
+
+Evidence is under
+`target/benchmarks/base083/semantic62-draft-workspace-boolean-membership-green-{search,fmt,clippy,workspace}/`.
+The saved candidate hash remains `f25f42a7cc05a3eaadc325b897e6f1539f8918abd07c16da578399310db74a36`.
+Original-model controls, queue measurements, integration and fresh complete
+final-corpus acceptance remain pending; this is not task completion.
