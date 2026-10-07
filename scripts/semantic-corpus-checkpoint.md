@@ -2050,3 +2050,11 @@ every selected-rule outcome partition, and all 1,278 distinct original paths
 still match their retained hashes. This closes the capture accounting review
 for these batches, not compiler-validity reconciliation or semantic acceptance.
 Evidence remains under `target/benchmarks/base083/exhaustive-semantic61/`.
+
+Closed batches 047 and 048 retain one and 25 ordered roots respectively.
+Their complete companion streams reproduce all 14/26 rule partitions and
+matching drop records; 16 stream hashes and 1,048 distinct original paths were
+checked. Batch 047's complete resolved planner emits 66,106 thesis warnings
+with no thesis limitations; all emits 67,563 warnings and 959 limitations.
+Batch 048 distinguishes 24 data roots from its one complete model. These
+frozen-sweep captures remain separate from final-candidate acceptance.
