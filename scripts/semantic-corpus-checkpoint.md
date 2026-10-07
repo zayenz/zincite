@@ -2125,3 +2125,24 @@ Evidence is under `target/benchmarks/base083/semantic62-draft-workspace-semantic
 `semantic62-draft-boolean-membership-binaries/` and
 `semantic62-unused-owner-queue-before-libraries/`. This build does not establish
 original-model support, performance improvement or final corpus acceptance.
+
+The private unused-declaration demand store now keeps a FIFO queue per owner.
+It preserves each owner's original append order and the unchanged owner
+scheduling, body deduplication, recursion and uncertainty handling. The queue
+lookup is repeated after each popped demand so recursive appends are consumed.
+Only this module changes from the release-fourteen baseline; the other 105
+copy files and all actual/original sources remain unchanged.
+
+The four existing unused-declaration groups pass in 4.036 seconds. Formatting,
+Clippy and all 193 workspace tests across 42 suites pass; workspace takes
+42.904 seconds. Every capture is reaped without timeout, has an empty process
+group and null group-verification error, and retains equal before/after maps.
+Full stream hashes, the complete passing test-name set and all 387 shared
+physical paths were checked. Evidence is under
+`target/benchmarks/base083/semantic62-draft-workspace-unused-owner-queue-{unused_declarations,fmt,clippy,workspace}/`.
+
+The reconstructed 20-file candidate is 216,139 bytes, SHA-256
+`591673aaf53c4a4bfb6b5d7842bdc782f8ecc522c012590036925494037bdb9f`,
+and passes the patch application check. Matched public facts, allocations,
+native behavior and growth measurements remain pending. Passing tests do not
+establish the queue's performance benefit or final corpus acceptance.
