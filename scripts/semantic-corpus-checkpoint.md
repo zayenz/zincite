@@ -1956,6 +1956,18 @@ The next internal rejection is not yet observed. Source inspection finds an
 existing parameter-Boolean fallback, so the earlier Boolean hypothesis does
 not justify a repair. Passing gates and final acceptance remain pending.
 
+The refreshed routing trace shows that the Unknown-only selection gate does
+not fire: `diam[p]` still reaches the definitionless evaluator, radius remains
+Unsupported, and the same rejection reaches all three arrays. Its 37 distinct
+diagnostic lines match the preceding cause capture. Cargo returns 101 in
+24.090 seconds without timeout; the child is reaped and its group is empty.
+Full streams, equal maps and all 348 distinct physical pins were checked.
+Evidence is under
+`target/benchmarks/base083/semantic62-draft-workspace-routing336-cause-diagnostic-v2-search/`.
+The saved selection gate has not repaired the observed case. Its operand
+inspection result and type need to be observed directly before changing the
+gate; no additional production change is accepted from this trace alone.
+
 The frozen release-twelve navigation public iteration probe completes in
 52.496 seconds under a 300-second cap. Iteration facts takes 1.278 seconds,
 producing two array facts, five index sets, one iteration and no limitations.
