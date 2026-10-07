@@ -1009,3 +1009,21 @@ the current compiler's type checker. Scalar-only selection retains its existing
 behavior. The standalone candidate passes Rustfmt and `git apply --check`;
 compilation, required access-safety support and behavior remain pending. This
 shape proposal establishes no membership, cardinality or output guarantee.
+
+Three further closed batches, indices 010–012, each retain all 64 roots and drop
+records in both presets, with no unobserved roots. Their 14/26-rule partitions,
+common-rule rows, twelve full stream pairs and original-file hashes were checked
+against the retained reports. Syntax errors and unavailable dependencies remain
+explicit; complete capture does not establish semantic acceptance. Audit totals
+remain in `target/benchmarks/base083/exhaustive-semantic61/shards010-012-root-audit.json`.
+
+Current MiniZinc source checks reject two newly located parser failures at the
+same syntax: `2024/train-scheduling/trains.mzn:47:74` has a comma inside written
+string interpolation, and the older local time instance has a missing comma
+before line 88. Both parallel Gecode source checks return one without timeouts,
+are reaped with empty process groups, and retain raw cleanup EPERM records.
+All four complete streams and 1,040 input/helper hashes were checked; no solve
+was run. Evidence is in
+`target/benchmarks/base083/semantic61-new-parser-source-prechecks/`. These current
+compiler syntax rejections do not require Zincite to accept the broken originals.
+They do not classify the other errors or unavailable includes in those batches.
