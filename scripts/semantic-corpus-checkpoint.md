@@ -703,3 +703,12 @@ Evidence is retained in `target/benchmarks/base083/semantic61-guarded-parity/`.
 Matched Project17 allocation and native measurements remain pending. This
 checkpoint establishes no measured performance benefit or task acceptance;
 base-083 remains open.
+
+The fresh semantic60 Project17 allocation baseline reached its unchanged
+1,800-second cap and was reaped with status -9. Its complete retained stdout
+contains a manifest and analysis-start event, with no root, drop or completion
+record. The scheduled semantic61 capture continues separately. This censored
+baseline supplies no completed allocation counters and cannot support a
+before/after ratio or a claim about the timeout's cause. Evidence is retained
+in `target/benchmarks/base083/semantic61-project17-allocation-control/`; the
+valid model's processing and final-corpus acceptance remain unresolved.
