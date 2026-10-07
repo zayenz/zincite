@@ -576,3 +576,13 @@ The complete captures and public facts are retained in
 `target/benchmarks/base083/semantic57-black-hole-facts/`. Both helpers and all
 children finished within their existing deadlines. No limitation was suppressed
 and no Completed outcome was inferred from compiler success.
+
+The original Black Hole model also compiles successfully to FlatZinc with
+Gecode and the challenge's supplied `10.dzn`, without solving. That data assigns
+the model's remaining `layout` parameter with the declared `1..17, 1..3` shape;
+the original model already assigns `neighbours`. Compilation finishes in
+0.17 seconds and produces 19,524 bytes. The complete receipt and output are in
+`target/benchmarks/base083/semantic57-black-hole-known-pair-compiler/`; all
+1,038 original compiler, standard-library, model and data inputs match before
+and after. This strengthens this case's processing classification beyond the
+earlier source-only check while leaving semantic acceptance open.
