@@ -1737,8 +1737,11 @@ is a valid-input processing failure that remains open, not an invalid-model
 exclusion. The scheduled thesis companion also times out after 1,800.048 seconds.
 Its complete capture reaches the analyze phase but contains no root, drop or
 completion row; all fourteen rules remain Unobserved. Full streams and
-partitions were checked against the retained terminal receipt. The remaining
-all-preset runs are still pending; shard 042 is not closed. No restart,
+partitions were checked against the retained terminal receipt. The original
+all-preset native run also times out after 1,800.068 seconds, with empty
+streams and no observed completion count. Its terminal receipt, streams and
+frozen binary were checked. The scheduled all-preset companion remains
+pending; shard 042 is not closed. No restart,
 deadline increase or formatted-FlatZinc equivalence is claimed.
 
 Release twelve builds from the frozen annotation candidate and completes the
