@@ -777,3 +777,14 @@ local array index sets, relational `abs` and enum-successor expressions,
 checked `trace` forwarding, and set membership. None is accepted merely because
 its syntax parsed or its capture finished. The remaining corpus batches and
 independent whole-task verification are pending.
+
+Fresh compiler-only checks now validate the retained ATSP and carpet-cutting
+2021 model/data pairs against MiniZinc 2.10.1 and the current Gecode backend.
+Both compilations return zero within the 60-second cap and produce nonempty
+FlatZinc; neither invokes solving. The corresponding local corpus model copies
+are byte-identical. All 1,040 checked compiler, library and input files remain
+unchanged. Receipts and complete streams are retained in
+`target/benchmarks/base083/semantic61-current-pair-prechecks/`. These two short
+checks overlapped the serial exhaustive capture; affected timing measurements
+must not be presented as isolated performance controls. Their success confirms
+compiler validity, not Zincite rule completion or formatting equivalence.
