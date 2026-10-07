@@ -2273,7 +2273,7 @@ impl<'a> Producer<'a> {
     }
     fn scalar_alias_identity(&self, mut id: DeclarationId) -> DeclarationId {
         let mut active = std::collections::BTreeSet::new();
-        while active.insert(id.0) {
+        loop {
             let d = &self.bindings.declarations[id.0];
             if d.role != crate::DeclarationRole::Local
                 || d.instantiation != Instantiation::Parameter
@@ -2282,6 +2282,9 @@ impl<'a> Producer<'a> {
             }
             let ty = &self.calls.declarations[id.0].ty;
             if ty.optional || !matches!(ty.kind, TypeKind::Int | TypeKind::Bool | TypeKind::Float) {
+                break;
+            }
+            if !active.insert(id.0) {
                 break;
             }
             let Some(node) = crate::callables::find_node(
