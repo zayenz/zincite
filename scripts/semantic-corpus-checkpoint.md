@@ -2037,3 +2037,16 @@ retain the existing matching-owner FIFO order and recursive append behavior.
 No queue repair has been applied or validated yet. The navigation model's
 successful current MiniZinc Gecode compilation remains the input-validity
 check; the analysis timeout does not make the model invalid.
+
+The original frozen sweep's batches 042 through 046 are now closed. Batch 042
+retains four reaped 1,800-second navigation timeouts and no observed root.
+Batches 043 through 046 retain 64, 64, 64 and 63 ordered roots respectively,
+with matching drop records and explicit completion records in both presets.
+Their source states distinguish data, fragments and complete models; status-2
+processing errors in 044 and 045 are retained without an invalid-input claim.
+
+All 50 streams were checked physically, the raw companion rows reproduce
+every selected-rule outcome partition, and all 1,278 distinct original paths
+still match their retained hashes. This closes the capture accounting review
+for these batches, not compiler-validity reconciliation or semantic acceptance.
+Evidence remains under `target/benchmarks/base083/exhaustive-semantic61/`.
