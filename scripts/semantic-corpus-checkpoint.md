@@ -1311,3 +1311,18 @@ times establish no performance ratio. Evidence is in
 `target/benchmarks/base083/semantic62-draft-release6-depot-routing-control/`
 and `semantic62-draft-release6-generated-all-control/`.
 Remaining valid-model limitations keep base-083 acceptance open.
+
+The saved candidate now inspects exact selected present scalar core `bool2int`
+without claiming a value. Its source check follows initializers, written domains,
+annotations and cycles; opaque initialized Boolean references remain unsupported.
+Successful inspection yields an unknown numeric value, including literal inputs.
+Optional inputs, user overloads, unsafe children and declaration/call annotations
+retain their vetoes. Independent integer-bounds APIs remain unchanged.
+Formatting, all-target compilation and the existing numeric, guarded and search
+groups pass (14 tests). The first formatting failure and its line-wrap correction
+are retained. Complete streams, terminal receipts, equal maps and 369 current
+source/helper/patch pins were checked. Evidence is in
+`target/benchmarks/base083/semantic62-draft-workspace-bool2int-v2-*/`.
+The refreshed `semantic-candidate.patch` passes `git apply --check` and has SHA-256
+`3e6895086f36d819b5d28fa76f628c79c8820e58aae70c94876b91718efbf4f3`.
+Full workspace and original-model outcomes for this change remain pending.
