@@ -2252,3 +2252,16 @@ queue cost do not establish full selected-analysis completion. A first native
 control with bounded attribution is being prepared to locate the remaining
 cost; the companion is not retried. Evidence is under
 `target/benchmarks/base083/semantic62-draft-release15-navigation-control/`.
+
+The first frozen-fifteen native all-rule Navigation control also times out at
+300 seconds (actual 300.088). Its child is reaped, its process group is empty
+and its verification error is null. Both streams are empty; their hashes and
+all 1,119 unchanged physical runtime paths were checked. Native root counts,
+rule outcomes, drops and parity remain null; no completion is inferred.
+The sole stack-sampling opportunity was skipped because current process
+identity inspection was denied before utility launch. No request was reserved,
+no sample was taken and no identity retry or escalation occurred. Thus no
+remaining-cost attribution is available from this control. A single public
+shared-analysis pipeline diagnostic is being prepared instead; final corpus
+acceptance remains open. Evidence is under
+`target/benchmarks/base083/semantic62-draft-release15-navigation-native-control/`.
