@@ -2538,3 +2538,12 @@ establishes compiler-invalid input rather than a missing Zincite requirement;
 the observed NotRun rows remain in corpus accounting. Evidence and the root
 audit are under
 `target/benchmarks/base083/semantic61-shard056-time-data-precheck/`.
+
+The partial-expression lookup draft is saved unapplied in
+`scripts/semantic-partial-expression-lookups-draft.patch` (4,878 bytes, SHA-256
+`23ac0827e2a579eaf4628e775573a9ca4020f1bf8b9ddba191ee870a03dd6a5e`).
+Independent static review found no substantive defect: first-expression lookup,
+obligation order and duplicates, default checks and diagnostic behavior are
+preserved. Existing focused before/after tests, formatting, Clippy, workspace
+tests and finite performance validation remain pending. Actual and shared
+Rust sources are unchanged; this checkpoint does not establish task completion.
