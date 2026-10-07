@@ -3871,21 +3871,22 @@
      "function var bool: '='(var int: left,var int: right);\n",
      "function var bool: '/\\'(var bool: left,var bool: right); function var bool: '->'(var bool: left,var bool: right);\n",
      "function int: '+'(int: left,int: right); function int: '-'(int: left,int: right); function int: '-'(int: value);\n",
-@@ -281,11 +285,111 @@
+@@ -281,11 +285,112 @@
              .any(|e| text(&context, e.file, &e.location) == "missing div 0"
                  && matches!(e.outcome, IntegerBoundsOutcome::Unknown(_)))
      );
 +    std::fs::write(dir.join("included.mzn"), "").unwrap();
 +    std::fs::write(
 +        dir.join("library/std/stdlib.mzn"),
-+        format!("{CORE}function set of int: '..'(int: left,int: right);\n"),
++        format!("{CORE}function set of int: '..'(int: left,int: right); function var bool: 'not'(var bool: value);\n"),
 +    )
 +    .unwrap();
 +    std::fs::write(
 +        dir.join("root.mzn"),
 +        concat!(
 +            "array[1..4] of var bool: flags; int: N; array[1..N] of var bool: symbolic;\n",
-+            "var int: selected=1*flags[1]; var int: outside=1*flags[5]; var int: unproved=1*symbolic[1]; solve satisfy;\n",
++            "var int: selected=1*flags[1]; var int: outside=1*flags[5]; var int: unproved=1*symbolic[1];\n",
++            "var int: nested_unknown=1*(not symbolic[1]); solve satisfy;\n",
 +        ),
 +    )
 +    .unwrap();
@@ -3907,7 +3908,7 @@
 +            .outcome
 +    };
 +    assert!(matches!(definition("selected"), NumericOutcome::Unknown(_)));
-+    for name in ["outside", "unproved"] {
++    for name in ["nested_unknown", "outside", "unproved"] {
 +        assert!(
 +            matches!(definition(name), NumericOutcome::Unsupported(_)),
 +            "{name}: {:?}",
@@ -3983,7 +3984,7 @@
      let source = concat!(
          "var int: self; constraint self=self; var int: left; var int: right; constraint left=right /\\ right=left;\n",
          "var 1..3: anchored; constraint anchored=anchored+1; var int: uses_anchor=anchored+1;\n",
-@@ -335,6 +439,79 @@
+@@ -335,6 +440,79 @@
              .limitations
              .iter()
              .any(|l| text(&context, l.file, &l.location) == "if true then 2 else 3 endif")

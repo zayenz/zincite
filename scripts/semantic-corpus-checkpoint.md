@@ -2058,3 +2058,19 @@ checked. Batch 047's complete resolved planner emits 66,106 thesis warnings
 with no thesis limitations; all emits 67,563 warnings and 959 limitations.
 Batch 048 distinguishes 24 data roots from its one complete model. These
 frozen-sweep captures remain separate from final-candidate acceptance.
+
+The existing numeric selection regression now also checks a composed Boolean
+operand, `1*(not symbolic[1])`, with the exact core `not` signature available.
+The test-only run fails first on this new case: it reports Unknown rather than
+the required Unsupported membership result. Three other numeric groups pass.
+Cargo returns 101 without timeout in 1.319 seconds; its child is reaped and
+its process group is empty. Both complete streams, equal maps and all 353
+resolved physical pins were checked. Evidence is under
+`target/benchmarks/base083/semantic62-draft-workspace-boolean-membership-red-numeric_facts/`.
+
+The reconstructed 19-file candidate is 210,642 bytes, SHA-256
+`2787c1c39d4957c51a5b5086d96fd9be67ee76837b06c0049e4a80a8dc871389`,
+and passes the patch application check. The reviewed repair will put both
+negative membership guards on the selection itself after complete child
+inspection, covering nested Boolean operations while leaving initialized
+routing arrays Unknown. It has not yet been applied or validated.
