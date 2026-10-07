@@ -1156,3 +1156,11 @@ helper and patch pins were checked. Evidence is in
 `target/benchmarks/base083/semantic62-draft-workspace-minmax-bool-public-v2-{numeric_facts,search}/`.
 These checks do not establish corpus acceptance or complete base-083. The
 matching correction remains under separate copy-only validation.
+
+The corrected matching copy passes formatting, all-target compilation and all
+four callable tests. The added direct-Set case now resolves to the Set formal;
+the existing crossed-array ambiguity and unknown-signature veto still pass.
+Complete streams and their hashes, terminal process accounting and equal
+before/after maps were checked. Evidence is in
+`target/benchmarks/base083/semantic62-draft-workspace-set-ranking-v2-{fmt,check,callables}/`.
+The two compiler boundary controls and fresh model outcomes remain pending.
