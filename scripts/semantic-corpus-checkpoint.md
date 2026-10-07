@@ -2105,3 +2105,23 @@ Evidence is under
 The saved candidate hash remains `f25f42a7cc05a3eaadc325b897e6f1539f8918abd07c16da578399310db74a36`.
 Original-model controls, queue measurements, integration and fresh complete
 final-corpus acceptance remain pending; this is not task completion.
+
+Release fourteen is built from that unchanged, passing copy. Cargo returns
+zero in 12.909 seconds without timeout; its child is reaped and its process
+group is empty. Both streams, equal maps, all 16 Cargo events and 408 distinct
+physical paths were checked. Native and probe snapshots match their optimized,
+non-test Cargo origins. The legitimate unoptimized custom-build event is
+separate from the selected libraries and consumers.
+
+The native snapshot is 2,941,904 bytes, SHA-256
+`936daaf195f49cd33d154176675748593d73d425f1bad3dc4c892f92adcfe609`;
+the probe is 2,680,528 bytes, SHA-256
+`a800d48abe8edfe2370d51a98a39fca7be5ce4fdf7968882a7c678361adbfc81`.
+The 22 saved library files match their Cargo origins, total 28,185,465 bytes,
+and retain the exact 106-file copy source map and compiler identity. They form
+the immediate-before queue baseline; no queue change is included.
+
+Evidence is under `target/benchmarks/base083/semantic62-draft-workspace-semantic-release14/`,
+`semantic62-draft-boolean-membership-binaries/` and
+`semantic62-unused-owner-queue-before-libraries/`. This build does not establish
+original-model support, performance improvement or final corpus acceptance.
