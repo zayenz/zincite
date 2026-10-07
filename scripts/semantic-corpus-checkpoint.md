@@ -1027,3 +1027,23 @@ was run. Evidence is in
 `target/benchmarks/base083/semantic61-new-parser-source-prechecks/`. These current
 compiler syntax rejections do not require Zincite to accept the broken originals.
 They do not classify the other errors or unavailable includes in those batches.
+
+The next disposable candidate reuses the existing callable-definition lookup
+maps in its public resolver and routes its call inspections through the existing
+indexed helper. First-row matching, file/range keys and instance-view fallback
+remain unchanged. In the copy, all-target compilation and eleven existing
+callable, definition and search tests pass under separate 300-second caps,
+without timeouts or failures. Full streams, before/after pins and retained
+Bounds-only binary snapshots were checked. Evidence is in
+`target/benchmarks/base083/semantic62-draft-workspace-lookup-{check,callables,definitions,search}/`.
+Only the copy's two lookup repairs are included; these checks establish neither
+authoritative workspace validation nor final corpus acceptance.
+
+The full-axis type draft's v2 also assigns the written `..` marker its owning
+axis's set type before child inspection. This avoids a spurious zero-argument
+range call while preserving Enum identity and instance-local typing. The initial
+draft is retained, and v2 passes standalone Rustfmt and patch applicability checks.
+Consumer inspection and guarded membership remain separate required repairs.
+The prepared parameter-set aggregate inspector likewise retains Unknown after
+inspection, without output guarantees; rank-two Boolean filters and additional
+aggregate forms remain located support gaps rather than implicitly supported.
