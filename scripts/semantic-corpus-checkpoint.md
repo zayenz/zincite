@@ -2526,3 +2526,15 @@ guarded expressions and obligations per operation; a local lookup adaptation
 needs review and before/after validation. Evidence and the independent root
 audit are under
 `target/benchmarks/base083/semantic62-navigation-release17-coordination-control/`.
+
+The shard-056 data parse error is now checked against current MiniZinc. One
+Gecode compile-only invocation of the exact original model/data pair rejects
+`time-instance-20-100.dzn` at 88.5 with a syntax error requiring the array's
+closing delimiter. The compiler exits 1 in 0.112 seconds without timeout or
+solving, and produces no FlatZinc/output-specification artifacts. Full streams,
+the reaped child with an empty group and null verification error, and all 1,042
+unchanged original/compiler/standard-library/helper pins were checked. This
+establishes compiler-invalid input rather than a missing Zincite requirement;
+the observed NotRun rows remain in corpus accounting. Evidence and the root
+audit are under
+`target/benchmarks/base083/semantic61-shard056-time-data-precheck/`.
