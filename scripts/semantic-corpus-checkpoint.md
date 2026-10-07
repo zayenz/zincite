@@ -1144,3 +1144,15 @@ ambiguity. The matching view fails to distinguish the conversion from a direct
 set match. The candidate and all successful/failed checks are retained while
 ranking is repaired. Evidence is in
 `target/benchmarks/base083/semantic62-set-array-overload-control/`.
+
+The disposable copy also passes the focused Boolean-array and scalar integer
+min/max public cases in the existing numeric and search groups (four tests per
+group). In-bounds Boolean selections retain unknown numeric values and search
+dependencies; out-of-bounds or symbolic axes retain unsupported outcomes.
+Scalar extrema preserve both input dependencies and reject partial children.
+Searching one array does not cover a separate unsearched array or its selected
+value. Complete streams, equal before/after maps and 468 original, source,
+helper and patch pins were checked. Evidence is in
+`target/benchmarks/base083/semantic62-draft-workspace-minmax-bool-public-v2-{numeric_facts,search}/`.
+These checks do not establish corpus acceptance or complete base-083. The
+matching correction remains under separate copy-only validation.
