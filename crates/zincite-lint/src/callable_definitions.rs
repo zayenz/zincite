@@ -331,7 +331,8 @@ pub(super) fn parameter_index_extremum(
         t.known()
             && !optional(t)
             && matches!(&t.kind, TypeKind::Array { indices, element }
-            if indices.len() == 1 && integer(&indices[0]) && element.known() && !optional(element))
+            if matches!(indices.len(), 1 | 2) && indices.iter().all(integer)
+                && element.known() && !optional(element))
     };
     let ty = |n: &SyntaxNode| {
         let range = context.files[file].location(n.range()).range;
@@ -358,13 +359,20 @@ pub(super) fn parameter_index_extremum(
         return None;
     };
     let set = unwrap(set);
+    let rank = if core_operation(context, bindings, calls, file, set, "index_set") == Ok(true) {
+        1
+    } else if core_operation(context, bindings, calls, file, set, "index_set_1of2") == Ok(true) {
+        2
+    } else {
+        return None;
+    };
     if set.kind() != NodeKind::CallExpression
-        || core_operation(context, bindings, calls, file, set, "index_set") != Ok(true)
         || !crate::definitions::annotations_safe(context, file, set)
         || ty(set).is_none_or(|t| !set_type(t))
         || !operation_fact(context, calls, file, set).is_some_and(|c| {
             matches!(&c.outcome, CallOutcome::Resolved { parameters, .. }
-                if parameters.len() == 1 && array_type(&parameters[0]))
+                if parameters.len() == 1 && array_type(&parameters[0])
+                    && matches!(&parameters[0].kind, TypeKind::Array { indices, .. } if indices.len() == rank))
         })
     {
         return None;
@@ -374,7 +382,15 @@ pub(super) fn parameter_index_extremum(
         return None;
     };
     let subject = unwrap(subject);
-    if subject.kind() != NodeKind::Expression || ty(subject).is_none_or(|t| !array_type(t)) {
+    if subject.kind() != NodeKind::Expression
+        || ty(subject).is_none_or(|t| {
+            !array_type(t)
+                || !matches!(&t.kind, TypeKind::Array { indices, .. } if indices.len() == rank)
+        })
+        || (rank == 2
+            && !matches!(crate::domains::tokens(&context.files[file].parsed, subject).as_slice(),
+            [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier)))
+    {
         return None;
     }
     let id = crate::definitions::resolved_reference(context, bindings, file, subject)?;
@@ -391,13 +407,14 @@ pub(super) fn parameter_index_extremum(
     let array = formal.child_nodes().next()?;
     let types: Vec<_> = array.child_nodes().collect();
     if array.kind() != NodeKind::ArrayType
-        || types.len() != 2
-        || types[0].kind() != NodeKind::ScalarType
-        || types[1].kind() != NodeKind::ScalarType
+        || types.len() != rank + 1
+        || types.iter().any(|n| n.kind() != NodeKind::ScalarType)
         || types.iter().any(|n| n.child_nodes().next().is_some())
-        || !crate::domains::tokens(&context.files[file].parsed, types[0])
-            .iter()
-            .any(|t| t.kind == TokenKind::Int)
+        || types[..rank].iter().any(|n| {
+            !crate::domains::tokens(&context.files[file].parsed, n)
+                .iter()
+                .any(|t| t.kind == TokenKind::Int)
+        })
     {
         return None;
     }
@@ -4433,6 +4450,18 @@ impl<'a> Producer<'a> {
                 })
                 .map(|d| d.id)
                 .collect();
+            let mut checked_locals = Vec::new();
+            let no_forward_reference = |value: &SyntaxNode| {
+                let range = self.context.files[clause.file]
+                    .location(value.range())
+                    .range;
+                !self.bindings.references.iter().any(|r|
+                    r.file == clause.file && range.start <= r.location.range.start && r.location.range.end <= range.end
+                        && matches!(r.resolution, BindingResolution::Resolved(id)
+                            if local_ids.contains(&id)
+                                && self.bindings.declarations[id.0].syntax_range.end
+                                    + self.context.files[clause.file].byte_offset > r.location.range.start))
+            };
             for local in locals {
                 if !crate::definitions::annotations_safe(self.context, clause.file, local) {
                     return Err("uncertain-bound local annotation is unsupported".into());
@@ -4444,6 +4473,7 @@ impl<'a> Producer<'a> {
                             body,
                             view,
                             &clause.generators,
+                            &checked_locals,
                         )?;
                     }
                     continue;
@@ -4467,19 +4497,41 @@ impl<'a> Producer<'a> {
                 let boolean_array = matches!(&ty.kind, TypeKind::Array { indices, element }
                     if indices.len() == 1 && indices[0].kind == TypeKind::Int
                         && indices[0].instantiation == Instantiation::Parameter && element.kind == TypeKind::Bool);
+                let integer_array = ty.instantiation == Instantiation::Parameter
+                    && matches!(&ty.kind, TypeKind::Array { indices, element }
+                        if indices.len() == 2 && indices.iter().all(|index| index.known() && !optional(index)
+                            && index.instantiation == Instantiation::Parameter && index.kind == TypeKind::Int)
+                            && element.known() && !optional(element) && element.instantiation == Instantiation::Parameter && element.kind == TypeKind::Int);
+                let private_integer = ty.instantiation == Instantiation::Decision
+                    && ty.kind == TypeKind::Int
+                    && initializer.is_none();
                 if !((ty.instantiation == Instantiation::Parameter
                     && ty.kind == TypeKind::Int
                     && initializer.is_some())
+                    || (integer_array && initializer.is_some())
+                    || private_integer
                     || (ty.instantiation == Instantiation::Decision
                         && initializer.is_none()
                         && (ty.kind == TypeKind::Bool || boolean_array)))
                 {
-                    return Err("uncertain-bound let supports initialized integer parameters and private Boolean choices only".into());
+                    return Err("uncertain-bound local declaration shape is unsupported".into());
                 }
                 let written = local
                     .child_nodes()
                     .next()
                     .ok_or("written local type unavailable")?;
+                if private_integer
+                    && (written.kind() != NodeKind::DomainType
+                        || written.child_nodes().count() != 1
+                        || written
+                            .child_nodes()
+                            .next()
+                            .is_none_or(|value| unwrap(value).kind() != NodeKind::RangeExpression))
+                {
+                    return Err(
+                        "uncertain-bound private integer requires a written parameter range".into(),
+                    );
+                }
                 if boolean_array
                     && written.child_nodes().next().is_none_or(|index| {
                         index.kind() != NodeKind::DomainType
@@ -4500,11 +4552,15 @@ impl<'a> Producer<'a> {
                     }
                     if node.kind() == NodeKind::DomainType {
                         for value in node.child_nodes() {
+                            if !no_forward_reference(value) {
+                                return Err("uncertain-bound domain has a forward or cyclic local dependency".into());
+                            }
                             self.inspect_uncertain_index_expression(
                                 clause.file,
                                 value,
                                 view,
                                 &clause.generators,
+                                &checked_locals,
                             )?;
                         }
                     } else {
@@ -4512,22 +4568,28 @@ impl<'a> Producer<'a> {
                     }
                 }
                 if let Some(value) = initializer {
-                    let range = self.context.files[clause.file]
-                        .location(value.range())
-                        .range;
-                    if self.bindings.references.iter().any(|r|
-                        r.file == clause.file && range.start <= r.location.range.start && r.location.range.end <= range.end
-                            && matches!(r.resolution, BindingResolution::Resolved(id)
-                                if local_ids.contains(&id)
-                                    && self.bindings.declarations[id.0].syntax_range.end
-                                        + self.context.files[clause.file].byte_offset > r.location.range.start))
-                    { return Err("uncertain-bound initializer has a forward or cyclic local dependency".into()); }
-                    if let DefinitionSafety::Unsupported(reason) =
+                    if !no_forward_reference(value) {
+                        return Err(
+                            "uncertain-bound initializer has a forward or cyclic local dependency"
+                                .into(),
+                        );
+                    }
+                    if integer_array {
+                        self.inspect_cartesian_parameter_array(
+                            clause.file,
+                            written,
+                            value,
+                            view,
+                            &clause.generators,
+                            &checked_locals,
+                        )?;
+                    } else if let DefinitionSafety::Unsupported(reason) =
                         self.direct_safety(clause.file, value, view, &clause.generators)
                     {
                         return Err(reason);
                     }
                 }
+                checked_locals.push(d.id);
             }
             let bodies: Vec<_> = clause
                 .node
@@ -4542,9 +4604,139 @@ impl<'a> Producer<'a> {
                 bodies[0],
                 view,
                 &clause.generators,
+                &checked_locals,
             )?;
             Ok(())
         })())
+    }
+    fn inspect_cartesian_parameter_array(
+        &self,
+        file: FileId,
+        written: &'a SyntaxNode,
+        value: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+        checked_locals: &[DeclarationId],
+    ) -> Result<(), String> {
+        let node = unwrap(value);
+        let typed = |n: &SyntaxNode| {
+            self.expression_type(self.view(file, n, view), file, n)
+                .map(|e| &e.ty)
+        };
+        let integer = |t: &TypeInst| {
+            t.known()
+                && !optional(t)
+                && t.instantiation == Instantiation::Parameter
+                && t.kind == TypeKind::Int
+        };
+        let set = |t: &TypeInst| {
+            t.known()
+                && !optional(t)
+                && t.instantiation == Instantiation::Parameter
+                && matches!(&t.kind, TypeKind::Set(element) if integer(element))
+        };
+        let array = |t: &TypeInst, rank| {
+            t.known()
+                && !optional(t)
+                && t.instantiation == Instantiation::Parameter
+                && matches!(&t.kind, TypeKind::Array { indices, element }
+                if indices.len() == rank && indices.iter().all(integer) && integer(element))
+        };
+        let args: Vec<_> = node.child_nodes().collect();
+        if written.kind() != NodeKind::ArrayType
+            || written.child_nodes().count() != 3
+            || node.kind() != NodeKind::CallExpression
+            || !self.core(file, node, view, "array2d")
+            || args.len() != 3
+            || !crate::definitions::annotations_safe(self.context, file, value)
+            || typed(node).is_none_or(|t| !array(t, 2))
+            || !operation_fact(self.context, self.view(file, node, view), file, node).is_some_and(
+                |call| {
+                    matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                    if parameters.len() == 3 && set(&parameters[0]) && set(&parameters[1])
+                        && array(&parameters[2], 1) && array(return_type, 2))
+                },
+            )
+        {
+            return Err(
+                "uncertain-bound parameter array requires the core rank-two integer array2d".into(),
+            );
+        }
+        let range_ids = |value: &SyntaxNode| {
+            let node = unwrap(value);
+            let ends: Vec<_> = node.child_nodes().collect();
+            if node.kind() != NodeKind::RangeExpression
+                || ends.len() != 2
+                || !self.core(file, node, view, "..")
+                || typed(node).is_none_or(|t| !set(t))
+                || !crate::definitions::annotations_safe(self.context, file, value)
+            {
+                return None;
+            }
+            let mut ids = Vec::new();
+            for end in ends {
+                let end = unwrap(end);
+                if end.kind() != NodeKind::Expression
+                    || typed(end).is_none_or(|t| !integer(t))
+                    || !crate::definitions::annotations_safe(self.context, file, end)
+                    || !matches!(crate::domains::tokens(&self.context.files[file].parsed, end).as_slice(),
+                        [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+                {
+                    return None;
+                }
+                let id = self.reference(file, end)?;
+                if !checked_locals.contains(&id) {
+                    return None;
+                }
+                ids.push(id);
+            }
+            Some(ids)
+        };
+        let axes: Vec<_> = written.child_nodes().take(2).collect();
+        let collection = unwrap(args[2]);
+        let parts: Vec<_> = collection.child_nodes().collect();
+        if collection.kind() != NodeKind::ArrayComprehension
+            || typed(collection).is_none_or(|t| !array(t, 1))
+            || parts.len() != 2
+            || parts[1].kind() != NodeKind::GeneratorList
+        {
+            return Err(
+                "uncertain-bound parameter array requires a Cartesian comprehension".into(),
+            );
+        }
+        let headers: Vec<_> = parts[1].child_nodes().collect();
+        if headers.len() != 2 {
+            return Err("uncertain-bound parameter array requires two Cartesian headers".into());
+        }
+        for ((axis, argument), header) in axes.iter().zip(&args[..2]).zip(headers) {
+            let written: Vec<_> = axis.child_nodes().collect();
+            let source: Vec<_> = header.child_nodes().collect();
+            let tokens = crate::domains::tokens(&self.context.files[file].parsed, header);
+            if axis.kind() != NodeKind::DomainType
+                || written.len() != 1
+                || source.len() != 1
+                || crate::domains::generator_slots(&self.context.files[file].parsed, header) != 1
+                || !matches!(
+                    tokens.first().map(|t| t.kind),
+                    Some(TokenKind::Identifier | TokenKind::QuotedIdentifier)
+                )
+                || tokens.get(1).is_none_or(|t| t.kind != TokenKind::In)
+                || range_ids(written[0]).is_none()
+                || range_ids(written[0]) != range_ids(argument)
+                || range_ids(argument) != range_ids(source[0])
+            {
+                return Err(
+                    "uncertain-bound parameter array axes and Cartesian headers do not match"
+                        .into(),
+                );
+            }
+        }
+        // Inspect every header and body even when an axis might be empty. Unknown
+        // cardinality or membership supplies no strict dependency or output proof.
+        match self.parameter_collection_safety(file, collection, view, generators) {
+            DefinitionSafety::Unsupported(reason) => Err(reason),
+            _ => Ok(()),
+        }
     }
     fn inspect_uncertain_index_expression(
         &self,
@@ -4552,6 +4744,7 @@ impl<'a> Producer<'a> {
         node: &'a SyntaxNode,
         view: &CallableFacts,
         generators: &[&'a SyntaxNode],
+        checked_locals: &[DeclarationId],
     ) -> Result<(), String> {
         let node = unwrap(node);
         if !crate::definitions::annotations_safe(self.context, file, node) {
@@ -4618,6 +4811,60 @@ impl<'a> Producer<'a> {
             self.dependencies(file, subject, view, generators)?;
             return Ok(());
         }
+        if node.kind() == NodeKind::ArrayAccessExpression
+            && children.len() == 3
+            && ty.kind == TypeKind::Int
+        {
+            let subject = unwrap(children[0]);
+            let array = self
+                .reference(file, subject)
+                .filter(|id| checked_locals.contains(id))
+                .ok_or("uncertain-bound parameter array has not been inspected")?;
+            if subject.kind() != NodeKind::Expression || typed(subject).is_none_or(|t|
+                !t.known() || optional(t) || t.instantiation != Instantiation::Parameter
+                    || !matches!(&t.kind, TypeKind::Array { indices, element }
+                        if indices.len() == 2 && indices.iter().all(|index| index.known() && !optional(index)
+                            && index.instantiation == Instantiation::Parameter && index.kind == TypeKind::Int)
+                            && element.known() && !optional(element) && element.instantiation == Instantiation::Parameter && element.kind == TypeKind::Int))
+                || self.bindings.declarations[array.0].role != DeclarationRole::Local
+                || children.iter().any(|n| unwrap(n).kind() != NodeKind::Expression
+                    || !matches!(crate::domains::tokens(&self.context.files[file].parsed, unwrap(n)).as_slice(),
+                        [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier)))
+            { return Err("uncertain-bound parameter array selection is unsupported".into()); }
+            let binder = self
+                .reference(file, unwrap(children[1]))
+                .ok_or("uncertain-bound selector identity unavailable")?;
+            let choice = self
+                .reference(file, unwrap(children[2]))
+                .filter(|id| checked_locals.contains(id))
+                .ok_or("uncertain-bound private selector has not been inspected")?;
+            if self.bindings.declarations[binder.0].role != DeclarationRole::Generator
+                || !generators
+                    .iter()
+                    .any(|g| g.range() == self.bindings.declarations[binder.0].syntax_range)
+                || self.bindings.declarations[choice.0].role != DeclarationRole::Local
+                || typed(children[1]).is_none_or(|t| {
+                    !t.known()
+                        || optional(t)
+                        || t.instantiation != Instantiation::Parameter
+                        || t.kind != TypeKind::Int
+                })
+                || typed(children[2]).is_none_or(|t| {
+                    !t.known()
+                        || optional(t)
+                        || t.instantiation != Instantiation::Decision
+                        || t.kind != TypeKind::Int
+                })
+            {
+                return Err("uncertain-bound parameter array selectors are unsupported".into());
+            }
+            // The initializer and private domain were checked in declaration order.
+            // Inspect both selectors without reopening that partial initializer.
+            return match self.direct_children_safety(file, &children[1..], view, generators) {
+                DefinitionSafety::Unsupported(reason) => Err(reason),
+                _ => Ok(()),
+            };
+        }
         if ty.kind != TypeKind::Bool {
             return Err("uncertain-bound body requires a present Boolean".into());
         }
@@ -4673,14 +4920,14 @@ impl<'a> Producer<'a> {
                     .child_nodes()
                     .next()
                     .ok_or("uncertain-bound forall source unavailable")?;
-                self.inspect_uncertain_index_expression(file, source, view, &all)?;
+                self.inspect_uncertain_index_expression(file, source, view, &all, checked_locals)?;
                 all.push(header);
             }
             let body = children
                 .iter()
                 .find(|n| n.kind() != NodeKind::GeneratorList)
                 .ok_or("uncertain-bound forall body unavailable")?;
-            return self.inspect_uncertain_index_expression(file, body, view, &all);
+            return self.inspect_uncertain_index_expression(file, body, view, &all, checked_locals);
         }
         let name = operator(self.context, file, node).and_then(crate::bindings::symbolic_operator);
         let supported = match node.kind() {
@@ -4716,13 +4963,33 @@ impl<'a> Producer<'a> {
         {
             // A supported partial numeric operand can collapse to false at this
             // core Boolean relation; it supplies no value or output guarantee.
-            return match self.direct_children_safety(file, &children, view, generators) {
-                DefinitionSafety::Unsupported(reason) => Err(reason),
-                _ => Ok(()),
-            };
+            for child in children {
+                let value = unwrap(child);
+                if value.kind() == NodeKind::ArrayAccessExpression
+                    && value.child_nodes().count() == 3
+                    && value
+                        .child_nodes()
+                        .next()
+                        .and_then(|subject| self.reference(file, unwrap(subject)))
+                        .is_some_and(|id| checked_locals.contains(&id))
+                {
+                    self.inspect_uncertain_index_expression(
+                        file,
+                        value,
+                        view,
+                        generators,
+                        checked_locals,
+                    )?;
+                } else if let DefinitionSafety::Unsupported(reason) =
+                    self.direct_safety(file, child, view, generators)
+                {
+                    return Err(reason);
+                }
+            }
+            return Ok(());
         }
         for child in children {
-            self.inspect_uncertain_index_expression(file, child, view, generators)?;
+            self.inspect_uncertain_index_expression(file, child, view, generators, checked_locals)?;
         }
         Ok(())
     }
