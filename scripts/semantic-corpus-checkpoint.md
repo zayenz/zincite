@@ -799,3 +799,14 @@ Evidence is retained in
 checks establish parsing and typing, not instance compilation or formatting
 equivalence. These checks also overlapped the exhaustive capture. The located
 `abs`, enum-successor and `trace` gaps still require Zincite repairs.
+
+Fresh Gecode compilations also accept the exact English meal and social-golfers
+models with their existing data files, producing nonempty FlatZinc without
+solving. Meal emits enum-to-integer coercion warnings, including its three
+membership expressions; the current compiler accepts that coercion, so the
+Int/Enum difference is not an input rejection. Depot-placement 2011 passes a
+fresh source check with empty streams. All three checks preserve 1,041 compiler,
+library and input pins and finish within the 60-second cap. Evidence is retained
+in `target/benchmarks/base083/semantic61-scalar-membership-prechecks/`; the
+overlap with the exhaustive capture is recorded. Their set-membership and
+scalar-maximum Zincite gaps remain unresolved.
