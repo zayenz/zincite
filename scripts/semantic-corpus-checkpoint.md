@@ -692,3 +692,14 @@ reduction also clears its previous extrema limitation with empty diagnostic
 streams. Evidence is retained in `target/benchmarks/base083/semantic60-black-hole-boundary/`
 and `target/benchmarks/base083/semantic60-table-native-after/`. These model-level
 results do not establish full-corpus acceptance; base-083 remains open.
+
+The semantic61 checkpoint moves scalar alias eligibility checks ahead of cycle
+tracking, avoiding a set insertion for declarations that cannot be traversed.
+The source checkpoint is `7255bf5`. Formatting, Clippy and all 193 workspace
+tests pass. Both complete ordered GuardedFacts entry points match semantic60
+byte for byte on the two retained compiler-checked controls; all 1,039 input
+pins, 90 source pins and 21 parity artifacts were independently checked.
+Evidence is retained in `target/benchmarks/base083/semantic61-guarded-parity/`.
+Matched Project17 allocation and native measurements remain pending. This
+checkpoint establishes no measured performance benefit or task acceptance;
+base-083 remains open.
