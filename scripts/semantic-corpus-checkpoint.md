@@ -2279,3 +2279,16 @@ overridden-default negative case. The complete draft was read and its exact
 `ec0a4bad29e5ac5a40cd2578835553acd241119748a7786b7c97ed3ac8ea09c9`.
 No draft changes have been applied to the candidate copy and no draft tests
 have run. Focused RED/GREEN validation and final acceptance remain pending.
+
+The frozen release-fifteen public shared-analysis diagnostic completes all
+ten ordered stages in 63.066 seconds without timeout. Both compiler and
+producer children are reaped, their groups are empty and verification errors
+are null. All 1,084 final physical paths and both pairs of complete streams
+were checked. Its allocation baseline and after-drop observation both equal
+2,301 bytes. Numeric facts account for 34.192 seconds and callable definitions
+14.556 seconds in this instrumented run, which overlaps focused test work.
+The public chain omits private typed-domain preparation, definition merging,
+independent producers and rule checks. It therefore does not explain the
+full-rule 300-second cutoff or establish full-rule completion, a matched
+performance ratio or semantic acceptance. Evidence is under
+`target/benchmarks/base083/semantic62-navigation-release15-guarded-diagnostic/`.
