@@ -1481,3 +1481,13 @@ this is partial shard evidence, not a completed shard or full sweep. These
 valid-model processing failures keep acceptance open. Evidence is in
 `target/benchmarks/base083/exhaustive-semantic61/shard-029/` and
 `semantic61-shard029-bnn-source-precheck/`.
+
+Release nine's original routing-model baseline completes in 1.873 seconds under
+the unchanged 300-second deadline. All 26 outcomes are observed, with 180
+warnings, zero errors and 215 limitations. Complete source metadata and all rule
+rows match release six. The entire 86,450-byte routing diagnostic stream,
+including multiline limitations, is byte identical and in the same order.
+Live bytes return to the 2,394-byte baseline. Full streams, terminal receipt,
+equal maps and 1,777 current file pins were checked. This remains incomplete
+semantic coverage; the named-range collection-length gap is under repair.
+Evidence is in `target/benchmarks/base083/semantic62-draft-release9-routing-control/`.
