@@ -1774,3 +1774,18 @@ It passes `git apply --check --whitespace=error`. Evidence is under
 `semantic62-draft-workspace-array-alias-{red,green}-search/`.
 Workspace gates and original routing validation for this revision remain
 pending, along with integration and fresh final corpus acceptance.
+
+A release-twelve probe on the original navigation model completes the public
+load/bindings/domains/callables/integer-bounds prerequisites in 24.676 seconds
+under a 300-second cap. Integer bounds takes 18.301 seconds and retains
+939,681 expression rows; callables takes 4.705 seconds. The counting allocator
+adds overhead, and this omits definition-aware numeric analysis and other
+selected producers. It does not explain or resolve the full-analysis cutoff.
+
+The isolated helper compilation and diagnostic both return zero, with full
+streams, reaped children and empty process groups. All 1,074 current physical
+pins were rechecked; the only added post-run pin is the compiled helper.
+The probe finishes before the first sampler inspection, so no sample is
+attempted. Evidence is under
+`target/benchmarks/base083/semantic62-navigation-bounds-diagnostic/`.
+No whole-analysis acceptance, before/after ratio or cutoff exclusion follows.
