@@ -712,3 +712,14 @@ baseline supplies no completed allocation counters and cannot support a
 before/after ratio or a claim about the timeout's cause. Evidence is retained
 in `target/benchmarks/base083/semantic61-project17-allocation-control/`; the
 valid model's processing and final-corpus acceptance remain unresolved.
+
+The scheduled semantic61 Project17 allocation capture subsequently completed
+in 1,472.89 seconds, with 1,333.95 seconds of child CPU and 4,201.61 MiB peak
+RSS. All fourteen thesis rules completed with zero errors and limitations;
+status 1 reflects 131,704 warnings. The loaded closure contains 484 files and
+657 include edges, and dropping the analysis restores the allocation baseline.
+The full diagnostic stream matches the retained earlier Project17 stream.
+Independent physical checks confirm all six retained streams, 1,039 original
+inputs, 90 current sources and 29 artifacts. The pair still supplies no valid
+allocation ratio because semantic60 was censored. The focused allocation
+comparison and matched native measurements remain pending; base-083 is open.
