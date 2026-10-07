@@ -1284,3 +1284,30 @@ outcomes for this compiler-valid model remain pending. Evidence is in
 `target/benchmarks/base083/exhaustive-semantic61/shards024-026-root-audit.json`,
 `shard026-diagnostic-review.json` and
 `target/benchmarks/base083/semantic61-shard026-generated-source-precheck/`.
+
+Release six completes all 26 rules on the original `sysadmin_4_2s.mzn` BNN
+control. Its 1,110 warning messages and order are byte-identical to release five;
+only the single `show` limitation at 568:62 is removed. All other 25 rule rows
+are unchanged. The complete resolved root, ordered drop and final record agree;
+live bytes return to 2,378. The child terminates without a timeout under the
+unchanged 300-second cap. Evidence is in
+`target/benchmarks/base083/semantic62-draft-release6-bnn-all-control/`.
+
+The Depot/routing pair completes both original roots. Depot retains 59 warnings
+and six limitations, down from eight after scalar extrema inspection. Routing
+retains 180 warnings and 215 limitations; its warning messages/order and
+limitation locations are unchanged, with three limitation reasons becoming more
+specific. The generated `ProjectPlannertest_15_6.mzn` retains the original
+34,581 warnings and 855 limitations. Its full source and analysis JSON match the
+original sweep, and its warning messages/order and limitation locations/order
+match. Of its limitation reason messages, 507 change from generic integer
+interpretation to the scalar-extremum fallback wording. This is no support
+improvement; scalar `bool2int` remains a located missing numeric inspection seam.
+
+All six comparison streams, terminal receipts, exact selected IDs, complete
+roots, restored drops and unchanged input/source/helper/patch maps were checked.
+The three groups ran concurrently with the original corpus sweep; their wall
+times establish no performance ratio. Evidence is in
+`target/benchmarks/base083/semantic62-draft-release6-depot-routing-control/`
+and `semantic62-draft-release6-generated-all-control/`.
+Remaining valid-model limitations keep base-083 acceptance open.
