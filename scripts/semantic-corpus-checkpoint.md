@@ -981,3 +981,31 @@ existing ambiguity and unknown-candidate handling remain in place. It adds no
 cardinality, membership or output facts. The patch passes `git apply --check`;
 compilation and behavioral checks remain pending. Other element types remain
 explicitly outside this bounded proposal, without a compiler-invalidity claim.
+
+The lookup-only candidate's single all-rule BNN control reaches its unchanged
+300-second cap and is reaped with status -9 after 300.019 seconds, with an empty
+process group. Its full streams match the receipt: 2,142 bytes of stdout contain
+only the sole-model manifest and load/analyze begin records; stderr is empty.
+There is no root, drop or completion record, so this is an unresolved processing
+cutoff, not behavior success or a before/after performance result. All 1,037
+compiler/library/model inputs, actual and copied sources, helpers, original gates
+and candidate binaries were independently rehashed unchanged. Evidence remains
+in `target/benchmarks/base083/semantic62-draft-bnn-all-control/`.
+
+A one-second sample of that candidate captures 88 main-thread frames in callable
+definition/body analysis; collapsed top frames include `expression_type` and
+`operation_fact`, with 36 samples each. The sample is retained in
+`target/benchmarks/base083/semantic62-draft-bnn-all-sample*`. It identifies residual
+lookup work in this window without attributing whole-run cost. Source inspection
+shows the public callable-definition resolver constructs `Producer` without its
+existing direct-safety lookup maps, while its root lookup helpers already have
+indexed paths. Reusing those paths is the next bounded cost repair to evaluate.
+
+Another unapplied type proposal in
+`target/benchmarks/base083/full-axis-slice-proposal.patch` recognizes literal
+inclusive `..` array selectors, retaining each selected axis and element type.
+Mixed decision selectors remain unsupported when any axis is sliced, matching
+the current compiler's type checker. Scalar-only selection retains its existing
+behavior. The standalone candidate passes Rustfmt and `git apply --check`;
+compilation, required access-safety support and behavior remain pending. This
+shape proposal establishes no membership, cardinality or output guarantee.
