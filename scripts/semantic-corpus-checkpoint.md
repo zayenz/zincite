@@ -744,3 +744,16 @@ and compiler/standard-library identities were rechecked. Reuse these exact
 classifications when matching final corpus rows; they do not classify other
 models or turn a Zincite timeout into invalid input. The old 5,595/822 physical
 availability split also does not describe current restored dependencies.
+
+The fresh unsampled Project17 native pair completes within the unchanged
+1,800-second child deadlines. Semantic60 takes 1,257.20 seconds elapsed and
+1,238.68 seconds of child CPU, with 4,439.28 MiB peak RSS; semantic61 takes
+1,338.35 seconds elapsed and 1,322.09 seconds of child CPU, with 4,487.58 MiB
+peak RSS. Both statuses are 1 and both complete diagnostic streams match the
+completed fourteen-rule semantic61 probe. The single pair shows no CPU or RSS
+improvement; the focused allocation savings remain the reason to retain the
+eligibility change. Independent checks preserve all 1,039 original inputs,
+90 sources, 32 artifacts and six streams, with the outer process group reaped
+and empty. Evidence is retained in
+`target/benchmarks/base083/semantic61-project17-native-thesis-control/`.
+Final expanded-corpus acceptance and whole-task verification remain pending.
