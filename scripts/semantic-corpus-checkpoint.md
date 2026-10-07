@@ -2558,3 +2558,13 @@ formatted patch; independent static review is ongoing. Current MiniZinc
 compile-only precheck, regression RED/GREEN and required Cargo gates remain
 pending. Actual and shared Rust sources are unchanged, and the validated
 combined candidate is unchanged. This saves work without claiming acceptance.
+
+The conditional draft's current MiniZinc prerequisite now passes. The fixed
+534-byte reduction compiles once with Gecode to a 1,229-byte FlatZinc file and
+1,200-byte output specification, without solving. Compiler exit is zero in
+0.179 seconds, with empty complete stdout/stderr, no timeout, a reaped child,
+an empty process group and null verification error. All 1,041 input/compiler/
+standard-library/helper pins match before, after and the root audit. Evidence
+is under `target/benchmarks/base083/semantic62-routing-user-test-conditionals-preparation/compiler-precheck/`.
+This establishes a syntax/type prerequisite only; independent semantic review,
+Zincite regression RED/GREEN and Cargo gates remain pending.
