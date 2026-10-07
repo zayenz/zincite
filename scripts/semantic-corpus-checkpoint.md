@@ -1875,3 +1875,17 @@ It passes the patch application check. Evidence is under
 `target/benchmarks/base083/semantic62-routing336-red-preparation/` and
 `semantic62-draft-workspace-routing336-red-search/`.
 Implementation, passing gates, integration and final acceptance remain pending.
+
+The frozen release-twelve navigation public producer chain now also completes
+callable definitions, optional facts and guarded facts. The diagnostic returns
+zero in 63.247 seconds under a 300-second cap; those phases take 12.800,
+1.944 and 4.440 seconds, respectively, and numeric facts takes 34.458 seconds.
+All ten measured phases complete. Guarded facts retains four limitations.
+Complete diagnostic streams, equal preserved maps and all 1,074 current
+physical pins were checked. The agent confirms both owned children are reaped
+and their process groups are absent. No sampler is attempted.
+
+This public chain excludes private selected-analysis coordination and rule
+checking. It does not identify the full-analysis timeout's cause or establish
+semantic acceptance. Evidence is under
+`target/benchmarks/base083/semantic62-navigation-guarded-diagnostic/`.
