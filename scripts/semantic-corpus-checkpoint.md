@@ -1755,3 +1755,22 @@ are not accepted as correct advice; a source-identity repair remains pending.
 Evidence is in
 `target/benchmarks/base083/semantic62-draft-release12-routing-control/`.
 Integration and fresh final corpus acceptance remain pending.
+
+The isolated candidate now follows searched array initializers through pure
+aliases, literals and the supported standard reshape. It checks initializer
+safety before following source values; computed cells do not grant coverage
+to their inputs. Unproved reshape cardinality remains Unknown in definition
+facts, while unsafe axes keep scalar coverage Unknown and search Limited.
+
+The focused regression fails before the repair and all four search groups
+pass afterward. The positive case covers both literal scalar constituents
+and leaves an unrelated variable uncovered. Complete successful terminal
+receipts, streams and current 106 original/106 copy/90 actual source pins
+were checked. The full candidate was independently reconstructed and saved
+in `semantic-candidate.patch`: 19 files, 168,944 bytes, SHA-256
+`26aa1db6d70cbef5fd6144fe74c8624609e3be7b3349de938cc6e548369abfd9`.
+It passes `git apply --check --whitespace=error`. Evidence is under
+`target/benchmarks/base083/semantic62-search-array-alias-preparation/` and
+`semantic62-draft-workspace-array-alias-{red,green}-search/`.
+Workspace gates and original routing validation for this revision remain
+pending, along with integration and fresh final corpus acceptance.
