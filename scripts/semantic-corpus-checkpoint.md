@@ -1113,3 +1113,17 @@ pins were checked. Evidence is in
 `target/benchmarks/base083/semantic62-bnn-array-access-reduction/`.
 This isolates a required support investigation without relaxing membership or
 partiality checks.
+
+
+The disposable copy now combines the six reviewed set/full-axis drafts with the
+three cost repairs. All-target compilation and formatting pass. Sixteen existing
+callable, definition, guarded and index-policy tests pass, including the small
+new overload ambiguity/unknown-veto and full-axis Enum/rank/decision-selector
+checks added within existing groups. Their complete successful streams were
+checked; 314 current original, copy and helper pins were independently rehashed.
+Intermediate diagnostic-wording and fixture arrangement/private-constructor
+failures remain retained; the final cases preserve the original negative
+expectations. Evidence is in
+`target/benchmarks/base083/semantic62-draft-workspace-semantic-*`.
+No authoritative Rust source has changed. A bounded six-model all-rule control
+is the next check; other aggregate, membership and local-axis gaps remain open.
