@@ -1664,3 +1664,12 @@ brief's UTF-8 boundary, not a compiler-invalid classification. Its error and
 explicit unavailable outcomes remain accounted for. Evidence is in
 `target/benchmarks/base083/exhaustive-semantic61/shards039-041-root-audit.json`.
 These phase-61 captures do not establish final-candidate acceptance.
+
+The rank-two reshape candidate passes all final copy-workspace gates:
+formatting, Clippy with warnings denied, and 193 tests across 42 successful
+suites. Workspace tests complete in 43.008 seconds. Full streams/hashes,
+successful terminal receipts, equal maps and 106 original/106 copy/90 actual
+source pins were checked. The saved 18-file patch remains unchanged. Evidence is
+in `target/benchmarks/base083/semantic62-draft-workspace-rank2-array2d-final-{fmt,clippy,workspace}/`.
+Original-model validation, actual integration and fresh final corpus acceptance
+remain pending.
