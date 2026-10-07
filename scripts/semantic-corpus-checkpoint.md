@@ -1793,3 +1793,14 @@ The probe finishes before the first sampler inspection, so no sample is
 attempted. Evidence is under
 `target/benchmarks/base083/semantic62-navigation-bounds-diagnostic/`.
 No whole-analysis acceptance, before/after ratio or cutoff exclusion follows.
+
+The searched-array alias candidate passes the required copy-workspace gates:
+formatting, Clippy with warnings denied and all 193 tests across 42 successful
+suites. Workspace tests take 43.803 seconds. All three owner handles are
+consumed with status zero; children are reaped without timeouts, process
+groups are empty and verification errors are absent. Complete streams, equal
+maps and current 106 original/106 copy/90 actual source pins were checked.
+The saved candidate is unchanged. Evidence is under
+`target/benchmarks/base083/semantic62-draft-workspace-array-alias-final-{fmt,clippy,workspace}/`.
+Original routing control, integration and fresh final corpus acceptance
+remain pending.
