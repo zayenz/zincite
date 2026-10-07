@@ -908,3 +908,12 @@ root. The full sample and receipt are retained in
 `target/benchmarks/base083/semantic61-shard008-bnn-companion-sample*`; source
 pins and the companion binary remain unchanged. Sampling overlap is explicit,
 and the current capture continues under its original deadlines.
+
+An unapplied lookup repair is prepared in
+`target/benchmarks/base083/semantic62-bounds-call-index.patch`. It adds one
+first-match `(file, operation-head start)` index inside `Bounds`, retaining
+the existing outcome interpreter and diagnostic order. The revised patch passes
+`git apply --check` and a Rustfmt check of its temporary candidate; all 90 actual
+source pins remain unchanged. Compilation, allocation/native measurements and
+behavioral validation remain pending. This prepared patch is not an applied
+repair or whole-task acceptance.
