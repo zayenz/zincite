@@ -1561,7 +1561,32 @@
                              .is_none_or(|call| {
                                  !matches!(&call.outcome,
                                  CallOutcome::Resolved { parameters, return_type, .. }
-@@ -6081,6 +7005,21 @@
+@@ -6071,16 +6995,45 @@
+                     let mut unsupported = None;
+                     let mut values = Vec::new();
+                     for child in &children {
+-                        match self.initialized_source_safety(
++                        let inspected = self.initialized_source_safety(
+                             file,
+                             child,
+                             view,
+                             generators,
+                             &mut Vec::new(),
+-                        ) {
++                        );
++                        // The typed source inspector checks the array and every
++                        // selector; membership remains unproved. The independent
++                        // integer interpreter has no array-selection evaluator.
++                        let symbolic_selection = unwrap(child).kind()
++                            == NodeKind::ArrayAccessExpression
++                            && matches!(&inspected, DefinitionSafety::Unknown(_))
++                            && ty(child).is_some_and(|t| {
++                                t.known()
++                                    && !optional(t)
++                                    && t.kind == TypeKind::Int
++                                    && t.instantiation == Instantiation::Parameter
++                            });
++                        match inspected {
                              DefinitionSafety::Unsupported(reason) => unsupported = Some(reason),
                              unknown @ DefinitionSafety::Unknown(_) => safety = unknown,
                              DefinitionSafety::Supported => {}
@@ -1569,21 +1594,22 @@
 +                        // A selected length has already had its original source
 +                        // inspected above. The definitionless integer interpreter
 +                        // cannot evaluate this call; retain an unproved value.
-+                        if length_argument(
-+                            self.context,
-+                            self.bindings,
-+                            self.view(file, child, view),
-+                            file,
-+                            unwrap(child),
-+                        )
-+                        .is_some()
++                        if symbolic_selection
++                            || length_argument(
++                                self.context,
++                                self.bindings,
++                                self.view(file, child, view),
++                                file,
++                                unwrap(child),
++                            )
++                            .is_some()
 +                        {
 +                            values.push(None);
 +                            continue;
                          }
                          // Inspect each operand independently: an unknown dividend
                          // cannot hide a literal zero divisor or invalid sibling.
-@@ -6181,7 +7120,7 @@
+@@ -6181,7 +7134,7 @@
                      if children.len() != 1
                          || children[0].kind() == NodeKind::NamedArgument
                          || ty(children[0]).is_none_or(|t| !t.known() || optional(t) || t.kind != TypeKind::Int)
@@ -1592,7 +1618,7 @@
                              .is_none_or(|call| {
                                  !matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                      if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
-@@ -6190,6 +7129,9 @@
+@@ -6190,6 +7143,9 @@
                      {
                          return DefinitionSafety::Unsupported(reason);
                      }
@@ -1602,7 +1628,7 @@
                      return self.direct_children_safety(file, &children, view, generators);
                  }
                  let integer_array = |t: &TypeInst| {
-@@ -6205,7 +7147,8 @@
+@@ -6205,7 +7161,8 @@
                      || children.len() != 1
                      || children[0].kind() == NodeKind::NamedArgument
                      || ty(children[0]).is_none_or(|t| !integer_array(t))
@@ -1612,7 +1638,7 @@
                          .is_none_or(|c| {
                              !matches!(&c.outcome, CallOutcome::Resolved { parameters, .. }
                              if parameters.len() == 1 && integer_array(&parameters[0]))
-@@ -6271,7 +7214,7 @@
+@@ -6271,7 +7228,7 @@
                  let extrema =
                      self.core(file, node, view, "min") || self.core(file, node, view, "max");
                  if !(extrema || self.core(file, node, view, "sum"))
@@ -1621,7 +1647,7 @@
                          .is_none_or(|c| {
                              !matches!(&c.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
-@@ -6486,6 +7429,106 @@
+@@ -6486,6 +7443,106 @@
          }
          safety
      }
@@ -1728,7 +1754,7 @@
      fn dependencies(
          &self,
          file: FileId,
-@@ -6493,6 +7536,7 @@
+@@ -6493,6 +7550,7 @@
          view: &CallableFacts,
          generators: &[&'a SyntaxNode],
      ) -> Result<Vec<DeclarationId>, String> {
@@ -1736,7 +1762,7 @@
          let node = unwrap(node);
          let facts = self.view(file, node, view);
          let ty = self.expression_type(facts, file, node).map(|e| &e.ty);
-@@ -6611,6 +7655,11 @@
+@@ -6611,6 +7669,11 @@
                  let id = self
                      .reference(file, subject)
                      .ok_or("array access identity unavailable")?;
@@ -1748,7 +1774,7 @@
                  if children.len() == 2
                      && self.named_selector_membership(file, id, children[1], facts)
                  {
-@@ -6689,10 +7738,28 @@
+@@ -6689,10 +7752,28 @@
                                  .is_some_and(|e| parameter_integers(&e.ty))
                          });
                      if !strings && !integers {
@@ -1781,7 +1807,7 @@
                      }
                  }
                  if name == "diff"
-@@ -6771,7 +7838,7 @@
+@@ -6771,7 +7852,7 @@
                          || children[0].kind() == NodeKind::NamedArgument
                          || ty.is_none_or(|t| t.kind != TypeKind::Int)
                          || self.expression_type(facts, file, children[0]).is_none_or(|e| !e.ty.known() || optional(&e.ty) || e.ty.kind != TypeKind::Int)
@@ -1790,7 +1816,7 @@
                              !matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
                                      && parameters[0].kind == TypeKind::Int)
-@@ -6791,7 +7858,7 @@
+@@ -6791,7 +7872,7 @@
                          || argument.is_none_or(|e| {
                              !e.ty.known() || optional(&e.ty) || e.ty.kind != TypeKind::Bool
                          })
@@ -1799,7 +1825,7 @@
                              matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameters[0].known()
                                      && !optional(&parameters[0]) && parameters[0].kind == TypeKind::Bool)
-@@ -6812,7 +7879,7 @@
+@@ -6812,7 +7893,7 @@
                          || ty.is_none_or(|t| {
                              t.kind != TypeKind::Int || t.instantiation != Instantiation::Parameter
                          })
@@ -1808,7 +1834,7 @@
                              matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameter_integers(&parameters[0]))
                          })
-@@ -6902,7 +7969,7 @@
+@@ -6902,7 +7983,7 @@
                              t.kind != TypeKind::Int || t.instantiation != Instantiation::Parameter
                          })
                          || argument.is_none_or(|e| !parameter_integers(&e.ty))
@@ -1817,7 +1843,7 @@
                              matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameter_integers(&parameters[0]))
                          })
-@@ -6939,27 +8006,36 @@
+@@ -6939,27 +8020,36 @@
                          {
                              return self.dependencies(file, args[0], view, generators);
                          }
@@ -1869,7 +1895,7 @@
                  }
                  let metadata = if self.core(file, node, view, "show_index_sets") {
                      Some((1, TypeKind::String))
-@@ -7031,7 +8107,7 @@
+@@ -7031,7 +8121,7 @@
                      && ty.is_some_and(|t| t.kind == TypeKind::Bool);
                  let count = self.core(file, node, view, "count")
                      && ty.is_some_and(|t| t.kind == TypeKind::Int)
@@ -1878,7 +1904,7 @@
                          matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                              if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
                                  && matches!(&parameters[0].kind, TypeKind::Array { element, .. } if element.kind == TypeKind::Bool))
-@@ -7039,7 +8115,7 @@
+@@ -7039,7 +8129,7 @@
                  let extrema = (self.core(file, node, view, "min")
                      || self.core(file, node, view, "max"))
                      && ty.is_some_and(|t| t.kind == TypeKind::Int)
@@ -1887,7 +1913,7 @@
                          matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                              if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
                                  && matches!(&parameters[0].kind, TypeKind::Array { indices, element }
-@@ -7060,7 +8136,24 @@
+@@ -7060,7 +8150,24 @@
                  let mut all = generators.to_vec();
                  all.extend(list.child_nodes());
                  if parameter_collection || quantifier || count || extrema {
@@ -1913,7 +1939,7 @@
                  } else {
                      self.iterations(file, &all, view)?;
                  }
-@@ -7305,7 +8398,7 @@
+@@ -7305,7 +8412,7 @@
              && self.core(file, node, view, "bool2int")
              && ty(node).is_some_and(|t| t.known() && !optional(t) && t.kind == TypeKind::Int)
              && ty(children[0]).is_some_and(|t| t.known() && !optional(t) && t.kind == TypeKind::Bool)

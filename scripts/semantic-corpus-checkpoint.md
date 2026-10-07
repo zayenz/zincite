@@ -1938,6 +1938,24 @@ repair target, not a passing repair. The next change will retain unknown
 values for already-inspected parameter integer selections while preserving
 invalid-source, selector, zero-divisor and checked-arithmetic handling.
 
+The narrow selection/division change is now saved. It skips only constant
+evaluation of a known present parameter-integer array selection whose complete
+source inspection returned Unknown. Unsupported operands, sibling inspection,
+literal-zero divisors and checked arithmetic retain their existing paths.
+No value, membership or output proof is granted. The candidate is 210,513 bytes,
+SHA-256 `6f6502ad9ffd63b0ff5ba2268e63c8c58970d4be445cd8d058bcccca5bac4f66`,
+and passes the patch application check.
+
+The focused rerun compiles but still has three passing groups and the same
+failing completion assertion. Cargo returns 101 in 22.292 seconds without
+timeout; the child is reaped and its process group is empty. Full streams,
+equal maps and current 90 actual/106 original/106 copy sources were checked.
+Evidence is under
+`target/benchmarks/base083/semantic62-draft-workspace-routing336-selection-green-search/`.
+The next internal rejection is not yet observed. Source inspection finds an
+existing parameter-Boolean fallback, so the earlier Boolean hypothesis does
+not justify a repair. Passing gates and final acceptance remain pending.
+
 The frozen release-twelve navigation public iteration probe completes in
 52.496 seconds under a 300-second cap. Iteration facts takes 1.278 seconds,
 producing two array facts, five index sets, one iteration and no limitations.
