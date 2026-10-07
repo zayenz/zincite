@@ -503,8 +503,19 @@ The matched unsampled semantic56 native replay completed with byte-identical
 diagnostics in 1,235.87 seconds, compared with 1,177.04 seconds for semantic55.
 Peak RSS was 4,452.48 MiB, compared with 4,265.75 MiB. This single comparison
 shows no measured speed or memory improvement. It does not establish a stable
-regression. Matched allocation measurements and complete corpus acceptance
-remain pending; scope sharing has not yet demonstrated a performance benefit.
+regression.
+
+The serial matched allocation companions both completed with identical source
+graphs, fourteen-rule outcomes and full diagnostics. Analysis requested bytes
+fell from 175,428,664,043 to 118,780,205,547, a 32.29% reduction. Allocation calls
+fell by 0.15%; retained analysis bytes remained 69,813,828 and peak tracked
+analysis bytes fell by 0.13%. Load and render allocation counters were unchanged.
+Both scopes returned to their 2,395-byte starting level after drop. These
+whole-phase counters demonstrate an allocation-byte benefit from scope sharing;
+they do not establish a speed or native-memory improvement. The paired evidence
+is retained in `target/benchmarks/base083/semantic56-project17-allocation-control/`.
+Original inputs, current source, artifacts and complete output streams were
+independently checked. Complete corpus acceptance remains pending.
 
 ## Base-083 remaining acceptance checks
 
