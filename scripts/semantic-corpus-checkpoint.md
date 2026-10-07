@@ -1673,3 +1673,25 @@ source pins were checked. The saved 18-file patch remains unchanged. Evidence is
 in `target/benchmarks/base083/semantic62-draft-workspace-rank2-array2d-final-{fmt,clippy,workspace}/`.
 Original-model validation, actual integration and fresh final corpus acceptance
 remain pending.
+
+Release eleven builds successfully from the frozen reshape candidate in 11.860
+seconds. Complete Cargo streams, successful terminal receipt, equal maps,
+optimized non-test artifact events, frozen binary/origin equality and current
+source pins were checked. Frozen linter SHA-256 is
+`7f83ddb3c57b5fa07d6cada5bd138d0cbb56f12dd8864940adc1efb994a62227`;
+companion SHA-256 is
+`66a3bedb751d810c92b79fdab5573dcc76694bcf1d3f29d28a774615f674b9e9`.
+
+Its original routing control completes in 2.220 seconds under the unchanged
+300-second deadline, with all 26 outcomes observed, 180 warnings, zero errors
+and 206 limitations. Complete source metadata and all rule rows match release
+ten; live bytes return to 2,394. The search and unbounded-variable limitations
+for the line-167 reshape are removed. All 180 warning blocks and all 206
+remaining limitation blocks are byte identical and retain their order. Full
+streams, terminal receipt, equal maps and 1,946 current distinct physical pins
+were checked. Evidence is in
+`target/benchmarks/base083/semantic62-draft-workspace-semantic-release11/`,
+`semantic62-draft-rank2-array2d-binaries/` and
+`semantic62-draft-release11-routing-control/root-block-audit.json`.
+This grants no new coverage or boundedness finding; actual integration and
+fresh final corpus acceptance remain pending.
