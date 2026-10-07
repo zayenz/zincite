@@ -1326,3 +1326,33 @@ source/helper/patch pins were checked. Evidence is in
 The refreshed `semantic-candidate.patch` passes `git apply --check` and has SHA-256
 `3e6895086f36d819b5d28fa76f628c79c8820e58aae70c94876b91718efbf4f3`.
 Full workspace and original-model outcomes for this change remain pending.
+
+The Boolean-conversion candidate also passes Clippy with warnings denied and
+all 193 workspace tests across 42 successful suites. Full streams, terminal
+receipts and unchanged maps were checked. Release seven freezes its native
+linter and companion probe; the generated-model recapture is still running.
+Evidence is in `target/benchmarks/base083/semantic62-draft-workspace-bool2int-final-{clippy,workspace}/`
+and `semantic62-draft-bool2int-binaries/`.
+
+The root audit of original batches 027–028 accounts for 86 roots per preset,
+reads all 20 streams, verifies 16 receipt-bound streams and rehashes 1,108
+original inputs. The one input error is a non-UTF-8 crossword data file at byte
+1,510,046. It remains outside the brief's UTF-8 boundary and is not classified
+as compiler-invalid. Separately, original `sysadmin_5_4s.mzn` compiles successfully
+with current MiniZinc/Gecode without solving; 1,038 pins remain unchanged.
+Its old native thesis command times out at 1,800 seconds with no completion
+observation. This compiler-valid processing failure remains open.
+Evidence is in `target/benchmarks/base083/exhaustive-semantic61/shards027-028-root-audit.json`
+and `target/benchmarks/base083/semantic61-shard029-bnn-source-precheck/`.
+
+The isolated cost-four lookup repair is reconstructed against exact cost-three
+source, with only the reviewed index-set-mismatch patch differing. Its first
+matched pair completes with identical source metadata, entire analysis JSON,
+all 26 selected IDs and all 375,901 stderr bytes. Both retain 1,094 warnings and
+561 limitations, with restored drops and unchanged pins. Analyze allocation
+calls rise by 16 and requested bytes by 23,723,964; retained and peak allocation
+deltas remain 975,316 and 583,963,393 bytes. Instrumented child CPU is
+153.639 versus 115.082 seconds and peak RSS 815.094 versus 814.297 MiB.
+Original-sweep and Cargo overlap are retained. These measurements establish no
+production-native benefit or growth result; the native pair is the next check.
+Evidence is in `target/benchmarks/base083/semantic62-cost4-sysadmin-first-stage/`.
