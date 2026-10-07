@@ -12,6 +12,7 @@ const CORE: &str = concat!(
     "function var bool: '->'(var bool: left,var bool: right);\n",
     "function var int: sum(array[int] of var int: body); function set of int: index_set(array[int] of any $V: xs);\n",
     "function var int: enum2int(var $$E: x); function array[int] of var int: enum2int(array[int] of var $$E: x);\n",
+    "function array[int] of any $V: index2int(array[$$E] of any $V: x);\n",
     "function var bool: '/\\'(var bool: left,var bool: right);\n",
     "function array[int] of var int: '++'(array[int] of var int: left,array[int] of var int: right);\n",
     "annotation input_order; annotation indomain_min; annotation complete;\n",
@@ -1623,6 +1624,8 @@ fn callable_outputs_keep_selected_direction_defaults_captures_and_array_extent()
         "\u{feff}% é\r\ninclude \"included.mzn\"; int: global_needle; array[1..2,1..2] of var 0..3: values;\n",
         "var 0..4: counted; var int: need_capture; var int: unsearched;\n",
         "set of int: S; array[S] of var int: array_input; array[S] of var int: array_output; array[S] of var int: filtered_output;\n",
+        "array[S] of var int: converted_output; array[S] of var int: converted_filtered;\n",
+        "array[S] of var opt int: converted_optional;\n",
         "var int: misleading; var int: competing_output; var int: good; var int: bad; var int: forwarded; var opt int: optional_input; var opt int: optional_result;\n",
         "predicate capture_output(var int: out_value)=out_value=unsearched;\n",
         "var int: anchored; var int: unanchored; var int: conditional; array[1..2] of var int: partial; var bool: gate;\n",
@@ -1630,6 +1633,9 @@ fn callable_outputs_keep_selected_direction_defaults_captures_and_array_extent()
         "constraint named_output(misleading,counted); constraint competing(counted,competing_output);\n",
         "constraint enforce(copy_value(counted,forwarded)); constraint partly_supported(counted,good,bad); constraint optional_output(optional_input,optional_result);\n",
         "constraint copy_array(array_input,array_output); constraint filtered_array(array_input,filtered_output);\n",
+        "constraint copy_array(index2int(enum2int(array_input)),index2int(enum2int(converted_output)));\n",
+        "constraint filtered_array(array_input,index2int(enum2int(converted_filtered)));\n",
+        "constraint copy_array(array_input,index2int(enum2int(converted_optional)));\n",
         "constraint capture_output(need_capture); constraint loop_a(counted,unanchored);\n",
         "constraint gate -> copy_value(counted,conditional); constraint copy_value(counted,partial[1]);\n",
         "solve :: seq_search([int_search(array1d(values),input_order,indomain_min,complete),int_search(array_input,input_order,indomain_min,complete),bool_search([gate],input_order,indomain_min,complete)]) satisfy;\n"
@@ -1700,6 +1706,16 @@ fn callable_outputs_keep_selected_direction_defaults_captures_and_array_extent()
         SearchCoverage::WholeArray
     );
     assert_eq!(
+        coverage(&bindings, &search, "converted_output"),
+        SearchCoverage::WholeArray,
+        "{:?}",
+        search.limitations
+    );
+    assert_ne!(
+        coverage(&bindings, &search, "converted_filtered"),
+        SearchCoverage::WholeArray
+    );
+    assert_eq!(
         coverage(&bindings, &search, "misleading"),
         SearchCoverage::Uncovered
     );
@@ -1719,7 +1735,12 @@ fn callable_outputs_keep_selected_direction_defaults_captures_and_array_extent()
             .filter(|g| { bindings.declarations[g.callable.0].name == "filtered_array" })
             .all(|g| g.coverage != DefinitionCoverage::WholeArray)
     );
-    for name in ["bad", "competing_output", "optional_result"] {
+    for name in [
+        "bad",
+        "competing_output",
+        "optional_result",
+        "converted_optional",
+    ] {
         assert_eq!(
             coverage(&bindings, &search, name),
             SearchCoverage::Unknown,
@@ -1736,6 +1757,17 @@ fn callable_outputs_keep_selected_direction_defaults_captures_and_array_extent()
     assert_eq!(
         std::fs::read_to_string(dir.join("root.mzn")).unwrap(),
         source
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+
+    let shadowed = format!(
+        "{source}\nfunction array[int] of var int: index2int(array[int] of var int: xs)=[xs[1],xs[1]];\n"
+    );
+    let (dir, context) = model("shadowed-conversion", &shadowed, included);
+    let (bindings, search) = facts(&context);
+    assert_eq!(
+        coverage(&bindings, &search, "converted_output"),
+        SearchCoverage::Unknown
     );
     std::fs::remove_dir_all(dir).unwrap();
 }

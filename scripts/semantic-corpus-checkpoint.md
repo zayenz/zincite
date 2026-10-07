@@ -592,3 +592,21 @@ Gecode. The two complete FlatZinc outputs differ only on line 3, the generated
 command-line invocation comment containing the different file paths. All other
 bytes match. The comparison, formatter/compiler receipts and unchanged-original
 checks are retained alongside the original compilation evidence.
+
+## Base-083 whole-array conversion views
+
+The semantic58 repair maps WholeArray callable-output guarantees through the
+standard `enum2int` and `index2int` array views. MiniZinc 2.10.1 implements both
+as single-argument representation views. Zincite checks the unique implicit
+standard declaration, exact selected signature, rank and qualifiers before
+following the argument to a bare present decision-array declaration. Scalar
+and ArrayElement guarantees gain no new mapping. Strict dependency inspection
+also follows the checked `index2int` argument; underlying prerequisites remain
+required.
+
+The existing callable-output regression fails before this repair and passes
+afterward. It retains Unknown for optional and user-defined noninjective
+conversions and does not promote a filtered body to whole-array coverage.
+Formatting, Clippy and all 193 workspace tests pass. Independent bounded review
+found no defect in these mapping guards. Fresh optimized public-model captures
+remain pending; this checkpoint does not complete base-083.

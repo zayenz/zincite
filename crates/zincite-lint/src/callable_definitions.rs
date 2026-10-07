@@ -2091,6 +2091,12 @@ impl<'a> Producer<'a> {
                         Some((guarantee.target, guarantee.coverage.clone()))
                     } else {
                         self.target(file, node, view, &clause.generators)
+                            .or_else(|| {
+                                (guarantee.coverage == DefinitionCoverage::WholeArray)
+                                    .then(|| self.converted_array_target(file, node, view))
+                                    .flatten()
+                                    .map(|id| (id, DefinitionCoverage::WholeArray))
+                            })
                     };
                     let Some((target, mut coverage)) = mapped else {
                         self.unavailable(
@@ -2888,6 +2894,90 @@ impl<'a> Producer<'a> {
         } else {
             None
         }
+    }
+    fn array_conversion_argument(
+        &self,
+        file: FileId,
+        node: &'a SyntaxNode,
+        view: &CallableFacts,
+    ) -> Option<&'a SyntaxNode> {
+        let node = unwrap(node);
+        if node.kind() != NodeKind::CallExpression {
+            return None;
+        }
+        let facts = self.view(file, node, view);
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &self.operation_fact(facts, file, node)?.outcome
+        else {
+            return None;
+        };
+        let name = &self.bindings.declarations[declaration.0].name;
+        if !matches!(name.as_str(), "enum2int" | "index2int")
+            || !crate::definitions::core_callable(self.context, self.bindings, *declaration, name)
+        {
+            return None;
+        }
+        let mut children = node.child_nodes();
+        let argument = children.next()?;
+        if children.next().is_some() || argument.kind() == NodeKind::NamedArgument {
+            return None;
+        }
+        let input = &self
+            .expression_type(self.view(file, argument, view), file, argument)?
+            .ty;
+        let result = &self.expression_type(facts, file, node)?.ty;
+        if !input.known()
+            || optional(input)
+            || parameters.as_slice() != std::slice::from_ref(input)
+            || return_type != result
+        {
+            return None;
+        }
+        let mut expected = input.clone();
+        let TypeKind::Array { indices, element } = &mut expected.kind else {
+            return None;
+        };
+        if indices.len() != 1
+            || indices[0].instantiation != Instantiation::Parameter
+            || !matches!(indices[0].kind, TypeKind::Int | TypeKind::Enum(_))
+        {
+            return None;
+        }
+        if name == "enum2int" {
+            if !matches!(element.kind, TypeKind::Int | TypeKind::Enum(_)) {
+                return None;
+            }
+            element.kind = TypeKind::Int;
+        } else {
+            indices[0] = TypeInst::par(TypeKind::Int);
+        }
+        // These standard views retain every value; only the enum representation
+        // or index type changes. Keep all other qualifiers and identities exact.
+        (expected == *result).then_some(argument)
+    }
+    fn converted_array_target(
+        &self,
+        file: FileId,
+        node: &'a SyntaxNode,
+        view: &CallableFacts,
+    ) -> Option<DeclarationId> {
+        let node = unwrap(node);
+        if let Some(argument) = self.array_conversion_argument(file, node, view) {
+            return self.converted_array_target(file, argument, view);
+        }
+        if node.kind() != NodeKind::Expression {
+            return None;
+        }
+        let id = self.reference(file, node)?;
+        let ty = &self.view(file, node, view).declarations[id.0].ty;
+        (ty.known()
+            && !optional(ty)
+            && ty.instantiation == Instantiation::Decision
+            && matches!(&ty.kind, TypeKind::Array { indices, .. } if indices.len() == 1))
+        .then_some(id)
     }
     fn iterations(
         &self,
@@ -6407,6 +6497,7 @@ impl<'a> Producer<'a> {
                 }
                 if !(self.core(file, node, view, "array1d")
                     || self.core(file, node, view, "enum2int")
+                    || self.array_conversion_argument(file, node, view).is_some()
                     || self.core(file, node, view, "index_set")
                     || self.core(file, node, view, "has_bounds"))
                 {
