@@ -1804,3 +1804,19 @@ The saved candidate is unchanged. Evidence is under
 `target/benchmarks/base083/semantic62-draft-workspace-array-alias-final-{fmt,clippy,workspace}/`.
 Original routing control, integration and fresh final corpus acceptance
 remain pending.
+
+The release-twelve public numeric-facts diagnostic on the original navigation
+model completes in 47.690 seconds under the same 300-second cap. Its
+instantiations and definitions prerequisites complete; numeric fact
+construction takes 36.949 seconds, retaining 939,681 expression rows and
+no numeric limitations. This excludes private selected-analysis typed-domain
+and local-safety coordination, other producers and rule checking. It does
+not explain or resolve the original full-analysis timeout.
+
+The owner returns zero, both compilation and diagnostic children are reaped
+without timeouts, and their groups are empty. Complete streams and all 1,074
+physical post-run pins were checked; only the compiled helper is added to
+the preserved before map. The diagnostic is terminal at the sampler's first
+guard, so no sample is attempted or retried. Evidence is under
+`target/benchmarks/base083/semantic62-navigation-numeric-diagnostic/`.
+A full selected-analysis control with the current candidate remains needed.
