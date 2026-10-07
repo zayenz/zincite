@@ -2336,3 +2336,19 @@ bytes. Build success does not establish original-model outcomes or corpus
 acceptance. Evidence is under
 `target/benchmarks/base083/semantic62-draft-workspace-semantic-release16/`
 and `semantic62-draft-routing-family1-binaries/`.
+
+The original Routing release-sixteen all-rule control completes in 163.573
+seconds at the unchanged 300-second cap. It has one complete resolved root,
+26 ordered rule rows and a matching drop (2,394 bytes before/after). Complete
+streams and current before/after maps were checked; the child is reaped, its
+group is empty and verification error is null. All 180 ordered warning blocks,
+source metadata and the 23-file loaded closure match release fourteen.
+Limitations fall from 198 to 196: only the two rank-three search limitations
+at lines 274 and 291 disappear; all other full blocks retain their order and
+bytes, with none added. Rule rows remain twenty Completed/six Limited,
+including twelve Completed/two Limited thesis rules. Four search limitations
+remain at 373, 182, 235 and 378, plus unbounded-variable at 373. This confirms
+the targeted repair on the compiler-accepted original, while remaining valid
+processing gaps keep acceptance open. The run overlaps the protected corpus;
+it supplies no isolated timing ratio or fresh native outcome. Evidence is under
+`target/benchmarks/base083/semantic62-draft-release16-routing-control/`.
