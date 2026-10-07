@@ -2181,3 +2181,18 @@ data files and three complete resolved models. Its thesis companion reports
 Standalone data remains distinct from model analysis. These are original frozen
 phase-61 observations, not fresh final-candidate or compiler-validity acceptance.
 Evidence is under `target/benchmarks/base083/exhaustive-semantic61/shard-{049,050}/`.
+
+The frozen release-fourteen original routing control finishes in 162.796
+seconds at the unchanged 300-second cap. Its companion is reaped with status
+one, one complete resolved root, all 26 ordered rule rows, matching drop
+baseline and no Unobserved root. All 1,684 physical paths, matching before/after
+maps and complete streams were checked. Compared with release thirteen, every
+complete multiline warning/limitation block preserves order: exactly six
+limitation blocks disappear, with none added. Warnings remain 180; limitations
+fall from 204 to 198. `suspicious-domain` changes from Limited to Completed;
+all other rule outcomes and finding counts remain equal. Five removed blocks
+belong to search coverage or unbounded-variable analysis, which still remain
+Limited overall. The valid original therefore still needs concrete support
+repairs. This is companion evidence with explicit sweep overlap, not a native
+comparison, isolated speed measurement or final acceptance. Evidence is under
+`target/benchmarks/base083/semantic62-draft-release14-routing-control/`.
