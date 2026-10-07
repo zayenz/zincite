@@ -1734,7 +1734,11 @@ Evidence is in `target/benchmarks/base083/semantic62-navigation-compile/`.
 The original phase-61 thesis native run on that same model timed out after
 1,800.067 seconds, with empty streams and no observed completion count. This
 is a valid-input processing failure that remains open, not an invalid-model
-exclusion. The scheduled companion is still being accounted for; no restart,
+exclusion. The scheduled thesis companion also times out after 1,800.048 seconds.
+Its complete capture reaches the analyze phase but contains no root, drop or
+completion row; all fourteen rules remain Unobserved. Full streams and
+partitions were checked against the retained terminal receipt. The remaining
+all-preset runs are still pending; shard 042 is not closed. No restart,
 deadline increase or formatted-FlatZinc equivalence is claimed.
 
 Release twelve builds from the frozen annotation candidate and completes the
