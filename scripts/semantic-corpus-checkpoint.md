@@ -2196,3 +2196,26 @@ Limited overall. The valid original therefore still needs concrete support
 repairs. This is companion evidence with explicit sweep overlap, not a native
 comparison, isolated speed measurement or final acceptance. Evidence is under
 `target/benchmarks/base083/semantic62-draft-release14-routing-control/`.
+
+Original sweep batches 051–053 are closed and checked: 36 complete stream
+hashes, every ordered root/drop and selected-rule partition, and 1,109 physical
+original hashes. All companion roots are observed and all reported drops return
+to baseline. Batch 051's generated model completes every thesis rule with
+66,109 warnings and no limitations; all reports 67,571 warnings and 961
+limitations. Batch 052 accounts for 60 data files, three complete resolved
+models and one input error in `2017/crosswords/grid-05.04_dict-80.dzn`.
+That processing error is not a compiler-invalid classification. Thesis reports
+3,215 warnings/37 limitations; all reports 7,860 warnings/1,472 limitations.
+Batch 053 accounts for 20 data files and two complete resolved models, with
+36 warnings/two limitations for thesis and 234 warnings/83 limitations for all.
+No process in these captures times out. These remain frozen phase-61 evidence;
+final-candidate acceptance is open. Evidence is under
+`target/benchmarks/base083/exhaustive-semantic61/shard-{051,052,053}/`.
+
+The public queue comparison stopped twice during setup, before creating its
+output directory or launching a compiler/model child. The helper now handles
+the two retained compiler-proof stream forms and the older hash/byte-only
+records explicitly. Every field in those records remains checked; new maps
+capture current modes. The complete child-free setup and all 1,108 physical
+pins were checked before authorizing the first actual measurement. These
+setup failures are retained separately and are not benchmark cutoffs.
