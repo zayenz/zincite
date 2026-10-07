@@ -1550,3 +1550,15 @@ one unresolved include in `assignment-pool/tmp/analyze.mzn`. These are captured
 errors, with compiler validity still unclassified. Other batches retain semantic
 limitations; native completion counts remain unavailable. These original
 phase-61 captures do not establish acceptance for the current candidate.
+
+The routing candidate passes formatting, Clippy with warnings denied and all
+193 workspace tests across 42 successful suites. Clippy first found three
+needless borrows in the new test fixture; only those borrows were corrected,
+and the failed capture is retained. Complete final streams, terminal receipts,
+equal maps and 106 original/106 current-copy/90 actual-source pins were checked.
+Workspace tests completed in 41.323 seconds. Evidence is in
+`target/benchmarks/base083/semantic62-draft-workspace-routing-index-final-v2-{fmt,clippy,workspace}/`.
+The corrected 17-file patch is 145,156 bytes, SHA-256
+`40e0405e92e45137ad7c915797bf3f90dba0fcb22fbfa6fb0abba9269db9be00`,
+and passes `git apply --check --whitespace=error`. Original-model validation,
+actual integration and fresh final corpus acceptance remain pending.
