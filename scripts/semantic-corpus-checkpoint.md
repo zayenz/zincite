@@ -499,5 +499,9 @@ semantic55 and semantic56 on the two retained compiler-positive controls.
 The complete paired outputs are 77,655 and 221,798 bytes. Evidence is retained
 in `target/benchmarks/base083/semantic56-guarded-parity/`; original source,
 compiler controls, executables and output hashes were independently checked.
-The matched unsampled native cost check and complete corpus acceptance remain
-pending.
+The matched unsampled semantic56 native replay completed with byte-identical
+diagnostics in 1,235.87 seconds, compared with 1,177.04 seconds for semantic55.
+Peak RSS was 4,452.48 MiB, compared with 4,265.75 MiB. This single comparison
+shows no measured speed or memory improvement. It does not establish a stable
+regression. Matched allocation measurements and complete corpus acceptance
+remain pending; scope sharing has not yet demonstrated a performance benefit.
