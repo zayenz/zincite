@@ -1723,3 +1723,16 @@ source pins were checked. The saved candidate is unchanged. Evidence is in
 `target/benchmarks/base083/semantic62-draft-workspace-assigned-annotation-final-{fmt,clippy,workspace}/`.
 Original-model validation, integration and fresh final corpus acceptance
 remain pending.
+
+The original shard-042 navigation model is accepted by the current MiniZinc
+Gecode compile-only check in 1.368 seconds, with status zero and no diagnostics.
+The unchanged 3,012,171-byte original produces a 1,203,497-byte FlatZinc file;
+no data was invented and no solver ran. Complete streams, terminal receipt,
+artifacts and 1,041 current compiler/source/dependency pins were checked.
+Evidence is in `target/benchmarks/base083/semantic62-navigation-compile/`.
+
+The original phase-61 thesis native run on that same model timed out after
+1,800.067 seconds, with empty streams and no observed completion count. This
+is a valid-input processing failure that remains open, not an invalid-model
+exclusion. The scheduled companion is still being accounted for; no restart,
+deadline increase or formatted-FlatZinc equivalence is claimed.
