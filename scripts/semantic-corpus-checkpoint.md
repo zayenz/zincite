@@ -1630,3 +1630,23 @@ for suppressions and individual advice. Evidence is in
 `target/benchmarks/base083/exhaustive-semantic61/shard037-diagnostic-scaling-root-audit.json`.
 The final native diagnostic's 367 distinct mapped original/cost-three/cost-four,
 dependency, metadata and frozen binary files were also rehashed unchanged.
+
+The copy-only rank-two `array2d` repair admits only the selected core set-axis
+reshape with present Int types and bare top-level sources. Existing initialized
+source inspection checks actual axes/source headers, initializers, annotations
+and cycles before returning Unknown for unproved reshape cardinality. It grants
+no boundedness, output dependency or search coverage. Raw definition fallback
+is restricted to that recognized reshape.
+
+The focused search suite first fails at the new symbolic-reshape public case
+with unsupported definition safety; after the repair all four groups pass.
+The case retains Unknown coverage, and unsafe, cyclic, annotated, optional and
+user-overloaded negatives remain Limited. Both full captures, terminal receipts,
+equal maps and 106 original/106 formatted-copy/90 actual-source pins were checked.
+The complete 18-file candidate is saved in `semantic-candidate.patch`, 154,586
+bytes, SHA-256 `8e8eef4ba86b0c12742b6363962bdab7fba7711bea5d0590693e365ab7eae057`,
+and passes `git apply --check --whitespace=error`. Evidence is in
+`target/benchmarks/base083/semantic62-rank2-array2d-preparation/` and
+`semantic62-draft-workspace-rank2-array2d{-red,}-search/`.
+Final workspace gates, original-model control, actual integration and fresh
+final corpus acceptance remain pending.
