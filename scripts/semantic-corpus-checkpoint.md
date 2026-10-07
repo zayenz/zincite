@@ -1163,4 +1163,9 @@ the existing crossed-array ambiguity and unknown-signature veto still pass.
 Complete streams and their hashes, terminal process accounting and equal
 before/after maps were checked. Evidence is in
 `target/benchmarks/base083/semantic62-draft-workspace-set-ranking-v2-{fmt,check,callables}/`.
-The two compiler boundary controls and fresh model outcomes remain pending.
+Two further current MiniZinc/Gecode compile-only controls select the direct Set
+family for SetFloat versus ArrayInt and var SetInt versus par ArrayInt. Both
+generated output models retain `chosen = 1`. The full streams, generated
+artifacts and 1,041 unchanged input pins were checked. Evidence is in
+`target/benchmarks/base083/semantic62-set-array-ranking-compiler-controls/`.
+Fresh candidate model outcomes remain pending.
