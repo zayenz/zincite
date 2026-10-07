@@ -1,5 +1,16 @@
 --- a/crates/zincite-lint/src/callable_definitions.rs
 +++ b/crates/zincite-lint/src/callable_definitions.rs
+@@ -2,8 +2,8 @@
+ use std::collections::HashMap;
+ 
+ use crate::callables::{
+-    call_argument, core_operation, find_node, formal_parameter, instantiated_body, is_expression,
+-    operation_fact,
++    call_argument, core_operation, find_node, formal_parameter, instantiated_body,
++    integer_array_concatenation, is_expression, operation_fact,
+ };
+ use crate::definitions::complete_array_coverage;
+ use crate::domains::expression_domain;
 @@ -67,13 +67,42 @@
      instantiations: &InstantiationFacts,
      domains: &DomainFacts,
@@ -176,7 +187,31 @@
              CallOutcome::Resolved {
                  declaration,
                  parameters,
-@@ -2207,8 +2343,7 @@
+@@ -2164,6 +2300,23 @@
+                     );
+                     return;
+                 };
++                if clause.node.kind() == NodeKind::GeneratorCallExpression
++                    && self.core(clause.file, clause.node, view, "exists")
++                    && self.operation_fact(self.view(clause.file, clause.node, view), clause.file, clause.node)
++                        .is_some_and(|fact| matches!(&fact.outcome,
++                            CallOutcome::Resolved { parameters, return_type, .. }
++                                if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
++                                    && return_type.known() && !optional(return_type) && return_type.kind == TypeKind::Bool
++                                    && matches!(&parameters[0].kind, TypeKind::Array { indices, element }
++                                        if indices.len() == 1 && indices[0].instantiation == Instantiation::Parameter
++                                            && element.kind == TypeKind::Bool)))
++                {
++                    if let Err(reason) = self.dependencies(clause.file, clause.node, view, &clause.generators) {
++                        self.unavailable(clause, &reason, unavailable);
++                    }
++                    // Existential bodies are inspected, never enforced directional outputs.
++                    return;
++                }
+                 let mut computed_dependencies = Vec::new();
+                 let mut uncertain_actual = false;
+                 let mut unsupported_actual = false;
+@@ -2207,8 +2360,7 @@
                          }
                      }
                  }
@@ -186,7 +221,7 @@
                      self.view(clause.file, clause.node, view),
                      clause.file,
                      clause.node,
-@@ -2489,7 +2624,7 @@
+@@ -2489,7 +2641,7 @@
              if parameters.len() != 2 || !integer(&parameters[0]) || !array(&parameters[1])
                  || formals.len() != 2 || formals.iter().any(|formal| formal.child_nodes().any(|n| is_expression(n.kind())))
                  || !self.callable_annotations_safe(declaration.file, written)
@@ -195,7 +230,7 @@
                      .is_none_or(|fact| !matches!(&fact.outcome, CallOutcome::Resolved { declaration: selected, parameters, return_type }
                          if *selected == id && parameters.len() == 2 && integer(&parameters[0]) && array(&parameters[1])
                              && return_type.known() && !optional(return_type) && return_type.kind == TypeKind::Bool))
-@@ -3583,15 +3718,7 @@
+@@ -3583,15 +3735,7 @@
                      return false;
                  }
                  let index = unwrap(index);
@@ -212,7 +247,7 @@
                  if index.kind() != NodeKind::Expression
                      || !expected.known()
                      || optional(expected)
-@@ -3620,15 +3747,7 @@
+@@ -3620,15 +3764,7 @@
                  else {
                      return false;
                  };
@@ -229,7 +264,7 @@
                  if source_type.is_none_or(|t| !t.known() || optional(t)
                      || t.instantiation != Instantiation::Parameter
                      || !matches!(&t.kind, TypeKind::Set(element) if element.kind == expected.kind
-@@ -3963,7 +4082,9 @@
+@@ -3963,7 +4099,9 @@
              declaration: id,
              parameters,
              return_type,
@@ -240,7 +275,7 @@
          else {
              return None;
          };
-@@ -4650,13 +4771,13 @@
+@@ -4650,13 +4788,13 @@
              || args.len() != 3
              || !crate::definitions::annotations_safe(self.context, file, value)
              || typed(node).is_none_or(|t| !array(t, 2))
@@ -258,7 +293,7 @@
          {
              return Err(
                  "uncertain-bound parameter array requires the core rank-two integer array2d".into(),
-@@ -5121,14 +5242,14 @@
+@@ -5121,14 +5259,14 @@
          }
          let witness: Vec<_> = parts[0].child_nodes().map(unwrap).collect();
          if witness.len() != 1 || witness[0].kind() == NodeKind::NamedArgument || !present_int(witness[0])
@@ -275,7 +310,7 @@
                  !matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                      if parameters.len() == 1 && parameters[0].known() && parameters[0].kind == TypeKind::Int)
              })
-@@ -5265,7 +5386,7 @@
+@@ -5265,7 +5403,7 @@
              || ty(body).is_none_or(|t| !t.known() || optional(t) || t.kind != TypeKind::Int)
              || ty(parts[1]).is_none_or(|t| !t.known() || optional(t) || t.kind != TypeKind::Int
                  || t.instantiation != Instantiation::Parameter)
@@ -284,7 +319,7 @@
                  !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
                      if parameters.len() == 2 && parameters.iter().all(|t| t.known() && t.kind == TypeKind::Int)
                          && !optional(&parameters[1]) && return_type.known() && !optional(return_type) && return_type.kind == TypeKind::Int)
-@@ -5773,17 +5894,231 @@
+@@ -5773,17 +5911,231 @@
                  && (sum || t.instantiation == Instantiation::Parameter)
          };
          let children: Vec<_> = node.child_nodes().collect();
@@ -519,7 +554,7 @@
      }
      fn direct_safety(
          &self,
-@@ -5792,6 +6127,9 @@
+@@ -5792,6 +6144,9 @@
          view: &CallableFacts,
          generators: &[&'a SyntaxNode],
      ) -> DefinitionSafety {
@@ -529,7 +564,7 @@
          // A strict dependency on a named collection does not inspect its
          // initializer. Keep that evaluation check ahead of strict success.
          let aggregate = self.aggregate_source_safety(file, node, view, generators);
-@@ -6057,7 +6395,8 @@
+@@ -6057,7 +6412,8 @@
                      let integer =
                          |t: &TypeInst| t.known() && !optional(t) && t.kind == TypeKind::Int;
                      if !crate::definitions::annotations_safe(self.context, file, written)
@@ -539,7 +574,7 @@
                              .is_none_or(|call| {
                                  !matches!(&call.outcome,
                                  CallOutcome::Resolved { parameters, return_type, .. }
-@@ -6181,7 +6520,7 @@
+@@ -6181,7 +6537,7 @@
                      if children.len() != 1
                          || children[0].kind() == NodeKind::NamedArgument
                          || ty(children[0]).is_none_or(|t| !t.known() || optional(t) || t.kind != TypeKind::Int)
@@ -548,7 +583,7 @@
                              .is_none_or(|call| {
                                  !matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                      if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
-@@ -6190,6 +6529,9 @@
+@@ -6190,6 +6546,9 @@
                      {
                          return DefinitionSafety::Unsupported(reason);
                      }
@@ -558,7 +593,7 @@
                      return self.direct_children_safety(file, &children, view, generators);
                  }
                  let integer_array = |t: &TypeInst| {
-@@ -6205,7 +6547,8 @@
+@@ -6205,7 +6564,8 @@
                      || children.len() != 1
                      || children[0].kind() == NodeKind::NamedArgument
                      || ty(children[0]).is_none_or(|t| !integer_array(t))
@@ -568,7 +603,7 @@
                          .is_none_or(|c| {
                              !matches!(&c.outcome, CallOutcome::Resolved { parameters, .. }
                              if parameters.len() == 1 && integer_array(&parameters[0]))
-@@ -6271,7 +6614,7 @@
+@@ -6271,7 +6631,7 @@
                  let extrema =
                      self.core(file, node, view, "min") || self.core(file, node, view, "max");
                  if !(extrema || self.core(file, node, view, "sum"))
@@ -577,7 +612,7 @@
                          .is_none_or(|c| {
                              !matches!(&c.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
-@@ -6486,6 +6829,106 @@
+@@ -6486,6 +6846,106 @@
          }
          safety
      }
@@ -684,7 +719,7 @@
      fn dependencies(
          &self,
          file: FileId,
-@@ -6493,6 +6936,7 @@
+@@ -6493,6 +6953,7 @@
          view: &CallableFacts,
          generators: &[&'a SyntaxNode],
      ) -> Result<Vec<DeclarationId>, String> {
@@ -692,7 +727,7 @@
          let node = unwrap(node);
          let facts = self.view(file, node, view);
          let ty = self.expression_type(facts, file, node).map(|e| &e.ty);
-@@ -6611,6 +7055,11 @@
+@@ -6611,6 +7072,11 @@
                  let id = self
                      .reference(file, subject)
                      .ok_or("array access identity unavailable")?;
@@ -704,7 +739,40 @@
                  if children.len() == 2
                      && self.named_selector_membership(file, id, children[1], facts)
                  {
-@@ -6771,7 +7220,7 @@
+@@ -6689,10 +7155,28 @@
+                                 .is_some_and(|e| parameter_integers(&e.ty))
+                         });
+                     if !strings && !integers {
+-                        return Err(
+-                            "concatenation requires supported parameter strings or integer arrays"
+-                                .into(),
+-                        );
++                        let Some(arguments) = integer_array_concatenation(
++                            self.context,
++                            self.bindings,
++                            facts,
++                            file,
++                            node,
++                        ) else {
++                            return Err("concatenation requires supported parameter strings or integer arrays".into());
++                        };
++                        for argument in arguments {
++                            match self.initialized_source_safety(
++                                file,
++                                argument,
++                                view,
++                                generators,
++                                &mut Vec::new(),
++                            ) {
++                                DefinitionSafety::Supported => {}
++                                DefinitionSafety::Unknown(reason)
++                                | DefinitionSafety::Unsupported(reason) => return Err(reason),
++                            }
++                        }
+                     }
+                 }
+                 if name == "diff"
+@@ -6771,7 +7255,7 @@
                          || children[0].kind() == NodeKind::NamedArgument
                          || ty.is_none_or(|t| t.kind != TypeKind::Int)
                          || self.expression_type(facts, file, children[0]).is_none_or(|e| !e.ty.known() || optional(&e.ty) || e.ty.kind != TypeKind::Int)
@@ -713,7 +781,7 @@
                              !matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
                                      && parameters[0].kind == TypeKind::Int)
-@@ -6791,7 +7240,7 @@
+@@ -6791,7 +7275,7 @@
                          || argument.is_none_or(|e| {
                              !e.ty.known() || optional(&e.ty) || e.ty.kind != TypeKind::Bool
                          })
@@ -722,7 +790,7 @@
                              matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameters[0].known()
                                      && !optional(&parameters[0]) && parameters[0].kind == TypeKind::Bool)
-@@ -6812,7 +7261,7 @@
+@@ -6812,7 +7296,7 @@
                          || ty.is_none_or(|t| {
                              t.kind != TypeKind::Int || t.instantiation != Instantiation::Parameter
                          })
@@ -731,7 +799,7 @@
                              matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameter_integers(&parameters[0]))
                          })
-@@ -6902,7 +7351,7 @@
+@@ -6902,7 +7386,7 @@
                              t.kind != TypeKind::Int || t.instantiation != Instantiation::Parameter
                          })
                          || argument.is_none_or(|e| !parameter_integers(&e.ty))
@@ -740,7 +808,7 @@
                              matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                                  if parameters.len() == 1 && parameter_integers(&parameters[0]))
                          })
-@@ -6939,27 +7388,36 @@
+@@ -6939,27 +7423,36 @@
                          {
                              return self.dependencies(file, args[0], view, generators);
                          }
@@ -792,7 +860,7 @@
                  }
                  let metadata = if self.core(file, node, view, "show_index_sets") {
                      Some((1, TypeKind::String))
-@@ -7031,7 +7489,7 @@
+@@ -7031,7 +7524,7 @@
                      && ty.is_some_and(|t| t.kind == TypeKind::Bool);
                  let count = self.core(file, node, view, "count")
                      && ty.is_some_and(|t| t.kind == TypeKind::Int)
@@ -801,7 +869,7 @@
                          matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                              if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
                                  && matches!(&parameters[0].kind, TypeKind::Array { element, .. } if element.kind == TypeKind::Bool))
-@@ -7039,7 +7497,7 @@
+@@ -7039,7 +7532,7 @@
                  let extrema = (self.core(file, node, view, "min")
                      || self.core(file, node, view, "max"))
                      && ty.is_some_and(|t| t.kind == TypeKind::Int)
@@ -810,7 +878,33 @@
                          matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
                              if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
                                  && matches!(&parameters[0].kind, TypeKind::Array { indices, element }
-@@ -7305,7 +7763,7 @@
+@@ -7060,7 +7553,24 @@
+                 let mut all = generators.to_vec();
+                 all.extend(list.child_nodes());
+                 if parameter_collection || quantifier || count || extrema {
+-                    self.relation_iterations(file, &all, generators.len(), view, count)?;
++                    let decision_quantifier = quantifier && self.core(file, node, view, "exists") && list.child_nodes().all(|generator| {
++                        let Some(source) = generator.child_nodes().next() else { return false; };
++                        self.expression_type(self.view(file, source, view), file, source).is_some_and(|e| {
++                            e.ty.instantiation != Instantiation::Decision
++                                || matches!(&e.ty.kind, TypeKind::Array { indices, element }
++                                    if indices.len() == 1 && indices[0].known() && !optional(&indices[0])
++                                        && indices[0].instantiation == Instantiation::Parameter
++                                        && matches!(indices[0].kind, TypeKind::Int | TypeKind::Enum(_))
++                                        && element.known() && !optional(element) && element.kind == TypeKind::Int)
++                        })
++                    });
++                    self.relation_iterations(
++                        file,
++                        &all,
++                        generators.len(),
++                        view,
++                        count || decision_quantifier,
++                    )?;
+                 } else {
+                     self.iterations(file, &all, view)?;
+                 }
+@@ -7305,7 +7815,7 @@
              && self.core(file, node, view, "bool2int")
              && ty(node).is_some_and(|t| t.known() && !optional(t) && t.kind == TypeKind::Int)
              && ty(children[0]).is_some_and(|t| t.known() && !optional(t) && t.kind == TypeKind::Bool)
@@ -983,6 +1077,118 @@
                  })
              })
              .collect();
+@@ -1634,6 +1706,111 @@
+         .iter()
+         .find(|fact| fact.file == file && fact.location.range.start == start)
+ }
++/// Selected rank-one integer-array concatenation shape, not an evaluation proof.
++pub(super) fn integer_array_concatenation<'a>(
++    context: &ModelContext,
++    bindings: &BindingFacts,
++    calls: &CallableFacts,
++    file: FileId,
++    node: &'a SyntaxNode,
++) -> Option<[&'a SyntaxNode; 2]> {
++    let parsed = &context.files[file].parsed;
++    if node.kind() != NodeKind::BinaryExpression
++        || !node.children().iter().any(|child| {
++            let SyntaxElement::Token(index) = child else {
++                return false;
++            };
++            let token = &parsed.tokens()[*index];
++            token.kind == TokenKind::Concat
++                || (matches!(
++                    token.kind,
++                    TokenKind::Identifier
++                        | TokenKind::QuotedIdentifier
++                        | TokenKind::InfixIdentifier
++                ) && parsed.source()[token.range.clone()].trim_matches(['\'', '`']) == "++")
++        })
++    {
++        return None;
++    }
++    let fact = operation_fact(context, calls, file, node)?;
++    if core_operation_outcome(context, bindings, Some(&fact.outcome), node.kind(), "++") != Ok(true)
++    {
++        return None;
++    }
++    let arguments: Vec<_> = node.child_nodes().collect();
++    let [left, right] = arguments.as_slice() else {
++        return None;
++    };
++    let CallOutcome::Resolved {
++        parameters,
++        return_type,
++        ..
++    } = &fact.outcome
++    else {
++        return None;
++    };
++    let array = |ty: &TypeInst| {
++        ty.known()
++            && !crate::value_safety::optional(ty)
++            && matches!(&ty.kind, TypeKind::Array { indices, element }
++                if indices.len() == 1 && indices[0].known()
++                    && indices[0].instantiation == Instantiation::Parameter
++                    && !crate::value_safety::optional(&indices[0])
++                    && matches!(indices[0].kind, TypeKind::Int | TypeKind::Enum(_))
++                    && element.known() && !crate::value_safety::optional(element)
++                    && element.kind == TypeKind::Int)
++    };
++    let ty = |value: &SyntaxNode| {
++        let range = context.files[file].location(value.range()).range;
++        calls
++            .expressions
++            .iter()
++            .find(|e| e.file == file && e.location.range == range)
++            .map(|e| &e.ty)
++    };
++    if parameters.len() != 2
++        || !parameters.iter().all(array)
++        || !array(return_type)
++        || ty(node) != Some(return_type)
++        || !matches!(&return_type.kind, TypeKind::Array { indices, .. }
++            if indices[0].kind == TypeKind::Int)
++    {
++        return None;
++    }
++    for (argument, formal) in arguments.iter().zip(parameters) {
++        let actual = ty(argument)?;
++        if !array(actual) || !crate::types::coerces(actual, formal) {
++            return None;
++        }
++        let (
++            TypeKind::Array {
++                indices: actual, ..
++            },
++            TypeKind::Array {
++                indices: formal, ..
++            },
++        ) = (&actual.kind, &formal.kind)
++        else {
++            return None;
++        };
++        if actual != formal {
++            return None;
++        }
++    }
++    let elements: Vec<_> = parameters
++        .iter()
++        .chain(std::iter::once(return_type))
++        .filter_map(|ty| match &ty.kind {
++            TypeKind::Array { element, .. } => Some(element),
++            _ => None,
++        })
++        .collect();
++    if !elements.windows(2).all(|pair| pair[0] == pair[1]) {
++        return None;
++    }
++    Some([*left, *right])
++}
++
+ pub(super) fn core_operation(
+     context: &ModelContext,
+     bindings: &BindingFacts,
 --- a/crates/zincite-lint/src/domains.rs
 +++ b/crates/zincite-lint/src/domains.rs
 @@ -3,7 +3,7 @@
@@ -1504,7 +1710,55 @@
      }
 --- a/crates/zincite-lint/src/guarded.rs
 +++ b/crates/zincite-lint/src/guarded.rs
-@@ -1329,8 +1329,19 @@
+@@ -1,5 +1,7 @@
+ //! Guarded truth and operation obligations, independent of lint policy.
+-use crate::callables::{core_operation, is_expression, operation_head_start};
++use crate::callables::{
++    call_argument, core_operation, integer_array_concatenation, is_expression, operation_head_start,
++};
+ use crate::definitions::{
+     annotations_safe, core_callable, resolved_call, resolved_reference,
+     transparent_boolean_argument,
+@@ -15,7 +17,7 @@
+ };
+ use std::collections::HashMap;
+ use std::sync::Arc;
+-use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
++use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
+ 
+ /// A proved/refuted proposition, ordinary uncertainty, or missing interpretation.
+ #[derive(Clone, Debug, PartialEq, Eq)]
+@@ -675,6 +677,15 @@
+         } else {
+             Err("user operator is outside guarded interpretation".into())
+         }
++    }
++    fn operation_fact(&self, file: FileId, node: &SyntaxNode) -> Option<&crate::CallFact> {
++        if let Some(indices) = &self.call_indices {
++            let start = operation_head_start(self.context, file, node)?;
++            return indices
++                .get(&(file, start))
++                .map(|index| &self.calls.calls[*index]);
++        }
++        crate::callables::operation_fact(self.context, self.calls, file, node)
+     }
+     fn core_operation(&self, file: FileId, node: &SyntaxNode, name: &str) -> Result<bool, String> {
+         let Some(indices) = &self.call_indices else {
+@@ -1170,6 +1181,13 @@
+         let Some(operator) = self.operator(file, node) else {
+             return self.unsupported(file, node, "operator syntax is unavailable");
+         };
++        if integer_array_concatenation(self.context, self.bindings, self.calls, file, node)
++            .is_some()
++        {
++            result.numeric = None;
++            result.truth = None;
++            return result;
++        }
+         if self.options.is_some()
+             && children
+                 .iter()
+@@ -1329,8 +1347,19 @@
          scope: &Scope<'a>,
      ) -> Evaluation {
          let children: Vec<_> = node.child_nodes().collect();
@@ -1524,7 +1778,7 @@
              .map(|n| self.walk(file, item, n, scope.clone()))
              .collect();
          let Some(array) = children
-@@ -1353,9 +1364,23 @@
+@@ -1353,9 +1382,23 @@
                  "sliced or mismatched array dimensions are unsupported",
              );
          }
@@ -1549,7 +1803,7 @@
          }) {
              return self.unsupported(
                  file,
-@@ -1366,6 +1391,11 @@
+@@ -1366,6 +1409,11 @@
          let mut result = combine(&values);
          result.numeric = None;
          for (dimension, (index, domain)) in children[1..].iter().zip(indices).enumerate() {
@@ -1561,7 +1815,7 @@
              let (invariant, outcome, selection) =
                  self.index_membership(file, index, array, dimension + 1, domain, scope);
              self.obligation(
-@@ -1555,6 +1585,41 @@
+@@ -1555,6 +1603,41 @@
                  .ty(file, children[0])
                  .is_some_and(|t| !t.optional && t.kind == TypeKind::Int)
          {
@@ -1603,7 +1857,7 @@
              return result;
          }
          if ["ln", "log10", "log2", "log"]
-@@ -1635,6 +1700,33 @@
+@@ -1635,6 +1718,33 @@
              if !self.core_call(file, node, name) {
                  continue;
              }
@@ -1637,6 +1891,166 @@
              if children.len() != 1 {
                  return self.unsupported(
                      file,
+@@ -1685,6 +1795,20 @@
+         if self.core_call(file, node, "index_sets_agree") && children.len() == 2 {
+             return result;
+         }
++        if let Some((argument_file, argument_item, argument)) =
++            self.integer_all_different_argument(file, node)
++        {
++            if argument_file != file
++                || argument.range().start < node.range().start
++                || argument.range().end > node.range().end
++            {
++                let value = self.walk(argument_file, argument_item, argument, own);
++                result = combine(&[result, value]);
++            }
++            result.truth = None;
++            result.numeric = None;
++            return result;
++        }
+         if self.index_domain(file, node).is_some() {
+             return result;
+         }
+@@ -1724,8 +1848,24 @@
+             source_scope.evaluation = GuardEvaluation::Strict;
+             source_scope.enforcement = DefinitionEnforcement::Conditional;
+             let source_value = self.walk(file, item, source, source_scope);
++            let inspected_concatenation = integer_array_concatenation(
++                self.context,
++                self.bindings,
++                self.calls,
++                file,
++                unwrap(source),
++            )
++            .is_some()
++                && matches!(
++                    &source_value.definedness,
++                    GuardedOutcome::Proven | GuardedOutcome::Unknown
++                );
+             inputs.push(evaluated_when(source_value, own.activation));
+-            let domain = self.domain(file, source);
++            let domain = if inspected_concatenation {
++                Domain::Unknown
++            } else {
++                self.domain(file, source)
++            };
+             let is_membership = tokens(&self.context.files[file].parsed, generator)
+                 .iter()
+                 .any(|t| t.kind == TokenKind::In);
+@@ -1860,6 +2000,112 @@
+             }
+         }
+         result
++    }
++    fn integer_all_different_argument(
++        &self,
++        file: FileId,
++        node: &'a SyntaxNode,
++    ) -> Option<(FileId, usize, &'a SyntaxNode)> {
++        let parsed = &self.context.files[file].parsed;
++        let name = node.children().iter().find_map(|child| {
++            let SyntaxElement::Token(index) = child else {
++                return None;
++            };
++            let token = &parsed.tokens()[*index];
++            matches!(
++                token.kind,
++                TokenKind::Identifier | TokenKind::QuotedIdentifier | TokenKind::InfixIdentifier
++            )
++            .then(|| parsed.source()[token.range.clone()].trim_matches(['\'', '`']))
++        })?;
++        if !matches!(name, "all_different" | "alldifferent") {
++            return None;
++        }
++        let children: Vec<_> = node.child_nodes().collect();
++        if !matches!(children.len(), 1 | 2)
++            || children.iter().any(|n| n.kind() == NodeKind::NamedArgument)
++        {
++            return None;
++        }
++        let CallOutcome::Resolved {
++            declaration,
++            parameters,
++            return_type,
++        } = &self.operation_fact(file, node)?.outcome
++        else {
++            return None;
++        };
++        let selected = &self.bindings.declarations[declaration.0];
++        let source = &self.context.files[selected.file];
++        let boolean = |ty: &crate::TypeInst| {
++            ty.known() && !crate::value_safety::optional(ty) && ty.kind == TypeKind::Bool
++        };
++        let array = |ty: &crate::TypeInst| {
++            ty.known()
++                && !crate::value_safety::optional(ty)
++                && matches!(&ty.kind, TypeKind::Array { indices, element }
++                if indices.len() == 1 && indices[0].known()
++                    && !crate::value_safety::optional(&indices[0])
++                    && indices[0].instantiation == Instantiation::Parameter
++                    && matches!(indices[0].kind, TypeKind::Int | TypeKind::Enum(_))
++                    && element.kind == TypeKind::Int)
++        };
++        let set = |ty: &crate::TypeInst| {
++            ty.known()
++                && !crate::value_safety::optional(ty)
++                && ty.instantiation == Instantiation::Parameter
++                && matches!(&ty.kind, TypeKind::Set(element)
++                if element.kind == TypeKind::Int && element.instantiation == Instantiation::Parameter)
++        };
++        if selected.role != crate::DeclarationRole::Predicate
++            || source.kind != crate::SourceKind::StandardLibrary
++            || source.implicit
++            || !matches!(selected.name.as_str(), "all_different" | "alldifferent")
++            || parameters.len() != 2
++            || !array(&parameters[0])
++            || !set(&parameters[1])
++            || !boolean(return_type)
++            || self.ty(file, node) != Some(return_type)
++            || self
++                .ty(file, children[0])
++                .is_none_or(|ty| !array(ty) || !crate::types::coerces(ty, &parameters[0]))
++        {
++            return None;
++        }
++        let declaration = crate::callables::find_node(
++            source.parsed.tree(),
++            &selected.syntax_range,
++            selected.role,
++        )?;
++        if !annotations_safe(self.context, selected.file, declaration) {
++            return None;
++        }
++        let (argument_file, argument) = call_argument(
++            self.context,
++            self.bindings,
++            self.calls,
++            file,
++            node,
++            selected.id,
++            1,
++        )?;
++        if children.len() == 1 {
++            let value = unwrap(argument);
++            if value.kind() != NodeKind::SetLiteral
++                || value.child_nodes().next().is_some()
++                || !annotations_safe(self.context, argument_file, argument)
++                || !matches!(tokens(&self.context.files[argument_file].parsed, value).as_slice(),
++                    [left, right] if left.kind == TokenKind::LeftBrace && right.kind == TokenKind::RightBrace)
++            {
++                return None;
++            }
++        } else if self
++            .ty(file, children[1])
++            .is_none_or(|ty| !set(ty) || !crate::types::coerces(ty, &parameters[1]))
++        {
++            return None;
++        }
++        Some((argument_file, selected.item, argument))
+     }
+     fn optional_call(&self, file: FileId, node: &SyntaxNode, name: &str) -> bool {
+         crate::optional::core_optional_call(
 --- a/crates/zincite-lint/src/index_set_mismatch.rs
 +++ b/crates/zincite-lint/src/index_set_mismatch.rs
 @@ -4,7 +4,7 @@
@@ -1708,6 +2122,40 @@
              continue;
          }
          let names = fact
+--- a/crates/zincite-lint/src/iteration.rs
++++ b/crates/zincite-lint/src/iteration.rs
+@@ -1,5 +1,5 @@
+ //! Index membership, lexical use and bounded expansion, independent of lint policy.
+-use crate::callables::{core_operation, find_node, is_expression};
++use crate::callables::{core_operation, find_node, integer_array_concatenation, is_expression};
+ use crate::definitions::{core_callable, resolved_call};
+ use crate::domains::{
+     bare_index_domain as bare, core_arithmetic, expression_domain, generator_slots,
+@@ -574,6 +574,24 @@
+         known: &BTreeMap<usize, Domain>,
+     ) -> IterationIndexSet {
+         let node = unwrap(node);
++        if integer_array_concatenation(self.context, self.bindings, self.calls, file, node)
++            .is_some()
++            && self
++                .guarded
++                .expression(file, &self.location(file, node))
++                .is_some_and(|fact| {
++                    matches!(
++                        &fact.raw_definedness,
++                        GuardedOutcome::Proven | GuardedOutcome::Unknown
++                    ) && matches!(
++                        &fact.definedness,
++                        GuardedOutcome::Proven | GuardedOutcome::Unknown
++                    )
++                })
++        {
++            // Inspected value traversal supplies neither a set identity nor a count.
++            return self.set(file, self.location(file, node), Domain::Unknown, None);
++        }
+         let helper = resolved_index_domain(
+             self.context,
+             self.bindings,
 --- a/crates/zincite-lint/tests/callables.rs
 +++ b/crates/zincite-lint/tests/callables.rs
 @@ -402,6 +402,26 @@
@@ -1749,7 +2197,64 @@
      "function int: bool2int(bool:x); function var int: bool2int(var bool:x);\n",
      "function opt int: bool2int(opt bool:x); function array[$I] of int: bool2int(array[$I] of bool:x); function set of int: bool2int(set of bool:x);\n",
      "function bool: '='(int: a,int: b); function bool: '!='(int: a,int: b);\n",
-@@ -435,6 +438,39 @@
+@@ -205,6 +208,56 @@
+         std::fs::read_to_string(dir.join("root.mzn")).unwrap(),
+         source
+     );
++    std::fs::write(dir.join("library/std/stdlib.mzn"), format!("{CORE}\nfunction array[int] of var int: '++'(array[int] of var int: left,array[int] of var int: right); function var bool: exists(array[int] of var bool: body);\n")).unwrap();
++    std::fs::write(
++        dir.join("library/std/all_different.mzn"),
++        "predicate alldifferent(array[$X] of var int: values,set of int: except={});\n",
++    )
++    .unwrap();
++    let source = concat!(
++        "include \"all_different.mzn\"; array[1..2] of var int: left; array[1..2] of var int: right;\n",
++        "constraint exists(Y in left++right)(Y=1);\n",
++        "constraint alldifferent([left[i]|i in index_set(left)]);\n",
++        "constraint alldifferent([left[0]]); solve satisfy;\n"
++    );
++    std::fs::write(dir.join("root.mzn"), source).unwrap();
++    let context = load_model(
++        dir.join("root.mzn"),
++        &ModelOptions {
++            stdlib_dir: Some(dir.join("library")),
++            ..Default::default()
++        },
++    );
++    let bindings = resolve_bindings(&context);
++    let calls = resolve_callables(&context, &bindings);
++    let inst = resolve_instantiations(&context, &bindings, &calls);
++    let domains = resolve_domains(&context, &bindings);
++    let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
++    let numeric = resolve_numeric_facts(&context, &bindings, &calls, &inst, &domains, &definitions);
++    let facts = resolve_guarded_facts(&context, &bindings, &calls, &inst, &domains, &numeric);
++    let joined = expression(&context, &facts, "left++right");
++    assert_eq!(joined.definedness, GuardedOutcome::Proven);
++    assert_eq!(joined.numeric, None);
++    let different = expression(
++        &context,
++        &facts,
++        "alldifferent([left[i]|i in index_set(left)])",
++    );
++    assert!(
++        !matches!(different.raw_definedness, GuardedOutcome::Unsupported(_)),
++        "guarded={different:#?}; calls={:#?}; types={:#?}; selected signatures={:#?}; default source/CST={:#?}",
++        calls.calls.iter().filter(|call| matches!(call.name.as_str(), "alldifferent" | "index_set")).collect::<Vec<_>>(),
++        calls.expressions.iter().filter(|value| value.file == different.file && value.location.range.start >= different.location.range.start && value.location.range.end <= different.location.range.end).collect::<Vec<_>>(),
++        calls.signatures.iter().filter(|signature| bindings.declarations[signature.declaration.0].name == "alldifferent").map(|signature| (&bindings.declarations[signature.declaration.0], signature)).collect::<Vec<_>>(),
++        context.files.iter().find(|source| source.canonical_path.ends_with("all_different.mzn")).map(|source| (&source.canonical_path, source.kind, source.implicit, source.parsed.tree())),
++    );
++    assert_eq!(different.truth, Some(GuardedOutcome::Unknown));
++    let partial = expression(&context, &facts, "alldifferent([left[0]])");
++    assert_eq!(partial.raw_definedness, GuardedOutcome::Refuted);
++    assert_eq!(
++        obligation(&context, &facts, "left[0]").outcome,
++        GuardedOutcome::Refuted
++    );
+     std::fs::remove_dir_all(dir).unwrap();
+ }
+ 
+@@ -435,6 +488,39 @@
      ));
      assert!(facts.limitations.iter().any(|l| l.reason.contains("user")));
      std::fs::remove_dir_all(dir).unwrap();
@@ -1789,7 +2294,7 @@
  }
  
  #[test]
-@@ -616,6 +652,39 @@
+@@ -616,6 +702,39 @@
  
  #[test]
  fn scalar_bool2int_retains_boolean_and_raw_partiality_boundaries() {
@@ -2150,7 +2655,62 @@
  }
 --- a/crates/zincite-lint/tests/search.rs
 +++ b/crates/zincite-lint/tests/search.rs
-@@ -2415,5 +2415,58 @@
+@@ -381,6 +381,54 @@
+             result.rules[0].outcome,
+             RuleOutcome::Limited { .. }
+         ));
++    }
++    std::fs::remove_dir_all(dir).unwrap();
++    let source = concat!(
++        "int: N; array[1..N] of var 1..N: left; array[1..N] of var 1..N: right; var int: result;\n",
++        "constraint forall(C in 1..N)(exists(Y in left++right)(Y=C));\n",
++        "constraint exists(Y in left++right)(result=Y);\n",
++        "solve :: seq_search([int_search(left,input_order,indomain_min,complete),int_search(right,input_order,indomain_min,complete)]) satisfy;\n"
++    );
++    let (dir, _) = model("decision-array-exists", source, "");
++    std::fs::write(
++        dir.join("library/std/stdlib.mzn"),
++        format!("{CORE}\nfunction var bool: exists(array[int] of var bool: body);\n"),
++    )
++    .unwrap();
++    let context = load_model(
++        dir.join("root.mzn"),
++        &ModelOptions {
++            stdlib_dir: Some(dir.join("library")),
++            ..Default::default()
++        },
++    );
++    let (bindings, search) = facts(&context);
++    assert!(search.limitations.is_empty(), "{:?}", search.limitations);
++    assert_eq!(
++        coverage(&bindings, &search, "left"),
++        SearchCoverage::WholeArray
++    );
++    assert_eq!(
++        coverage(&bindings, &search, "right"),
++        SearchCoverage::WholeArray
++    );
++    assert_eq!(
++        coverage(&bindings, &search, "result"),
++        SearchCoverage::Uncovered
++    );
++    let result = analyze_model(&context, &selected());
++    assert!(
++        matches!(result.rules[0].outcome, RuleOutcome::Completed),
++        "{:?}",
++        result
++    );
++    for rule in ["expensive-comprehension", "vacuous-constraint"] {
++        let result = analyze_model(&context, &LintOptions::from_selection(rule).unwrap());
++        assert!(
++            matches!(result.rules[0].outcome, RuleOutcome::Completed),
++            "{:?}",
++            result
++        );
+     }
+     std::fs::remove_dir_all(dir).unwrap();
+     let source = concat!(
+@@ -2415,5 +2463,58 @@
          analyze_model(&supported, &selected()).rules[0].outcome,
          RuleOutcome::Completed
      ));

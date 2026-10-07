@@ -1412,3 +1412,19 @@ The earlier release-seven cutoff remains retained. This single control does
 not establish full corpus acceptance or an isolated performance improvement.
 Evidence is in `target/benchmarks/base083/semantic62-draft-release8-generated-all-control/`
 and `semantic62-draft-workspace-initialized-source-lookups-final-{clippy,workspace}/`.
+
+The current Depot candidate is saved before further repair. It adds guarded
+inspection for supported integer-array concatenation and selected standard
+all-different calls. Formatting, all-target compilation, four search tests and
+four callable tests pass in the isolated copy. The guarded group has five
+passing tests and one failing new fixture; diagnostic assertion text is retained
+in this checkpoint. This candidate has not passed final workspace validation.
+
+The complete 14-file candidate is saved in `semantic-candidate.patch` (130,546
+bytes, SHA-256 `fb86b25d66acceec8a15bf564514f5f4b989a4f5853857650b9b48aedb44aab3`).
+The patch was independently reconstructed from the frozen copy and checked with
+`git apply --check --whitespace=error`. All original copied-file and actual Rust
+source pins remain unchanged. Evidence is in
+`target/benchmarks/base083/semantic62-draft-depot-v2-merge/` and
+`semantic62-draft-workspace-depot-v2-{fmt,check,guarded,search,callables}/`.
+Actual Rust integration and task completion remain pending.
