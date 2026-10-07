@@ -2168,3 +2168,16 @@ This strengthens the older model-check-only evidence; it does not establish
 Zincite support or formatting equivalence. The frozen release-fourteen
 routing control and matched public queue comparison are now authorized;
 results and final corpus acceptance remain pending.
+
+Original sweep batches 049 and 050 are closed. Their 24 complete stream hashes,
+ordered roots and drop records, selected 14/26-rule rows, every reported
+outcome partition and 1,057 physical original hashes were checked. Batch 049
+contains the generated 7-cube model: its companion completes every thesis and
+all rule, with 110,241 and 141,768 warnings respectively and no limitations.
+Native thesis/all processes also finish, in 33.880 and 409.447 seconds; native
+commands do not report per-root completion. Batch 050 accounts for 31 standalone
+data files and three complete resolved models. Its thesis companion reports
+45 warnings and two limitations; all reports 277 warnings and 103 limitations.
+Standalone data remains distinct from model analysis. These are original frozen
+phase-61 observations, not fresh final-candidate or compiler-validity acceptance.
+Evidence is under `target/benchmarks/base083/exhaustive-semantic61/shard-{049,050}/`.
