@@ -2511,3 +2511,18 @@ lack separate group-verification fields; outer reaping/group evidence is
 retained. These frozen semantic61 results do not establish candidate acceptance.
 Evidence is in `target/benchmarks/base083/exhaustive-semantic61/` under
 `shards054-058-readonly-audit.{md,json}` and `shards054-058-root-check.json`.
+
+The fresh frozen-seventeen Navigation marker companion reaches the unchanged
+300-second deadline (300.123 seconds). All 84 markers parse in order. The
+index-set mismatch check ends, followed by callable-input and precondition
+checks; the pending scopes are analyze_model and partial_expression_check.
+This locates unfinished work without attributing CPU time to a particular
+scan. Complete raw streams, marker separation and all 1,213 current pins were
+checked. There is no ordinary diagnostic stderr or root/drop/completion row;
+all26 and thesis14 remain Unobserved with null semantic acceptance. The child
+is reaped, its group is empty and the verification error is null. No retry or
+sampler was run. The next existing partial-expression checker still scans all
+guarded expressions and obligations per operation; a local lookup adaptation
+needs review and before/after validation. Evidence and the independent root
+audit are under
+`target/benchmarks/base083/semantic62-navigation-release17-coordination-control/`.
