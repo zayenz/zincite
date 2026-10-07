@@ -505,3 +505,23 @@ Peak RSS was 4,452.48 MiB, compared with 4,265.75 MiB. This single comparison
 shows no measured speed or memory improvement. It does not establish a stable
 regression. Matched allocation measurements and complete corpus acceptance
 remain pending; scope sharing has not yet demonstrated a performance benefit.
+
+## Base-083 remaining acceptance checks
+
+The reconciled `target/corpus/base080-complete/` run accounts for all 6,417
+inputs through syntax and formatting checks, with no rules selected. It does
+not establish semantic coverage or current compiler validity. The historical
+availability split also needs reconciliation against fresh dependency results.
+Final acceptance must keep source-only compiler checks distinct from successful
+flattening of known model/data pairs; a compilation timeout remains unresolved
+processing, rather than evidence of invalid source.
+
+One concrete boundary in the retained `full-final20` thesis capture is
+`2011/black-hole/black-hole.mzn`: its completed, resolved root has thirteen
+Completed rule outcomes and a Limited search outcome. The located limitation
+at line 105, bytes 3122..3145, is the `inverse` call annotated with `domain`.
+The current callable interpreter rejects non-string expression annotations
+before inspecting the call; the installed standard library declares `domain`
+as a propagation-strength hint. A fresh compiler precheck and focused capture
+are required before repairing this boundary. Any repair must retain underlying
+call prerequisites and reject unknown, ambiguous or shadowed annotations.
