@@ -1736,3 +1736,18 @@ The original phase-61 thesis native run on that same model timed out after
 is a valid-input processing failure that remains open, not an invalid-model
 exclusion. The scheduled companion is still being accounted for; no restart,
 deadline increase or formatted-FlatZinc equivalence is claimed.
+
+Release twelve builds from the frozen annotation candidate and completes the
+original routing control in 2.347 seconds under the unchanged 300-second cap.
+All 26 rule rows are observed, source metadata is unchanged and live bytes
+return to 2,394. Complete streams, terminal receipt and equal maps were checked.
+The control reports 213 warnings, no errors and 205 limitations. The 180 prior
+warning blocks and 205 remaining limitation blocks are unchanged in order;
+the opaque assigned-annotation limitation is removed.
+
+Search remains Limited and adds 33 warnings on scalar coordinates contained
+in `nXNd_1D`, reshaped into `nXNd` and searched through `array1d(nXNd)`.
+These warnings expose a possible transitive coverage gap and still require
+assessment; their increase is not accepted as correct advice. Evidence is in
+`target/benchmarks/base083/semantic62-draft-release12-routing-control/`.
+Integration and fresh final corpus acceptance remain pending.
