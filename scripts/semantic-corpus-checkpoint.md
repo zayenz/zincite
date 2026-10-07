@@ -865,3 +865,15 @@ and closure files remain unchanged. Evidence is retained in
 `target/benchmarks/base083/semantic61-ninth-prefix-source-prechecks/`. These
 overlapping source checks establish parsing and typing, not instance compilation
 or Zincite semantic completion. Their located limitations remain required work.
+
+A single one-second stack sample of the ninth batch's live all-rule native
+process captures 80 main-thread samples. All 80 collapsed top frames are
+`callables::operation_fact`, reached through `resolve_integer_bounds` and
+recursive `Bounds::walk`/`Bounds::expression`. Source inspection confirms that
+the lookup linearly scans the call vector for each operation. This directly
+supports a bounded experiment with a first-match call index in the existing
+bounds evaluator; it does not identify the native process's current root or
+attribute its whole run or the earlier timeout. The sample and receipt remain
+in `target/benchmarks/base083/semantic61-shard008-all-native-sample*`; 90 source
+pins and the native binary remain unchanged. The sampled run's timing is not
+an isolated performance control. Corpus scheduling and deadlines are unchanged.
