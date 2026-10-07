@@ -1127,3 +1127,20 @@ expectations. Evidence is in
 `target/benchmarks/base083/semantic62-draft-workspace-semantic-*`.
 No authoritative Rust source has changed. A bounded six-model all-rule control
 is the next check; other aggregate, membership and local-axis gaps remain open.
+
+
+The six-model candidate control completes in 8.046 seconds with all ordered
+root/drop records, 26-rule partitions and no missing roots or errors. Its full
+streams and 1,908 original, copy, compiler, helper and patch pins were checked.
+There are still 538 limitations. Exact phase-61 row joins show lower counts in
+three slice-focused cases, an unchanged count in the fourth, and higher counts
+in the two set cases; this is not blanket behavior acceptance. Evidence is in
+`target/benchmarks/base083/semantic62-draft-slice-set-six-control/`.
+
+A compiler reduction confirms a matching regression in the set-to-array draft:
+with `choose(set of int)=1` and `choose(array[int] of int)=2`, MiniZinc compiles
+`choose({1,2})` with output value one, while the retained candidate reports
+ambiguity. The matching view fails to distinguish the conversion from a direct
+set match. The candidate and all successful/failed checks are retained while
+ranking is repaired. Evidence is in
+`target/benchmarks/base083/semantic62-set-array-overload-control/`.
