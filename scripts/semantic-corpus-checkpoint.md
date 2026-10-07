@@ -757,3 +757,23 @@ eligibility change. Independent checks preserve all 1,039 original inputs,
 and empty. Evidence is retained in
 `target/benchmarks/base083/semantic61-project17-native-thesis-control/`.
 Final expanded-corpus acceptance and whole-task verification remain pending.
+
+The exhaustive semantic61 capture uses the same ordered 6,417 original inputs
+in 124 serial batches, with large models isolated into singleton batches.
+Each batch runs the native tool and library companion for both the fourteen-rule
+thesis preset and the twenty-six-rule all preset. The child deadlines remain
+1,800 seconds; no solver runs are involved. The first six batches captured
+384 roots per preset without timeouts or unobserved rule outcomes. Their native
+and companion diagnostic streams match, reported allocation drops restore the
+baseline, and all six outer process groups were reaped and empty. Evidence is
+retained in `target/benchmarks/base083/exhaustive-semantic61/`.
+
+These captures still report input errors and semantic limitations. They do not
+establish acceptance of those roots or completion of base-083. Reconciliation
+must check the exact originals with the current MiniZinc compiler, distinguish
+missing include configuration from rejected input, and repair demonstrated
+coverage gaps. Early candidates include filtered numeric aggregates, named
+local array index sets, relational `abs` and enum-successor expressions,
+checked `trace` forwarding, and set membership. None is accepted merely because
+its syntax parsed or its capture finished. The remaining corpus batches and
+independent whole-task verification are pending.
