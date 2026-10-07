@@ -1572,3 +1572,23 @@ retaining 94,878 thesis and 122,040 expanded warnings. Shard 038 retains two
 thesis and 87 expanded limitations. Evidence is in
 `target/benchmarks/base083/exhaustive-semantic61/shards037-038-root-audit.json`.
 These are original phase-61 captures; final-source acceptance remains pending.
+
+Current MiniZinc no-solve checks classify the two shard-032 error inputs.
+The actual wedding model/data pair rejects all five `.dzn` declaration items
+as syntax errors. The assignment analysis model fails because
+`model/instance-10-30.dzn` is unavailable; this does not establish syntax
+invalidity. Both full streams, terminal receipts, equal maps and 1,043 current
+compiler/original/standard/helper pins were checked. Exactly two compiler
+children ran, without solving. Evidence is in
+`target/benchmarks/base083/semantic62-shard032-compiler-classification/`.
+
+Release ten builds successfully from the frozen routing candidate in 13.524
+seconds. Full Cargo streams, successful terminal receipt, equal maps, optimized
+non-test artifact events, frozen binary/origin equality and current source pins
+were checked. Its frozen linter is 2,901,232 bytes, SHA-256
+`148e865b17abd989fae752035fb601b7416b65933bf0198ff65f1d0283af9b52`;
+the companion is 2,657,056 bytes, SHA-256
+`6c0a38cc54d0b202ff70311867538f41121108083eabbd9727d5659145054854`.
+Evidence is in `target/benchmarks/base083/semantic62-draft-workspace-semantic-release10/`
+and `semantic62-draft-routing-index-binaries/`. Original routing validation,
+actual integration and final corpus acceptance remain pending.
