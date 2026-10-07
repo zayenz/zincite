@@ -1450,3 +1450,21 @@ command completed in 41.129 seconds. Evidence is in
 `target/benchmarks/base083/semantic62-draft-workspace-depot-v2-fixture-v2-{fmt,final-clippy,final-workspace}/`.
 The original Depot-model control, actual Rust integration and fresh final
 corpus acceptance remain pending.
+
+Frozen release nine builds successfully from the Depot candidate. Its native
+linter and companion artifacts match the optimized Cargo events and copied
+build outputs; source pins remain unchanged. The original Depot model completes
+within the unchanged 300-second deadline (2.493 seconds), with all 26 rules
+Completed, including all fourteen thesis rules. It retains 59 warnings, zero
+errors and zero limitations; live bytes return to the 2,390-byte baseline.
+
+Source metadata matches release six, and all 59 complete warning lines are
+byte identical and retain their order. The six prior limitations are removed;
+only search-coverage, expensive-comprehension and vacuous-constraint rule rows
+change, from Limited to Completed. Complete streams, terminal receipts, equal
+maps and 1,777 distinct current file pins were checked. Evidence is in
+`target/benchmarks/base083/semantic62-draft-workspace-semantic-release9/`,
+`semantic62-draft-depot-inspection-binaries/` and
+`semantic62-draft-release9-depot-control/`. This single-root result does not
+establish full corpus acceptance or a timing improvement. Actual Rust
+integration and fresh final corpus evidence remain pending.
