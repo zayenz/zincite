@@ -322,7 +322,7 @@ fn retained_scope<'a>(
         snapshot.push(assumption.clone());
     }
     Ok(Scope {
-        assumptions,
+        assumptions: Arc::new(assumptions),
         assumption_snapshot: snapshot.into(),
         activation: prefix.activation,
         evaluation: prefix.evaluation,
@@ -481,6 +481,7 @@ fn interpret<'a>(
         }
     }
     let assumption_snapshot = producer.assumption_snapshot(&global);
+    let global = Arc::new(global);
     for (file, source) in context.files.iter().enumerate() {
         if !source.warnings_enabled() || !source.parsed.diagnostics().is_empty() {
             continue;
@@ -516,7 +517,7 @@ enum Assumption<'a> {
 }
 #[derive(Clone)]
 struct Scope<'a> {
-    assumptions: Vec<Assumption<'a>>,
+    assumptions: Arc<Vec<Assumption<'a>>>,
     assumption_snapshot: Arc<[GuardAssumption]>,
     activation: GuardActivation,
     evaluation: GuardEvaluation,
@@ -739,7 +740,13 @@ impl<'a> Producer<'a> {
         node: &'a SyntaxNode,
         expected: bool,
     ) {
-        self.assume(&mut scope.assumptions, file, node, expected, false);
+        self.assume(
+            Arc::make_mut(&mut scope.assumptions),
+            file,
+            node,
+            expected,
+            false,
+        );
         scope.assumption_snapshot = self.assumption_snapshot(&scope.assumptions);
     }
     fn enforced_conditions(
@@ -871,7 +878,7 @@ impl<'a> Producer<'a> {
                     .map(|child| {
                         let mut own = scope.clone();
                         if is_expression(child.kind()) {
-                            own.assumptions.clear();
+                            own.assumptions = Arc::new(Vec::new());
                             own.assumption_snapshot = Arc::from([]);
                             own.boolean = None;
                             own.enforcement = DefinitionEnforcement::Conditional;
@@ -1741,7 +1748,7 @@ impl<'a> Producer<'a> {
                         && declaration.role == crate::DeclarationRole::Generator
                         && declaration.syntax_range == generator.range()
                     {
-                        own.assumptions.push(Assumption::Membership {
+                        Arc::make_mut(&mut own.assumptions).push(Assumption::Membership {
                             file,
                             source,
                             declaration: declaration.id,
@@ -1908,7 +1915,7 @@ impl<'a> Producer<'a> {
         ) {
             return intrinsic;
         }
-        for assumption in &scope.assumptions {
+        for assumption in scope.assumptions.iter() {
             if let Assumption::Condition {
                 file: f,
                 node: condition,
@@ -2886,7 +2893,7 @@ impl<'a> Producer<'a> {
         })?;
         let mut exact = matches!(bare_index_domain(&domain), Domain::Enum(_))
             || (!self.replaceable_set(&domain) && index_domain_interval(&domain).is_some());
-        for assumption in &scope.assumptions {
+        for assumption in scope.assumptions.iter() {
             let Assumption::Condition {
                 file: f,
                 node: condition,
