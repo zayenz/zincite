@@ -619,3 +619,15 @@ mapping need further diagnosis before changing any guard. Originals, current
 source and artifacts remain unchanged; the complete evidence is retained in
 `target/benchmarks/base083/semantic58-black-hole-boundary/`. Base-083 remains
 open.
+
+The semantic58 public-facts supplement identifies the remaining inverse gap:
+both `fzn_inverse` outputs are ArrayElement guarantees, with no dependencies.
+Its equalities select `invf[f[i]]` and `f[invf[j]]`; ordinary exact-traversal
+coverage does not establish a whole output through those computed indices.
+The WholeArray conversion guard therefore correctly declines them. This is a
+missing reciprocal inverse-body proof, not evidence for relaxing conversion
+type checks or promoting an existing ArrayElement guarantee. Any whole-array
+proof must use both complete reciprocal relations and retain the opposite array
+as a dependency. The checked public rows and complete output are retained in
+`target/benchmarks/base083/semantic58-black-hole-facts/`; original inputs,
+source, artifacts and both successful child receipts were independently checked.
