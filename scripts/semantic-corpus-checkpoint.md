@@ -1190,3 +1190,18 @@ checked. Evidence is in
 `target/benchmarks/base083/semantic62-draft-release5-minmax-bool-control/`.
 These overlapping bounded runs establish behavior only; remaining support gaps,
 performance attribution and full corpus acceptance remain open.
+
+The frozen release-five candidate completes the original `sysadmin_4_2s.mzn`
+BNN control in 106.386 seconds under the unchanged 300-second cap. Its complete
+resolved root, all 26 rule rows and restored drop are accounted for: 25 rules
+complete; vacuous-constraint retains one limitation for `show` in the output
+condition at 568:62. There are 1,110 warnings and no errors or missing roots.
+Complete streams, all 1,111 diagnostics and 1,934 input/helper/patch pins were
+checked. Compared with the earlier three-cost candidate, 561 limitations become
+one and 16 vacuous-constraint warnings are added at distinct written constraints.
+Those source expressions occur in duplicate pairs in the original input; the
+warnings retain their contextual conditions and prohibit automatic removal.
+Evidence is in
+`target/benchmarks/base083/semantic62-draft-release5-bnn-all-control/`.
+The candidates differ semantically and overlap the original sweep; their wall
+times do not establish a performance ratio or matched cost-only result.
