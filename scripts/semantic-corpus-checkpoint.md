@@ -1841,3 +1841,18 @@ Evidence is under
 `semantic62-draft-release13-routing-control/`.
 The remaining support gaps, integration and fresh final corpus acceptance
 keep base-083 open.
+
+The frozen release-thirteen navigation all-rule companion control times out
+at 300.128 seconds. Its full capture reaches analyze but has no root, drop
+or completion row. All 26 rules, including the fourteen thesis rules, remain
+Unobserved. The child is reaped, its group is empty, the owner returns one
+and no verification error is reported. Complete streams, equal source maps
+and all 1,388 current physical control pins were checked. No sampler runs.
+
+This current-candidate full-analysis failure remains open despite the shorter
+completed public integer-bounds and numeric-facts probes. Those probes omit
+selected coordination and other producers, so they do not establish the
+remaining cause. The current and original cutoffs have different binaries
+and caps; no timing ratio, invalid-input exclusion or fresh corpus acceptance
+is claimed. Evidence is under
+`target/benchmarks/base083/semantic62-draft-release13-navigation-control/`.
