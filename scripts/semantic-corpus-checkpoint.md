@@ -2568,3 +2568,21 @@ standard-library/helper pins match before, after and the root audit. Evidence
 is under `target/benchmarks/base083/semantic62-routing-user-test-conditionals-preparation/compiler-precheck/`.
 This establishes a syntax/type prerequisite only; independent semantic review,
 Zincite regression RED/GREEN and Cargo gates remain pending.
+
+The partial-expression lookup baseline passes all seven existing public cases
+(four partial-expression and three input-precondition cases) in one bounded
+Cargo invocation. Exit is zero in 0.526 seconds without timeout; complete
+stdout/stderr, before/after/current state, child reaping and empty process
+group were independently checked. No source was changed during the capture.
+Evidence and the root audit are under
+`target/benchmarks/base083/semantic62-draft-workspace-partial-lookups-baseline-partial_expression/`.
+The exact reviewed patch is authorized for the disposable candidate copy;
+after tests and required workspace gates remain pending.
+
+Independent review of the conditional draft found one scope regression, which
+the root confirmed against the existing strict reflection path: the new array
+helper intercepted bare DecisionInt lb calls already admitted under a returning
+assert(has_bounds(...)). The scratch correction must decline non-array-selection
+operands before the array-specific veto. No other substantive defect was found
+in the complete draft review. The saved conditional patch remains an unapplied
+checkpoint pending that correction and validation.
