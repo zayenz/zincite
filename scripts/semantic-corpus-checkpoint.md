@@ -953,3 +953,15 @@ copied inputs and 90 actual Rust sources were checked unchanged afterward.
 These tests cover conservative bounds, cycles, unsafe definitions, unknown
 domains and retained locations. They support the prepared lookup change, but
 do not establish full BNN processing, corpus parity or performance improvement.
+
+The tenth batch closes normally: the outer driver is reaped with status zero
+after 708.492 seconds and an empty process group. Both native and both companion
+attempts finish within their original caps. Both companions retain all 64
+ordered roots and restored drop baselines, with no unobserved roots; every
+14/26-rule partition totals 64 and the common fourteen rule rows agree exactly.
+There are 63 structurally complete, resolved roots. Eight complete roots have
+every thesis rule Completed; none has every all-preset rule Completed. Thesis
+and all retain 2,732 and 5,064 limitations respectively, so successful capture
+does not establish semantic acceptance. Full streams match all four receipts,
+and the 1,086 original-file hashes were independently rechecked unchanged.
+Evidence remains in `target/benchmarks/base083/exhaustive-semantic61/shard-009/`.
