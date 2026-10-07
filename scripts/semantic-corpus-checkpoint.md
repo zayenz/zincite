@@ -2219,3 +2219,24 @@ records explicitly. Every field in those records remains checked; new maps
 capture current modes. The complete child-free setup and all 1,108 physical
 pins were checked before authorizing the first actual measurement. These
 setup failures are retained separately and are not benchmark cutoffs.
+
+The matched public queue comparison completes both builds and all four runs.
+Every child is reaped without timeout, its process group is empty and its
+verification error is null. The 1,108 input pins match before/after and current
+files; both compiled helpers and four complete ordered facts files were also
+checked. Facts are byte-identical per original: Sysadmin 2,913,964 bytes and
+Navigation 2,913,992 bytes. Each has 4,658 declaration rows, complete root
+state and no usage limitation; every run drops back to its own baseline.
+Load, bindings and callable allocation counters are identical across builds.
+
+Observed unused-declaration phase times are 7,225.214→1,028.335 ms for Sysadmin
+and 223,491.703→6,019.491 ms for Navigation. Requested allocation bytes fall
+59,535,284→55,485,616 and 279,522,605→262,902,569 respectively; phase peak
+increments fall 23,321,906→21,341,690 and 111,993,318→103,727,918 bytes.
+Allocation calls rise by 422 and 425; retained usage bytes are unchanged.
+These are two real source-size controls with counter overhead and explicit
+other-work overlap, not an isolated ratio or a universal growth claim. They
+establish unchanged public facts and lower observed queue cost, while full
+selected native outcomes and final corpus acceptance remain separate.
+Evidence is under
+`target/benchmarks/base083/semantic62-unused-owner-queue-public-pair/`.
