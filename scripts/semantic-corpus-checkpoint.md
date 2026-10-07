@@ -845,3 +845,13 @@ Evidence is retained in
 overlapped the exhaustive capture. The model is compiler-valid; the companion's
 observed analysis phase does not establish the cause of the earlier native
 timeout. Corpus capture and Zincite repairs remain pending.
+
+The ninth batch's thesis companion also reaches its unchanged 1,800-second
+deadline and is reaped with status -9. Its complete retained streams match the
+receipt hashes. It records 52 roots and 52 restored drop snapshots; each of the
+14 rule partitions accounts for all 64 selected roots, including 12 explicitly
+Unobserved roots. Analysis begins for the compiler-valid BNN planner model and
+does not finish before the cutoff. This is an unresolved valid-processing
+failure, not an invalid-input exclusion; the following eleven roots remain
+unobserved too. The scheduled all-rule native capture continues, without a
+retry or deadline change. The ninth batch is not complete or accepted.
