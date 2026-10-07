@@ -1650,3 +1650,17 @@ and passes `git apply --check --whitespace=error`. Evidence is in
 `semantic62-draft-workspace-rank2-array2d{-red,}-search/`.
 Final workspace gates, original-model control, actual integration and fresh
 final corpus acceptance remain pending.
+
+Original shards 039–041 have checked terminal captures for another 87 roots.
+All 24 receipt-bound streams/hashes, manifest IDs, ordered root/drop records,
+final statuses and exact partitions were checked; 1,109 distinct original
+input/dependency pins remain unchanged. Shard 039 completes all fourteen thesis
+rules, while its expanded preset retains 959 limitations. Shards 040–041 retain
+thesis and expanded limitations.
+
+Shard 040's single input error is `grid-puzzle06_dict-55.dzn`: the original fails
+UTF-8 decoding at byte 1,510,094, matching the diagnostic. This is outside the
+brief's UTF-8 boundary, not a compiler-invalid classification. Its error and
+explicit unavailable outcomes remain accounted for. Evidence is in
+`target/benchmarks/base083/exhaustive-semantic61/shards039-041-root-audit.json`.
+These phase-61 captures do not establish final-candidate acceptance.
