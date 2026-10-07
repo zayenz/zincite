@@ -2466,3 +2466,16 @@ acceptance remain open. Evidence and the independent root audit are under
 `target/benchmarks/base083/semantic62-draft-workspace-semantic-release18/`,
 with artifacts in `semantic62-draft-routing373-binaries/` and
 `semantic62-routing373-libraries/`.
+
+The separate release-seventeen Navigation diagnostic build passes in 16.806
+seconds. All 106 baseline files match the frozen candidate; its only source
+change is the previously reviewed 105 outer phase markers in analysis.rs.
+Removing those lines restores every original byte. Complete Cargo streams,
+current before/after maps, twelve optimized non-test artifacts, the probe
+origin and frozen copy, 22 library origins and frozen copies, and rustc were
+checked. The child is reaped without timeout, its group is empty and the
+verification error is null. Original and shared candidate sources remain
+unchanged. This diagnostic build establishes no runtime attribution or
+semantic acceptance; its markers are excluded from the production candidate.
+Evidence and the independent root audit are under
+`target/benchmarks/base083/semantic62-navigation-release17-coordination-build/`.
