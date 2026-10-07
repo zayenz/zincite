@@ -2311,3 +2311,17 @@ SHA-256 `74a9dea0631996260c9be3dd6d585f3e61282958d3d86d7f834f8e4430ada97b`,
 and applies cleanly. Original Routing outcomes and final corpus acceptance
 remain to be checked with this candidate. Evidence is under
 `target/benchmarks/base083/semantic62-draft-workspace-routing-family1-green-v2-{guarded,fmt,clippy,workspace}/`.
+
+The frozen-fifteen expanded public diagnostic also completes, in 68.354
+seconds. It appends iteration, comprehension structure, global patterns,
+generator binding usage and callable input facts in their selected producer
+order. All fifteen stage begins/completions match; both children are reaped
+without timeout, groups are empty and verification errors are null. Complete
+streams and all 1,084 final physical paths were checked. Drop returns from
+the retained facts to its own 2,302-byte baseline. The added iteration phase
+takes 1.163 seconds, and each later added phase takes less than one second
+in this instrumented run with possible copy-check overlap. These public
+producers do not explain the full-rule cutoff. Private domain preparation,
+coordination and rule checks remain unmeasured; no matched ratio or semantic
+acceptance follows. Evidence is under
+`target/benchmarks/base083/semantic62-navigation-release15-expanded-diagnostic/`.
