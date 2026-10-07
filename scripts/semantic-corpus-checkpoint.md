@@ -965,3 +965,19 @@ and all retain 2,732 and 5,064 limitations respectively, so successful capture
 does not establish semantic acceptance. Full streams match all four receipts,
 and the 1,086 original-file hashes were independently rechecked unchanged.
 Evidence remains in `target/benchmarks/base083/exhaustive-semantic61/shard-009/`.
+
+The lookup-only disposable workspace produces release native and companion
+binaries in a bounded offline build, returning zero after 15.027 seconds.
+Full build streams, Cargo artifact paths and binary hashes were checked; the
+106 copied inputs remain unchanged. Evidence is retained in
+`target/benchmarks/base083/semantic62-draft-workspace-release/`. These binaries
+are reserved for candidate controls and do not replace the live capture's gates.
+
+A separate unapplied proposal in
+`target/benchmarks/base083/parameter-set-array-matching-proposal.patch` supplies
+a candidate-local rank-one array view for present parameter Int/Enum sets.
+It retains enum identity and an Int axis, including competing user overloads;
+existing ambiguity and unknown-candidate handling remain in place. It adds no
+cardinality, membership or output facts. The patch passes `git apply --check`;
+compilation and behavioral checks remain pending. Other element types remain
+explicitly outside this bounded proposal, without a compiler-invalidity claim.
