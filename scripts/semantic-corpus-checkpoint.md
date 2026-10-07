@@ -1517,3 +1517,23 @@ completed-root count is inferred from empty output. All 1,038 retained compiler,
 model and standard-source pins were rehashed unchanged. This remains a valid
 processing failure; it does not close acceptance. Root evidence is in
 `target/benchmarks/base083/exhaustive-semantic61/shard029-root-terminal-audit.json`.
+
+The routing named-range candidate is checkpointed in `semantic-candidate.patch`:
+145,159 bytes, SHA-256
+`23f2953252d20ad40c0662b08cec4ac5987deca6008d526a6469eb6f232975e1`,
+covering 17 Rust files. The complete patch was reconstructed independently from
+the frozen copy and passes `git apply --check --whitespace=error`.
+
+The new array-index inspection handles the checked collection-length quotient
+without granting a numeric bound or nonempty-domain fact. The focused domain
+suite passes both tests, retaining limitations for annotated, opaque, optional,
+partial and user-overloaded cases. Test cleanup removes internal-field assertions
+while keeping public outcomes. Full streams and their hashes, the successful
+terminal receipt, equal capture maps, 106 current copy-file pins and 90 actual
+Rust source pins were checked. Evidence is in
+`target/benchmarks/base083/semantic62-routing-index-start-preparation/full-candidate-v3.diff`
+and `semantic62-draft-workspace-routing-index-v3-domains/`.
+
+The actual Rust files remain unchanged while the original sweep runs. This is a
+candidate checkpoint: final workspace gates, an original routing-model control,
+actual integration and fresh full corpus acceptance remain pending.
