@@ -1999,3 +1999,17 @@ Evidence is under
 `target/benchmarks/base083/semantic62-navigation-iteration-diagnostic/`.
 The omitted private coordination and rule work still prevent attribution of
 the selected-analysis cutoff; no semantic acceptance or timing ratio follows.
+
+The routing candidate passes formatting and Clippy, but its required workspace
+test run fails. It reaches 26 suites with 134 passing tests and one failure;
+later suites are not run. The existing numeric-facts test expects `flags[5]`
+to be Unsupported for an array indexed 1 through 4, but the candidate reports
+Unknown. Its subsequent symbolic-index expectation must also remain intact.
+The test will not be rebaselined. This candidate is not ready for integration.
+
+Formatting, Clippy and workspace children are reaped without timeout, with
+empty process groups. Their return codes are 0, 0 and 101 respectively. Full
+streams, equal before/after maps and all 350 resolved physical pins for each
+gate were checked. Evidence is under
+`target/benchmarks/base083/semantic62-draft-workspace-routing336-final-{fmt,clippy,workspace}/`.
+The copy remains frozen while the membership regression is diagnosed.
