@@ -2424,3 +2424,20 @@ build success alone establishes no model completion or performance claim.
 Evidence is under
 `target/benchmarks/base083/semantic62-draft-workspace-semantic-release17/`
 and `semantic62-draft-index-lookups-binaries/`.
+
+The Routing Cartesian-sum regression fails before the production repair at
+its real Unknown-definition assertion. The first repaired run exposed a
+missing `diff` declaration in the miniature standard-library fixture; adding
+only its present Int-set specialization fixes that prerequisite without
+changing production or expectations. Both failed captures are retained.
+The corrected four-group search run passes, including the Unknown target,
+absence of Supported WholeArray/coverage proof and partial-child Unsupported
+assertions. Formatting, Clippy and all 193 workspace tests in 42 suite results
+pass. Complete streams, receipts and current before/after maps were checked;
+all children are reaped without timeout, with empty groups and null errors.
+The saved 20-file candidate is 240,771 bytes, SHA-256
+`3b412bd90b0e23d716fb2474213be8e8dfc4faa08ed032ac3b499f662b0dfe1c`,
+and applies cleanly. The superseded draft remains in commit `13044d1`.
+Original Routing recapture, production integration and final corpus acceptance
+remain open. Evidence is under
+`target/benchmarks/base083/semantic62-draft-workspace-routing373-{red,green,green-v2}-*/`.
