@@ -639,3 +639,27 @@ at its single enforced call. The valid model and both complete receipts are
 retained in `target/benchmarks/base083/semantic59-reciprocal-compiler-before/`
 as `reciprocal-valid.mzn`, `compile-valid.json` and `before-native-valid.json`.
 This is the compiler-valid before control for the next body-proof repair.
+
+The semantic59 repair recognizes the complete reciprocal inverse body by its
+resolved operations, two unfiltered traversals and four matching clauses. It
+emits whole-array guarantees with the opposite array as a dependency; missing
+halves, filtered traversals and unsearched reciprocal cycles gain no coverage.
+The focused regression fails before the repair and passes afterward. Formatting,
+Clippy and all 193 workspace tests pass; independent bounded review found no
+defect. The source checkpoint is committed as `da383e9`.
+
+Fresh optimized Black Hole native/library captures now clear the computed-output
+inversion limitation. All six captures finish within their bounds and retain
+identical paired statuses, complete diagnostics and source graphs. Selected
+search and thesis return status zero, while search coverage remains Limited on
+the separate table extrema/body gap. The all preset retains that gap and two
+vacuous-constraint limitations. Thirteen thesis rules and twenty-four all rules
+complete. Status zero does not establish full semantic acceptance. The original
+inputs and tool artifacts remain unchanged; evidence is retained in
+`target/benchmarks/base083/semantic59-black-hole-boundary/`. Base-083 stays open.
+
+The same immutable semantic59 native tool also clears the limitation in the
+compiler-valid reciprocal reduction, using the previous command with only the
+tool path changed. It returns zero with empty diagnostic streams; all 1,039
+retained input pins and the before evidence remain unchanged. The complete
+receipt is in `target/benchmarks/base083/semantic59-reciprocal-native-after/`.
