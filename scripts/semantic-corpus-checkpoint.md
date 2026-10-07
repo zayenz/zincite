@@ -1226,3 +1226,21 @@ and `semantic62-draft-workspace-length-minmax-v2-{check,guarded,search}/`.
 Earlier failed checks remain retained; the final fixture correction supplies
 the range signature only in the new fixture context. Release-model comparisons,
 whole-workspace validation and independent task verification remain pending.
+
+The root audit of original-sweep batches 019–023 reads all 50 capture and driver
+streams, verifies hashes for the 40 receipt-bound native/companion streams and
+rehashes 1,279 original inputs. Native and companion diagnostics match; observed
+roots, ordered drops and the common 14 rule rows agree. Batch 019 remains
+unobserved after its four 1,800-second timeouts on compiler-valid
+`inventory_4_8s.mzn`; batches 020–023 account for all 64 roots each.
+Evidence is in `target/benchmarks/base083/exhaustive-semantic61/shards019-023-root-audit.json`.
+
+Batch 022's 38 parser errors come from two inputs: one diagnostic in
+`enum-type-coercion.mzn` and 37 in the MiniZinc documentation's `grammar.mzn`.
+Two current MiniZinc 2.10.1/Gecode compile-only checks reject both for syntax:
+the first is missing a closing parenthesis; the second contains grammar
+notation rather than a model. Both checks terminate without a timeout, preserve
+all 1,039 compiler, standard-library, helper and original-source pins, and run
+no solver. These inputs are outside required valid-input compatibility under
+the compiler pre-check rule. The errors remain in the original capture.
+Evidence is in `target/benchmarks/base083/semantic61-shard022-parser-prechecks/`.
