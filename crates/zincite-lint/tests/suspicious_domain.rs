@@ -187,6 +187,24 @@ fn intermediate_destination_ranges_distinguish_disjoint_hulls_and_complete_consu
 }
 #[test]
 fn unknown_symbolic_unsafe_and_overflow_candidates_are_located_limits_only() {
+    let symbolic_source = "int:N; var 0..3:symbol=N+1; var 1..N:required=2; solve satisfy;\n";
+    let (symbolic_dir, symbolic_context) = model("symbol-only", symbolic_source);
+    let (_, _, symbolic_contracts) = facts(&symbolic_context);
+    assert_eq!(symbolic_contracts.len(), 2);
+    assert!(
+        symbolic_contracts
+            .iter()
+            .all(|c| matches!(c.relation, NumericContractRelation::Unknown(_)))
+    );
+    let symbolic_result = analyze(&symbolic_context, "suspicious-domain");
+    assert!(symbolic_result.findings.is_empty());
+    assert!(
+        symbolic_result.limitations.is_empty(),
+        "{symbolic_result:?}"
+    );
+    assert_eq!(symbolic_result.rules[0].outcome, RuleOutcome::Completed);
+    std::fs::remove_dir_all(symbolic_dir).unwrap();
+
     let source = concat!(
         "int:N; var 0..3:symbol=N+1; var 1..N:required=2; var 0..1:overflow=9223372036854775807+1;\n",
         "int:u; var 0..1:unknown; constraint unknown=u; var 0..(9223372036854775807+1):bad_required=N;\n",
@@ -224,18 +242,24 @@ fn unknown_symbolic_unsafe_and_overflow_candidates_are_located_limits_only() {
             .iter()
             .any(|l| l.message.contains("overflow"))
     );
-    assert!(
-        result
-            .limitations
+    for name in ["symbol", "required", "unknown", "cycle", "conditional"] {
+        for contract in contracts
             .iter()
-            .any(|l| l.message.contains("parameters") || l.message.contains("parameter set"))
-    );
-    assert!(
-        result
-            .limitations
-            .iter()
-            .any(|l| l.message.contains("conditional"))
-    );
+            .filter(|c| bindings.declarations[c.destination.0].name == name)
+        {
+            assert!(
+                !result
+                    .limitations
+                    .iter()
+                    .any(|l| l.location == contract.location),
+                "{result:?}"
+            );
+        }
+    }
+    assert!(contracts.iter().any(|c| {
+        bindings.declarations[c.destination.0].name == "conditional"
+            && matches!(c.relation, NumericContractRelation::Unknown(_))
+    }));
     assert!(
         result
             .limitations

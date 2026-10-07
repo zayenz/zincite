@@ -68,7 +68,7 @@ pub fn parse_with_mode(source: impl Into<String>, mode: FileMode) -> ParsedFile 
     ParsedFile {
         lexed,
         tree,
-        line_starts: OnceLock::new(),
+        line_positions: OnceLock::new(),
     }
 }
 
@@ -77,7 +77,13 @@ pub fn parse_with_mode(source: impl Into<String>, mode: FileMode) -> ParsedFile 
 pub struct ParsedFile {
     lexed: LexedSource,
     tree: SyntaxNode,
-    line_starts: OnceLock<Vec<usize>>,
+    line_positions: OnceLock<LinePositions>,
+}
+
+#[derive(Debug)]
+struct LinePositions {
+    starts: Vec<usize>,
+    utf8_extra_bytes: Vec<(usize, usize)>,
 }
 
 impl ParsedFile {
@@ -98,18 +104,32 @@ impl ParsedFile {
         if byte_offset == 0 {
             return (1, 1);
         }
-        let starts = self.line_starts.get_or_init(|| {
+        let positions = self.line_positions.get_or_init(|| {
             let mut starts = vec![0];
+            let mut utf8_extra_bytes = Vec::new();
+            let mut extra_bytes = 0;
             let bytes = source.as_bytes();
-            for (index, &byte) in bytes.iter().enumerate() {
-                if byte == b'\r' || (byte == b'\n' && (index == 0 || bytes[index - 1] != b'\r')) {
+            for (index, character) in source.char_indices() {
+                if character == '\r'
+                    || (character == '\n' && (index == 0 || bytes[index - 1] != b'\r'))
+                {
                     starts.push(index + 1);
                 }
+                let width = character.len_utf8();
+                if width > 1 {
+                    extra_bytes += width - 1;
+                    utf8_extra_bytes.push((index + width, extra_bytes));
+                }
             }
-            starts
+            LinePositions {
+                starts,
+                utf8_extra_bytes,
+            }
         });
-        let line = starts.partition_point(|&start| start <= prefix.len());
-        let mut start = starts[line - 1];
+        let line = positions
+            .starts
+            .partition_point(|&start| start <= prefix.len());
+        let mut start = positions.starts[line - 1];
         // A CR already counts as a break before its following LF is consumed.
         if start < byte_offset
             && start > 0
@@ -118,7 +138,17 @@ impl ParsedFile {
         {
             start += 1;
         }
-        (line, source[start..byte_offset].chars().count() + 1)
+        let extra_bytes_at = |offset| {
+            let count = positions
+                .utf8_extra_bytes
+                .partition_point(|&(end, _)| end <= offset);
+            positions.utf8_extra_bytes[..count]
+                .last()
+                .map_or(0, |&(_, extra)| extra)
+        };
+        let column =
+            byte_offset - start - (extra_bytes_at(byte_offset) - extra_bytes_at(start)) + 1;
+        (line, column)
     }
 
     pub fn tokens(&self) -> &[Token] {
@@ -137,27 +167,42 @@ impl ParsedFile {
 /// A node's children retain source order. Each token occurs in exactly one leaf.
 #[derive(Debug)]
 pub struct SyntaxNode {
+    data: Box<NodeData>,
+}
+
+#[derive(Debug)]
+struct NodeData {
     kind: NodeKind,
     range: Range<usize>,
     children: Box<[SyntaxElement]>,
 }
 
 impl SyntaxNode {
+    fn new(kind: NodeKind, range: Range<usize>, children: Box<[SyntaxElement]>) -> Self {
+        Self {
+            data: Box::new(NodeData {
+                kind,
+                range,
+                children,
+            }),
+        }
+    }
+
     pub fn kind(&self) -> NodeKind {
-        self.kind
+        self.data.kind
     }
 
     pub fn range(&self) -> Range<usize> {
-        self.range.clone()
+        self.data.range.clone()
     }
 
     pub fn children(&self) -> &[SyntaxElement] {
-        &self.children
+        &self.data.children
     }
 
     /// Borrow the direct child nodes in source order, excluding token leaves.
     pub fn child_nodes(&self) -> impl Iterator<Item = &SyntaxNode> {
-        self.children.iter().filter_map(|child| match child {
+        self.children().iter().filter_map(|child| match child {
             SyntaxElement::Node(node) => Some(node),
             SyntaxElement::Token(_) => None,
         })

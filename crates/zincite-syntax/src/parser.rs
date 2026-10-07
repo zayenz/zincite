@@ -44,11 +44,7 @@ pub(crate) fn parse(
         children.push(SyntaxElement::Node(node));
     }
     (
-        SyntaxNode {
-            kind: NodeKind::Root,
-            range: 0..source.len(),
-            children: children.into_boxed_slice(),
-        },
+        SyntaxNode::new(NodeKind::Root, 0..source.len(), children.into_boxed_slice()),
         parser.diagnostics,
     )
 }
@@ -645,7 +641,7 @@ impl Parser<'_> {
         } else {
             self.atom_head(grammar, false)?
         };
-        let mut previous = if left.kind == NodeKind::RangeExpression {
+        let mut previous = if left.kind() == NodeKind::RangeExpression {
             Some(700)
         } else {
             None
@@ -1352,11 +1348,11 @@ impl Parser<'_> {
         }
         // An empty written row has a zero-width range at its pipe delimiter.
         if children.is_empty() {
-            return Ok(SyntaxNode {
-                kind: NodeKind::MatrixRow,
-                range: self.tokens[start].range.start..self.tokens[start].range.start,
-                children: children.into_boxed_slice(),
-            });
+            return Ok(SyntaxNode::new(
+                NodeKind::MatrixRow,
+                self.tokens[start].range.start..self.tokens[start].range.start,
+                children.into_boxed_slice(),
+            ));
         }
         Ok(self.node(NodeKind::MatrixRow, start, children))
     }
@@ -1566,11 +1562,11 @@ impl Parser<'_> {
     }
 
     fn node(&self, kind: NodeKind, start: usize, children: Vec<SyntaxElement>) -> SyntaxNode {
-        SyntaxNode {
+        SyntaxNode::new(
             kind,
-            range: self.tokens[start].range.start..self.tokens[self.position - 1].range.end,
-            children: children.into_boxed_slice(),
-        }
+            self.tokens[start].range.start..self.tokens[self.position - 1].range.end,
+            children.into_boxed_slice(),
+        )
     }
 
     fn diagnose(&mut self, message: &str) {
@@ -1790,7 +1786,7 @@ fn starts_type(kind: TokenKind) -> bool {
 }
 
 fn is_numeric_expression(node: &SyntaxNode, tokens: &[Token]) -> bool {
-    match node.kind {
+    match node.kind() {
         NodeKind::CallExpression
         | NodeKind::GeneratorCallExpression
         | NodeKind::ConditionalExpression
@@ -1804,7 +1800,7 @@ fn is_numeric_expression(node: &SyntaxNode, tokens: &[Token]) -> bool {
         NodeKind::Expression
         | NodeKind::UnaryExpression
         | NodeKind::BinaryExpression
-        | NodeKind::ParenthesizedExpression => node.children.iter().all(|child| match child {
+        | NodeKind::ParenthesizedExpression => node.children().iter().all(|child| match child {
             SyntaxElement::Node(child) => is_numeric_expression(child, tokens),
             SyntaxElement::Token(index) => {
                 let kind = tokens[*index].kind;

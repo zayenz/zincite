@@ -119,7 +119,9 @@ throughout the next top-level item, place a standalone comment before it:
 ```
 
 Unknown rules and malformed, misplaced or dangling suppression comments are
-errors. The linter writes diagnostics to stderr and never rewrites source.
+errors. Ordinary analysis writes diagnostics to stderr and preserves source.
+Use `--diff` to preview eligible fixes or `--fix` to apply them. See the
+[linting guide](docs/linting.md) for fix selection and restrictions.
 It accepts files, directories or stdin, with the same directory discovery and
 `.dzn` selection as the formatter. Run `zincite-lint --help` for details.
 
@@ -142,11 +144,11 @@ path and source location where applicable.
   [corpus checkpoint](scripts/formatter-corpus-checkpoint.md).
 - Parsing checks syntax. Formatting and the two default lint rules do not load
   includes, resolve names, type-check models or assess solver performance.
-- Linter coverage is currently limited to naming conventions (`naming`) and
-  constraint labels (`missing-constraint-label`), both enabled by default.
-  Broader static analysis and modelling advice are under development. The
-  `thesis` and `all` presets include unimplemented rules; selecting them reports
-  an error.
+- Naming conventions (`naming`) and constraint labels (`missing-constraint-label`)
+  are enabled by default. The `thesis` preset selects fourteen modelling rules;
+  `all` selects all 26 implemented rules. Semantic rules use an explicit model
+  and include context. Unsupported required facts produce located limitations;
+  rule availability does not promise complete coverage of every input.
 - Files must be UTF-8. Data files accept top-level assignments. JSON data and
   solver output formats are outside the supported input formats.
 

@@ -553,6 +553,26 @@ impl<'a> Builder<'a> {
                             {
                                 ReferenceKind::Value
                             }
+                            BindingResolution::Ambiguous(ids) => {
+                                let mut values = ids
+                                    .iter()
+                                    .filter(|id| !self.facts.declarations[id.0].role.callable());
+                                match (values.next(), values.next()) {
+                                    (Some(id), None)
+                                        if matches!(
+                                            self.facts.declarations[id.0].role,
+                                            DeclarationRole::Value
+                                                | DeclarationRole::Parameter
+                                                | DeclarationRole::Local
+                                                | DeclarationRole::Generator
+                                                | DeclarationRole::Index
+                                        ) =>
+                                    {
+                                        ReferenceKind::Value
+                                    }
+                                    _ => ReferenceKind::Type,
+                                }
+                            }
                             _ => ReferenceKind::Type,
                         };
                         self.reference(file, item, index, kind, scopes, callable);

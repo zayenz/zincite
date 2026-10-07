@@ -142,6 +142,46 @@ fn whole_definitions_retain_identity_ranges_dependencies_and_item_suppression() 
         source
     );
     std::fs::remove_dir_all(directory).unwrap();
+
+    let source = concat!(
+        "var int: cycle_seed=1; var int: cycle_second; var int: cycle_third;\n",
+        "constraint cycle_seed=cycle_second /\\ cycle_second=cycle_third /\\ cycle_third=cycle_seed;\n",
+        "var int: diamond_left=cycle_seed; var int: diamond_right=cycle_seed;\n",
+        "var int: diamond_top=diamond_left+diamond_right;\n",
+        "function var bool: conditional()=cycle_third=diamond_top; solve satisfy;\n",
+    );
+    let (directory, context) = model("cycle-rows", source, "");
+    let (bindings, definitions) = facts(&context);
+    let seed_flags: Vec<_> = definitions
+        .definitions
+        .iter()
+        .filter(|d| bindings.declarations[d.target.0].name == "cycle_seed")
+        .map(|d| d.cyclic)
+        .collect();
+    assert_eq!(seed_flags, [false, true, true]);
+    for name in ["cycle_second", "cycle_third"] {
+        assert!(
+            definitions
+                .definitions
+                .iter()
+                .filter(|d| bindings.declarations[d.target.0].name == name)
+                .all(|d| d.cyclic)
+        );
+    }
+    assert!(definitions.definitions.iter().any(|d| {
+        bindings.declarations[d.target.0].name == "cycle_third"
+            && d.enforcement == DefinitionEnforcement::Conditional
+            && d.cyclic
+    }));
+    for name in ["diamond_left", "diamond_right", "diamond_top"] {
+        assert!(
+            definitions
+                .definitions
+                .iter()
+                .any(|d| bindings.declarations[d.target.0].name == name && !d.cyclic)
+        );
+    }
+    std::fs::remove_dir_all(directory).unwrap();
 }
 
 #[test]

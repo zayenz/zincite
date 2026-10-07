@@ -179,12 +179,12 @@ struct MatrixCell {
 }
 
 struct MatrixLayout {
-    rows: Vec<Vec<MatrixCell>>,
+    rows: Option<Vec<Vec<MatrixCell>>>,
     starts: Vec<usize>,
     breaks: Vec<bool>,
 }
 
-impl Formatter<'_> {
+impl<'a> Formatter<'a> {
     fn include_group(&mut self, group: &includes::IncludeGroup) {
         for entry in &group.entries {
             self.newlines(self.pending_breaks.max(1));
@@ -1264,7 +1264,11 @@ impl Formatter<'_> {
                         self.newlines(self.pending_breaks.max(1));
                         self.pending_breaks = 0;
                     }
-                    self.matrix_row(row, &layout.rows[row_number], &layout);
+                    self.matrix_row(
+                        row,
+                        layout.rows.as_ref().map(|rows| rows[row_number].as_slice()),
+                        &layout,
+                    );
                     row_number += 1;
                     after_pipe = false;
                 }
@@ -1327,9 +1331,10 @@ impl Formatter<'_> {
             .max()
             .unwrap_or(0);
         let base = indent + 2 + index_width;
+        let scalar_widths = self.scalar_matrix_widths(&matrix_rows);
         let mut rows = Vec::new();
         let mut forced_breaks = Vec::new();
-        for &(row, indexed) in &matrix_rows {
+        for &(row, indexed) in matrix_rows.iter().filter(|_| scalar_widths.is_none()) {
             let mut cells = Vec::new();
             for (position, child) in row.children().iter().enumerate() {
                 let SyntaxElement::Node(cell) = child else {
@@ -1393,6 +1398,9 @@ impl Formatter<'_> {
             }
             rows.push(cells);
         }
+        if let Some(widths) = &scalar_widths {
+            forced_breaks.resize(widths.len() + 1, false);
+        }
         let mut starts = Vec::new();
         let mut breaks = Vec::new();
         let mut start = base;
@@ -1402,6 +1410,9 @@ impl Formatter<'_> {
             .take(forced_breaks.len().saturating_sub(1))
         {
             let width_at = |start| {
+                if let Some(widths) = &scalar_widths {
+                    return widths[column];
+                }
                 matrix_rows
                     .iter()
                     .zip(&rows)
@@ -1430,10 +1441,82 @@ impl Formatter<'_> {
             start += width + 1;
         }
         MatrixLayout {
-            rows,
+            rows: scalar_widths.is_none().then_some(rows),
             starts,
             breaks,
         }
+    }
+
+    // Scalar cells with plain separators need no rendered cell storage.
+    // Any layout-sensitive content keeps the ordinary matrix renderer.
+    fn scalar_matrix_widths(&self, rows: &[(&SyntaxNode, bool)]) -> Option<Vec<usize>> {
+        let mut widths: Vec<usize> = Vec::new();
+        for &(row, indexed) in rows {
+            if indexed || row.kind() != NodeKind::MatrixRow {
+                return None;
+            }
+            let mut column = 0;
+            let mut width = None;
+            for child in row.children() {
+                match child {
+                    SyntaxElement::Node(cell) => {
+                        if let Some(width) = width.take() {
+                            widths[column] = widths[column].max(width);
+                            column += 1;
+                        }
+                        let text = self.scalar_matrix_cell_text(cell)?;
+                        if text.contains(['\r', '\n', '\t']) {
+                            return None;
+                        }
+                        widths.resize(widths.len().max(column + 1), 0);
+                        width = Some(self.columns(text));
+                    }
+                    SyntaxElement::Token(index) => {
+                        let token = &self.parsed.tokens()[*index];
+                        match token.kind {
+                            TokenKind::Comma => *width.as_mut()? += 1,
+                            TokenKind::Whitespace
+                                if !self.parsed.source()[token.range.clone()]
+                                    .contains(['\r', '\n']) => {}
+                            _ => return None,
+                        }
+                    }
+                }
+            }
+            if let Some(width) = width {
+                widths[column] = widths[column].max(width);
+            }
+        }
+        Some(widths)
+    }
+
+    fn scalar_matrix_cell_text(&self, cell: &SyntaxNode) -> Option<&'a str> {
+        let range = match cell.children() {
+            [SyntaxElement::Token(index)] if !is_trivia(self.parsed.tokens()[*index].kind) => {
+                self.parsed.tokens()[*index].range.clone()
+            }
+            [SyntaxElement::Token(sign), SyntaxElement::Node(operand)]
+                if cell.kind() == NodeKind::UnaryExpression =>
+            {
+                let sign = &self.parsed.tokens()[*sign];
+                let [SyntaxElement::Token(value)] = operand.children() else {
+                    return None;
+                };
+                let value = &self.parsed.tokens()[*value];
+                if !matches!(sign.kind, TokenKind::Plus | TokenKind::Minus)
+                    || !matches!(
+                        value.kind,
+                        TokenKind::IntegerLiteral | TokenKind::FloatLiteral
+                    )
+                    || sign.range.end != value.range.start
+                {
+                    return None;
+                }
+                sign.range.start..value.range.end
+            }
+            _ => return None,
+        };
+        Some(&self.parsed.source()[range])
     }
 
     fn matrix_row_has_index(&self, row: &SyntaxNode) -> bool {
@@ -1457,18 +1540,25 @@ impl Formatter<'_> {
         rendered
     }
 
-    fn matrix_row(&mut self, row: &SyntaxNode, cells: &[MatrixCell], layout: &MatrixLayout) {
+    fn matrix_row(
+        &mut self,
+        row: &SyntaxNode,
+        cells: Option<&[MatrixCell]>,
+        layout: &MatrixLayout,
+    ) {
         let indexed = self.matrix_row_has_index(row);
         let mut entry: usize = 0;
+        let mut scalar_columns = None;
         for child in row.children() {
             if self.prefix_finished() {
                 break;
             }
             match child {
-                SyntaxElement::Node(_) => {
+                SyntaxElement::Node(node) => {
                     let is_index = indexed && entry == 0;
                     let column = entry.saturating_sub(usize::from(indexed));
                     if !is_index && layout.breaks[column] {
+                        scalar_columns = None;
                         self.newlines(self.pending_breaks.max(1));
                         self.pending_breaks = 0;
                     }
@@ -1487,16 +1577,28 @@ impl Formatter<'_> {
                     }
                     self.pending_breaks = 0;
                     self.indent_line();
+                    let current = scalar_columns.unwrap_or_else(|| self.current_columns());
                     self.output
-                        .push_str(&" ".repeat(start.saturating_sub(self.current_columns())));
-                    let cell = &cells[entry];
-                    self.code_with_space(&cell.text, false);
-                    self.pending_breaks = cell.pending_breaks;
-                    self.line_comment = cell.line_comment;
-                    self.last_was_comment = cell.last_was_comment;
+                        .extend(std::iter::repeat_n(' ', start.saturating_sub(current)));
+                    if let Some(cells) = cells {
+                        let cell = &cells[entry];
+                        self.code_with_space(&cell.text, false);
+                        self.pending_breaks = cell.pending_breaks;
+                        self.line_comment = cell.line_comment;
+                        self.last_was_comment = cell.last_was_comment;
+                    } else {
+                        let text = self.scalar_matrix_cell_text(node).unwrap();
+                        self.code_with_space(text, false);
+                        scalar_columns = Some(current.max(start) + self.columns(text));
+                    }
                     entry += 1;
                 }
-                SyntaxElement::Token(index) => self.token_with_space(*index, false),
+                SyntaxElement::Token(index) => {
+                    self.token_with_space(*index, false);
+                    if self.parsed.tokens()[*index].kind == TokenKind::Comma {
+                        scalar_columns = scalar_columns.map(|columns| columns + 1);
+                    }
+                }
             }
         }
     }

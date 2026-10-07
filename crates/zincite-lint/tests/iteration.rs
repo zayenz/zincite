@@ -161,6 +161,25 @@ fn membership_relations_keep_order_offsets_enums_and_replaceable_identity() {
         set(&context, &facts, "1..N").equal_members(set(&context, &facts, "1..K")),
         GuardedOutcome::Unknown
     );
+    let mut anonymous_left = set(&context, &facts, "P").clone();
+    let mut anonymous_right = set(&context, &facts, "Q").clone();
+    for index in [&mut anonymous_left, &mut anonymous_right] {
+        index.domain = Domain::Range {
+            lower: NumericBound::Integer(1),
+            upper: NumericBound::Arithmetic {
+                operator: zincite_syntax::TokenKind::Plus,
+                operands: vec![NumericBound::Unknown, NumericBound::Integer(1)],
+            },
+        };
+    }
+    assert_eq!(
+        anonymous_left.equal_members(&anonymous_right),
+        GuardedOutcome::Unknown
+    );
+    assert_eq!(
+        set(&context, &facts, "1..N").equal_members(set(&context, &facts, "1..N")),
+        GuardedOutcome::Proven
+    );
     assert_eq!(
         set(&context, &facts, "L").equal_members(subset),
         GuardedOutcome::Proven
@@ -385,5 +404,68 @@ fn rejecting_filters_do_not_relabel_inherited_emptiness() {
         iteration(&context, &facts, "[i | i in 1..3 where opaque(i)]").filters[0].definedness,
         GuardedOutcome::Unsupported(_)
     ));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn supplied_expression_order_keeps_first_exact_file_range_kind() {
+    let (dir, context, bindings, _) = model(
+        "expression-order",
+        "\u{feff}function set of int: opaque(int: x); set of int: result=opaque(1); solve satisfy;",
+    );
+    let mut calls = resolve_callables(&context, &bindings);
+    let inst = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+    let numeric = resolve_numeric_facts(&context, &bindings, &calls, &inst, &domains, &definitions);
+    let optional = resolve_optional_facts(
+        &context,
+        &bindings,
+        &calls,
+        &inst,
+        &domains,
+        &numeric,
+        &definitions,
+    );
+    let guarded = resolve_guarded_facts_with_options(
+        &context, &bindings, &calls, &inst, &domains, &numeric, &optional,
+    );
+    let file = context.root_file.unwrap();
+    let target = calls
+        .expressions
+        .iter()
+        .find(|e| e.file == file && text(&context, file, &e.location) == "opaque(1)")
+        .unwrap()
+        .clone();
+    calls
+        .expressions
+        .retain(|e| e.file != file || e.location.range != target.location.range);
+    calls.expressions.reverse();
+    let mut unknown = target.clone();
+    unknown.ty.kind = TypeKind::Unknown("supplied uncertainty".into());
+    let mut other_file = target.clone();
+    other_file.file = context.implicit_core.unwrap();
+    calls.expressions.insert(0, other_file);
+    calls.expressions.insert(0, target.clone());
+    calls.expressions.insert(0, unknown);
+    let facts = resolve_iteration_facts(
+        &context, &bindings, &calls, &inst, &domains, &numeric, &optional, &guarded,
+    );
+    assert!(
+        !facts
+            .index_sets
+            .iter()
+            .any(|e| e.file == file && e.location.range == target.location.range)
+    );
+    calls.expressions.swap(0, 1);
+    let facts = resolve_iteration_facts(
+        &context, &bindings, &calls, &inst, &domains, &numeric, &optional, &guarded,
+    );
+    let result = facts
+        .index_sets
+        .iter()
+        .find(|e| e.file == file && e.location.range == target.location.range)
+        .unwrap();
+    assert_eq!(result.location.range, target.location.range);
     std::fs::remove_dir_all(dir).unwrap();
 }

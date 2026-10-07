@@ -1,5 +1,5 @@
 //! Instance-invariant zero/one formulation facts, separate from advice.
-use crate::callables::{core_operation, operation_fact};
+use crate::callables::{core_operation_outcome, operation_head_start};
 use crate::definitions::complete_array_coverage;
 use crate::value_safety::{optional, traversal_expression_safety};
 use crate::{
@@ -8,6 +8,7 @@ use crate::{
     IntegerBoundsOutcome, ModelContext, Rule, Severity, SourceDiagnostic, SourceLocation, TypeKind,
     expression_safety,
 };
+use std::collections::HashMap;
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,6 +48,12 @@ pub fn resolve_effective_zero_one(
     domains: &DomainFacts,
     bounds: &IntegerBoundsFacts,
 ) -> EffectiveZeroOneFacts {
+    let mut call_indices = HashMap::with_capacity(calls.calls.len());
+    for (row, fact) in calls.calls.iter().enumerate() {
+        call_indices
+            .entry((fact.file, fact.location.range.start))
+            .or_insert(row);
+    }
     let interpreter = Interpreter {
         context,
         bindings,
@@ -54,6 +61,7 @@ pub fn resolve_effective_zero_one(
         instantiations,
         domains,
         bounds,
+        call_indices,
     };
     let mut facts = EffectiveZeroOneFacts::default();
     for (file, source) in context.files.iter().enumerate() {
@@ -73,8 +81,24 @@ struct Interpreter<'a> {
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     bounds: &'a IntegerBoundsFacts,
+    call_indices: HashMap<(FileId, usize), usize>,
 }
 impl Interpreter<'_> {
+    fn operation_fact(&self, file: FileId, node: &SyntaxNode) -> Option<&crate::CallFact> {
+        let start = operation_head_start(self.context, file, node)?;
+        self.call_indices
+            .get(&(file, start))
+            .map(|row| &self.calls.calls[*row])
+    }
+    fn core_operation(&self, file: FileId, node: &SyntaxNode, name: &str) -> Result<bool, String> {
+        core_operation_outcome(
+            self.context,
+            self.bindings,
+            self.operation_fact(file, node).map(|fact| &fact.outcome),
+            node.kind(),
+            name,
+        )
+    }
     fn walk(
         &self,
         file: FileId,
@@ -92,7 +116,8 @@ impl Interpreter<'_> {
         } else if matches!(
             node.kind(),
             NodeKind::CallExpression | NodeKind::GeneratorCallExpression
-        ) && operation_fact(self.context, self.calls, file, node)
+        ) && self
+            .operation_fact(file, node)
             .is_some_and(|call| call.name == "sum")
         {
             Some((EffectiveZeroOneFamily::WholeArraySum, self.sum(file, node)))
@@ -172,7 +197,7 @@ impl Interpreter<'_> {
         {
             return Err(NotApplicable);
         }
-        match core_operation(self.context, self.bindings, self.calls, file, node, "=") {
+        match self.core_operation(file, node, "=") {
             Ok(true) => {}
             Ok(false) => return Err(NotApplicable),
             Err(r) => return Err(Unsupported(r)),
@@ -231,7 +256,7 @@ impl Interpreter<'_> {
         } else {
             "->"
         };
-        match core_operation(self.context, self.bindings, self.calls, file, node, name) {
+        match self.core_operation(file, node, name) {
             Ok(true) => {}
             Ok(false) => return (None, NotApplicable),
             Err(r) => return (None, Unsupported(r)),
@@ -301,7 +326,7 @@ impl Interpreter<'_> {
     }
     fn sum(&self, file: FileId, node: &SyntaxNode) -> EffectiveZeroOneOutcome {
         use EffectiveZeroOneOutcome::*;
-        match core_operation(self.context, self.bindings, self.calls, file, node, "sum") {
+        match self.core_operation(file, node, "sum") {
             Ok(true) => {}
             Ok(false) => return NotApplicable,
             Err(r) => return Unsupported(r),
@@ -310,7 +335,7 @@ impl Interpreter<'_> {
             parameters,
             return_type,
             ..
-        }) = operation_fact(self.context, self.calls, file, node).map(|call| &call.outcome)
+        }) = self.operation_fact(file, node).map(|call| &call.outcome)
         else {
             return Unsupported("sum signature is unavailable".into());
         };

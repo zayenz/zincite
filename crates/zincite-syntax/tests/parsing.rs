@@ -192,6 +192,25 @@ fn scalar_tree_retains_every_token_and_exposes_items_and_atoms() {
     let start = MODEL.find("extra*2").unwrap();
     assert_eq!(inner.kind(), NodeKind::BinaryExpression);
     assert_eq!(inner.range(), start..start + 7);
+
+    let positions = parse("é💥\r\nx\r雪\ny");
+    for (offset, expected) in [
+        (0, (1, 1)),
+        (2, (1, 2)),
+        (6, (1, 3)),
+        (7, (2, 1)),
+        (8, (2, 1)),
+        (9, (2, 2)),
+        (10, (3, 1)),
+        (13, (3, 2)),
+        (14, (4, 1)),
+        (15, (4, 2)),
+    ] {
+        assert_eq!(positions.line_column(offset), expected);
+    }
+    for offset in [1, 16] {
+        assert!(std::panic::catch_unwind(|| positions.line_column(offset)).is_err());
+    }
 }
 
 #[test]

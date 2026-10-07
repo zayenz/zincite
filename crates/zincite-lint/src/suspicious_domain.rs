@@ -171,9 +171,8 @@ pub(super) fn check_numeric_contracts(
             .trim();
         let destination = &bindings.declarations[contract.destination.0];
         let proof = match &contract.relation {
-            NumericContractRelation::Compatible => continue,
-            NumericContractRelation::Unknown(reason)
-            | NumericContractRelation::Unsupported(reason) => {
+            NumericContractRelation::Compatible | NumericContractRelation::Unknown(_) => continue,
+            NumericContractRelation::Unsupported(reason) => {
                 let diagnostic = SourceDiagnostic {
                     location: contract.location.clone(),
                     message: format!(

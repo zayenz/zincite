@@ -1,11 +1,12 @@
 //! Boolean use contexts and argument dependencies of resolved standard globals.
+use std::collections::HashMap;
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
-use crate::callables::{core_operation, is_expression, operation_fact};
+use crate::callables::{is_expression, operation_head_start};
 use crate::{
-    BindingFacts, CallOutcome, CallableFacts, DeclarationId, FileFinding, FileId, Instantiation,
-    InstantiationFacts, ModelContext, Rule, Severity, SourceDiagnostic, SourceKind, SourceLocation,
-    TypeKind,
+    BindingFacts, CallFact, CallOutcome, CallableFacts, DeclarationId, FileFinding, FileId,
+    Instantiation, InstantiationFacts, ModelContext, Rule, Severity, SourceDiagnostic, SourceKind,
+    SourceLocation, TypeKind,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,11 +44,29 @@ pub fn resolve_global_uses(
     calls: &CallableFacts,
     instantiations: &InstantiationFacts,
 ) -> GlobalUseFacts {
+    let mut expression_indices = HashMap::with_capacity(calls.expressions.len());
+    for (row, expression) in calls.expressions.iter().enumerate() {
+        expression_indices
+            .entry((
+                expression.file,
+                expression.location.range.start,
+                expression.location.range.end,
+            ))
+            .or_insert(row);
+    }
+    let mut call_indices = HashMap::with_capacity(calls.calls.len());
+    for (row, call) in calls.calls.iter().enumerate() {
+        call_indices
+            .entry((call.file, call.location.range.start))
+            .or_insert(row);
+    }
     let mut walker = Walker {
         context,
         bindings,
         calls,
         instantiations,
+        expression_indices,
+        call_indices,
         facts: GlobalUseFacts::default(),
     };
     for (file, source) in context.files.iter().enumerate() {
@@ -66,16 +85,22 @@ struct Walker<'a> {
     bindings: &'a BindingFacts,
     calls: &'a CallableFacts,
     instantiations: &'a InstantiationFacts,
+    expression_indices: HashMap<(FileId, usize, usize), usize>,
+    call_indices: HashMap<(FileId, usize), usize>,
     facts: GlobalUseFacts,
 }
 impl Walker<'_> {
     fn expression_kind(&self, file: FileId, node: &SyntaxNode) -> Option<&TypeKind> {
         let location = self.context.files[file].location(node.range());
-        self.calls
-            .expressions
-            .iter()
-            .find(|fact| fact.file == file && fact.location.range == location.range)
-            .map(|fact| &fact.ty.kind)
+        self.expression_indices
+            .get(&(file, location.range.start, location.range.end))
+            .map(|row| &self.calls.expressions[*row].ty.kind)
+    }
+    fn operation_fact(&self, file: FileId, node: &SyntaxNode) -> Option<&CallFact> {
+        let start = operation_head_start(self.context, file, node)?;
+        self.call_indices
+            .get(&(file, start))
+            .map(|row| &self.calls.calls[*row])
     }
     fn value_context(
         &self,
@@ -120,7 +145,7 @@ impl Walker<'_> {
             .location(tokens.first().unwrap().range.start..tokens.last().unwrap().range.end)
     }
     fn uncertain_selection(&self, file: FileId, node: &SyntaxNode) -> Option<String> {
-        let call = operation_fact(self.context, self.calls, file, node)?;
+        let call = self.operation_fact(file, node)?;
         let (candidates, reason) = match &call.outcome {
             CallOutcome::Unsupported { candidates, reason } => (candidates, reason.as_str()),
             CallOutcome::Ambiguous { candidates } => {
@@ -159,7 +184,7 @@ impl Walker<'_> {
             declaration,
             return_type,
             ..
-        } = &operation_fact(self.context, self.calls, file, node)?.outcome
+        } = &self.operation_fact(file, node)?.outcome
         else {
             return None;
         };
@@ -173,7 +198,7 @@ impl Walker<'_> {
         if self.global(file, node).is_none() {
             return self.instantiation(file, node);
         }
-        if operation_fact(self.context, self.calls, file, node).is_some_and(|call| matches!(&call.outcome, CallOutcome::Resolved { return_type, .. } if return_type.instantiation == Instantiation::Parameter)) {
+        if self.operation_fact(file, node).is_some_and(|call| matches!(&call.outcome, CallOutcome::Resolved { return_type, .. } if return_type.instantiation == Instantiation::Parameter)) {
             return Instantiation::Parameter;
         }
         let arguments: Vec<_> = node.child_nodes().collect();
@@ -182,7 +207,7 @@ impl Walker<'_> {
         }
         // An omitted default in a standard body has no retained expression
         // instantiation here; keep its dependency unknown rather than guessing.
-        let mut unknown = node.kind() == NodeKind::CallExpression && operation_fact(self.context, self.calls, file, node).is_some_and(|call| matches!(&call.outcome, CallOutcome::Resolved { parameters, .. } if parameters.len() > arguments.len()));
+        let mut unknown = node.kind() == NodeKind::CallExpression && self.operation_fact(file, node).is_some_and(|call| matches!(&call.outcome, CallOutcome::Resolved { parameters, .. } if parameters.len() > arguments.len()));
         for argument in arguments {
             // Named arguments retain their value expression as a child.
             let argument = if argument.kind() == NodeKind::NamedArgument {
@@ -264,17 +289,16 @@ impl Walker<'_> {
                     outcome: GlobalUseOutcome::Unsupported(reason),
                 });
             }
-            let core_forall =
-                operation_fact(self.context, self.calls, file, node).is_some_and(|call| {
-                    let CallOutcome::Resolved { declaration, .. } = &call.outcome else {
-                        return false;
-                    };
-                    let declaration = &self.bindings.declarations[declaration.0];
-                    let source = &self.context.files[declaration.file];
-                    declaration.name == "forall"
-                        && source.kind == SourceKind::StandardLibrary
-                        && source.implicit
-                });
+            let core_forall = self.operation_fact(file, node).is_some_and(|call| {
+                let CallOutcome::Resolved { declaration, .. } = &call.outcome else {
+                    return false;
+                };
+                let declaration = &self.bindings.declarations[declaration.0];
+                let source = &self.context.files[declaration.file];
+                declaration.name == "forall"
+                    && source.kind == SourceKind::StandardLibrary
+                    && source.implicit
+            });
             if core_forall {
                 let mut argument = children.first().copied();
                 while let Some(wrapper) = argument.filter(|n| {
@@ -396,11 +420,22 @@ impl Walker<'_> {
             NodeKind::Constraint | NodeKind::LetExpression | NodeKind::LetBlock => enforced,
             NodeKind::ParenthesizedExpression | NodeKind::AnnotatedExpression => enforced,
             NodeKind::BinaryExpression if conjunction => {
-                match core_operation(self.context, self.bindings, self.calls, file, node, "/\\") {
-                    Ok(true) => enforced,
-                    Ok(false) => Some(false),
-                    Err(_) if enforced == Some(false) => Some(false),
-                    Err(_) => None,
+                match self.operation_fact(file, node).map(|fact| &fact.outcome) {
+                    Some(CallOutcome::Resolved { declaration, .. })
+                        if crate::definitions::core_callable(
+                            self.context,
+                            self.bindings,
+                            *declaration,
+                            "/\\",
+                        ) =>
+                    {
+                        enforced
+                    }
+                    Some(CallOutcome::Resolved { .. } | CallOutcome::Intrinsic { .. }) => {
+                        Some(false)
+                    }
+                    _ if enforced == Some(false) => Some(false),
+                    _ => None,
                 }
             }
             _ => {

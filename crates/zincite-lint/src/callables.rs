@@ -1,5 +1,5 @@
 //! Bounded callable facts over retained lexical identities, independent of lint.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
 use crate::bindings::symbolic_operator;
@@ -89,9 +89,16 @@ pub struct CallableFacts {
 /// Every inspected user call has an outcome. Matching uses component coercions
 /// and a unique lowest signature, never a summed specificity score.
 pub fn resolve_callables(context: &ModelContext, bindings: &BindingFacts) -> CallableFacts {
+    let mut reference_index = HashMap::with_capacity(bindings.references.len());
+    for (row, reference) in bindings.references.iter().enumerate() {
+        reference_index
+            .entry((reference.file, reference.location.range.start))
+            .or_insert(row);
+    }
     let mut engine = Engine {
         context,
         bindings,
+        reference_index: Some(reference_index),
         nodes: Vec::new(),
         declared: vec![None; bindings.declarations.len()],
         active: Vec::new(),
@@ -225,6 +232,7 @@ fn identity(text: &str) -> String {
 struct Engine<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
+    reference_index: Option<HashMap<(FileId, usize), usize>>,
     nodes: Vec<Option<&'a SyntaxNode>>,
     declared: Vec<Option<TypeInst>>,
     active: Vec<DeclarationId>,
@@ -285,13 +293,17 @@ impl<'a> Engine<'a> {
         }) else {
             return BindingResolution::Unresolved;
         };
+        let start = range.start + self.context.files[file].byte_offset;
+        if let Some(index) = &self.reference_index {
+            return index
+                .get(&(file, start))
+                .map(|row| self.bindings.references[*row].resolution.clone())
+                .unwrap_or(BindingResolution::Unresolved);
+        }
         self.bindings
             .references
             .iter()
-            .find(|r| {
-                r.file == file
-                    && r.location.range.start == range.start + self.context.files[file].byte_offset
-            })
+            .find(|r| r.file == file && r.location.range.start == start)
             .map(|r| r.resolution.clone())
             .unwrap_or(BindingResolution::Unresolved)
     }
@@ -343,6 +355,20 @@ impl<'a> Engine<'a> {
                 .find(|n| n.kind() != NodeKind::Annotation)
                 .map(|n| self.type_node(file, declaration.item, n))
                 .unwrap_or_else(|| TypeInst::unknown("alias target is missing")),
+            (DeclarationRole::Value | DeclarationRole::Local, Some(node))
+                if node.child_nodes().next().is_some_and(|ty| {
+                    ty.kind() == NodeKind::ScalarType
+                        && matches!(self.tokens(file, ty).as_slice(), [(TokenKind::Any, _, _)])
+                }) =>
+            {
+                node.child_nodes()
+                    .filter(|n| is_expression(n.kind()))
+                    .last()
+                    .map(|n| self.infer(file, declaration.item, n))
+                    .unwrap_or_else(|| {
+                        TypeInst::unknown("inferred declaration initializer is missing")
+                    })
+            }
             (
                 DeclarationRole::Value
                 | DeclarationRole::Local
@@ -606,33 +632,54 @@ impl<'a> Engine<'a> {
                 CallOutcome::Resolved { return_type, .. } => return_type,
                 _ => TypeInst::unknown("call return type is not resolved"),
             },
-            ArrayAccessExpression => match children
-                .first()
-                .map(|n| self.infer(file, item, n))
-                .map(|t| t.kind)
-            {
-                Some(TypeKind::Array { indices, element })
-                    if indices.len() == children.len() - 1 =>
-                {
-                    let actual: Vec<_> = children[1..]
-                        .iter()
-                        .map(|n| self.infer(file, item, n))
-                        .collect();
-                    if actual.iter().zip(&indices).any(|(a, b)| {
-                        a.optional || !coerces(&a.clone().with_inst(Instantiation::Parameter), b)
-                    }) {
-                        TypeInst::unknown("array index or slicing type is unsupported")
-                    } else if actual
-                        .iter()
-                        .any(|t| t.instantiation == Instantiation::Decision)
-                    {
-                        element.with_inst(Instantiation::Decision)
-                    } else {
-                        *element
+            ArrayAccessExpression => {
+                let subject = children
+                    .first()
+                    .map(|n| self.infer(file, item, n))
+                    .unwrap_or_else(|| TypeInst::unknown("array subject is missing"));
+                match subject.kind {
+                    TypeKind::Array { indices, element } if indices.len() == children.len() - 1 => {
+                        let actual: Vec<_> = children[1..]
+                            .iter()
+                            .map(|n| self.infer(file, item, n))
+                            .collect();
+                        if actual.iter().zip(&indices).any(|(a, b)| {
+                            a.optional
+                                || !coerces(&a.clone().with_inst(Instantiation::Parameter), b)
+                        }) {
+                            TypeInst::unknown("array index or slicing type is unsupported")
+                        } else if actual
+                            .iter()
+                            .any(|t| t.instantiation == Instantiation::Decision)
+                        {
+                            element.with_inst(Instantiation::Decision)
+                        } else {
+                            *element
+                        }
                     }
+                    TypeKind::Set(element)
+                        if subject.instantiation == Instantiation::Parameter
+                            && !subject.optional
+                            && element.instantiation == Instantiation::Parameter
+                            && !element.optional
+                            && element.kind == TypeKind::Int
+                            && children.len() == 2 =>
+                    {
+                        let index = self.infer(file, item, children[1]);
+                        if index.instantiation == Instantiation::Parameter
+                            && !index.optional
+                            && index.kind == TypeKind::Int
+                        {
+                            // MiniZinc coerces a present parameter set to a rank-one
+                            // array for ordinal selection. This establishes type only.
+                            TypeInst::par(TypeKind::Int)
+                        } else {
+                            TypeInst::unknown("set ordinal index type is unsupported")
+                        }
+                    }
+                    _ => TypeInst::unknown("array access type is unsupported"),
                 }
-                _ => TypeInst::unknown("array access type is unsupported"),
-            },
+            }
             FieldAccessExpression => {
                 let subject = children
                     .first()
@@ -1274,13 +1321,13 @@ impl<'a> Engine<'a> {
                     *actual = default.as_ref();
                 }
             }
-            // Pinned standard searches and array1d coerce multidimensional
+            // Pinned standard searches, array1d and integer sum coerce multidimensional
             // arrays to row-major one-dimensional inputs. Keep this limited
             // to retained standard identities; ordinary user matching is unchanged.
             let d = &self.bindings.declarations[id.0];
-            let standard_view = self.context.files[d.file].kind
-                == crate::SourceKind::StandardLibrary
-                && self.context.files[d.file].implicit
+            let standard = self.context.files[d.file].kind == crate::SourceKind::StandardLibrary
+                && self.context.files[d.file].implicit;
+            let standard_view = standard
                 && matches!(
                     d.name.as_str(),
                     "array1d" | "int_search" | "bool_search" | "float_search" | "set_search"
@@ -1290,8 +1337,20 @@ impl<'a> Engine<'a> {
                 .zip(&signature.parameters)
                 .map(|(actual, formal)| {
                     actual.map(|actual| {
+                        let integer_sum_view = standard
+                            && d.name == "sum"
+                            && signature.parameters.len() == 1
+                            && signature.return_type.kind == TypeKind::Int
+                            && !crate::value_safety::optional(&signature.return_type)
+                            && actual.known()
+                            && !crate::value_safety::optional(actual)
+                            && matches!(&actual.kind, TypeKind::Array { indices, element }
+                                if indices.len() == 2 && element.kind == TypeKind::Int)
+                            && matches!(&formal.ty.kind, TypeKind::Array { indices, element }
+                                if indices.len() == 1 && element.known() && element.kind == TypeKind::Int
+                                    && !crate::value_safety::optional(&formal.ty));
                         let mut actual = actual.clone();
-                        if standard_view
+                        if (standard_view || integer_sum_view)
                             && let (
                                 TypeKind::Array { indices, .. },
                                 TypeKind::Array {
@@ -1544,12 +1603,11 @@ pub(super) fn is_expression(kind: NodeKind) -> bool {
 }
 
 /// The exact operation head, excluding heads nested in its arguments.
-pub(super) fn operation_fact<'a>(
+pub(super) fn operation_head_start(
     context: &ModelContext,
-    calls: &'a CallableFacts,
     file: FileId,
     node: &SyntaxNode,
-) -> Option<&'a CallFact> {
+) -> Option<usize> {
     let parsed = &context.files[file].parsed;
     let head = node.children().iter().find_map(|child| {
         let SyntaxElement::Token(index) = child else {
@@ -1562,7 +1620,15 @@ pub(super) fn operation_fact<'a>(
         ) || symbolic_operator(token.kind).is_some())
         .then_some(token)
     })?;
-    let start = head.range.start + context.files[file].byte_offset;
+    Some(head.range.start + context.files[file].byte_offset)
+}
+pub(super) fn operation_fact<'a>(
+    context: &ModelContext,
+    calls: &'a CallableFacts,
+    file: FileId,
+    node: &SyntaxNode,
+) -> Option<&'a CallFact> {
+    let start = operation_head_start(context, file, node)?;
     calls
         .calls
         .iter()
@@ -1576,7 +1642,22 @@ pub(super) fn core_operation(
     node: &SyntaxNode,
     name: &str,
 ) -> Result<bool, String> {
-    match operation_fact(context, calls, file, node).map(|fact| &fact.outcome) {
+    core_operation_outcome(
+        context,
+        bindings,
+        operation_fact(context, calls, file, node).map(|fact| &fact.outcome),
+        node.kind(),
+        name,
+    )
+}
+pub(super) fn core_operation_outcome(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    outcome: Option<&CallOutcome>,
+    kind: NodeKind,
+    name: &str,
+) -> Result<bool, String> {
+    match outcome {
         Some(CallOutcome::Resolved { declaration, .. }) => Ok(crate::definitions::core_callable(
             context,
             bindings,
@@ -1585,7 +1666,7 @@ pub(super) fn core_operation(
         )),
         Some(CallOutcome::Intrinsic {
             name: intrinsic, ..
-        }) => Ok(name == "+" && intrinsic == "unary+" && node.kind() == NodeKind::UnaryExpression),
+        }) => Ok(name == "+" && intrinsic == "unary+" && kind == NodeKind::UnaryExpression),
         Some(
             CallOutcome::NoMatch { reason }
             | CallOutcome::Unresolved { reason }
@@ -1641,6 +1722,7 @@ fn engine_from_facts<'a>(
     Engine {
         context,
         bindings,
+        reference_index: None,
         nodes: bindings
             .declarations
             .iter()
@@ -1680,6 +1762,7 @@ pub(super) fn instantiated_body(
     )
     .unwrap();
     let mut engine = engine_from_facts(context, bindings, facts);
+    let mut body_declarations = Vec::new();
     for d in &bindings.declarations {
         if d.file == declaration.file
             && node.range().start <= d.syntax_range.start
@@ -1687,6 +1770,7 @@ pub(super) fn instantiated_body(
             && matches!(d.role, DeclarationRole::Local | DeclarationRole::Generator)
         {
             engine.declared[d.id.0] = None;
+            body_declarations.push(d.id);
         }
     }
     for (position, ty) in parameters.iter().enumerate() {
@@ -1700,6 +1784,11 @@ pub(super) fn instantiated_body(
         .last()
     {
         engine.inspect(declaration.file, declaration.item, body);
+    }
+    // Unreferenced locals still evaluate their initializers. Keep their declared
+    // types in this concrete body view, rather than losing them on projection.
+    for id in body_declarations {
+        engine.declared_type(id);
     }
     CallableFacts {
         declarations: engine

@@ -36,19 +36,19 @@ pub(super) fn check_partial_expressions(
             let mut nodes = Vec::new();
             collect_nodes(node, &mut nodes);
             for operation in &nodes {
+                let Some(identity) = operation_identity(context, bindings, calls, file, operation)
+                else {
+                    continue;
+                };
+                if identity == Ok(false) {
+                    continue;
+                }
                 let location = source.location(operation.range());
                 if guarded
                     .expression(file, &location)
                     .is_some_and(|e| e.context.activation == GuardActivation::Inactive)
                     || empty_iteration(iteration, file, &location)
                 {
-                    continue;
-                }
-                let Some(identity) = operation_identity(context, bindings, calls, file, operation)
-                else {
-                    continue;
-                };
-                if identity == Ok(false) {
                     continue;
                 }
                 if let Err(reason) = identity {

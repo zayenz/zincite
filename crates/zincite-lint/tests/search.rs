@@ -1,17 +1,19 @@
 use std::path::PathBuf;
 use zincite_lint::{
-    BindingFacts, DefinitionSafety, LintOptions, ModelContext, ModelOptions, ModelRootState,
-    RuleOutcome, SearchCoverage, SearchFacts, analyze_model, load_model, resolve_bindings,
-    resolve_callables, resolve_definitions, resolve_domains, resolve_instantiations,
-    resolve_search_coverage,
+    BindingFacts, DefinitionCoverage, DefinitionSafety, LintOptions, ModelContext, ModelOptions,
+    ModelRootState, RuleOutcome, SearchCoverage, SearchFacts, analyze_model, load_model,
+    resolve_bindings, resolve_callable_definitions, resolve_callables, resolve_definitions,
+    resolve_domains, resolve_instantiations, resolve_search_coverage,
 };
 const CORE: &str = concat!(
     "function var bool: '='(any $T: left,any $T: right); function bool: '='($T: left,$T: right);\n",
     "function var int: '+'(var int: left,var int: right); function set of int: '..'(int: left,int: right);\n",
     "function var bool: forall(array[int] of var opt bool: body);\n",
+    "function var bool: '->'(var bool: left,var bool: right);\n",
     "function var int: sum(array[int] of var int: body); function set of int: index_set(array[int] of any $V: xs);\n",
     "function var int: enum2int(var $$E: x); function array[int] of var int: enum2int(array[int] of var $$E: x);\n",
     "function var bool: '/\\'(var bool: left,var bool: right);\n",
+    "function array[int] of var int: '++'(array[int] of var int: left,array[int] of var int: right);\n",
     "annotation input_order; annotation indomain_min; annotation complete;\n",
     "annotation seq_search(array[int] of ann: s);\n",
     "annotation int_search(array[int] of var int: x,ann: select,ann: choice,ann: explore);\n",
@@ -19,7 +21,8 @@ const CORE: &str = concat!(
     "annotation bool_search(array[int] of var bool: x,ann: select,ann: choice,ann: explore);\n",
     "annotation float_search(array[int] of var float: x,float: prec,ann: select,ann: choice,ann: explore);\n",
     "annotation set_search(array[int] of var set of int: x,ann: select,ann: choice,ann: explore);\n",
-    "function array[int] of any $V: array1d(array[$U] of any $V: x);\n"
+    "function array[int] of any $V: array1d(array[$U] of any $V: x);\n",
+    "function array[int] of any $V: array1d(set of int: S,array[$U] of any $V: x);\n"
 );
 fn model(name: &str, source: &str, included: &str) -> (PathBuf, ModelContext) {
     let dir = std::env::temp_dir().join(format!("zincite-search-{name}-{}", std::process::id()));
@@ -68,12 +71,13 @@ fn typed_searches_aliases_and_direct_closure_preserve_whole_array_and_cycle_boun
         "var int: anchored_a; var int: anchored_b; constraint anchored_a=anchored_b;\n",
         "set of int: S; array[S] of var int: input; array[S] of var int: whole; constraint forall(i in S)(whole[i]=input[i]);\n",
         "array[1..2] of var int: partial; constraint partial[1]=seed;\n",
+        "var 0..9: concatenated_seed; array[1..2,1..2] of var int: traversed_grid; array[1..2] of var int: traversed_filtered;\n",
         "set of int: T; array[S] of var int: mismatched; constraint forall(i in T)(mismatched[i]=seed);\n",
         "array[S] of var int: filtered; constraint forall(i in S where true)(filtered[i]=seed);\n",
-        "ann: first_stage=int_search(array1d(grid),input_order,indomain_min,complete);\n",
+        "ann: first_stage=int_search(array1d(0..3,grid),input_order,indomain_min,complete);\n",
         "function ann: custom_search(array[int] of var int: xs)=int_search(xs,input_order,indomain_min,complete);\n",
         "ann: nested=seq_search([first_stage,seq_search([bool_search([flag],input_order,indomain_min,complete)])]);\n",
-        "solve :: seq_search([nested,custom_search([seed,anchored_a,partial[1]]),int_search(input,input_order,indomain_min,complete),float_search([amount],0.001,input_order,indomain_min,complete),set_search([chosen],input_order,indomain_min,complete)]) satisfy;\n"
+        "solve :: seq_search([nested,custom_search([seed,anchored_a,partial[1]]),int_search(input,input_order,indomain_min,complete),float_search([amount],0.001,input_order,indomain_min,complete),set_search([chosen],input_order,indomain_min,complete),int_search([concatenated_seed]++[traversed_grid[i,j]|i in 1..2,j in 1..2],input_order,indomain_min,complete),int_search([traversed_filtered[i]|i in 1..2 where true],input_order,indomain_min,complete)]) satisfy;\n"
     );
     let included = "var int: derived; var int: tail; constraint derived=seed+1 /\\ tail=derived+1;\n% zincite-lint: ignore search-coverage\nvar int: suppressed;";
     let (dir, context) = model("closure", source, included);
@@ -82,6 +86,7 @@ fn typed_searches_aliases_and_direct_closure_preserve_whole_array_and_cycle_boun
     assert!(search.limitations.is_empty(), "{:?}", search.limitations);
     for name in [
         "seed",
+        "concatenated_seed",
         "constant_value",
         "derived",
         "tail",
@@ -97,7 +102,7 @@ fn typed_searches_aliases_and_direct_closure_preserve_whole_array_and_cycle_boun
             "{name}"
         );
     }
-    for name in ["grid", "input", "whole"] {
+    for name in ["grid", "input", "whole", "traversed_grid"] {
         assert_eq!(
             coverage(&bindings, &search, name),
             SearchCoverage::WholeArray,
@@ -112,6 +117,7 @@ fn typed_searches_aliases_and_direct_closure_preserve_whole_array_and_cycle_boun
         "suppressed",
         "mismatched",
         "filtered",
+        "traversed_filtered",
     ] {
         assert_eq!(
             coverage(&bindings, &search, name),
@@ -133,13 +139,7 @@ fn typed_searches_aliases_and_direct_closure_preserve_whole_array_and_cycle_boun
         .find(|d| d.name == "whole")
         .unwrap()
         .id;
-    assert!(
-        definitions
-            .definitions
-            .iter()
-            .filter(|d| d.target == id)
-            .all(|d| matches!(d.safety, DefinitionSafety::Unsupported(_)))
-    );
+
     assert!(
         !definitions
             .bounded_or_defined_targets(&bindings, &domains)
@@ -165,7 +165,8 @@ fn typed_searches_aliases_and_direct_closure_preserve_whole_array_and_cycle_boun
             "cycle_b",
             "filtered",
             "mismatched",
-            "partial"
+            "partial",
+            "traversed_filtered"
         ]
     );
     assert_eq!(
@@ -222,6 +223,12 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
         (
             "user-view",
             "array[1..2] of var int: value; function array[int] of var int: array1d(array[int] of var int: x)=x; solve :: int_search(array1d(value),input_order,indomain_min,complete) satisfy;",
+            SearchCoverage::Unknown,
+            0,
+        ),
+        (
+            "opaque-reindex",
+            "array[1..2] of var int: value; function set of int: opaque_indices()=0..1; function ann: reindexed(set of int: S,array[int] of var int: xs)=int_search(array1d(S,xs),input_order,indomain_min,complete); solve :: reindexed(opaque_indices(),value) satisfy;",
             SearchCoverage::Unknown,
             0,
         ),
@@ -290,6 +297,1298 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
         }
         std::fs::remove_dir_all(dir).unwrap();
     }
+    let source = concat!(
+        "int: task_count; set of int: Tasks=0..task_count; array[Tasks] of var int: starts; array[Tasks] of var int: iterations;\n",
+        "var int: span=max([starts[i]-iterations[i]*starts[task_count]|i in Tasks where i>0 /\\ i<task_count])-min([starts[i]-iterations[i]*starts[task_count]|i in Tasks where i>0 /\\ i<task_count])+1;\n",
+        "var int: finish=starts[task_count]+span; solve :: seq_search([int_search(starts,input_order,indomain_min,complete),int_search(iterations,input_order,indomain_min,complete)]) satisfy;\n"
+    );
+    let (dir, _) = model("symbolic-partial", source, "");
+    std::fs::write(dir.join("library/std/stdlib.mzn"), format!("{CORE}\nfunction var int: max(array[int] of var int: values); function var int: min(array[int] of var int: values); function var int: '-'(var int: left,var int: right); function var int: '*'(var int: left,var int: right); function bool: '<'(int: left,int: right); function bool: '>'(int: left,int: right); function bool: '/\\'(bool: left,bool: right);\n")).unwrap();
+    let context = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    let (bindings, search) = facts(&context);
+    for name in ["span", "finish"] {
+        assert_eq!(coverage(&bindings, &search, name), SearchCoverage::Unknown);
+    }
+    assert!(search.limitations.is_empty(), "{:?}", search.limitations);
+    let result = analyze_model(&context, &selected());
+    assert!(
+        matches!(result.rules[0].outcome, RuleOutcome::Completed),
+        "{:?}",
+        result
+    );
+    assert!(result.findings.is_empty());
+    std::fs::write(dir.join("root.mzn"), format!("{source}\nfunction var int: opaque(var int: x)=x; var int: opaque_span=max([starts[task_count],opaque(starts[0])]);\n")).unwrap();
+    let opaque = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    let result = analyze_model(&opaque, &selected());
+    assert!(matches!(
+        result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    std::fs::remove_dir_all(dir).unwrap();
+    let source = concat!(
+        "int: K; int: N; array[1..K,1..N] of var bool: value; array[1..N] of set of int: labels;\n",
+        "array[1..K,1..N] of var bool: relation; var bool: existential; var bool: universal;\n",
+        "constraint forall(d in 1..K,t in 1..N)(relation[d,t]<->sum(i in 1..N)(bool2int(not(i in labels[t]))*bool2int(value[d,i]))<=0);\n",
+        "constraint forall(t in 1..N)(existential<->exists(d in 1..K)(relation[d,t]));\n",
+        "constraint universal<->forall(d in 1..K,t in 1..N)(value[d,t]);\n",
+        "solve :: bool_search([value[d,i]|d in 1..K,i in 1..N],input_order,indomain_min,complete) satisfy;\n"
+    );
+    let (dir, _) = model("quantified-reads", source, "");
+    std::fs::write(dir.join("library/std/stdlib.mzn"), format!("{CORE}\nfunction var bool: exists(array[int] of var bool: body); function var bool: '<->'(var bool: left,var bool: right); function var bool: '<='(var int: left,var int: right); function var int: bool2int(var bool: value); function var bool: 'not'(var bool: value); function bool: 'in'(int: left,set of int: right); function var int: '*'(var int: left,var int: right);\n")).unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        ..Default::default()
+    };
+    let context = load_model(dir.join("root.mzn"), &options);
+    let (bindings, search) = facts(&context);
+    assert!(search.limitations.is_empty(), "{:?}", search.limitations);
+    assert_eq!(
+        coverage(&bindings, &search, "value"),
+        SearchCoverage::WholeArray
+    );
+    for name in ["relation", "existential", "universal"] {
+        assert_eq!(
+            coverage(&bindings, &search, name),
+            SearchCoverage::Uncovered
+        );
+    }
+    let result = analyze_model(&context, &selected());
+    assert!(matches!(result.rules[0].outcome, RuleOutcome::Completed));
+    for negative in [
+        source.replace("sum(i in 1..N)", "sum(i in 0..N)"),
+        format!(
+            "{source}\nfunction var bool: opaque(var bool: b)=b; constraint existential<->exists(i in 1..0)(opaque(true));\n"
+        ),
+    ] {
+        std::fs::write(dir.join("root.mzn"), negative).unwrap();
+        let context = load_model(dir.join("root.mzn"), &options);
+        let result = analyze_model(&context, &selected());
+        assert!(matches!(
+            result.rules[0].outcome,
+            RuleOutcome::Limited { .. }
+        ));
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+    let source = concat!(
+        "array[1..2] of int: values=[2,4]; var int: result; constraint result=0;\n",
+        "constraint forall(i in 1..2,j in index_set([values[i]|k in 1..1]) where (j in {k|k in 1..1}) /\\ forall(k in 1..1)(values[i]>=k))(true); solve satisfy;\n"
+    );
+    let (dir, _) = model("generator-scope", source, "");
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}\nfunction bool: forall(array[int] of bool: body); function bool: 'in'(int: left,set of int: right); function bool: '>='(int: left,int: right);\n"),
+    )
+    .unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        ..Default::default()
+    };
+    let context = load_model(dir.join("root.mzn"), &options);
+    let (bindings, search) = facts(&context);
+    assert!(search.limitations.is_empty(), "{:?}", search.limitations);
+    assert_eq!(
+        coverage(&bindings, &search, "result"),
+        SearchCoverage::Scalar
+    );
+    let result = analyze_model(&context, &selected());
+    assert!(matches!(result.rules[0].outcome, RuleOutcome::Completed));
+    for negative in [
+        format!(
+            "function int: opaque(int: value)=value; {}",
+            source.replace("[values[i]|", "[opaque(values[i])|")
+        ),
+        format!(
+            "function bool: opaque(bool: value)=value; {}",
+            source.replace(
+                "forall(k in 1..1)(values[i]>=k)",
+                "forall(k in 1..0)(opaque(true))"
+            )
+        ),
+    ] {
+        let negative = negative
+            .replace("constraint forall", "predicate checked(var int: result_value)=if forall")
+            .replace("(true); solve satisfy;", "(true) then result_value=0 else result_value=0 endif; var int: guarded_result; constraint checked(guarded_result); solve satisfy;");
+        std::fs::write(dir.join("root.mzn"), negative).unwrap();
+        let context = load_model(dir.join("root.mzn"), &options);
+        let (bindings, search) = facts(&context);
+        assert_eq!(
+            coverage(&bindings, &search, "guarded_result"),
+            SearchCoverage::Unknown
+        );
+        let result = analyze_model(&context, &selected());
+        assert!(
+            matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+            "{:?}",
+            result.limitations
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+    let source = "int: n; array[0..n] of var int: values; constraint forall(i in 2..n)(values[i-1]-values[i]<=0); solve satisfy;\n";
+    let (dir, _) = model("relational-index", source, "");
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}\nfunction int: '-'(int: left,int: right); function var int: '-'(var int: left,var int: right); function var bool: '<='(var int: left,var int: right);\n"),
+    )
+    .unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        ..Default::default()
+    };
+    let context = load_model(dir.join("root.mzn"), &options);
+    let (bindings, search) = facts(&context);
+    assert!(search.limitations.is_empty(), "{:?}", search.limitations);
+    assert_eq!(
+        coverage(&bindings, &search, "values"),
+        SearchCoverage::Uncovered
+    );
+    let result = analyze_model(&context, &selected());
+    assert!(matches!(result.rules[0].outcome, RuleOutcome::Completed));
+    std::fs::write(
+        dir.join("root.mzn"),
+        format!("{source}\nvar int: raw_result; constraint raw_result=values[n-1];"),
+    )
+    .unwrap();
+    let context = load_model(dir.join("root.mzn"), &options);
+    let (bindings, search) = facts(&context);
+    assert_eq!(
+        coverage(&bindings, &search, "raw_result"),
+        SearchCoverage::Unknown
+    );
+    std::fs::write(
+        dir.join("root.mzn"),
+        format!(
+            "function int: opaque_index(int: i)=i; {}",
+            source.replace("values[i-1]", "values[opaque_index(i)]")
+        ),
+    )
+    .unwrap();
+    let context = load_model(dir.join("root.mzn"), &options);
+    let result = analyze_model(&context, &selected());
+    assert!(matches!(
+        result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    std::fs::remove_dir_all(dir).unwrap();
+    let source = concat!(
+        "array[2..4] of var bool: bits; var bool: value;\n",
+        "constraint value=xorall(i in index_set(bits))(bits[i]);\n",
+        "solve :: bool_search(bits,input_order,indomain_min,complete) satisfy;\n"
+    );
+    let (dir, _) = model("quantified-parity", source, "");
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}\nfunction var bool: xorall(array[$T] of var bool: body);\n"),
+    )
+    .unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        ..Default::default()
+    };
+    let context = load_model(dir.join("root.mzn"), &options);
+    let (bindings, search) = facts(&context);
+    assert_eq!(
+        coverage(&bindings, &search, "value"),
+        SearchCoverage::Scalar
+    );
+    assert!(search.limitations.is_empty(), "{:?}", search.limitations);
+    let result = analyze_model(&context, &selected());
+    assert!(matches!(result.rules[0].outcome, RuleOutcome::Completed));
+    let conditional = source
+        .replace("var bool: value;", "var bool: value; var bool: enabled;")
+        .replace("constraint value=", "constraint enabled -> value=")
+        .replace(
+            "bool_search(bits,input_order,indomain_min,complete)",
+            "seq_search([bool_search(bits,input_order,indomain_min,complete),bool_search([enabled],input_order,indomain_min,complete)])"
+        );
+    std::fs::write(dir.join("root.mzn"), conditional).unwrap();
+    let context = load_model(dir.join("root.mzn"), &options);
+    let (bindings, search) = facts(&context);
+    assert_eq!(
+        coverage(&bindings, &search, "value"),
+        SearchCoverage::Uncovered
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+    let shifted = concat!(
+        "int: upper; array[1..upper] of var int: input_values; array[1..upper,1..upper] of var int: value;\n",
+        "constraint forall(i,j in 1..upper)(if i<j then value[i,j]=input_values[j]-input_values[j-i] else value[i,j]=0 endif);\n",
+        "solve :: int_search(input_values,input_order,indomain_min,complete) satisfy;\n"
+    );
+    let nonstrict_shifted = shifted.replace("if i<j", "if i<=j");
+    let wrong_branch_shifted = shifted.replace(
+        "then value[i,j]=input_values[j]-input_values[j-i] else value[i,j]=0",
+        "then value[i,j]=0 else value[i,j]=input_values[j]-input_values[j-i]",
+    );
+    let different_upper_shifted = shifted
+        .replace("int: upper;", "int: upper; int: other_upper;")
+        .replace(
+            "array[1..upper] of var int: input_values",
+            "array[1..other_upper] of var int: input_values",
+        );
+    let user_shifted = format!("function int: '-'(int: left,int: right)=left+upper; {shifted}");
+    let (dir, _) = model("shifted-membership", shifted, "");
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}\nfunction int: '+'(int: left,int: right); function int: '-'(int: left,int: right); function var int: '-'(var int: left,var int: right); function bool: '<'(int: left,int: right); function bool: '<='(int: left,int: right);\n"),
+    )
+    .unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        ..Default::default()
+    };
+    for (name, source, expected) in [
+        ("strict-true-branch", shifted, SearchCoverage::WholeArray),
+        (
+            "nonstrict",
+            nonstrict_shifted.as_str(),
+            SearchCoverage::Unknown,
+        ),
+        (
+            "else-branch",
+            wrong_branch_shifted.as_str(),
+            SearchCoverage::Unknown,
+        ),
+        (
+            "different-upper",
+            different_upper_shifted.as_str(),
+            SearchCoverage::Unknown,
+        ),
+        (
+            "user-subtract",
+            user_shifted.as_str(),
+            SearchCoverage::Unknown,
+        ),
+    ] {
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(dir.join("root.mzn"), &options);
+        let (bindings, search) = facts(&context);
+        assert_eq!(
+            coverage(&bindings, &search, "value"),
+            expected,
+            "{name}: {:?}",
+            search.limitations
+        );
+        let result = analyze_model(&context, &selected());
+        if expected == SearchCoverage::WholeArray {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Completed),
+                "{name}: {:?}",
+                result.limitations
+            );
+        } else {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                result.limitations
+            );
+        }
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+    let forward = concat!(
+        "predicate update_int(var int: result_value,var bool: flag,var int: old_value,var int: new_value)=result_value=[old_value,new_value][1+bool2int(flag)];\n",
+        "predicate update_bool(var bool: result_value,var bool: flag,var bool: old_value,var bool: new_value)=result_value=[old_value,new_value][bool2int(flag)+1];\n",
+        "var int: old_int; var int: new_int; var bool: old_bool; var bool: new_bool; var bool: flag; var int: result_int; var bool: result_bool;\n",
+        "constraint update_int(result_int,flag,old_int,new_int); constraint update_bool(result_bool,flag,old_bool,new_bool);\n",
+        "solve :: seq_search([int_search([old_int,new_int],input_order,indomain_min,complete),bool_search([old_bool,new_bool,flag],input_order,indomain_min,complete)]) satisfy;\n"
+    );
+    let unsearched_forward = forward.replace("[old_bool,new_bool,flag]", "[old_bool,new_bool]");
+    let unsafe_forward = forward.replace("[1+bool2int(flag)]", "[2+bool2int(flag)]");
+    let (dir, _) = model("forward-choice", forward, "");
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}\nfunction var int: bool2int(var bool: value);\n"),
+    )
+    .unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        ..Default::default()
+    };
+    for (name, source, expected_int, expected_bool, limited) in [
+        (
+            "both orders and scalar kinds",
+            forward,
+            SearchCoverage::Scalar,
+            SearchCoverage::Scalar,
+            false,
+        ),
+        (
+            "unsearched selector",
+            unsearched_forward.as_str(),
+            SearchCoverage::Uncovered,
+            SearchCoverage::Uncovered,
+            false,
+        ),
+        (
+            "wrong offset",
+            unsafe_forward.as_str(),
+            SearchCoverage::Unknown,
+            SearchCoverage::Scalar,
+            true,
+        ),
+    ] {
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(dir.join("root.mzn"), &options);
+        let (bindings, search) = facts(&context);
+        assert_eq!(
+            coverage(&bindings, &search, "result_int"),
+            expected_int,
+            "{name}: {:?}",
+            search.limitations
+        );
+        assert_eq!(
+            coverage(&bindings, &search, "result_bool"),
+            expected_bool,
+            "{name}: {:?}",
+            search.limitations
+        );
+        let result = analyze_model(&context, &selected());
+        assert_eq!(
+            matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+            limited,
+            "{name}: {:?}",
+            result.limitations
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+    let literal_calls = concat!(
+        "predicate update_cells(var int: assigned,var int: index,array[int] of var int: old_cells,array[int] of var int: new_cells,var bool: active)=forall(cell in index_set(old_cells))(new_cells[cell]=[old_cells[cell],assigned][bool2int(active /\\ cell=index)+1]);\n",
+        "predicate lookup_cell(var int: index,array[int] of var int: cells,var int: value)=cells[index]=value;\n",
+        "predicate self_indexed(var int: value,array[int] of var int: cells)=value=cells[value];\n",
+        "var 1..2: selected_index; var 1..6: assigned_value; var bool: active; var int: first_cell; var int: second_cell; var int: selected_value; var int: mapped_value; var 1..2: self_lookup;\n",
+        "constraint update_cells(assigned_value,selected_index,[1,2],[first_cell,second_cell],active); constraint lookup_cell(selected_index,[first_cell,second_cell],selected_value); constraint element(selected_index,[5,6],mapped_value); constraint lookup_cell(self_lookup,[1,2],self_lookup); constraint self_indexed(self_lookup,[1,2]);\n",
+        "solve :: seq_search([int_search([selected_index,assigned_value],input_order,indomain_min,complete),bool_search([active],input_order,indomain_min,complete)]) satisfy;\n"
+    );
+    let (dir, _) = model("literal-array-calls", literal_calls, "");
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}\nfunction var int: bool2int(var bool: value); predicate element(var $$E: index,array[$$E] of var $$T: cells,var $$T: value)=value=cells[index];\n"),
+    ).unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        ..Default::default()
+    };
+    for (name, source, cells, scalar, limited) in [
+        (
+            "forward cells and scalar lookup",
+            literal_calls.to_owned(),
+            SearchCoverage::Scalar,
+            SearchCoverage::Scalar,
+            false,
+        ),
+        (
+            "unsearched selector",
+            literal_calls.replace("[selected_index,assigned_value]", "[assigned_value]"),
+            SearchCoverage::Uncovered,
+            SearchCoverage::Uncovered,
+            false,
+        ),
+        (
+            "unproved selector membership",
+            literal_calls.replace("var 1..2: selected_index", "var 0..2: selected_index"),
+            SearchCoverage::Scalar,
+            SearchCoverage::Unknown,
+            true,
+        ),
+        (
+            "no cyclic seed",
+            literal_calls.replace(
+                "selected_index,[1,2],",
+                "selected_index,[first_cell,second_cell],",
+            ),
+            SearchCoverage::Uncovered,
+            SearchCoverage::Uncovered,
+            false,
+        ),
+    ] {
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(dir.join("root.mzn"), &options);
+        let (bindings, search) = facts(&context);
+        for value in ["first_cell", "second_cell"] {
+            assert_eq!(
+                coverage(&bindings, &search, value),
+                cells,
+                "{name}: {:?}",
+                search.limitations
+            );
+        }
+        assert_eq!(
+            coverage(&bindings, &search, "selected_value"),
+            scalar,
+            "{name}: {:?}",
+            search.limitations
+        );
+        assert_eq!(
+            coverage(&bindings, &search, "mapped_value"),
+            if name == "no cyclic seed" {
+                SearchCoverage::Scalar
+            } else {
+                scalar
+            },
+            "{name}: {:?}",
+            search.limitations
+        );
+        assert_eq!(
+            coverage(&bindings, &search, "self_lookup"),
+            SearchCoverage::Uncovered,
+            "a selector cannot define itself: {:?}",
+            search.limitations
+        );
+        let result = analyze_model(&context, &selected());
+        assert_eq!(
+            matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+            limited,
+            "{name}: {:?}",
+            result.limitations
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+    let row_array = concat!(
+        "int: bound; array[1..2,1..2] of var 0..bound: board;\n",
+        "constraint forall(row in 1..2)(let {array[1..2] of var 0..bound: cells=[board[row,1],board[row,2]];} in cells[1]<=cells[2]);\n",
+        "solve :: int_search(array1d(board),input_order,indomain_min,complete) satisfy;\n"
+    );
+    let local_array = row_array
+        .replace("forall(row in 1..2)", "forall(row,column in 1..2)")
+        .replace(
+            "[board[row,1],board[row,2]]",
+            "[board[row,column],board[row,column]]",
+        );
+    let unknown_array = row_array
+        .replace("int: bound;", "int: bound; int: row;")
+        .replace("forall(row in 1..2)(let", "(let")
+        .replace("board[row,", "board[row+1,");
+    let partial_array = unknown_array.replace("board[row+1,2]", "1 div 0");
+    let (dir, _) = model("initialized-local-array", &local_array, "");
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}\nfunction int: '+'(int: left,int: right); function var bool: '<='(var int: left,var int: right); function var int: 'div'(var int: left,var int: right);\n"),
+    )
+    .unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        ..Default::default()
+    };
+    for (name, source, expected, inspected, output, limited) in [
+        (
+            "strict searched initializer",
+            local_array.to_owned(),
+            SearchCoverage::WholeArray,
+            false,
+            true,
+            false,
+        ),
+        (
+            "unsearched initializer dependencies",
+            local_array.replace(
+                "solve :: int_search(array1d(board),input_order,indomain_min,complete) satisfy;",
+                "solve satisfy;",
+            ),
+            SearchCoverage::Uncovered,
+            false,
+            true,
+            false,
+        ),
+        (
+            "unproved parameter membership",
+            unknown_array,
+            SearchCoverage::Unknown,
+            true,
+            false,
+            false,
+        ),
+        (
+            "unsupported child wins over uncertainty",
+            partial_array,
+            SearchCoverage::Unknown,
+            false,
+            false,
+            true,
+        ),
+    ] {
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(dir.join("root.mzn"), &options);
+        let (bindings, search) = facts(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let cells = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == "cells")
+            .unwrap()
+            .id;
+        assert_eq!(
+            search.declarations[cells.0].coverage, expected,
+            "{name}: {:?}; callable: {callable:?}",
+            search.limitations
+        );
+        assert_eq!(
+            callable.inspected_locals.contains(&cells),
+            inspected,
+            "{name}: {callable:?}"
+        );
+        assert_eq!(
+            callable
+                .definitions
+                .iter()
+                .any(|d| d.target == cells && d.coverage == DefinitionCoverage::WholeArray),
+            output,
+            "{name}: {:?}",
+            callable.unavailable
+        );
+        let result = analyze_model(&context, &selected());
+        assert_eq!(
+            matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+            limited,
+            "{name}: {:?}",
+            result.limitations
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+    let local_choice = concat!(
+        "bool: enabled=true; int: duration=1; var int: start_a; var int: start_b;\n",
+        "predicate unused_choice()=let {var bool: private_before;} in private_before \\/ not private_before;\n",
+        "constraint if enabled then let {var bool: before;} in (before->start_a+duration<=start_b) /\\ ((start_b+duration<=start_a)<-not before) /\\ (before \\/ not before) else true endif;\n",
+        "solve :: int_search([start_a,start_b],input_order,indomain_min,complete) satisfy;\n"
+    );
+    let failed_choice = local_choice
+        .replace(
+            "int: duration=1;",
+            "int: duration=1; int: parameter_index=1;",
+        )
+        .replace("constraint if enabled", "constraint (if enabled")
+        .replace(
+            "else true endif;",
+            "else true endif) /\\ forall(k in {[1,2][parameter_index]} where true)(true);",
+        );
+    let (dir, _) = model("nondefining-local-choice", local_choice, "");
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}\nfunction var bool: '<-'(var bool: left,var bool: right); function var bool: '\\/'(var bool: left,var bool: right); function var bool: 'not'(var bool: value); function var bool: '<='(var int: left,var int: right);\n"),
+    )
+    .unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        ..Default::default()
+    };
+    for (source, limited) in [(local_choice, false), (failed_choice.as_str(), true)] {
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(dir.join("root.mzn"), &options);
+        let (bindings, search) = facts(&context);
+        let before = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == "before")
+            .unwrap()
+            .id;
+        assert_eq!(
+            search.declarations[before.0].coverage,
+            SearchCoverage::Unknown
+        );
+        let calls = resolve_callables(&context, &bindings);
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        assert!(callable.definitions.iter().all(|d| d.target != before));
+        assert!(callable.outputs.iter().all(|d| d.target != before));
+        assert_eq!(callable.inspected_locals.contains(&before), !limited);
+        let private = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == "private_before")
+            .unwrap()
+            .id;
+        assert!(!callable.inspected_locals.contains(&private));
+        let result = analyze_model(&context, &selected());
+        assert_eq!(
+            matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+            limited,
+            "{:?}",
+            result.limitations
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+    let literal_extrema = concat!(
+        "array[1..2] of var int: positions; var int: value=sum(r in 1..2)(min(d in 1..2)(abs(positions[d]-r)));\n",
+        "solve :: int_search(positions,input_order,indomain_min,complete) satisfy;\n"
+    );
+    let symbolic_extrema = concat!(
+        "int: depot_count=2; set of int: Depot=1..depot_count; array[Depot] of var int: positions;\n",
+        "var int: value=sum(r in 1..2)(min(d in Depot)(abs(positions[d]-r)));\n",
+        "solve :: int_search(positions,input_order,indomain_min,complete) satisfy;\n"
+    );
+    let partial_extrema = symbolic_extrema
+        .replace(
+            "int: depot_count=2;",
+            "int: depot_count=2; int: denominator=2;",
+        )
+        .replace(
+            "abs(positions[d]-r)",
+            "abs(positions[d]-r)+(1 div denominator)",
+        );
+    let literal_max = literal_extrema.replace("min(d in", "max(d in");
+    let symbolic_max = symbolic_extrema.replace("min(d in", "max(d in");
+    let partial_max = partial_extrema.replace("min(d in", "max(d in");
+    let literal_equality = literal_max
+        .replace("var int: value=", "var int: value; constraint (value=")
+        .replace(")));\nsolve", "))));\nsolve");
+    let symbolic_equality =
+        symbolic_max.replace("var int: value=", "var int: value; constraint value=");
+    let partial_equality =
+        partial_max.replace("var int: value=", "var int: value; constraint value=");
+    let shadowed_equality =
+        format!("function var bool: '='(var int: left,var int: right)=true;\n{literal_equality}");
+    let symbolic_abs = concat!(
+        "int: parameter_index=1; array[1..2] of var int: positions; var int: value=abs(positions[parameter_index]);\n",
+        "solve :: int_search(positions,input_order,indomain_min,complete) satisfy;\n"
+    );
+    let selector = concat!(
+        "set of int: Rows; set of int: Cols; set of int: Configs;\n",
+        "array[Rows,Cols,Configs] of int: widths; array[Rows,Cols] of var Configs: config; array[Rows,Cols] of var int: value;\n",
+        "constraint forall(r in Rows,c in Cols)(value[r,c]=widths[r,c,config[r,c]]);\n",
+        "solve :: int_search(array1d(config),input_order,indomain_min,complete) satisfy;\n"
+    );
+    let unsearched_selector = selector.replace(
+        "solve :: int_search(array1d(config),input_order,indomain_min,complete) satisfy;",
+        "solve satisfy;",
+    );
+    let other_selector = selector.replace(
+        "array[Rows,Cols] of var Configs: config;",
+        "set of int: OtherConfigs; array[Rows,Cols] of var OtherConfigs: config;",
+    );
+    let (dir, _) = model("bounds-and-selector", literal_extrema, "");
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}\nfunction var int: min(array[int] of var int: body); function var int: max(array[int] of var int: body); function var int: abs(var int: value); function var int: '-'(var int: left,var int: right); function int: 'div'(int: left,int: right);\n"),
+    )
+    .unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        ..Default::default()
+    };
+    let mut failures = Vec::new();
+    for (name, source, expected, limited) in [
+        (
+            "literal extrema",
+            literal_extrema,
+            SearchCoverage::Scalar,
+            false,
+        ),
+        (
+            "symbolic extrema",
+            symbolic_extrema,
+            SearchCoverage::Unknown,
+            false,
+        ),
+        (
+            "partial extrema",
+            partial_extrema.as_str(),
+            SearchCoverage::Unknown,
+            false,
+        ),
+        (
+            "literal max extrema",
+            literal_max.as_str(),
+            SearchCoverage::Scalar,
+            false,
+        ),
+        (
+            "symbolic max extrema",
+            symbolic_max.as_str(),
+            SearchCoverage::Unknown,
+            false,
+        ),
+        (
+            "partial max extrema",
+            partial_max.as_str(),
+            SearchCoverage::Unknown,
+            false,
+        ),
+        (
+            "literal equality extrema",
+            literal_equality.as_str(),
+            SearchCoverage::Scalar,
+            false,
+        ),
+        (
+            "symbolic equality extrema",
+            symbolic_equality.as_str(),
+            SearchCoverage::Unknown,
+            false,
+        ),
+        (
+            "partial equality extrema",
+            partial_equality.as_str(),
+            SearchCoverage::Unknown,
+            false,
+        ),
+        (
+            "shadowed equality extrema",
+            shadowed_equality.as_str(),
+            SearchCoverage::Unknown,
+            true,
+        ),
+        ("symbolic abs", symbolic_abs, SearchCoverage::Unknown, false),
+        (
+            "searched selector",
+            selector,
+            SearchCoverage::WholeArray,
+            false,
+        ),
+        (
+            "unsearched selector",
+            unsearched_selector.as_str(),
+            SearchCoverage::Uncovered,
+            false,
+        ),
+        (
+            "other selector domain",
+            other_selector.as_str(),
+            SearchCoverage::Unknown,
+            false,
+        ),
+    ] {
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(dir.join("root.mzn"), &options);
+        let (bindings, search) = facts(&context);
+        let result = analyze_model(&context, &selected());
+        let actual = coverage(&bindings, &search, "value");
+        if name.contains("extrema") || name == "symbolic abs" {
+            let unbounded = analyze_model(
+                &context,
+                &LintOptions::from_selection("unbounded-variable").unwrap(),
+            );
+            let value = &bindings
+                .declarations
+                .iter()
+                .find(|d| d.name == "value")
+                .unwrap()
+                .location;
+            if matches!(unbounded.rules[0].outcome, RuleOutcome::Limited { .. }) != limited
+                || unbounded.findings.iter().any(|f| &f.location == value)
+                || (!limited && !unbounded.limitations.is_empty())
+                || (limited && !unbounded.limitations.iter().any(|l| &l.location == value))
+            {
+                failures.push(format!(
+                    "{name} unbounded: {:?}, {:?}, {:?}",
+                    unbounded.rules[0].outcome, unbounded.findings, unbounded.limitations
+                ));
+            }
+        }
+        if actual != expected
+            || matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }) != limited
+            || (!limited && !result.limitations.is_empty())
+        {
+            failures.push(format!(
+                "{name}: {actual:?}, {:?}, {:?}",
+                result.rules[0].outcome, result.limitations
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    std::fs::remove_dir_all(dir).unwrap();
+    let assertions = concat!(
+        "bool: gate; var 0..2: input_value; var int: proved_result; var int: guarded_result; var int: sibling_result; var int: reflected_result;\n",
+        "constraint let { int: checked=assert(true,\"proved\",2); } in proved_result=checked;\n",
+        "constraint let { int: checked=assert(gate,\"enabled\",2); } in guarded_result=checked /\\ sibling_result=0;\n",
+        "constraint let { int: checked=assert(has_bounds(input_value),\"finite\",if 0 in dom(enum2int(input_value)) then enum2int(lb(input_value))-1 else 0 endif); } in reflected_result=checked;\n",
+        "solve :: int_search([input_value],input_order,indomain_min,complete) satisfy;\n",
+    );
+    let (dir, _) = model("returning-assertions", assertions, "");
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}\nfunction int: assert(bool: guard,string: message,int: value); function bool: has_bounds(var int: value); function set of int: dom(var int: value); function int: lb(var int: value); function int: enum2int(int: value); function int: '-'(int: left,int: right); function bool: 'in'(int: value,set of int: domain); function int: 'div'(int: left,int: right);\n"),
+    ).unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        ..Default::default()
+    };
+    let context = load_model(dir.join("root.mzn"), &options);
+    let (bindings, search) = facts(&context);
+    let result = analyze_model(&context, &selected());
+    assert_eq!(
+        coverage(&bindings, &search, "proved_result"),
+        SearchCoverage::Scalar,
+        "{:?}",
+        result.limitations
+    );
+    for name in ["guarded_result", "sibling_result", "reflected_result"] {
+        assert_eq!(
+            coverage(&bindings, &search, name),
+            SearchCoverage::Uncovered,
+            "{name}"
+        );
+    }
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    assert!(matches!(result.rules[0].outcome, RuleOutcome::Completed));
+    std::fs::write(
+        dir.join("root.mzn"),
+        "bool: gate; var int: partial_result; constraint let { int: checked=assert(gate,\"enabled\",1 div 0); } in partial_result=checked; solve satisfy;",
+    ).unwrap();
+    let context = load_model(dir.join("root.mzn"), &options);
+    let (bindings, search) = facts(&context);
+    assert_eq!(
+        coverage(&bindings, &search, "partial_result"),
+        SearchCoverage::Unknown
+    );
+    assert!(matches!(
+        analyze_model(&context, &selected()).rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    std::fs::remove_dir_all(dir).unwrap();
+    let defaults = concat!(
+        "array[1..2] of opt int: xs; bool: gate; var 0..2: value;\n",
+        "var int: strict_result; var int: guarded_result; var int: sibling_result; var int: partial_result;\n",
+        "predicate consume(array[int] of var int: values,var int: result_value)=result_value=0;\n",
+        "constraint consume([i default to_enum_internal(enum_of(value),2)|i in xs],strict_result);\n",
+        "constraint let {int: fallback=assert(gate,\"enabled\",2);} in consume([i default to_enum_internal(enum_of(value),fallback)|i in xs],guarded_result) /\\ sibling_result=0;\n",
+        "constraint consume([i default to_enum_internal(enum_of(value),1 div 0)|i in xs],partial_result);\n",
+        "solve satisfy;\n",
+    );
+    let (dir, _) = model("integer-defaults", defaults, "");
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}\nfunction int: assert(bool: guard,string: message,int: value); function int: 'div'(int: left,int: right); function set of int: enum_of(var opt int: value); function int: to_enum_internal(set of int: witness,int: value); function var int: 'default'(var opt int: value,var int: fallback);\n"),
+    ).unwrap();
+    let context = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    let (bindings, search) = facts(&context);
+    let actual: Vec<_> = [
+        "strict_result",
+        "guarded_result",
+        "sibling_result",
+        "partial_result",
+    ]
+    .into_iter()
+    .map(|name| coverage(&bindings, &search, name))
+    .collect();
+    let result = analyze_model(&context, &selected());
+    assert_eq!(
+        actual,
+        vec![
+            SearchCoverage::Scalar,
+            SearchCoverage::Uncovered,
+            SearchCoverage::Uncovered,
+            SearchCoverage::Unknown
+        ],
+        "{:?}",
+        result.limitations
+    );
+    let calls = resolve_callables(&context, &bindings);
+    let inst = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+    let partial = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "partial_result")
+        .unwrap()
+        .id;
+    assert!(!callable.definitions.iter().any(|d| d.target == partial));
+    assert!(matches!(
+        result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    let partial_start = defaults
+        .find("constraint consume([i default to_enum_internal(enum_of(value),1 div 0)")
+        .unwrap();
+    assert!(
+        result
+            .limitations
+            .iter()
+            .all(|l| l.location.range.start >= partial_start),
+        "{:?}",
+        result.limitations
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+    let named_selector = concat!(
+        "set of int: Rows; set of int: Cols; set of int: Ids;\n",
+        "array[Rows,Cols] of var Ids: selector; array[Ids] of var int: table; array[Rows,Cols] of var int: value;\n",
+        "constraint forall(r in Rows,c in Cols)(value[r,c]=table[selector[r,c]]);\n",
+        "solve :: seq_search([int_search(array1d(selector),input_order,indomain_min,complete),int_search(table,input_order,indomain_min,complete)]) satisfy;\n"
+    );
+    let (dir, _) = model("named-selector", named_selector, "");
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        ..Default::default()
+    };
+    for (name, source, expected, limited) in [
+        (
+            "both dependencies searched",
+            named_selector.to_owned(),
+            SearchCoverage::WholeArray,
+            false,
+        ),
+        (
+            "selector unsearched",
+            named_selector.replace(
+                "int_search(array1d(selector),input_order,indomain_min,complete),",
+                "",
+            ),
+            SearchCoverage::Uncovered,
+            false,
+        ),
+        (
+            "different declaration",
+            named_selector
+                .replace("set of int: Ids;", "set of int: Ids; set of int: OtherIds;")
+                .replace("of var Ids: selector", "of var OtherIds: selector"),
+            SearchCoverage::Unknown,
+            true,
+        ),
+        (
+            "optional selector",
+            named_selector.replace("of var Ids: selector", "of var opt Ids: selector"),
+            SearchCoverage::Unknown,
+            true,
+        ),
+    ] {
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(dir.join("root.mzn"), &options);
+        let (bindings, search) = facts(&context);
+        assert_eq!(
+            coverage(&bindings, &search, "value"),
+            expected,
+            "{name}: {:?}",
+            search.limitations
+        );
+        let result = analyze_model(&context, &selected());
+        assert_eq!(
+            matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+            limited,
+            "{name}: {:?}",
+            result.limitations
+        );
+        let unbounded = analyze_model(
+            &context,
+            &LintOptions::from_selection("unbounded-variable").unwrap(),
+        );
+        assert_eq!(
+            matches!(unbounded.rules[0].outcome, RuleOutcome::Limited { .. }),
+            name == "optional selector",
+            "{name}: {:?}",
+            unbounded.limitations
+        );
+        if name == "different declaration" {
+            assert!(unbounded.findings.iter().any(|finding| {
+                &context.files[0].parsed.source()[finding.location.range.clone()] == "value"
+            }));
+        }
+    }
+    let neighbour = concat!(
+        "set of int: Rows; set of int: Cols; set of int: Ids;\n",
+        "array[Rows,Cols] of var Ids: selector; array[Ids] of int: table; var int: sibling;\n",
+        "constraint forall(r in Rows,c in Cols where c>1)(let { var Ids: a=selector[r,c-1]; var Ids: b=selector[r,c]; } in sibling=1 /\\ (a=b)=(table[a]=table[b]));\n",
+        "solve :: int_search(array1d(selector),input_order,indomain_min,complete) satisfy;\n"
+    );
+    std::fs::write(dir.join("root.mzn"), neighbour).unwrap();
+    std::fs::write(dir.join("library/std/stdlib.mzn"), format!("{CORE}\nfunction int: '-'(int: left,int: right); function bool: '>'(int: left,int: right);\n")).unwrap();
+    let context = load_model(dir.join("root.mzn"), &options);
+    let (bindings, search) = facts(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let instantiations = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let callable =
+        resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+    assert!(search.limitations.is_empty(), "{:?}", search.limitations);
+    for name in ["a", "b"] {
+        let local = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap();
+        assert_eq!(
+            search.declarations[local.id.0].coverage,
+            SearchCoverage::Unknown
+        );
+        assert!(callable.inspected_locals.contains(&local.id));
+        assert!(!callable.definitions.iter().any(|d| d.target == local.id));
+    }
+    assert_eq!(
+        coverage(&bindings, &search, "sibling"),
+        SearchCoverage::Uncovered
+    );
+    assert!(
+        !callable
+            .definitions
+            .iter()
+            .any(|d| bindings.declarations[d.target.0].name == "sibling")
+    );
+    let combined = analyze_model(
+        &context,
+        &LintOptions::from_selection("search-coverage,unbounded-variable").unwrap(),
+    );
+    assert!(
+        combined.limitations.is_empty(),
+        "{:?}",
+        combined.limitations
+    );
+    assert!(
+        combined
+            .rules
+            .iter()
+            .all(|r| matches!(r.outcome, RuleOutcome::Completed))
+    );
+    for name in ["selector", "a", "b"] {
+        let local = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap();
+        assert!(combined.findings.iter().all(
+            |f| f.rule != zincite_lint::Rule::UnboundedVariable || f.location != local.location
+        ));
+    }
+    let sibling = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "sibling")
+        .unwrap();
+    assert!(
+        combined
+            .findings
+            .iter()
+            .any(|f| f.rule == zincite_lint::Rule::UnboundedVariable
+                && f.location == sibling.location)
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+    let comprehension = concat!(
+        "set of int: Input; int: bound; bool: enabled; int: low; int: high; array[1..bound] of var int: input; var int: sibling; var int: maximum_value;\n",
+        "array[1..bound] of var 1..10: root_constant=[if enabled then low else high endif|i in 1..bound];\n",
+        "array[1..card(Input)] of var int: root_indexed=[input[i]|i in Input];\n",
+        "constraint let {array[1..card(Input)] of var int: constants=[1|i in Input]; array[1..card(Input)] of var int: indexed=[input[i]|i in Input];} in sibling=1 /\\ constants[1]=indexed[1] /\\ maximum(maximum_value,indexed);\n",
+        "solve :: int_search(input,input_order,indomain_min,complete) satisfy;\n"
+    );
+    let (dir, _) = model("uncertain-local-comprehension", comprehension, "");
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}\nfunction int: card(set of int: value); predicate array_int_maximum(var int: m,array[int] of var int: xs); predicate maximum(var int: m,array[int] of var int: xs)=array_int_maximum(m,xs);\n"),
+    )
+    .unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        ..Default::default()
+    };
+    for (source, limited) in [
+        (comprehension.to_owned(), false),
+        (
+            comprehension.replace(";} in sibling=1", "; var opt int: unused=<>;} in sibling=1"),
+            true,
+        ),
+    ] {
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(dir.join("root.mzn"), &options);
+        let (bindings, search) = facts(&context);
+        let result = analyze_model(
+            &context,
+            &LintOptions::from_selection("search-coverage,unbounded-variable,constant-variable")
+                .unwrap(),
+        );
+        assert_eq!(
+            !result.limitations.is_empty(),
+            limited,
+            "{:?}",
+            result.limitations
+        );
+        if !limited {
+            for name in ["constants", "indexed"] {
+                let local = bindings
+                    .declarations
+                    .iter()
+                    .find(|d| d.name == name)
+                    .unwrap();
+                assert_eq!(
+                    search.declarations[local.id.0].coverage,
+                    SearchCoverage::Unknown
+                );
+                assert!(result.findings.iter().all(|f| f.location != local.location));
+            }
+            assert_eq!(
+                coverage(&bindings, &search, "root_indexed"),
+                SearchCoverage::Unknown
+            );
+            assert_eq!(
+                coverage(&bindings, &search, "maximum_value"),
+                SearchCoverage::Uncovered
+            );
+        }
+        assert_eq!(
+            coverage(&bindings, &search, "sibling"),
+            if limited {
+                SearchCoverage::Unknown
+            } else {
+                SearchCoverage::Uncovered
+            }
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+    let summed = concat!(
+        "set of int: Input; int: bound; array[1..bound] of var int: input;\n",
+        "array[1..bound] of var int: values=[input[i]|i in Input]; var int: total=sum(values);\n",
+        "solve :: int_search(input,input_order,indomain_min,complete) satisfy;\n"
+    );
+    let (dir, _) = model("initialized-decision-sum", summed, "");
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}\nfunction int: opaque_count(int: value); function int: length(array[int] of bool: values); function int: length(array[int] of int: values); function int: card(set of int: values); function bool: exists(array[int] of bool: values); function bool: '<'(int: left,int: right); function bool: '!='(int: left,int: right); function bool: '!='(set of int: left,set of int: right); function int: 'div'(int: left,int: right); function int: 'mod'(int: left,int: right);\n"),
+    )
+    .unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        ..Default::default()
+    };
+    for (source, limited) in [
+        (summed.to_owned(), false),
+        (
+            summed.replace("int: bound;", "int: bound; int: divisor;")
+                .replace("[input[i]|i in Input]", "[input[i]+(i div divisor)+(i mod divisor)|i in Input]"),
+            false,
+        ),
+        (
+            summed.replace("[input[i]|i in Input]", "[input[i]+(i div 0)|i in Input]"),
+            true,
+        ),
+        (
+            summed.replace("int: bound;", "array[Input] of set of int: neighbours=[{b|b in Input where b!=a}|a in Input]; int: bound=length([true|a in Input,b in neighbours[a] where a<b]); set of int: selected={a|a in Input where exists(b in neighbours[a])(a!=b)}; int: counted=card(selected);")
+                .replace("[input[i]|i in Input]", "[input[i]|i in 1..counted]"),
+            false,
+        ),
+        (
+            summed.replace("int: bound;", "int: selector; set of int: Target; array[Input] of set of int: neighbours=[{b|b in Input where b!=a}|a in Input]; int: bound=length([true|a in Input,b in neighbours[a] where a<b]); set of int: selected={a|a in Input where exists(b in neighbours[a])(neighbours[selector]!=Target)}; int: counted=card(selected);")
+                .replace("[input[i]|i in Input]", "[input[i]|i in 1..counted]"),
+            false,
+        ),
+
+        (
+            summed
+                .replace("int: bound;", "int: bound; int: extra=opaque_count(bound);")
+                .replace("[input[i]|", "[input[i]+extra|"),
+            true,
+        ),
+        (
+            summed
+                .replace("int: bound;", "int: bound; int: extra=extra;")
+                .replace("[input[i]|", "[input[i]+extra|"),
+            true,
+        ),
+    ] {
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(dir.join("root.mzn"), &options);
+        let (bindings, search) = facts(&context);
+        assert_eq!(
+            coverage(&bindings, &search, "total"),
+            SearchCoverage::Unknown
+        );
+        let result = analyze_model(
+            &context,
+            &LintOptions::from_selection("search-coverage,unbounded-variable").unwrap(),
+        );
+        assert_eq!(
+            !result.limitations.is_empty(),
+            limited,
+            "{:?}",
+            result.limitations
+        );
+        if !limited {
+            let indices = analyze_model(
+                &context,
+                &LintOptions::from_selection("array-index-start").unwrap(),
+            );
+            assert!(indices.limitations.is_empty(), "{:?}", indices.limitations);
+            assert_eq!(indices.rules[0].outcome, RuleOutcome::Completed);
+            let total = bindings
+                .declarations
+                .iter()
+                .find(|d| d.name == "total")
+                .unwrap();
+            assert!(result.findings.iter().all(|f| f.location != total.location));
+        }
+    }
+    // A named parameter collection still requires inspection of its initializer.
+    std::fs::write(
+        dir.join("root.mzn"),
+        concat!(
+            "int: bound; array[1..bound] of int: counts=[opaque_count(i)|i in 1..bound];\n",
+            "int: counted=length(counts); array[1..counted] of int: unsafe_extent;\n",
+            "var int: total=length(counts); solve satisfy;\n"
+        ),
+    )
+    .unwrap();
+    let context = load_model(dir.join("root.mzn"), &options);
+    let result = analyze_model(
+        &context,
+        &LintOptions::from_selection("unbounded-variable").unwrap(),
+    );
+    assert!(
+        result
+            .limitations
+            .iter()
+            .any(|limit| limit.message.contains("for 'total'")),
+        "{:?}",
+        result
+    );
+    let indices = analyze_model(
+        &context,
+        &LintOptions::from_selection("array-index-start").unwrap(),
+    );
+    assert!(matches!(
+        indices.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    assert!(!indices.limitations.is_empty());
+    std::fs::write(
+        dir.join("root.mzn"),
+        "annotation count_hint; set of int: Input; int: counted :: count_hint=length([true|i in Input]); array[1..counted] of int: values; solve satisfy;",
+    ).unwrap();
+    let context = load_model(dir.join("root.mzn"), &options);
+    let indices = analyze_model(
+        &context,
+        &LintOptions::from_selection("array-index-start").unwrap(),
+    );
+    assert!(matches!(
+        indices.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    assert!(!indices.limitations.is_empty());
+    std::fs::write(
+        dir.join("root.mzn"),
+        concat!(
+            "array[1..2,1..2] of var int: matrix; var int: total=sum(matrix);\n",
+            "solve :: int_search(matrix,input_order,indomain_min,complete) satisfy;\n"
+        ),
+    )
+    .unwrap();
+    let context = load_model(dir.join("root.mzn"), &options);
+    let (bindings, search) = facts(&context);
+    assert_eq!(
+        coverage(&bindings, &search, "total"),
+        SearchCoverage::Scalar
+    );
+    let result = analyze_model(
+        &context,
+        &LintOptions::from_selection("search-coverage,unbounded-variable").unwrap(),
+    );
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    std::fs::remove_dir_all(dir).unwrap();
     let (dir, context) = model("fragment", "var int: exported;", "");
     let (_, search) = facts(&context);
     assert_eq!(search.root_state, ModelRootState::Fragment);
@@ -409,12 +1708,18 @@ fn callable_outputs_keep_selected_direction_defaults_captures_and_array_extent()
         coverage(&bindings, &search, "forwarded"),
         SearchCoverage::Scalar
     );
-    for name in [
-        "bad",
-        "competing_output",
-        "filtered_output",
-        "optional_result",
-    ] {
+    assert_eq!(
+        coverage(&bindings, &search, "filtered_output"),
+        SearchCoverage::Uncovered
+    );
+    assert!(
+        outputs
+            .outputs
+            .iter()
+            .filter(|g| { bindings.declarations[g.callable.0].name == "filtered_array" })
+            .all(|g| g.coverage != DefinitionCoverage::WholeArray)
+    );
+    for name in ["bad", "competing_output", "optional_result"] {
         assert_eq!(
             coverage(&bindings, &search, name),
             SearchCoverage::Unknown,
@@ -432,5 +1737,595 @@ fn callable_outputs_keep_selected_direction_defaults_captures_and_array_extent()
         std::fs::read_to_string(dir.join("root.mzn")).unwrap(),
         source
     );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn total_controls_and_filtered_relations_separate_outputs_from_unavailable_bodies() {
+    let included = concat!(
+        "predicate branch(bool: take,int: input,var int: result)=if take then result=input else result=input+1 endif;\n",
+        "predicate specialized(var bool: take,int: input,var int: result)=if take then result=input else result=input+1 endif;\n",
+        "predicate specialized_default(int: input,var int: result,var bool: take=gate)=specialized(take,input,result);\n",
+        "predicate specialized_relation(var int: input,var int: result)=input>=0;\n",
+        "predicate scalar_bounds(var int: input,var int: result)=if is_fixed(input) then result=fix(input)+lb(input)+ub(input) else result=0 endif;\n",
+        "predicate array_bounds(array[int] of var int: values,var int: result)=if length(values)=0 then result=0 else result=lb_array(values)+ub_array(values) endif;\n",
+        "predicate raw_bounds(array[int] of var int: values,var int: result)=result=lb_array(values);\n",
+        "predicate minimum_index(array[int] of var int: values,var int: result)=if length(values)=0 then result=0 else let { int: chosen=arg_min(arrayXd(values,[lb(v)|v in values])); } in result=chosen endif;\n",
+        "predicate raw_minimum_index(array[int] of int: values,var int: result)=let { int: chosen=arg_min(arrayXd(values,[lb(v)|v in values])); } in result=chosen;\n",
+        "predicate filtered_minimum_index(array[int] of int: values,var int: result)=if length(values)=0 then result=0 else let { int: chosen=arg_min(arrayXd(values,[lb(v)|v in values where v>0])); } in result=chosen endif;\n",
+        "predicate other_minimum_index(array[int] of int: values,array[int] of int: other,var int: result)=if length(values)=0 then result=0 else let { int: chosen=arg_min(arrayXd(values,[lb(v)|v in other])); } in result=chosen endif;\n",
+        "predicate parameter_value_guard(var int: input,var int: result)=if let { int: lower_bound=lb(input); int: fixed_value=fix(input); 0..3: domain_value=0; } in is_fixed(input) /\\ fixed_value>=lower_bound then result=input else result=input endif;\n",
+        "predicate partial_value_domain(array[int] of int: bounds,int: position,var int: result)=if let { 0..bounds[position]: local_value=0; } in true then result=0 else result=0 endif;\n",
+        "predicate partial_local_domain(array[int] of int: bounds,int: position,var int: result)=let { 0..bounds[position]: local_value=0; } in result=0;\n",
+        "function int: opaque_parameter(int: input)=input; predicate unused_value_guard(int: input,var int: result)=if let { int: unused_value=opaque_parameter(input); } in true then result=input else result=input endif;\n",
+        "predicate decision_value_guard(var int: result)=if let { var bool: private_value; } in true then result=0 else result=0 endif;\n",
+        "predicate aligned_bounds(array[int] of var int: start,array[int] of var int: values,var int: result)=assert(index_set(start)=index_set(values),\"aligned indices\") /\\ if length(start)>=1 then result=lb_array(values)+ub_array(values) else result=0 endif;\n",
+        "predicate nonasserted_alignment(array[int] of var int: start,array[int] of var int: values,var int: result)=index_set(start)=index_set(values) /\\ if length(start)>=1 then result=lb_array(values) else result=0 endif;\n",
+        "predicate reified_alignment(bool: gate,array[int] of var int: start,array[int] of var int: values,var int: result)=(gate -> assert(index_set(start)=index_set(values),\"aligned indices\")) /\\ if length(start)>=1 then result=lb_array(values) else result=0 endif;\n",
+        "predicate wrong_alignment(array[int] of var int: start,array[int] of var int: values,array[int] of var int: other,var int: result)=assert(index_set(start)=index_set(other),\"other indices\") /\\ if length(start)>=1 then result=lb_array(values) else result=0 endif;\n",
+        "predicate local(int: input,var int: result)=let { int: copy=input; } in result=copy;\n",
+        "predicate relation(var int: left,var int: right)=left!=right;\n",
+        "predicate private_constant(var int: result)=let { var bool: private_value; constraint private_value; } in result=0;\n",
+        "predicate private_opaque(var bool: result)=let { var bool: private_value; constraint opaque_relation(private_value); } in result=true;\n",
+        "predicate opaque_relation(var bool: value);\n",
+        "predicate nested_relation(array[int,int] of int: positions,array[int] of var int: values,int: row,var bool: flag)=(flag<->values[positions[row,1]]<=values[positions[row,2]]) /\\ (values[positions[row,1]]+bool2int(not flag)<=values[positions[row,2]]+positions[row,3]);\n",
+        "predicate nested_raw(array[int,int] of int: positions,array[int] of var int: values,int: row,var int: result)=result=values[positions[row,1]];\n",
+        "predicate opaque_equivalence(var bool: result)=result<->opaque_relation(result);\n",
+        "predicate boolean_member(array[int] of var bool: values,int: position)=values[position];\n",
+        "predicate boolean_value_relation(array[int] of var bool: values,int: position,var bool: result)=result=values[position];\n",
+        "predicate private_array_chain(int: last,var bool: left,var bool: right)=let { array[0..last+1] of var bool: private_values; constraint forall(i in 0..last)(private_values[i]=(left<right \\/ private_values[i+1])); } in private_values[0];\n",
+        "predicate boolean_guard(array[int] of bool: values,int: position,var int: result)=if values[position] then result=0 else result=1 endif;\n",
+        "predicate boolean_opaque_index(array[int] of var bool: values,int: position,var bool: result)=result=values[opaque_count(position)];\n",
+        "predicate private_array_relation(int: last,var bool: left,var bool: right)=let { array[0..last] of var bool: private_values; constraint forall(i in index_set(private_values))(private_values[i]=(left<right)); } in true;\n",
+        "predicate private_array_opaque(int: last,var int: result)=let { array[0..opaque_count(last)] of var bool: private_values; } in result=0;\n",
+        "function int: opaque_count(int: last);\n",
+        "predicate private_relation(var bool: left,var bool: right)=let { var bool: private_value; constraint private_value=(left<right); } in private_value;\n",
+        "predicate pattern_inspection(array[int] of var bool: values,var bool: result)=let { int: pattern_size=max(index_set(values)); array[0..pattern_size+1] of var bool: pattern_choices; } in (pattern_size>=0) /\\ (result=true) /\\ forall(i in 0..pattern_size)(pattern_choices[i]=values[i]);\n",
+        "predicate pattern_direct(array[int] of var bool: x,array[int] of var bool: y,var bool: result)=let { array[1..max(index_set(x))+1] of var bool: direct_left; array[1..max(index_set(y))+1] of var bool: direct_right; } in (result=true) /\\ forall(i in index_set(direct_left))(direct_left[i]=direct_right[i]);\n",
+        "predicate pattern_optional(array[int] of var bool: values,var opt bool: maybe,var bool: result)=let { int: pattern_optional_size=max(index_set(values)); } in result=maybe;\n",
+        "predicate promised_relation(var int: left,var int: right) :: promise_total = left!=right;\n",
+        "predicate promised_partial(var int: result) :: promise_total = result=1 div 0;\n",
+        "predicate presence(opt int: cap,var int: result)=if absent(cap) then result=0 else result=1 endif;\n",
+        "predicate value_guard(array[int] of int: lower,var int: result)=if forall(l in array1d(lower))(l<=0) then result=0 else result=1 endif;\n",
+        "predicate existential_guard(array[int] of int: values,int: input,var int: result)=if exists(i in index_set(values))(values[i]>0) then result=input else result=input endif;\n",
+        "predicate collected(array[int] of int: values,int: input,var int: result)=result=input /\\ forall(i in index_set(values))(let { set of int: selected={values[i]|j in 1..1 where j>0}; int: total=sum([0]++[j|j in selected]); } in if total>=0 /\\ exists(j in selected)(j>0) then true else true endif);\n",
+        "predicate collected_raw(array[int] of int: values,set of int: other,var int: result)=let { int: total=sum([0]++[values[i]|i in other]); } in result=0;\n",
+        "predicate collected_opaque(set of int: values,var int: result)=let { set of int: selected={i|i in values where opaque_relation(true)}; } in result=0;\n",
+        "set of int: Rows; set of int: Columns; set of int: OtherRows; array[Rows,Columns] of int: matrix;\n",
+        "predicate subset_values(int: input,var int: result)=result=input /\\ forall(column in Columns)(let { set of int: selected={row|row in Rows where row>0}; int: total=sum([0]++[matrix[row,column]|row in selected]); } in if total>=0 then true else true endif);\n",
+        "predicate subset_wrong(var int: result)=forall(column in Columns)(let { set of int: selected={row|row in OtherRows where row>0}; int: total=sum([0]++[matrix[row,column]|row in selected]); } in result=total);\n",
+        "predicate subset_shift(var int: result)=forall(column in Columns)(let { set of int: selected={row+1|row in Rows where row>0}; int: total=sum([0]++[matrix[row,column]|row in selected]); } in result=total);\n",
+        "predicate index_guard(array[int] of int: bounds,int: position,var int: result)=if bounds[position]>=0 then result=0 else result=1 endif;\n",
+        "predicate counted(array[int] of var int: xs,var int: result)=result=count(x in xs)(x=0);\n",
+        "predicate range_guard(array[int] of int: bounds,int: position,var int: result)=if position in bounds[position]..bounds[position] then result=0 else result=1 endif;\n",
+        "predicate raw_range(array[int] of int: bounds,int: position,var int: result)=let { set of int: values=bounds[position]..bounds[position]; } in result=0;\n",
+        "predicate raw_index(array[int] of int: bounds,int: position,var int: result)=result=bounds[position];\n",
+        "predicate singleton_pair(array[int] of var bool: xs,array[int] of var bool: ys)=if length(xs)=1 /\\ length(ys)=1 then xs[min(index_set(xs))]<ys[min(index_set(ys))] else true endif;\n",
+        "predicate raw_min(array[int] of var bool: xs,var bool: result)=result=xs[min(index_set(xs))];\n",
+        "predicate extrema(array[int] of var int: xs,array[int] of var int: ys,var int: result)=if length(xs)=0 then result=0 elseif length(ys)=0 then result=0 else let { int: lx=min(index_set(xs)); int: ux=max(index_set(xs)); int: ly=min(index_set(ys)); int: uy=max(index_set(ys)); int: size=min(ux-lx,uy-ly); } in result=size endif;\n",
+        "predicate compound_bounds(bool: gate,array[int] of var bool: xs,var bool: result)=if length(xs)=0 /\\ gate then result=false else result=xs[min(index_set(xs))] endif;\n",
+        "predicate wrong_bounds(array[int] of var bool: xs,array[int] of var bool: ys,var bool: result)=if length(xs)=0 then result=false else result=ys[min(index_set(ys))] endif;\n",
+        "predicate else_min(array[int] of var bool: xs,var bool: result)=if length(xs)=1 then result=false else result=xs[min(index_set(xs))] endif;\n",
+        "function array[int] of var int: selected_values(array[int] of var int: first_values,array[int] of var int: second_values)=second_values;\n",
+        "predicate asserted(bool: gate,array[int] of var int: xs,var int: result)=assert(gate,\"indexes \"++show_index_sets(xs),result=0);\n",
+        "predicate asserted_true(int: input,var int: result)=assert(true,\"guard\",result=input);\n",
+        "predicate asserted_partial(bool: gate,var int: result)=assert(gate,\"guard\",result=1 div 0);\n",
+        "predicate asserted_false(var int: result)=assert(false,\"abort\",result=0);\n",
+        "predicate filtered(int: input,var int: result)=forall(i in 1..1 where false)(result=input);\n",
+        "predicate always(int: input,var int: result)=result=input;\n",
+        "predicate filtered_call(int: input,var int: result)=forall(i in 1..1 where false)(always(input,result));\n",
+        "predicate one_side(bool: take,int: input,var int: result)=if take then result=input else true endif;\n",
+        "predicate alternate(bool: take,int: input,var int: left,var int: right)=if take then left=input else right=input endif;\n",
+        "predicate decision(var bool: take,int: input,var int: result)=if take then result=input else result=input+1 endif;\n",
+        "predicate partial_indices(array[int] of var int: ys,int: input)=forall(i in index_set(ys))(ys[i div 2]=input);\n",
+        "predicate partial(bool: take,int: input,var int: result)=if take then result=input else result=1 div 0 endif;\n",
+        "predicate pairs(array[int] of var int: xs)=forall(i,j in index_set(xs) where i<j)(xs[i]!=xs[j]);\n",
+        "predicate reflected(array[int] of var int: xs,set of int: excluded)=if forall(i in index_set(xs))(has_bounds(xs[i])) then let { set of int: D=dom_array(xs) diff excluded; } in pairs(xs) else pairs(xs) endif;\n",
+        "predicate unguarded_bounds(array[int] of var int: xs,var int: result)=let { set of int: D=dom_array(xs); } in result=0;\n",
+        "predicate filtered_bounds(bool: gate,array[int] of var int: xs,var int: result)=if forall(i in index_set(xs) where gate)(has_bounds(xs[i])) then let { set of int: D=dom_array(xs); } in result=0 else result=0 endif;\n",
+        "predicate filtered_guard(bool: gate,array[int] of var int: xs,var int: result)=if forall(i in index_set(xs) where gate)(has_bounds(xs[i])) then if length(xs)=0 then result=0 else result=1 endif else result=1 endif;\n",
+    );
+    let source = concat!(
+        "include \"included.mzn\"; bool: gate; int: input; var int: branched; var int: local_result;\n",
+        "set of int: excluded; array[int] of int: lower; int: position; var int: index_guard_result; var int: range_guard_result; var int: counted_result; var int: value_guard_result; opt int: cap; var int: presence_result; var int: asserted_result; var int: asserted_true_result; var int: guarded_result; var int: filtered_result; var int: filtered_call_result; var int: one_sided; var int: alternate_left; var int: alternate_right; var int: left; var int: right; array[0..1] of var int: xs;\n",
+        "constraint branch(gate,input,branched); constraint local(input,local_result); constraint presence(cap,presence_result); constraint value_guard(lower,value_guard_result); constraint index_guard(lower,position,index_guard_result); constraint range_guard(lower,position,range_guard_result); constraint counted(xs,counted_result); constraint asserted(gate,xs,asserted_result); constraint asserted_true(input,asserted_true_result);\n",
+        "var int: specialized_result; var int: specialized_default_result; constraint specialized(result:specialized_result,input:input,take:gate); constraint specialized_default(result:specialized_default_result,input:input);\n",
+        "var int: scalar_bounds_result; var int: array_bounds_result; constraint scalar_bounds(input,scalar_bounds_result); constraint array_bounds(lower,array_bounds_result);\n",
+        "var int: aligned_bounds_result; constraint aligned_bounds(xs,lower,aligned_bounds_result);\n",
+        "var int: minimum_index_result; constraint minimum_index(lower,minimum_index_result);\n",
+        "set of int: ScopedTasks; array[ScopedTasks] of var int: scoped_values; constraint forall(i in ScopedTasks)(let { var bool: scoped_flag; } in (scoped_flag<->scoped_values[i]<=0) /\\ bool2int(not scoped_flag)<=scoped_values[i]);\n",
+        "var bool: scoped_result; constraint let { var bool: scoped_dependency; } in (scoped_dependency<->true) /\\ (scoped_result=scoped_dependency);\n",
+        "array[ScopedTasks] of int: scoped_weights; constraint forall(p in 0..1)(let { var int: scoped_weighted=sum(c in ScopedTasks)(bool2int(scoped_values[c]>p)*scoped_weights[c]); } in scoped_weighted>=0);\n",
+        "set of int: ScopedPeriods; array[ScopedPeriods,ScopedTasks] of var int: direct_flags; array[ScopedPeriods] of var int: direct_load; constraint forall(p in ScopedPeriods)(forall(c in ScopedTasks)(direct_flags[p,c]=bool2int(scoped_values[c]>p)) /\\ direct_load[p]=sum(c in ScopedTasks)(direct_flags[p,c]*scoped_weights[c]));\n",
+        "int: weighted_size; set of int: DefinedTasks=1..weighted_size; array[DefinedTasks] of var int: defined_values; array[1..weighted_size] of int: defined_weights; constraint forall(p in 0..1)(let { var int: defined_weighted=sum(c in DefinedTasks)(bool2int(defined_values[c]>p)*defined_weights[c]); } in defined_weighted>=0);\n",
+        "var int: parameter_value_guard_result; constraint parameter_value_guard(input,parameter_value_guard_result);\n",
+        "array[1..1] of int: default_values; predicate default_array(var int: result,array[int] of var int: values=[default_values[k]|k in 1..1])=result=0; var int: array_default_result; constraint forall(i in 1..1)(default_array(array_default_result));\n",
+        "array[int,int] of int: positions; constraint nested_relation(positions,xs,position,private_left);\n",
+        "var int: existential_result; constraint existential_guard(lower,input,existential_result);\n",
+        "var int: collected_result; constraint collected(lower,input,collected_result);\n",
+        "var int: subset_result; constraint subset_values(input,subset_result);\n",
+        "var bool: boolean_value_result; constraint boolean_value_relation(flags,position,boolean_value_result); constraint boolean_member(flags,position); constraint private_array_chain(input,private_left,private_right); var int: private_constant_result; constraint private_constant(private_constant_result); var bool: private_left; var bool: private_right; constraint private_relation(private_left,private_right); constraint private_array_relation(input,private_left,private_right); array[int] of var bool: flags; constraint singleton_pair(flags,flags); var int: extrema_result; constraint extrema(xs,xs,extrema_result);\n",
+        "var bool: pattern_result; constraint pattern_inspection(flags,pattern_result);\n",
+        "var bool: pattern_direct_result; constraint pattern_direct(flags,flags,pattern_direct_result);\n",
+        "constraint filtered(input,filtered_result); constraint filtered_call(input,filtered_call_result); constraint one_side(gate,input,one_sided); constraint alternate(gate,input,alternate_left,alternate_right); constraint relation(left,right); constraint promised_relation(left,right); constraint pairs(xs); constraint reflected(xs,excluded); constraint filtered_guard(gate,xs,guarded_result);\n",
+        "solve :: seq_search([int_search(xs,input_order,indomain_min,complete),int_search(scoped_values,input_order,indomain_min,complete),int_search(defined_values,input_order,indomain_min,complete),bool_search(flags,input_order,indomain_min,complete),bool_search([private_left,private_right],input_order,indomain_min,complete)]) satisfy;\n",
+    );
+    let (dir, _) = model("total-controls", source, included);
+    std::fs::write(dir.join("library/std/stdlib.mzn"), format!("{CORE}\nfunction int: '+'(int: left,int: right); function var bool: '!='(var int: left,var int: right); function bool: '<'(int: left,int: right); function bool: '<='(int: left,int: right); function bool: '>='(int: left,int: right); function bool: 'in'(int: left,set of int: right); function int: 'div'(int: left,int: right); test absent(opt $T: x); test occurs(opt $T: x); function bool: has_bounds(var int: x); function set of int: dom_array(array[int] of var int: xs); function set of int: 'diff'(set of int: left,set of int: right); function bool: forall(array[int] of bool: body); function bool: exists(array[int] of bool: body); function int: sum(array[int] of int: body); function array[int] of int: '++'(array[int] of int: left,array[int] of int: right); function bool: '>'(int: left,int: right); function var bool: assert(bool: b,string: msg,var bool: x); function bool: assert(bool: b,string: msg); function string: '++'(string: left,string: right); function string: show_index_sets(array[int] of var int: xs); function int: length(array[$U] of any $V: xs); annotation promise_total; function int: min(set of int: s); function int: max(set of int: s); function int: min(int: left,int: right); function int: '-'(int: left,int: right); function bool: '/\\'(bool: left,bool: right); function var bool: '<'(var bool: left,var bool: right); function var int: count(array[int] of var bool: body); function var bool: '\\/'(var bool: left,var bool: right); function var bool: '<->'(var bool: left,var bool: right); function var bool: '<='(var int: left,var int: right); function var int: bool2int(var bool: value); function var bool: 'not'(var bool: value); function int: lb(var int: value); function int: ub(var int: value); function int: fix(var int: value); function bool: is_fixed(var int: value); function int: lb_array(array[int] of var int: values); function int: ub_array(array[int] of var int: values); function array[$T] of any $V: arrayXd(array[$T] of any $X: shape,array[$U] of any $V: values); function $$E: arg_min(array[$$E] of $$T: values); function var bool: '>'(var int: left,var int: right); function var bool: '>='(var int: left,var int: right); function var int: '*'(var int: left,var int: right);\n")).unwrap();
+    let context = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    let (bindings, search) = facts(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let instantiations = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let outputs =
+        resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+    assert!(
+        calls
+            .calls
+            .iter()
+            .filter(|c| c.name == "specialized")
+            .all(|c| {
+                matches!(&c.outcome, zincite_lint::CallOutcome::Resolved { parameters, .. }
+            if parameters[0].instantiation == zincite_lint::Instantiation::Decision)
+            })
+    );
+    assert!(outputs.unavailable.is_empty(), "{:?}", outputs.unavailable);
+    let scoped_flag = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "scoped_flag")
+        .unwrap();
+    assert_eq!(
+        search.declarations[scoped_flag.id.0].coverage,
+        SearchCoverage::Scalar
+    );
+    assert!(
+        outputs
+            .definitions
+            .iter()
+            .any(|d| d.target == scoped_flag.id
+                && d.coverage == DefinitionCoverage::Scalar
+                && d.safety == DefinitionSafety::Supported)
+    );
+    let scoped_dependency = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "scoped_dependency")
+        .unwrap();
+    assert_eq!(
+        coverage(&bindings, &search, "scoped_result"),
+        SearchCoverage::Scalar
+    );
+    assert!(outputs.definitions.iter().any(|d| {
+        bindings.declarations[d.target.0].name == "scoped_result"
+            && d.dependencies.contains(&scoped_dependency.id)
+    }));
+    for name in ["scoped_weighted", "defined_weighted"] {
+        let local = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap();
+        assert_eq!(
+            search.declarations[local.id.0].coverage,
+            SearchCoverage::Scalar,
+            "{name}"
+        );
+    }
+    for name in ["direct_flags", "direct_load"] {
+        assert_eq!(
+            coverage(&bindings, &search, name),
+            SearchCoverage::WholeArray,
+            "{name}: {:?}",
+            search.limitations
+        );
+    }
+    let unbounded = analyze_model(
+        &context,
+        &LintOptions::from_selection("unbounded-variable").unwrap(),
+    );
+    for name in ["scoped_weighted", "defined_weighted"] {
+        let local = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap();
+        assert!(
+            unbounded
+                .findings
+                .iter()
+                .all(|f| f.location != local.location)
+                && unbounded
+                    .limitations
+                    .iter()
+                    .all(|l| l.location != local.location),
+            "{name}: {:?}",
+            unbounded
+        );
+    }
+    let combined = analyze_model(
+        &context,
+        &LintOptions::from_selection("search-coverage,unbounded-variable").unwrap(),
+    );
+    assert_eq!(
+        unbounded.rules[0].outcome,
+        combined
+            .rules
+            .iter()
+            .find(|r| r.rule == zincite_lint::Rule::UnboundedVariable)
+            .unwrap()
+            .outcome
+    );
+    assert_eq!(
+        unbounded
+            .findings
+            .iter()
+            .map(|f| (&f.location, &f.message))
+            .collect::<Vec<_>>(),
+        combined
+            .findings
+            .iter()
+            .filter(|f| f.rule == zincite_lint::Rule::UnboundedVariable)
+            .map(|f| (&f.location, &f.message))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        unbounded
+            .limitations
+            .iter()
+            .map(|l| (&l.location, &l.message))
+            .collect::<Vec<_>>(),
+        combined
+            .limitations
+            .iter()
+            .filter(|l| l.message.starts_with("unbounded-variable:"))
+            .map(|l| (&l.location, &l.message))
+            .collect::<Vec<_>>()
+    );
+    let private_relation = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "private_relation")
+        .unwrap();
+    assert!(
+        outputs
+            .outputs
+            .iter()
+            .all(|o| o.callable != private_relation.id)
+    );
+    let private_array = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "private_array_relation")
+        .unwrap();
+    assert!(
+        outputs
+            .outputs
+            .iter()
+            .all(|o| o.callable != private_array.id)
+    );
+    for name in [
+        "boolean_member",
+        "boolean_value_relation",
+        "private_array_chain",
+        "nested_relation",
+    ] {
+        let callable = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap();
+        assert!(
+            outputs.outputs.iter().all(|o| o.callable != callable.id),
+            "{name}"
+        );
+    }
+    for name in ["pattern_inspection", "pattern_direct"] {
+        let pattern = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap();
+        let private_ids: Vec<_> = bindings
+            .declarations
+            .iter()
+            .filter(|d| d.file == pattern.file && d.item == pattern.item)
+            .map(|d| d.id)
+            .collect();
+        assert!(outputs.outputs.iter().all(|o| o.callable != pattern.id));
+        assert!(
+            outputs
+                .definitions
+                .iter()
+                .all(|d| !private_ids.contains(&d.target))
+        );
+        assert!(
+            outputs
+                .inspected_locals
+                .iter()
+                .all(|id| !private_ids.contains(id))
+        );
+    }
+    let filtered_guard = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "filtered_guard")
+        .unwrap();
+    let guard = bindings
+        .declarations
+        .iter()
+        .find(|d| {
+            d.name == "gate" && d.file == filtered_guard.file && d.item == filtered_guard.item
+        })
+        .unwrap();
+    assert!(
+        outputs
+            .outputs
+            .iter()
+            .filter(|o| o.callable == filtered_guard.id)
+            .all(|o| o.dependencies.contains(&guard.id))
+    );
+    assert!(
+        outputs
+            .outputs
+            .iter()
+            .any(|o| o.callable == filtered_guard.id)
+    );
+    assert!(search.limitations.is_empty(), "{:?}", search.limitations);
+    for name in [
+        "branched",
+        "specialized_result",
+        "specialized_default_result",
+        "scalar_bounds_result",
+        "array_bounds_result",
+        "minimum_index_result",
+        "aligned_bounds_result",
+        "parameter_value_guard_result",
+        "array_default_result",
+        "local_result",
+        "presence_result",
+        "value_guard_result",
+        "existential_result",
+        "collected_result",
+        "subset_result",
+        "index_guard_result",
+        "range_guard_result",
+        "counted_result",
+        "guarded_result",
+        "extrema_result",
+        "private_constant_result",
+        "asserted_true_result",
+    ] {
+        assert_eq!(
+            coverage(&bindings, &search, name),
+            SearchCoverage::Scalar,
+            "{name}"
+        );
+    }
+    for name in [
+        "pattern_result",
+        "pattern_direct_result",
+        "asserted_result",
+        "boolean_value_result",
+        "filtered_result",
+        "filtered_call_result",
+        "left",
+        "right",
+        "one_sided",
+        "alternate_left",
+        "alternate_right",
+    ] {
+        assert_eq!(
+            coverage(&bindings, &search, name),
+            SearchCoverage::Uncovered,
+            "{name}"
+        );
+    }
+    assert_eq!(
+        coverage(&bindings, &search, "xs"),
+        SearchCoverage::WholeArray
+    );
+    assert!(matches!(
+        analyze_model(&context, &selected()).rules[0].outcome,
+        RuleOutcome::Completed
+    ));
+    std::fs::write(dir.join("root.mzn"), "include \"included.mzn\"; bool: gate; int: input; array[1..1] of var 0..1: first_values; array[1..1] of var 0..1: second_values; array[int] of bool: boolean_parameters; var int: boolean_guard_result; constraint boolean_guard(boolean_parameters,position,boolean_guard_result); var bool: boolean_opaque_result; constraint boolean_opaque_index(flags,position,boolean_opaque_result); var int: private_array_opaque_result; constraint private_array_opaque(input,private_array_opaque_result); var bool: private_opaque_result; constraint private_opaque(private_opaque_result); annotation user_hint; predicate user_promised(var int: result) :: user_hint = result=0; var int: user_promised_result; constraint user_promised(user_promised_result); var int: promised_partial_result; constraint promised_partial(promised_partial_result); array[int,int] of int: positions; array[int] of int: parameter_values; set of int: other; var int: subset_wrong_result; constraint subset_wrong(subset_wrong_result); var int: subset_shift_result; constraint subset_shift(subset_shift_result); var int: collected_raw_result; constraint collected_raw(parameter_values,other,collected_raw_result); var int: collected_opaque_result; constraint collected_opaque(other,collected_opaque_result); var int: nested_raw_result; constraint nested_raw(positions,first_values,position,nested_raw_result); var bool: opaque_equivalence_result; constraint opaque_equivalence(opaque_equivalence_result); var int: computed_result; predicate computed_subject(var int: result)=forall(i in 1..1)(result=selected_values(first_values,second_values)[i]); constraint computed_subject(computed_result); array[int] of var bool: flags; array[int] of var bool: other_flags; var bool: compound_bounds_result; constraint compound_bounds(gate,flags,compound_bounds_result); var bool: wrong_bounds_result; constraint wrong_bounds(flags,other_flags,wrong_bounds_result); var bool: raw_min_result; var bool: else_min_result; constraint raw_min(flags,raw_min_result); constraint else_min(flags,else_min_result); var bool: decision_gate; var int: specialized_parameter_result; var int: specialized_decision_result; constraint specialized(gate,input,specialized_parameter_result); constraint specialized(decision_gate,input,specialized_decision_result); var int: decision_result; var int: partial_result; var int: asserted_partial_result; var int: asserted_false_result; var int: named_assert_result; array[int] of int: bounds; int: position; var int: specialized_partial_result; constraint specialized_relation(bounds[position],specialized_partial_result); var int: raw_index_result; var int: raw_range_result; var int: unguarded_result; var int: filtered_bounds_result; array[0..3] of var int: partial_array; constraint partial_indices(partial_array,input); constraint raw_index(bounds,position,raw_index_result); constraint raw_range(bounds,position,raw_range_result); constraint asserted_partial(gate,asserted_partial_result); constraint asserted_false(asserted_false_result); constraint assert(x:named_assert_result=0,msg:\"named\",b:true); constraint unguarded_bounds(partial_array,unguarded_result); constraint filtered_bounds(gate,partial_array,filtered_bounds_result); constraint decision(decision_gate,input,decision_result); constraint partial(gate,input,partial_result); solve :: seq_search([bool_search([decision_gate],input_order,indomain_min,complete),int_search(first_values,input_order,indomain_min,complete)]) satisfy;").unwrap();
+    let mut negative_source = std::fs::read_to_string(dir.join("root.mzn")).unwrap();
+    negative_source.push_str("var opt bool: pattern_optional_value; var bool: pattern_optional_result; constraint pattern_optional(flags,pattern_optional_value,pattern_optional_result);\n");
+    negative_source.push_str("\nvar int: reflection_decision; var int: reflection_decision_result; var int: reflection_raw_result; constraint scalar_bounds(reflection_decision,reflection_decision_result); constraint raw_bounds(bounds,reflection_raw_result);\n");
+    negative_source.push_str("var int: nonasserted_alignment_result; var int: reified_alignment_result; var int: wrong_alignment_result; constraint nonasserted_alignment(first_values,bounds,nonasserted_alignment_result); constraint reified_alignment(gate,first_values,bounds,reified_alignment_result); constraint wrong_alignment(first_values,bounds,parameter_values,wrong_alignment_result);\n");
+    negative_source.push_str("var int: unused_value_guard_result; var int: decision_value_guard_result; constraint unused_value_guard(input,unused_value_guard_result); constraint decision_value_guard(decision_value_guard_result);\n");
+    negative_source.push_str("var int: partial_value_domain_result; var int: partial_local_domain_result; constraint partial_value_domain(bounds,position,partial_value_domain_result); constraint partial_local_domain(bounds,position,partial_local_domain_result);\n");
+    negative_source.push_str("var int: decision_minimum_index_result; var int: raw_minimum_index_result; var int: filtered_minimum_index_result; var int: other_minimum_index_result; constraint minimum_index(first_values,decision_minimum_index_result); constraint raw_minimum_index(bounds,raw_minimum_index_result); constraint filtered_minimum_index(bounds,filtered_minimum_index_result); constraint other_minimum_index(bounds,parameter_values,other_minimum_index_result);\n");
+    negative_source.push_str("constraint let { var bool: cycle_first; var bool: cycle_second; } in (cycle_first<->cycle_second) /\\ (cycle_second<->cycle_first); constraint let { var bool: outside_flag; } in forall(i in other)(outside_flag<->bounds[i]>=0); var int: missing_seed; constraint let { var bool: unanchored_flag; } in unanchored_flag<->missing_seed<=0;\n");
+    negative_source.push_str("constraint let { var bool: poisoned_flag; } in (poisoned_flag<->first_values[1]<=0) /\\ opaque_relation(poisoned_flag); constraint gate -> let { var bool: reified_flag; } in reified_flag<->first_values[1]<=0; constraint let { var bool: partial_boolean_flag; } in partial_boolean_flag<->flags[position]; constraint let { var opt bool: optional_flag; } in optional_flag<->true; predicate hidden_iff(var bool: value)=let { var bool: hidden_flag; } in hidden_flag<->value; constraint hidden_iff(decision_gate);\n");
+    negative_source.push_str("set of int: WeightedTasks; array[WeightedTasks] of var int: weighted_values; array[1..input] of int: shifted_weights; constraint forall(p in 0..1)(let { var int: shifted_weighted=sum(c in WeightedTasks)(bool2int(weighted_values[c]>p)*shifted_weights[c]); } in shifted_weighted>=0); constraint let { var int: partial_converted=bool2int(flags[position]); } in partial_converted>=0; constraint let { var 1..(1 div input): partial_integer=1; } in partial_integer>=0; constraint gate -> let { var int: reified_weighted=bool2int(decision_gate); } in reified_weighted>=0; predicate hidden_integer(var int: value)=let {var int: hidden_weighted=value;} in hidden_weighted>=0; constraint hidden_integer(position);\n");
+    std::fs::write(dir.join("root.mzn"), negative_source).unwrap();
+    let unsupported = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    assert!(unsupported.errors.is_empty(), "{:?}", unsupported.errors);
+    assert!(
+        unsupported
+            .files
+            .iter()
+            .all(|file| file.parsed.diagnostics().is_empty())
+    );
+    let (bindings, search) = facts(&unsupported);
+    for name in [
+        "outside_flag",
+        "poisoned_flag",
+        "reified_flag",
+        "partial_boolean_flag",
+        "optional_flag",
+        "hidden_flag",
+        "shifted_weighted",
+        "partial_converted",
+        "partial_integer",
+        "reified_weighted",
+        "hidden_weighted",
+    ] {
+        let local = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap();
+        assert_eq!(
+            search.declarations[local.id.0].coverage,
+            SearchCoverage::Unknown,
+            "{name}"
+        );
+    }
+    for name in ["cycle_first", "cycle_second", "unanchored_flag"] {
+        let local = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap();
+        assert_eq!(
+            search.declarations[local.id.0].coverage,
+            SearchCoverage::Uncovered,
+            "{name}"
+        );
+    }
+    assert_eq!(
+        coverage(&bindings, &search, "missing_seed"),
+        SearchCoverage::Uncovered
+    );
+    assert_eq!(
+        coverage(&bindings, &search, "specialized_parameter_result"),
+        SearchCoverage::Scalar
+    );
+    for name in [
+        "specialized_decision_result",
+        "specialized_partial_result",
+        "reflection_decision_result",
+        "reflection_raw_result",
+        "nonasserted_alignment_result",
+        "reified_alignment_result",
+        "wrong_alignment_result",
+        "unused_value_guard_result",
+        "decision_value_guard_result",
+        "partial_value_domain_result",
+        "partial_local_domain_result",
+        "decision_minimum_index_result",
+        "raw_minimum_index_result",
+        "filtered_minimum_index_result",
+        "other_minimum_index_result",
+        "nested_raw_result",
+        "collected_raw_result",
+        "subset_wrong_result",
+        "subset_shift_result",
+        "collected_opaque_result",
+        "opaque_equivalence_result",
+        "computed_result",
+        "promised_partial_result",
+        "user_promised_result",
+        "pattern_optional_result",
+        "private_opaque_result",
+        "private_array_opaque_result",
+        "boolean_guard_result",
+        "boolean_opaque_result",
+        "raw_min_result",
+        "else_min_result",
+        "wrong_bounds_result",
+        "compound_bounds_result",
+        "decision_result",
+        "partial_result",
+        "unguarded_result",
+        "filtered_bounds_result",
+        "asserted_partial_result",
+        "asserted_false_result",
+        "named_assert_result",
+        "raw_index_result",
+    ] {
+        assert_eq!(
+            coverage(&bindings, &search, name),
+            SearchCoverage::Unknown,
+            "{name}: {:?}",
+            search.limitations
+        );
+    }
+    assert_eq!(
+        coverage(&bindings, &search, "raw_range_result"),
+        SearchCoverage::Uncovered,
+    );
+    assert_ne!(
+        coverage(&bindings, &search, "partial_array"),
+        SearchCoverage::WholeArray
+    );
+    assert!(matches!(
+        analyze_model(&unsupported, &selected()).rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    let unbounded = analyze_model(
+        &unsupported,
+        &LintOptions::from_selection("unbounded-variable").unwrap(),
+    );
+    for name in ["shifted_weighted", "partial_converted", "reified_weighted"] {
+        let local = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap();
+        assert!(
+            unbounded
+                .limitations
+                .iter()
+                .any(|l| l.location == local.location),
+            "{name}: {:?}",
+            unbounded
+        );
+    }
+    std::fs::write(dir.join("root.mzn"),
+        "constraint let { var bool: cycle_first; var bool: cycle_second; } in (cycle_first<->cycle_second) /\\ (cycle_second<->cycle_first); var int: missing_seed; constraint let { var bool: unanchored_flag; } in unanchored_flag<->missing_seed<=0; constraint let { var int: unanchored_integer=missing_seed*2; } in unanchored_integer>=0; var bool: cycle_result; constraint let { var bool: cycle_dependency; } in (cycle_dependency<->cycle_result) /\\ (cycle_result=cycle_dependency); set of int: EmptyOrMore; var bool: quantified_result; constraint forall(i in EmptyOrMore)(let { var bool: quantified_dependency; } in (quantified_dependency<->true) /\\ (quantified_result=quantified_dependency)); solve satisfy;\n").unwrap();
+    let supported = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    let (bindings, search) = facts(&supported);
+    assert!(search.limitations.is_empty(), "{:?}", search.limitations);
+    for name in [
+        "cycle_first",
+        "cycle_second",
+        "unanchored_flag",
+        "unanchored_integer",
+        "cycle_dependency",
+    ] {
+        let local = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap();
+        assert_eq!(
+            search.declarations[local.id.0].coverage,
+            SearchCoverage::Uncovered,
+            "{name}"
+        );
+    }
+    for name in ["cycle_result", "quantified_result"] {
+        assert_eq!(
+            coverage(&bindings, &search, name),
+            SearchCoverage::Uncovered,
+            "{name}"
+        );
+    }
+    assert!(matches!(
+        analyze_model(&supported, &selected()).rules[0].outcome,
+        RuleOutcome::Completed
+    ));
     std::fs::remove_dir_all(dir).unwrap();
 }

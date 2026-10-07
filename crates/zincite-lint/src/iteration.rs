@@ -1,6 +1,6 @@
 //! Index membership, lexical use and bounded expansion, independent of lint policy.
 use crate::callables::{core_operation, find_node, is_expression};
-use crate::definitions::{core_callable, resolved_call, resolved_reference};
+use crate::definitions::{core_callable, resolved_call};
 use crate::domains::{
     bare_index_domain as bare, core_arithmetic, expression_domain, generator_slots,
     index_domain_interval as interval, index_domain_member as member,
@@ -14,7 +14,7 @@ use crate::{
     InstantiationFacts, ModelContext, NumericBound, NumericFacts, NumericOutcome, OptionalFacts,
     SourceLocation, TypeKind,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 
 /// Actual membership, distinct from a decision set's possible universe.
@@ -300,6 +300,22 @@ pub fn resolve_iteration_facts(
     optional: &OptionalFacts,
     guarded: &GuardedFacts,
 ) -> IterationFacts {
+    let mut expression_kinds = BTreeMap::new();
+    for expression in &calls.expressions {
+        expression_kinds
+            .entry((
+                expression.file,
+                expression.location.range.start,
+                expression.location.range.end,
+            ))
+            .or_insert(&expression.ty.kind);
+    }
+    let mut reference_indices = HashMap::with_capacity(bindings.references.len());
+    for (index, reference) in bindings.references.iter().enumerate() {
+        reference_indices
+            .entry((reference.file, reference.location.range.start))
+            .or_insert(index);
+    }
     let mut p = Producer {
         context,
         bindings,
@@ -309,6 +325,8 @@ pub fn resolve_iteration_facts(
         numeric,
         optional,
         guarded,
+        expression_kinds,
+        reference_indices,
         facts: IterationFacts::default(),
     };
     for declaration in &bindings.declarations {
@@ -373,9 +391,24 @@ struct Producer<'a> {
     numeric: &'a NumericFacts,
     optional: &'a OptionalFacts,
     guarded: &'a GuardedFacts,
+    expression_kinds: BTreeMap<(FileId, usize, usize), &'a TypeKind>,
+    reference_indices: HashMap<(FileId, usize), usize>,
     facts: IterationFacts,
 }
 impl Producer<'_> {
+    fn resolved_reference(&self, file: FileId, node: &SyntaxNode) -> Option<DeclarationId> {
+        let start = tokens(&self.context.files[file].parsed, node)
+            .first()?
+            .range
+            .start
+            + self.context.files[file].byte_offset;
+        self.reference_indices
+            .get(&(file, start))
+            .and_then(|&index| match self.bindings.references[index].resolution {
+                BindingResolution::Resolved(id) => Some(id),
+                _ => None,
+            })
+    }
     fn location(&self, file: FileId, node: &SyntaxNode) -> SourceLocation {
         self.context.files[file].location(node.range())
     }
@@ -554,7 +587,7 @@ impl Producer<'_> {
             .map(|(_, _, d)| d.clone())
             .unwrap_or_else(|| expression_domain(self.context, self.bindings, file, node));
         if node.kind() == NodeKind::Expression {
-            if let Some(id) = resolved_reference(self.context, self.bindings, file, node)
+            if let Some(id) = self.resolved_reference(file, node)
                 && let Some(d) = known.get(&id.0)
             {
                 domain = d.clone();
@@ -580,7 +613,7 @@ impl Producer<'_> {
             {
                 if unwrap(left).kind() == NodeKind::Expression
                     && let (Some(id), Some(NumericOutcome::Exact(delta))) = (
-                        resolved_reference(self.context, self.bindings, file, unwrap(left)),
+                        self.resolved_reference(file, unwrap(left)),
                         self.numeric_value(file, right),
                     )
                     && let Some(base) = known.get(&id.0)
@@ -598,7 +631,7 @@ impl Producer<'_> {
                     && unwrap(right).kind() == NodeKind::Expression
                     && let (Some(NumericOutcome::Exact(delta)), Some(id)) = (
                         self.numeric_value(file, left),
-                        resolved_reference(self.context, self.bindings, file, unwrap(right)),
+                        self.resolved_reference(file, unwrap(right)),
                     )
                     && let Some(base) = known.get(&id.0)
                 {
@@ -786,11 +819,11 @@ impl Producer<'_> {
             return;
         }
         if is_expression(node.kind()) {
-            let ty =
-                self.calls.expressions.iter().find(|e| {
-                    e.file == file && e.location.range == self.location(file, node).range
-                });
-            if matches!(ty.map(|t| &t.ty.kind), Some(TypeKind::Set(_)))
+            let location = self.location(file, node);
+            let ty = self
+                .expression_kinds
+                .get(&(file, location.range.start, location.range.end));
+            if matches!(ty, Some(TypeKind::Set(_)))
                 || resolved_index_domain(
                     self.context,
                     self.bindings,
@@ -819,7 +852,8 @@ impl Producer<'_> {
         node.kind() == NodeKind::BinaryExpression
             && node.child_nodes().any(|n| {
                 unwrap(n).kind() == NodeKind::Expression
-                    && resolved_reference(self.context, self.bindings, file, unwrap(n))
+                    && self
+                        .resolved_reference(file, unwrap(n))
                         .is_some_and(|id| known.contains_key(&id.0))
             })
     }
@@ -1195,7 +1229,7 @@ impl Producer<'_> {
             return None;
         };
         if unwrap(left).kind() != NodeKind::Expression
-            || resolved_reference(self.context, self.bindings, file, unwrap(left)) != Some(id)
+            || self.resolved_reference(file, unwrap(left)) != Some(id)
         {
             return None;
         }

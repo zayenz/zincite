@@ -1,5 +1,5 @@
 //! Guarded truth and operation obligations, independent of lint policy.
-use crate::callables::{core_operation, is_expression};
+use crate::callables::{core_operation, is_expression, operation_head_start};
 use crate::definitions::{
     annotations_safe, core_callable, resolved_call, resolved_reference,
     transparent_boolean_argument,
@@ -9,10 +9,12 @@ use crate::domains::{
     invariant_integer, resolved_index_domain, same_members, shift_index_domain, tokens,
 };
 use crate::{
-    BindingFacts, CallableFacts, Cardinality, DeclarationId, DefinitionEnforcement, Domain,
-    DomainFacts, FileId, Instantiation, InstantiationFacts, ModelContext, NumericFacts,
-    NumericOutcome, OptionalFacts, Presence, SourceLocation, TypeKind,
+    BindingFacts, BindingResolution, CallOutcome, CallableFacts, Cardinality, DeclarationId,
+    DefinitionEnforcement, Domain, DomainFacts, FileId, Instantiation, InstantiationFacts,
+    ModelContext, NumericFacts, NumericOutcome, OptionalFacts, Presence, SourceLocation, TypeKind,
 };
+use std::collections::HashMap;
+use std::sync::Arc;
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 
 /// A proved/refuted proposition, ordinary uncertainty, or missing interpretation.
@@ -63,7 +65,8 @@ pub struct GuardContext {
     /// Visible conditions and generator domains. A condition is unavailable
     /// while its own expression or operands are being evaluated; it cannot
     /// discharge its own precondition. Local conditions apply only on success.
-    pub assumptions: Vec<GuardAssumption>,
+    /// An immutable snapshot shared by contexts with unchanged assumptions.
+    pub assumptions: Arc<[GuardAssumption]>,
     /// Reachability/selection; it does not erase a raw operation failure.
     pub activation: GuardActivation,
     pub evaluation: GuardEvaluation,
@@ -263,6 +266,11 @@ pub(crate) fn evaluate_iteration_prefix(
         domains,
         numeric,
         options: Some(options),
+        reference_indices: None,
+        expression_indices: None,
+        numeric_indices: None,
+        optional_expression_indices: None,
+        call_indices: None,
         facts: GuardedFacts::default(),
     };
     producer.walk(
@@ -284,7 +292,8 @@ fn retained_scope<'a>(
     prefix: &GuardContext,
 ) -> Result<Scope<'a>, String> {
     let mut assumptions = Vec::new();
-    for assumption in &prefix.assumptions {
+    let mut snapshot = Vec::new();
+    for assumption in prefix.assumptions.iter() {
         if assumption.file == candidate.file
             && (contains_range(&candidate.location.range, &assumption.location.range)
                 || contains_range(&assumption.location.range, &candidate.location.range))
@@ -310,9 +319,11 @@ fn retained_scope<'a>(
                 domain: domain.clone(),
             },
         });
+        snapshot.push(assumption.clone());
     }
     Ok(Scope {
         assumptions,
+        assumption_snapshot: snapshot.into(),
         activation: prefix.activation,
         evaluation: prefix.evaluation,
         enforcement: prefix.enforcement.clone(),
@@ -346,6 +357,11 @@ pub(crate) fn prospective_index_membership(
         domains,
         numeric,
         options: Some(options),
+        reference_indices: None,
+        expression_indices: None,
+        numeric_indices: None,
+        optional_expression_indices: None,
+        call_indices: None,
         facts: GuardedFacts::default(),
     };
     let mut domain = &domains.declarations[array.0].domain;
@@ -391,6 +407,51 @@ fn interpret<'a>(
     numeric: &'a NumericFacts,
     options: Option<&'a OptionalFacts>,
 ) -> GuardedFacts {
+    let mut reference_indices = HashMap::with_capacity(bindings.references.len());
+    for (index, reference) in bindings.references.iter().enumerate() {
+        reference_indices
+            .entry((reference.file, reference.location.range.start))
+            .or_insert(index);
+    }
+    let mut expression_indices = HashMap::with_capacity(calls.expressions.len());
+    for (index, expression) in calls.expressions.iter().enumerate() {
+        expression_indices
+            .entry((
+                expression.file,
+                expression.location.range.start,
+                expression.location.range.end,
+            ))
+            .or_insert(index);
+    }
+    let mut numeric_indices = HashMap::with_capacity(numeric.expressions.len());
+    for (index, expression) in numeric.expressions.iter().enumerate() {
+        numeric_indices
+            .entry((
+                expression.file,
+                expression.location.range.start,
+                expression.location.range.end,
+            ))
+            .or_insert(index);
+    }
+    let optional_expression_indices = options.map(|facts| {
+        let mut indices = HashMap::with_capacity(facts.expressions.len());
+        for (index, expression) in facts.expressions.iter().enumerate() {
+            indices
+                .entry((
+                    expression.file,
+                    expression.location.range.start,
+                    expression.location.range.end,
+                ))
+                .or_insert(index);
+        }
+        indices
+    });
+    let mut call_indices = HashMap::with_capacity(calls.calls.len());
+    for (index, call) in calls.calls.iter().enumerate() {
+        call_indices
+            .entry((call.file, call.location.range.start))
+            .or_insert(index);
+    }
     let mut producer = Producer {
         context,
         bindings,
@@ -399,6 +460,11 @@ fn interpret<'a>(
         domains,
         numeric,
         options,
+        reference_indices: Some(reference_indices),
+        expression_indices: Some(expression_indices),
+        numeric_indices: Some(numeric_indices),
+        optional_expression_indices,
+        call_indices: Some(call_indices),
         facts: GuardedFacts::default(),
     };
     let mut global = Vec::new();
@@ -414,6 +480,7 @@ fn interpret<'a>(
             }
         }
     }
+    let assumption_snapshot = producer.assumption_snapshot(&global);
     for (file, source) in context.files.iter().enumerate() {
         if !source.warnings_enabled() || !source.parsed.diagnostics().is_empty() {
             continue;
@@ -421,6 +488,7 @@ fn interpret<'a>(
         for (item, node) in source.parsed.tree().child_nodes().enumerate() {
             let scope = Scope {
                 assumptions: global.clone(),
+                assumption_snapshot: assumption_snapshot.clone(),
                 activation: GuardActivation::Active,
                 evaluation: GuardEvaluation::Strict,
                 enforcement: DefinitionEnforcement::Conditional,
@@ -449,6 +517,7 @@ enum Assumption<'a> {
 #[derive(Clone)]
 struct Scope<'a> {
     assumptions: Vec<Assumption<'a>>,
+    assumption_snapshot: Arc<[GuardAssumption]>,
     activation: GuardActivation,
     evaluation: GuardEvaluation,
     enforcement: DefinitionEnforcement,
@@ -482,9 +551,30 @@ struct Producer<'a> {
     domains: &'a DomainFacts,
     numeric: &'a NumericFacts,
     options: Option<&'a OptionalFacts>,
+    reference_indices: Option<HashMap<(FileId, usize), usize>>,
+    expression_indices: Option<HashMap<(FileId, usize, usize), usize>>,
+    numeric_indices: Option<HashMap<(FileId, usize, usize), usize>>,
+    optional_expression_indices: Option<HashMap<(FileId, usize, usize), usize>>,
+    call_indices: Option<HashMap<(FileId, usize), usize>>,
     facts: GuardedFacts,
 }
 impl<'a> Producer<'a> {
+    fn reference(&self, file: FileId, node: &SyntaxNode) -> Option<DeclarationId> {
+        let Some(indices) = &self.reference_indices else {
+            return resolved_reference(self.context, self.bindings, file, node);
+        };
+        let start = tokens(&self.context.files[file].parsed, node)
+            .first()?
+            .range
+            .start
+            + self.context.files[file].byte_offset;
+        // Keep the first row, including unresolved or ambiguous facts.
+        let reference = &self.bindings.references[*indices.get(&(file, start))?];
+        match reference.resolution {
+            BindingResolution::Resolved(id) => Some(id),
+            _ => None,
+        }
+    }
     fn location(&self, file: FileId, node: &SyntaxNode) -> SourceLocation {
         self.context.files[file].location(node.range())
     }
@@ -494,43 +584,51 @@ impl<'a> Producer<'a> {
             evaluation: scope.evaluation,
             enforcement: scope.enforcement.clone(),
             nearest_boolean: scope.boolean.clone(),
-            assumptions: scope
-                .assumptions
-                .iter()
-                .map(|a| match a {
-                    Assumption::Condition {
-                        file,
-                        node,
-                        expected,
-                        global,
-                    } => GuardAssumption {
-                        file: *file,
-                        location: self.location(*file, node),
-                        kind: GuardAssumptionKind::Condition {
-                            expected: *expected,
-                        },
-                        global: *global,
-                    },
-                    Assumption::Membership {
-                        file,
-                        source,
-                        declaration,
-                        domain,
-                    } => GuardAssumption {
-                        file: *file,
-                        location: self.location(*file, source),
-                        kind: GuardAssumptionKind::GeneratorMembership {
-                            declaration: *declaration,
-                            domain: domain.clone(),
-                        },
-                        global: false,
-                    },
-                })
-                .collect(),
+            assumptions: scope.assumption_snapshot.clone(),
         }
     }
+    fn assumption_snapshot(&self, assumptions: &[Assumption<'a>]) -> Arc<[GuardAssumption]> {
+        assumptions
+            .iter()
+            .map(|a| match a {
+                Assumption::Condition {
+                    file,
+                    node,
+                    expected,
+                    global,
+                } => GuardAssumption {
+                    file: *file,
+                    location: self.location(*file, node),
+                    kind: GuardAssumptionKind::Condition {
+                        expected: *expected,
+                    },
+                    global: *global,
+                },
+                Assumption::Membership {
+                    file,
+                    source,
+                    declaration,
+                    domain,
+                } => GuardAssumption {
+                    file: *file,
+                    location: self.location(*file, source),
+                    kind: GuardAssumptionKind::GeneratorMembership {
+                        declaration: *declaration,
+                        domain: domain.clone(),
+                    },
+                    global: false,
+                },
+            })
+            .collect()
+    }
     fn ty(&self, file: FileId, node: &SyntaxNode) -> Option<&crate::TypeInst> {
-        let range = self.location(file, node).range;
+        let range = node.range();
+        let offset = self.context.files[file].byte_offset;
+        let range = range.start + offset..range.end + offset;
+        if let Some(indices) = &self.expression_indices {
+            let index = *indices.get(&(file, range.start, range.end))?;
+            return Some(&self.calls.expressions[index].ty);
+        }
         self.calls
             .expressions
             .iter()
@@ -538,7 +636,9 @@ impl<'a> Producer<'a> {
             .map(|e| &e.ty)
     }
     fn instantiation(&self, file: FileId, node: &SyntaxNode) -> Instantiation {
-        let range = self.location(file, node).range;
+        let range = node.range();
+        let offset = self.context.files[file].byte_offset;
+        let range = range.start + offset..range.end + offset;
         self.instantiations
             .expressions
             .iter()
@@ -546,7 +646,13 @@ impl<'a> Producer<'a> {
             .map_or(Instantiation::Unknown, |e| e.instantiation)
     }
     fn numeric(&self, file: FileId, node: &SyntaxNode) -> Option<NumericOutcome> {
-        let range = self.location(file, node).range;
+        let range = node.range();
+        let offset = self.context.files[file].byte_offset;
+        let range = range.start + offset..range.end + offset;
+        if let Some(indices) = &self.numeric_indices {
+            let index = *indices.get(&(file, range.start, range.end))?;
+            return Some(self.numeric.expressions[index].outcome.clone());
+        }
         self.numeric
             .expressions
             .iter()
@@ -563,10 +669,38 @@ impl<'a> Producer<'a> {
             .operator(file, node)
             .and_then(crate::bindings::symbolic_operator)
             .ok_or("operator is outside guarded interpretation")?;
-        if core_operation(self.context, self.bindings, self.calls, file, node, name)? {
+        if self.core_operation(file, node, name)? {
             Ok(())
         } else {
             Err("user operator is outside guarded interpretation".into())
+        }
+    }
+    fn core_operation(&self, file: FileId, node: &SyntaxNode, name: &str) -> Result<bool, String> {
+        let Some(indices) = &self.call_indices else {
+            return core_operation(self.context, self.bindings, self.calls, file, node, name);
+        };
+        let outcome = operation_head_start(self.context, file, node)
+            .and_then(|start| indices.get(&(file, start)))
+            .map(|index| &self.calls.calls[*index].outcome);
+        match outcome {
+            Some(CallOutcome::Resolved { declaration, .. }) => Ok(core_callable(
+                self.context,
+                self.bindings,
+                *declaration,
+                name,
+            )),
+            Some(CallOutcome::Intrinsic {
+                name: intrinsic, ..
+            }) => Ok(name == "+"
+                && intrinsic == "unary+"
+                && node.kind() == NodeKind::UnaryExpression),
+            Some(
+                CallOutcome::NoMatch { reason }
+                | CallOutcome::Unresolved { reason }
+                | CallOutcome::Unsupported { reason, .. },
+            ) => Err(format!("operation {name}: {reason}")),
+            Some(CallOutcome::Ambiguous { .. }) => Err(format!("operation {name} is ambiguous")),
+            None => Err(format!("operation {name} identity is unavailable")),
         }
     }
     fn core_call(&self, file: FileId, node: &SyntaxNode, name: &str) -> bool {
@@ -597,6 +731,16 @@ impl<'a> Producer<'a> {
                 self.assume(out, file, child, true, global);
             }
         }
+    }
+    fn assume_scoped(
+        &self,
+        scope: &mut Scope<'a>,
+        file: FileId,
+        node: &'a SyntaxNode,
+        expected: bool,
+    ) {
+        self.assume(&mut scope.assumptions, file, node, expected, false);
+        scope.assumption_snapshot = self.assumption_snapshot(&scope.assumptions);
     }
     fn enforced_conditions(
         &self,
@@ -728,6 +872,7 @@ impl<'a> Producer<'a> {
                         let mut own = scope.clone();
                         if is_expression(child.kind()) {
                             own.assumptions.clear();
+                            own.assumption_snapshot = Arc::from([]);
                             own.boolean = None;
                             own.enforcement = DefinitionEnforcement::Conditional;
                         }
@@ -903,9 +1048,9 @@ impl<'a> Producer<'a> {
                     conditions.push((earlier.activation, evaluated));
                     let mut own = earlier.clone();
                     own.activation = activate(own.activation, &truth, true);
-                    self.assume(&mut own.assumptions, file, condition, true, false);
+                    self.assume_scoped(&mut own, file, condition, true);
                     earlier.activation = activate(earlier.activation, &truth, false);
-                    self.assume(&mut earlier.assumptions, file, condition, false, false);
+                    self.assume_scoped(&mut earlier, file, condition, false);
                     (children[1], own)
                 } else if branch.kind() == NodeKind::ElseBranch && !children.is_empty() {
                     has_else = true;
@@ -1183,7 +1328,7 @@ impl<'a> Producer<'a> {
             .collect();
         let Some(array) = children
             .first()
-            .and_then(|n| resolved_reference(self.context, self.bindings, file, unwrap(n)))
+            .and_then(|n| self.reference(file, unwrap(n)))
         else {
             return self.unsupported(file, node, "array declaration identity is unavailable");
         };
@@ -1295,7 +1440,7 @@ impl<'a> Producer<'a> {
                         .and_then(|g| g.truth.clone())
                         .unwrap_or(GuardedOutcome::Unknown);
                     own.activation = activate(own.activation, &truth, true);
-                    self.assume(&mut own.assumptions, file, condition, true, false);
+                    self.assume_scoped(&mut own, file, condition, true);
                 }
                 values.push(value);
             }
@@ -1354,7 +1499,7 @@ impl<'a> Producer<'a> {
                 own.evaluation = GuardEvaluation::AssertionReturn;
                 own.enforcement = DefinitionEnforcement::Conditional;
                 own.activation = activate(own.activation, &outcome, true);
-                self.assume(&mut own.assumptions, file, children[0], true, false);
+                self.assume_scoped(&mut own, file, children[0], true);
                 let value = self.walk(file, item, children[2], own);
                 if outcome != GuardedOutcome::Refuted {
                     result.definedness = conjoin(&result.definedness, &value.definedness);
@@ -1604,6 +1749,7 @@ impl<'a> Producer<'a> {
                         });
                     }
                 }
+                own.assumption_snapshot = self.assumption_snapshot(&own.assumptions);
             } else {
                 inputs.push(self.unsupported(
                     file,
@@ -1623,7 +1769,7 @@ impl<'a> Producer<'a> {
                     let truth = value.truth.clone().unwrap_or(GuardedOutcome::Unknown);
                     inputs.push(evaluated_when(value, own.activation));
                     own.activation = activate(own.activation, &truth, true);
-                    self.assume(&mut own.assumptions, file, condition, true, false);
+                    self.assume_scoped(&mut own, file, condition, true);
                 }
             }
         }
@@ -1719,8 +1865,14 @@ impl<'a> Producer<'a> {
         )
     }
     fn intrinsic_presence(&self, file: FileId, node: &SyntaxNode) -> Option<Presence> {
-        self.options
-            .and_then(|facts| facts.expression(file, &self.location(file, node)))
+        let facts = self.options?;
+        let location = self.location(file, node);
+        if let Some(indices) = &self.optional_expression_indices {
+            let index = *indices.get(&(file, location.range.start, location.range.end))?;
+            return Some(facts.expressions[index].presence.clone());
+        }
+        facts
+            .expression(file, &location)
             .map(|e| e.presence.clone())
     }
     fn presence_condition(
@@ -2091,10 +2243,7 @@ impl<'a> Producer<'a> {
         let b = unwrap(b);
         if a.kind() == NodeKind::Expression
             && b.kind() == NodeKind::Expression
-            && let (Some(a), Some(b)) = (
-                resolved_reference(self.context, self.bindings, af, a),
-                resolved_reference(self.context, self.bindings, bf, b),
-            )
+            && let (Some(a), Some(b)) = (self.reference(af, a), self.reference(bf, b))
         {
             return self.scalar_alias_identity(a) == self.scalar_alias_identity(b);
         }
@@ -2146,8 +2295,7 @@ impl<'a> Producer<'a> {
             {
                 break;
             }
-            let Some(other) = resolved_reference(self.context, self.bindings, d.file, unwrap(rhs))
-            else {
+            let Some(other) = self.reference(d.file, unwrap(rhs)) else {
                 break;
             };
             let other_ty = &self.calls.declarations[other.0].ty;
@@ -2413,7 +2561,7 @@ impl<'a> Producer<'a> {
         domain: &Domain,
     ) -> GuardedOutcome {
         let node = unwrap(node);
-        if let Some(id) = resolved_reference(self.context, self.bindings, file, node) {
+        if let Some(id) = self.reference(file, node) {
             let own = &self.domains.declarations[id.0].domain;
             if let Some(reason) = self
                 .declaration_domain_error(id)
@@ -2505,9 +2653,7 @@ impl<'a> Producer<'a> {
                     source,
                     declaration,
                     ..
-                } if resolved_reference(self.context, self.bindings, file, unwrap(node))
-                    == Some(*declaration) =>
-                {
+                } if self.reference(file, unwrap(node)) == Some(*declaration) => {
                     resolved_index_domain(
                         self.context,
                         self.bindings,
@@ -2602,7 +2748,7 @@ impl<'a> Producer<'a> {
                 matches!((pair(c[0]), pair(c[1])), (Some(a), Some(b))
                     if (a == source && b == target) || (b == source && a == target))
             } else if self.core_call(*f, condition, "index_sets_agree") && source.1 == target.1 {
-                let pair = |n| resolved_reference(self.context, self.bindings, *f, unwrap(n));
+                let pair = |n| self.reference(*f, unwrap(n));
                 let rank = |id: DeclarationId| match &self.calls.declarations[id.0].ty.kind {
                     TypeKind::Array { indices, .. } => Some(indices.len()),
                     _ => None,
@@ -2629,8 +2775,7 @@ impl<'a> Producer<'a> {
                 domain: own,
                 ..
             } => {
-                resolved_reference(self.context, self.bindings, file, unwrap(node))
-                    == Some(*declaration)
+                self.reference(file, unwrap(node)) == Some(*declaration)
                     && self.same_domain(own, domain)
             }
             Assumption::Condition {
@@ -2730,7 +2875,7 @@ impl<'a> Producer<'a> {
         if binding.kind() != NodeKind::Expression {
             return None;
         }
-        let id = resolved_reference(self.context, self.bindings, file, binding)?;
+        let id = self.reference(file, binding)?;
         let mut domain = scope.assumptions.iter().find_map(|a| match a {
             Assumption::Membership {
                 declaration,
@@ -2985,7 +3130,7 @@ impl<'a> Producer<'a> {
             };
         }
         let domain = self.domain(file, node);
-        if let Some(id) = resolved_reference(self.context, self.bindings, file, node)
+        if let Some(id) = self.reference(file, node)
             && let Some(reason) = self
                 .declaration_domain_error(id)
                 .or_else(|| self.domain_error(&domain))

@@ -33,14 +33,7 @@ pub(super) fn check_hidden_optionality(
             }
             let mut comparisons = Vec::new();
             collect_comparisons(&source.parsed, node, &mut comparisons);
-            for comparison in comparisons {
-                let comparison_location = source.location(comparison.range());
-                if guarded
-                    .expression(file, &comparison_location)
-                    .is_some_and(|e| e.context.activation == GuardActivation::Inactive)
-                {
-                    continue;
-                }
+            'comparisons: for comparison in comparisons {
                 let operands: Vec<_> = comparison.child_nodes().collect();
                 for operand in &operands {
                     let length = unwrap(operand);
@@ -59,6 +52,13 @@ pub(super) fn check_hidden_optionality(
                     };
                     if arguments.next().is_some() {
                         continue;
+                    }
+                    let comparison_location = source.location(comparison.range());
+                    if guarded
+                        .expression(file, &comparison_location)
+                        .is_some_and(|e| e.context.activation == GuardActivation::Inactive)
+                    {
+                        continue 'comparisons;
                     }
                     let argument = unwrap(argument);
                     let location = source.location(

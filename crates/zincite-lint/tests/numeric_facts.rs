@@ -338,3 +338,64 @@ fn cycles_and_conditional_or_unsafe_definitions_cannot_establish_values() {
     );
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn supplied_expression_order_and_duplicate_types_keep_any_match_bounds() {
+    let (dir, context) = model(
+        "expression-order",
+        "\u{feff}include \"included.mzn\"; int: a=7; int: n; solve satisfy;",
+        "int: b=7;",
+    );
+    let bindings = resolve_bindings(&context);
+    let mut calls = resolve_callables(&context, &bindings);
+    let domains = resolve_domains(&context, &bindings);
+    let file = context.root_file.unwrap();
+    let target = calls
+        .expressions
+        .iter()
+        .find(|e| e.file == file && text(&context, file, &e.location) == "7")
+        .unwrap()
+        .clone();
+    assert!(target.location.range.start >= 3);
+    calls
+        .expressions
+        .retain(|e| e.file != file || e.location.range != target.location.range);
+    calls.expressions.reverse();
+    let mut wrong_file = target.clone();
+    wrong_file.file = context
+        .files
+        .iter()
+        .position(|f| f.path.ends_with("included.mzn"))
+        .unwrap();
+    let mut wrong_type = target.clone();
+    wrong_type.ty.kind = zincite_lint::TypeKind::Bool;
+    calls.expressions.insert(0, wrong_file);
+    calls.expressions.insert(0, wrong_type);
+    let bounds = resolve_integer_bounds(&context, &bindings, &calls, &domains);
+    assert!(
+        !bounds
+            .expressions
+            .iter()
+            .any(|e| e.file == file && e.location.range == target.location.range)
+    );
+    for kind in [
+        zincite_lint::TypeKind::Int,
+        zincite_lint::TypeKind::Unknown("supplied uncertainty".into()),
+    ] {
+        let mut eligible = target.clone();
+        eligible.ty.kind = kind;
+        calls.expressions.push(eligible);
+        let bounds = resolve_integer_bounds(&context, &bindings, &calls, &domains);
+        let value = bounds
+            .expressions
+            .iter()
+            .find(|e| e.file == file && e.location.range == target.location.range)
+            .unwrap();
+        assert_eq!(
+            value.outcome,
+            IntegerBoundsOutcome::Known { lower: 7, upper: 7 }
+        );
+        calls.expressions.pop();
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

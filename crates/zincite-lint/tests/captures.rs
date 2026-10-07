@@ -63,6 +63,9 @@ fn public_facts_and_capture_policy_share_declared_identity_and_scope_boundaries(
         "function int: local_domain(set of int: D) = let { D: domain_local = 1; } in domain_local;\n",
         "function int: named(int: global) = global; function int: labels() = named(global: 1);\n",
         "record(int: global): rec = (global: 1); function int: field() = rec.global;\n",
+        "set of int: row = 1..2; set of int: col = 1..3; function int: row(int: value) = value; function int: col(int: value) = value;\n",
+        "array[row, col] of var int: board; E: member = A;\n",
+        "function int: domain_scope(set of int: row) = let { row: domain_value = 1; } in domain_value;\n",
         "test enum_member() = A in E; predicate unnamed(var int) = true;\n",
         "predicate captures_predicate() = global > 0; test captures_test() = fix(global) > 0;\n",
         "solve satisfy;\n",
@@ -187,6 +190,42 @@ fn public_facts_and_capture_policy_share_declared_identity_and_scope_boundaries(
     assert!(
         matches!(index.resolution, BindingResolution::Resolved(id) if facts.declarations[id.0].role == DeclarationRole::Index)
     );
+    for (marker, name, role) in [
+        ("array[row, col]", "row", DeclarationRole::Value),
+        ("col] of var int: board", "col", DeclarationRole::Value),
+        ("row: domain_value", "row", DeclarationRole::Parameter),
+    ] {
+        let start = source.find(marker).unwrap()
+            + if marker.starts_with("array[") {
+                "array[".len()
+            } else {
+                0
+            };
+        let reference = facts
+            .references
+            .iter()
+            .find(|r| r.location.path == root && r.location.range.start == start)
+            .unwrap();
+        assert_eq!(reference.kind, ReferenceKind::Value, "{marker}");
+        let BindingResolution::Resolved(id) = reference.resolution else {
+            panic!("{reference:?}");
+        };
+        assert_eq!(facts.declarations[id.0].name, name);
+        assert_eq!(facts.declarations[id.0].role, role);
+    }
+    for marker in ["Alias: global", "E: member"] {
+        let start = source.find(marker).unwrap();
+        let reference = facts
+            .references
+            .iter()
+            .find(|r| r.location.path == root && r.location.range.start == start)
+            .unwrap();
+        assert_eq!(reference.kind, ReferenceKind::Type, "{marker}");
+        assert!(matches!(
+            reference.resolution,
+            BindingResolution::Resolved(_)
+        ));
+    }
 
     let result = analyze_model(&context, &selected());
     assert!(

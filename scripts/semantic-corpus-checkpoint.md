@@ -447,3 +447,35 @@ binaries, `before-closures/`, `compiler-controls/`, `before-replays/`,
 `after-replays/` and `reconciliation.json`. External sources and historical
 base-045/base-075 artifacts remain unchanged. This bounded repair does not run
 a corpus campaign, certify Safe fixes, or establish full corpus acceptance.
+
+## Base-083 diagnostic scaling review
+
+The retained thesis capture for the public Challenge input
+`2012/project-planning/ProjectPlannertest_16_7.mzn` reports 66,106 warnings,
+including 65,694 `decision-variable-operator` warnings. Independent checks of
+the original source hash and every operator finding confirm 65,694 distinct
+byte ranges, each spelling `not`, in the 3,869,648-byte input. These findings
+come from expressions already unrolled in the source, rather than warnings
+multiplied by generator iterations or callable instantiations during analysis.
+
+The operator findings occupy 53 source lines. One constraint on line 1888 is
+3,698,158 bytes long and contains 65,519 of the reported operators. A count
+grouped under that constraint could make the repeated advice easier to scan,
+but a shared line alone is not an actionable grouping boundary: distinct
+expressions can share a line, and one item can span several lines.
+
+The decision for this task is to retain the precise per-occurrence findings.
+The rule walks original syntax and checks item suppressions before emitting
+findings; its results retain individual locations for library consumers.
+Collapsing those results to one representative location would lose that
+information. Any future grouped display should summarize already-filtered
+findings by their original containing item and advice, report the occurrence
+count, and retain access to every location. Presentation grouping must leave
+rule outcomes and analysis limitations intact.
+
+The checked evidence is retained under
+`target/benchmarks/base083/semantic53-project16-whole/`: `before-inputs.json`
+pins the original, `0-native.stderr` contains the complete thesis diagnostics,
+and `0-native.json` records the completed native invocation and stream hash.
+These counts establish the scaling behavior of this captured model; they do
+not establish complete corpus coverage or explain its analysis cost.

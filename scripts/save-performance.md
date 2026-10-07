@@ -150,13 +150,17 @@ path; keep builds, tests and other measurements outside the timed run:
 ```sh
 cargo build --offline --release -p zincite-fmt --bin zincite-fmt
 python3 scripts/bench-save.py --binary target/release/zincite-fmt --samples 50 \
-  --external /private/tmp/portfolio-150-mzn-challenge-a844/2021/ATSP/atsp.mzn \
-  --external /private/tmp/portfolio-150-mzn-challenge-a844/2021/java-routing/trip_7_4.mzn \
+  --external /private/tmp/zincite-base080-challenge-a844/2021/ATSP/atsp.mzn \
+  --external /private/tmp/zincite-base080-challenge-a844/2021/java-routing/trip_7_4.mzn \
+  --external /private/tmp/zincite-base080-challenge-a844/2019/groupsplitter/u7g2pref1.dzn \
   --output target/benchmarks/NEW-SAVE-REPORT.json
 cargo test --offline -p zincite-fmt --test cli
 ```
 
-The external paths refer to the read-only Challenge checkout from earlier tasks.
+The replay paths use the complete read-only replacement Challenge checkout at
+`a8448864fc56162583f24aaf9c25653d93f83765`, whose 2,040 source paths and
+hashes match the historical inventory. The old archive root is incomplete.
+Historical measurements below retain their original paths and evidence.
 `target/benchmarks/base048` retains hardware/toolchain/source/binary/input pins,
 all command receipts, save distributions and streams, the native RSS helper,
 invalid-config samples, adapter snapshots and first-use controls. The private
@@ -201,3 +205,207 @@ First campaign use is 5.383 ms wall / 3.131 ms child CPU after earlier matched
 invocations on that executable. First `--help` observations for immutable copies
 remain separate. The base-048 fresh-copy launch limitation remains; this recheck
 does not establish controlled cold-cache startup performance.
+
+## Base-081: formatter-only candidate and remaining save gates
+
+The formatter borrows exact scalar cell spelling for an eligible whole matrix,
+including adjacent signed numeric literals. It reuses scalar widths and the
+current row column instead of rendering and copying every cell. Indexed rows,
+headers, comments, nested or compound cells, explicit line breaks and tab-sensitive
+spelling retain the existing renderer. Shared breaks, comma padding and complete
+output remain unchanged. At this formatter-only stage, no parser/CST change, cache, daemon or new
+dependency remained.
+
+The retained wide shape produces the same 1,506,703 output bytes as the baseline.
+Matched native checks reduce child CPU from about 388–392 ms to 95.764–97.959 ms.
+These commands use `--check`; their wall observations are retained separately
+and do not substitute for stdin-save measurements. Formatting allocation calls
+fall from 6,250,148 to 384 and requested bytes from 198,862,238 to 10,075,651.
+The tracked formatting peak above the retained CST falls from 15,857,904 to
+2,474,444 bytes. Requested allocations, tracked live bytes and native RSS are
+different measurements.
+
+### Fresh-save campaign
+
+Each row below retains 50 fresh processes per configuration, complete stdout,
+separate raw stderr, status, child CPU and unchanged input/configuration pins.
+All 1,400 samples complete with the expected status and output hash; no sample
+times out or is removed. An additional first-use observation and 28 supplementary
+`/usr/bin/time` attempts bring the receipt count to 1,429. The separate native
+controls use the exact same commands and actual `.mzn`/`.dzn` destination suffix.
+
+| Case / input bytes | Default p95 ms | Nested p95 ms | Default CPU p95 ms | Nested CPU p95 ms | Default RSS MiB | Nested RSS MiB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| ordinary-changed / 1163 | 206.679 | 181.970 | 5.567 | 5.353 | 2.031250 | 2.062500 |
+| ordinary-formatted / 1324 | 174.186 | 147.411 | 5.951 | 5.688 | 2.046875 | 2.046875 |
+| invalid-edited / 33 | 184.593 | 174.808 | 5.780 | 5.756 | 1.796875 | 1.828125 |
+| matrix / 676 | 213.023 | 232.734 | 5.201 | 5.289 | 1.968750 | 1.968750 |
+| nested / 1133 | 196.018 | 202.920 | 5.745 | 6.345 | 2.234375 | 2.234375 |
+| matrix-grown / 6971 | 286.736 | 238.402 | 5.994 | 5.905 | 2.546875 | 2.593750 |
+| nested-grown / 4493 | 765.407 | 815.383 | 29.309 | 31.894 | 3.578125 | 4.078125 |
+| dense-10000 / 9669 | 210.394 | 190.592 | 6.702 | 6.341 | 2.562500 | 2.593750 |
+| dense-100000 / 96669 | 527.191 | 456.309 | 14.437 | 14.974 | 9.312500 | 9.375000 |
+| dense-1000000 / 966669 | 3346.419 | 3945.075 | 95.444 | 97.926 | 64.000000 | 64.031250 |
+| dense-2000000 / 1933338 | 6890.144 | 6518.058 | 192.469 | 190.483 | 124.500000 | 124.500000 |
+| external-0-atsp.mzn / 6899 | 301.582 | 264.631 | 6.251 | 6.493 | 2.375000 | 2.406250 |
+| external-1-trip_7_4.mzn / 85229 | 551.491 | 551.607 | 14.925 | 15.225 | 6.640625 | 6.671875 |
+| external-2-u7g2pref1.dzn / 885733 | 3704.110 | 3621.275 | 109.165 | 108.986 | 75.468750 | 75.609375 |
+
+Every size-gated case misses its wall-time budget in this campaign. The public
+wide input also exceeds 64 MiB; the dense 966,669-byte nested control exceeds
+it by 0.03125 MiB. The 1,933,338-byte dense case is retained as scaling evidence
+outside the interactive size range. Correct output and lower CPU do not satisfy
+the unchanged wall-time or memory gates.
+
+The host had substantial concurrent activity: load averages were approximately
+594/615/609 at setup and 778/810/760 after the campaign. A separate read-only
+process observation counted 228 runnable processes. This establishes concurrent
+host activity; it does not identify its exact share of any sample or justify
+relaxing a budget. Ordinary changed saves use about 5.4–5.6 ms child CPU at p95
+while their measured wall p95 is 182–207 ms. The first ordinary campaign save
+is retained separately at 624.346 ms wall / 4.867 ms child CPU, after earlier
+invocations of that executable. Historical fresh-copy help controls remain
+first-use evidence; this run does not control cold caches or establish a specific
+host launch cause.
+
+### Retained memory boundary
+
+An owned held parse-only child reports 71.53125 MiB native high-water RSS. Its
+public types are 40-byte `SyntaxNode`, 40-byte `SyntaxElement` and 24-byte `Token`.
+The wide CST has 695,645 tokens and 367,170 child arrays: 347,753 request 40 bytes,
+19,019 request 360 bytes and 318 request about 25 KiB. Child arrays request
+42,512,560 bytes and the token buffer requests 16,695,480 bytes. The tracked
+parsed result retains 60,093,773 bytes, with a 60,126,013-byte construction peak.
+
+The held child keeps both the original string and the parsed source copy.
+`heap` reports 86,869,056 allocator bytes across 367,365 allocations; its dominant
+48-byte, 640-byte and 48-KiB classes closely correlate with those child-array
+counts. `vmmap -summary` reports a 71.0-MiB footprint and allocator dirty/swapped
+pages separately. These observations expose allocator size-class rounding and
+retained CST allocation as necessary investigation boundaries; the histogram
+does not establish each allocation address or explain every native RSS byte.
+
+Exact lexer capacity, numeric row reservation and their combination reduce
+allocation traffic but leave parsed retained bytes unchanged and do not show
+a native memory benefit. At this stage, both experimental syntax files were restored to their exact
+originals.
+All candidate sources, binaries, noisy timings and unsuccessful experiments
+remain under `target/benchmarks/base081`. The formatter-only candidate included no representation rewrite or allocator
+replacement. Its remaining native memory miss motivated the private-node
+experiment below, with full fidelity, drop and save gates retained.
+
+### Validation and evidence
+
+The six established synthetic/public matrix and table controls retain byte-identical
+complete output and expected native statuses. The public wide, synthetic 30,000-cell
+matrix and 619,533/27,775,980-byte tables pass clean parse/reparse, token/tree
+coverage, spelling, structure, protected-byte and idempotence checks. Three exact
+scope-drop iterations return to their baseline allocations and leave `ParsedFile`
+usable before drop. The large table fidelity run retains 69.121182 seconds wall /
+10.978771 seconds CPU and 3,923.218750 MiB; its separate drop run retains
+75.197283 seconds / 12.986823 seconds CPU and 2,226.468750 MiB.
+
+Workspace formatting, Clippy with warnings denied and all 189 tests pass on the
+formatter-only candidate. The formatter-only candidate completes the full 6,417-input no-rules syntax/format
+recheck: 6,396 clean results and the exact 21 prior exclusions, zero timeout or
+unobserved rows. All originals are rehashed unchanged. The runner exits 1 for
+those exclusions; it is terminal and reaped. The complete recovered archive and
+unchanged local/supplement originals retain the base-080 compiler classifications.
+
+Local raw evidence includes `save-final`, `native-final`, `final-matched`,
+`memory-attribution`, `tree-sizes`, `cargo-final`, source/binary pins and the full
+corpus receipts. These ignored reports preserve exact commands, finite deadlines,
+raw streams and terminal/reaped results. The save acceptance remains open.
+
+## Base-081: selected private node storage
+
+The selected candidate retains the formatter repair above and adds one private
+`Box<NodeData>` containing the unchanged node kind, full `usize` range and child
+slice. Public syntax variants and accessors remain unchanged. Token-heavy child
+slices become smaller, with an additional allocation for each node. No compact
+range encoding, arena, cache or dependency is introduced.
+
+On the public wide input, tracked parsed retention falls from 60,093,773 to
+49,273,037 bytes; construction peak is 49,285,773 bytes. Parse allocation calls
+increase from 427,454 to 794,624. Fresh public parse-only controls measure
+57.156250/57.359375 MiB, but child CPU increases to 59.480/57.850 ms from the
+prior 52.722 ms observation. Formatting still makes 384 tracked allocation calls,
+requests 10,075,651 bytes and peaks at 2,474,444 bytes above the retained CST.
+These allocation counters and native RSS are distinct observations.
+
+### Selected fresh saves
+
+All 1,400 fresh formal samples have the expected status and complete output hash,
+with zero timeouts. The first-use observation and 28 supplementary time controls
+remain separate, giving 1,429 retained receipts. Native RSS below comes from
+separate frozen-binary children with the same stdin bytes, destination suffix
+and configuration arguments, including `.dzn` for the public wide input.
+
+| Case / input bytes | Default p95 ms | Nested p95 ms | Default CPU p95 ms | Nested CPU p95 ms | Default RSS MiB | Nested RSS MiB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| ordinary-changed / 1163 | 265.812 | 245.293 | 4.945 | 4.858 | 1.953125 | 1.953125 |
+| ordinary-formatted / 1324 | 230.182 | 241.287 | 4.983 | 5.276 | 1.984375 | 1.984375 |
+| invalid-edited / 33 | 174.435 | 209.545 | 4.949 | 4.467 | 1.734375 | 1.796875 |
+| matrix / 676 | 150.078 | 162.128 | 4.558 | 4.653 | 1.921875 | 1.953125 |
+| nested / 1133 | 245.311 | 273.288 | 5.557 | 6.067 | 2.125000 | 2.140625 |
+| matrix-grown / 6971 | 222.954 | 287.549 | 5.190 | 5.816 | 2.453125 | 2.468750 |
+| nested-grown / 4493 | 1151.643 | 987.108 | 29.512 | 28.717 | 3.921875 | 3.828125 |
+| dense-10000 / 9669 | 279.109 | 219.576 | 5.838 | 6.089 | 2.531250 | 2.515625 |
+| dense-100000 / 96669 | 640.905 | 652.336 | 15.616 | 14.723 | 7.281250 | 7.312500 |
+| dense-1000000 / 966669 | 4033.227 | 3951.877 | 97.190 | 97.773 | 53.875000 | 53.875000 |
+| dense-2000000 / 1933338 | 7504.853 | 8134.961 | 186.783 | 184.537 | 104.171875 | 104.281250 |
+| external-0-atsp.mzn / 6899 | 285.110 | 254.076 | 6.258 | 6.279 | 2.312500 | 2.406250 |
+| external-1-trip_7_4.mzn / 85229 | 538.423 | 501.805 | 15.331 | 15.050 | 5.765625 | 5.796875 |
+| external-2-u7g2pref1.dzn / 885733 | 3916.040 | 4045.999 | 106.290 | 105.316 | 60.859375 | 60.562500 |
+
+Every size-gated case still misses its wall-time budget. All separate native
+memory controls within that size range pass: public wide default/nested RSS is
+60.859375/60.562500 MiB and dense 966,669-byte RSS is 53.875 MiB for both settings.
+The larger dense scaling case remains outside the interactive gate. Public wide
+child CPU p95 is 106.290/105.316 ms; a less busy host is not proof that this
+candidate will meet the 100 ms wall limit.
+
+After this campaign, a separate 50-launch diagnostic invokes only `--help` on
+the frozen binary. Every child exits 0 with identical complete output and no
+timeout. Its p95 is 201.446 ms wall and 5.612 ms child CPU. Help exits before
+configuration lookup or input parsing. This demonstrates delay outside formatter
+work, but does not establish its precise cause, cold-cache behavior or a budget
+exemption. Those launches are excluded from the formal save samples.
+
+### Selected behavior and tradeoffs
+
+All six matched controls retain byte-identical complete output. Four fidelity
+controls pass token/tree coverage, clean parse/reparse, spelling, structure,
+protected-byte and idempotence checks. Exact scope-drop controls return to their
+allocation baselines and leave the parsed result usable. The large table native
+check uses about 1,743 MiB and 3.906–3.909 seconds child CPU, lower than the
+formatter-only observations. Its multi-parse fidelity control instead increases
+RSS from 3,923.218750 to 4,562.750000 MiB, with child CPU decreasing from
+10.978771 to 9.432835 seconds. The separate selected drop control measures
+1,767.953125 MiB and 12.109203 seconds child CPU. These controls do not substitute
+for stdin-save memory measurements, and the fidelity RSS regression remains a
+limit of the selected storage choice.
+
+The public wide model/data pair passes original and fully staged Gecode
+compile-only checks under the same current MiniZinc/backend/standard-library
+settings, with no solver execution. The two raw FlatZinc files differ only in
+the command-invocation comment on line 3; every other byte matches. This establishes
+this explicit pair's eligibility, without a blanket equivalence claim.
+
+Selected workspace formatting, Clippy with warnings denied and all 189 tests
+pass. The selected full no-rules corpus completes all 6,417 unique baseline
+inputs: 2,040 Challenge, 4,287 local and 90 supplement. All 6,396 clean rows
+pass every fidelity gate; the same 21 prior exclusions remain (five invalid
+UTF-8, twelve parse/grammar cases and four data files containing model items).
+Every row is reported with checker status 0, with no timeout or unobserved
+result. All 6,417 originals and 12,834 raw checker streams are physically
+rechecked; input sizes and hashes match the baseline. Encoding exclusions remain
+coverage limits, without a compiler-invalid inference. The runner exits 1 for
+the classified exclusions and is terminal and reaped. Its aggregate child
+high-water is 7,200.343750 MiB, with 4,799.054273 seconds wall and 288.964707
+seconds CPU; this is neither a stdin-save measurement nor a source memory floor.
+Earlier formatter-only corpus results above remain separate evidence.
+Raw selected evidence is under `save-selected`, `help-selected`, `after8-controls`,
+`after8-matched`, `wide-compile`, `cargo-selected` and `full-corpus-selected`, with
+frozen source/binary pins and complete terminal child receipts. Save acceptance
+remains open because the wall-time gates are unmet.

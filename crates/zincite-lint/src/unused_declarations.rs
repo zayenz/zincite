@@ -1,8 +1,10 @@
 //! Declaration reachability and containment, independent of unused advice.
+use std::collections::HashMap;
+
 use crate::{
     BindingFacts, BindingResolution, CallOutcome, CallableFacts, DeclarationId, DeclarationRole,
-    FileFinding, FileId, Instantiation, ModelContext, ReferenceKind, Rule, Severity,
-    SourceDiagnostic, SourceKind, SourceLocation, TypeKind,
+    FileFinding, FileId, Instantiation, ModelContext, Reference, ReferenceKind, Rule, Severity,
+    SourceDiagnostic, SourceKind, SourceLocation, TypeInst, TypeKind,
 };
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
@@ -49,10 +51,17 @@ pub fn resolve_unused_declarations(
     bindings: &BindingFacts,
     calls: &CallableFacts,
 ) -> UsageFacts {
+    let mut main_call_indices = HashMap::with_capacity(calls.calls.len());
+    for (row, call) in calls.calls.iter().enumerate() {
+        main_call_indices
+            .entry((call.file, call.location.range.start))
+            .or_insert(row);
+    }
     let mut producer = Producer {
         context,
         bindings,
         calls,
+        main_call_indices: &main_call_indices,
         facts: UsageFacts {
             root_state: ModelRootState::Complete,
             roots: Vec::new(),
@@ -61,6 +70,8 @@ pub fn resolve_unused_declarations(
             limitations: Vec::new(),
         },
         uncertain: Vec::new(),
+        demanded: Vec::new(),
+        bodies: Vec::new(),
     };
     producer.collect();
     producer.entry_points();
@@ -72,12 +83,21 @@ struct Uncertainty {
     diagnostic: SourceDiagnostic,
     unbounded: bool,
 }
+struct BodyDemand {
+    owner: Option<DeclarationId>,
+    declaration: DeclarationId,
+    parameters: Option<Vec<TypeInst>>,
+    ancestry: Vec<DeclarationId>,
+}
 struct Producer<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
     calls: &'a CallableFacts,
+    main_call_indices: &'a HashMap<(FileId, usize), usize>,
     facts: UsageFacts,
     uncertain: Vec<Uncertainty>,
+    demanded: Vec<BodyDemand>,
+    bodies: Vec<(DeclarationId, Option<Vec<TypeInst>>)>,
 }
 impl Producer<'_> {
     fn collect(&mut self) {
@@ -115,133 +135,265 @@ impl Producer<'_> {
             }
         }
         for reference in &self.bindings.references {
-            let source = &self.context.files[reference.file];
-            let position = reference.location.range.start - source.byte_offset;
-            let owner = self
-                .bindings
-                .declarations
+            if reference.callable.is_none() {
+                self.collect_reference(reference, self.calls, Some(self.main_call_indices), &[]);
+            }
+        }
+    }
+    fn collect_reference(
+        &mut self,
+        reference: &Reference,
+        view: &CallableFacts,
+        call_indices: Option<&HashMap<(FileId, usize), usize>>,
+        ancestry: &[DeclarationId],
+    ) -> Vec<Option<DeclarationId>> {
+        let source = &self.context.files[reference.file];
+        let position = reference.location.range.start - source.byte_offset;
+        let owner = self
+            .bindings
+            .declarations
+            .iter()
+            .filter(|d| d.file == reference.file && d.syntax_range.contains(&position))
+            .min_by_key(|d| d.syntax_range.len())
+            .map(|d| d.id);
+        let item = source
+            .parsed
+            .tree()
+            .child_nodes()
+            .nth(reference.item)
+            .unwrap();
+        let owner = owner.or_else(|| {
+            if item.kind() != NodeKind::Assignment {
+                return None;
+            }
+            self.bindings
+                .references
                 .iter()
-                .filter(|d| d.file == reference.file && d.syntax_range.contains(&position))
-                .min_by_key(|d| d.syntax_range.len())
-                .map(|d| d.id);
-            let item = source
-                .parsed
-                .tree()
-                .child_nodes()
-                .nth(reference.item)
-                .unwrap();
-            let owner = owner.or_else(|| {
-                if item.kind() != NodeKind::Assignment {
-                    return None;
+                .find(|r| r.file == reference.file && r.item == reference.item)
+                .and_then(|r| {
+                    if let BindingResolution::Resolved(id) = r.resolution {
+                        Some(id)
+                    } else {
+                        None
+                    }
+                })
+        });
+        if owner.is_none() && !entry_item(item.kind()) {
+            return Vec::new();
+        }
+        let mut owners = vec![owner];
+        if let Some(id) = owner {
+            let d = &self.bindings.declarations[id.0];
+            if matches!(
+                d.role,
+                DeclarationRole::Parameter
+                    | DeclarationRole::Generator
+                    | DeclarationRole::Index
+                    | DeclarationRole::EnumMember
+                    | DeclarationRole::EnumConstructor
+            ) {
+                owners.push(self.facts.declarations[id.0].enclosing);
+                for sibling in &self.bindings.declarations {
+                    if sibling.file == d.file
+                        && sibling.syntax_range == d.syntax_range
+                        && sibling.id != id
+                    {
+                        owners.push(Some(sibling.id));
+                    }
                 }
-                self.bindings
-                    .references
-                    .iter()
-                    .find(|r| r.file == reference.file && r.item == reference.item)
-                    .and_then(|r| {
-                        if let BindingResolution::Resolved(id) = r.resolution {
-                            Some(id)
-                        } else {
-                            None
+            }
+        }
+        let mut known = Vec::new();
+        let mut possible = Vec::new();
+        let mut uncertainty = None;
+        let mut parameters = None;
+        if reference.kind == ReferenceKind::Callable {
+            let call = if let Some(indices) = call_indices {
+                indices
+                    .get(&(reference.file, reference.location.range.start))
+                    .map(|row| &view.calls[*row])
+            } else {
+                view.calls.iter().find(|call| {
+                    call.file == reference.file
+                        && call.location.range.start == reference.location.range.start
+                })
+            };
+            match call.map(|c| &c.outcome) {
+                Some(CallOutcome::Resolved {
+                    declaration,
+                    parameters: types,
+                    ..
+                }) => {
+                    known.push(*declaration);
+                    if types.iter().all(TypeInst::known) {
+                        parameters = Some(types.clone());
+                    }
+                }
+                Some(CallOutcome::Intrinsic { .. }) => {}
+                Some(CallOutcome::Ambiguous { candidates }) => {
+                    possible.extend(candidates);
+                    uncertainty = Some("callable selection is ambiguous".to_owned());
+                }
+                Some(CallOutcome::Unsupported { reason, candidates }) => {
+                    possible.extend(candidates);
+                    uncertainty = Some(reason.clone());
+                }
+                Some(CallOutcome::Unresolved { reason } | CallOutcome::NoMatch { reason }) => {
+                    uncertainty = Some(reason.clone());
+                }
+                None => uncertainty = Some("callable interpretation is unavailable".into()),
+            }
+            if uncertainty.is_some() {
+                match &reference.resolution {
+                    BindingResolution::Resolved(id) => push_unique(&mut possible, *id),
+                    BindingResolution::Overloads(ids) | BindingResolution::Ambiguous(ids) => {
+                        for &id in ids {
+                            push_unique(&mut possible, id);
                         }
-                    })
-            });
-            if owner.is_none() && !entry_item(item.kind()) {
+                    }
+                    BindingResolution::Unresolved => {}
+                }
+            }
+        } else {
+            match &reference.resolution {
+                BindingResolution::Resolved(id) => known.push(*id),
+                BindingResolution::Overloads(ids) | BindingResolution::Ambiguous(ids) => {
+                    possible.extend(ids);
+                    uncertainty = Some("reference has possible declarations".into());
+                }
+                BindingResolution::Unresolved => {
+                    uncertainty = Some("reference is unresolved".into())
+                }
+            }
+        }
+        for &owner in &owners {
+            for &id in &known {
+                self.edge(owner, id, false);
+                if matches!(
+                    self.bindings.declarations[id.0].role,
+                    DeclarationRole::Function
+                        | DeclarationRole::Predicate
+                        | DeclarationRole::Test
+                        | DeclarationRole::Annotation
+                ) {
+                    self.demanded.push(BodyDemand {
+                        owner,
+                        declaration: id,
+                        parameters: parameters.clone(),
+                        ancestry: ancestry.to_vec(),
+                    });
+                }
+            }
+            for &id in &possible {
+                self.edge(owner, id, true);
+                if matches!(
+                    self.bindings.declarations[id.0].role,
+                    DeclarationRole::Function
+                        | DeclarationRole::Predicate
+                        | DeclarationRole::Test
+                        | DeclarationRole::Annotation
+                ) {
+                    self.demanded.push(BodyDemand {
+                        owner,
+                        declaration: id,
+                        parameters: None,
+                        ancestry: ancestry.to_vec(),
+                    });
+                }
+            }
+            if let Some(reason) = &uncertainty {
+                self.uncertain.push(Uncertainty {
+                    owner,
+                    diagnostic: SourceDiagnostic {
+                        location: reference.location.clone(),
+                        message: format!("unused-declaration: {reason} for '{}'", reference.name),
+                    },
+                    unbounded: possible.is_empty(),
+                });
+            }
+        }
+        owners
+    }
+    fn body_dependencies(
+        &mut self,
+        owner: Option<DeclarationId>,
+        state: UsageOutcome,
+        pending: &mut Vec<(DeclarationId, UsageOutcome)>,
+    ) {
+        while let Some(position) = self.demanded.iter().position(|d| d.owner == owner) {
+            let mut demand = self.demanded.remove(position);
+            if state == UsageOutcome::Uncertain {
+                demand.parameters = None;
+            }
+            let id = demand.declaration;
+            if self.bodies.contains(&(id, demand.parameters.clone())) {
                 continue;
             }
-            let mut owners = vec![owner];
-            if let Some(id) = owner {
-                let d = &self.bindings.declarations[id.0];
-                if matches!(
-                    d.role,
-                    DeclarationRole::Parameter
-                        | DeclarationRole::Generator
-                        | DeclarationRole::Index
-                        | DeclarationRole::EnumMember
-                        | DeclarationRole::EnumConstructor
-                ) {
-                    owners.push(self.facts.declarations[id.0].enclosing);
-                    for sibling in &self.bindings.declarations {
-                        if sibling.file == d.file
-                            && sibling.syntax_range == d.syntax_range
-                            && sibling.id != id
-                        {
-                            owners.push(Some(sibling.id));
-                        }
-                    }
+            if demand.parameters.is_some() && demand.ancestry.contains(&id) {
+                self.uncertain.push(Uncertainty {
+                    owner: Some(id),
+                    unbounded: false,
+                    diagnostic: SourceDiagnostic {
+                        location: self.bindings.declarations[id.0].location.clone(),
+                        message:
+                            "unused-declaration: changing recursive body types are unsupported"
+                                .into(),
+                    },
+                });
+                demand.parameters = None;
+                if self.bodies.contains(&(id, None)) {
+                    continue;
                 }
             }
-            let mut known = Vec::new();
-            let mut possible = Vec::new();
-            let mut uncertainty = None;
-            if reference.kind == ReferenceKind::Callable {
-                match self
-                    .calls
-                    .calls
-                    .iter()
-                    .find(|call| {
-                        call.file == reference.file
-                            && call.location.range.start == reference.location.range.start
-                    })
-                    .map(|c| &c.outcome)
+            self.bodies.push((id, demand.parameters.clone()));
+            let declaration = &self.bindings.declarations[id.0];
+            let node = crate::callables::find_node(
+                self.context.files[declaration.file].parsed.tree(),
+                &declaration.syntax_range,
+                declaration.role,
+            );
+            if node.is_none_or(|n| {
+                !n.child_nodes()
+                    .any(|n| crate::callables::is_expression(n.kind()))
+            }) {
+                continue;
+            }
+            let view = demand.parameters.as_ref().map(|types| {
+                crate::callables::instantiated_body(
+                    self.context,
+                    self.bindings,
+                    self.calls,
+                    id,
+                    types,
+                )
+            });
+            let (view, call_indices) = match view.as_ref() {
+                Some(view) => (view, None),
+                None => (self.calls, Some(self.main_call_indices)),
+            };
+            demand.ancestry.push(id);
+            for reference in self
+                .bindings
+                .references
+                .iter()
+                .filter(|r| r.callable == Some(id))
+            {
+                for changed in self
+                    .collect_reference(reference, view, call_indices, &demand.ancestry)
+                    .into_iter()
+                    .flatten()
                 {
-                    Some(CallOutcome::Resolved { declaration, .. }) => known.push(*declaration),
-                    Some(CallOutcome::Intrinsic { .. }) => {}
-                    Some(CallOutcome::Ambiguous { candidates }) => {
-                        possible.extend(candidates);
-                        uncertainty = Some("callable selection is ambiguous".to_owned());
+                    let usage = &self.facts.declarations[changed.0];
+                    if usage.outcome != UsageOutcome::Unreachable {
+                        pending.push((changed, usage.outcome));
+                        pending.extend(usage.dependencies.iter().map(|&d| (d, usage.outcome)));
+                        pending.extend(
+                            usage
+                                .possible_dependencies
+                                .iter()
+                                .map(|&d| (d, UsageOutcome::Uncertain)),
+                        );
                     }
-                    Some(CallOutcome::Unsupported { reason, candidates }) => {
-                        possible.extend(candidates);
-                        uncertainty = Some(reason.clone());
-                    }
-                    Some(CallOutcome::Unresolved { reason } | CallOutcome::NoMatch { reason }) => {
-                        uncertainty = Some(reason.clone());
-                    }
-                    None => uncertainty = Some("callable interpretation is unavailable".into()),
-                }
-                if uncertainty.is_some() {
-                    match &reference.resolution {
-                        BindingResolution::Resolved(id) => push_unique(&mut possible, *id),
-                        BindingResolution::Overloads(ids) | BindingResolution::Ambiguous(ids) => {
-                            for &id in ids {
-                                push_unique(&mut possible, id);
-                            }
-                        }
-                        BindingResolution::Unresolved => {}
-                    }
-                }
-            } else {
-                match &reference.resolution {
-                    BindingResolution::Resolved(id) => known.push(*id),
-                    BindingResolution::Overloads(ids) | BindingResolution::Ambiguous(ids) => {
-                        possible.extend(ids);
-                        uncertainty = Some("reference has possible declarations".into());
-                    }
-                    BindingResolution::Unresolved => {
-                        uncertainty = Some("reference is unresolved".into())
-                    }
-                }
-            }
-            for owner in owners {
-                for &id in &known {
-                    self.edge(owner, id, false);
-                }
-                for &id in &possible {
-                    self.edge(owner, id, true);
-                }
-                if let Some(reason) = &uncertainty {
-                    self.uncertain.push(Uncertainty {
-                        owner,
-                        diagnostic: SourceDiagnostic {
-                            location: reference.location.clone(),
-                            message: format!(
-                                "unused-declaration: {reason} for '{}'",
-                                reference.name
-                            ),
-                        },
-                        unbounded: possible.is_empty(),
-                    });
                 }
             }
         }
@@ -510,29 +662,36 @@ impl Producer<'_> {
     }
     fn follow(&mut self) {
         if self.facts.root_state != ModelRootState::Complete {
+            for reference in self
+                .bindings
+                .references
+                .iter()
+                .filter(|r| r.callable.is_some())
+            {
+                self.collect_reference(reference, self.calls, Some(self.main_call_indices), &[]);
+            }
             for d in &mut self.facts.declarations {
                 d.outcome = UsageOutcome::Uncertain;
             }
             return;
         }
-        let mut pending: Vec<_> = self
-            .facts
-            .roots
-            .iter()
-            .map(|&id| (id, UsageOutcome::Reachable))
-            .chain(
-                self.facts
-                    .possible_roots
-                    .iter()
-                    .map(|&id| (id, UsageOutcome::Uncertain)),
-            )
-            .collect();
+        let mut pending = Vec::new();
+        self.body_dependencies(None, UsageOutcome::Reachable, &mut pending);
+        pending.extend(
+            self.facts
+                .roots
+                .iter()
+                .map(|&id| (id, UsageOutcome::Reachable))
+                .chain(
+                    self.facts
+                        .possible_roots
+                        .iter()
+                        .map(|&id| (id, UsageOutcome::Uncertain)),
+                ),
+        );
         let mut unbounded = false;
-        for u in self.uncertain.iter().filter(|u| u.owner.is_none()) {
-            push_diagnostic(&mut self.facts.limitations, &u.diagnostic);
-            unbounded |= u.unbounded;
-        }
         while let Some((id, state)) = pending.pop() {
+            self.body_dependencies(Some(id), state, &mut pending);
             let usage = &mut self.facts.declarations[id.0];
             if usage.outcome == UsageOutcome::Reachable || usage.outcome == state {
                 continue;
@@ -545,13 +704,16 @@ impl Producer<'_> {
                     .iter()
                     .map(|&d| (d, UsageOutcome::Uncertain)),
             );
-            for u in self.uncertain.iter().filter(|u| u.owner == Some(id)) {
-                // Report the first uncertain edge. Candidate descendants still
-                // propagate dependencies and unbounded uncertainty, without
-                // repeating every internal limitation beneath that frontier.
-                if state == UsageOutcome::Reachable {
-                    push_diagnostic(&mut self.facts.limitations, &u.diagnostic);
-                }
+        }
+        for u in &self.uncertain {
+            let state = u
+                .owner
+                .map(|id| self.facts.declarations[id.0].outcome)
+                .unwrap_or(UsageOutcome::Reachable);
+            if state == UsageOutcome::Reachable {
+                push_diagnostic(&mut self.facts.limitations, &u.diagnostic);
+            }
+            if state != UsageOutcome::Unreachable {
                 unbounded |= u.unbounded;
             }
         }

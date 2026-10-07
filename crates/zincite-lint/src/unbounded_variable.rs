@@ -1,8 +1,10 @@
 //! Domain advice over declared-domain and complete enforced-definition facts.
+use crate::callables::{find_node, is_expression};
+use crate::value_safety::optional;
 use crate::{
-    BindingFacts, DeclarationRole, DefinitionCoverage, DefinitionEnforcement, DefinitionFacts,
-    DefinitionSafety, DomainFacts, FileFinding, Instantiation, ModelContext, Rule, Severity,
-    SourceDiagnostic,
+    BindingFacts, CallableFacts, DeclarationId, DeclarationRole, DefinitionCoverage,
+    DefinitionEnforcement, DefinitionFacts, DefinitionSafety, Domain, DomainFacts, FileFinding,
+    Instantiation, ModelContext, Rule, Severity, SourceDiagnostic, TypeKind,
 };
 
 pub(super) struct UnboundedResult {
@@ -13,8 +15,10 @@ pub(super) struct UnboundedResult {
 pub(super) fn check_unbounded_variables(
     context: &ModelContext,
     bindings: &BindingFacts,
+    calls: &CallableFacts,
     domains: &DomainFacts,
     definitions: &DefinitionFacts,
+    inspected_locals: &[DeclarationId],
 ) -> UnboundedResult {
     let mut result = UnboundedResult {
         findings: Vec::new(),
@@ -40,12 +44,50 @@ pub(super) fn check_unbounded_variables(
         let unbounded = domains.declarations[declaration.id.0]
             .domain
             .has_unbounded_numeric_elements();
+        let ty = &calls.declarations[declaration.id.0].ty;
+        let unknown_domain = unbounded.is_err()
+            && ty.known()
+            && !optional(ty)
+            && symbolic_parameter_domain(
+                context,
+                bindings,
+                calls,
+                &domains.declarations[declaration.id.0].domain,
+            );
         let mut limitation = match unbounded {
             Ok(false) => continue,
             Ok(true) => None,
+            Err(_) if unknown_domain => None,
             Err(reason) => Some(reason.to_owned()),
         };
+        let inspected_initializer = if declaration.role == DeclarationRole::Local
+            && inspected_locals.contains(&declaration.id)
+            && ty.known()
+            && !optional(ty)
+            && ty.instantiation == Instantiation::Decision
+            && ty.kind == TypeKind::Int
+        {
+            find_node(
+                file.parsed.tree(),
+                &declaration.syntax_range,
+                declaration.role,
+            )
+            .and_then(|local| {
+                local
+                    .child_nodes()
+                    .find(|node| is_expression(node.kind()))
+                    .map(|value| {
+                        (
+                            file.location(local.range()).range,
+                            file.location(value.range()).range,
+                        )
+                    })
+            })
+        } else {
+            None
+        };
 
+        let mut unknown_definition = false;
         for definition in definitions
             .definitions
             .iter()
@@ -80,12 +122,28 @@ pub(super) fn check_unbounded_variables(
                 &definition.safety,
             ) {
                 (DefinitionEnforcement::Unsupported(reason), _, _)
-                | (_, DefinitionCoverage::Unsupported(reason), _)
-                | (
-                    _,
-                    _,
-                    DefinitionSafety::Unsupported(reason) | DefinitionSafety::Unknown(reason),
-                ) => Some(reason),
+                | (_, DefinitionCoverage::Unsupported(reason), _) => Some(reason),
+                (_, DefinitionCoverage::Scalar, DefinitionSafety::Unsupported(reason))
+                    if reason == "definition array access requires an index-membership proof"
+                        && inspected_initializer
+                            .as_ref()
+                            .is_some_and(|(local, value)| {
+                                definition.file == declaration.file
+                                    && definition.item == declaration.item
+                                    && definition.location.range == *local
+                                    && definition.value.range == *value
+                            }) =>
+                {
+                    // Full model-let inspection supplies no output when an
+                    // initializer is uncertain. Keep that barrier in this advice.
+                    unknown_definition = true;
+                    None
+                }
+                (_, _, DefinitionSafety::Unsupported(reason)) => Some(reason),
+                (_, _, DefinitionSafety::Unknown(_)) => {
+                    unknown_definition = true;
+                    None
+                }
                 _ => None,
             };
             if let Some(reason) = reason {
@@ -97,7 +155,7 @@ pub(super) fn check_unbounded_variables(
                 location: declaration.location.clone(),
                 message: format!("unbounded-variable: {reason} for '{}'", declaration.name),
             });
-        } else {
+        } else if !unknown_definition && !unknown_domain {
             result.findings.push(FileFinding { fix: None,
                 location: declaration.location.clone(),
                 rule: Rule::UnboundedVariable,
@@ -107,4 +165,40 @@ pub(super) fn check_unbounded_variables(
         }
     }
     result
+}
+
+fn symbolic_parameter_domain(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &CallableFacts,
+    domain: &Domain,
+) -> bool {
+    match domain {
+        Domain::Array { element, .. } => {
+            symbolic_parameter_domain(context, bindings, calls, element)
+        }
+        Domain::Named {
+            declaration,
+            domain,
+        } if domain.as_ref() == &Domain::Unknown => {
+            let declaration = &bindings.declarations[declaration.0];
+            let ty = &calls.declarations[declaration.id.0].ty;
+            declaration.top_level
+                && declaration.role == DeclarationRole::Value
+                && declaration.instantiation == Instantiation::Parameter
+                && ty.known()
+                && !optional(ty)
+                && ty.instantiation == Instantiation::Parameter
+                && matches!(&ty.kind, TypeKind::Set(element)
+                    if element.kind == TypeKind::Int
+                        && element.instantiation == Instantiation::Parameter)
+                && find_node(
+                    context.files[declaration.file].parsed.tree(),
+                    &declaration.syntax_range,
+                    declaration.role,
+                )
+                .is_some_and(|node| !node.child_nodes().any(|child| is_expression(child.kind())))
+        }
+        _ => false,
+    }
 }

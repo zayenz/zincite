@@ -1,14 +1,14 @@
 //! Option presence and collection counts, independent of guarded definedness.
-use crate::callables::{core_operation, is_expression};
-use crate::definitions::{resolved_call, resolved_reference};
+use crate::callables::{is_expression, operation_head_start};
+use crate::definitions::resolved_call;
 use crate::domains::{expression_domain, generator_slots, invariant_integer, tokens};
 use crate::{
-    BindingFacts, CallableFacts, DeclarationId, DeclarationRole, DefinitionCoverage,
-    DefinitionEnforcement, DefinitionFacts, Domain, DomainFacts, FileId, Instantiation,
-    InstantiationFacts, ModelContext, NumericFacts, NumericOutcome, SourceKind, SourceLocation,
-    TypeInst, TypeKind,
+    BindingFacts, BindingResolution, CallOutcome, CallableFacts, DeclarationId, DeclarationRole,
+    DefinitionCoverage, DefinitionEnforcement, DefinitionFacts, Domain, DomainFacts, FileId,
+    Instantiation, InstantiationFacts, ModelContext, NumericFacts, NumericOutcome, SourceKind,
+    SourceLocation, TypeInst, TypeKind,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 
 /// Presence when a value is defined. Absent is a defined option value; Present
@@ -153,6 +153,28 @@ pub fn resolve_optional_facts(
     numeric: &NumericFacts,
     definitions: &DefinitionFacts,
 ) -> OptionalFacts {
+    let mut expression_indices = HashMap::with_capacity(calls.expressions.len());
+    for (row, expression) in calls.expressions.iter().enumerate() {
+        expression_indices
+            .entry((
+                expression.file,
+                expression.location.range.start,
+                expression.location.range.end,
+            ))
+            .or_insert(row);
+    }
+    let mut reference_indices = HashMap::with_capacity(bindings.references.len());
+    for (row, reference) in bindings.references.iter().enumerate() {
+        reference_indices
+            .entry((reference.file, reference.location.range.start))
+            .or_insert(row);
+    }
+    let mut call_indices = HashMap::with_capacity(calls.calls.len());
+    for (row, call) in calls.calls.iter().enumerate() {
+        call_indices
+            .entry((call.file, call.location.range.start))
+            .or_insert(row);
+    }
     let mut producer = Producer {
         context,
         bindings,
@@ -161,6 +183,9 @@ pub fn resolve_optional_facts(
         domains,
         numeric,
         definitions,
+        expression_indices,
+        reference_indices,
+        call_indices,
         memo: vec![None; bindings.declarations.len()],
         active: Vec::new(),
         expressions: BTreeMap::new(),
@@ -217,6 +242,9 @@ struct Producer<'a> {
     domains: &'a DomainFacts,
     numeric: &'a NumericFacts,
     definitions: &'a DefinitionFacts,
+    expression_indices: HashMap<(FileId, usize, usize), usize>,
+    reference_indices: HashMap<(FileId, usize), usize>,
+    call_indices: HashMap<(FileId, usize), usize>,
     memo: Vec<Option<Value>>,
     active: Vec<DeclarationId>,
     expressions: BTreeMap<(FileId, usize, usize), Value>,
@@ -228,11 +256,49 @@ impl Producer<'_> {
     }
     fn ty(&self, file: FileId, node: &SyntaxNode) -> Option<&TypeInst> {
         let range = self.location(file, node).range;
-        self.calls
-            .expressions
-            .iter()
-            .find(|e| e.file == file && e.location.range == range)
-            .map(|e| &e.ty)
+        self.expression_indices
+            .get(&(file, range.start, range.end))
+            .map(|row| &self.calls.expressions[*row].ty)
+    }
+    fn reference(&self, file: FileId, node: &SyntaxNode) -> Option<DeclarationId> {
+        let start = tokens(&self.context.files[file].parsed, node)
+            .first()?
+            .range
+            .start
+            + self.context.files[file].byte_offset;
+        self.reference_indices.get(&(file, start)).and_then(|row| {
+            match self.bindings.references[*row].resolution {
+                BindingResolution::Resolved(id) => Some(id),
+                _ => None,
+            }
+        })
+    }
+    fn core(&self, file: FileId, node: &SyntaxNode, name: &str) -> bool {
+        let Some(start) = operation_head_start(self.context, file, node) else {
+            return false;
+        };
+        match self
+            .call_indices
+            .get(&(file, start))
+            .map(|row| &self.calls.calls[*row].outcome)
+        {
+            Some(CallOutcome::Resolved { declaration, .. }) => {
+                crate::definitions::core_callable(self.context, self.bindings, *declaration, name)
+            }
+            Some(CallOutcome::Intrinsic {
+                name: intrinsic, ..
+            }) => name == "+" && intrinsic == "unary+" && node.kind() == NodeKind::UnaryExpression,
+            _ => false,
+        }
+    }
+    fn references_any(&self, file: FileId, node: &SyntaxNode, ids: &[DeclarationId]) -> bool {
+        node.kind() == NodeKind::Expression
+            && self
+                .reference(file, node)
+                .is_some_and(|id| ids.contains(&id))
+            || node
+                .child_nodes()
+                .any(|child| self.references_any(file, child, ids))
     }
     fn inst(&self, file: FileId, node: &SyntaxNode) -> Instantiation {
         let range = self.location(file, node).range;
@@ -366,8 +432,7 @@ impl Producer<'_> {
                     .any(|t| t.kind == TokenKind::Absent)
                 {
                     Value::scalar(Presence::Absent)
-                } else if let Some(id) = resolved_reference(self.context, self.bindings, file, node)
-                {
+                } else if let Some(id) = self.reference(file, node) {
                     self.declaration(id)
                 } else {
                     self.typed(file, node)
@@ -443,10 +508,7 @@ impl Producer<'_> {
                     .first()
                     .map(|t| t.kind);
                 let name = operator.and_then(crate::bindings::symbolic_operator);
-                let core = name.is_some_and(|name| {
-                    core_operation(self.context, self.bindings, self.calls, file, node, name)
-                        .unwrap_or(false)
-                });
+                let core = name.is_some_and(|name| self.core(file, node, name));
                 if optional
                     && (!core
                         || !matches!(
@@ -563,10 +625,7 @@ impl Producer<'_> {
             if children.len() == 2
                 && operator
                     .and_then(crate::bindings::symbolic_operator)
-                    .is_some_and(|name| {
-                        core_operation(self.context, self.bindings, self.calls, file, node, name)
-                            .unwrap_or(false)
-                    })
+                    .is_some_and(|name| self.core(file, node, name))
             {
                 let exact = |n: &SyntaxNode| {
                     let range = self.location(file, n).range;
@@ -638,7 +697,7 @@ impl Producer<'_> {
                 } else {
                     Cardinality::Exact(1)
                 };
-                if references_any(self.context, self.bindings, file, source, &earlier) {
+                if self.references_any(file, source, &earlier) {
                     count = Cardinality::Unknown;
                 }
                 // `i,j in S` is an independent Cartesian product, not one
@@ -711,7 +770,7 @@ impl Producer<'_> {
     fn source_count(&mut self, file: FileId, node: &SyntaxNode) -> Cardinality {
         let node = unwrap(node);
         if node.kind() == NodeKind::Expression
-            && let Some(id) = resolved_reference(self.context, self.bindings, file, node)
+            && let Some(id) = self.reference(file, node)
         {
             let ty = &self.calls.declarations[id.0].ty;
             if matches!(ty.kind, TypeKind::Array { .. }) {
@@ -947,17 +1006,4 @@ fn node_at(node: &SyntaxNode, start: usize, end: usize) -> Option<&SyntaxNode> {
     }
     node.child_nodes()
         .find_map(|child| node_at(child, start, end))
-}
-fn references_any(
-    context: &ModelContext,
-    bindings: &BindingFacts,
-    file: FileId,
-    node: &SyntaxNode,
-    ids: &[DeclarationId],
-) -> bool {
-    node.kind() == NodeKind::Expression
-        && resolved_reference(context, bindings, file, node).is_some_and(|id| ids.contains(&id))
-        || node
-            .child_nodes()
-            .any(|child| references_any(context, bindings, file, child, ids))
 }

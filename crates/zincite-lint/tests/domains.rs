@@ -8,7 +8,11 @@ fn model(name: &str, source: &str) -> (PathBuf, zincite_lint::ModelContext) {
     let directory =
         std::env::temp_dir().join(format!("zincite-domains-{name}-{}", std::process::id()));
     std::fs::create_dir_all(directory.join("library/std")).unwrap();
-    std::fs::write(directory.join("library/std/stdlib.mzn"), "").unwrap();
+    std::fs::write(
+        directory.join("library/std/stdlib.mzn"),
+        "function int: card(set of int: values); function int: '+'(int: left,int: right);\n",
+    )
+    .unwrap();
     let root = directory.join("root.mzn");
     std::fs::write(&root, source).unwrap();
     let context = load_model(
@@ -117,6 +121,7 @@ fn empty_unknown_and_unsupported_domains_have_distinct_outcomes() {
         concat!(
             "set of int: empty={}; int: N; type Decisions = var set of int; Decisions: chosen={0,2};\n",
             "array[3..2,1..<1,empty,0..N] of int: quiet;\n",
+            "set of int: Input; array[card(Input)..9,card(Input)+1..9] of int: cardinality_unknown;\n",
             "array[1 div 0..3,9223372036854775807+1..9,1.5..3.5] of int: unsupported; solve satisfy;\n"
         ),
     );

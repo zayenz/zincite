@@ -3,6 +3,7 @@ use crate::{
     BindingFacts, BindingResolution, DeclarationId, DeclarationRole, FileId, ModelContext,
     SourceLocation,
 };
+use std::collections::{BTreeSet, HashMap};
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
 /// An integer bound or retained binding identity. Unknown bounds may be open,
@@ -79,9 +80,17 @@ pub struct DomainFacts {
 /// are meaningful only within those sources. Existing binding, callable and
 /// instantiation producers remain independent.
 pub fn resolve_domains(context: &ModelContext, bindings: &BindingFacts) -> DomainFacts {
+    resolve_domains_with_callables(context, bindings, None)
+}
+pub(super) fn resolve_domains_with_callables<'a>(
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    calls: Option<&'a crate::CallableFacts>,
+) -> DomainFacts {
     let mut walker = Walker {
         context,
         bindings,
+        calls,
         active: Vec::new(),
     };
     let declarations = bindings
@@ -107,9 +116,122 @@ pub fn resolve_domains(context: &ModelContext, bindings: &BindingFacts) -> Domai
     }
 }
 
+pub(super) fn parameter_set_cardinality(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    file: FileId,
+    node: &SyntaxNode,
+) -> Option<DeclarationId> {
+    let integer = |ty: &crate::TypeInst| {
+        ty.known()
+            && !crate::value_safety::optional(ty)
+            && ty.instantiation == crate::Instantiation::Parameter
+            && ty.kind == crate::TypeKind::Int
+    };
+    let set = |ty: &crate::TypeInst| {
+        ty.known()
+            && !crate::value_safety::optional(ty)
+            && ty.instantiation == crate::Instantiation::Parameter
+            && matches!(&ty.kind, crate::TypeKind::Set(element) if integer(element))
+    };
+    let ty = |node: &SyntaxNode| {
+        let range = context.files[file].location(node.range()).range;
+        calls
+            .expressions
+            .iter()
+            .find(|e| e.file == file && e.location.range == range)
+            .map(|e| &e.ty)
+    };
+    if node.kind() != NodeKind::CallExpression
+        || crate::callables::core_operation(context, bindings, calls, file, node, "card")
+            != Ok(true)
+        || !crate::definitions::annotations_safe(context, file, node)
+        || ty(node).is_none_or(|ty| !integer(ty))
+        || !crate::callables::operation_fact(context, calls, file, node).is_some_and(|fact| {
+            matches!(&fact.outcome, crate::CallOutcome::Resolved { parameters, return_type, .. }
+                    if parameters.len() == 1 && set(&parameters[0]) && integer(return_type))
+        })
+    {
+        return None;
+    }
+    let args: Vec<_> = node.child_nodes().collect();
+    let [source] = args.as_slice() else {
+        return None;
+    };
+    parameter_integer_set_source(context, bindings, calls, file, source)
+}
+
+pub(super) fn parameter_integer_set_source(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    file: FileId,
+    source: &SyntaxNode,
+) -> Option<DeclarationId> {
+    let integer = |ty: &crate::TypeInst| {
+        ty.known()
+            && !crate::value_safety::optional(ty)
+            && ty.instantiation == crate::Instantiation::Parameter
+            && ty.kind == crate::TypeKind::Int
+    };
+    let set = |ty: &crate::TypeInst| {
+        ty.known()
+            && !crate::value_safety::optional(ty)
+            && ty.instantiation == crate::Instantiation::Parameter
+            && matches!(&ty.kind, crate::TypeKind::Set(element) if integer(element))
+    };
+    let range = context.files[file].location(source.range()).range;
+    let written_name = tokens(&context.files[file].parsed, source);
+    if source.kind() != NodeKind::Expression
+        || source.child_nodes().next().is_some()
+        || written_name.len() != 1
+        || !matches!(
+            written_name[0].kind,
+            TokenKind::Identifier | TokenKind::QuotedIdentifier
+        )
+        || !calls
+            .expressions
+            .iter()
+            .any(|e| e.file == file && e.location.range == range && set(&e.ty))
+    {
+        return None;
+    }
+    let id = crate::definitions::resolved_reference(context, bindings, file, source)?;
+    let d = &bindings.declarations[id.0];
+    if d.file != file
+        || d.instantiation != crate::Instantiation::Parameter
+        || !matches!(d.role, DeclarationRole::Value | DeclarationRole::Parameter)
+        || !set(&calls.declarations[id.0].ty)
+    {
+        return None;
+    }
+    let declaration =
+        crate::callables::find_node(context.files[file].parsed.tree(), &d.syntax_range, d.role)?;
+    if !crate::definitions::annotations_safe(context, file, declaration)
+        || declaration
+            .child_nodes()
+            .any(|n| crate::callables::is_expression(n.kind()))
+    {
+        return None;
+    }
+    let written = declaration.child_nodes().next()?;
+    let elements: Vec<_> = written.child_nodes().collect();
+    (written.kind() == NodeKind::SetType
+        && elements.len() == 1
+        && elements[0].kind() == NodeKind::ScalarType
+        && elements[0].child_nodes().next().is_none()
+        && tokens(&context.files[file].parsed, elements[0])
+            .iter()
+            .any(|t| t.kind == TokenKind::Int)
+        && crate::definitions::annotations_safe(context, file, written))
+    .then_some(id)
+}
+
 struct Walker<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
+    calls: Option<&'a crate::CallableFacts>,
     active: Vec<DeclarationId>,
 }
 impl Walker<'_> {
@@ -345,6 +467,11 @@ impl Walker<'_> {
             value: Box::new(value),
         }
     }
+    fn parameter_set_cardinality(&self, file: FileId, node: &SyntaxNode) -> bool {
+        self.calls.is_some_and(|calls| {
+            parameter_set_cardinality(self.context, self.bindings, calls, file, node).is_some()
+        })
+    }
     fn bound(&mut self, file: FileId, node: &SyntaxNode) -> NumericBound {
         use NumericBound::*;
         let children: Vec<_> = node.child_nodes().collect();
@@ -456,6 +583,21 @@ impl Walker<'_> {
                 };
                 value.map(Integer).unwrap_or_else(arithmetic_failure)
             }
+            NodeKind::CallExpression
+                if self.calls.is_some_and(|calls| {
+                    crate::callable_definitions::parameter_index_extremum(
+                        self.context,
+                        self.bindings,
+                        calls,
+                        file,
+                        node,
+                    )
+                    .is_some()
+                }) =>
+            {
+                Unknown
+            }
+            NodeKind::CallExpression if self.parameter_set_cardinality(file, node) => Unknown,
             _ => Unsupported("numeric expression is outside bounded integer arithmetic".into()),
         }
     }
@@ -693,6 +835,7 @@ pub(super) fn expression_domain(
     Walker {
         context,
         bindings,
+        calls: None,
         active: Vec::new(),
     }
     .domain(file, node)
@@ -720,9 +863,17 @@ pub(super) fn same_members(left: &Domain, right: &Domain) -> Result<Option<bool>
         }
     }
     fn bound_equal(a: &NumericBound, b: &NumericBound) -> Result<Option<bool>, String> {
+        fn anonymous_unknown(bound: &NumericBound) -> bool {
+            match bound {
+                NumericBound::Unknown => true,
+                NumericBound::Arithmetic { operands, .. } => operands.iter().any(anonymous_unknown),
+                // Defined and Symbol retain their own declaration identity.
+                _ => false,
+            }
+        }
         match (invariant_integer(a)?, invariant_integer(b)?) {
             (Some(a), Some(b)) => Ok(Some(a == b)),
-            _ if a == b && !matches!(a, NumericBound::Unknown) => Ok(Some(true)),
+            _ if a == b && !anonymous_unknown(a) => Ok(Some(true)),
             _ => Ok(None),
         }
     }
@@ -819,6 +970,7 @@ pub(super) fn expression_integer(
     let bound = Walker {
         context,
         bindings,
+        calls: None,
         active: Vec::new(),
     }
     .bound(file, node);
@@ -834,6 +986,7 @@ pub(super) fn invariant_expression_integer(
     let bound = Walker {
         context,
         bindings,
+        calls: None,
         active: Vec::new(),
     }
     .bound(file, node);
@@ -1056,15 +1209,17 @@ pub fn resolve_numeric_facts(
     domains: &DomainFacts,
     definitions: &crate::DefinitionFacts,
 ) -> NumericFacts {
-    let mut interpreter = Bounds {
-        context,
-        bindings,
-        calls,
-        domains,
-        definitions: Some(definitions),
-        declarations: vec![None; bindings.declarations.len()],
-        active: Vec::new(),
-    };
+    let mut interpreter = Bounds::new(context, bindings, calls, domains, Some(definitions));
+    let mut instantiation_indices = HashMap::with_capacity(instantiations.expressions.len());
+    for (index, expression) in instantiations.expressions.iter().enumerate() {
+        instantiation_indices
+            .entry((
+                expression.file,
+                expression.location.range.start,
+                expression.location.range.end,
+            ))
+            .or_insert(index);
+    }
     let mut facts = NumericFacts::default();
     for declaration in &bindings.declarations {
         if !context.files[declaration.file].warnings_enabled()
@@ -1144,11 +1299,15 @@ pub fn resolve_numeric_facts(
         };
         let outcome = interpreter.expression(expression.file, node);
         retain_numeric_limitation(&mut facts, expression.file, &expression.location, &outcome);
-        let instantiation = instantiations
-            .expressions
-            .iter()
-            .find(|e| e.file == expression.file && e.location.range == expression.location.range)
-            .map_or(crate::Instantiation::Unknown, |e| e.instantiation);
+        let instantiation = instantiation_indices
+            .get(&(
+                expression.file,
+                expression.location.range.start,
+                expression.location.range.end,
+            ))
+            .map_or(crate::Instantiation::Unknown, |&index| {
+                instantiations.expressions[index].instantiation
+            });
         facts.expressions.push(NumericExpression {
             file: expression.file,
             location: expression.location.clone(),
@@ -1320,25 +1479,30 @@ pub fn resolve_integer_bounds(
     calls: &crate::CallableFacts,
     domains: &DomainFacts,
 ) -> IntegerBoundsFacts {
-    let mut interpreter = Bounds {
-        context,
-        bindings,
-        calls,
-        domains,
-        definitions: None,
-        declarations: Vec::new(),
-        active: Vec::new(),
-    };
+    let eligible = calls
+        .expressions
+        .iter()
+        .filter(|e| {
+            matches!(
+                e.ty.kind,
+                crate::TypeKind::Int | crate::TypeKind::Unknown(_)
+            )
+        })
+        .map(|e| (e.file, e.location.range.start, e.location.range.end))
+        .collect();
+    let mut interpreter = Bounds::new(context, bindings, calls, domains, None);
     let mut facts = IntegerBoundsFacts::default();
     for (file, source) in context.files.iter().enumerate() {
         if !source.warnings_enabled() || !source.parsed.diagnostics().is_empty() {
             continue;
         }
-        interpreter.walk(file, source.parsed.tree(), &mut facts);
+        interpreter.walk(file, source.parsed.tree(), &eligible, &mut facts);
     }
     facts
 }
 struct Bounds<'a> {
+    reference_indices: HashMap<(FileId, usize), usize>,
+    expression_indices: HashMap<(FileId, usize, usize), (usize, bool)>,
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
     calls: &'a crate::CallableFacts,
@@ -1347,17 +1511,57 @@ struct Bounds<'a> {
     declarations: Vec<Option<NumericOutcome>>,
     active: Vec<DeclarationId>,
 }
-impl Bounds<'_> {
-    fn walk(&mut self, file: FileId, node: &SyntaxNode, facts: &mut IntegerBoundsFacts) {
+impl<'a> Bounds<'a> {
+    fn new(
+        context: &'a ModelContext,
+        bindings: &'a BindingFacts,
+        calls: &'a crate::CallableFacts,
+        domains: &'a DomainFacts,
+        definitions: Option<&'a crate::DefinitionFacts>,
+    ) -> Self {
+        let mut reference_indices = HashMap::with_capacity(bindings.references.len());
+        for (index, reference) in bindings.references.iter().enumerate() {
+            reference_indices
+                .entry((reference.file, reference.location.range.start))
+                .or_insert(index);
+        }
+        let mut expression_indices = HashMap::with_capacity(calls.expressions.len());
+        for (index, expression) in calls.expressions.iter().enumerate() {
+            let float = expression.ty.kind == crate::TypeKind::Float;
+            expression_indices
+                .entry((
+                    expression.file,
+                    expression.location.range.start,
+                    expression.location.range.end,
+                ))
+                .and_modify(|entry: &mut (usize, bool)| entry.1 |= float)
+                .or_insert((index, float));
+        }
+        Self {
+            reference_indices,
+            expression_indices,
+            context,
+            bindings,
+            calls,
+            domains,
+            definitions,
+            declarations: if definitions.is_some() {
+                vec![None; bindings.declarations.len()]
+            } else {
+                Vec::new()
+            },
+            active: Vec::new(),
+        }
+    }
+    fn walk(
+        &mut self,
+        file: FileId,
+        node: &SyntaxNode,
+        eligible: &BTreeSet<(FileId, usize, usize)>,
+        facts: &mut IntegerBoundsFacts,
+    ) {
         let location = self.context.files[file].location(node.range());
-        if self.calls.expressions.iter().any(|e| {
-            e.file == file
-                && e.location.range == location.range
-                && matches!(
-                    e.ty.kind,
-                    crate::TypeKind::Int | crate::TypeKind::Unknown(_)
-                )
-        }) {
+        if eligible.contains(&(file, location.range.start, location.range.end)) {
             facts.expressions.push(ExpressionBounds {
                 file,
                 location,
@@ -1365,7 +1569,7 @@ impl Bounds<'_> {
             });
         }
         for child in node.child_nodes() {
-            self.walk(file, child, facts);
+            self.walk(file, child, eligible, facts);
         }
     }
     fn reference(&self, file: FileId, node: &SyntaxNode) -> Option<DeclarationId> {
@@ -1374,35 +1578,22 @@ impl Bounds<'_> {
             .range
             .start
             + self.context.files[file].byte_offset;
-        self.bindings
-            .references
-            .iter()
-            .find(|r| r.file == file && r.location.range.start == start)
-            .and_then(|r| {
-                if let BindingResolution::Resolved(id) = r.resolution {
-                    Some(id)
-                } else {
-                    None
-                }
-            })
+        let reference = &self.bindings.references[*self.reference_indices.get(&(file, start))?];
+        match reference.resolution {
+            BindingResolution::Resolved(id) => Some(id),
+            _ => None,
+        }
     }
     fn expression(&mut self, file: FileId, node: &SyntaxNode) -> NumericOutcome {
         use NumericOutcome::*;
         let range = self.context.files[file].location(node.range()).range;
-        if self
-            .calls
-            .expressions
-            .iter()
-            .find(|e| e.file == file && e.location.range == range)
-            .is_some_and(|e| crate::value_safety::optional(&e.ty))
-        {
+        let expression = self.expression_indices.get(&(file, range.start, range.end));
+        if expression.is_some_and(|&(index, _)| {
+            crate::value_safety::optional(&self.calls.expressions[index].ty)
+        }) {
             return Unsupported("optional integer bounds require a presence proof".into());
         }
-        if self.definitions.is_some()
-            && self.calls.expressions.iter().any(|e| {
-                e.file == file && e.location.range == range && e.ty.kind == crate::TypeKind::Float
-            })
-        {
+        if self.definitions.is_some() && expression.is_some_and(|&(_, float)| float) {
             return Unsupported("floating-point bounds are outside integer interpretation".into());
         }
         let children: Vec<_> = node.child_nodes().collect();
@@ -1420,6 +1611,7 @@ impl Bounds<'_> {
                     let value = Walker {
                         context: self.context,
                         bindings: self.bindings,
+                        calls: None,
                         active: Vec::new(),
                     }
                     .bound(file, node);

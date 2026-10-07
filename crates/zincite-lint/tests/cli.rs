@@ -2129,11 +2129,7 @@ fn domain_contract_selection_locations_limits_and_suppression_preserve_source() 
     );
     assert_eq!(clean.status.code(), Some(0));
     assert!(clean.stdout.is_empty());
-    assert!(
-        String::from_utf8(clean.stderr)
-            .unwrap()
-            .contains("analysis limitation: suspicious-domain:")
-    );
+    assert!(clean.stderr.is_empty());
     assert_eq!(
         run(&["--rules", "suspicious-domain"], "var 0..")
             .status

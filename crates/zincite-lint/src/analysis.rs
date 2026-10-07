@@ -9,12 +9,11 @@ use crate::{
     compact_if::check_compact_ifs, constant_variable::check_constant_variables,
     decision_use::check_decision_use, effective_zero_one::check_effective_zero_one,
     element::check_element, global_uses::check_global_uses, lint_items, lint_with_options,
-    resolve_bindings, resolve_callables, resolve_compact_ifs, resolve_definitions, resolve_domains,
+    resolve_bindings, resolve_callables, resolve_compact_ifs, resolve_definitions,
     resolve_effective_zero_one, resolve_global_uses, resolve_instantiations,
-    resolve_integer_bounds, resolve_search_coverage, resolve_symmetry_uses,
-    resolve_unused_declarations, search_coverage::check_search_coverage,
-    symmetry::check_symmetry_uses, unbounded_variable::check_unbounded_variables,
-    unused_declarations::check_unused_declarations,
+    resolve_integer_bounds, resolve_symmetry_uses, resolve_unused_declarations,
+    search_coverage::check_search_coverage, symmetry::check_symmetry_uses,
+    unbounded_variable::check_unbounded_variables, unused_declarations::check_unused_declarations,
 };
 
 #[derive(Debug)]
@@ -240,39 +239,6 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             result.findings.extend(findings);
             result.limitations.extend(limitations);
         }
-        let domains = if options.rules.contains(&Rule::ElementPredicate)
-            || options.rules.contains(&Rule::ArrayIndexStart)
-            || options.rules.contains(&Rule::ConstantVariable)
-            || options.rules.contains(&Rule::UnboundedVariable)
-            || options.rules.contains(&Rule::SearchCoverage)
-            || options.rules.contains(&Rule::IndexSetMismatch)
-            || options.rules.contains(&Rule::HiddenOptionality)
-            || options.rules.contains(&Rule::PartialExpression)
-            || options.rules.contains(&Rule::VacuousConstraint)
-            || options.rules.contains(&Rule::UnusedGeneratorBinding)
-            || options.rules.contains(&Rule::GlobalConstraintOpportunity)
-            || options.rules.contains(&Rule::ExpensiveComprehension)
-            || options.rules.contains(&Rule::MissingInputPrecondition)
-            || options.rules.contains(&Rule::SuspiciousDomain)
-            || options.rules.contains(&Rule::EffectiveZeroOne)
-        {
-            Some(resolve_domains(context, &facts))
-        } else {
-            None
-        };
-        if options.rules.contains(&Rule::ArrayIndexStart) {
-            let domains = domains.as_ref().unwrap();
-            let indices = check_array_indices(context, domains);
-            array_incomplete = !indices.limitations.is_empty();
-            result.findings.extend(indices.findings);
-            result.limitations.extend(indices.limitations);
-        }
-        if options.rules.contains(&Rule::GlobalVariableInFunction) {
-            let captures = check_captures(context, &facts);
-            capture_incomplete = !captures.limitations.is_empty();
-            result.findings.extend(captures.findings);
-            result.limitations.extend(captures.limitations);
-        }
         let decision_rules: Vec<_> = options
             .rules
             .iter()
@@ -286,9 +252,10 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 )
             })
             .collect();
-        if options.rules.contains(&Rule::UnmarkedSymmetryBreaking)
+        let calls = if options.rules.contains(&Rule::UnmarkedSymmetryBreaking)
             || options.rules.contains(&Rule::ReifiedGlobal)
             || options.rules.contains(&Rule::ElementPredicate)
+            || options.rules.contains(&Rule::ArrayIndexStart)
             || options.rules.contains(&Rule::CompactIf)
             || !decision_rules.is_empty()
             || options.rules.contains(&Rule::ConstantVariable)
@@ -306,7 +273,66 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             || options.rules.contains(&Rule::EffectiveZeroOne)
             || options.rules.contains(&Rule::UnusedDeclaration)
         {
-            let calls = resolve_callables(context, &facts);
+            Some(resolve_callables(context, &facts))
+        } else {
+            None
+        };
+        let domains = if options.rules.contains(&Rule::ElementPredicate)
+            || options.rules.contains(&Rule::ArrayIndexStart)
+            || options.rules.contains(&Rule::ConstantVariable)
+            || options.rules.contains(&Rule::UnboundedVariable)
+            || options.rules.contains(&Rule::SearchCoverage)
+            || options.rules.contains(&Rule::IndexSetMismatch)
+            || options.rules.contains(&Rule::HiddenOptionality)
+            || options.rules.contains(&Rule::PartialExpression)
+            || options.rules.contains(&Rule::VacuousConstraint)
+            || options.rules.contains(&Rule::UnusedGeneratorBinding)
+            || options.rules.contains(&Rule::GlobalConstraintOpportunity)
+            || options.rules.contains(&Rule::ExpensiveComprehension)
+            || options.rules.contains(&Rule::MissingInputPrecondition)
+            || options.rules.contains(&Rule::SuspiciousDomain)
+            || options.rules.contains(&Rule::EffectiveZeroOne)
+        {
+            Some(crate::domains::resolve_domains_with_callables(
+                context,
+                &facts,
+                calls.as_ref(),
+            ))
+        } else {
+            None
+        };
+        let mut index_prerequisites = options.rules.contains(&Rule::ArrayIndexStart).then(|| {
+            let calls = calls.as_ref().unwrap();
+            let instantiations = resolve_instantiations(context, &facts, calls);
+            let definitions = resolve_definitions(
+                context,
+                &facts,
+                calls,
+                &instantiations,
+                domains.as_ref().unwrap(),
+            );
+            (instantiations, definitions)
+        });
+        if options.rules.contains(&Rule::ArrayIndexStart) {
+            let domains = domains.as_ref().unwrap();
+            let indices = check_array_indices(
+                context,
+                &facts,
+                calls.as_ref().unwrap(),
+                domains,
+                &index_prerequisites.as_ref().unwrap().1,
+            );
+            array_incomplete = !indices.limitations.is_empty();
+            result.findings.extend(indices.findings);
+            result.limitations.extend(indices.limitations);
+        }
+        if options.rules.contains(&Rule::GlobalVariableInFunction) {
+            let captures = check_captures(context, &facts);
+            capture_incomplete = !captures.limitations.is_empty();
+            result.findings.extend(captures.findings);
+            result.limitations.extend(captures.limitations);
+        }
+        if let Some(calls) = calls {
             if options.rules.contains(&Rule::UnmarkedSymmetryBreaking) {
                 let symmetry = resolve_symmetry_uses(context, &facts, &calls);
                 let (findings, limitations) = check_symmetry_uses(context, &symmetry);
@@ -325,6 +351,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 result.limitations.extend(usage.limitations);
             }
             if options.rules.contains(&Rule::ElementPredicate)
+                || options.rules.contains(&Rule::ArrayIndexStart)
                 || options.rules.contains(&Rule::ReifiedGlobal)
                 || !decision_rules.is_empty()
                 || options.rules.contains(&Rule::CompactIf)
@@ -342,7 +369,10 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 || options.rules.contains(&Rule::SuspiciousDomain)
                 || options.rules.contains(&Rule::EffectiveZeroOne)
             {
-                let instantiations = resolve_instantiations(context, &facts, &calls);
+                let (instantiations, prepared_definitions) = match index_prerequisites.take() {
+                    Some((instantiations, definitions)) => (instantiations, Some(definitions)),
+                    None => (resolve_instantiations(context, &facts, &calls), None),
+                };
                 if options.rules.contains(&Rule::ReifiedGlobal) {
                     let uses = resolve_global_uses(context, &facts, &calls, &instantiations);
                     let (findings, limitations) = check_global_uses(context, &uses);
@@ -375,6 +405,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     result.limitations.extend(checked.limitations);
                 }
                 if options.rules.contains(&Rule::ElementPredicate)
+                    || options.rules.contains(&Rule::ArrayIndexStart)
                     || options.rules.contains(&Rule::ConstantVariable)
                     || options.rules.contains(&Rule::UnboundedVariable)
                     || options.rules.contains(&Rule::SearchCoverage)
@@ -388,13 +419,76 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     || options.rules.contains(&Rule::MissingInputPrecondition)
                     || options.rules.contains(&Rule::SuspiciousDomain)
                 {
-                    let definitions = resolve_definitions(
-                        context,
-                        &facts,
-                        &calls,
-                        &instantiations,
-                        domains.as_ref().unwrap(),
-                    );
+                    let mut definitions = prepared_definitions.unwrap_or_else(|| {
+                        resolve_definitions(
+                            context,
+                            &facts,
+                            &calls,
+                            &instantiations,
+                            domains.as_ref().unwrap(),
+                        )
+                    });
+                    let callable_definitions = (options.rules.contains(&Rule::SearchCoverage)
+                        || options.rules.contains(&Rule::UnboundedVariable)
+                        || options.rules.contains(&Rule::ConstantVariable))
+                    .then(|| {
+                        crate::resolve_callable_definitions(
+                            context,
+                            &facts,
+                            &calls,
+                            &instantiations,
+                            domains.as_ref().unwrap(),
+                        )
+                    });
+                    if let Some(callable) = &callable_definitions {
+                        for definition in &mut definitions.definitions {
+                            let declaration = &facts.declarations[definition.target.0];
+                            let ty = &calls.declarations[definition.target.0].ty;
+                            let file = &context.files[declaration.file];
+                            if declaration.role != crate::DeclarationRole::Local
+                                || !callable.inspected_locals.contains(&declaration.id)
+                                || !ty.known()
+                                || crate::value_safety::optional(ty)
+                                || ty.instantiation != crate::Instantiation::Decision
+                                || !matches!(&ty.kind, crate::TypeKind::Array { indices, element }
+                                    if indices.len() == 1 && element.kind == crate::TypeKind::Int)
+                                || definition.enforcement != crate::DefinitionEnforcement::Enforced
+                                || definition.coverage != crate::DefinitionCoverage::WholeArray
+                                || !matches!(&definition.safety, crate::DefinitionSafety::Unsupported(reason)
+                                    if reason == "definition value control/iteration safety is unsupported")
+                            {
+                                continue;
+                            }
+                            let local = crate::callables::find_node(
+                                file.parsed.tree(),
+                                &declaration.syntax_range,
+                                declaration.role,
+                            );
+                            if local
+                                .and_then(|local| {
+                                    local
+                                        .child_nodes()
+                                        .find(|node| crate::callables::is_expression(node.kind()))
+                                        .map(|value| (local, value))
+                                })
+                                .is_some_and(|(local, value)| {
+                                    value.kind() == zincite_syntax::NodeKind::ArrayComprehension
+                                        && definition.file == declaration.file
+                                        && definition.item == declaration.item
+                                        && definition.location.range
+                                            == file.location(local.range()).range
+                                        && definition.value.range
+                                            == file.location(value.range()).range
+                                })
+                            {
+                                // The complete owning let was inspected, but its uncertain
+                                // initializer supplies no definition, bound or clarity advice.
+                                definition.safety = crate::DefinitionSafety::Unknown(
+                                    "inspected local comprehension is unproved".into(),
+                                );
+                            }
+                        }
+                    }
                     if options.rules.contains(&Rule::ElementPredicate)
                         || options.rules.contains(&Rule::IndexSetMismatch)
                         || options.rules.contains(&Rule::HiddenOptionality)
@@ -618,13 +712,14 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                         }
                     }
                     if options.rules.contains(&Rule::SearchCoverage) {
-                        let search = resolve_search_coverage(
+                        let search = crate::search::resolve_search_with_callable(
                             context,
                             &facts,
                             &calls,
                             &instantiations,
                             domains.as_ref().unwrap(),
                             &definitions,
+                            callable_definitions.as_ref().unwrap(),
                         );
                         search_state = search.root_state;
                         search_incomplete = !search.limitations.is_empty()
@@ -635,11 +730,22 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                         result.limitations.extend(search.limitations);
                     }
                     if options.rules.contains(&Rule::UnboundedVariable) {
+                        let mut complete = crate::DefinitionFacts {
+                            definitions: definitions
+                                .definitions
+                                .iter()
+                                .chain(callable_definitions.as_ref().unwrap().definitions.iter())
+                                .cloned()
+                                .collect(),
+                        };
+                        crate::definitions::mark_cycles(&mut complete.definitions);
                         let checked = check_unbounded_variables(
                             context,
                             &facts,
+                            &calls,
                             domains.as_ref().unwrap(),
-                            &definitions,
+                            &complete,
+                            &callable_definitions.as_ref().unwrap().inspected_locals,
                         );
                         unbounded_incomplete = !checked.limitations.is_empty();
                         result.findings.extend(checked.findings);

@@ -60,7 +60,7 @@ fn paths_and_stdin_paths_select_data_syntax_and_reject_mixed_inputs() {
         vec!["--write", "--stdin-filepath", "input.mzn"],
         vec!["first.mzn", "second.mzn"],
     ] {
-        let output = run(&arguments, "value=1;");
+        let output = run(&arguments, "");
         assert_eq!(output.status.code(), Some(2));
         assert!(output.stdout.is_empty());
         assert!(!output.stderr.is_empty());
@@ -363,7 +363,7 @@ fn editorconfig_protected_bytes_bom_and_invalid_settings() {
         vec!["--end-of-line", "native"],
         vec!["--max-line-length"],
     ] {
-        assert_eq!(run(&arguments, "int:x=1;").status.code(), Some(2));
+        assert_eq!(run(&arguments, "").status.code(), Some(2));
     }
     std::fs::remove_dir_all(directory).unwrap();
 }

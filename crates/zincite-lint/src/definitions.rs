@@ -7,6 +7,7 @@ use crate::{
     Domain, DomainFacts, FileId, Instantiation, InstantiationFacts, ModelContext, ReferenceKind,
     SourceKind, SourceLocation, TypeKind,
 };
+use std::collections::{HashMap, HashSet};
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -112,7 +113,55 @@ pub fn resolve_definitions(
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
 ) -> DefinitionFacts {
+    let mut reference_indices = HashMap::with_capacity(bindings.references.len());
+    for (index, reference) in bindings.references.iter().enumerate() {
+        reference_indices
+            .entry((reference.file, reference.location.range.start))
+            .or_insert(index);
+    }
+    let mut call_indices = HashMap::with_capacity(calls.calls.len());
+    for (index, call) in calls.calls.iter().enumerate() {
+        call_indices
+            .entry((call.file, call.location.range.start))
+            .or_insert(index);
+    }
+    let mut expression_indices = HashMap::with_capacity(calls.expressions.len());
+    for (index, expression) in calls.expressions.iter().enumerate() {
+        expression_indices
+            .entry((
+                expression.file,
+                expression.location.range.start,
+                expression.location.range.end,
+            ))
+            .or_insert(index);
+    }
+    let mut dependency_reference_indices = vec![Vec::new(); context.files.len()];
+    for (index, reference) in bindings.references.iter().enumerate() {
+        if reference.kind == ReferenceKind::Value {
+            dependency_reference_indices[reference.file].push(index);
+        }
+    }
+    for indices in &mut dependency_reference_indices {
+        indices.sort_unstable_by_key(|&index| {
+            (bindings.references[index].location.range.start, index)
+        });
+    }
+    let mut instantiation_indices = HashMap::with_capacity(instantiations.expressions.len());
+    for (index, expression) in instantiations.expressions.iter().enumerate() {
+        instantiation_indices
+            .entry((
+                expression.file,
+                expression.location.range.start,
+                expression.location.range.end,
+            ))
+            .or_insert(index);
+    }
     let mut producer = Producer {
+        reference_indices,
+        call_indices,
+        expression_indices,
+        dependency_reference_indices,
+        instantiation_indices,
         context,
         bindings,
         calls,
@@ -151,8 +200,12 @@ pub fn resolve_definitions(
             producer.record(
                 declaration.file,
                 declaration.item,
-                node,
-                value,
+                (
+                    node,
+                    value,
+                    (declaration.role == DeclarationRole::Value && declaration.top_level)
+                        .then_some(&[][..]),
+                ),
                 DefinitionEnforcement::Enforced,
                 (declaration.id, coverage),
             );
@@ -171,49 +224,54 @@ pub fn resolve_definitions(
             producer.walk(file, item, node, enforcement, &[]);
         }
     }
-    let edges: Vec<_> = producer
-        .definitions
-        .iter()
-        .filter(|d| d.enforcement == DefinitionEnforcement::Enforced)
-        .map(|d| (d.target, d.dependencies.clone()))
-        .collect();
-    for definition in &mut producer.definitions {
-        definition.cyclic = definition
-            .dependencies
-            .iter()
-            .any(|id| reaches(*id, definition.target, &edges, &mut Vec::new()));
-    }
+    mark_cycles(&mut producer.definitions);
     DefinitionFacts {
         definitions: producer.definitions,
     }
 }
 
-fn reaches(
-    id: DeclarationId,
-    target: DeclarationId,
-    edges: &[(DeclarationId, Vec<DeclarationId>)],
-    active: &mut Vec<DeclarationId>,
-) -> bool {
-    if id == target {
-        return true;
-    }
-    if active.contains(&id) {
-        return false;
-    }
-    active.push(id);
-    let found = edges
+pub(super) fn mark_cycles(definitions: &mut [Definition]) {
+    let mut edges: HashMap<usize, Vec<DeclarationId>> = HashMap::new();
+    for definition in definitions
         .iter()
-        .filter(|(from, _)| *from == id)
-        .any(|(_, dependencies)| {
-            dependencies
-                .iter()
-                .any(|next| reaches(*next, target, edges, active))
-        });
-    active.pop();
-    found
+        .filter(|d| d.enforcement == DefinitionEnforcement::Enforced)
+    {
+        edges
+            .entry(definition.target.0)
+            .or_default()
+            .extend_from_slice(&definition.dependencies);
+    }
+    for definition in definitions {
+        definition.cyclic = reaches(&definition.dependencies, definition.target, &edges);
+    }
+}
+
+fn reaches(
+    dependencies: &[DeclarationId],
+    target: DeclarationId,
+    edges: &HashMap<usize, Vec<DeclarationId>>,
+) -> bool {
+    let mut pending = dependencies.to_vec();
+    let mut visited = HashSet::new();
+    while let Some(id) = pending.pop() {
+        if id == target {
+            return true;
+        }
+        if visited.insert(id.0)
+            && let Some(next) = edges.get(&id.0)
+        {
+            pending.extend_from_slice(next);
+        }
+    }
+    false
 }
 
 struct Producer<'a> {
+    reference_indices: HashMap<(FileId, usize), usize>,
+    call_indices: HashMap<(FileId, usize), usize>,
+    expression_indices: HashMap<(FileId, usize, usize), usize>,
+    dependency_reference_indices: Vec<Vec<usize>>,
+    instantiation_indices: HashMap<(FileId, usize, usize), usize>,
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
     calls: &'a CallableFacts,
@@ -240,21 +298,47 @@ impl<'context> Producer<'context> {
             .collect()
     }
     fn reference(&self, file: FileId, node: &SyntaxNode) -> Option<DeclarationId> {
-        resolved_reference(self.context, self.bindings, file, node)
+        let start = crate::domains::tokens(&self.context.files[file].parsed, node)
+            .first()?
+            .range
+            .start
+            + self.context.files[file].byte_offset;
+        let reference = &self.bindings.references[*self.reference_indices.get(&(file, start))?];
+        match reference.resolution {
+            BindingResolution::Resolved(id) => Some(id),
+            _ => None,
+        }
     }
     fn instantiation(&self, file: FileId, node: &SyntaxNode) -> Instantiation {
         let location = self.context.files[file].location(node.range());
-        self.instantiations
-            .expressions
-            .iter()
-            .find(|e| e.file == file && e.location.range == location.range)
-            .map_or(Instantiation::Unknown, |e| e.instantiation)
+        self.instantiation_indices
+            .get(&(file, location.range.start, location.range.end))
+            .map_or(Instantiation::Unknown, |&index| {
+                self.instantiations.expressions[index].instantiation
+            })
     }
     fn annotations_safe(&self, file: FileId, node: &SyntaxNode) -> bool {
         annotations_safe(self.context, file, node)
     }
     fn call(&self, file: FileId, node: &SyntaxNode) -> Option<DeclarationId> {
-        resolved_call(self.context, self.calls, file, node)
+        let start = crate::domains::tokens(&self.context.files[file].parsed, node)
+            .into_iter()
+            .find(|t| {
+                matches!(
+                    t.kind,
+                    TokenKind::Identifier
+                        | TokenKind::QuotedIdentifier
+                        | TokenKind::InfixIdentifier
+                )
+            })?
+            .range
+            .start
+            + self.context.files[file].byte_offset;
+        let call = &self.calls.calls[*self.call_indices.get(&(file, start))?];
+        match call.outcome {
+            CallOutcome::Resolved { declaration, .. } => Some(declaration),
+            _ => None,
+        }
     }
     fn core_forall(&self, id: DeclarationId) -> bool {
         core_callable(self.context, self.bindings, id, "forall")
@@ -317,7 +401,7 @@ impl<'context> Producer<'context> {
                         } else {
                             enforcement.clone()
                         };
-                        self.record(file, item, node, value, own, candidate);
+                        self.record(file, item, (node, value, Some(generators)), own, candidate);
                     }
                 }
             }
@@ -332,7 +416,8 @@ impl<'context> Producer<'context> {
             node.kind(),
             NodeKind::CallExpression | NodeKind::GeneratorCallExpression
         ) {
-            if let Some(id) = self.call(file, node) {
+            let selected = self.call(file, node);
+            if let Some(id) = selected {
                 if self.core_forall(id) {
                     let quantified = if node.kind() == NodeKind::GeneratorCallExpression {
                         Some(node)
@@ -403,7 +488,7 @@ impl<'context> Producer<'context> {
             // An unresolved selection cannot prove a transparent/core call.
             // Retain that missing boundary rather than claiming a completed
             // negative for an equality in its actual arguments.
-            let own = if enforcement == Enforced && self.call(file, node).is_none() {
+            let own = if enforcement == Enforced && selected.is_none() {
                 Unsupported("constraint callable selection is unavailable".into())
             } else {
                 Conditional
@@ -495,11 +580,11 @@ impl<'context> Producer<'context> {
         &mut self,
         file: FileId,
         item: usize,
-        node: &SyntaxNode,
-        value: &SyntaxNode,
+        syntax: (&SyntaxNode, &SyntaxNode, Option<&[&SyntaxNode]>),
         enforcement: DefinitionEnforcement,
         candidate: (DeclarationId, DefinitionCoverage),
     ) {
+        let (node, value, generators) = syntax;
         let (target, coverage) = candidate;
         let location = self.context.files[file].location(node.range());
         let value_location = self.context.files[file].location(value.range());
@@ -519,7 +604,18 @@ impl<'context> Producer<'context> {
             self.definitions.remove(index);
         }
         let mut dependencies = Vec::new();
-        for reference in &self.bindings.references {
+        let indices = &self.dependency_reference_indices[file];
+        let first = indices.partition_point(|&index| {
+            self.bindings.references[index].location.range.start < value_location.range.start
+        });
+        let last = indices.partition_point(|&index| {
+            self.bindings.references[index].location.range.start <= value_location.range.end
+        });
+        let mut ordered = indices[first..last].to_vec();
+        // Dependency identity order follows the original reference vector.
+        ordered.sort_unstable();
+        for index in ordered {
+            let reference = &self.bindings.references[index];
             if reference.file == file
                 && reference.kind == ReferenceKind::Value
                 && value_location.range.start <= reference.location.range.start
@@ -533,6 +629,58 @@ impl<'context> Producer<'context> {
         let instantiation = self.instantiation(file, value);
         let mut safety =
             crate::expression_safety(self.context, self.bindings, self.calls, file, value);
+        let declaration = &self.bindings.declarations[target.0];
+        let ty = &self.calls.declarations[target.0].ty;
+        if matches!(safety, DefinitionSafety::Unsupported(_))
+            && declaration.file == file
+            && declaration.role == DeclarationRole::Value
+            && declaration.top_level
+            && ty.known()
+            && !optional(ty)
+            && let Some(generators) = generators
+        {
+            let initializer = (ty.kind == TypeKind::Int
+                || matches!(&ty.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 1 && element.kind == TypeKind::Int))
+                && node.kind() == NodeKind::Declaration
+                && node.range() == declaration.syntax_range;
+            let integer_target = match (&coverage, &ty.kind) {
+                (DefinitionCoverage::Scalar, TypeKind::Int) => true,
+                (DefinitionCoverage::WholeArray, TypeKind::Array { element, .. }) => {
+                    element.kind == TypeKind::Int
+                }
+                _ => false,
+            };
+            let equality = integer_target
+                && enforcement == DefinitionEnforcement::Enforced
+                && node.kind() == NodeKind::BinaryExpression
+                && crate::callables::core_operation(
+                    self.context,
+                    self.bindings,
+                    self.calls,
+                    file,
+                    node,
+                    "=",
+                ) == Ok(true);
+            if initializer || equality {
+                // The caller retains actual lexical headers. Raw local
+                // initializer records have no such context and remain unchanged.
+                let checked = crate::callable_definitions::indexed_expression_safety(
+                    self.context,
+                    self.bindings,
+                    self.calls,
+                    self.instantiations,
+                    self.domains,
+                    (file, value, generators),
+                    crate::callable_definitions::DirectSafetyLookups {
+                        expressions: &self.expression_indices,
+                        calls: &self.call_indices,
+                        value_references: &self.dependency_reference_indices,
+                    },
+                );
+                safety = checked;
+            }
+        }
         if !self.calls.declarations[target.0].ty.known() {
             safety = DefinitionSafety::Unsupported("definition target type is unsupported".into());
         } else if optional(&self.calls.declarations[target.0].ty) {

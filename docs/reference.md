@@ -271,8 +271,10 @@ Use the library independently with `zincite_lint::lint(&parsed)`. It returns
 warnings with rule, severity, message and byte range, or owned syntax/suppression
 diagnostics without partial warnings. `LintOptions::from_selection` resolves
 presets and explicit IDs; `lint_with_options(&parsed, &options)` runs a selected
-set. `Rule::DEFAULT` and `Rule::THESIS` expose preset membership. Unavailable
-selected rules return errors rather than partial warnings.
+set. `Rule::DEFAULT` and `Rule::THESIS` expose preset membership. The default
+selects naming and constraint labels; `thesis` selects fourteen rules and `all`
+selects all 26 implemented rules. Semantic selections require the explicit model
+API below; `lint_with_options` rejects them without that context.
 
 Explicit model analysis uses `load_model(root_path, &ModelOptions)` and
 `analyze_model(&context, &LintOptions)`. The context retains parsed sources,
@@ -288,13 +290,13 @@ from names or bodyless user declarations.
 `ModelOptions` takes its configuration from the caller. The CLI accepts ordered
 `-I DIR` options and `--stdlib-dir DIR`, with `MZN_STDLIB_DIR` as the fallback for
 the latter. The default rules never load dependencies, even with these options.
-All thesis rules remain unavailable and their error is reported before loading
-input or includes.
+Implemented rule availability is separate from a particular analysis's
+`Completed`, `Limited` or `Inapplicable` outcome.
 
 Selected analysis separates file-aware findings, per-rule execution outcomes,
 model limitations and actual errors. Dynamic include paths produce an explicit
 incomplete-context limitation; missing or cyclic dependencies, invalid UTF-8,
 syntax and suppression failures produce errors. `write_analysis` supplies the
 CLI's stderr renderer: limitations alone keep status 0 or 1, warnings produce 1,
-and errors take precedence with 2. This model API supplies source context for
-later semantic rules; it does not make the registered thesis rules executable.
+and errors take precedence with 2. Unsupported required semantics remain
+explicit limitations; analysis does not guess missing parameter values.

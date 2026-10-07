@@ -220,8 +220,8 @@ malformed inputs, four grammar documents, four data files containing model
 declarations and five incompatible UTF-8 inputs. MiniZinc diagnostics corroborate
 the grammar and malformed classifications; test metadata alone does not determine
 them. The recovered train-scheduling model is compiler syntax-negative at its
-tuple-pattern lambda. No demonstrated compiler-positive syntax rejection in this
-assessed set requires a parser repair.
+comma-separated string interpolation. No demonstrated compiler-positive syntax
+rejection in this assessed set requires a parser repair.
 
 The data syntax probes use an explicitly recorded temporary `solve satisfy;`
 model solely to make the compiler parse a data file. This is not a model/data

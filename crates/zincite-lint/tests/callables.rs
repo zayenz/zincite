@@ -66,6 +66,13 @@ fn resolved<'a>(
 #[test]
 fn public_callable_facts_preserve_types_and_select_standard_identity_before_advice() {
     let (directory, options) = setup("types");
+    let library = options.stdlib_dir.as_ref().unwrap().join("std/stdlib.mzn");
+    let mut standard = std::fs::read_to_string(&library).unwrap();
+    standard.push_str(concat!(
+        "function var int: sum(array[$T] of var int: values);\n",
+        "function var int: bool2int(var bool: value);\n"
+    ));
+    write(&library, &standard);
     let root = directory.join("root.mzn");
     let included = directory.join("included.mzn");
     let source = concat!(
@@ -87,7 +94,15 @@ fn public_callable_facts_preserve_types_and_select_standard_identity_before_advi
         "constraint let {var int: value;} in consume(value);\n",
         "var int: function_result = element(1,ints);\n",
         "array[int,int] of var int: matrix; var int: matrix_result = element(1,1,matrix);\n",
+        "var int: matrix_sum=sum(matrix); array[int,int] of var opt int: optional_matrix; var opt int: optional_sum=sum(optional_matrix);\n",
+        "function var int: sum(array[int,int] of var bool: flags)=bool2int(flags[2,4]); array[int,int] of var bool: matrix_flags; var int: user_sum=sum(matrix_flags);\n",
         "array[int] of var opt int: optional; var opt int: ov; constraint element(1,optional,ov);\n",
+        "any: inferred_parameter=1; any: inferred_decision=iv; any: inferred_values=values; any: inferred_optional=ov;\n",
+        "any: inferred_unknown=unavailable_value; any: inferred_cycle=inferred_cycle;\n",
+        "array[int] of set of int: ordinal_sets; int: ordinal;\n",
+        "opt set of int: optional_set; var set of int: decision_set;\n",
+        "any: inferred_ordinal=ordinal_sets[1][ordinal];\n",
+        "any: inferred_optional_set=optional_set[ordinal]; any: inferred_decision_set=decision_set[ordinal];\n",
         "array[int] of tuple(var int,var int): structured; tuple(var int,var int): tv; constraint element(1,structured,tv);\n",
         "var set of int: domain; constraint element(1,[i|i in domain],iv);\n",
         "constraint element(1,[i|i in 1..2 where bv],iv); solve satisfy;\n",
@@ -125,6 +140,30 @@ fn public_callable_facts_preserve_types_and_select_standard_identity_before_advi
             DeclarationRole::Function
         );
     }
+    let declaration = resolved(&facts, &bindings, &root, source, "sum(matrix);");
+    assert_eq!(declaration.name, "sum");
+    assert_eq!(
+        context.files[declaration.file].canonical_path,
+        library.canonicalize().unwrap()
+    );
+    let matrix = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "matrix")
+        .unwrap();
+    assert!(matches!(
+        &facts.declarations[matrix.id.0].ty.kind,
+        TypeKind::Array { indices, .. } if indices.len() == 2
+    ));
+    assert_eq!(
+        context.files[resolved(&facts, &bindings, &root, source, "sum(matrix_flags)").file]
+            .canonical_path,
+        root.canonicalize().unwrap()
+    );
+    assert!(matches!(
+        outcome(&facts, &root, source, "sum(optional_matrix)"),
+        CallOutcome::NoMatch { .. }
+    ));
     for marker in [
         "element(1,optional",
         "element(1,structured",
@@ -155,6 +194,46 @@ fn public_callable_facts_preserve_types_and_select_standard_identity_before_advi
     };
     assert_eq!(indices[0].kind, TypeKind::Enum(index.id));
     assert_eq!(element.instantiation, Instantiation::Decision);
+    let declaration_type = |name: &str| {
+        let declaration = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap();
+        &facts.declarations[declaration.id.0].ty
+    };
+    assert_eq!(declaration_type("inferred_parameter").kind, TypeKind::Int);
+    let ordinal_type = declaration_type("inferred_ordinal");
+    assert_eq!(ordinal_type.kind, TypeKind::Int);
+    assert_eq!(ordinal_type.instantiation, Instantiation::Parameter);
+    assert!(!ordinal_type.optional);
+    assert_eq!(
+        declaration_type("inferred_parameter").instantiation,
+        Instantiation::Parameter
+    );
+    for (alias, original) in [
+        ("inferred_decision", "iv"),
+        ("inferred_values", "values"),
+        ("inferred_optional", "ov"),
+    ] {
+        assert_eq!(
+            declaration_type(alias),
+            declaration_type(original),
+            "{alias}"
+        );
+    }
+    for name in [
+        "inferred_unknown",
+        "inferred_cycle",
+        "inferred_optional_set",
+        "inferred_decision_set",
+    ] {
+        assert!(
+            matches!(declaration_type(name).kind, TypeKind::Unknown(_)),
+            "{name}: {:?}",
+            declaration_type(name)
+        );
+    }
     for marker in ["consume(x:identity", "consume(pair.2", "consume(value)"] {
         assert_eq!(
             resolved(&facts, &bindings, &root, source, marker).name,
@@ -448,12 +527,13 @@ fn supplied_argument_ranking_retains_defaults_scope_and_parameter_guards() {
         "predicate mapped(var int:result,int:needle=default_tag,array[int] of var int:xs)=result=needle;\n",
         "predicate mapped(var opt int:result,array[int] of var opt int:xs)=true;\n",
         "predicate competing(int:x=1)=true; predicate competing(int:x=2)=true;\n",
+        "predicate inferred_copy($T:input,var int:result)=let{any:alias=input;}in result=alias;\n",
         "function bool: keep(opt $T:x)=true; function var bool: keep(var opt $$E:x)=true;\n",
         "function bool: '<='($T:a,$T:b); function var bool: '<='(var opt $$E:a,var opt $$E:b);\n",
     );
     let source = concat!(
         "include \"included.mzn\"; int:default_tag; int:limit; opt int:maybe;\n",
-        "array[1..2] of var 1..3:values; var int:result;\n",
+        "array[1..2] of var 1..3:values; var int:result; var int:inferred_result; constraint inferred_copy(1,inferred_result);\n",
         "constraint choose_present(values); constraint choose_present(xs:values);\n",
         "constraint choose_present(tag:1,xs:values);\n",
         "constraint let {var int:default_tag;} in choose_present(values);\n",
@@ -553,6 +633,18 @@ fn supplied_argument_ranking_retains_defaults_scope_and_parameter_guards() {
             .definitions
             .iter()
             .any(|d| d.target == result.id && d.dependencies.contains(&global.id)),
+        "{definitions:?}"
+    );
+    let inferred_result = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "inferred_result")
+        .unwrap();
+    assert!(
+        definitions
+            .definitions
+            .iter()
+            .any(|d| d.target == inferred_result.id),
         "{definitions:?}"
     );
     let analysis = analyze_model(

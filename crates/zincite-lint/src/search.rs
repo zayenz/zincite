@@ -1,12 +1,12 @@
 //! Direct search interpretation, independent of missing-coverage advice.
 use crate::callables::{core_operation, find_node, is_expression, operation_fact};
 use crate::definitions::complete_array_coverage;
-use crate::value_safety::{optional, traversal_expression_safety};
+use crate::value_safety::{expression_safety, optional, traversal_expression_safety};
 use crate::{
-    BindingFacts, BindingResolution, CallOutcome, CallableFacts, DeclarationId, DeclarationRole,
-    DefinitionCoverage, DefinitionEnforcement, DefinitionFacts, DefinitionSafety, DomainFacts,
-    FileId, Instantiation, InstantiationFacts, ModelContext, ModelRootState, SourceDiagnostic,
-    SourceKind, SourceLocation, TypeKind,
+    BindingFacts, BindingResolution, CallOutcome, CallableDefinitionFacts, CallableFacts,
+    DeclarationId, DeclarationRole, DefinitionCoverage, DefinitionEnforcement, DefinitionFacts,
+    DefinitionSafety, DomainFacts, FileId, Instantiation, InstantiationFacts, ModelContext,
+    ModelRootState, SourceDiagnostic, SourceKind, SourceLocation, TypeKind,
 };
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
@@ -45,8 +45,8 @@ pub struct SearchFacts {
 /// Exact selected callable bodies contribute bounded output guarantees. Options,
 /// opaque bodies and unproved iteration/enforcement retain specific limitations.
 /// Advice addresses top-level solve-visible values (thesis 4.9, p.28).
-/// Model-level local decisions retain Unknown plus a scoped limitation; callable
-/// local/control-flow output proofs remain explicitly unsupported.
+/// Checked positive model lets contribute functional local definitions. Other
+/// scoped decisions retain Unknown and their required boundary.
 pub fn resolve_search_coverage(
     context: &ModelContext,
     bindings: &BindingFacts,
@@ -54,6 +54,27 @@ pub fn resolve_search_coverage(
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
     definitions: &DefinitionFacts,
+) -> SearchFacts {
+    let callable =
+        crate::resolve_callable_definitions(context, bindings, calls, instantiations, domains);
+    resolve_search_with_callable(
+        context,
+        bindings,
+        calls,
+        instantiations,
+        domains,
+        definitions,
+        &callable,
+    )
+}
+pub(super) fn resolve_search_with_callable(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &CallableFacts,
+    instantiations: &InstantiationFacts,
+    domains: &DomainFacts,
+    definitions: &DefinitionFacts,
+    callable: &CallableDefinitionFacts,
 ) -> SearchFacts {
     let mut producer = Producer {
         context,
@@ -85,8 +106,6 @@ pub fn resolve_search_coverage(
         }
         return producer.facts;
     }
-    let callable =
-        crate::resolve_callable_definitions(context, bindings, calls, instantiations, domains);
     for missing in &callable.unavailable {
         for id in &missing.targets {
             if !covered(producer.facts.declarations[id.0].coverage) {
@@ -94,12 +113,12 @@ pub fn resolve_search_coverage(
             }
         }
     }
-    let mut combined = DefinitionFacts {
-        definitions: definitions.definitions.clone(),
-    };
-    combined.definitions.extend(callable.definitions);
-    producer.close(&combined);
-    for missing in callable.unavailable {
+    producer.close(
+        definitions,
+        &callable.definitions,
+        &callable.inspected_locals,
+    );
+    for missing in &callable.unavailable {
         if missing.targets.is_empty()
             || missing
                 .targets
@@ -107,7 +126,7 @@ pub fn resolve_search_coverage(
                 .any(|id| !covered(producer.facts.declarations[id.0].coverage))
         {
             let limit = SourceDiagnostic {
-                location: missing.location,
+                location: missing.location.clone(),
                 message: format!("search-coverage: {}", missing.reason),
             };
             if !producer.facts.limitations.contains(&limit) {
@@ -369,6 +388,84 @@ impl<'a> Producer<'a> {
         self.annotation(d.file, value, &arguments);
         self.active.pop();
     }
+    fn reindex_safety(
+        &self,
+        file: FileId,
+        node: &'a SyntaxNode,
+        mapping: &[Argument<'a>],
+    ) -> DefinitionSafety {
+        let safety = expression_safety(self.context, self.bindings, self.calls, file, node);
+        if safety != DefinitionSafety::Supported {
+            return safety;
+        }
+        let mut nodes = vec![(file, node, mapping.len() + 1)];
+        while let Some((file, node, remaining)) = nodes.pop() {
+            let node = unwrap(node);
+            if node.kind() == NodeKind::Expression
+                && let Some(id) = self.reference(file, node)
+                && let Some((_, actual_file, actual)) =
+                    mapping.iter().find(|(formal, _, _)| *formal == id)
+            {
+                if remaining == 0 {
+                    return DefinitionSafety::Unsupported(
+                        "recursive reindex argument mapping is unsupported".into(),
+                    );
+                }
+                let range = self.context.files[*actual_file]
+                    .location(actual.range())
+                    .range;
+                let actual_type = self
+                    .calls
+                    .expressions
+                    .iter()
+                    .find(|e| e.file == *actual_file && e.location.range == range)
+                    .map(|e| &e.ty);
+                if actual_type.is_none_or(|ty| {
+                    !ty.known()
+                        || optional(ty)
+                        || ty.instantiation != Instantiation::Parameter
+                        || ty.kind != self.calls.declarations[id.0].ty.kind
+                }) {
+                    return DefinitionSafety::Unsupported(
+                        "reindex actual type or instantiation is unsupported".into(),
+                    );
+                }
+                let safety = expression_safety(
+                    self.context,
+                    self.bindings,
+                    self.calls,
+                    *actual_file,
+                    actual,
+                );
+                if safety != DefinitionSafety::Supported {
+                    return safety;
+                }
+                nodes.push((*actual_file, actual, remaining - 1));
+                continue;
+            }
+            if matches!(
+                node.kind(),
+                NodeKind::UnaryExpression | NodeKind::BinaryExpression | NodeKind::RangeExpression
+            ) {
+                let name = node.children().iter().find_map(|child| match child {
+                    SyntaxElement::Token(index) => crate::bindings::symbolic_operator(
+                        self.context.files[file].parsed.tokens()[*index].kind,
+                    ),
+                    _ => None,
+                });
+                if name.is_none_or(|name| {
+                    !core_operation(self.context, self.bindings, self.calls, file, node, name)
+                        .is_ok_and(|core| core)
+                }) {
+                    return DefinitionSafety::Unsupported(
+                        "reindex operator identity is unsupported".into(),
+                    );
+                }
+            }
+            nodes.extend(node.child_nodes().map(|child| (file, child, remaining)));
+        }
+        DefinitionSafety::Supported
+    }
     fn values(&mut self, file: FileId, node: &'a SyntaxNode, mapping: &[Argument<'a>]) {
         let node = unwrap(node);
         let location = self.context.files[file].location(node.range());
@@ -401,6 +498,127 @@ impl<'a> Producer<'a> {
             }
             return;
         }
+        if node.kind() == NodeKind::BinaryExpression
+            && matches!(ty.map(|ty| &ty.kind), Some(TypeKind::Array { .. }))
+        {
+            let children: Vec<_> = node.child_nodes().collect();
+            if children.len() == 2
+                && core_operation(self.context, self.bindings, self.calls, file, node, "++")
+                    .is_ok_and(|core| core)
+                && children.iter().all(|child| {
+                    let range = self.context.files[file].location(child.range()).range;
+                    self.calls.expressions.iter().any(|e| {
+                        e.file == file
+                            && e.location.range == range
+                            && e.ty.known()
+                            && !optional(&e.ty)
+                            && matches!(&e.ty.kind, TypeKind::Array { indices, .. } if indices.len() == 1)
+                    })
+                })
+            {
+                for child in children {
+                    self.values(file, child, mapping);
+                }
+            } else {
+                self.uncertain(file, node, "array search operation identity is unsupported");
+            }
+            return;
+        }
+        if node.kind() == NodeKind::ArrayComprehension {
+            let body = node.child_nodes().find(|n| is_expression(n.kind()));
+            let list = node
+                .child_nodes()
+                .find(|n| n.kind() == NodeKind::GeneratorList);
+            let (Some(body), Some(list)) = (body, list) else {
+                self.uncertain(file, node, "search traversal syntax is unavailable");
+                return;
+            };
+            let generators: Vec<_> = list.child_nodes().collect();
+            for generator in &generators {
+                for child in generator.child_nodes() {
+                    let value = if child.kind() == NodeKind::WhereFilter {
+                        child.child_nodes().next().unwrap_or(child)
+                    } else {
+                        child
+                    };
+                    let range = self.context.files[file].location(value.range()).range;
+                    let known_parameter = self.calls.expressions.iter().any(|e| {
+                        e.file == file
+                            && e.location.range == range
+                            && e.ty.known()
+                            && !optional(&e.ty)
+                            && e.ty.instantiation == Instantiation::Parameter
+                    });
+                    if !known_parameter
+                        || self.reindex_safety(file, value, mapping) != DefinitionSafety::Supported
+                    {
+                        self.uncertain(file, value, "search traversal evaluation is unavailable");
+                        return;
+                    }
+                }
+            }
+            let body = unwrap(body);
+            let children: Vec<_> = body.child_nodes().collect();
+            if body.kind() == NodeKind::ArrayAccessExpression
+                && let Some(subject) = children.first()
+                && subject.kind() == NodeKind::Expression
+                && let Some(id) = self.reference(file, subject)
+                && let TypeKind::Array { indices, .. } = &self.calls.declarations[id.0].ty.kind
+                && indices.len() == children.len() - 1
+                && indices.iter().zip(&children[1..]).all(|(expected, index)| {
+                    let index = unwrap(index);
+                    let range = self.context.files[file].location(index.range()).range;
+                    index.kind() == NodeKind::Expression
+                        && expected.known()
+                        && !optional(expected)
+                        && expected.instantiation == Instantiation::Parameter
+                        && self.calls.expressions.iter().any(|e| {
+                            e.file == file
+                                && e.location.range == range
+                                && e.ty.known()
+                                && !optional(&e.ty)
+                                && e.ty.instantiation == Instantiation::Parameter
+                                && e.ty.kind == expected.kind
+                        })
+                })
+            {
+                match complete_array_coverage(
+                    self.context,
+                    self.bindings,
+                    self.instantiations,
+                    self.domains,
+                    (file, id),
+                    (&children[1..], &generators),
+                ) {
+                    DefinitionCoverage::WholeArray
+                        if traversal_expression_safety(
+                            self.context,
+                            self.bindings,
+                            self.calls,
+                            file,
+                            body,
+                            body,
+                        ) == DefinitionSafety::Supported =>
+                    {
+                        self.values(file, subject, mapping);
+                        return;
+                    }
+                    DefinitionCoverage::Unsupported(reason) => {
+                        self.uncertain(file, node, &reason);
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+            // A filtered or computed traversal does not prove whole-source
+            // coverage. It supplies no seed for the declarations it mentions.
+            self.facts.searched.push(SearchValue {
+                declaration: None,
+                location,
+                coverage: SearchCoverage::Uncovered,
+            });
+            return;
+        }
         if node.kind() == NodeKind::CallExpression {
             if let Some(CallOutcome::Resolved { declaration, .. }) =
                 operation_fact(self.context, self.calls, file, node).map(|c| &c.outcome)
@@ -418,6 +636,40 @@ impl<'a> Producer<'a> {
                     {
                         self.values(file, value, mapping);
                         return;
+                    }
+                    if len == 2
+                        && let (Some((index_file, indices)), Some((value_file, value))) = (
+                            self.argument(file, node, *declaration, 0),
+                            self.argument(file, node, *declaration, 1),
+                        )
+                    {
+                        let range = self.context.files[index_file]
+                            .location(indices.range())
+                            .range;
+                        let known_indices = self.calls.expressions.iter().any(|e| {
+                            e.file == index_file
+                                && e.location.range == range
+                                && e.ty.known()
+                                && !optional(&e.ty)
+                                && e.ty.instantiation == Instantiation::Parameter
+                                && matches!(&e.ty.kind, TypeKind::Set(element) if element.kind == TypeKind::Int)
+                        });
+                        if known_indices {
+                            match self.reindex_safety(index_file, indices, mapping) {
+                                DefinitionSafety::Supported => {
+                                    // Reindexing retains every source value when the builtin
+                                    // succeeds. It does not prove index equality or size validity.
+                                    self.values(value_file, value, mapping);
+                                }
+                                DefinitionSafety::Unknown(reason)
+                                | DefinitionSafety::Unsupported(reason) => self.uncertain(
+                                    index_file,
+                                    indices,
+                                    &format!("search reindex evaluation is unavailable: {reason}"),
+                                ),
+                            }
+                            return;
+                        }
                     }
                 }
             }
@@ -507,31 +759,21 @@ impl<'a> Producer<'a> {
             *state = extent;
         }
     }
-    fn close(&mut self, definitions: &DefinitionFacts) {
+    fn close(
+        &mut self,
+        definitions: &DefinitionFacts,
+        callable: &[crate::Definition],
+        inspected_locals: &[DeclarationId],
+    ) {
         for d in &self.bindings.declarations {
             let ty = &self.calls.declarations[d.id.0].ty;
             if d.role == DeclarationRole::Local && ty.instantiation == Instantiation::Decision {
-                self.facts.declarations[d.id.0].coverage = SearchCoverage::Unknown;
-                let source = &self.context.files[d.file];
-                let item = source.parsed.tree().child_nodes().nth(d.item).unwrap();
-                if source.warnings_enabled()
-                    && !matches!(
-                        item.kind(),
-                        NodeKind::FunctionDeclaration
-                            | NodeKind::PredicateDeclaration
-                            | NodeKind::TestDeclaration
-                            | NodeKind::AnnotationDeclaration
-                    )
-                {
-                    self.facts.limitations.push(SourceDiagnostic {
-                        location: d.location.clone(),
-                        message: concat!(
-                            "search-coverage: model-level local decision coverage is unsupported; ",
-                            "its scoped name is not available to the solve search"
-                        )
-                        .into(),
-                    });
-                }
+                self.facts.declarations[d.id.0].coverage =
+                    if callable.iter().any(|definition| definition.target == d.id) {
+                        SearchCoverage::Uncovered
+                    } else {
+                        SearchCoverage::Unknown
+                    };
                 continue;
             }
             if ty.instantiation == Instantiation::Parameter && ty.known() {
@@ -544,12 +786,20 @@ impl<'a> Producer<'a> {
             }
         }
         let mut admitted = Vec::new();
-        for d in &definitions.definitions {
+        for (d, callable_record) in definitions
+            .definitions
+            .iter()
+            .map(|d| (d, false))
+            .chain(callable.iter().map(|d| (d, true)))
+        {
             // Solve searches name model declarations. Local definitions inside
             // an uncalled body are not model search requirements (base-044
             // owns callable-output propagation).
             let target = &self.bindings.declarations[d.target.0];
-            if !target.top_level || target.role != DeclarationRole::Value {
+            let scoped = callable_record && target.role == DeclarationRole::Local;
+            let scoped_integer =
+                scoped && self.calls.declarations[d.target.0].ty.kind == TypeKind::Int;
+            if !scoped && (!target.top_level || target.role != DeclarationRole::Value) {
                 continue;
             }
             if d.enforcement == DefinitionEnforcement::Conditional
@@ -589,8 +839,16 @@ impl<'a> Producer<'a> {
                 continue;
             };
             if (node.kind() == NodeKind::BinaryExpression
-                && !core_operation(self.context, self.bindings, self.calls, d.file, node, "=")
-                    .is_ok_and(|core| core))
+                && !scoped_integer
+                && !core_operation(
+                    self.context,
+                    self.bindings,
+                    self.calls,
+                    d.file,
+                    node,
+                    if scoped { "<->" } else { "=" },
+                )
+                .is_ok_and(|core| core))
                 || !self.conjunctions_enforced(
                     d.file,
                     self.context.files[d.file].parsed.tree(),
@@ -657,6 +915,36 @@ impl<'a> Producer<'a> {
                 }
             }
         }
+        for d in &self.bindings.declarations {
+            if d.role != DeclarationRole::Local
+                || self.calls.declarations[d.id.0].ty.instantiation != Instantiation::Decision
+                || callable.iter().any(|definition| definition.target == d.id)
+                || inspected_locals.contains(&d.id)
+                || covered(self.facts.declarations[d.id.0].coverage)
+            {
+                continue;
+            }
+            let source = &self.context.files[d.file];
+            let item = source.parsed.tree().child_nodes().nth(d.item).unwrap();
+            if source.warnings_enabled()
+                && !matches!(
+                    item.kind(),
+                    NodeKind::FunctionDeclaration
+                        | NodeKind::PredicateDeclaration
+                        | NodeKind::TestDeclaration
+                        | NodeKind::AnnotationDeclaration
+                )
+            {
+                self.facts.limitations.push(SourceDiagnostic {
+                    location: d.location.clone(),
+                    message: concat!(
+                        "search-coverage: model-level local decision coverage is unsupported; ",
+                        "its scoped name is not available to the solve search"
+                    )
+                    .into(),
+                });
+            }
+        }
     }
     // DefinitionFacts retains syntactic conjunction enforcement. Search needs
     // the selected core operation too: a user '/\\' need not enforce either child.
@@ -683,22 +971,35 @@ impl<'a> Producer<'a> {
             .all(|child| self.conjunctions_enforced(file, child, range))
     }
     fn rhs_safety(&self, d: &crate::Definition) -> Option<DefinitionSafety> {
-        if d.coverage != DefinitionCoverage::WholeArray {
-            return None;
-        }
         let source = &self.context.files[d.file];
         let value = locate(
             source.parsed.tree(),
             &(d.value.range.start - source.byte_offset..d.value.range.end - source.byte_offset),
         )?;
+        let mut generators = Vec::new();
+        collect_generators(source.parsed.tree(), &value.range(), &mut generators);
+        generators.retain(|g| g.range().end <= value.range().start);
+        let direct = crate::callable_definitions::direct_expression_safety(
+            self.context,
+            self.bindings,
+            self.calls,
+            self.instantiations,
+            self.domains,
+            (d.file, value),
+            &generators,
+        );
+        if !matches!(direct, DefinitionSafety::Unsupported(_)) {
+            return Some(direct);
+        }
+        if d.coverage != DefinitionCoverage::WholeArray {
+            return None;
+        }
         let access = unwrap(value);
         if access.kind() != NodeKind::ArrayAccessExpression {
             return None;
         }
         let children: Vec<_> = access.child_nodes().collect();
         let id = self.reference(d.file, *children.first()?)?;
-        let mut generators = Vec::new();
-        collect_generators(source.parsed.tree(), &access.range(), &mut generators);
         if complete_array_coverage(
             self.context,
             self.bindings,

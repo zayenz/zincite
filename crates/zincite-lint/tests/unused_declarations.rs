@@ -291,3 +291,47 @@ fn uncertainty_stays_local_and_fragments_do_not_claim_unused_exports() {
     assert!(result.findings.is_empty() && result.limitations.is_empty());
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn selected_generic_bodies_keep_concrete_optional_dependencies_and_raw_unknowns() {
+    let source = "opt int: value=<>; constraint check_absence(value); solve satisfy; output [];";
+    let (dir, _) = model("concrete-body", source, "");
+    std::fs::write(dir.join("library/std/stdlib.mzn"), format!("{CORE}\ntest occurs(opt $T: value); function bool: 'not'(bool: value); test check_absence(opt $T: value)=not occurs(value);\n")).unwrap();
+    let context = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    assert!(calls.calls.iter().any(|call| call.name == "occurs"
+        && matches!(call.outcome, zincite_lint::CallOutcome::Unsupported { .. })));
+    let usage = resolve_unused_declarations(&context, &bindings, &calls);
+    assert!(usage.limitations.is_empty(), "{:?}", usage.limitations);
+    assert_eq!(outcome(&bindings, &usage, "value"), UsageOutcome::Reachable);
+    assert!(matches!(
+        analyze_model(&context, &selected()).rules[0].outcome,
+        RuleOutcome::Completed
+    ));
+    // The concrete consumer must not rewrite the context-free generic facts.
+    assert!(calls.calls.iter().any(|call| call.name == "occurs"
+        && matches!(call.outcome, zincite_lint::CallOutcome::Unsupported { .. })));
+    std::fs::write(dir.join("root.mzn"), "opt int: value=<>; constraint check_absence(value); constraint check_absence(missing); solve satisfy; output [];").unwrap();
+    let uncertain = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    let (bindings, usage) = facts(&uncertain);
+    assert!(!usage.limitations.is_empty());
+    assert_eq!(outcome(&bindings, &usage, "value"), UsageOutcome::Reachable);
+    assert!(matches!(
+        analyze_model(&uncertain, &selected()).rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    std::fs::remove_dir_all(dir).unwrap();
+}

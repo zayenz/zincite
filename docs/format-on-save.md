@@ -72,17 +72,31 @@ persistent process or formatting cache is required.
 
 ## Measured behavior
 
-The [save performance checkpoint](../scripts/save-performance.md) records the
-M1 Max acceptance run: 50 fresh processes per case and configuration, complete
-stdout capture, error-buffer preservation and separate native child RSS checks.
-All representative inputs within 1 MiB meet the specified repeated-save budgets.
-The dense 966,669-byte input reaches 93.275/93.267 ms p95 and 63.968750 MiB RSS
-with default/nested settings. That memory margin is small.
+The [save performance checkpoint](../scripts/save-performance.md) records
+50 fresh processes per case and configuration, complete stdout capture,
+error-buffer preservation and separate native child RSS checks. The original
+base-048 representative cases passed their budgets; the later public wide matrix
+prevented an overall acceptance claim.
 
-The first invocation of a newly copied release executable took 352.902 ms;
-subsequent ordinary saves were around 4–6 ms. Fresh-copy `--help` controls also
-showed the delay before formatting work. Its host startup cause is unresolved;
-these measurements do not establish controlled cold-cache performance. Large
-inputs remain supported, but the interactive budgets cover only inputs up to
-1 MiB. The checkpoint retains larger-case measurements and existing corpus and
-batch-memory limitations.
+The selected base-081 repair reduces matrix formatting allocation and stores
+private CST node data behind a box while preserving the public syntax APIs and
+complete output. Separate native saves of the 885,733-byte public wide input
+measure 60.859375/60.562500 MiB for default/nested settings, below the unchanged
+64 MiB limit. The latest 50-sample saves still measure
+3,916.040/4,045.999 ms p95, above the unchanged 100 ms limit. Every size-gated
+case misses its wall-time budget in this campaign. Child CPU is recorded
+separately and does not replace wall time. The dense 966,669-byte input now
+measures 53.875 MiB for both settings. The checkpoint preserves the earlier
+formatter-only memory misses and unsuccessful reservation experiments.
+
+A separate 50-launch `--help` diagnostic measures 201.446 ms wall / 5.612 ms
+child CPU at p95. Help returns before configuration lookup, parsing and
+formatting; this demonstrates a material delay outside those paths without
+identifying its precise cause or relaxing the save budgets.
+Historical base-048 fresh-copy
+`--help` controls showed that a material first-use delay can occur before
+formatting work. The host startup cause remains unresolved; these observations
+do not establish controlled cold-cache performance. Large inputs remain
+supported, but the interactive budgets cover only inputs up to 1 MiB. The
+checkpoint keeps larger-case measurements and corpus and batch-memory limits
+separate from save-command acceptance.
