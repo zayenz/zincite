@@ -2379,3 +2379,12 @@ array access. The retained local-lookup repair needs adaptation and fresh
 validation against the current candidate. No retry or sampler was run.
 Evidence is under
 `target/benchmarks/base083/semantic62-navigation-release15-coordination-control/`.
+
+The retained index-set lookup repair is adapted to the current candidate in
+`scripts/semantic-index-lookups-draft.patch` (3,392 bytes, SHA-256
+`9232b055f46d212a5530a9675b203a752223d75e3dc556ef415e57ed76e7a462`).
+Independent static review confirms first-expression selection, ordered and
+duplicate obligations, suppressions, full-axis handling and diagnostic order
+are preserved. It applies cleanly to the copy and remains unapplied. Focused
+baseline/after checks, workspace gates and current-model measurements remain
+required; the draft alone establishes no processing or performance improvement.
