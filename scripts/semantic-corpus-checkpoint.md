@@ -608,5 +608,14 @@ The existing callable-output regression fails before this repair and passes
 afterward. It retains Unknown for optional and user-defined noninjective
 conversions and does not promote a filtered body to whole-array coverage.
 Formatting, Clippy and all 193 workspace tests pass. Independent bounded review
-found no defect in these mapping guards. Fresh optimized public-model captures
-remain pending; this checkpoint does not complete base-083.
+found no defect in these mapping guards. The fresh semantic58 optimized Black
+Hole captures still retain the same inverse computed-output limitation, as
+well as the table extrema limitation. Selected search, thesis and all pairs
+finish with identical library/native statuses, full diagnostics and source
+graphs; thirteen thesis rules and twenty-four all rules complete. The checked
+conversion shape in the regression is insufficient to establish coverage for
+the actual standard wrapper instance. Its selected conversion types and output
+mapping need further diagnosis before changing any guard. Originals, current
+source and artifacts remain unchanged; the complete evidence is retained in
+`target/benchmarks/base083/semantic58-black-hole-boundary/`. Base-083 remains
+open.
