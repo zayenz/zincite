@@ -2325,3 +2325,14 @@ producers do not explain the full-rule cutoff. Private domain preparation,
 coordination and rule checks remain unmeasured; no matched ratio or semantic
 acceptance follows. Evidence is under
 `target/benchmarks/base083/semantic62-navigation-release15-expanded-diagnostic/`.
+
+The validated family1 candidate builds as optimized release sixteen. The
+Cargo capture completes in 14.185 seconds with unchanged source maps;
+its selected binaries and 22 libraries match their frozen copies. Complete
+streams and artifact records were checked, including thirteen optimized
+non-test artifacts and one separate unoptimized custom build. Only the lint
+rlib/rmeta differ from frozen fifteen. The new library set totals 28,210,500
+bytes. Build success does not establish original-model outcomes or corpus
+acceptance. Evidence is under
+`target/benchmarks/base083/semantic62-draft-workspace-semantic-release16/`
+and `semantic62-draft-routing-family1-binaries/`.
