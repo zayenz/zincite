@@ -2146,3 +2146,25 @@ The reconstructed 20-file candidate is 216,139 bytes, SHA-256
 and passes the patch application check. Matched public facts, allocations,
 native behavior and growth measurements remain pending. Passing tests do not
 establish the queue's performance benefit or final corpus acceptance.
+
+Release fifteen is built from the passing queue candidate. Cargo completes in
+13.874 seconds without timeout; its child is reaped and its process group is
+empty. The full 16-event Cargo stream, equal source maps, optimized native and
+probe origins, and both frozen library sets were checked. The audit covers
+439 physical paths including the 22 before-library snapshots. Across the 106
+copy sources, only `unused_declarations.rs` differs from release fourteen;
+only the lint library and metadata differ among the 22 library files. The
+compiler identity is unchanged. Evidence is under
+`target/benchmarks/base083/semantic62-draft-workspace-semantic-release15/`,
+`semantic62-draft-unused-owner-queue-binaries/` and
+`semantic62-unused-owner-queue-after-libraries/`. This establishes a matched
+build pair, not facts parity or performance improvement.
+
+The original routing model also passes current Gecode FlatZinc compilation
+without data or solving in 0.354 seconds. All 1,041 unchanged input paths,
+empty streams and the resulting FlatZinc/output artifacts were checked.
+Evidence is under `target/benchmarks/base083/semantic62-routing-compile/`.
+This strengthens the older model-check-only evidence; it does not establish
+Zincite support or formatting equivalence. The frozen release-fourteen
+routing control and matched public queue comparison are now authorized;
+results and final corpus acceptance remain pending.
