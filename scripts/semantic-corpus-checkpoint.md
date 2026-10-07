@@ -855,3 +855,13 @@ does not finish before the cutoff. This is an unresolved valid-processing
 failure, not an invalid-input exclusion; the following eleven roots remain
 unobserved too. The scheduled all-rule native capture continues, without a
 retry or deadline change. The ninth batch is not complete or accepted.
+
+Current MiniZinc source prechecks accept all 44 newly captured complete,
+dependency-resolved models with thesis limitations in the ninth batch's observed
+prefix. Three parallel compiler workers use Gecode and the current standard
+library, with the same 60-second cap and no solving. All checks return zero
+without timeouts; 88 complete streams were verified and 1,080 compiler, library
+and closure files remain unchanged. Evidence is retained in
+`target/benchmarks/base083/semantic61-ninth-prefix-source-prechecks/`. These
+overlapping source checks establish parsing and typing, not instance compilation
+or Zincite semantic completion. Their located limitations remain required work.
