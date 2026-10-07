@@ -2479,3 +2479,18 @@ unchanged. This diagnostic build establishes no runtime attribution or
 semantic acceptance; its markers are excluded from the production candidate.
 Evidence and the independent root audit are under
 `target/benchmarks/base083/semantic62-navigation-release17-coordination-build/`.
+
+The original Routing model completes the frozen release-eighteen all26
+companion in 166.842 seconds without timeout. Complete raw streams, all 1,728
+current input/binary/helper pins, exact rule rows, unchanged 23-file/383,407-byte
+source metadata and restored 2,394-byte drop baseline were checked. All 180
+warning blocks remain byte-identical and ordered. Limitations fall from 196 to
+194: only the line-373 search and unbounded-variable limitations disappear; no
+new limitation is added and all retained blocks preserve their bytes and order.
+Unbounded-variable changes from Limited to Completed. All has 21 Completed and
+5 Limited rules; the thesis subset has 13 Completed and one Limited rule.
+Search coverage still reports lines 182, 235 and 378. The child is reaped,
+its group is empty and the verification error is null. This companion supplies
+no fresh native performance ratio or whole-corpus acceptance. Evidence and the
+independent root audit are under
+`target/benchmarks/base083/semantic62-draft-release18-routing-control/`.
