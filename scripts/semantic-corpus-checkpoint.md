@@ -897,3 +897,14 @@ sample nor the timeout identifies a native current root or proves whole-run
 cost attribution. The scheduled all-rule companion continues separately.
 Both native cutoffs remain unresolved processing failures, with no deadline
 relaxation, invalid-input waiver or task-completion claim.
+
+A second one-second sample targets the all-rule companion while its exact BNN
+input is in analysis. Before and after sampling, the stream has 52 root/drop
+records followed by that model's load/analyze begin events, with no finish.
+Of 80 main-thread samples, 78 collapsed top frames are `operation_fact`, reached
+through integer-bounds analysis. This corroborates the lookup cost on a known
+compiler-valid input, without attributing the whole run or any native current
+root. The full sample and receipt are retained in
+`target/benchmarks/base083/semantic61-shard008-bnn-companion-sample*`; source
+pins and the companion binary remain unchanged. Sampling overlap is explicit,
+and the current capture continues under its original deadlines.
