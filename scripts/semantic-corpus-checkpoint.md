@@ -3985,3 +3985,21 @@ checked in that preparation directory's actual-workspace-gates/root-audit.json.
 Original macc outcomes require a fresh release/control; other semantic gaps,
 opaque-comment caller integration and final complete corpus acceptance remain
 open. This is an incremental commit,not task completion.
+
+Fresh normal34 release includes the committed union-domain and byte-syntax
+increments. Current main107/copied107,opt3 Cargo events,two binaries,22
+libraries,full streams and the empty reaped build group are checked in
+semantic62-combined34-release/root-build-audit.json. The public union model
+with the installed standard library now completes all26 rules/all14 thesis
+analyses with3 warnings,zero errors and zero limitations; the two Places axes
+retain -2 advice. Full compiler-positive original/public/std/main/assets/helper
+pins,streams and source/drop accounting are checked in
+semantic62-macc-current-gap-preparation/normal34-public-probe/root-audit.json.
+Original macc normal34 native/companion agree on115 warnings,zero errors and
+106 limitations (1.048/0.984 seconds). Array-index-start now completes;
+constant-variable,unbounded-variable and search-coverage remain thesisLimited.
+Full current compiler-positive original closure/main107/release/helper pins,
+diagnostic/status parity,all26/source/drop accounting and both empty reaped
+groups are checked in semantic62-macc34-direct-control/root-audit.json.
+No original,data-dependent membership or missing coverage is suppressed.
+The remaining original support gaps and final corpus evidence remain open.
