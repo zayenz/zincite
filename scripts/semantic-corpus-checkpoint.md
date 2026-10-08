@@ -3604,3 +3604,14 @@ FlatZinc/ozn and unchanged original/1035 standard/compiler/helper pins are
 independently checked in `semantic62-sparse-search-gap-preparation/`
 `compiler-positive/root-audit.json`. This establishes the processing prerequisite;
 public Zincite RED and conservative repairs remain pending.
+
+The full compiler-positive Sparse public shape is also observed with normal30
+all26 companion: 12 warnings, zero errors and seven limitations, including the
+five search rows for leaf/unused/used/misclassified and valid[1,i]. This matches
+the original unresolved source shapes; no transitive Enum or Bool prerequisite
+has been removed to obtain a passing subset. Exact26 manifest/completed-root/drop
+accounting, full streams and unchanged source/std/assets are independently
+checked in `semantic62-sparse-search-gap-preparation/normal30-public-probe/`
+`root-audit.json`. The tiny runtime overlap with Routing30 is retained separately;
+no isolated performance conclusion is drawn. Tests-only regression preparation
+and the conservative source repairs remain pending.
