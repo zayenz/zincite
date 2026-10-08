@@ -4,13 +4,16 @@ use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use zincite_syntax::{Diagnostic, FileMode, parse_with_mode};
+use zincite_syntax::{Diagnostic, FileMode, parse_bytes_with_mode};
 
 mod config;
 
+const UTF8_BOM: &[u8] = b"\xef\xbb\xbf";
+
 const HELP: &str = "Usage: zincite-fmt [--check|--write] [--stdin-filepath PATH] [FILE|DIR...|-]
 
-Format UTF-8 MiniZinc model or data files. No input or '-' reads stdin.
+Format MiniZinc model or data files. No input or '-' reads stdin.
+Code and literals use UTF-8; opaque comment bytes are preserved.
 Default: write one complete formatted input to stdout.
 Multiple files require --check or --write; stdin cannot be mixed with files.
 Directories require --check and recursively discover .mzn/.dzn files.
@@ -91,7 +94,7 @@ fn run() -> Result<u8, String> {
         let (formatted, changed) = format_source(&label, bytes, mode, &settings)?;
         if arguments.output == OutputMode::Stdout {
             io::stdout()
-                .write_all(formatted.as_bytes())
+                .write_all(&formatted)
                 .map_err(|error| format!("stdout: {error}"))?;
         }
         return Ok(u8::from(arguments.output == OutputMode::Check && changed));
@@ -218,12 +221,10 @@ fn process_file(
     let (formatted, changed) = format_source(&label, bytes, FileMode::from_path(path), &settings)?;
     match output {
         OutputMode::Stdout => io::stdout()
-            .write_all(formatted.as_bytes())
+            .write_all(&formatted)
             .map_err(|error| format!("stdout: {error}"))?,
-        OutputMode::Write if changed => {
-            replace_file(path, formatted.as_bytes(), permissions.unwrap())
-                .map_err(|error| format!("{label}: {error}"))?
-        }
+        OutputMode::Write if changed => replace_file(path, &formatted, permissions.unwrap())
+            .map_err(|error| format!("{label}: {error}"))?,
         OutputMode::Check | OutputMode::Write => {}
     }
     Ok(changed)
@@ -231,35 +232,50 @@ fn process_file(
 
 fn format_source(
     label: &str,
-    bytes: Vec<u8>,
+    mut bytes: Vec<u8>,
     mode: FileMode,
     settings: &config::Settings,
-) -> Result<(String, bool), String> {
-    let source = String::from_utf8(bytes).map_err(|error| {
-        let offset = error.utf8_error().valid_up_to();
-        format!("{label}: input is not UTF-8 at byte {offset}")
+) -> Result<(Vec<u8>, bool), String> {
+    let had_bom = bytes.starts_with(UTF8_BOM);
+    let bom_offset = if had_bom { UTF8_BOM.len() } else { 0 };
+    if had_bom {
+        drop(bytes.drain(..UTF8_BOM.len()));
+    }
+    // Encoding errors return no parsed source. Retain bytes only for their
+    // coordinates; ordinary UTF-8 input moves directly into the parser.
+    let encoding_error_source = std::str::from_utf8(&bytes).is_err().then(|| bytes.clone());
+    let parsed = parse_bytes_with_mode(bytes, mode).map_err(|diagnostic| {
+        let source = encoding_error_source
+            .as_deref()
+            .expect("UTF-8 input cannot have an encoding error");
+        render_diagnostic(
+            label,
+            input_line_column(source, diagnostic.range.start),
+            bom_offset,
+            &diagnostic,
+        )
     })?;
-    let had_bom = source.starts_with('\u{feff}');
-    let parsed = parse_with_mode(source.strip_prefix('\u{feff}').unwrap_or(&source), mode);
-    let mut formatted =
-        zincite_fmt::format_with_options(&parsed, &settings.format).map_err(|diagnostics| {
+    drop(encoding_error_source);
+    let mut formatted = zincite_fmt::format_bytes_with_options(&parsed, &settings.format).map_err(
+        |diagnostics| {
             diagnostics
                 .iter()
                 .map(|diagnostic| {
-                    let mut diagnostic = diagnostic.clone();
-                    if had_bom {
-                        diagnostic.range.start += 3;
-                        diagnostic.range.end += 3;
-                    }
-                    render_diagnostic(label, &source, &diagnostic)
+                    render_diagnostic(
+                        label,
+                        parsed.line_column(diagnostic.range.start),
+                        bom_offset,
+                        diagnostic,
+                    )
                 })
                 .collect::<Vec<_>>()
                 .join("\n")
-        })?;
+        },
+    )?;
+    let changed = formatted.as_slice() != parsed.source_bytes() || settings.bom != had_bom;
     if settings.bom {
-        formatted.insert(0, '\u{feff}');
+        drop(formatted.splice(..0, UTF8_BOM.iter().copied()));
     }
-    let changed = formatted != source;
     Ok((formatted, changed))
 }
 
@@ -297,27 +313,55 @@ fn replace_file(
     result
 }
 
-fn render_diagnostic(label: &str, source: &str, diagnostic: &Diagnostic) -> String {
-    let prefix = source[..diagnostic.range.start].trim_start_matches('\u{feff}');
+fn input_line_column(source: &[u8], byte_offset: usize) -> (usize, usize) {
+    let mut prefix = &source[..byte_offset];
     let mut line = 1;
     let mut column = 1;
-    let mut characters = prefix.chars().peekable();
-    while let Some(character) = characters.next() {
-        if character == '\r' {
-            if characters.peek() == Some(&'\n') {
-                characters.next();
+    let mut after_cr = false;
+    loop {
+        let (text, invalid_bytes) = match std::str::from_utf8(prefix) {
+            Ok(text) => (text, 0),
+            Err(error) => (
+                std::str::from_utf8(&prefix[..error.valid_up_to()]).unwrap(),
+                error
+                    .error_len()
+                    .unwrap_or(prefix.len() - error.valid_up_to()),
+            ),
+        };
+        for character in text.chars() {
+            match character {
+                '\r' => {
+                    line += 1;
+                    column = 1;
+                }
+                '\n' if after_cr => {}
+                '\n' => {
+                    line += 1;
+                    column = 1;
+                }
+                _ => column += 1,
             }
-            line += 1;
-            column = 1;
-        } else if character == '\n' {
-            line += 1;
-            column = 1;
-        } else {
-            column += 1;
+            after_cr = character == '\r';
         }
+        if invalid_bytes == 0 {
+            return (line, column);
+        }
+        column += invalid_bytes;
+        after_cr = false;
+        prefix = &prefix[text.len() + invalid_bytes..];
     }
+}
+
+fn render_diagnostic(
+    label: &str,
+    (line, column): (usize, usize),
+    bom_offset: usize,
+    diagnostic: &Diagnostic,
+) -> String {
     format!(
         "{label}:{line}:{column}: bytes {}..{}: {}",
-        diagnostic.range.start, diagnostic.range.end, diagnostic.message
+        diagnostic.range.start + bom_offset,
+        diagnostic.range.end + bom_offset,
+        diagnostic.message
     )
 }

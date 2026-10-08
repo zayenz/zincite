@@ -4038,3 +4038,18 @@ reproduce the original's two filtered-wrapper Search limitations. The
 original/public structural difference requires reconciliation before claiming
 a faithful regression or applying the planned wrapper repair. Frozen public
 inputs/tests remain separate from main; no coverage is suppressed.
+
+Formatter CLI byte integration is accepted as an increment. Stdin/stdout/check/
+write now retain opaque comment bytes; BOM settings,assignment-only data mode,
+protected ranges and atomic write/error contracts stay intact. Invalid code
+after an earlier opaque comment and valid Unicode reports exact original byte
+ranges/columns; malformed directives retain original CRLF/BOM coordinates.
+The focused public CLI case checks byte output,BOM-only change detection and
+unchanged failing files. All7 CLI tests pass in the frozen108-source scratch
+boundary; full streams/pins/group are checked in
+semantic62-opaque-comment-formatter-cli-preparation/focused-cli/root-audit.json.
+Main formatting,Clippy and all198 workspace tests/42 summaries pass; current108
+sources/helpers,full streams and three empty reaped groups are checked in that
+preparation directory's actual-workspace-gates/root-audit.json. No original
+crossword acceptance,preservation example,raw lint loading/fixes or final
+corpus result is inferred from the synthetic CLI check; those remain open.

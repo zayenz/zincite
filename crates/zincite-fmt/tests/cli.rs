@@ -2,6 +2,10 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 fn run(arguments: &[&str], source: &str) -> std::process::Output {
+    run_bytes(arguments, source.as_bytes())
+}
+
+fn run_bytes(arguments: &[&str], source: &[u8]) -> std::process::Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_zincite-fmt"))
         .args(arguments)
         .stdin(Stdio::piped())
@@ -9,13 +13,100 @@ fn run(arguments: &[&str], source: &str) -> std::process::Output {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(source.as_bytes())
-        .unwrap();
+    child.stdin.take().unwrap().write_all(source).unwrap();
     child.wait_with_output().unwrap()
+}
+
+#[test]
+fn opaque_comment_bytes_survive_cli_modes_while_errors_preserve_input() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-opaque-comments-{}", std::process::id()));
+    std::fs::create_dir(&directory).unwrap();
+    let path = directory.join("values.dzn");
+    let config = directory.join(".editorconfig");
+    std::fs::write(
+        &config,
+        "root = true\n[*]\ncharset = utf-8-bom\nend_of_line = crlf\n",
+    )
+    .unwrap();
+    let source = b"\xef\xbb\xbf/* \xe7\r\n  keep  \xff */\r\nvalue=1; /* \xe9 */";
+    let expected = b"\xef\xbb\xbf/* \xe7\r\n  keep  \xff */\r\nvalue = 1; /* \xe9 */\r\n";
+    let plain = run_bytes(&[], source);
+    assert!(plain.status.success(), "{plain:?}");
+    assert!(plain.stderr.is_empty());
+    assert_eq!(
+        plain.stdout,
+        b"/* \xe7\r\n  keep  \xff */\nvalue = 1; /* \xe9 */\n"
+    );
+    let arguments = ["--stdin-filepath", path.to_str().unwrap()];
+    let output = run_bytes(&arguments, source);
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stderr.is_empty());
+    assert_eq!(output.stdout, expected);
+    let check = ["--check", "--stdin-filepath", path.to_str().unwrap()];
+    let output = run_bytes(&check, source);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty() && output.stderr.is_empty());
+    let output = run_bytes(&check, expected);
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stdout.is_empty() && output.stderr.is_empty());
+
+    std::fs::write(&path, source).unwrap();
+    let output = run(&["--check", path.to_str().unwrap()], "");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty() && output.stderr.is_empty());
+    assert_eq!(std::fs::read(&path).unwrap(), source);
+    let output = run(&["--write", path.to_str().unwrap()], "");
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stdout.is_empty() && output.stderr.is_empty());
+    assert_eq!(std::fs::read(&path).unwrap(), expected);
+    let output = run(&["--check", path.to_str().unwrap()], "");
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stdout.is_empty() && output.stderr.is_empty());
+
+    // The body is already formatted: changing only the BOM policy must count.
+    std::fs::write(
+        &config,
+        "root = true\n[*]\ncharset = utf-8\nend_of_line = crlf\n",
+    )
+    .unwrap();
+    let output = run(&["--check", path.to_str().unwrap()], "");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty() && output.stderr.is_empty());
+    assert_eq!(std::fs::read(&path).unwrap(), expected);
+    let output = run(&["--write", path.to_str().unwrap()], "");
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stdout.is_empty() && output.stderr.is_empty());
+    assert_eq!(std::fs::read(&path).unwrap(), &expected[3..]);
+
+    for (invalid, location, message) in [
+        (
+            b"\xef\xbb\xbf/* \xff \xc3\xa9 */ value=\xfe;".as_slice(),
+            ":1:17: bytes 20..21:",
+            "invalid UTF-8 is only supported inside comments",
+        ),
+        (
+            b"\xef\xbb\xbf/* \xe7 */\r\n% zincite-fmt: skip\xff\r\nvalue=1;".as_slice(),
+            ":2:1: bytes 12..32:",
+            "unknown or malformed formatting directive",
+        ),
+    ] {
+        let output = run_bytes(&arguments, invalid);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let diagnostic = String::from_utf8(output.stderr).unwrap();
+        assert!(diagnostic.contains(location), "{diagnostic}");
+        assert!(diagnostic.contains(message), "{diagnostic}");
+        std::fs::write(&path, invalid).unwrap();
+        let output = run(&["--write", path.to_str().unwrap()], "");
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let diagnostic = String::from_utf8(output.stderr).unwrap();
+        assert!(diagnostic.contains(location), "{diagnostic}");
+        assert!(diagnostic.contains(message), "{diagnostic}");
+        assert_eq!(std::fs::read(&path).unwrap(), invalid);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
 }
 
 #[test]
@@ -163,7 +254,7 @@ fn check_and_write_modes_preserve_failures_and_process_independent_files() {
     for path in [&syntax, &directive, &utf8, &missing] {
         assert!(diagnostic.contains(path.to_str().unwrap()), "{diagnostic}");
     }
-    assert!(diagnostic.contains("formatting on directive") && diagnostic.contains("not UTF-8"));
+    assert!(diagnostic.contains("formatting on directive") && diagnostic.contains("invalid UTF-8"));
     assert_eq!(std::fs::read(&syntax).unwrap(), syntax_source.as_bytes());
     assert_eq!(
         std::fs::read(&directive).unwrap(),
