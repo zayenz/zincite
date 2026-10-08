@@ -3688,3 +3688,15 @@ the group is empty. The companion is still running. Native termination alone
 does not establish rule completion or diagnostic parity; semantic acceptance
 remains pending the companion and independent full capture audit. The earlier
 normal29 timeout remains a censored baseline, with no speed ratio claimed.
+
+Original Cellda31 companion now also completes within300 seconds (290.579 wall,
+289.624 child CPU). Independent full capture audit confirms all26 and all14
+Completed,14707 warnings,zero errors/limitations, complete source/root/drop
+accounting and exact3,459,979-byte native/companion diagnostic parity. Current
+original/std/assets/helpers/main source pins and both reaped empty groups are
+checked in `semantic62-cellda31-controls/cellda_y_10s/root-audit.json`.
+Whole-analyze still requests67,602,244,693 bytes in909,312,633 allocations with
+10,737,755,746-byte peak delta; native/probe RSS is11,497.73/14,271.92 MiB.
+These are absolute measurements, not an isolated performance ratio or evidence
+of efficient scaling. Original Cellda processing/coverage is now observed; four
+other BNN originals and final full-corpus acceptance remain pending.
