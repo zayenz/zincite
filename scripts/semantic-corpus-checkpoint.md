@@ -2825,3 +2825,17 @@ in `target/benchmarks/base083/semantic62-draft-workspace-conditional-float-green
 No broader gates ran. A second temporary diagnostic capture is authorized to
 locate the remaining limitation; no additional Float implementation repair is
 yet justified. Original session89518 was freshly polled and remains live.
+
+The second Routing diagnostic confirms that decision-integer division now
+resolves against the corrected fixture. Three cases pass; the same Float-let
+output remains Unknown, with a located limitation reading “numeric expression
+is outside bounded integer arithmetic” on the conditional body. Cargo exits101
+in19.645 seconds without timeout. Root checked complete streams, equal
+before/after/current source/helper state, reaping and an empty group. Evidence
+and terminal root audit are under
+`target/benchmarks/base083/semantic62-draft-workspace-conditional-float-diagnostic-v2-search/`.
+The division inspection fallback bypasses its separate integer evaluator for
+checked parameter-array selections, but still invokes it for decision-array
+selections. That is a concrete next trace candidate; it is not yet a confirmed
+repair. Keep literal-zero and unsupported-sibling checks and infer no numeric
+value from an unproved selection. No production change or broader gate ran.
