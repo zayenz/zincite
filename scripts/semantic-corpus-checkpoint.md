@@ -2802,3 +2802,14 @@ Two offline/locked release builds started in parallel under their own bounded
 runners (300 seconds each). These are diagnostic builds, not stock performance
 measurements or task acceptance. Their evidence is under
 `target/benchmarks/base083/semantic62-partial-check-attribution-preparation/`.
+
+Both native-only attribution builds complete successfully without timeout:
+release18/19 take18.723/18.767 seconds. Root parsed all13 Cargo events in each
+complete stdout, read full stderr, found no compiler warnings/errors, verified
+equal before/after/current copy/original/helper/tool state, reaping and empty
+groups, and checked each frozen executable against its emitted artifact.
+Terminal root audits are in the build18/build19 subdirectories of the
+attribution preparation. No model was processed with these diagnostic binaries
+yet; four bounded captures on the already compiler-accepted growth models are
+being prepared. These build results do not close CPU attribution, Navigation
+processing, Routing search regressions or final task acceptance.
