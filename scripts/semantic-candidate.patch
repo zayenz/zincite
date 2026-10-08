@@ -4375,9 +4375,13 @@
                          )
                      {
                          continue;
-@@ -164,9 +203,11 @@
+@@ -161,12 +200,14 @@
+             // explicit default-capture boundary without inventing an assertion rule.
+             for l in guarded.limitations.iter().filter(|l| {
+                 l.file == file
++                    && l.reason == "default capture of aborting assertion is unsupported"
                      && contains(&source.location(node.range()), &l.location)
-                     && l.reason == "default capture of aborting assertion is unsupported"
+-                    && l.reason == "default capture of aborting assertion is unsupported"
              }) {
 -                if !guarded
 -                    .expression(file, &l.location)

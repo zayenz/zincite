@@ -2977,3 +2977,13 @@ row order and duplicates, suppressions, containment, activation, empty
 iteration checks and final sort/dedup. The observed short checker timings
 do not independently attribute CPU to these joins. Other linear searches
 remain; no overall linearity claim follows from this proposed correction.
+
+The combined candidate patch now includes the measured abort-filter reorder.
+Root reconstructed both previous and new patches in disposable directories:
+only partial_expression.rs differs, with the exact reviewed two-line reorder.
+The updated patch is 280,128 bytes, SHA256
+adcdc3d46a201cb9c8be4efcf7b4b5daa21776461e2663f2fc302869b4bdde85.
+The further limitation-lookup correction is still being authored; it is not
+in this checkpoint. Authoritative Rust and original capture inputs remain
+unchanged. A frozen Routing20 normal CLI/companion pair is now running at
+the same 300-second caps to check the original Routing model's body coverage.
