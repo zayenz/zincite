@@ -3749,3 +3749,17 @@ checked in `semantic62-sysadmin4-31-controls/sysadmin_4_2s/root-audit.json`.
 This observes another formerly missing original; inventory4,sysadmin5,navigation
 current controls and final full-corpus acceptance remain pending. Sparse v3's
 focused regression runs after this pair, with production v2 unchanged.
+
+Original inventory4 normal31 native/companion now finish (28.492/27.278 seconds)
+with all26 and all14 Completed,4237 warnings,zero errors/limitations. Complete
+source/root/drop/status accounting and full1,061,429-byte diagnostic parity,
+current original/std/source/assets/helpers and both empty reaped groups are
+checked in `semantic62-inventory4-31-controls/inventory_4_8s/root-audit.json`.
+Sysadmin5/navigation current controls and final full-corpus acceptance remain.
+
+Sparse v3 reaches the full positive and all intended negative outcomes; its only
+failure is demanding an enclosing-constraint start location when the Boolean
+selector limitation precisely covers722..756. Full streams and equal captured
+106-source/helper maps are checked in focused-green3/root-audit.json. V4 changes
+only that anchor to the exact offending selector, leaving production v2 and all
+outcome assertions unchanged; its focused runtime is pending.
