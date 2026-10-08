@@ -2640,3 +2640,16 @@ evidence and the root audit are under
 frozen artifacts are in `semantic62-draft-partial-lookups-binaries/` and
 `semantic62-partial-lookups-libraries/`. This is build evidence; model parity,
 performance and final corpus/task acceptance remain pending.
+
+The frozen release18 Navigation native attribution control reached its unchanged
+300-second cap (300.074 seconds). Root checked all 1,041 original/compiler/standard
+inputs, two frozen binaries and 45 helpers against equal before/after/current
+state, plus full streams, reaping and empty groups. The one own-child sampling
+attempt at 240.122 seconds returned 255 in 0.038 seconds; its stderr reports
+that sample could not examine the process, and no graph was produced. No retry
+or privilege escalation was attempted. Native stdout/stderr are empty, and
+root counts, per-rule outcomes, allocation attribution and semantic acceptance
+remain null. Evidence and terminal root audit are in
+`target/benchmarks/base083/semantic62-stock18-navigation-native-attribution/`.
+This control provides neither complete Navigation processing nor CPU attribution.
+The separate matched Routing18/19 comparison remains in progress.
