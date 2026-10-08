@@ -1804,7 +1804,7 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
     std::fs::remove_dir_all(dir).unwrap();
     // Keep the complete Routing336 producer chain in one symbolic public case.
     let routing = concat!(
-        "int: count; set of int: Cols=1..2; var 0..9: coord_a; var 0..9: coord_b; array[int] of var int: coords=[coord_a,coord_b];\n",
+        "int: count; set of int: Cols=1..2; var 0..9: coord_a; var 0..9: coord_b; array[int] of var int: coords=[coord_a,coord_b,coord_a,coord_b];\n",
         "set of int: Rows=1..length(coords) div length(Cols);\n",
         "array[int] of int: kinds=[5,3]; set of int: Boxes=index_set(kinds);\n",
         "set of int: Pref={z|z in Boxes where 5==kinds[z]};\n",
