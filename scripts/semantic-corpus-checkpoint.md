@@ -3640,3 +3640,13 @@ with no completed rule/drop record; all26 acceptance remains Unobserved. This is
 instrumented phase attribution, with no isolated speedup, allocation or semantic
 acceptance claim. A one-line invariant-pass memo candidate is scratch-only and
 its unchanged correctness controls are being compared before acceptance.
+
+Exact compiler-positive original CTW is freshly observed with normal30 native
+and companion. Both finish with17 warnings, zero errors and11 limitations;
+unbounded-variable and search-coverage remain thesis Limited. Complete all26
+analysis/source/drop records and full native/companion diagnostics equal the
+retained24 control. Unchanged compiler/original/std/current106 source/assets,
+full streams and reaped empty groups are checked independently in
+`semantic62-ctw30-direct-control/root-audit.json`. Its Bool generator sum,
+ParameterInt powers and bodyless forwarding prerequisites remain separate
+confirmed work; they are not claimed repaired by Routing membership inspection.
