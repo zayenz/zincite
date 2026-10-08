@@ -4003,3 +4003,20 @@ diagnostic/status parity,all26/source/drop accounting and both empty reaped
 groups are checked in semantic62-macc34-direct-control/root-audit.json.
 No original,data-dependent membership or missing coverage is suppressed.
 The remaining original support gaps and final corpus evidence remain open.
+
+The additive formatter byte API is integrated. It reuses ordinary formatting
+and restores original comment payloads in the actual sorted-include/protected
+emission order,checking output comment kind and analysis spelling before raw
+replacement. Equal masked comments with different original bytes stay attached
+to their own includes. UTF-8 callers keep the existing API and direct path.
+The public check covers reversed include attachments,protected raw comments,
+CRLF options,idempotence and malformed opaque directives without output.
+All24 formatting tests pass in the frozen108-source scratch boundary; full
+streams/pins and its empty reaped group are checked in
+semantic62-opaque-comment-formatter-preparation/focused-formatting/root-audit.json.
+Main formatting,Clippy and all197 workspace tests/42 summaries pass; current108
+sources/helpers,full streams and three empty reaped groups are checked in that
+preparation directory's actual-workspace-gates/root-audit.json. CLI byte output,
+lint loading,truthful raw snapshots/fixes and original crossword acceptance
+remain open. Formatter CLI integration is assigned in a separate current108
+scratch; this library increment does not complete task083 or corpus acceptance.

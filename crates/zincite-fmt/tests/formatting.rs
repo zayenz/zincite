@@ -4,6 +4,48 @@ use zincite_syntax::{TokenKind, parse};
 const MODEL: &str = include_str!("../../../tests/fixtures/scalar.mzn");
 
 #[test]
+fn byte_formatting_retains_raw_comments_with_sorted_and_protected_includes() {
+    use zincite_fmt::{FormatOptions, LineEnding, format_bytes, format_bytes_with_options};
+    use zincite_syntax::parse_bytes;
+
+    let protected = b"\r\n% zincite-fmt: off\r\ninclude  \"y.mzn\" ; /* \xff */\r\ninclude \"b.mzn\";\r\n% zincite-fmt: on\r\n";
+    let mut source = b"/* \xe7 */\ninclude \"z.mzn\";\n/* \xe9 */\ninclude \"a.mzn\";".to_vec();
+    source.extend_from_slice(protected);
+    source.extend_from_slice(b"int: value= /* \xfe\r\n  keep  spacing  \r\n*/ 1;");
+    let parsed = parse_bytes(source.clone()).unwrap();
+    assert!(parsed.analysis_file().diagnostics().is_empty());
+
+    let mut expected = b"/* \xe9 */\ninclude \"a.mzn\";\n/* \xe7 */\ninclude \"z.mzn\";".to_vec();
+    expected.extend_from_slice(protected);
+    expected.extend_from_slice(b"int: value = /* \xfe\r\n  keep  spacing  \r\n*/ 1;\n");
+    let formatted = format_bytes(&parsed).unwrap();
+    assert_eq!(formatted, expected);
+    assert_eq!(parsed.source_bytes(), source);
+    let reparsed = parse_bytes(formatted.clone()).unwrap();
+    assert!(reparsed.analysis_file().diagnostics().is_empty());
+    assert_eq!(format_bytes(&reparsed).unwrap(), formatted);
+
+    let options = FormatOptions {
+        line_ending: LineEnding::CrLf,
+        ..FormatOptions::default()
+    };
+    let mut expected =
+        b"/* \xe9 */\r\ninclude \"a.mzn\";\r\n/* \xe7 */\r\ninclude \"z.mzn\";".to_vec();
+    expected.extend_from_slice(protected);
+    expected.extend_from_slice(b"int: value = /* \xfe\r\n  keep  spacing  \r\n*/ 1;\r\n");
+    assert_eq!(
+        format_bytes_with_options(&parsed, &options).unwrap(),
+        expected
+    );
+
+    let malformed = parse_bytes(b"% zincite-fmt: skip\xff\r\ninclude \"a.mzn\";".to_vec()).unwrap();
+    let errors = format_bytes(&malformed).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].range, 0..b"% zincite-fmt: skip\xff".len());
+    assert!(errors[0].message.contains("malformed"));
+}
+
+#[test]
 fn compiler_item_families_preserve_written_headers_and_stable_structure() {
     let source = "int: identity(int:x)=x; enum E; E=_(1..2); var int:value; value==identity(1); annotation tag; predicate p() /* Keep  capture */ ann:anns=tag in anns; solve satisfy;";
     let parsed = parse(source);

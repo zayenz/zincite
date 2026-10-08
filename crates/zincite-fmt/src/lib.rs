@@ -4,9 +4,11 @@ use std::num::NonZeroUsize;
 
 use zincite_syntax::{Diagnostic, NodeKind, ParsedFile, SyntaxElement, SyntaxNode, TokenKind};
 
+mod bytes;
 mod directives;
 mod includes;
 mod layout;
+pub use bytes::{format_bytes, format_bytes_with_options};
 pub use directives::protected_ranges;
 
 /// How indentation columns are written. Tabs use spaces for a partial tab stop.
