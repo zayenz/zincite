@@ -4672,3 +4672,39 @@ production is unchanged and a public-type-check correction is pending.
 The integrated union repair also passes actual main workspace fmt, clippy with
 warnings denied and all205 tests; source sets exactly match the audited opt3
 combined release. Receipts are in the repair preparation actual-workspace-gates.
+
+
+Fresh current public all26 native/companion controls distinguish three MACC
+reductions: boundary-union has7 warnings/0errors/1IndexSetMismatch limitation;
+extremum-headers has1warning/0errors/8limitations across ConstantVariable,
+ExpensiveComprehension, IndexSetMismatch and VacuousConstraint; local-subset-
+initializer has4warnings/0errors/0limitations with every selected rule Completed.
+All native/companion diagnostics agree and scopes return to baseline. Exact
+compiler-positive inputs remain unchanged. Reports are summarized in semantic62-
+macc34-constant-domain-proposal/current-all26-public-summary.json. An initial
+runner's nonexistent local-subset.mzn path error is retained; only the correctly
+named local-subset-initializer case was subsequently run, without repeating the
+first two successful cases.
+
+Weighted-load tests-only V2 now compiles and passes the exact core/present tuple
+preflight, then fails the valid direct root WholeArray assertion with the actual
+membership boundary415..475. Both unchanged producer guard tests pass. Later
+negative rows have not run in RED. Full1585 input pins, streams and three empty
+reaped groups are audited in semantic62-gbac-fzn-membership-preparation/
+contract-red-v2-preparation/root-red/root-audit.json. Production remains private.
+
+The row-local Search production candidate passes the full focused test including
+its overflow negative, but full workspace validation catches a real regression:
+nested_unknown=1*(not symbolic[1]) changes from Unsupported to Unknown in the
+numeric-facts test. The global Boolean-operation admission is too broad. It is
+not integrated; the next candidate must restrict this inspection to the checked
+non-defining row relation and restore generic numeric/raw-partiality behavior.
+The focused success and failed workspace streams/source pins are separately
+retained under semantic62-is-search-gap-preparation/normal43-next/production-
+preparation/{root-focused-green,root-full-gates}/root-audit.json.
+
+The IndexSetMismatch-specific boundary-union test V1 fails compilation at two
+private known() calls, before semantic preflight or behavior. This is not RED
+proof; public exact Int/SetInt type checks are being corrected in a new snapshot.
+The failure is preserved in semantic62-boundary-union-index-set-preparation/
+root-red/root-audit.json. No public API or main source change is justified by it.
