@@ -7296,3 +7296,516 @@ solve :: bool_search([gate], input_order, indomain_min, complete) satisfy;
     assert!(!result.limitations.is_empty());
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn symbolic_set_local_cardinality_relations_do_not_export_array_outputs() {
+    use zincite_lint::{
+        BindingResolution, CallOutcome, DeclarationRole, Domain, Instantiation, ReferenceKind,
+        SourceKind, TypeInst, TypeKind,
+    };
+    use zincite_syntax::NodeKind;
+    let source = r#"include "globals.mzn";
+
+% The named match axis is shared by the data and decision arrays.
+set of int: Matches;
+set of int: Removed;
+set of int: Items;
+array[Matches] of set of int: covered;
+array[Matches] of var bool: chosen;
+var bool: gate;
+
+% Select exactly one candidate for each item, retaining every cardinality branch.
+constraint :: "Each item has exactly one selected match"
+    forall (i in Items) (
+        let {
+            set of int: matches_for_item =
+                {m | m in Matches diff Removed where i in covered[m]};
+        } in
+        if card(matches_for_item) = 1 then
+            chosen[min(matches_for_item)]
+        else
+            if card(matches_for_item) = 2 then
+                chosen[min(matches_for_item)] xor chosen[max(matches_for_item)]
+            else
+                sum(m in matches_for_item)(bool2int(chosen[m])) = 1
+            endif
+        endif
+    );
+
+% The relation inspects chosen but does not make it an explicit search seed.
+solve :: bool_search([gate], input_order, indomain_min, complete) satisfy;
+"#;
+    let (dir, _) = model("symbolic-set-local-cardinality", "solve satisfy;", "");
+    std::fs::write(dir.join("root.mzn"), source).unwrap();
+    std::fs::write(dir.join("library/std/globals.mzn"), "").unwrap();
+    let core = CORE.replace(
+        "function var bool: forall(array[int] of var opt bool: body);",
+        "function var bool: forall(array[int] of var bool: body);",
+    );
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!(
+            "{core}{}",
+            concat!(
+                "function set of int: 'diff'(set of int: left,set of int: right);\n",
+                "function int: card(set of int: values);\n",
+                "function int: min(set of int: values); function int: max(set of int: values);\n",
+                "function var int: bool2int(var bool: value);\n",
+                "function var bool: 'xor'(var bool: left,var bool: right);\n",
+                "function bool: 'in'(int: value,set of int: choices);\n",
+                "function int: '+'(int: left,int: right);\n",
+            ),
+        ),
+    )
+    .unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        ..Default::default()
+    };
+    let context = load_model(dir.join("root.mzn"), &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let scalar = |ty: &TypeInst, kind: TypeKind, instantiation| {
+        !ty.optional && ty.kind == kind && ty.instantiation == instantiation
+    };
+    let integer_set = |ty: &TypeInst| {
+        !ty.optional
+            && ty.instantiation == Instantiation::Parameter
+            && matches!(&ty.kind, TypeKind::Set(element)
+                if scalar(element, TypeKind::Int, Instantiation::Parameter))
+    };
+    let array = |ty: &TypeInst, kind: TypeKind, instantiation| {
+        !ty.optional
+            && ty.instantiation == instantiation
+            && matches!(&ty.kind, TypeKind::Array { indices, element }
+                if indices.len() == 1
+                    && scalar(&indices[0], TypeKind::Int, Instantiation::Parameter)
+                    && scalar(element, kind, instantiation))
+    };
+    // These are actual selected facts; unexpected tuples are preflight failures.
+    for (name, count) in [
+        ("diff", 1),
+        ("card", 2),
+        ("min", 2),
+        ("max", 1),
+        ("xor", 1),
+        ("bool2int", 1),
+        ("sum", 1),
+        ("in", 1),
+        ("=", 3),
+        ("forall", 1),
+    ] {
+        let found: Vec<_> = calls
+            .calls
+            .iter()
+            .filter(|call| call.file == 0 && call.name == name)
+            .collect();
+        assert_eq!(found.len(), count, "{name}: {:?}", calls.calls);
+        for call in found {
+            let CallOutcome::Resolved {
+                declaration,
+                parameters,
+                return_type,
+            } = &call.outcome
+            else {
+                panic!("{name}: {:?}", call);
+            };
+            let owner = &bindings.declarations[declaration.0];
+            assert_eq!(owner.name, name);
+            assert_eq!(owner.role, DeclarationRole::Function);
+            assert!(context.files[owner.file].implicit);
+            assert_eq!(context.files[owner.file].kind, SourceKind::StandardLibrary);
+            let checked = match name {
+                "diff" => {
+                    parameters.len() == 2
+                        && parameters.iter().all(integer_set)
+                        && integer_set(return_type)
+                }
+                "card" | "min" | "max" => {
+                    parameters.len() == 1
+                        && integer_set(&parameters[0])
+                        && scalar(return_type, TypeKind::Int, Instantiation::Parameter)
+                }
+                "xor" => {
+                    parameters.len() == 2
+                        && parameters
+                            .iter()
+                            .all(|ty| scalar(ty, TypeKind::Bool, Instantiation::Decision))
+                        && scalar(return_type, TypeKind::Bool, Instantiation::Decision)
+                }
+                "bool2int" => {
+                    parameters.len() == 1
+                        && scalar(&parameters[0], TypeKind::Bool, Instantiation::Decision)
+                        && scalar(return_type, TypeKind::Int, Instantiation::Decision)
+                }
+                "sum" => {
+                    parameters.len() == 1
+                        && array(&parameters[0], TypeKind::Int, Instantiation::Decision)
+                        && scalar(return_type, TypeKind::Int, Instantiation::Decision)
+                }
+                "forall" => {
+                    parameters.len() == 1
+                        && array(&parameters[0], TypeKind::Bool, Instantiation::Decision)
+                        && scalar(return_type, TypeKind::Bool, Instantiation::Decision)
+                }
+                "in" => {
+                    parameters.len() == 2
+                        && scalar(&parameters[0], TypeKind::Int, Instantiation::Parameter)
+                        && integer_set(&parameters[1])
+                        && scalar(return_type, TypeKind::Bool, Instantiation::Parameter)
+                }
+                "=" => {
+                    parameters.len() == 2
+                        && scalar(&parameters[1], TypeKind::Int, Instantiation::Parameter)
+                        && ((scalar(&parameters[0], TypeKind::Int, Instantiation::Parameter)
+                            && scalar(return_type, TypeKind::Bool, Instantiation::Parameter))
+                            || (scalar(&parameters[0], TypeKind::Int, Instantiation::Decision)
+                                && scalar(return_type, TypeKind::Bool, Instantiation::Decision)))
+                }
+                _ => false,
+            };
+            assert!(checked, "{name}: {:?}", call);
+        }
+    }
+    assert!(
+        calls
+            .calls
+            .iter()
+            .filter(|call| call.file == 0)
+            .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+        "{:?}",
+        calls.calls
+    );
+    let declaration = |name: &str| {
+        bindings
+            .declarations
+            .iter()
+            .find(|d| d.file == 0 && d.top_level && d.name == name)
+            .unwrap()
+            .id
+    };
+    let local = bindings
+        .declarations
+        .iter()
+        .find(|d| d.file == 0 && d.role == DeclarationRole::Local && d.name == "matches_for_item")
+        .unwrap();
+    assert!(integer_set(&calls.declarations[local.id.0].ty));
+    let domains = resolve_domains(&context, &bindings);
+    for name in ["covered", "chosen"] {
+        assert!(
+            matches!(&domains.declarations[declaration(name).0].domain,
+            Domain::Array { indices, .. } if matches!(indices.as_slice(),
+                [Domain::Named { declaration: id, .. }] if *id == declaration("Matches"))),
+            "{name}: {:?}",
+            domains.declarations[declaration(name).0].domain
+        );
+    }
+    let parsed = &context.files[0].parsed;
+    let mut pending = vec![parsed.tree()];
+    let mut nodes = Vec::new();
+    while let Some(node) = pending.pop() {
+        nodes.push(node);
+        pending.extend(node.child_nodes());
+    }
+    let typed = |node: &zincite_syntax::SyntaxNode| {
+        let range = context.files[0].location(node.range()).range;
+        let fact = calls
+            .expressions
+            .iter()
+            .find(|fact| fact.file == 0 && fact.location.range == range);
+        assert!(
+            fact.is_some(),
+            "Missing type for {:?}: {:?}",
+            node.kind(),
+            &parsed.source()[node.range()]
+        );
+        &fact.unwrap().ty
+    };
+    let reference = |node: &zincite_syntax::SyntaxNode| {
+        let range = context.files[0].location(node.range()).range;
+        let found: Vec<_> = bindings
+            .references
+            .iter()
+            .filter(|r| {
+                r.file == 0
+                    && r.kind == ReferenceKind::Value
+                    && range.start <= r.location.range.start
+                    && r.location.range.end <= range.end
+            })
+            .collect();
+        assert_eq!(
+            found.len(),
+            1,
+            "{:?}: {:?}",
+            &parsed.source()[node.range()],
+            found
+        );
+        let BindingResolution::Resolved(id) = found[0].resolution else {
+            panic!("{:?}", found[0]);
+        };
+        id
+    };
+    let generators: Vec<_> = nodes
+        .iter()
+        .copied()
+        .filter(|n| n.kind() == NodeKind::Generator)
+        .collect();
+    assert_eq!(generators.len(), 3);
+    let mut outer_binder = None;
+    let mut inner_binder = None;
+    let mut sum_binder = None;
+    for generator in generators {
+        let source_node = generator.child_nodes().next().unwrap();
+        let binder = bindings
+            .declarations
+            .iter()
+            .find(|d| {
+                d.file == 0
+                    && d.role == DeclarationRole::Generator
+                    && d.syntax_range == generator.range()
+            })
+            .unwrap()
+            .id;
+        assert!(scalar(
+            &calls.declarations[binder.0].ty,
+            TypeKind::Int,
+            Instantiation::Parameter
+        ));
+        assert!(integer_set(typed(source_node)));
+        match parsed.source()[source_node.range()].trim() {
+            "Items" => {
+                assert_eq!(reference(source_node), declaration("Items"));
+                outer_binder = Some(binder);
+            }
+            "Matches diff Removed" => {
+                inner_binder = Some(binder);
+                let mut source_shape = source_node;
+                while source_shape.kind() == NodeKind::Expression
+                    && source_shape.child_nodes().count() == 1
+                {
+                    source_shape = source_shape.child_nodes().next().unwrap();
+                }
+                assert_eq!(source_shape.kind(), NodeKind::BinaryExpression);
+                let operands: Vec<_> = source_shape.child_nodes().collect();
+                assert_eq!(operands.len(), 2);
+                assert_eq!(reference(operands[0]), declaration("Matches"));
+                assert_eq!(reference(operands[1]), declaration("Removed"));
+            }
+            "matches_for_item" => {
+                assert_eq!(reference(source_node), local.id);
+                sum_binder = Some(binder);
+            }
+            other => panic!("Unexpected generator source: {other}"),
+        }
+    }
+    assert!(
+        outer_binder.is_some()
+            && inner_binder.is_some()
+            && sum_binder.is_some()
+            && inner_binder != sum_binder
+    );
+    let local_refs: Vec<_> = bindings
+        .references
+        .iter()
+        .filter(|r| {
+            r.file == 0
+                && r.kind == ReferenceKind::Value
+                && parsed.source()[r.location.range.clone()].trim() == "matches_for_item"
+        })
+        .collect();
+    assert_eq!(local_refs.len(), 6);
+    assert!(
+        local_refs
+            .iter()
+            .all(|r| r.resolution == BindingResolution::Resolved(local.id))
+    );
+    let collections: Vec<_> = nodes
+        .iter()
+        .copied()
+        .filter(|n| n.kind() == NodeKind::SetComprehension)
+        .collect();
+    assert_eq!(collections.len(), 1);
+    let body = collections[0]
+        .child_nodes()
+        .find(|n| n.kind() != NodeKind::GeneratorList)
+        .unwrap();
+    assert_eq!(reference(body), inner_binder.unwrap());
+    assert!(integer_set(typed(collections[0])));
+    let filters: Vec<_> = nodes
+        .iter()
+        .copied()
+        .filter(|n| n.kind() == NodeKind::WhereFilter)
+        .collect();
+    assert_eq!(filters.len(), 1);
+    let filter = filters[0].child_nodes().next().unwrap();
+    assert_eq!(parsed.source()[filter.range()].trim(), "i in covered[m]");
+    let filter_value = filter.child_nodes().next().unwrap();
+    assert_eq!(reference(filter_value), outer_binder.unwrap());
+    let conditionals: Vec<_> = nodes
+        .iter()
+        .copied()
+        .filter(|n| n.kind() == NodeKind::ConditionalExpression)
+        .collect();
+    assert_eq!(conditionals.len(), 2);
+    for conditional in conditionals {
+        assert!(scalar(
+            typed(conditional),
+            TypeKind::Bool,
+            Instantiation::Decision
+        ));
+        let branches: Vec<_> = conditional.child_nodes().collect();
+        assert_eq!(branches.len(), 2);
+        assert_eq!(branches[0].kind(), NodeKind::ConditionalBranch);
+        assert_eq!(branches[1].kind(), NodeKind::ElseBranch);
+        let guard = branches[0].child_nodes().next().unwrap();
+        assert!(scalar(
+            typed(guard),
+            TypeKind::Bool,
+            Instantiation::Parameter
+        ));
+    }
+    assert!(scalar(
+        typed(filter),
+        TypeKind::Bool,
+        Instantiation::Parameter
+    ));
+    for (written, count) in [
+        ("covered[m]", 1),
+        ("chosen[m]", 1),
+        ("chosen[min(matches_for_item)]", 2),
+        ("chosen[max(matches_for_item)]", 1),
+    ] {
+        let accesses: Vec<_> = nodes
+            .iter()
+            .copied()
+            .filter(|n| {
+                n.kind() == NodeKind::ArrayAccessExpression
+                    && parsed.source()[n.range()].trim() == written
+            })
+            .collect();
+        assert_eq!(accesses.len(), count, "{written}");
+        for access in accesses {
+            let parts: Vec<_> = access.child_nodes().collect();
+            assert_eq!(parts.len(), 2);
+            assert_eq!(
+                reference(parts[0]),
+                declaration(if written.starts_with("covered") {
+                    "covered"
+                } else {
+                    "chosen"
+                })
+            );
+            assert!(scalar(
+                typed(parts[1]),
+                TypeKind::Int,
+                Instantiation::Parameter
+            ));
+            if written == "covered[m]" {
+                assert!(integer_set(typed(access)));
+                assert_eq!(reference(parts[1]), inner_binder.unwrap());
+            } else {
+                assert!(scalar(
+                    typed(access),
+                    TypeKind::Bool,
+                    Instantiation::Decision
+                ));
+                assert_eq!(
+                    reference(parts[1]),
+                    if written == "chosen[m]" {
+                        sum_binder.unwrap()
+                    } else {
+                        local.id
+                    }
+                );
+            }
+        }
+    }
+    let result = analyze_model(&context, &selected());
+    // Only the reached completion assertion establishes the intended behavioral RED.
+    assert!(
+        matches!(result.rules[0].outcome, RuleOutcome::Completed),
+        "{:?}",
+        result.limitations
+    );
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    let (_, search) = facts(&context);
+    assert_eq!(coverage(&bindings, &search, "gate"), SearchCoverage::Scalar);
+    assert!(matches!(
+        coverage(&bindings, &search, "chosen"),
+        SearchCoverage::Uncovered | SearchCoverage::Unknown
+    ));
+    assert!(
+        !search
+            .searched
+            .iter()
+            .any(|s| s.coverage == SearchCoverage::WholeArray
+                || s.declaration == Some(declaration("chosen")))
+    );
+    let inst = resolve_instantiations(&context, &bindings, &calls);
+    let outputs = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+    let direct = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+    assert!(
+        !outputs
+            .definitions
+            .iter()
+            .any(|d| d.target == declaration("chosen")),
+        "{:?}",
+        outputs.definitions
+    );
+    assert!(
+        !direct
+            .definitions
+            .iter()
+            .any(|d| d.target == declaration("chosen")),
+        "{:?}",
+        direct.definitions
+    );
+    // The comprehension filter must inspect its actual array domain before uncertainty.
+    let bad_source = source.replace(
+        "array[Matches] of set of int: covered;",
+        "array[0..(9223372036854775807 + 1)] of set of int: covered;",
+    );
+    std::fs::write(dir.join("root.mzn"), &bad_source).unwrap();
+    let bad = load_model(dir.join("root.mzn"), &options);
+    assert!(bad.errors.is_empty(), "{:?}", bad.errors);
+    let bad_bindings = resolve_bindings(&bad);
+    let bad_calls = resolve_callables(&bad, &bad_bindings);
+    assert!(
+        bad_calls
+            .calls
+            .iter()
+            .filter(|c| c.file == 0)
+            .all(|c| matches!(c.outcome, CallOutcome::Resolved { .. })),
+        "{:?}",
+        bad_calls.calls
+    );
+    let bad_domains = resolve_domains(&bad, &bad_bindings);
+    let covered = bad_bindings
+        .declarations
+        .iter()
+        .find(|d| d.file == 0 && d.top_level && d.name == "covered")
+        .unwrap()
+        .id;
+    assert!(
+        matches!(&bad_domains.declarations[covered.0].domain, Domain::Array { indices, .. }
+        if indices.len() == 1 && indices[0].numeric_minimum().is_err()),
+        "{:?}",
+        bad_domains.declarations[covered.0].domain
+    );
+    let result = analyze_model(&bad, &selected());
+    assert!(
+        matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+        "{:?}",
+        result.limitations
+    );
+    assert!(!result.limitations.is_empty());
+    let (_, search) = facts(&bad);
+    assert!(
+        !search
+            .searched
+            .iter()
+            .any(|s| s.coverage == SearchCoverage::WholeArray)
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}

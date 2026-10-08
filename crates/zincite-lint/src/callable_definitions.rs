@@ -1990,6 +1990,18 @@ impl<'a> Producer<'a> {
                     // No output holds when an initializer can abort the whole let.
                     return;
                 }
+                if let Some(safety) = self.parameter_set_let_safety(
+                    clause.file,
+                    clause.node,
+                    view,
+                    &clause.generators,
+                ) {
+                    if let DefinitionSafety::Unsupported(reason) = safety {
+                        self.unavailable(clause, &reason, unavailable);
+                    }
+                    // A relation over a local filtered set defines no array.
+                    return;
+                }
                 let mut clauses = Vec::new();
                 let mut private = Vec::new();
                 let mut initialization = Vec::new();
@@ -5609,6 +5621,68 @@ impl<'a> Producer<'a> {
         {
             return false;
         }
+        let difference_subset = |written_source: &'a SyntaxNode, axis: DeclarationId| {
+            let source = unwrap(written_source);
+            let source_type = self.expression_type(view, file, source).map(|e| &e.ty);
+            if source.kind() != NodeKind::BinaryExpression {
+                return false;
+            }
+            let operands: Vec<_> = source.child_nodes().collect();
+            let [left, right] = operands.as_slice() else {
+                return false;
+            };
+            let parameter_set = |ty: &TypeInst| {
+                ty.known()
+                    && !optional(ty)
+                    && ty.instantiation == Instantiation::Parameter
+                    && matches!(&ty.kind, TypeKind::Set(element)
+                                if element.kind == TypeKind::Int
+                                    && element.instantiation == Instantiation::Parameter)
+            };
+            let operand_type = |operand| {
+                self.expression_type(view, file, operand)
+                    .map(|fact| &fact.ty)
+            };
+            if !self.core(file, source, view, "diff")
+                || source_type.is_none_or(|ty| !parameter_set(ty))
+                || operands.iter().any(|operand| {
+                    let bare = unwrap(operand);
+                    bare.kind() != NodeKind::Expression
+                        || self.reference(file, bare).is_none_or(|id| {
+                            let owner = &self.bindings.declarations[id.0];
+                            !owner.top_level || owner.role != DeclarationRole::Value
+                        })
+                        || operand_type(operand).is_none_or(|ty| !parameter_set(ty))
+                })
+                || self.reference(file, unwrap(left)) != Some(axis)
+                || self.operation_fact(view, file, source).is_none_or(|call| {
+                    !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                                if parameters.len() == 2
+                                    && Some(&parameters[0]) == operand_type(left)
+                                    && Some(&parameters[1]) == operand_type(right)
+                                    && Some(return_type) == source_type)
+                })
+            {
+                return false;
+            }
+            // A checked difference contains only members of its exact
+            // left axis. Inspect both written sources before using this
+            // one-selector proof; it establishes no array coverage.
+            if matches!(
+                self.initialized_source_safety(
+                    file,
+                    written_source,
+                    view,
+                    generators,
+                    &mut Vec::new(),
+                ),
+                DefinitionSafety::Unsupported(_)
+            ) {
+                return false;
+            }
+            self.closed_integer_source_error(file, written_source, true, true)
+                .is_none()
+        };
         indices
             .iter()
             .zip(domains)
@@ -5684,67 +5758,8 @@ impl<'a> Producer<'a> {
                         .is_ok_and(|same| same == Some(true));
                 }
                 if source.kind() == NodeKind::BinaryExpression && expected.kind == TypeKind::Int {
-                    let Domain::Named {
-                        declaration: axis, ..
-                    } = domain
-                    else {
-                        return false;
-                    };
-                    let operands: Vec<_> = source.child_nodes().collect();
-                    let [left, right] = operands.as_slice() else {
-                        return false;
-                    };
-                    let parameter_set = |ty: &TypeInst| {
-                        ty.known()
-                            && !optional(ty)
-                            && ty.instantiation == Instantiation::Parameter
-                            && matches!(&ty.kind, TypeKind::Set(element)
-                                if element.kind == TypeKind::Int
-                                    && element.instantiation == Instantiation::Parameter)
-                    };
-                    let operand_type = |operand| {
-                        self.expression_type(view, file, operand).map(|fact| &fact.ty)
-                    };
-                    if !self.core(file, source, view, "diff")
-                        || source_type.is_none_or(|ty| !parameter_set(ty))
-                        || operands.iter().any(|operand| {
-                            let bare = unwrap(operand);
-                            bare.kind() != NodeKind::Expression
-                                || self.reference(file, bare).is_none_or(|id| {
-                                    let owner = &self.bindings.declarations[id.0];
-                                    !owner.top_level || owner.role != DeclarationRole::Value
-                                })
-                                || operand_type(operand).is_none_or(|ty| !parameter_set(ty))
-                        })
-                        || self.reference(file, unwrap(left)) != Some(*axis)
-                        || self.operation_fact(view, file, source).is_none_or(|call| {
-                            !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
-                                if parameters.len() == 2
-                                    && Some(&parameters[0]) == operand_type(left)
-                                    && Some(&parameters[1]) == operand_type(right)
-                                    && Some(return_type) == source_type)
-                        })
-                    {
-                        return false;
-                    }
-                    // A checked difference contains only members of its exact
-                    // left axis. Inspect both written sources before using this
-                    // one-selector proof; it establishes no array coverage.
-                    if matches!(
-                        self.initialized_source_safety(
-                            file,
-                            written_source,
-                            view,
-                            generators,
-                            &mut Vec::new(),
-                        ),
-                        DefinitionSafety::Unsupported(_)
-                    ) {
-                        return false;
-                    }
-                    return self
-                        .closed_integer_source_error(file, written_source, true, true)
-                        .is_none();
+                    return matches!(domain, Domain::Named { declaration: axis, .. }
+                        if difference_subset(written_source, *axis));
                 }
                 if source.kind() != NodeKind::Expression {
                     return false;
@@ -5817,14 +5832,17 @@ impl<'a> Producer<'a> {
                 {
                     return false;
                 }
-                let Some(collection) = find_node(
+                let Some(written_local) = find_node(
                     self.context.files[file].parsed.tree(),
                     &local.syntax_range,
                     local.role,
-                )
-                .and_then(|n| n.child_nodes().find(|n| is_expression(n.kind())))
-                .map(unwrap)
-                .filter(|n| n.kind() == NodeKind::SetComprehension) else {
+                ) else {
+                    return false;
+                };
+                let Some(collection) = written_local
+                    .child_nodes().find(|n| is_expression(n.kind()))
+                    .map(unwrap)
+                    .filter(|n| n.kind() == NodeKind::SetComprehension) else {
                     return false;
                 };
                 let Some(list) = collection
@@ -5855,16 +5873,50 @@ impl<'a> Producer<'a> {
                             && d.syntax_range == parts[0].range()
                     })
                     .collect();
-                binders.len() == 1
-                    && self.reference(file, body) == Some(binders[0].id)
-                    && parts[0]
-                        .child_nodes()
-                        .next()
-                        .map(unwrap)
-                        .is_some_and(|source| {
-                            source.kind() == NodeKind::Expression
-                                && self.reference(file, source) == Some(*domain_id)
-                        })
+                if binders.len() != 1
+                    || self.reference(file, body) != Some(binders[0].id)
+                {
+                    return false;
+                }
+                let Some(written_source) = parts[0].child_nodes().next() else {
+                    return false;
+                };
+                let source = unwrap(written_source);
+                if source.kind() == NodeKind::Expression {
+                    return self.reference(file, source) == Some(*domain_id);
+                }
+                if expected.kind != TypeKind::Int
+                    || !difference_subset(written_source, *domain_id)
+                    || self.type_dependencies(file, written_local, view, generators).is_err()
+                    || self.closed_integer_source_error(file, written_local, true, true).is_some()
+                {
+                    return false;
+                }
+                let mut nodes = vec![written_local];
+                while let Some(node) = nodes.pop() {
+                    if !crate::definitions::annotations_safe(self.context, file, node) {
+                        return false;
+                    }
+                    // This source proof cannot independently inspect earlier
+                    // Local aliases; the demonstrated filter uses only its
+                    // generator and initialized top-level declarations.
+                    if node.kind() == NodeKind::Expression
+                        && self.reference(file, node).is_some_and(|id|
+                            self.bindings.declarations[id.0].role == DeclarationRole::Local)
+                    {
+                        return false;
+                    }
+                    nodes.extend(node.child_nodes());
+                }
+                // An unchanged comprehension binder can only remove members
+                // from its inspected diff source. Check every header/filter;
+                // the subset proof supplies no extent or traversal coverage.
+                !matches!(
+                    self.initialized_source_safety(
+                        file, collection, view, generators, &mut Vec::new(),
+                    ),
+                    DefinitionSafety::Unsupported(_)
+                )
             })
     }
     fn length_equals(
@@ -7894,80 +7946,12 @@ impl<'a> Producer<'a> {
                 }
             }
             let body_safety = if conditional_relation {
-                (|| -> DefinitionSafety {
-                    let branches: Vec<_> = unwrap(body).child_nodes().collect();
-                    let mut complete = false;
-                    for (position, branch) in branches.iter().enumerate() {
-                        let parts: Vec<_> = branch.child_nodes().collect();
-                        let branch_body = if branch.kind() == NodeKind::ConditionalBranch
-                            && parts.len() == 2
-                        {
-                            let guard = parts[0];
-                            if typed(guard)
-                                .is_none_or(|t| !present_parameter(t) || t.kind != TypeKind::Bool)
-                            {
-                                return DefinitionSafety::Unsupported(
-                                    "Boolean conditional guard is unsupported".into(),
-                                );
-                            }
-                            if let unsupported @ DefinitionSafety::Unsupported(_) = self
-                                .initialized_source_safety(file, guard, view, &all, &mut Vec::new())
-                            {
-                                return unsupported;
-                            }
-                            // Inspect eager guard sources independently of their
-                            // value; never check the whole lazy conditional here.
-                            if let Some(reason) =
-                                self.closed_integer_source_error(file, guard, true, true)
-                            {
-                                return DefinitionSafety::Unsupported(reason);
-                            }
-                            parts[1]
-                        } else if branch.kind() == NodeKind::ElseBranch
-                            && parts.len() == 1
-                            && position + 1 == branches.len()
-                        {
-                            complete = true;
-                            parts[0]
-                        } else {
-                            return DefinitionSafety::Unsupported(
-                                "Boolean conditional branch is unsupported".into(),
-                            );
-                        };
-                        if typed(branch_body).is_none_or(|t| {
-                            !present(t)
-                                || t.kind != TypeKind::Bool
-                                || !crate::types::coerces(t, typed(body).unwrap())
-                        }) {
-                            return DefinitionSafety::Unsupported(
-                                "Boolean conditional body is unsupported".into(),
-                            );
-                        }
-                        let inspected = self
-                            .boolean_relation_safety(file, branch_body, view, &all)
-                            .unwrap_or_else(|| {
-                                self.initialized_source_safety(
-                                    file,
-                                    branch_body,
-                                    view,
-                                    &all,
-                                    &mut Vec::new(),
-                                )
-                            });
-                        if let unsupported @ DefinitionSafety::Unsupported(_) = inspected {
-                            return unsupported;
-                        }
-                    }
-                    if complete && branches.len() >= 2 {
-                        DefinitionSafety::Unknown(
-                            "Boolean conditional relation value is unproved".into(),
-                        )
-                    } else {
+                self.boolean_relation_safety(file, body, view, &all)
+                    .unwrap_or_else(|| {
                         DefinitionSafety::Unsupported(
-                            "Boolean conditional inspection requires a complete else".into(),
+                            "Boolean conditional inspection is unavailable".into(),
                         )
-                    }
-                })()
+                    })
             } else if node.kind() == NodeKind::GeneratorCallExpression
                 && self.core(file, node, view, "exists")
             {
@@ -9280,6 +9264,197 @@ impl<'a> Producer<'a> {
             )
         })
     }
+    fn parameter_set_let_safety(
+        &self,
+        file: FileId,
+        written: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> Option<DefinitionSafety> {
+        let node = unwrap(written);
+        if node.kind() != NodeKind::LetExpression {
+            return None;
+        }
+        let typed = |value: &SyntaxNode| {
+            self.expression_type(self.view(file, value, view), file, value)
+                .map(|e| &e.ty)
+        };
+        let integer_set = |ty: &TypeInst| {
+            ty.known()
+                && !optional(ty)
+                && ty.instantiation == Instantiation::Parameter
+                && matches!(&ty.kind, TypeKind::Set(element)
+                    if element.known() && !optional(element) && element.kind == TypeKind::Int
+                        && element.instantiation == Instantiation::Parameter)
+        };
+        let bodies: Vec<_> = node
+            .child_nodes()
+            .filter(|n| n.kind() != NodeKind::LetBlock)
+            .collect();
+        let [body] = bodies.as_slice() else {
+            return None;
+        };
+        if unwrap(body).kind() != NodeKind::ConditionalExpression
+            || typed(node).is_none_or(|ty| !ty.known() || optional(ty) || ty.kind != TypeKind::Bool)
+        {
+            return None;
+        }
+        let locals: Vec<_> = node
+            .child_nodes()
+            .filter(|n| n.kind() == NodeKind::LetBlock)
+            .flat_map(|block| block.child_nodes())
+            .collect();
+        // Only initialized parameter integer-set comprehensions are admitted.
+        // Other let shapes keep the existing strict Local interpreter.
+        if locals.is_empty()
+            || locals.iter().any(|local| {
+                local.kind() != NodeKind::Declaration
+                    || self
+                        .bindings
+                        .declarations
+                        .iter()
+                        .find(|d| {
+                            d.file == file
+                                && d.syntax_range == local.range()
+                                && d.role == DeclarationRole::Local
+                        })
+                        .is_none_or(|d| !integer_set(&view.declarations[d.id.0].ty))
+                    || local
+                        .child_nodes()
+                        .find(|n| is_expression(n.kind()))
+                        .is_none_or(|value| unwrap(value).kind() != NodeKind::SetComprehension)
+            })
+        {
+            return None;
+        }
+        let inspect = (|| -> Result<(), String> {
+            let mut nodes = vec![written];
+            while let Some(current) = nodes.pop() {
+                if !crate::definitions::annotations_safe(self.context, file, current) {
+                    return Err("set let annotation is unsupported".into());
+                }
+                nodes.extend(current.child_nodes());
+            }
+            let mut lexical = Vec::new();
+            for header in generators {
+                if !crate::definitions::annotations_safe(self.context, file, header) {
+                    return Err("set let generator annotation is unsupported".into());
+                }
+                let binders: Vec<_> = self
+                    .bindings
+                    .declarations
+                    .iter()
+                    .filter(|d| {
+                        d.file == file
+                            && d.role == DeclarationRole::Generator
+                            && d.syntax_range == header.range()
+                    })
+                    .collect();
+                if binders.is_empty()
+                    || binders.len()
+                        != crate::domains::generator_slots(&self.context.files[file].parsed, header)
+                    || !header.children().iter().any(|c| {
+                        matches!(c, SyntaxElement::Token(i)
+                        if self.context.files[file].parsed.tokens()[*i].kind == TokenKind::In)
+                    })
+                    || binders.iter().any(|d| {
+                        let ty = &view.declarations[d.id.0].ty;
+                        !ty.known()
+                            || optional(ty)
+                            || ty.instantiation != Instantiation::Parameter
+                            || ty.kind != TypeKind::Int
+                    })
+                {
+                    return Err("set let generator identity or type is unsupported".into());
+                }
+                let source = header
+                    .child_nodes()
+                    .next()
+                    .ok_or("set let generator source is unavailable")?;
+                if typed(source).is_none_or(|ty| !integer_set(ty)) {
+                    return Err("set let generator source type is unsupported".into());
+                }
+                if let DefinitionSafety::Unsupported(reason) =
+                    self.initialized_source_safety(file, source, view, &lexical, &mut Vec::new())
+                {
+                    return Err(reason);
+                }
+                if let Some(reason) = self.closed_integer_source_error(file, source, true, true) {
+                    return Err(reason);
+                }
+                lexical.push(*header);
+                for filter in header
+                    .child_nodes()
+                    .filter(|n| n.kind() == NodeKind::WhereFilter)
+                {
+                    let parts: Vec<_> = filter.child_nodes().collect();
+                    let [condition] = parts.as_slice() else {
+                        return Err("set let filter is unsupported".into());
+                    };
+                    if typed(condition).is_none_or(|ty| {
+                        !ty.known()
+                            || optional(ty)
+                            || ty.instantiation != Instantiation::Parameter
+                            || ty.kind != TypeKind::Bool
+                    }) {
+                        return Err("set let filter type is unsupported".into());
+                    }
+                    if let DefinitionSafety::Unsupported(reason) = self.initialized_source_safety(
+                        file,
+                        condition,
+                        view,
+                        &lexical,
+                        &mut Vec::new(),
+                    ) {
+                        return Err(reason);
+                    }
+                    if let Some(reason) =
+                        self.closed_integer_source_error(file, condition, true, true)
+                    {
+                        return Err(reason);
+                    }
+                }
+            }
+            // Inspect every initializer, even unused locals. The initialized
+            // source walker does not follow Local references, so reject forward
+            // or cyclic local aliases before inspecting ordered initializers.
+            for local in locals {
+                if !crate::definitions::annotations_safe(self.context, file, local) {
+                    return Err("set local annotation is unsupported".into());
+                }
+                self.type_dependencies(file, local, view, &lexical)?;
+                let value = local
+                    .child_nodes()
+                    .find(|n| is_expression(n.kind()))
+                    .ok_or("set local initializer is unavailable")?;
+                let range = self.context.files[file].location(value.range()).range;
+                if self.bindings.references.iter().any(|reference| reference.file == file
+                    && range.start <= reference.location.range.start && reference.location.range.end <= range.end
+                    && matches!(reference.resolution, BindingResolution::Resolved(id)
+                        if self.bindings.declarations[id.0].role == DeclarationRole::Local
+                            && self.bindings.declarations[id.0].syntax_range.end + self.context.files[file].byte_offset
+                                > reference.location.range.start))
+                { return Err("set local has a cyclic or forward source".into()); }
+                if let DefinitionSafety::Unsupported(reason) =
+                    self.initialized_source_safety(file, value, view, &lexical, &mut Vec::new())
+                {
+                    return Err(reason);
+                }
+                if let Some(reason) = self.closed_integer_source_error(file, local, true, true) {
+                    return Err(reason);
+                }
+            }
+            match self.boolean_relation_safety(file, body, view, &lexical) {
+                Some(DefinitionSafety::Unsupported(reason)) => Err(reason),
+                Some(_) => Ok(()),
+                None => Err("set let Boolean relation inspection is unavailable".into()),
+            }
+        })();
+        Some(match inspect {
+            Err(reason) => DefinitionSafety::Unsupported(reason),
+            Ok(()) => DefinitionSafety::Unknown("set let relation value is unproved".into()),
+        })
+    }
     fn parameter_row_let_safety(
         &self,
         file: FileId,
@@ -9462,7 +9637,7 @@ impl<'a> Producer<'a> {
             }
         })
     }
-    // Inspect a checked row-local body, core forall conditional body or core
+    // Inspect a checked local body, core forall conditional body or core
     // exists body. Numeric operands retain raw Bool-to-Int coercion partiality.
     fn boolean_relation_safety(
         &self,
@@ -9479,10 +9654,105 @@ impl<'a> Producer<'a> {
         if ty(node).is_none_or(|t| !t.known() || optional(t) || t.kind != TypeKind::Bool) {
             return None;
         }
+        if node.kind() == NodeKind::ConditionalExpression {
+            if !crate::definitions::annotations_safe(self.context, file, written) {
+                return Some(DefinitionSafety::Unsupported(
+                    "Boolean conditional annotation is unsupported".into(),
+                ));
+            }
+            return Some((|| -> DefinitionSafety {
+                let branches: Vec<_> = node.child_nodes().collect();
+                let mut complete = false;
+                for (position, branch) in branches.iter().enumerate() {
+                    if !crate::definitions::annotations_safe(self.context, file, branch) {
+                        return DefinitionSafety::Unsupported(
+                            "Boolean conditional branch annotation is unsupported".into(),
+                        );
+                    }
+                    let parts: Vec<_> = branch.child_nodes().collect();
+                    let branch_body =
+                        if branch.kind() == NodeKind::ConditionalBranch && parts.len() == 2 {
+                            let guard = parts[0];
+                            if ty(guard).is_none_or(|t| {
+                                !t.known()
+                                    || optional(t)
+                                    || t.instantiation != Instantiation::Parameter
+                                    || t.kind != TypeKind::Bool
+                            }) {
+                                return DefinitionSafety::Unsupported(
+                                    "Boolean conditional guard is unsupported".into(),
+                                );
+                            }
+                            if let unsupported @ DefinitionSafety::Unsupported(_) = self
+                                .initialized_source_safety(
+                                    file,
+                                    guard,
+                                    view,
+                                    generators,
+                                    &mut Vec::new(),
+                                )
+                            {
+                                return unsupported;
+                            }
+                            // Inspect eager guard sources independently of their
+                            // value; never check the whole lazy conditional here.
+                            if let Some(reason) =
+                                self.closed_integer_source_error(file, guard, true, true)
+                            {
+                                return DefinitionSafety::Unsupported(reason);
+                            }
+                            parts[1]
+                        } else if branch.kind() == NodeKind::ElseBranch
+                            && parts.len() == 1
+                            && position + 1 == branches.len()
+                        {
+                            complete = true;
+                            parts[0]
+                        } else {
+                            return DefinitionSafety::Unsupported(
+                                "Boolean conditional branch is unsupported".into(),
+                            );
+                        };
+                    if ty(branch_body).is_none_or(|t| {
+                        !t.known()
+                            || optional(t)
+                            || t.kind != TypeKind::Bool
+                            || !crate::types::coerces(t, ty(node).unwrap())
+                    }) {
+                        return DefinitionSafety::Unsupported(
+                            "Boolean conditional body is unsupported".into(),
+                        );
+                    }
+                    let inspected = self
+                        .boolean_relation_safety(file, branch_body, view, generators)
+                        .unwrap_or_else(|| {
+                            self.initialized_source_safety(
+                                file,
+                                branch_body,
+                                view,
+                                generators,
+                                &mut Vec::new(),
+                            )
+                        });
+                    if let unsupported @ DefinitionSafety::Unsupported(_) = inspected {
+                        return unsupported;
+                    }
+                }
+                if complete && branches.len() >= 2 {
+                    DefinitionSafety::Unknown(
+                        "Boolean conditional relation value is unproved".into(),
+                    )
+                } else {
+                    DefinitionSafety::Unsupported(
+                        "Boolean conditional inspection requires a complete else".into(),
+                    )
+                }
+            })());
+        }
         let children: Vec<_> = node.child_nodes().collect();
         let name = operator(self.context, file, node).and_then(crate::bindings::symbolic_operator);
         let logical = match (node.kind(), name) {
-            (NodeKind::BinaryExpression, Some("/\\" | "\\/" | "<->" | "->" | "<-")) => {
+            (NodeKind::BinaryExpression, Some("/\\" | "\\/" | "<->" | "->" | "<-" | "xor")) => {
                 children.len() == 2
             }
             (NodeKind::UnaryExpression, Some("not")) => children.len() == 1,
@@ -9500,7 +9770,7 @@ impl<'a> Producer<'a> {
                                 formal.known() && !optional(formal) && formal.kind == TypeKind::Bool
                                     && ty(actual).is_some_and(|t| crate::types::coerces(t, formal)))))
             {
-                return Some(DefinitionSafety::Unsupported("row Boolean relation identity or signature is unsupported".into()));
+                return Some(DefinitionSafety::Unsupported("Boolean relation identity or signature is unsupported".into()));
             }
             for child in children {
                 let inspected = self
@@ -9519,7 +9789,7 @@ impl<'a> Producer<'a> {
                 }
             }
             return Some(DefinitionSafety::Unknown(
-                "row Boolean relation value is unproved".into(),
+                "Boolean relation value is unproved".into(),
             ));
         }
         if node.kind() != NodeKind::ArrayAccessExpression {
@@ -9804,6 +10074,9 @@ impl<'a> Producer<'a> {
             return safety;
         }
         if let Some(safety) = self.float_let_safety(file, node, view, generators) {
+            return safety;
+        }
+        if let Some(safety) = self.parameter_set_let_safety(file, node, view, generators) {
             return safety;
         }
         if let Some(safety) = self.full_axis_slice_safety(file, node, view, generators) {

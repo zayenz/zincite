@@ -4947,3 +4947,24 @@ release-controls-v2/{release-results,control-results}. After composition, actual
 main formatting, Clippy with warnings denied and all212 workspace tests pass;
 checks are under semantic62-macc-neighbour-set-main-integration.
 Remaining IS, BIN/GCC support and final full-corpus checks keep base-083 open.
+
+Owning parameter-set locals now inspect the complete cardinality/min/max/xor/sum
+Boolean conditional without defining an array. Every initializer, enclosing
+generator/filter, written type and annotation is checked. An unchanged local
+comprehension binder may retain membership in its exact inspected difference's
+left axis; cardinality, extrema values and whole-array coverage stay unproved.
+The Boolean relation consumer reuses the complete conditional inspection and
+checks the selected core xor. Generic numeric safety and member_index are unchanged.
+
+Fresh matched opt3 all26 native/companion controls complete every thesis rule on
+the focused model. Original IS retains all96 warning lines and0errors;
+limitations fall from121 to117, with exactly four Set-local causes removed and
+no added diagnostics. Its two redundant-local boundaries and circuit private
+integer-array boundary still keep Search Limited. Existing Gecode compile-only
+proofs were reused; no solver ran. These captures precede composition with the
+conversion and Macc repairs, whose existential inspection branch is retained.
+Evidence is under semantic62-is-set-local-let-preparation/production-v1/
+{root-gates/runtime,release-controls}. Composed main formatting, Clippy with
+warnings denied and all213 workspace tests pass; checks are under
+semantic62-is-set-local-main-integration. Base-083 remains open pending the
+remaining support gaps and final complete corpus evidence.
