@@ -3777,3 +3777,29 @@ tests pass with full streams/current106 sources/helpers/empty reaped groups
 checked in actual-workspace-gates/root-audit.json. Current realstdlib public and
 original Sparse native/companion controls, remaining originals and final full
 corpus still keep task acceptance open.
+
+Normal32 release is built from fresh106 copies exactly matching committed main;
+full Cargo streams, opt3 artifact events, both binaries/22 libraries, current
+main/copy pins and empty reaped group are checked in
+`semantic62-combined32-release/root-build-audit.json`.
+The exact906-byte compiler-positive Sparse reduction now completes all26/all14
+with13 warnings,zero errors/limitations using the real standard library; full
+streams/current inputs/std/assets/helpers/root/drop accounting are checked in
+normal32-public-probe/root-audit.json.
+
+Original Sparse32 native/companion finish with all14 thesis Completed,40 warnings,
+zero errors and one non-thesis vacuous-constraint limitation. Full diagnostics/
+status parity, original+breast-cancer_train4 compiler-positive prerequisite,
+current original/std/main106/assets/helpers and both empty reaped groups are
+checked in `semantic62-sparse32-direct-control/root-audit.json`. Compared with28,
+five search and two suspicious-domain limitations disappear; one advisory for
+the genuinely uncovered valid array is now emitted. No whole-array coverage is
+invented by inspecting its nondefining Boolean relation. This closes observed
+Sparse thesis coverage, while CTW/other originals/fresh full corpus remain open.
+
+CTW tests-only RED passes selected metadata/sum/power/wrapper tuples then exposes
+the known penalty/objective/wrapper gaps. It also reveals an extra miniature
+all_different body limitation from a missing standard Boolean disjunction
+signature. Full streams/equal captured106 sources/helpers/reaped empty group are
+checked in focused-red/root-audit.json. The fixture-only signature correction
+is being prepared separately; no production repair is accepted from this RED.
