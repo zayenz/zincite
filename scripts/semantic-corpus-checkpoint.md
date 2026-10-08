@@ -3072,3 +3072,18 @@ bytes, with retained/peak deltas unchanged. These are whole-phase observations
 under possible peer overlap, not checker attribution or an isolated speed ratio.
 Routing's remaining three search limitations and repeated default-expression
 lookup cost are still being diagnosed. Final whole-corpus acceptance is open.
+
+The candidate partial-expression checker now uses its existing exact-range
+index for both default-capture expression lookups. The shared private helper
+accepts a lookup callback; input-preconditions retains its original lookup.
+First-match ordering and the capture guards remain unchanged. The incremental
+change is saved in `scripts/semantic-default-expression-lookup-draft.patch`.
+Root reviewed the change and checked the assigned candidate workspace:
+formatting, Clippy with warnings denied, and workspace tests all pass.
+Matched performance measurements for this change remain pending. The earlier
+Navigation comparison covers candidate21, before this callback change.
+Authoritative Rust integration and final whole-corpus acceptance remain open.
+The original capture's owning worker confirms its session is still live:
+112 of 124 shards have closed, covering 5,773 of 6,417 planned roots.
+All 90 actual source pins match; final report and post-capture records are
+absent. The remaining 644 roots are still being processed.

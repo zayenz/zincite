@@ -1,0 +1,78 @@
+--- a/crates/zincite-lint/src/partial_expression.rs
++++ b/crates/zincite-lint/src/partial_expression.rs
+@@ -5,9 +5,9 @@
+ use crate::domains::tokens;
+ use crate::{
+     BindingFacts, CallableFacts, FileFinding, FileId, GuardActivation, GuardAssumptionKind,
+-    GuardContext, GuardEvaluation, GuardObligation, GuardObligationKind, GuardedFacts,
+-    GuardedOutcome, IterationCoverage, IterationFacts, ModelContext, Presence, Rule, Severity,
+-    SourceDiagnostic, SourceLocation,
++    GuardContext, GuardEvaluation, GuardObligation, GuardObligationKind, GuardedExpression,
++    GuardedFacts, GuardedOutcome, IterationCoverage, IterationFacts, ModelContext, Presence, Rule,
++    Severity, SourceDiagnostic, SourceLocation,
+ };
+ use std::collections::HashMap;
+ use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
+@@ -113,7 +113,11 @@
+                             context,
+                             bindings,
+                             calls,
+-                            guarded,
++                            |file, location| {
++                                expression_indices
++                                    .get(&(file, location.range.start, location.range.end))
++                                    .map(|&row| &guarded.expressions[row])
++                            },
+                             file,
+                             &default_nodes,
+                             obligation,
+@@ -299,11 +303,11 @@
+     }
+     None
+ }
+-pub(super) fn captured_by_default(
++pub(super) fn captured_by_default<'a>(
+     context: &ModelContext,
+     bindings: &BindingFacts,
+     calls: &CallableFacts,
+-    guarded: &GuardedFacts,
++    expression_at: impl Fn(FileId, &SourceLocation) -> Option<&'a GuardedExpression>,
+     file: FileId,
+     nodes: &[&SyntaxNode],
+     obligation: &GuardObligation,
+@@ -332,10 +336,10 @@
+         {
+             return false;
+         }
+-        let Some(expression) = guarded.expression(file, &source.location(node.range())) else {
+-            return false;
+-        };
+-        let Some(left_value) = guarded.expression(file, &left) else {
++        let Some(expression) = expression_at(file, &source.location(node.range())) else {
++            return false;
++        };
++        let Some(left_value) = expression_at(file, &left) else {
+             return false;
+         };
+         expression.raw_definedness == GuardedOutcome::Proven
+--- a/crates/zincite-lint/src/input_preconditions.rs
++++ b/crates/zincite-lint/src/input_preconditions.rs
+@@ -157,9 +157,15 @@
+                         .into(),
+                 );
+             }
+-            let captured =
+-                captured_by_default(context, bindings, calls, guarded, o.file, &nodes, o)
+-                    || empty_iteration(iteration, o.file, &o.operation);
++            let captured = captured_by_default(
++                context,
++                bindings,
++                calls,
++                |file, location| guarded.expression(file, location),
++                o.file,
++                &nodes,
++                o,
++            ) || empty_iteration(iteration, o.file, &o.operation);
+             facts.push(CallableInputFact {
+                 callable: callable.id,
+                 inputs: inputs.into_iter().map(DeclarationId).collect(),
