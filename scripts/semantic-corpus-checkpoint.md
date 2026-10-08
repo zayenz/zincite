@@ -4412,3 +4412,46 @@ complete streams and three empty reaped groups are checked in semantic62-is-
 filtered-search-preparation/v2/root-red/root-audit.json and semantic62-gbac-
 public-gap-preparation/test-preparation/repair-preparation/root-red/root-audit.json.
 Scoped production candidates are pending; these failures do not close Search.
+
+The ordered parameter-OR reflection proof and direct enforced-Boolean assertion
+output contract are integrated. The proof requires the exact present core
+parameter Boolean tuple and a same-array zero-length guard to the left of the
+inspected bound. Unknown-condition output forwarding requires one checked
+core equality occupying the whole third body,with no body unavailable cause;
+every third body remains inspected. Nested callable bodies remain withheld.
+Both valid guarded weights now derive the result; raw/reversed bounds,
+wrong-array/ambiguous-OR guards and partial bodies retain Unknown/Limited.
+One-sided outer branches supply no output,and literal false abort remains.
+Three focused V2 tests and main fmt/clippy/all204 tests (42 summaries) pass.
+Full scratch/main108 pins,complete streams and six empty reaped groups are
+checked in semantic62-gbac-public-gap-preparation/test-preparation/
+repair-preparation/{focused-green-v2,actual-workspace-gates-v2}/root-audit.json.
+V1 incorrectly expected a user-resolved OR where actual selection was Ambiguous;
+its failing fixture is preserved,and V2 checks the user candidate and ambiguity
+explicitly. The workspace runner's first wrapper-path preflight failed before
+any child; only the corrected V2 gates establish validation. A fresh normal42
+release is building for actual standard/native controls. No original BIN load
+or GCC completion,full corpus acceptance or task completion is claimed.
+
+The CST diagnostic counts358996 nodes,318546 with one child and40450 with
+multiple children. Retained1077685 child slots occupy17242960B. Shape-derived
+owning boxes are717992 versus718840 measured parse allocation calls;637088
+boxes belong to318544 plain atoms. These are storage-derived lower bounds,
+not per-site allocation measurements. Scalar atoms already reserve one slot,
+so there is no leaf-vector growth/shrink waste. Parsed-source teardown in this
+instrumented,warmed traversal is13.976ms,releasing50669136B to its own2024B
+baseline with no new allocations. Output/parse/format counts/deltas remain
+unchanged. Full main/scratch108/input/helper pins,one opt3 probe,complete streams
+and two empty reaped groups are checked in semantic62-matrix-cst-drop-
+attribution-preparation/root-runtime/root-audit.json. A representation candidate
+requires separate measurements; these timings are not CLI budget acceptance.
+
+The guarded filtered-search falsifier compiles with actual data and Gecode;
+both a direct conditional filter and a named conditional integer alias retain
+the two baseline traversal limitations. The unused MAX+1 branches are valid.
+An unconditional transitive closed-arithmetic scan would therefore be wrong;
+the prepared traversal repair must preserve lazy contexts and keep real eager
+overflow vetoes. Full source/std/compiler/model/data/native/helper pins,emitted
+assets,complete streams and two empty reaped groups are checked in semantic62-is-
+filtered-search-production-preparation/guarded-root-control/root-audit.json.
+This remains an explicit support gap,not a new closed-overflow error claim.

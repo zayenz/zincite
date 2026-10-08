@@ -3660,6 +3660,7 @@ fn total_controls_and_filtered_relations_separate_outputs_from_unavailable_bodie
         "extrema_result",
         "private_constant_result",
         "asserted_true_result",
+        "asserted_result",
     ] {
         assert_eq!(
             coverage(&bindings, &search, name),
@@ -3671,7 +3672,6 @@ fn total_controls_and_filtered_relations_separate_outputs_from_unavailable_bodie
         "pattern_result",
         "pattern_direct_result",
         "table_result",
-        "asserted_result",
         "boolean_value_result",
         "filtered_result",
         "filtered_call_result",
@@ -3968,4 +3968,279 @@ fn total_controls_and_filtered_relations_separate_outputs_from_unavailable_bodie
         SearchCoverage::Uncovered
     );
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn bin_weight_guards_require_ordered_parameter_or_and_supported_assertion_bodies() {
+    let builtins = concat!(
+        "function bool: '\\/'(bool: left,bool: right); function var bool: '\\/'(var bool: left,var bool: right);\n",
+        "function int: length(array[$U] of any $V: xs); function int: lb_array(array[int] of var int: xs);\n",
+        "function bool: '>='(int: left,int: right); function var bool: assert(bool: b,string: msg,var bool: x);\n",
+        "function int: 'div'(int: left,int: right);\n",
+    );
+    for (name, values, condition, body, extra, supported) in [
+        (
+            "left-singleton",
+            "[1]",
+            "length(weight)=0 \\/ lb_array(weight)>=0",
+            "result=0",
+            "",
+            true,
+        ),
+        (
+            "left-empty",
+            "[]",
+            "length(weight)=0 \\/ lb_array(weight)>=0",
+            "result=0",
+            "",
+            true,
+        ),
+        (
+            "raw-empty",
+            "[]",
+            "lb_array(weight)>=0",
+            "result=0",
+            "",
+            false,
+        ),
+        (
+            "reversed-empty",
+            "[]",
+            "lb_array(weight)>=0 \\/ length(weight)=0",
+            "result=0",
+            "",
+            false,
+        ),
+        (
+            "other-array",
+            "[]",
+            "length(other)=0 \\/ lb_array(weight)>=0",
+            "result=0",
+            "",
+            false,
+        ),
+        (
+            "shadowed-or",
+            "[]",
+            "length(weight)=0 \\/ lb_array(weight)>=0",
+            "result=0",
+            "function bool: '\\/'(bool: left,bool: right)=true;",
+            false,
+        ),
+        (
+            "partial-body",
+            "[]",
+            "length(weight)=0 \\/ lb_array(weight)>=0",
+            "result=0 /\\ result=1 div 0",
+            "",
+            false,
+        ),
+    ] {
+        let axis = if values == "[]" { "1..0" } else { "1..1" };
+        let source = format!(
+            "include \"included.mzn\"; array[{axis}] of int: item_weight={values}; array[1..1] of int: other=[1]; var int: result; constraint public_weight_guard(item_weight,result); solve satisfy;\n"
+        );
+        let included = format!(
+            "{extra}\npredicate public_weight_guard(array[int] of int: weight,var int: result)=assert({condition},\"Weights must be nonnegative\",{body});\n"
+        );
+        let (dir, _) = model(&format!("bin-weight-{name}"), &source, &included);
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!("{CORE}{builtins}"),
+        )
+        .unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|f| f.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        if name != "raw-empty" {
+            let call = calls.calls.iter().find(|c| c.name == "\\/").unwrap();
+            if name == "shadowed-or" {
+                let zincite_lint::CallOutcome::Ambiguous { candidates } = &call.outcome else {
+                    panic!("{name}: {:?}", call.outcome);
+                };
+                assert!(
+                    candidates.iter().any(|id| {
+                        let declaration = &bindings.declarations[id.0];
+                        let owner = &context.files[declaration.file];
+                        declaration.name == "\\/"
+                            && declaration.role == zincite_lint::DeclarationRole::Function
+                            && declaration.top_level
+                            && owner.kind == zincite_lint::SourceKind::User
+                            && owner.path == dir.join("included.mzn")
+                            && !owner.implicit
+                    }),
+                    "{name}: {:?}",
+                    call.outcome
+                );
+            } else {
+                let zincite_lint::CallOutcome::Resolved {
+                    declaration,
+                    parameters,
+                    return_type,
+                } = &call.outcome
+                else {
+                    panic!("{name}: {:?}", call.outcome);
+                };
+                let parameter_bool = |ty: &zincite_lint::TypeInst| {
+                    ty.instantiation == zincite_lint::Instantiation::Parameter
+                        && ty.kind == zincite_lint::TypeKind::Bool
+                        && !ty.optional
+                };
+                assert_eq!(parameters.len(), 2);
+                assert!(parameters.iter().all(parameter_bool) && parameter_bool(return_type));
+                let owner = &context.files[bindings.declarations[declaration.0].file];
+                assert_eq!(owner.kind, zincite_lint::SourceKind::StandardLibrary);
+                assert!(owner.implicit);
+            }
+        }
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        let (_, search) = facts(&context);
+        let result_id = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "result")
+            .unwrap()
+            .id;
+        let supported_definition = callable.definitions.iter().any(|d| {
+            d.target == result_id
+                && d.coverage == DefinitionCoverage::Scalar
+                && d.safety == DefinitionSafety::Supported
+        });
+        assert_eq!(supported_definition, supported, "{name}: {callable:?}");
+        assert_eq!(
+            coverage(&bindings, &search, "result"),
+            if supported {
+                SearchCoverage::Scalar
+            } else {
+                SearchCoverage::Unknown
+            },
+            "{name}: {:?}",
+            search.limitations
+        );
+        let result = analyze_model(&context, &selected());
+        if supported {
+            assert!(
+                callable.unavailable.is_empty(),
+                "{name}: {:?}",
+                callable.unavailable
+            );
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Completed),
+                "{name}: {:?}",
+                result.limitations
+            );
+            assert!(result.findings.is_empty());
+        } else {
+            assert!(!callable.unavailable.is_empty(), "{name}");
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                result.limitations
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn enforced_boolean_assertions_keep_outer_branch_and_abort_boundaries() {
+    for (name, body, expected, limited) in [
+        (
+            "enforced",
+            "assert(gate,\"enabled\",result=0)",
+            SearchCoverage::Scalar,
+            false,
+        ),
+        (
+            "outer-branch",
+            "if take then assert(gate,\"enabled\",result=0) else true endif",
+            SearchCoverage::Uncovered,
+            false,
+        ),
+        (
+            "false-abort",
+            "assert(false,\"abort\",result=0)",
+            SearchCoverage::Unknown,
+            true,
+        ),
+    ] {
+        let source = "include \"included.mzn\"; bool: gate; bool: take; var int: result; constraint checked(gate,take,result); solve satisfy;";
+        let included =
+            format!("predicate checked(bool: gate,bool: take,var int: result)={body};\n");
+        let (dir, _) = model(&format!("boolean-assert-{name}"), source, &included);
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!("{CORE}function var bool: assert(bool: b,string: msg,var bool: x);\n"),
+        )
+        .unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        let (bindings, search) = facts(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        let result_id = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "result")
+            .unwrap()
+            .id;
+        assert_eq!(
+            callable
+                .definitions
+                .iter()
+                .any(|d| d.target == result_id && d.safety == DefinitionSafety::Supported),
+            expected == SearchCoverage::Scalar,
+            "{name}: {callable:?}"
+        );
+        assert_eq!(
+            coverage(&bindings, &search, "result"),
+            expected,
+            "{name}: {:?}",
+            search.limitations
+        );
+        let result = analyze_model(&context, &selected());
+        assert_eq!(
+            matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+            limited,
+            "{name}: {:?}",
+            result.limitations
+        );
+        if name == "false-abort" {
+            assert!(
+                callable
+                    .unavailable
+                    .iter()
+                    .any(|u| u.reason == "false assertion condition aborts evaluation")
+            );
+        } else {
+            assert!(
+                callable.unavailable.is_empty(),
+                "{name}: {:?}",
+                callable.unavailable
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

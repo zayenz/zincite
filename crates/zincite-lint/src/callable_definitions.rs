@@ -2405,19 +2405,37 @@ impl<'a> Producer<'a> {
                         &clause.generators,
                         &mut clauses,
                     );
+                    let boolean = |file, node: &SyntaxNode| {
+                        let node = unwrap(node);
+                        self.expression_type(self.view(file, node, view), file, node)
+                            .is_some_and(|e| {
+                                e.ty.known() && !optional(&e.ty) && e.ty.kind == TypeKind::Bool
+                            })
+                    };
+                    // Normal return from an enforced Boolean assertion enforces its
+                    // third argument. Limit unknown-condition forwarding to one direct
+                    // equality, whose dependency checks do not consult body summaries.
+                    let direct_equality = clauses.len() == 1
+                        && matches!(clauses[0].kind, ClauseKind::Equality)
+                        && clauses[0].node.range() == unwrap(body).range()
+                        && boolean(*file, body)
+                        && boolean(clause.file, clause.node);
                     let mut found = Vec::new();
+                    let mut body_unavailable = Vec::new();
                     for body in clauses {
-                        // An unknown condition cannot hide unsupported third-argument
-                        // evaluation. Only its output guarantees are withheld.
+                        // Every third argument remains inspected. A fresh boundary
+                        // collection also retains causes already reported by siblings.
                         self.interpret_forwarded(
                             (&body, view, known),
                             &mut found,
-                            unavailable,
+                            &mut body_unavailable,
                             inspected,
                             active,
                         );
                     }
-                    if literal == Some(TokenKind::True) {
+                    let supported_body = body_unavailable.is_empty();
+                    unavailable.extend(body_unavailable);
+                    if literal == Some(TokenKind::True) || direct_equality && supported_body {
                         for mut output in found {
                             extend(&mut output.dependencies, dependencies.clone());
                             out.push(output);
@@ -4894,6 +4912,30 @@ impl<'a> Producer<'a> {
         let mut containing = vec![self.context.files[file].parsed.tree()];
         while let Some(node) = containing.pop() {
             let children: Vec<_> = node.child_nodes().collect();
+            let parameter_bool = |ty: &TypeInst| {
+                ty.known()
+                    && !optional(ty)
+                    && ty.instantiation == Instantiation::Parameter
+                    && ty.kind == TypeKind::Bool
+            };
+            if node.kind() == NodeKind::BinaryExpression
+                && children.len() == 2
+                && contains(children[1])
+                && self.core(file, node, view, "\\/")
+                && self
+                    .operation_fact(self.view(file, node, view), file, node)
+                    .is_some_and(|call| {
+                        matches!(&call.outcome,
+                            CallOutcome::Resolved { parameters, return_type, .. }
+                            if parameters.len() == 2 && parameters.iter().all(parameter_bool)
+                                && parameter_bool(return_type))
+                    })
+                && self.length_equals(file, children[0], array, 0, view)
+            {
+                // This ordered parameter OR evaluates its right operand only after
+                // the exact same-array zero-length test has returned false.
+                return true;
+            }
             if node.kind() == NodeKind::ConditionalBranch
                 && children.len() == 2
                 && contains(children[1])
