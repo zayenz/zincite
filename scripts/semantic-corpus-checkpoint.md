@@ -3343,3 +3343,15 @@ q/s are initialized by parameter array selections, which the numeric-bound
 walker currently rejects. Other distinct facts are being reviewed. These
 controls shared CPU and support no isolated speed comparison; final corpus
 evidence must follow final source changes.
+
+The remaining three never-reached originals (unison, gbac and lot-sizing)
+pass current MiniZinc model-check-only at their exact 2020 paths, using Gecode
+and no solve. This checks model processing, not instance flattening. Native24
+and companion24 then finish all three without timeout and match status 1 and
+full diagnostics: 452 warnings, 585 limitations and zero errors. Root checked
+full streams/hashes, exact26/thesis14 accounting, complete resolved source/drop
+records and before/after/current original/asset/source/helper pins. Evidence is
+`semantic62-three-tail24-pair/`. All eleven roots never reached by the old shard
+now have current processing observations; each retains thesis limitations.
+These separate controls preserve the incomplete historical capture and do not
+replace the final full corpus requirement.
