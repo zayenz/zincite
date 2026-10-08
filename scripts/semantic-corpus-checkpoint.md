@@ -3277,3 +3277,21 @@ exit 0. Complete streams/hashes and reaped empty-group receipts are retained in
 `scripts/semantic-routing-conditional-equality-draft.patch`; it is not yet
 applied to actual tests. A local checked-Unknown-only repair is being prepared;
 strict membership/output guarantees and failures remain required.
+
+Root independently reconciled the final 21 Unobserved executions per preset:
+five pending BNN analyses, eleven later shard008 roots never reached, and five
+observed non-UTF-8 data input errors. Thus there are 16 absent root records,
+not 21. Root checked all 40 relevant native/companion receipts, 80 full stream
+hashes, exact original path/hash/byte/mode joins, both raw absent-record sets
+and observed input-error rows, and all five actual UTF-8 failure offsets.
+The compact review and root audit are in `semantic61-final-unobserved-review/`.
+No individual performance failure is inferred for the eleven unreached roots.
+
+The remaining pending BNN original, cellda_y_10s, passes current Gecode compile
+without solving: exit 0, non-timeout, 4.227 seconds, reaped with an empty group.
+Root checked full streams, equal 1,042-entry input/tool/standard maps and actual
+FlatZinc/output artifacts. Evidence is `semantic62-cellda-compile/`.
+Together with the retained exact positives, all five pending BNN models have
+compiler-positive evidence; their Zincite deadlines remain valid-processing
+failures to resolve. Historical no-model/undefined-width crossword checks do
+not establish invalid contents; the encoding boundary remains separate.
