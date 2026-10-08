@@ -3893,3 +3893,13 @@ Compared with30,the observed search/unbounded source-inspection limitations
 are removed and the genuinely uncovered auxiliary array receives search advice.
 This closes focused CTW thesis coverage; macc/other originals and the fresh
 final complete corpus still keep whole-task acceptance open.
+
+Original macc normal33 native/companion finish (0.623/0.624 seconds) with the
+same109 warnings,zero errors and118 limitations as32. Array-index-start,
+constant-variable,unbounded-variable and search-coverage remain thesis Limited.
+Full diagnostic/status parity,current original+37.dzn compiler-positive
+prerequisite,std/compiler/main106/assets/helpers,complete all26/source/drop
+accounting and both empty reaped groups are checked in
+semantic62-macc33-direct-control/root-audit.json. CTW's inspected wrapper path
+does not close these original macc gaps. A tests-only public union-domain RED is
+being prepared against fresh106 current33 copies; no producer repair is accepted.
