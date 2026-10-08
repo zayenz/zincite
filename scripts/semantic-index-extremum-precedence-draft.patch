@@ -1,0 +1,21 @@
+--- a/crates/zincite-lint/src/callable_definitions.rs
++++ b/crates/zincite-lint/src/callable_definitions.rs
+@@ -6940,6 +6940,18 @@
+         generators: &[&'a SyntaxNode],
+     ) -> Option<DefinitionSafety> {
+         let node = unwrap(written);
++        // Preserve the existing index-set extremum inspection and its owning scope checks.
++        if parameter_index_extremum(
++            self.context,
++            self.bindings,
++            self.view(file, node, view),
++            file,
++            node,
++        )
++        .is_some()
++        {
++            return None;
++        }
+         if node.kind() != NodeKind::CallExpression
+             || !(self.core(file, node, view, "min") || self.core(file, node, view, "max"))
+         {

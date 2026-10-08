@@ -1,0 +1,158 @@
+--- a/crates/zincite-lint/src/analysis.rs
++++ b/crates/zincite-lint/src/analysis.rs
+@@ -1,4 +1,139 @@
+ //! File-aware selected results and the shared text diagnostic renderer.
++// Temporary native-only diagnostic; excluded from ordinary source/builds.
++mod partial_check_profile {
++    use std::alloc::{GlobalAlloc, Layout, System};
++    use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
++
++    struct CountingAllocator;
++    static LIVE: AtomicUsize = AtomicUsize::new(0);
++    static PEAK: AtomicUsize = AtomicUsize::new(0);
++    static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
++    static REQUESTED: AtomicUsize = AtomicUsize::new(0);
++
++    fn allocated(bytes: usize) {
++        ALLOCATIONS.fetch_add(1, Relaxed);
++        REQUESTED.fetch_add(bytes, Relaxed);
++        let live = LIVE.fetch_add(bytes, Relaxed) + bytes;
++        PEAK.fetch_max(live, Relaxed);
++    }
++
++    unsafe impl GlobalAlloc for CountingAllocator {
++        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
++            let pointer = unsafe { System.alloc(layout) };
++            if !pointer.is_null() {
++                allocated(layout.size());
++            }
++            pointer
++        }
++        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
++            let pointer = unsafe { System.alloc_zeroed(layout) };
++            if !pointer.is_null() {
++                allocated(layout.size());
++            }
++            pointer
++        }
++        unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
++            LIVE.fetch_sub(layout.size(), Relaxed);
++            unsafe { System.dealloc(pointer, layout) };
++        }
++        unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
++            let result = unsafe { System.realloc(pointer, layout, new_size) };
++            if !result.is_null() {
++                LIVE.fetch_sub(layout.size(), Relaxed);
++                allocated(new_size);
++            }
++            result
++        }
++    }
++
++    #[global_allocator]
++    static ALLOCATOR: CountingAllocator = CountingAllocator;
++
++
++    pub(super) struct Snapshot {
++        cpu_centiseconds: Option<u64>,
++        cpu_query: String,
++        allocations: usize,
++        requested: usize,
++        live: usize,
++        wall: std::time::Instant,
++    }
++
++    fn parse_cpu(raw: &str) -> Option<u64> {
++        let (minutes, seconds) = raw.trim().split_once(':')?;
++        let (seconds, fraction) = seconds.split_once('.')?;
++        if fraction.len() != 2 {
++            return None;
++        }
++        let minutes = minutes.parse::<u64>().ok()?;
++        let seconds = seconds.parse::<u64>().ok()?;
++        let fraction = fraction.parse::<u64>().ok()?;
++        if seconds >= 60 {
++            return None;
++        }
++        minutes.checked_mul(6000)?.checked_add(seconds * 100 + fraction)
++    }
++
++    fn own_cpu() -> (Option<u64>, String) {
++        match std::process::Command::new("/bin/ps")
++            .args(["-p", &std::process::id().to_string(), "-o", "time="])
++            .output()
++        {
++            Ok(output) => {
++                let raw = String::from_utf8_lossy(&output.stdout);
++                let cpu = output.status.success().then(|| parse_cpu(&raw)).flatten();
++                let query = format!(
++                    "status={} stdout={:?} stderr={:?}",
++                    output.status,
++                    raw,
++                    String::from_utf8_lossy(&output.stderr)
++                );
++                (cpu, query)
++            }
++            Err(error) => (None, error.to_string()),
++        }
++    }
++
++    pub(super) fn begin() -> Snapshot {
++        use std::io::Write;
++        let mut output = std::io::stdout().lock();
++        let _ = writeln!(output, "[partial-attribution] begin pid={}", std::process::id());
++        let _ = output.flush();
++        drop(output);
++        let (cpu_centiseconds, cpu_query) = own_cpu();
++        let live = LIVE.load(Relaxed);
++        PEAK.store(live, Relaxed);
++        Snapshot {
++            cpu_centiseconds,
++            cpu_query,
++            allocations: ALLOCATIONS.load(Relaxed),
++            requested: REQUESTED.load(Relaxed),
++            live,
++            wall: std::time::Instant::now(),
++        }
++    }
++
++    pub(super) fn end(start: Snapshot) {
++        use std::io::Write;
++        let milliseconds = start.wall.elapsed().as_secs_f64() * 1000.0;
++        let allocations = ALLOCATIONS.load(Relaxed) - start.allocations;
++        let requested = REQUESTED.load(Relaxed) - start.requested;
++        let live = LIVE.load(Relaxed);
++        let peak = PEAK.load(Relaxed).saturating_sub(start.live);
++        let (cpu_end, cpu_query_end) = own_cpu();
++        let cpu_delta = start.cpu_centiseconds.zip(cpu_end).and_then(|(a, b)| b.checked_sub(a));
++        let mut output = std::io::stdout().lock();
++        let _ = writeln!(
++            output,
++            "[partial-attribution] end ms={milliseconds:.3} cpu_before_cs={:?} cpu_after_cs={cpu_end:?} cpu_delta_cs={cpu_delta:?} allocation_calls={allocations} requested_bytes={requested} live_before_bytes={} live_after_bytes={live} peak_delta_bytes={peak} cpu_before_query={:?} cpu_after_query={cpu_query_end:?}",
++            start.cpu_centiseconds,
++            start.live,
++            start.cpu_query
++        );
++        let _ = output.flush();
++    }
++}
++
+ use std::io::{self, Write};
+ use std::path::Path;
+ use zincite_syntax::{FileMode, ParsedFile};
+@@ -685,6 +820,7 @@
+                                     input_keys = keys;
+                                 }
+                                 if options.rules.contains(&Rule::PartialExpression) {
++                                    let partial_profile = partial_check_profile::begin();
+                                     let (findings, limitations) =
+                                         crate::partial_expression::check_partial_expressions(
+                                             context,
+@@ -695,6 +831,7 @@
+                                             &result.findings,
+                                             &input_keys,
+                                         );
++                                    partial_check_profile::end(partial_profile);
+                                     partial_incomplete = !limitations.is_empty();
+                                     result.findings.extend(findings);
+                                     result.limitations.extend(limitations);

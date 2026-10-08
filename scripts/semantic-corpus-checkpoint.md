@@ -2747,3 +2747,23 @@ audit are under
 `target/benchmarks/base083/semantic62-draft-workspace-conditional-float-green-search/`.
 No broader gates ran. Both failures require diagnosis and narrow rework; the
 saved drafts remain unaccepted and authoritative Rust remains unchanged.
+
+Two further drafts are saved before the next diagnostic run.
+`scripts/semantic-index-extremum-precedence-draft.patch` preserves the existing
+index-set extremum route before the new parameter-set inspection. The failed
+total-controls case uses rank-two index extrema; the new inspection had
+intercepted that existing route. This narrow correction is applied only in the
+candidate copy and still needs the full search-suite diagnostic. Public
+assertions remain unchanged; temporary diagnostic prints stay in scratch and
+must be removed before final gates. The prepared run has not launched.
+
+`scripts/semantic-partial-attribution-draft.patch` saves the corrected temporary
+native-only instrumentation proposal for checker CPU and allocation counts.
+It retains the original module documentation first and leaves the checker call
+unchanged. It is unapplied, unbuilt and unmeasured; it must use separate
+diagnostic copies and must not be built with the allocator companion. CPU
+queries target only the instrumented process itself. No successful attribution
+or task acceptance is claimed. Preparation evidence for these drafts is under
+`target/benchmarks/base083/semantic62-conditional-float-failure-preparation/` and
+`target/benchmarks/base083/semantic62-partial-check-attribution-preparation/`.
+Authoritative Rust remains unchanged while the original capture is live.
