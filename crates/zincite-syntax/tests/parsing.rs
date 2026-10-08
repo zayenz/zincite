@@ -32,7 +32,9 @@ fn items(parsed: &ParsedFile) -> Vec<&SyntaxNode> {
 
 #[test]
 fn byte_input_retains_comment_spelling_and_rejects_invalid_code() {
-    use zincite_syntax::{FileMode, TokenKind, parse_bytes, parse_bytes_with_mode};
+    use zincite_syntax::{
+        FileMode, TokenKind, byte_line_column, is_utf8_boundary, parse_bytes, parse_bytes_with_mode,
+    };
 
     let source: &[u8] = b"first=1; /* \xe7 \xe9 */ second=2;\r\n% zincite-lint: ignore naming\xff\r\n% zincite-fmt: skip\xfe\r\nthird=\"\xc3\xa9\";\r\n";
     let parsed = parse_bytes_with_mode(source.to_vec(), FileMode::Data).unwrap();
@@ -69,6 +71,13 @@ fn byte_input_retains_comment_spelling_and_rejects_invalid_code() {
         (1, 20)
     );
     assert_eq!(parsed.line_column(items(analysis)[2].range().start), (4, 1));
+    for offset in 0..=source.len() {
+        let boundary = is_utf8_boundary(source, offset);
+        assert_eq!(boundary, analysis.source().is_char_boundary(offset));
+        if boundary {
+            assert_eq!(byte_line_column(source, offset), parsed.line_column(offset));
+        }
+    }
 
     for (raw_directive, accepted_directive) in [
         (
@@ -100,6 +109,12 @@ fn byte_input_retains_comment_spelling_and_rejects_invalid_code() {
     assert!(utf8.analysis_file().diagnostics().is_empty());
     assert_eq!(utf8.source_bytes(), b"int: value=1;");
     assert_eq!(utf8.analysis_file().source(), "int: value=1;");
+    let (analysis, original) = parsed.into_parts();
+    assert_eq!(original.as_deref(), Some(source));
+    assert_eq!(analysis.source().len(), source.len());
+    let (analysis, original) = utf8.into_parts();
+    assert!(original.is_none());
+    assert_eq!(analysis.source(), "int: value=1;");
 }
 
 #[test]

@@ -28,7 +28,9 @@ pub mod inputs;
 mod lexer;
 mod parser;
 
-pub use bytes::{ByteParsedFile, parse_bytes, parse_bytes_with_mode};
+pub use bytes::{
+    ByteParsedFile, byte_line_column, is_utf8_boundary, parse_bytes, parse_bytes_with_mode,
+};
 
 /// Parse the supported model subset, retaining all tokens even after an error.
 ///

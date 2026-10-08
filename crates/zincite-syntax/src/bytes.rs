@@ -66,6 +66,12 @@ pub struct ByteParsedFile {
 }
 
 impl ByteParsedFile {
+    /// Consume the file into its UTF-8 analysis view and optional original bytes.
+    /// When bytes are absent, the analysis source is the exact UTF-8 input.
+    pub fn into_parts(self) -> (ParsedFile, Option<Vec<u8>>) {
+        (self.analysis_file, self.original_bytes)
+    }
+
     /// Return the exact supplied bytes, including opaque comment bytes.
     pub fn source_bytes(&self) -> &[u8] {
         self.original_bytes
@@ -92,5 +98,72 @@ impl ByteParsedFile {
     /// CR/LF handling and boundary panics follow `ParsedFile::line_column`.
     pub fn line_column(&self, byte_offset: usize) -> (usize, usize) {
         self.analysis_file.line_column(byte_offset)
+    }
+}
+
+/// Return whether an original-byte offset avoids splitting a valid UTF-8 scalar.
+/// Each invalid byte is a boundary; offsets beyond the source are not boundaries.
+pub fn is_utf8_boundary(source: &[u8], offset: usize) -> bool {
+    if offset > source.len() {
+        return false;
+    }
+    for start in offset.saturating_sub(3)..offset {
+        let width = match source[start] {
+            0xc2..=0xdf => 2,
+            0xe0..=0xef => 3,
+            0xf0..=0xf4 => 4,
+            _ => continue,
+        };
+        let end = start + width;
+        if offset < end && end <= source.len() && std::str::from_utf8(&source[start..end]).is_ok() {
+            return false;
+        }
+    }
+    true
+}
+
+/// Return one-based line and column at an original byte boundary.
+/// Valid UTF-8 scalars and invalid bytes each occupy one column; CRLF is one break.
+/// Panics for an out-of-range offset or one inside a valid UTF-8 scalar.
+pub fn byte_line_column(source: &[u8], byte_offset: usize) -> (usize, usize) {
+    assert!(
+        is_utf8_boundary(source, byte_offset),
+        "invalid byte boundary"
+    );
+    let mut prefix = &source[..byte_offset];
+    let mut line = 1;
+    let mut column = 1;
+    let mut after_cr = false;
+    loop {
+        let (text, invalid_bytes) = match std::str::from_utf8(prefix) {
+            Ok(text) => (text, 0),
+            Err(error) => (
+                std::str::from_utf8(&prefix[..error.valid_up_to()]).unwrap(),
+                error
+                    .error_len()
+                    .unwrap_or(prefix.len() - error.valid_up_to()),
+            ),
+        };
+        for character in text.chars() {
+            match character {
+                '\r' => {
+                    line += 1;
+                    column = 1;
+                }
+                '\n' if after_cr => {}
+                '\n' => {
+                    line += 1;
+                    column = 1;
+                }
+                _ => column += 1,
+            }
+            after_cr = character == '\r';
+        }
+        if invalid_bytes == 0 {
+            return (line, column);
+        }
+        column += invalid_bytes;
+        after_cr = false;
+        prefix = &prefix[text.len() + invalid_bytes..];
     }
 }
