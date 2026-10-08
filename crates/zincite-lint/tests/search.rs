@@ -8208,3 +8208,271 @@ solve :: bool_search([gate], input_order, indomain_min, complete) satisfy;
     assert!(!result.limitations.is_empty());
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn full_weighted_bodies_require_all_sibling_sources_before_load_outputs() {
+    use zincite_lint::{CallOutcome, Instantiation, SourceKind, TypeInst, TypeKind};
+
+    fn present(ty: &TypeInst) -> bool {
+        !ty.optional
+            && matches!(
+                ty.instantiation,
+                Instantiation::Parameter | Instantiation::Decision
+            )
+            && match &ty.kind {
+                TypeKind::Int | TypeKind::Bool | TypeKind::String => true,
+                TypeKind::Set(element) => present(element),
+                TypeKind::Array { indices, element } => {
+                    indices.iter().all(present) && present(element)
+                }
+                _ => false,
+            }
+    }
+    let builtins = concat!(
+        "function var bool: assert(bool: condition,string: message,var bool: value);\n",
+        "function var int: '*'(var int: left,var int: right);\n",
+        "function var bool: forall(array[int] of var bool: body);\n",
+        "function int: sum(array[int] of int: body);\n",
+        "function int: length(array[int] of any $V: body);\n",
+        "function int: lb_array(array[int] of var int: body);\n",
+        "function int: min(set of int: body); function int: max(set of int: body);\n",
+        "function bool: '\\/'(bool: left,bool: right);\n",
+        "function bool: '>='(int: left,int: right);\n",
+        "function var bool: '<='(int: left,var int: right);\n",
+        "function var bool: '<='(var int: left,int: right);\n",
+    );
+    for (name, source, supported) in [
+        (
+            "full-bin-singleton",
+            r#"% Public reduction of the complete selected BIN/FZN body; all array axes are Int.
+predicate public_full_weighted_load(
+    array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight
+) =
+    sum(load) = sum(weight) /\
+    forall(i in index_set(bin))(
+        min(index_set(load)) <= bin[i] /\ bin[i] <= max(index_set(load))
+    ) /\
+    forall(b in index_set(load))(
+        load[b] = sum(i in index_set(bin))(weight[i] * (bin[i] = b))
+    );
+
+predicate public_full_bin_load(
+    array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight
+) =
+    assert(
+        index_set(bin) == index_set(weight),
+        "Bin and weight indices must agree",
+        assert(
+            length(weight) == 0 \/ lb_array(weight) >= 0,
+            "Weights must be nonnegative",
+            public_full_weighted_load(index2int(load), index2int(enum2int(bin)), index2int(weight))
+        )
+    );
+
+% Data
+array[1..1] of int: item_weight = [1];
+
+% Decision variables
+array[1..1] of var 1..1: placement;
+array[1..1] of var 0..1: bin_load;
+
+% The complete returning guard owns this invocation's index relation.
+constraint :: "Load follows placement through the complete body"
+    public_full_bin_load(bin_load, placement, item_weight);
+
+solve :: int_search(placement, input_order, indomain_min, complete) satisfy;
+"#,
+            true,
+        ),
+        (
+            "full-bin-targetless-sum-partial",
+            r#"% Partiality refusal control: the targetless sum sibling reads weight[0].
+% Compiler acceptance, if any, is not evidence that this partial expression is safe.
+% Public reduction of the complete selected BIN/FZN body; all array axes are Int.
+predicate public_full_weighted_load(
+    array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight
+) =
+    sum(load) = sum([weight[0]]) /\
+    forall(i in index_set(bin))(
+        min(index_set(load)) <= bin[i] /\ bin[i] <= max(index_set(load))
+    ) /\
+    forall(b in index_set(load))(
+        load[b] = sum(i in index_set(bin))(weight[i] * (bin[i] = b))
+    );
+
+predicate public_full_bin_load(
+    array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight
+) =
+    assert(
+        index_set(bin) == index_set(weight),
+        "Bin and weight indices must agree",
+        assert(
+            length(weight) == 0 \/ lb_array(weight) >= 0,
+            "Weights must be nonnegative",
+            public_full_weighted_load(index2int(load), index2int(enum2int(bin)), index2int(weight))
+        )
+    );
+
+% Data
+array[1..1] of int: item_weight = [1];
+
+% Decision variables
+array[1..1] of var 1..1: placement;
+array[1..1] of var 0..1: bin_load;
+
+% The complete returning guard owns this invocation's index relation.
+constraint :: "Load follows placement through the complete body"
+    public_full_bin_load(bin_load, placement, item_weight);
+
+solve :: int_search(placement, input_order, indomain_min, complete) satisfy;
+"#,
+            false,
+        ),
+    ] {
+        let (dir, _) = model(name, source, "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!("{CORE}{builtins}"),
+        )
+        .unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        // All producer body types are concrete here. Verify actual public core
+        // selections before behavior; the generic installed-body observation is
+        // retained separately and supplies no substitute tuples to this test.
+        for call in calls.calls.iter().filter(|call| {
+            context.files[call.file].kind == SourceKind::User
+                && matches!(
+                    call.name.as_str(),
+                    "assert"
+                        | "index_set"
+                        | "length"
+                        | "lb_array"
+                        | "forall"
+                        | "sum"
+                        | "min"
+                        | "max"
+                        | "="
+                        | "*"
+                        | "<="
+                        | ">="
+                        | "/\\"
+                        | "\\/"
+                        | "index2int"
+                        | "enum2int"
+                )
+        }) {
+            let CallOutcome::Resolved {
+                declaration,
+                parameters,
+                return_type,
+            } = &call.outcome
+            else {
+                panic!("{name}: concrete operation preflight {call:?}");
+            };
+            let selected = &bindings.declarations[declaration.0];
+            assert_eq!(selected.name, call.name, "{name}");
+            assert_eq!(
+                context.files[selected.file].kind,
+                SourceKind::StandardLibrary,
+                "{name}"
+            );
+            assert!(context.files[selected.file].implicit, "{name}");
+            assert!(
+                parameters.iter().all(present) && present(return_type),
+                "{name}: {call:?}"
+            );
+            if matches!(call.name.as_str(), "index2int" | "enum2int") {
+                assert_eq!(parameters.len(), 1, "{name}");
+                assert_eq!(
+                    return_type, &parameters[0],
+                    "{name}: type-changing conversion"
+                );
+            }
+        }
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let load = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "bin_load")
+            .unwrap()
+            .id;
+        assert_eq!(
+            callable
+                .definitions
+                .iter()
+                .any(|definition| definition.target == load
+                    && definition.coverage == DefinitionCoverage::WholeArray
+                    && definition.safety == DefinitionSafety::Supported
+                    && definition.enforcement == zincite_lint::DefinitionEnforcement::Enforced),
+            supported,
+            "{name}: {callable:?}"
+        );
+        let search = resolve_search_coverage(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+            &definitions,
+        );
+        assert_eq!(
+            coverage(&bindings, &search, "placement"),
+            SearchCoverage::WholeArray,
+            "{name}"
+        );
+        assert_eq!(
+            coverage(&bindings, &search, "bin_load"),
+            if supported {
+                SearchCoverage::WholeArray
+            } else {
+                SearchCoverage::Unknown
+            },
+            "{name}: {:?}",
+            search.limitations
+        );
+        let result = analyze_model(&context, &selected());
+        if supported {
+            assert!(
+                callable.unavailable.is_empty(),
+                "{name}: {:?}",
+                callable.unavailable
+            );
+            assert!(result.errors.is_empty() && result.findings.is_empty());
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Completed),
+                "{name}: {:?}",
+                result.limitations
+            );
+        } else {
+            // The malformed targetless sibling is independent of the final
+            // weighted equation; its sources must veto the entire body guarantee.
+            assert!(!callable.unavailable.is_empty(), "{name}");
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                result.limitations
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

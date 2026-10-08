@@ -2759,8 +2759,8 @@ impl<'a> Producer<'a> {
                             })
                     };
                     // Normal return from an enforced Boolean assertion enforces its
-                    // third argument. Limit unknown-condition forwarding to one direct
-                    // equality, whose dependency checks do not consult body summaries.
+                    // third argument. Unknown-condition forwarding requires a direct
+                    // equality or a complete array contract checked for this invocation.
                     let direct_equality = clauses.len() == 1
                         && matches!(clauses[0].kind, ClauseKind::Equality)
                         && clauses[0].node.range() == unwrap(body).range()
@@ -2774,7 +2774,7 @@ impl<'a> Producer<'a> {
                     let nested_forall = (invocation.is_none()
                         && clause.generators.is_empty()
                         && clauses.len() == 1
-                        && matches!(clauses[0].kind, ClauseKind::Call))
+                        && matches!(clauses[0].kind, ClauseKind::Call | ClauseKind::Assertion))
                     .then(|| self.nested_asserted_forall(clause.file, clause.node, view))
                     .flatten();
                     let nested_target = nested_forall.as_ref().map(|(output, _)| output.target);
@@ -5477,7 +5477,105 @@ impl<'a> Producer<'a> {
     ) -> Option<(Output, [DeclarationId; 2])> {
         let arrays = self.asserted_index_pair(file, assertion, view)?;
         let args = self.assertion_arguments(file, assertion, view)?;
-        let call = unwrap(args[2].1);
+        let mut call = unwrap(args[2].1);
+        let mut weight_guard = None;
+        if self.core(file, call, view, "assert") {
+            // Carry the outer index relation only through this one fully checked
+            // returning guard. Its ordered RHS is already inspected by the
+            // existing reflection/length consumers; it proves no load extent.
+            let inner = self.assertion_arguments(file, call, view)?;
+            let par_bool = TypeInst::par(TypeKind::Bool);
+            let var_bool = par_bool.clone().with_inst(Instantiation::Decision);
+            let par_string = TypeInst::par(TypeKind::String);
+            let par_int = TypeInst::par(TypeKind::Int);
+            let var_int = par_int.clone().with_inst(Instantiation::Decision);
+            let var_array = TypeInst::par(TypeKind::Array {
+                indices: vec![par_int.clone()],
+                element: Box::new(var_int),
+            })
+            .with_inst(Instantiation::Decision);
+            let expected = [par_bool.clone(), par_string.clone(), var_bool.clone()];
+            if inner.len() != 3
+                || inner.iter().any(|(source, _)| *source != file)
+                || self
+                    .operation_fact(self.view(file, call, view), file, call)
+                    .is_none_or(|fact| {
+                        !matches!(&fact.outcome,
+                        CallOutcome::Resolved { parameters, return_type, .. }
+                        if parameters.as_slice() == expected && *return_type == var_bool)
+                    })
+                || inner.iter().zip(&expected).any(|((_, node), ty)| {
+                    self.expression_type(self.view(file, node, view), file, node)
+                        .is_none_or(|e| e.ty != *ty)
+                })
+            {
+                return None;
+            }
+            let condition = unwrap(inner[0].1);
+            let sides: Vec<_> = condition.child_nodes().map(unwrap).collect();
+            if condition.kind() != NodeKind::BinaryExpression
+                || sides.len() != 2
+                || !self.core(file, condition, view, "\\/")
+                || self
+                    .operation_fact(self.view(file, condition, view), file, condition)
+                    .is_none_or(|fact| {
+                        !matches!(&fact.outcome,
+                        CallOutcome::Resolved { parameters, return_type, .. }
+                        if parameters.as_slice() == [par_bool.clone(), par_bool.clone()]
+                            && *return_type == par_bool)
+                    })
+            {
+                return None;
+            }
+            let bound = sides[1];
+            let operands: Vec<_> = bound.child_nodes().map(unwrap).collect();
+            if bound.kind() != NodeKind::BinaryExpression || operands.len() != 2
+                || !self.core(file, bound, view, ">=")
+                || self.operation_fact(self.view(file, bound, view), file, bound)
+                    .is_none_or(|fact| !matches!(&fact.outcome,
+                        CallOutcome::Resolved { parameters, return_type, .. }
+                        if parameters.as_slice() == [TypeInst::par(TypeKind::Int), TypeInst::par(TypeKind::Int)] && *return_type == par_bool))
+                || crate::domains::invariant_expression_integer(self.context, self.bindings, file, operands[1]) != Ok(Some(0))
+            {
+                return None;
+            }
+            let reflection = operands[0];
+            let subject: Vec<_> = reflection.child_nodes().map(unwrap).collect();
+            if reflection.kind() != NodeKind::CallExpression
+                || subject.len() != 1
+                || !self.core(file, reflection, view, "lb_array")
+                || subject[0].kind() != NodeKind::Expression
+                || self
+                    .operation_fact(self.view(file, reflection, view), file, reflection)
+                    .is_none_or(|fact| {
+                        !matches!(&fact.outcome,
+                        CallOutcome::Resolved { parameters, return_type, .. }
+                        if parameters.as_slice() == [var_array] && *return_type == par_int)
+                    })
+                || self
+                    .expression_type(self.view(file, reflection, view), file, reflection)
+                    .is_none_or(|e| e.ty != par_int)
+            {
+                return None;
+            }
+            let weight = self.reference(file, subject[0])?;
+            if !arrays.contains(&weight)
+                || !self.length_equals(file, sides[0], weight, 0, view)
+                || inner.iter().take(2).any(|(_, node)| {
+                    self.dependencies(file, node, view, &[]).is_err()
+                })
+                // The exact ordered OR has been checked above. Inspect its
+                // operands without asking an eager checker to traverse the OR.
+                || [sides[0], sides[1], inner[1].1].into_iter().any(|node| {
+                    self.closed_integer_source_error(file, node, true, false)
+                        .is_some()
+                })
+            {
+                return None;
+            }
+            weight_guard = Some(weight);
+            call = unwrap(inner[2].1);
+        }
         if call.kind() != NodeKind::CallExpression {
             return None;
         }
@@ -5526,14 +5624,70 @@ impl<'a> Producer<'a> {
             .child_nodes()
             .filter(|node| is_expression(node.kind()))
             .last()?;
-        let [equality_clause] = instance.clauses.as_slice() else {
-            return None;
+        let (equality_clause, quantified, full_body) = match instance.clauses.as_slice() {
+            [equality]
+                if matches!(equality.kind, ClauseKind::Equality) && weight_guard.is_none() =>
+            {
+                (equality, body, false)
+            }
+            [total, lower, upper, equality]
+                if weight_guard.is_some()
+                    && matches!(total.kind, ClauseKind::Equality)
+                    && matches!(lower.kind, ClauseKind::Relation)
+                    && matches!(upper.kind, ClauseKind::Relation)
+                    && matches!(equality.kind, ClauseKind::Equality) =>
+            {
+                let conjunction = |node: &'a SyntaxNode| {
+                    let node = unwrap(node);
+                    let sides: Vec<_> = node.child_nodes().collect();
+                    (node.kind() == NodeKind::BinaryExpression && sides.len() == 2
+                        && self.core(child.file, node, &instance.view, "/\\")
+                        && self.operation_fact(&instance.view, child.file, node)
+                            .is_some_and(|fact| matches!(&fact.outcome,
+                                CallOutcome::Resolved { parameters, return_type, .. }
+                                if parameters.as_slice() == [TypeInst::par(TypeKind::Bool).with_inst(Instantiation::Decision), TypeInst::par(TypeKind::Bool).with_inst(Instantiation::Decision)]
+                                    && *return_type == parameters[0])))
+                        .then_some(sides)
+                };
+                let outer = conjunction(body)?;
+                let first = conjunction(outer[0])?;
+                let bounds = unwrap(first[1]);
+                let parts: Vec<_> = bounds.child_nodes().collect();
+                let list = parts
+                    .iter()
+                    .find(|node| node.kind() == NodeKind::GeneratorList)?;
+                let generators: Vec<_> = list.child_nodes().collect();
+                let bound_body = *parts
+                    .iter()
+                    .find(|node| node.kind() != NodeKind::GeneratorList)?;
+                let bound_sides = conjunction(bound_body)?;
+                if unwrap(first[0]).range() != total.node.range() || !total.generators.is_empty()
+                    || bounds.kind() != NodeKind::GeneratorCallExpression || parts.len() != 2
+                    || !self.core(child.file, bounds, &instance.view, "forall")
+                    || self.operation_fact(&instance.view, child.file, bounds)
+                        .is_none_or(|fact| !matches!(&fact.outcome,
+                            CallOutcome::Resolved { parameters, return_type, .. }
+                            if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
+                                && parameters[0].instantiation == Instantiation::Decision
+                                && matches!(&parameters[0].kind, TypeKind::Array { indices, element }
+                                    if indices.as_slice() == [TypeInst::par(TypeKind::Int)]
+                                        && **element == TypeInst::par(TypeKind::Bool).with_inst(Instantiation::Decision))
+                                && *return_type == TypeInst::par(TypeKind::Bool).with_inst(Instantiation::Decision)))
+                    || generators.len() != 1 || generators[0].child_nodes().count() != 1
+                    || lower.generators.len() != 1 || upper.generators.len() != 1
+                    || !std::ptr::eq(lower.generators[0], generators[0])
+                    || !std::ptr::eq(upper.generators[0], generators[0])
+                    || unwrap(bound_sides[0]).range() != lower.node.range()
+                    || unwrap(bound_sides[1]).range() != upper.node.range()
+                {
+                    return None;
+                }
+                (equality, outer[1], true)
+            }
+            _ => return None,
         };
-        if !matches!(equality_clause.kind, ClauseKind::Equality) {
-            return None;
-        }
         let (output, equality, generators) =
-            self.direct_forall_equality(child.file, body, &instance.view)?;
+            self.direct_forall_equality(child.file, quantified, &instance.view)?;
         if equality.range() != equality_clause.node.range()
             || equality_clause.generators.len() != generators.len()
             || equality_clause
@@ -5660,14 +5814,50 @@ impl<'a> Producer<'a> {
             }
             nodes.extend(node.child_nodes());
         }
-        if self
+        if full_body {
+            // The complete conjunction is checked as four actual clauses. Keep
+            // every clause and generator source in eager arithmetic inspection.
+            for clause in &instance.clauses {
+                if self
+                    .closed_integer_source_error(child.file, clause.node, true, false)
+                    .is_some()
+                    || clause.generators.iter().any(|generator| {
+                        generator.child_nodes().any(|node| {
+                            self.closed_integer_source_error(child.file, node, true, false)
+                                .is_some()
+                        })
+                    })
+                {
+                    return None;
+                }
+            }
+        } else if self
             .closed_integer_source_error(child.file, body, true, false)
             .is_some()
         {
             return None;
         }
-        // No other selected body or sibling enters this bounded check. A failed
-        // prerequisite falls back to ordinary inspection and its full causes.
+        if full_body {
+            let formals = [
+                formal_parameter(self.context, self.bindings, id, 0)?,
+                formal_parameter(self.context, self.bindings, id, 1)?,
+                formal_parameter(self.context, self.bindings, id, 2)?,
+            ];
+            if output != formals[0]
+                || weight_guard != Some(mapped[2].1)
+                || child_pair != [formals[1], formals[2]] && child_pair != [formals[2], formals[1]]
+                || !self.full_weighted_siblings(
+                    child.file,
+                    &instance.clauses[..3],
+                    formals,
+                    &instance.view,
+                )
+            {
+                return None;
+            }
+        }
+        // This selected invocation keeps its own relation and source checks. A
+        // failed prerequisite falls back to ordinary inspection and its full causes.
         let dependencies = self.nested_weighted_dependencies(
             child.file,
             equality,
@@ -5696,6 +5886,130 @@ impl<'a> Producer<'a> {
             },
             arrays,
         ))
+    }
+    fn full_weighted_siblings(
+        &self,
+        file: FileId,
+        clauses: &[Clause<'a>],
+        [load, bin, weight]: [DeclarationId; 3],
+        view: &CallableFacts,
+    ) -> bool {
+        let [total, lower, upper] = clauses else {
+            return false;
+        };
+        let par_int = TypeInst::par(TypeKind::Int);
+        let var_int = par_int.clone().with_inst(Instantiation::Decision);
+        let var_bool = TypeInst::par(TypeKind::Bool).with_inst(Instantiation::Decision);
+        let par_set = TypeInst::par(TypeKind::Set(Box::new(par_int.clone())));
+        let typed = |node: &SyntaxNode, ty: &TypeInst| {
+            self.expression_type(self.view(file, node, view), file, node)
+                .is_some_and(|e| e.ty == *ty)
+        };
+        let sides: Vec<_> = total.node.child_nodes().map(unwrap).collect();
+        if sides.len() != 2 || !self.core(file, total.node, view, "=")
+            || !typed(total.node, &var_bool)
+            || self.operation_fact(self.view(file, total.node, view), file, total.node)
+                .is_none_or(|fact| !matches!(&fact.outcome,
+                    CallOutcome::Resolved { parameters, return_type, .. }
+                    if parameters.as_slice() == [var_int.clone(), par_int.clone()] && *return_type == var_bool))
+        {
+            return false;
+        }
+        // A targetless sum equality still has two evaluated sources. It grants
+        // no output; neither aggregate may be skipped because target() fails.
+        for (side, expected) in sides.iter().zip([load, weight]) {
+            let arguments: Vec<_> = side.child_nodes().map(unwrap).collect();
+            if side.kind() != NodeKind::CallExpression
+                || arguments.len() != 1
+                || !self.core(file, side, view, "sum")
+                || arguments[0].kind() != NodeKind::Expression
+                || self.reference(file, arguments[0]) != Some(expected)
+                || self.dependencies(file, arguments[0], view, &[]).is_err()
+                || self.aggregate_source_safety(file, side, view, &[])
+                    != Some(DefinitionSafety::Supported)
+            {
+                return false;
+            }
+        }
+        for (position, relation) in [lower, upper].iter().enumerate() {
+            let operands: Vec<_> = relation.node.child_nodes().map(unwrap).collect();
+            let Some(generator) = relation.generators.first() else {
+                return false;
+            };
+            let Some(source) = generator.child_nodes().next() else {
+                return false;
+            };
+            let expected_operands = if position == 0 {
+                [par_int.clone(), var_int.clone()]
+            } else {
+                [var_int.clone(), par_int.clone()]
+            };
+            if operands.len() != 2
+                || !self.core(file, relation.node, view, "<=")
+                || self.integer_index_set(file, source, view) != Some(bin)
+                || self
+                    .relation_iterations(file, &relation.generators, 0, view, false)
+                    .is_err()
+                || !typed(relation.node, &var_bool)
+                || self
+                    .operation_fact(self.view(file, relation.node, view), file, relation.node)
+                    .is_none_or(|fact| {
+                        !matches!(&fact.outcome,
+                        CallOutcome::Resolved { parameters, return_type, .. }
+                        if parameters.as_slice() == expected_operands
+                            && *return_type == var_bool)
+                    })
+            {
+                return false;
+            }
+            let extremum = operands[position];
+            let arguments: Vec<_> = extremum.child_nodes().collect();
+            let name = if position == 0 { "min" } else { "max" };
+            let selected = operands[1 - position];
+            let selection: Vec<_> = selected.child_nodes().map(unwrap).collect();
+            if extremum.kind() != NodeKind::CallExpression
+                || arguments.len() != 1
+                || !self.core(file, extremum, view, name)
+                || self.integer_index_set(file, arguments[0], view) != Some(load)
+                || !typed(extremum, &par_int)
+                || self
+                    .operation_fact(self.view(file, extremum, view), file, extremum)
+                    .is_none_or(|fact| {
+                        !matches!(&fact.outcome,
+                        CallOutcome::Resolved { parameters, return_type, .. }
+                        if parameters.as_slice() == [par_set.clone()] && *return_type == par_int)
+                    })
+                || selected.kind() != NodeKind::ArrayAccessExpression
+                || selection.len() != 2
+                || selection
+                    .iter()
+                    .any(|node| node.kind() != NodeKind::Expression)
+                || self.reference(file, selection[0]) != Some(bin)
+                || !self.member_index(file, bin, selection[1], &relation.generators, view)
+                || !typed(selected, &var_int)
+                || !typed(selection[1], &par_int)
+            {
+                return false;
+            }
+            if self
+                .boolean_relation_dependencies(file, relation.node, view, &relation.generators)
+                .is_err()
+                && !matches!(
+                    self.initialized_children_safety(
+                        file,
+                        &[relation.node, source],
+                        view,
+                        &relation.generators
+                    ),
+                    DefinitionSafety::Unknown(_)
+                )
+            {
+                return false;
+            }
+            // This is the existing nondefining relation inspection: checked
+            // uncertainty about min/max supplies no nonempty-load certificate.
+        }
+        true
     }
     fn nested_weighted_dependencies(
         &self,

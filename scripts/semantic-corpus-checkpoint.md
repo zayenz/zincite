@@ -5004,3 +5004,20 @@ release-controls. After preserving GCC and earlier accepted repairs, actual
 main formatting, Clippy with warnings denied and all215 workspace tests pass
 under semantic62-is-dual-row-main-integration. The nested wrapper403 and circuit
 boundaries, remaining BIN/GCC/Macc gaps and final corpus evidence keep base-083 open.
+
+The installed BIN body now retains its ordered weight guard and checks all four
+FZN clauses before forwarding the weighted load definition. Targetless sums and
+both bound relations receive source and arithmetic checks; the nested contract
+keeps the existing invocation boundary and exact caller-axis requirements.
+
+Matched normal opt3 controls remove the full-body search limitation from both
+public singleton models, completing all fourteen thesis rules. The partial
+negative retains its diagnostics exactly. Original GBAC removes the FZN selector
+limitation but reaches the caller's computed-array identity boundary at88;
+warnings and limitation totals remain16/18. All sixteen native/companion captures
+agree with complete all26 partitions and matching drop records. Existing Gecode
+compile-only proofs were reused; no solver ran. Evidence is under
+semantic62-full-bin-v2-release-control-preparation. Actual combined main
+formatting, Clippy with warnings denied and all216 workspace tests pass under
+semantic62-full-bin-main-integration. Computed row support, remaining IS/GCC/Macc
+gaps and final complete corpus evidence keep base-083 open.
