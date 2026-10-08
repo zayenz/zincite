@@ -4834,3 +4834,20 @@ Evidence is under semantic62-nested-weighted-main-integration/actual-workspace-g
 and semantic62-nested-weighted-release-control-preparation/{release-results,
 control-results}/root-*.json. No solver was run. Conversion, computed-row and GCC
 support and the final corpus checks remain required for base-083.
+
+Core forall relations can now inspect complete Boolean conditionals with
+parameter guards and set-valued headers. All branches retain source inspection;
+the traversal grants neither a value nor an output guarantee. Closed integer
+errors in headers and filters remain explicit, including the two overflow
+counters in the focused public test.
+
+Actual main formatting, Clippy with warnings denied and all209 workspace tests
+pass. The public control completes all14 thesis analyses. Original IS retains
+96warnings/0errors and now has123limitations, down from124: only the verified
+Boolean selection index-membership limitation disappears. Warning lines are
+byte-identical; Search remains Limited. Fresh opt3 native/companion diagnostics
+and all26 partitions agree, using the retained Gecode compile-only proof.
+Evidence is under semantic62-is-conditional-main-integration/actual-workspace-gates
+and semantic62-is-conditional-release-control-preparation/{release-results,
+control-results}/root-*.json. Remaining original-model gaps and the final corpus
+checks still prevent base-083 completion.

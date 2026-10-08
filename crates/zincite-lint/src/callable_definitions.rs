@@ -1378,7 +1378,16 @@ impl<'a> Producer<'a> {
                             && d.syntax_range.start <= node.range().start
                             && node.range().end <= d.syntax_range.end
                     });
+                    // A failed conditional traversal still needs its complete
+                    // source inspection even though filters establish no output.
+                    let conditional_body = node.kind() == NodeKind::GeneratorCallExpression
+                        && q.child_nodes()
+                            .find(|n| n.kind() != NodeKind::GeneratorList)
+                            .is_some_and(|body| {
+                                unwrap(body).kind() == NodeKind::ConditionalExpression
+                            });
                     if in_body
+                        || conditional_body
                         || !all
                             .iter()
                             .any(|g| g.child_nodes().any(|n| n.kind() == NodeKind::WhereFilter))
@@ -7709,6 +7718,9 @@ impl<'a> Producer<'a> {
                 }
                 nodes.extend(current.child_nodes());
             }
+            let conditional_relation = node.kind() == NodeKind::GeneratorCallExpression
+                && self.core(file, node, view, "forall")
+                && unwrap(body).kind() == NodeKind::ConditionalExpression;
             let mut all = generators.to_vec();
             let mut unsupported = None;
             for header in list.child_nodes() {
@@ -7749,6 +7761,10 @@ impl<'a> Producer<'a> {
                     self.initialized_source_safety(file, source, view, &all, &mut Vec::new())
                 {
                     unsupported = Some(reason);
+                } else if conditional_relation
+                    && let Some(reason) = self.closed_integer_source_error(file, source, true, true)
+                {
+                    unsupported = Some(reason);
                 }
                 all.push(header);
                 for filter in header
@@ -7768,12 +7784,93 @@ impl<'a> Producer<'a> {
                         self.initialized_source_safety(file, condition, view, &all, &mut Vec::new())
                     {
                         unsupported = Some(reason);
+                    } else if conditional_relation
+                        && let Some(reason) =
+                            self.closed_integer_source_error(file, condition, true, true)
+                    {
+                        unsupported = Some(reason);
                     }
                 }
             }
-            if let DefinitionSafety::Unsupported(reason) =
+            let body_safety = if conditional_relation {
+                (|| -> DefinitionSafety {
+                    let branches: Vec<_> = unwrap(body).child_nodes().collect();
+                    let mut complete = false;
+                    for (position, branch) in branches.iter().enumerate() {
+                        let parts: Vec<_> = branch.child_nodes().collect();
+                        let branch_body = if branch.kind() == NodeKind::ConditionalBranch
+                            && parts.len() == 2
+                        {
+                            let guard = parts[0];
+                            if typed(guard)
+                                .is_none_or(|t| !present_parameter(t) || t.kind != TypeKind::Bool)
+                            {
+                                return DefinitionSafety::Unsupported(
+                                    "Boolean conditional guard is unsupported".into(),
+                                );
+                            }
+                            if let unsupported @ DefinitionSafety::Unsupported(_) = self
+                                .initialized_source_safety(file, guard, view, &all, &mut Vec::new())
+                            {
+                                return unsupported;
+                            }
+                            // Inspect eager guard sources independently of their
+                            // value; never check the whole lazy conditional here.
+                            if let Some(reason) =
+                                self.closed_integer_source_error(file, guard, true, true)
+                            {
+                                return DefinitionSafety::Unsupported(reason);
+                            }
+                            parts[1]
+                        } else if branch.kind() == NodeKind::ElseBranch
+                            && parts.len() == 1
+                            && position + 1 == branches.len()
+                        {
+                            complete = true;
+                            parts[0]
+                        } else {
+                            return DefinitionSafety::Unsupported(
+                                "Boolean conditional branch is unsupported".into(),
+                            );
+                        };
+                        if typed(branch_body).is_none_or(|t| {
+                            !present(t)
+                                || t.kind != TypeKind::Bool
+                                || !crate::types::coerces(t, typed(body).unwrap())
+                        }) {
+                            return DefinitionSafety::Unsupported(
+                                "Boolean conditional body is unsupported".into(),
+                            );
+                        }
+                        let inspected = self
+                            .boolean_relation_safety(file, branch_body, view, &all)
+                            .unwrap_or_else(|| {
+                                self.initialized_source_safety(
+                                    file,
+                                    branch_body,
+                                    view,
+                                    &all,
+                                    &mut Vec::new(),
+                                )
+                            });
+                        if let unsupported @ DefinitionSafety::Unsupported(_) = inspected {
+                            return unsupported;
+                        }
+                    }
+                    if complete && branches.len() >= 2 {
+                        DefinitionSafety::Unknown(
+                            "Boolean conditional relation value is unproved".into(),
+                        )
+                    } else {
+                        DefinitionSafety::Unsupported(
+                            "Boolean conditional inspection requires a complete else".into(),
+                        )
+                    }
+                })()
+            } else {
                 self.initialized_source_safety(file, body, view, &all, &mut Vec::new())
-            {
+            };
+            if let DefinitionSafety::Unsupported(reason) = body_safety {
                 unsupported = Some(reason);
             }
             match unsupported {
@@ -9233,7 +9330,7 @@ impl<'a> Producer<'a> {
             .child_nodes()
             .find(|n| n.kind() != NodeKind::LetBlock)?;
         let inspected = self
-            .row_boolean_relation_safety(file, body, view, generators)
+            .boolean_relation_safety(file, body, view, generators)
             .unwrap_or_else(|| {
                 self.initialized_source_safety(file, body, view, generators, &mut Vec::new())
             });
@@ -9244,9 +9341,9 @@ impl<'a> Producer<'a> {
             }
         })
     }
-    // Called only for the body of a fully inspected row-local let. Numeric
-    // operands keep raw safety, including Bool-to-Int coercion partiality.
-    fn row_boolean_relation_safety(
+    // Inspect only a fully checked row-local body or a core forall's conditional
+    // body. Numeric operands retain raw Bool-to-Int coercion partiality.
+    fn boolean_relation_safety(
         &self,
         file: FileId,
         written: &'a SyntaxNode,
@@ -9286,7 +9383,7 @@ impl<'a> Producer<'a> {
             }
             for child in children {
                 let inspected = self
-                    .row_boolean_relation_safety(file, child, view, generators)
+                    .boolean_relation_safety(file, child, view, generators)
                     .unwrap_or_else(|| {
                         self.initialized_source_safety(
                             file,
