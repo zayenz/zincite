@@ -4542,3 +4542,21 @@ not an accepted repair. Its current108 snapshot, full streams and expected failu
 are checked in semantic62-macc34-union-comprehension-test-preparation/
 root-red-runtime/root-audit.json. The local-initializer reduction still has no
 reproduced current UnboundedVariable failure and does not claim an original fix.
+
+Fresh normal43 original `macc` native and companion runs retain 115 warnings,
+zero errors and 106 limitations with all 26 partitions and exact diagnostic
+parity. ConstantVariable, UnboundedVariable and Search remain Limited among
+the thesis rules. The original six next_pos/block_pos membership limitations
+still exist, even though the simpler public local-initializer reduction does
+not reproduce them. Complete current source/release/original/compiler pins and
+streams are checked in semantic62-macc43-direct-control/root-audit.json.
+
+Nine public weighted-load controls have actual Gecode compile-only outcomes in
+semantic62-gbac-fzn-membership-preparation/compiler-results/root-audit.json.
+Seven compile successfully; unaligned empty-weight and wrong-array assertion
+controls warn that an undefined access becomes false in Boolean context and
+detect inconsistency. They remain partiality negatives, not membership proofs.
+The explicit alignment-abort control fails its assertion. The shifted-index
+control fails its array declaration before reaching the call, so it does not
+yet establish a shifted-selector expectation. All nine captures, complete
+streams and fourteen generated assets remain accounted for; no solve ran.
