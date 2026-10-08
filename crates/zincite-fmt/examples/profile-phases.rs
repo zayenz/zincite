@@ -234,7 +234,7 @@ fn observe_root(
 ) -> std::io::Result<u8> {
     use std::io::Write;
     use zincite_lint::{analyze_file, analyze_model, load_model, write_analysis};
-    use zincite_syntax::{FileMode, parse_with_mode};
+    use zincite_syntax::{FileMode, byte_line_column, parse_bytes_with_mode};
     let mode = FileMode::from_path(path);
     let label = path.to_string_lossy();
     let (row, status) = if options.requires_model() && mode == FileMode::Model {
@@ -257,22 +257,34 @@ fn observe_root(
     } else {
         begin_phase(path, "read_parse")?;
         let (input, load) = measure(|| {
-            let bytes = std::fs::read(path).map_err(|error| format!("{label}: {error}"))?;
-            let source = String::from_utf8(bytes).map_err(|error| {
+            let mut bytes = std::fs::read(path).map_err(|error| format!("{label}: {error}"))?;
+            let source_bytes = bytes.len();
+            let offset = usize::from(bytes.starts_with(b"\xef\xbb\xbf")) * 3;
+            if offset > 0 {
+                drop(bytes.drain(..offset));
+            }
+            let encoding_source = std::str::from_utf8(&bytes).is_err().then(|| bytes.clone());
+            let parsed = parse_bytes_with_mode(bytes, mode).map_err(|diagnostic| {
+                let (line, column) = byte_line_column(
+                    encoding_source
+                        .as_deref()
+                        .expect("encoding error has original bytes"),
+                    diagnostic.range.start,
+                );
                 format!(
-                    "{label}: input is not UTF-8 at byte {}",
-                    error.utf8_error().valid_up_to()
+                    "{label}:{line}:{column}: bytes {}..{}: {}",
+                    diagnostic.range.start + offset,
+                    diagnostic.range.end + offset,
+                    diagnostic.message
                 )
             })?;
-            let text = source.strip_prefix('\u{feff}').unwrap_or(&source);
-            let offset = source.len() - text.len();
-            let parsed = parse_with_mode(text, mode);
-            Ok::<_, String>((source, parsed, offset))
+            Ok::<_, String>((parsed, offset, source_bytes))
         });
         match input {
-            Ok((source, parsed, offset)) => {
+            Ok((parsed, offset, source_bytes)) => {
+                let parsed = parsed.analysis_file();
                 begin_phase(path, "analyze")?;
-                let (analysis, analyze) = measure(|| analyze_file(&parsed, path, offset, options));
+                let (analysis, analyze) = measure(|| analyze_file(parsed, path, offset, options));
                 begin_phase(path, "render")?;
                 let (status, render) =
                     measure(|| write_analysis(&analysis, &mut std::io::stderr()));
@@ -281,11 +293,11 @@ fn observe_root(
                     quoted(root_state(
                         mode == FileMode::Data,
                         parsed.diagnostics().len(),
-                        solve_count(&parsed)
+                        solve_count(parsed)
                     )),
                     parsed.diagnostics().len(),
-                    solve_count(&parsed),
-                    source.len()
+                    solve_count(parsed),
+                    source_bytes
                 );
                 let row = format!(
                     "{{\"kind\":\"root\",\"path\":{},\"source\":{metadata},\"analysis\":{},\"phases\":{{{},{},{}}}}}",
