@@ -1538,6 +1538,7 @@ pub fn resolve_integer_bounds(
         .map(|e| (e.file, e.location.range.start, e.location.range.end))
         .collect();
     let mut interpreter = Bounds::new(context, bindings, calls, domains, None, None);
+    interpreter.expression_memo = Some(vec![None; calls.expressions.len()]);
     let mut facts = IntegerBoundsFacts::default();
     for (file, source) in context.files.iter().enumerate() {
         if !source.warnings_enabled() || !source.parsed.diagnostics().is_empty() {

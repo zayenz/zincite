@@ -3650,3 +3650,24 @@ full streams and reaped empty groups are checked independently in
 `semantic62-ctw30-direct-control/root-audit.json`. Its Bool generator sum,
 ParameterInt powers and bodyless forwarding prerequisites remain separate
 confirmed work; they are not claimed repaired by Routing membership inspection.
+
+One-line invariant integer-bounds memo reuse is now integrated. This producer
+reads immutable domains/call facts and has no declaration/definition cache state;
+existing file/range/NodeKind, active-recursion and no-Symbolic guards remain.
+Four unchanged numeric groups pass before/after; main fmt/Clippy/194 tests pass
+with complete streams/source/group evidence. All106 main sources match the
+normal31 release, recorded in its `root-integration-audit.json`.
+
+Eight same-input width30/31 native/companion controls complete with all26 and14
+Completed and exact complete source/analysis/drop/status/full diagnostic parity.
+At width32/256, whole-analyze allocation calls fall2,324,655/44,257,189 to
+1,764,592/8,581,094; requested bytes267,874,070/3,554,653,516 to
+232,699,846/1,226,451,516. Retained/peak analyze deltas stay unchanged. Native
+CPU is0.754/4.142 seconds before and0.742/1.931 after; native RSS79.44/411.81
+MiB before and74.41/391.03 after. Candidate width32 first-use wall1.189 seconds
+exceeds baseline0.763 despite similar CPU; that observation is retained rather
+than described as a latency improvement. No per-producer allocation or isolated
+speed ratio is claimed. Full streams/current pins/empty reaped groups and exact
+parity are checked in `semantic62-cellda-width30-31-controls/root-audit.json`.
+These controls demonstrate local repeated-work reduction; original Cellda31 and
+remaining originals/fresh full6417-root acceptance are still required.
