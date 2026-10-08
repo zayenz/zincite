@@ -3914,3 +3914,13 @@ These five files remain required valid-input coverage; Zincite's UTF-8 input
 rejection is a concrete processing gap. A byte-preserving loader/parser boundary
 investigation is running separately from the union-domain tests-only preparation.
 No original encoding or source bytes are changed and no coverage is excluded.
+
+An independent byte scan confirms all ten invalid single-byte spans in these
+five originals lie inside trailing block comments; code/literals contain no
+invalid UTF-8. Exact byte/comment ranges are retained in
+semantic62-crosswords-current-prechecks/root-encoding-classification.json.
+The user's compiler-accepted-input requirement supersedes the older UTF-8-only
+brief restriction. The brief now requires exact opaque comment-byte preservation,
+original byte coordinates and truthful library source access,while retaining
+UTF-8 code/literals and rejection elsewhere. This is a required contract update;
+the byte-input adapter is not yet implemented or accepted.

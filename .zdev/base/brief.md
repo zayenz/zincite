@@ -165,8 +165,12 @@ is the syntax authority. Cover its model and data syntax by the end of this
 bundle, including structured types, interpolation, annotations and comprehensions.
 Intermediate tasks may support a documented subset but must diagnose unsupported
 input rather than silently accept it as opaque valid syntax. Parse individual
-UTF-8 files without resolving includes, requiring a solve item, evaluating data,
-or performing compiler semantic checks. Reject invalid UTF-8 without writing.
+files without resolving includes, requiring a solve item, evaluating data,
+or performing compiler semantic checks. Code and literals use UTF-8. Accept
+non-UTF-8 bytes confined to comments and preserve those bytes exactly, as required
+by current compiler-accepted challenge inputs. Reject invalid UTF-8 elsewhere
+without writing. Keep original byte coordinates and source bytes available to
+library callers; an internal analysis view must not be presented as exact source.
 Treat `.dzn` as data input; do not pretend syntax-only checks establish the
 semantic validity of data expressions.
 
@@ -191,7 +195,8 @@ line endings and maximum line length, with help documenting accepted values.
 Resolve EditorConfig according to its specification, including parent lookup,
 section precedence and `unset`. Support `insert_final_newline` and
 `trim_trailing_whitespace` on editable layout as well as the agreed indentation,
-line-ending and width properties. Use UTF-8 input/output only; support a UTF-8 BOM
+line-ending and width properties. Use UTF-8 for code and literals while preserving
+opaque comment bytes in output; support a UTF-8 BOM
 when requested and reject incompatible charset settings. Default to LF and one
 final newline. Preserved comments, literal contents and skipped spans take
 precedence over newline conversion, trimming and final-newline settings.
@@ -497,7 +502,8 @@ Reject directory or stdin inputs in fix/diff modes for this first increment;
 include-only dependencies and standard-library files are never implicit write
 targets. Read-only directory linting remains supported.
 
-Edits refer to the exact original UTF-8 bytes, including BOM offsets. Apply a
+Edits refer to the exact original bytes, including BOM offsets. Replacements
+use UTF-8; preserve untouched opaque comment bytes. Apply a
 finding's edits as one unit. If candidate fixes overlap, omit the conflicting
 fixes and explain the conflict; independent fixes may proceed. Reparse each full
 candidate before replacing its source, compare original bytes again before
@@ -632,7 +638,7 @@ do not evaluate later queries against stale CST ranges. `--diff` previews edits;
 `--write` explicitly replaces the single regular file. These modes are mutually
 exclusive and writes reject stdin and symlinks.
 
-Use original UTF-8 byte coordinates including BOM offsets, preserve untouched
+Use original byte coordinates including BOM offsets, preserve untouched
 source, validate overlaps, reparse the complete candidate, compare originals
 again before replacing, and preserve file permissions. No partial stdout or file
 replacement on parse, query, I/O or candidate-validation errors. Explicit edits
