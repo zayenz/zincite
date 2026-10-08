@@ -3175,3 +3175,16 @@ CPU deltas are 0/0.01 seconds. Calls are 5,770/57,083; requested bytes are
 to requested/peak memory, with retained memory unchanged. These are bounded
 observations, not an overall linearity claim or isolated speed ratio.
 Normal combined binaries and original Routing comparisons remain pending.
+
+Normal combined24 binaries are built and frozen under
+`target/benchmarks/base083/semantic62-combined24-release/`. Root audited all
+16 Cargo events, complete streams, 106 copied source files, 90 actual source
+files, both binaries and 22 library artifacts. Sources match before/after.
+Native SHA256 is
+`7ef9307455454092dc8d4b70cc6dc192b493c548f4aead7f9a9e7f00ad0c10f1`;
+companion SHA256 is
+`320fc6c3fdc74181091809b69f0c11dd7df43ec19e35967a7dfd95395f201505`.
+The initial command omitted the formatter package containing the example and
+failed before compilation; its streams are retained separately. The corrected
+command selects both packages and succeeds. Original Routing and Navigation
+comparisons are being prepared; final whole-corpus acceptance remains open.
