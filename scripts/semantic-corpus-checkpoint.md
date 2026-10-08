@@ -3126,3 +3126,15 @@ wraps its initializer in `NumericBound::Defined`; `invariant_integer` returns
 unknown for that wrapper and for the enclosing arithmetic. A failure in the
 initializer's value interpreter alone does not prove this dividend fails.
 No additional coefficient handling is authorized without a reproduced failure.
+
+The first Routing repair passes the existing focused search group with all
+assertions unchanged; formatting also passes. Its incremental source patch is
+`scripts/semantic-routing-wrapped-selection-forall-draft.patch`.
+Only a fully inspected selection plus/minus a closed integer can retain an
+unknown division operand. The owning unsupported core-forall path can inspect
+the whole quantifier as unknown, with strict ambient checks and no outputs
+or local certificates. Membership and strict dependency proofs are unchanged.
+The coefficient path remains unchanged. Broader Rust gates and original-model
+coverage comparisons are pending; focused arithmetic veto checks are being
+added before those gates. The original capture remains live at 112 closed
+shards and 5,773 planned roots, with all 90 actual source pins matching.

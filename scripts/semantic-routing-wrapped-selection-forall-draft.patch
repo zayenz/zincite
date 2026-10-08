@@ -1,0 +1,137 @@
+--- a/crates/zincite-lint/src/callable_definitions.rs
++++ b/crates/zincite-lint/src/callable_definitions.rs
+@@ -1509,11 +1509,74 @@
+     ) {
+         let (clause, view, known) = inputs;
+         match clause.kind {
+-            ClauseKind::Unsupported => self.unavailable(
+-                clause,
+-                "callable definition enforcement or control flow is unsupported",
+-                unavailable,
+-            ),
++            ClauseKind::Unsupported => {
++                if clause.node.kind() == NodeKind::GeneratorCallExpression
++                    && self.core(clause.file, clause.node, view, "forall")
++                {
++                    // Strict ambient headers still own their scope and membership.
++                    // Checked uncertainty in this forall supplies no outputs or locals.
++                    if let Err(reason) =
++                        self.relation_iterations(clause.file, &clause.generators, 0, view, false)
++                    {
++                        self.unavailable(clause, &reason, unavailable);
++                        return;
++                    }
++                    let mut sources = Vec::new();
++                    for (position, generator) in clause.generators.iter().enumerate() {
++                        for child in generator.child_nodes() {
++                            let value = if child.kind() == NodeKind::WhereFilter {
++                                let Some(value) = child.child_nodes().next() else {
++                                    self.unavailable(
++                                        clause,
++                                        "forall ambient filter unavailable",
++                                        unavailable,
++                                    );
++                                    return;
++                                };
++                                value
++                            } else {
++                                child
++                            };
++                            let ambient = if child.kind() == NodeKind::WhereFilter {
++                                &clause.generators[..=position]
++                            } else {
++                                &clause.generators[..position]
++                            };
++                            if let DefinitionSafety::Unsupported(reason) = self
++                                .initialized_source_safety(
++                                    clause.file,
++                                    value,
++                                    view,
++                                    ambient,
++                                    &mut sources,
++                                )
++                            {
++                                self.unavailable(clause, &reason, unavailable);
++                                return;
++                            }
++                        }
++                    }
++                    match self.initialized_source_safety(
++                        clause.file,
++                        clause.node,
++                        view,
++                        &clause.generators,
++                        &mut sources,
++                    ) {
++                        DefinitionSafety::Unknown(_) => return,
++                        DefinitionSafety::Unsupported(reason) => {
++                            self.unavailable(clause, &reason, unavailable);
++                            return;
++                        }
++                        DefinitionSafety::Supported => {}
++                    }
++                }
++                self.unavailable(
++                    clause,
++                    "callable definition enforcement or control flow is unsupported",
++                    unavailable,
++                );
++            }
+             ClauseKind::Relation => {
+                 if let Err(reason) =
+                     self.relation_iterations(clause.file, &clause.generators, 0, view, false)
+@@ -7844,6 +7907,46 @@
+                                         Instantiation::Parameter | Instantiation::Decision
+                                     )
+                             });
++                        let wrapper = unwrap(child);
++                        let wrapper_name = operator(self.context, file, wrapper)
++                            .and_then(crate::bindings::symbolic_operator);
++                        let operands: Vec<_> = wrapper.child_nodes().collect();
++                        // Only one inspected selection plus/minus a closed integer
++                        // can retain an unproved value. A failing closed sibling is
++                        // left to the independent evaluator, including overflow.
++                        let wrapped_selection =
++                            !matches!(&inspected, DefinitionSafety::Unsupported(_))
++                                && wrapper.kind() == NodeKind::BinaryExpression
++                                && matches!(wrapper_name, Some("+" | "-"))
++                                && operands.len() == 2
++                                && self.core(file, wrapper, view, wrapper_name.unwrap())
++                                && ty(wrapper).is_some_and(integer)
++                                && self
++                                    .operation_fact(self.view(file, wrapper, view), file, wrapper)
++                                    .is_some_and(|call| {
++                                        matches!(&call.outcome,
++                                    CallOutcome::Resolved { parameters, return_type, .. }
++                                        if parameters.len() == 2 && parameters.iter().all(integer)
++                                            && Some(return_type) == ty(wrapper))
++                                    })
++                                && operands.iter().enumerate().any(|(position, operand)| {
++                                    unwrap(operand).kind() == NodeKind::ArrayAccessExpression
++                                        && ty(operand).is_some_and(|t| {
++                                            integer(t)
++                                                && matches!(
++                                                    t.instantiation,
++                                                    Instantiation::Parameter
++                                                        | Instantiation::Decision
++                                                )
++                                        })
++                                        && crate::domains::invariant_expression_integer(
++                                            self.context,
++                                            self.bindings,
++                                            file,
++                                            operands[1 - position],
++                                        )
++                                        .is_ok_and(|value| value.is_some())
++                                });
+                         match inspected {
+                             DefinitionSafety::Unsupported(reason) => unsupported = Some(reason),
+                             unknown @ DefinitionSafety::Unknown(_) => safety = unknown,
+@@ -7853,6 +7956,7 @@
+                         // inspected above. The definitionless integer interpreter
+                         // cannot evaluate this call; retain an unproved value.
+                         if symbolic_selection
++                            || wrapped_selection
+                             || length_argument(
+                                 self.context,
+                                 self.bindings,
