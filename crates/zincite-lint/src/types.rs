@@ -155,6 +155,7 @@ pub(super) fn join(a: &TypeInst, b: &TypeInst) -> TypeInst {
         return left;
     }
     let kind = match (&a.kind, &b.kind) {
+        (TypeKind::Bool, TypeKind::Enum(_)) | (TypeKind::Enum(_), TypeKind::Bool) => TypeKind::Int,
         (TypeKind::Set(x), TypeKind::Set(y)) => TypeKind::Set(Box::new(join(x, y))),
         (
             TypeKind::Array {

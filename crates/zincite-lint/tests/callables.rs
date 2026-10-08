@@ -758,3 +758,54 @@ fn supplied_argument_ranking_retains_defaults_scope_and_parameter_guards() {
     assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn mixed_boolean_enum_conditionals_use_a_numeric_common_type() {
+    let (directory, options) = setup("mixed-enum-bool");
+    let library = options.stdlib_dir.as_ref().unwrap().join("std/stdlib.mzn");
+    let mut standard = std::fs::read_to_string(&library).unwrap();
+    standard.push_str("annotation input_order; annotation indomain_min; function ann: int_search(array[$X] of var $$E: x, ann: select, ann: choice);\n");
+    write(&library, &standard);
+    let root = directory.join("root.mzn");
+    let source = "enum E={A,B};\narray[1..2] of var E: features;\narray[1..2] of var bool: flags;\narray[int] of var int: reversed=[if j=1 then flags[i] else features[i] endif|i in 1..2,j in 1..2];\nsolve :: int_search([if j=1 then features[i] else flags[i] endif|i in 1..2,j in 1..2],input_order,indomain_min) satisfy;\n";
+    write(&root, source);
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty());
+    let bindings = resolve_bindings(&context);
+    let facts = resolve_callables(&context, &bindings);
+    assert!(matches!(
+        outcome(&facts, &root, source, "int_search("),
+        CallOutcome::Resolved { .. }
+    ));
+    let enumeration = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "E")
+        .unwrap()
+        .id;
+    let expression = |marker: &str| {
+        let start = source.find(marker).unwrap();
+        &facts
+            .expressions
+            .iter()
+            .find(|e| {
+                e.location.path == root
+                    && e.location.range.start == start
+                    && e.location.range.end == start + marker.len()
+            })
+            .unwrap()
+            .ty
+    };
+    assert_eq!(expression("features[i]").kind, TypeKind::Enum(enumeration));
+    assert_eq!(expression("flags[i]").kind, TypeKind::Bool);
+    for branch in [
+        "if j=1 then features[i] else flags[i] endif",
+        "if j=1 then flags[i] else features[i] endif",
+    ] {
+        let ty = expression(branch);
+        assert_eq!(ty.kind, TypeKind::Int);
+        assert_eq!(ty.instantiation, Instantiation::Decision);
+        assert!(!ty.optional);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

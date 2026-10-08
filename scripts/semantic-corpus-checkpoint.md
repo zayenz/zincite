@@ -3516,3 +3516,14 @@ groups. Evidence is `semantic62-hoist27-direct-control/root-audit.json`. Histori
 comparisons use its exact selected companion root, never invented singleton native
 status. This confirms the demonstrated dispatch repair, with whole-corpus and
 base-083 acceptance still pending.
+
+SparseMDS's mixed Boolean/enum conditional gap has a current-Gecode-positive
+public reduction (compile-only; deprecated-coercion warnings retained). Unchanged
+production fails its selected three-argument int_search assertion. The existing
+types::join now gives this scalar pair its supported common Int target, preserving
+qualification and both written Bool/Enum child identities. Forward/reversed
+branches and selected call pass. Actual workspace fmt/Clippy/tests pass:194 tests
+across42 summaries; root checks complete streams, source pins and reaped empty
+groups. Evidence is `semantic62-sparse-join-repair/actual-workspace-gates/root-audit.json`.
+Other SparseMDS membership/definition gaps and fresh original-model outcomes
+remain pending; no full-model completion is claimed from this type repair.
