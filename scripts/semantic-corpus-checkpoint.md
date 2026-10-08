@@ -3228,3 +3228,16 @@ Routing has terminated before this pair starts. Navigation now runs under
 root session85127, with serial native/companion children and 300-second caps.
 The original corpus capture remains protected; this comparison uses frozen
 assets and makes no isolated timing or whole-task completion claim.
+
+Original owner89518 has now returned terminal exit 1 (worker tool observation
+8a1f6d, retained in `semantic61-owner89518-terminal-observation.json`). Root
+checked the final report and after ledger: all 124 outer shard commands are
+reaped with empty groups; both exact 14/26 rule partitions account for 6,417
+roots. Each selection retains 21 Unobserved roots, so capture_complete is false
+and acceptance remains unproved. The final inventory reports 189,496 originals
+rehashed without changes, with source/binary/helper/before-ledger pins unchanged.
+This is terminal evidence, not a successful corpus acceptance result. Root's
+compact audit is `exhaustive-semantic61/terminal-report-root-audit.json` under
+the existing base083 benchmark directory. The Unobserved roots are being
+reconciled separately. Actual source integration waits for Navigation's own
+protected-source checks to finish.
