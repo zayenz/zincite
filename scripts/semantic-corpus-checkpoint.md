@@ -4150,3 +4150,18 @@ are checked in semantic62-pillars37-{direct,public}-control/root-audit.json.
 No solve ran,coverage certificate was invented or nonthesis gap suppressed.
 Remaining original gaps,opaque-byte lint/fixes,save budgets and final complete
 corpus evidence keep task083 open.
+
+The normal37 crossword save baseline confirms a bounded performance follow-up.
+For original908888B data,50 fresh-process samples per default/nested settings
+give p95 127.069/126.840ms,above the100ms budget. The already-formatted1189780B
+buffer has p95 141.716/141.293ms; its actual size exceeds1MiB. All200 sampled
+outputs match the original preservation control. A separate original-path
+stdin first observation reports793.4ms wall/128.8ms CPU and84.547MiB per-child
+wait4 RSS,above64MiB. First-use latency is retained,not labelled cold I/O;
+its wall/CPU discrepancy remains unattributed. The existing benchmark's
+/usr/bin/time -l RSS probes are unavailable because sysctl kern.clockrate
+is denied after successful formatter output; no missing RSS is treated as0.
+Full current108/original/std/compiler/release/helper pins,streams,50-sample
+summary arithmetic and two empty reaped outer groups are checked in
+semantic62-crossword37-save-baseline/root-audit.json. CPU/allocation attribution
+and a measured bounded repair remain required; no budget is relaxed.
