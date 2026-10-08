@@ -2653,3 +2653,19 @@ remain null. Evidence and terminal root audit are in
 `target/benchmarks/base083/semantic62-stock18-navigation-native-attribution/`.
 This control provides neither complete Navigation processing nor CPU attribution.
 The separate matched Routing18/19 comparison remains in progress.
+
+The independently reviewed Routing378 Float-let draft is saved, unapplied, as
+`scripts/semantic-routing-float-let-draft.patch`: 29,265 bytes, SHA-256
+`50b4b474a2da0b5ff71a57ce90fd5eaaf3cba0c73af4e2acc7d5a254a9a68b39`.
+It inspects the required present parameter Float operations and ordered local
+sources while retaining Unknown and discarding temporary outputs/inspected IDs.
+Root independently confirmed two review findings, and the revised draft peels
+named set domains for known emptiness and inspects unused local initializers'
+transitive sources even when strict dependency lookup succeeds. A focused
+negative exercises the public direct-RHS path through a named zero-dividing
+source. Independent delta review found no further reachable defect; root
+reconstructed both complete diffs and checked all current artifact/source pins.
+Standalone formatting is the only validation so far. Compiler precheck, public
+RED/GREEN, workspace gates and original Routing outcomes remain pending.
+The shared conditional preflight overlaps the saved182/235 draft and must be
+integrated once. Shared candidate and actual Rust remain unchanged.
