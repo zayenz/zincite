@@ -2736,3 +2736,14 @@ audit are in
 `target/benchmarks/base083/semantic62-draft-workspace-conditional-float-red-search/`.
 Reviewed production-only candidate application is next; public assertions remain
 unchanged, and no authoritative Rust source has changed.
+
+The first integrated Routing GREEN does not pass. With unchanged public
+assertions, float_let_output still receives Unknown instead of Uncovered; an
+existing total-controls case additionally reports an unsupported arbitrary-value
+call. Two search cases pass and two fail. Cargo exits101 in8.616 seconds without
+timeout; root checked complete streams and equal/current source/helper state,
+reaping, empty group and null verification error. Preserved evidence and root
+audit are under
+`target/benchmarks/base083/semantic62-draft-workspace-conditional-float-green-search/`.
+No broader gates ran. Both failures require diagnosis and narrow rework; the
+saved drafts remain unaccepted and authoritative Rust remains unchanged.
