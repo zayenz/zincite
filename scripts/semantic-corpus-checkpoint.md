@@ -3763,3 +3763,17 @@ selector limitation precisely covers722..756. Full streams and equal captured
 106-source/helper maps are checked in focused-green3/root-audit.json. V4 changes
 only that anchor to the exact offending selector, leaving production v2 and all
 outcome assertions unchanged; its focused runtime is pending.
+
+Sparse focused v4 now passes the unchanged existing group, exact906-byte public
+positive and all four meaningful negative outcomes/precise locations. Full
+streams and unchanged106 scratch-source/helper pins are independently checked
+in focused-green4/root-audit.json. Exactly callable_definitions.rs and search.rs
+are integrated; main31 invariant-bounds memo is preserved. Present Bool sum,
+Enum construction/conversion/extremum prerequisites, rank1 reshape/Enum selection
+and rank2 nondefining Boolean relation inspection retain Unknown and discard
+value/membership/output certificates. Existing core rank2 Int sum flattening and
+Boolean relation partiality are preserved. Main formatting/Clippy/workspace
+tests pass with full streams/current106 sources/helpers/empty reaped groups
+checked in actual-workspace-gates/root-audit.json. Current realstdlib public and
+original Sparse native/companion controls, remaining originals and final full
+corpus still keep task acceptance open.

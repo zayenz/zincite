@@ -2351,6 +2351,203 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
     ));
     assert!(result.findings.is_empty() && result.limitations.is_empty());
     std::fs::remove_dir_all(dir).unwrap();
+    // Retain the compiler-checked Bool/Enum source chain instead of reducing it to Int.
+    let sparse = concat!(
+        "enum Feature = {F, C};\n",
+        "enum FeatureX = anon_enum(card(Feature) + 1);\n",
+        "Feature: class = C;\n",
+        "FeatureX: dummy = max(FeatureX);\n",
+        "FeatureX: classx = to_enum(FeatureX, class);\n",
+        "int: n = 2;\n",
+        "int: rows = 2;\n",
+        "set of int: Nodes = 1..n;\n",
+        "set of int: Nodes0 = 0..n;\n",
+        "set of int: Rows = 1..rows;\n",
+        "array[Nodes] of var bool: sign;\n",
+        "array[Nodes] of var FeatureX: feature;\n",
+        "array[Nodes, Rows] of var bool: valid;\n",
+        "array[Rows] of var bool: mistakes;\n",
+        "array[Nodes0] of var bool: leaf = array1d(Nodes0,\n",
+        "  [if j in Nodes then feature[j] = classx else true endif | j in Nodes0]);\n",
+        "array[Nodes] of var bool: unused = [feature[j] = dummy | j in Nodes];\n",
+        "var 1..n: used = n - sum(unused);\n",
+        "var 0..rows: misclassified = sum(mistakes);\n",
+        "constraint forall(i in Rows)(valid[1,i]);\n",
+        "solve :: int_search([if j = 1 then feature[i] else sign[i] endif |\n",
+        "                    i in Nodes, j in 1..2], input_order, indomain_min)\n",
+        "  minimize used + misclassified;\n",
+    );
+    let (dir, _) = model("sparse-bool-enum-source-chain", sparse, "");
+    let sparse_core = CORE
+        .replace(
+            "function var bool: forall(array[int] of var opt bool: body);\n",
+            "function var bool: forall(array[$T] of var bool: body);\n",
+        )
+        .replace(
+            "function var int: sum(array[int] of var int: body);",
+            "function var int: sum(array[$T] of var int: body);",
+        );
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!(
+            "{sparse_core}{}",
+            concat!(
+                "function int: '+'(int: left,int: right);\n",
+                "function var int: '-'(var int: left,var int: right);\n",
+                "function int: card(set of $T: values);\n",
+                "function $$E: max(set of $$E: values);\n",
+                "function $$E: to_enum(set of $$E: values,int: value);\n",
+                "function bool: 'in'(int: value,set of int: choices);\n",
+                "function ann: int_search(array[$X] of var $$E: x,ann: select,ann: choice)=int_search(x,select,choice,complete);\n",
+            )
+        ),
+    )
+    .unwrap();
+    let context = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    for written in ["sum(unused)", "sum(mistakes)"] {
+        let start = sparse.find(written).unwrap();
+        let call = calls
+            .calls
+            .iter()
+            .find(|call| call.file == 0 && call.location.range.start == start)
+            .unwrap();
+        assert!(
+            matches!(&call.outcome,
+                zincite_lint::CallOutcome::Resolved { declaration, parameters, return_type }
+                    if context.files[bindings.declarations[declaration.0].file].kind
+                        == zincite_lint::SourceKind::StandardLibrary
+                        && bindings.declarations[declaration.0].name == "sum"
+                        && parameters.len() == 1
+                        && !parameters[0].optional
+                        && return_type.kind == zincite_lint::TypeKind::Int
+                        && return_type.instantiation == zincite_lint::Instantiation::Decision
+                        && !return_type.optional
+                        && matches!(&parameters[0].kind,
+                            zincite_lint::TypeKind::Array { indices, element }
+                                if indices.len() == 1 && !element.optional
+                                    && element.kind == zincite_lint::TypeKind::Int
+                                    && element.instantiation == zincite_lint::Instantiation::Decision)
+            ),
+            "{written}: {:?}",
+            call.outcome
+        );
+        let argument = start + "sum(".len()..start + written.len() - 1;
+        assert!(
+            calls.expressions.iter().any(|expression| {
+                expression.file == 0
+                    && expression.location.range == argument
+                    && !expression.ty.optional
+                    && matches!(&expression.ty.kind,
+                    zincite_lint::TypeKind::Array { indices, element }
+                        if indices.len() == 1 && !element.optional
+                            && element.kind == zincite_lint::TypeKind::Bool
+                            && element.instantiation == zincite_lint::Instantiation::Decision)
+            }),
+            "{written}: the actual Bool elements must remain Bool"
+        );
+    }
+    let inst = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+    let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+    let search =
+        resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+    assert_eq!(search.root_state, ModelRootState::Complete);
+    assert!(search.limitations.is_empty(), "{:?}", search.limitations);
+    for name in ["leaf", "unused", "used", "misclassified"] {
+        let target = bindings
+            .declarations
+            .iter()
+            .find(|declaration| declaration.top_level && declaration.name == name)
+            .unwrap()
+            .id;
+        assert_eq!(
+            search.declarations[target.0].coverage,
+            SearchCoverage::Unknown,
+            "{name}"
+        );
+        assert!(
+            !definitions
+                .definitions
+                .iter()
+                .chain(&callable.definitions)
+                .any(|definition| definition.target == target
+                    && definition.safety == DefinitionSafety::Supported)
+        );
+    }
+    assert_eq!(
+        coverage(&bindings, &search, "valid"),
+        SearchCoverage::Uncovered
+    );
+    assert!(matches!(
+        analyze_model(&context, &selected()).rules[0].outcome,
+        RuleOutcome::Completed
+    ));
+    // Each new inspection path retains a concrete partiality/source veto.
+    for (name, outside, anchor) in [
+        (
+            "enum-ordinal",
+            sparse.replace("to_enum(FeatureX, class)", "to_enum(FeatureX, 0)"),
+            "array[Nodes0] of var bool: leaf",
+        ),
+        (
+            "enum-count-overflow",
+            sparse.replace(
+                "card(Feature) + 1",
+                "card(Feature) + (9223372036854775807 + 1)",
+            ),
+            "array[Nodes0] of var bool: leaf",
+        ),
+        (
+            "enum-selection",
+            sparse.replace(
+                "array[Nodes] of var FeatureX: feature;",
+                "array[1..1] of var FeatureX: feature;\nvar FeatureX: selected = feature[2];",
+            ),
+            "var FeatureX: selected",
+        ),
+        (
+            "Boolean-selector-overflow",
+            sparse.replace("valid[1,i]", "valid[1,(9223372036854775807 + 1)]"),
+            "valid[1,(9223372036854775807 + 1)]",
+        ),
+    ] {
+        std::fs::write(dir.join("root.mzn"), &outside).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let result = analyze_model(&context, &selected());
+        assert!(
+            matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+            "{name}: {:?}",
+            result.limitations
+        );
+        let located = outside.find(anchor).unwrap();
+        assert!(
+            result
+                .limitations
+                .iter()
+                .any(|limit| limit.location.range.start <= located
+                    && located < limit.location.range.end),
+            "{name}: {:?}",
+            result.limitations
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
