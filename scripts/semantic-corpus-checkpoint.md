@@ -4178,3 +4178,14 @@ a named1..extent axis; the existing count fallback admits only direct
 length/card initializers. A public source-safety/consumer reduction is assigned
 without changing production. Search has separate remaining located gaps; no
 consumer bridge or task completion is inferred from this diagnosis.
+
+Fresh normal37 original gbac control includes an actual Gecode no-solve
+compile with adjacent reduced_UD5-gbac.dzn (.293s),beyond the earlier
+model-check-only precheck. Native/companion agree on16 warnings,zero errors,
+18 limitations (2.476/2.510s),484 loaded files/772925B. Only search-coverage
+remains Limited among the14 thesis analyses. Full current108/original/data/
+compiler/std/release/helper pins,FZN/OZN,complete streams,parity,all26/source/
+drop accounting and three empty reaped groups are checked in
+semantic62-gbac37-direct-control/root-audit.json. The current located Search
+gap is assigned for an independent read-only reduction; no acceptance claim
+is inferred from the other13 completed thesis analyses.
