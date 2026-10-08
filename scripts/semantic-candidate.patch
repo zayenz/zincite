@@ -4289,7 +4289,7 @@
  use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
  
  pub(super) fn check_partial_expressions(
-@@ -20,6 +21,29 @@
+@@ -20,6 +21,44 @@
      prior_findings: &[FileFinding],
      input_keys: &[crate::InputObligationKey],
  ) -> (Vec<FileFinding>, Vec<SourceDiagnostic>) {
@@ -4316,10 +4316,25 @@
 +                .push(row);
 +        }
 +    }
++    let mut limitation_indices: HashMap<_, Vec<_>> = HashMap::new();
++    let mut abort_limitations = Vec::new();
++    for (row, limitation) in guarded.limitations.iter().enumerate() {
++        limitation_indices
++            .entry((
++                limitation.file,
++                limitation.location.range.start,
++                limitation.location.range.end,
++            ))
++            .or_default()
++            .push(row);
++        if limitation.reason == "default capture of aborting assertion is unsupported" {
++            abort_limitations.push(row);
++        }
++    }
      let mut findings = Vec::new();
      let mut limitations = Vec::new();
      for (file, source) in context.files.iter().enumerate() {
-@@ -35,6 +59,16 @@
+@@ -35,6 +74,16 @@
              }
              let mut nodes = Vec::new();
              collect_nodes(node, &mut nodes);
@@ -4336,7 +4351,7 @@
              for operation in &nodes {
                  let Some(identity) = operation_identity(context, bindings, calls, file, operation)
                  else {
-@@ -44,9 +78,11 @@
+@@ -44,9 +93,11 @@
                      continue;
                  }
                  let location = source.location(operation.range());
@@ -4351,7 +4366,7 @@
                      || empty_iteration(iteration, file, &location)
                  {
                      continue;
-@@ -55,14 +91,17 @@
+@@ -55,14 +106,17 @@
                      limitations.push(limitation(location, &reason));
                      continue;
                  }
@@ -4375,17 +4390,35 @@
                          )
                      {
                          continue;
-@@ -161,12 +200,14 @@
+@@ -149,24 +203,23 @@
+                         });
+                     }
+                 }
+-                for l in guarded
+-                    .limitations
+-                    .iter()
+-                    .filter(|l| l.file == file && l.location.range == location.range)
+-                {
++                for &row in limitation_indices.get(&key).into_iter().flatten() {
++                    let l = &guarded.limitations[row];
+                     limitations.push(limitation(location.clone(), &l.reason));
+                 }
+             }
+             // An abort is not ordinary undefinedness. Retain the producer's
              // explicit default-capture boundary without inventing an assertion rule.
-             for l in guarded.limitations.iter().filter(|l| {
-                 l.file == file
-+                    && l.reason == "default capture of aborting assertion is unsupported"
-                     && contains(&source.location(node.range()), &l.location)
+-            for l in guarded.limitations.iter().filter(|l| {
+-                l.file == file
+-                    && contains(&source.location(node.range()), &l.location)
 -                    && l.reason == "default capture of aborting assertion is unsupported"
-             }) {
+-            }) {
 -                if !guarded
 -                    .expression(file, &l.location)
 -                    .is_some_and(|e| e.context.activation == GuardActivation::Inactive)
++            for l in abort_limitations
++                .iter()
++                .map(|&row| &guarded.limitations[row])
++                .filter(|l| l.file == file && contains(&source.location(node.range()), &l.location))
++            {
 +                let key = (file, l.location.range.start, l.location.range.end);
 +                let evaluation = expression_indices
 +                    .get(&key)

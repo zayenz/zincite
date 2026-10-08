@@ -1,0 +1,53 @@
+--- a/crates/zincite-lint/src/partial_expression.rs
++++ b/crates/zincite-lint/src/partial_expression.rs
+@@ -42,6 +42,21 @@
+                 ))
+                 .or_default()
+                 .push(row);
++        }
++    }
++    let mut limitation_indices: HashMap<_, Vec<_>> = HashMap::new();
++    let mut abort_limitations = Vec::new();
++    for (row, limitation) in guarded.limitations.iter().enumerate() {
++        limitation_indices
++            .entry((
++                limitation.file,
++                limitation.location.range.start,
++                limitation.location.range.end,
++            ))
++            .or_default()
++            .push(row);
++        if limitation.reason == "default capture of aborting assertion is unsupported" {
++            abort_limitations.push(row);
+         }
+     }
+     let mut findings = Vec::new();
+@@ -188,21 +203,18 @@
+                         });
+                     }
+                 }
+-                for l in guarded
+-                    .limitations
+-                    .iter()
+-                    .filter(|l| l.file == file && l.location.range == location.range)
+-                {
++                for &row in limitation_indices.get(&key).into_iter().flatten() {
++                    let l = &guarded.limitations[row];
+                     limitations.push(limitation(location.clone(), &l.reason));
+                 }
+             }
+             // An abort is not ordinary undefinedness. Retain the producer's
+             // explicit default-capture boundary without inventing an assertion rule.
+-            for l in guarded.limitations.iter().filter(|l| {
+-                l.file == file
+-                    && l.reason == "default capture of aborting assertion is unsupported"
+-                    && contains(&source.location(node.range()), &l.location)
+-            }) {
++            for l in abort_limitations
++                .iter()
++                .map(|&row| &guarded.limitations[row])
++                .filter(|l| l.file == file && contains(&source.location(node.range()), &l.location))
++            {
+                 let key = (file, l.location.range.start, l.location.range.end);
+                 let evaluation = expression_indices
+                     .get(&key)

@@ -2987,3 +2987,22 @@ The further limitation-lookup correction is still being authored; it is not
 in this checkpoint. Authoritative Rust and original capture inputs remain
 unchanged. A frozen Routing20 normal CLI/companion pair is now running at
 the same 300-second caps to check the original Routing model's body coverage.
+
+The reviewed local limitation lookup is now in the candidate. Its exact-range
+row vectors retain producer order and duplicates; its ordered abort subset
+keeps the existing file/containment, activation, empty-iteration, suppression
+and final sort/dedup behavior. The incremental patch is saved as
+`scripts/semantic-partial-limitation-index-draft.patch` (2,241 bytes).
+The combined candidate is 281,466 bytes, SHA256
+538dd47e37337d682a23f422b3f0727aa3c60c792df3e28c88331b54a4bc56e1.
+Root reconstructed all 21 candidate files from authoritative originals in a
+disposable directory and checked exact equality to the current source copy.
+
+Direct candidate Cargo fmt, Clippy with warnings denied and workspace tests
+all pass. Root consumed complete outputs: 193 tests pass, zero fail, including
+default/abort guards, suppression, source-preserving fixes, shared includes
+and save/batch behavior. The reviewed source remains 16,560 bytes, SHA256
+cf1c4cc94e72d1b64609c89ac074d42102e34d60fa44034012191a93228bb9ec.
+Actual original source hashes remain unchanged. This establishes candidate
+Rust behavior, not final corpus acceptance; matched cost measurements for
+the lookup change are still pending.
