@@ -4455,3 +4455,17 @@ overflow vetoes. Full source/std/compiler/model/data/native/helper pins,emitted
 assets,complete streams and two empty reaped groups are checked in semantic62-is-
 filtered-search-production-preparation/guarded-root-control/root-audit.json.
 This remains an explicit support gap,not a new closed-overflow error claim.
+
+Normal42 fresh opt3 tools retain all108 main/copied sources and22 libraries;
+four assets,complete build streams and an empty reaped build group are checked
+in semantic62-combined42-release/root-build-audit.json. Original gbac with its
+actual adjacent data compiles to Gecode FlatZinc without solving. Native and
+companion both report16 warnings,0 errors and18 limitations,all26 partitions
+and source-drop parity. Exactly the BIN945..1159 nonempty-boundary disappears;
+it is replaced by the deeper fzn_bin_packing_load10:36 bytes308..370 exact
+traversal-membership limitation. All other diagnostic lines are unchanged,
+including GCC's false-assertion boundary. Thus the guard repair advances the
+original but Search remains Limited. Full source/original/data/std/compiler/
+release/helper pins,emitted compiler assets,complete streams and three empty
+reaped groups are checked in semantic62-gbac42-direct-control/root-audit.json.
+The deeper membership and guarded nested-output contract remain open.
