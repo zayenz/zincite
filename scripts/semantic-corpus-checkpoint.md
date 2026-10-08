@@ -3059,3 +3059,16 @@ baseline. Its full comparison is pending. The original semantic61 capture
 is still live; its latest checked ledger closes105/124 shards and accounts
 for5358/6417 planned roots, leaving1059. No final capture report/post-pins or
 terminal receipt exists; all90 original Rust hashes still match.
+
+Current21 original Navigation comparison completes and is root-audited under
+`target/benchmarks/base083/semantic62-current21-navigation-pair/`. Both
+normal CLI and companion finish without timeout, status1 (95.352/97.785
+seconds). Full diagnostic/status parity, manifest, source metadata, entire
+analysis, all26/thesis14 partitions and drop records exactly match the
+complete19 baseline. All26 rules complete, with5643 warnings, zero errors
+and zero limitations; loaded sources join checked compiler originals.
+Whole-analyze companion counters decrease by11339 calls and941140 requested
+bytes, with retained/peak deltas unchanged. These are whole-phase observations
+under possible peer overlap, not checker attribution or an isolated speed ratio.
+Routing's remaining three search limitations and repeated default-expression
+lookup cost are still being diagnosed. Final whole-corpus acceptance is open.
