@@ -3006,3 +3006,24 @@ cf1c4cc94e72d1b64609c89ac074d42102e34d60fa44034012191a93228bb9ec.
 Actual original source hashes remain unchanged. This establishes candidate
 Rust behavior, not final corpus acceptance; matched cost measurements for
 the lookup change are still pending.
+
+The current lookup candidate's direct offline/locked optimized build also
+passes. Root retained complete tool output and all 16 Cargo events, checked
+reported release artifacts and the unchanged 106-file candidate source map,
+and froze the ordinary CLI/companion plus 22 library artifacts under
+`target/benchmarks/base083/semantic62-limitation-lookup-release/`. Native
+SHA256 is 9a26f7d984b5a422625432b68fceb36b963d7b3470c464680fd86c28558eaab0;
+companion SHA256 is
+7a070b6c86959894788f9150d1561e461e3827b88868dacb3d48a2c6a38dc83d.
+The separate native-only diagnostic21 build passes in 13.998 seconds; its
+full event/stream/state audit is under
+`target/benchmarks/base083/semantic62-partial-limitation-index-attribution-preparation/build21/`.
+Its instrumentation is unchanged; only the checker lookup source differs
+from diagnostic20. Matched diagnostic21 measurements remain pending.
+
+A root poll of original89518 returned an unknown handle, but this did not
+establish termination. The owning worker's subsequent actual poll succeeds
+and reports the same live session; a scoped process query confirms driver
+41434 is still running. Authoritative Rust integration remains deferred
+because that original driver continues checking its semantic61 source pins.
+No driver signal, restart, draining or source/protocol change was performed.
