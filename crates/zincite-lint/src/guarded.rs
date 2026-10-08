@@ -1927,7 +1927,7 @@ impl<'a> Producer<'a> {
             let mut source_scope = own.clone();
             source_scope.evaluation = GuardEvaluation::Strict;
             source_scope.enforcement = DefinitionEnforcement::Conditional;
-            let source_value = self.walk(file, item, source, source_scope);
+            let source_value = self.walk(file, item, source, source_scope.clone());
             let inspected_concatenation = integer_array_concatenation(
                 self.context,
                 self.bindings,
@@ -1940,12 +1940,12 @@ impl<'a> Producer<'a> {
                     &source_value.definedness,
                     GuardedOutcome::Proven | GuardedOutcome::Unknown
                 );
-            inputs.push(evaluated_when(source_value, own.activation));
             let domain = if inspected_concatenation {
                 Domain::Unknown
             } else {
-                self.generator_domain(file, source)
+                self.generator_domain(file, source, &source_scope, &source_value)
             };
+            inputs.push(evaluated_when(source_value, own.activation));
             let is_membership = tokens(&self.context.files[file].parsed, generator)
                 .iter()
                 .any(|t| t.kind == TokenKind::In);
@@ -2863,10 +2863,79 @@ impl<'a> Producer<'a> {
             })
             .unwrap_or_else(|| expression_domain(self.context, self.bindings, file, node))
     }
-    // Only an independent named top-level source can use its call-aware row.
-    // Other generator forms keep the original bounded-domain interpretation.
-    fn generator_domain(&self, file: FileId, node: &'a SyntaxNode) -> Domain {
+    // Named union sources retain their existing initialized-owner context.
+    // A typed selected parameter set uses only its actual preceding headers.
+    fn generator_domain(
+        &self,
+        file: FileId,
+        node: &'a SyntaxNode,
+        scope: &Scope<'a>,
+        evaluated: &Evaluation,
+    ) -> Domain {
         let source = unwrap(node);
+        if source.kind() == NodeKind::ArrayAccessExpression {
+            let mut generators: Vec<&SyntaxNode> = Vec::new();
+            let mut scope_error = None;
+            for assumption in scope.assumptions.iter() {
+                if let Assumption::Membership {
+                    file: owner,
+                    declaration,
+                    domain,
+                    ..
+                } = assumption
+                {
+                    let declared = &self.bindings.declarations[declaration.0];
+                    if *owner != file
+                        || declared.file != file
+                        || declared.role != crate::DeclarationRole::Generator
+                        || declared.syntax_range.end > source.range().start
+                    {
+                        scope_error = Some("generator source scope is unavailable".into());
+                        continue;
+                    }
+                    if let Domain::Unsupported(reason) = domain {
+                        scope_error = Some(reason.clone());
+                    }
+                    let Some(generator) = crate::callables::find_node(
+                        self.context.files[file].parsed.tree(),
+                        &declared.syntax_range,
+                        declared.role,
+                    ) else {
+                        scope_error = Some("generator source header is unavailable".into());
+                        continue;
+                    };
+                    if !generators.iter().any(|g| g.range() == generator.range()) {
+                        generators.push(generator);
+                    }
+                }
+            }
+            generators.sort_by_key(|g| g.range().start);
+            if let Some(safety) = crate::callable_definitions::selected_integer_set_source_safety(
+                self.context,
+                self.bindings,
+                (self.calls, self.calls),
+                self.instantiations,
+                self.domains,
+                (file, node, &generators),
+            ) {
+                if let Some(reason) = scope_error {
+                    return Domain::Unsupported(reason);
+                }
+                if let GuardedOutcome::Unsupported(reason) = &evaluated.definedness {
+                    return Domain::Unsupported(reason.clone());
+                }
+                if let Some(subject) = source.child_nodes().next()
+                    && let Some(array) = self.reference(file, unwrap(subject))
+                    && let Some(reason) = self.array_domain_error(array)
+                {
+                    return Domain::Unsupported(reason);
+                }
+                return match safety {
+                    crate::DefinitionSafety::Unsupported(reason) => Domain::Unsupported(reason),
+                    _ => Domain::Unknown,
+                };
+            }
+        }
         let typed_source = (|| {
             if source.kind() != NodeKind::Expression || source.child_nodes().next().is_some() {
                 return None;

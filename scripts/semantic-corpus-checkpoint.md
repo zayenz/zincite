@@ -5076,3 +5076,23 @@ semantic62-is-nested-row-wrapper-preparation/production-v1/release-controls.
 Actual combined main formatting, Clippy with warnings denied and all218 workspace
 tests pass under semantic62-is-nested-row-main-integration. Remaining circuit,
 BIN and Macc support gaps and final complete corpus evidence keep base-083 open.
+
+Selected parameter-set generators now inspect the actual preceding headers,
+array source, selectors and initialized collection sources. Inspected selections
+retain unknown membership and extent. Only value arithmetic inside a checked
+literal-inactive branch can be skipped; source, type, annotation, alias, cycle,
+domain and selector errors remain vetoes. Existing strict entry points retain
+their behavior.
+
+Matched normal opt3 controls remove 25 limitations from original Macc, changing
+47 limitations to 22 while preserving all 117 warnings and completion of all
+fourteen thesis rules. The selected and inactive public reductions each lose
+three limitations without new diagnostics. The inactive reduction retains a
+separate Search division-by-zero limitation, which still requires repair. All
+twelve native/companion captures agree on full 26-rule outcomes, dependencies,
+source bytes and drop records. Three Gecode compile-only proofs were reused; no
+solver ran. Evidence is under
+semantic62-macc-neighbours-release-controls-preparation-v1. Actual main
+formatting, Clippy with warnings denied and all 219 workspace tests pass under
+semantic62-macc-neighbours-main-integration. Remaining support gaps and final
+complete corpus evidence keep base-083 open.

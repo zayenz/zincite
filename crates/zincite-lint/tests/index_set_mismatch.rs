@@ -684,3 +684,127 @@ solve satisfy;
     assert_eq!(std::fs::read_to_string(&root).unwrap(), hazardous);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn selected_parameter_sets_keep_unknown_membership_and_lazy_error_vetoes() {
+    let source = r#"int: width;
+int: height;
+set of int: Columns = 0..width-1;
+set of int: Rows = 0..height-1;
+set of int: Cells = 0..width*height-1;
+array[Columns, Rows] of Cells: cell_id =
+    array2d(Columns, Rows, [y*width+x | x in Columns, y in Rows]);
+array[Cells] of set of Cells: neighbours = array1d(Cells, [
+    (if x > 0 then {cell_id[x-1,y]} else {} endif)
+    union (if x < width-1 then {cell_id[x+1,y]} else {} endif)
+    union (if y > 0 then {cell_id[x,y-1]} else {} endif)
+    union (if y < height-1 then {cell_id[x,y+1]} else {} endif)
+    | y in Rows, x in Columns
+]);
+array[Cells] of var 0..1: load;
+constraint forall(i in Cells)(sum(j in neighbours[i])(load[j]) <= 1);
+solve satisfy;
+"#;
+    let dir = std::env::temp_dir().join(format!("zincite-selected-set-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(dir.join("library/std/stdlib.mzn"), format!("{CORE}{}", concat!(
+        "function int: '*'(int:a,int:b); function int: 'div'(int:a,int:b);\n",
+        "function bool: '>'(int:a,int:b); function var bool: '<='(var int:a,var int:b);\n",
+        "function set of int: 'union'(set of int:a,set of int:b);\n",
+        "function array[$$E] of any $V: array1d(set of $$E:S,array[$U] of any $V:x);\n",
+        "function array[$$E,$$F] of any $V: array2d(set of $$E:S1,set of $$F:S2,array[$U] of any $V:x);\n",
+        "function var int: sum(array[$T] of var int:x);\n",
+    ))).unwrap();
+    let root = dir.join("root.mzn");
+    let options = ModelOptions {
+        include_dirs: vec![],
+        stdlib_dir: Some(dir.join("library")),
+    };
+    let selected = LintOptions::from_selection("index-set-mismatch").unwrap();
+    let inspect = |text: &str| {
+        std::fs::write(&root, text).unwrap();
+        let context = load_model(&root, &options);
+        assert!(context.errors.is_empty(), "{:?}", context.errors);
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let numeric =
+            resolve_numeric_facts(&context, &bindings, &calls, &inst, &domains, &definitions);
+        let guarded = resolve_guarded_facts(&context, &bindings, &calls, &inst, &domains, &numeric);
+        let result = analyze_model(&context, &selected);
+        assert!(result.errors.is_empty(), "{result:?}");
+        assert_eq!(std::fs::read_to_string(&root).unwrap(), text);
+        (context, guarded, result)
+    };
+    let inactive = source.replace("if x > 0 then {cell_id[x-1,y]}", "if false then {1 div 0}");
+    for text in [source, inactive.as_str()] {
+        let (context, guarded, result) = inspect(text);
+        let target = guarded
+            .obligations
+            .iter()
+            .find(|o| {
+                context.files[o.file].path == root
+                    && context.files[o.file].parsed.source()[o.operation.range.clone()].trim()
+                        == "load[j]"
+            })
+            .unwrap();
+        assert_eq!(target.invariant, GuardedOutcome::Unknown);
+        assert_eq!(target.outcome, GuardedOutcome::Unknown);
+        let GuardObligationKind::Index {
+            selection: Some(selection),
+            ..
+        } = &target.kind
+        else {
+            panic!("{target:?}");
+        };
+        assert_eq!(selection.domain, Domain::Unknown);
+        assert!(!selection.exact && selection.array_dimension.is_none());
+        assert!(
+            !result
+                .findings
+                .iter()
+                .any(|f| f.location.range == target.operation.range),
+            "{result:?}"
+        );
+        assert!(
+            !result
+                .limitations
+                .iter()
+                .any(|l| l.location.range == target.operation.range),
+            "{result:?}"
+        );
+    }
+    let overflow = source.replace("neighbours[i]", "neighbours[i+(9223372036854775807 + 1)]");
+    let (_, _, result) = inspect(&overflow);
+    assert!(
+        result
+            .limitations
+            .iter()
+            .any(|l| l.message.contains("integer arithmetic overflow")),
+        "{result:?}"
+    );
+    let active = source.replace("if x > 0 then {cell_id[x-1,y]}", "if true then {1 div 0}");
+    let (context, guarded, result) = inspect(&active);
+    let error = guarded
+        .obligations
+        .iter()
+        .find(|o| {
+            context.files[o.file].path == root
+                && context.files[o.file].parsed.source()[o.operation.range.clone()].trim()
+                    == "1 div 0"
+        })
+        .unwrap();
+    assert_eq!(error.invariant, GuardedOutcome::Refuted);
+    assert_eq!(error.outcome, GuardedOutcome::Refuted);
+    assert_eq!(error.context.activation, GuardActivation::Conditional);
+    assert!(
+        result
+            .limitations
+            .iter()
+            .any(|l| l.message.contains("division by zero")),
+        "{result:?}"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}

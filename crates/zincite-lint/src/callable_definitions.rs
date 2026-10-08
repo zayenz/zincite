@@ -105,6 +105,8 @@ pub fn resolve_callable_definitions(
         }),
         instances: Vec::new(),
         boundaries: Vec::new(),
+        selected_set_source: false,
+        inactive_integer_body: None,
     };
     let mut roots = Vec::new();
     for (file, source) in context.files.iter().enumerate() {
@@ -306,6 +308,8 @@ pub(super) fn direct_expression_safety<'a>(
         lookups: None,
         instances: Vec::new(),
         boundaries: Vec::new(),
+        selected_set_source: false,
+        inactive_integer_body: None,
     }
     .direct_safety(source.0, source.1, calls, generators)
 }
@@ -329,6 +333,8 @@ pub(super) fn initialized_expression_safety<'a>(
         lookups,
         instances: Vec::new(),
         boundaries: Vec::new(),
+        selected_set_source: false,
+        inactive_integer_body: None,
     };
     let safety = producer.initialized_source_safety(file, node, calls, generators, &mut Vec::new());
     // Only newly inspected traversal syntax needs the eager arithmetic veto.
@@ -342,6 +348,110 @@ pub(super) fn initialized_expression_safety<'a>(
         return DefinitionSafety::Unsupported(reason);
     }
     safety
+}
+// Inspect only a scalar set selected from a present rank-one parameter array.
+// This supplies no membership or extent; all initialized sources remain checked.
+pub(super) fn selected_integer_set_source_safety<'a>(
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    callables: (&'a CallableFacts, &'a CallableFacts),
+    instantiations: &'a InstantiationFacts,
+    domains: &'a DomainFacts,
+    source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
+) -> Option<DefinitionSafety> {
+    let (file, written, generators) = source;
+    let (calls, view) = callables;
+    let producer = Producer {
+        context,
+        bindings,
+        calls,
+        instantiations,
+        domains,
+        lookups: None,
+        instances: Vec::new(),
+        boundaries: Vec::new(),
+        selected_set_source: true,
+        inactive_integer_body: None,
+    };
+    let node = unwrap(written);
+    if node.kind() != NodeKind::ArrayAccessExpression {
+        return None;
+    }
+    let children: Vec<_> = node.child_nodes().collect();
+    let [subject, selector] = children.as_slice() else {
+        return None;
+    };
+    let subject = unwrap(subject);
+    if subject.kind() != NodeKind::Expression
+        || !matches!(crate::domains::tokens(&context.files[file].parsed, subject).as_slice(),
+            [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+    {
+        return None;
+    }
+    let id = producer.reference(file, subject)?;
+    let declaration = &bindings.declarations[id.0];
+    let declared = calls.declarations.get(id.0)?;
+    let facts = producer.view(file, node, view);
+    let ty = |node: &SyntaxNode| producer.expression_type(facts, file, node).map(|e| &e.ty);
+    let integer = |ty: &TypeInst| {
+        ty.known()
+            && !optional(ty)
+            && ty.instantiation == Instantiation::Parameter
+            && ty.kind == TypeKind::Int
+    };
+    let integer_set = |ty: &TypeInst| {
+        ty.known()
+            && !optional(ty)
+            && ty.instantiation == Instantiation::Parameter
+            && matches!(&ty.kind, TypeKind::Set(element) if integer(element))
+    };
+    if !declaration.top_level
+        || declaration.role != DeclarationRole::Value
+        || declaration.instantiation != Instantiation::Parameter
+        || declared.declaration != id
+        || ty(subject) != Some(&declared.ty)
+        || ty(selector).is_none_or(|t| !integer(t))
+        || ty(node).is_none_or(|t| !integer_set(t))
+        || !declared.ty.known()
+        || optional(&declared.ty)
+        || declared.ty.instantiation != Instantiation::Parameter
+        || !matches!(&declared.ty.kind, TypeKind::Array { indices, element }
+            if indices.len() == 1 && integer(&indices[0]) && integer_set(element)
+                && ty(node) == Some(element.as_ref()))
+    {
+        return None;
+    }
+    // Actual preceding headers and filters are independent evaluated sources.
+    for generator in generators {
+        for value in generator.child_nodes() {
+            let value = if value.kind() == NodeKind::WhereFilter {
+                let Some(value) = value.child_nodes().next() else {
+                    return Some(DefinitionSafety::Unsupported(
+                        "generator filter is unavailable".into(),
+                    ));
+                };
+                value
+            } else {
+                value
+            };
+            if let unsupported @ DefinitionSafety::Unsupported(_) =
+                producer.initialized_source_safety(file, value, view, generators, &mut Vec::new())
+            {
+                return Some(unsupported);
+            }
+            if let Some(reason) = producer.closed_integer_source_error(file, value, true, true) {
+                return Some(DefinitionSafety::Unsupported(reason));
+            }
+        }
+    }
+    let safety =
+        producer.initialized_source_safety(file, written, view, generators, &mut Vec::new());
+    if !matches!(safety, DefinitionSafety::Unsupported(_))
+        && let Some(reason) = producer.closed_integer_source_error(file, written, true, true)
+    {
+        return Some(DefinitionSafety::Unsupported(reason));
+    }
+    Some(safety)
 }
 // Inspect a typed integer-set source only after all semantic facts exist.
 // Original calls own initialized declarations; the current view owns this source.
@@ -364,6 +474,8 @@ pub(super) fn initialized_integer_set_source_safety<'a>(
         lookups: None,
         instances: Vec::new(),
         boundaries: Vec::new(),
+        selected_set_source: false,
+        inactive_integer_body: None,
     };
     let present_integer = |ty: &TypeInst| {
         ty.known()
@@ -417,6 +529,8 @@ pub(super) fn initialized_parameter_set_extremum_safety<'a>(
         lookups: None,
         instances: Vec::new(),
         boundaries: Vec::new(),
+        selected_set_source: false,
+        inactive_integer_body: None,
     };
     let ty = &producer
         .expression_type(producer.view(file, written, view), file, written)?
@@ -539,6 +653,8 @@ pub(super) fn indexed_expression_safety<'a>(
         lookups: Some(lookups),
         instances: Vec::new(),
         boundaries: Vec::new(),
+        selected_set_source: false,
+        inactive_integer_body: None,
     }
     .direct_safety(source.0, source.1, calls, source.2)
 }
@@ -582,6 +698,8 @@ pub(super) fn set_axis_integer_reshape_source<'a>(
         lookups,
         instances: Vec::new(),
         boundaries: Vec::new(),
+        selected_set_source: false,
+        inactive_integer_body: None,
     }
     .set_axis_integer_reshape_arguments(source.0, source.1, calls)
     .map(|arguments| arguments[2])
@@ -764,6 +882,10 @@ struct Producer<'a> {
     lookups: Option<DirectSafetyLookups<'a>>,
     instances: Vec<Instance<'a>>,
     boundaries: Vec<Boundary>,
+    // Enabled only while a typed selected parameter set source is inspected.
+    selected_set_source: bool,
+    // Only value arithmetic inside a literal-inactive body may be skipped.
+    inactive_integer_body: Option<(FileId, std::ops::Range<usize>)>,
 }
 impl<'a> Producer<'a> {
     fn reciprocal_array_outputs(&self, instance: &Instance<'a>) -> Option<Vec<Output>> {
@@ -9949,12 +10071,41 @@ impl<'a> Producer<'a> {
         follow_collections: bool,
     ) -> Option<String> {
         fn literal_parts(
-            context: &ModelContext,
-            bindings: &BindingFacts,
+            producer: &Producer<'_>,
             file: FileId,
             node: &SyntaxNode,
             eager_only: bool,
         ) -> Result<bool, String> {
+            let context = producer.context;
+            let bindings = producer.bindings;
+            if eager_only
+                && node.kind() == NodeKind::ConditionalExpression
+                && producer.selected_set_source
+            {
+                let branches: Vec<_> = node.child_nodes().collect();
+                if let [then, otherwise] = branches.as_slice() {
+                    let first: Vec<_> = then.child_nodes().collect();
+                    let last: Vec<_> = otherwise.child_nodes().collect();
+                    if then.kind() == NodeKind::ConditionalBranch
+                        && otherwise.kind() == NodeKind::ElseBranch
+                        && let ([guard, body], [fallback]) = (first.as_slice(), last.as_slice())
+                    {
+                        let selected = producer.assertion_literal(file, guard);
+                        literal_parts(producer, file, guard, eager_only)?;
+                        for value in [
+                            (*body, selected != Some(TokenKind::False)),
+                            (*fallback, selected != Some(TokenKind::True)),
+                        ] {
+                            if value.1 && literal_parts(producer, file, value.0, eager_only)? {
+                                crate::domains::invariant_expression_integer(
+                                    context, bindings, file, value.0,
+                                )?;
+                            }
+                        }
+                        return Ok(false);
+                    }
+                }
+            }
             if eager_only
                 && (node.kind() == NodeKind::ConditionalExpression
                     || node.kind() == NodeKind::BinaryExpression
@@ -9968,10 +10119,7 @@ impl<'a> Producer<'a> {
             }
             let mut children = Vec::new();
             for child in node.child_nodes() {
-                children.push((
-                    child,
-                    literal_parts(context, bindings, file, child, eager_only)?,
-                ));
+                children.push((child, literal_parts(producer, file, child, eager_only)?));
             }
             let literal = match node.kind() {
                 NodeKind::Expression => {
@@ -10017,7 +10165,7 @@ impl<'a> Producer<'a> {
         let mut sources = Vec::new();
         let mut pending = vec![(file, node)];
         while let Some((file, root)) = pending.pop() {
-            match literal_parts(self.context, self.bindings, file, root, eager_only) {
+            match literal_parts(self, file, root, eager_only) {
                 Ok(true) => {
                     if let Err(reason) = crate::domains::invariant_expression_integer(
                         self.context,
@@ -10034,6 +10182,22 @@ impl<'a> Producer<'a> {
             let mut nodes = vec![root];
             while let Some(node) = nodes.pop() {
                 nodes.extend(node.child_nodes());
+                if self.selected_set_source && node.kind() == NodeKind::DomainType {
+                    match literal_parts(self, file, node, true) {
+                        Ok(true) => {
+                            if let Err(reason) = crate::domains::invariant_expression_integer(
+                                self.context,
+                                self.bindings,
+                                file,
+                                node,
+                            ) {
+                                return Some(reason);
+                            }
+                        }
+                        Err(reason) => return Some(reason),
+                        Ok(false) => {}
+                    }
+                }
                 if node.kind() == NodeKind::Expression
                     && let Some(id) = self.reference(file, node)
                     && !sources.contains(&id)
@@ -11667,6 +11831,52 @@ impl<'a> Producer<'a> {
                     "conditional inspection requires a safe complete else".into(),
                 );
             }
+            if self.selected_set_source && branches.len() == 2 && values.len() == 3 {
+                let inactive = match self.assertion_literal(file, values[0]) {
+                    Some(TokenKind::False) => Some(1),
+                    Some(TokenKind::True) => Some(2),
+                    _ => None,
+                };
+                let mut unsupported = None;
+                for (position, value) in values.iter().enumerate() {
+                    let checked = if inactive == Some(position) {
+                        let producer = Producer {
+                            context: self.context,
+                            bindings: self.bindings,
+                            calls: self.calls,
+                            instantiations: self.instantiations,
+                            domains: self.domains,
+                            lookups: None,
+                            instances: Vec::new(),
+                            boundaries: Vec::new(),
+                            selected_set_source: true,
+                            inactive_integer_body: Some((file, value.range())),
+                        };
+                        producer.initialized_source_safety(
+                            file,
+                            value,
+                            view,
+                            generators,
+                            &mut Vec::new(),
+                        )
+                    } else {
+                        self.initialized_source_safety(
+                            file,
+                            value,
+                            view,
+                            generators,
+                            &mut Vec::new(),
+                        )
+                    };
+                    if let DefinitionSafety::Unsupported(reason) = checked {
+                        unsupported = Some(reason);
+                    }
+                }
+                return match unsupported {
+                    Some(reason) => DefinitionSafety::Unsupported(reason),
+                    None => DefinitionSafety::Unknown("conditional value is unproved".into()),
+                };
+            }
             return match self.initialized_children_safety(file, &values, view, generators) {
                 unsupported @ DefinitionSafety::Unsupported(_) => unsupported,
                 _ => DefinitionSafety::Unknown("conditional value is unproved".into()),
@@ -12226,6 +12436,24 @@ impl<'a> Producer<'a> {
                             })
                     {
                         return DefinitionSafety::Unsupported(reason);
+                    }
+                    if self
+                        .inactive_integer_body
+                        .as_ref()
+                        .is_some_and(|(f, range)| {
+                            *f == file
+                                && range.start <= node.range().start
+                                && node.range().end <= range.end
+                        })
+                    {
+                        return match self
+                            .initialized_children_safety(file, &children, view, generators)
+                        {
+                            unsupported @ DefinitionSafety::Unsupported(_) => unsupported,
+                            _ => DefinitionSafety::Unknown(
+                                "inactive parameter integer value is unproved".into(),
+                            ),
+                        };
                     }
                     let mut safety = DefinitionSafety::Supported;
                     let mut unsupported = None;
