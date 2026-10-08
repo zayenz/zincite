@@ -4505,3 +4505,18 @@ Formatting, clippy with warnings denied and all 204 workspace tests pass on
 the integrated syntax change; actual-workspace-gates/root-audit.json retains
 the checked source snapshot and complete streams. Final corpus acceptance and
 the remaining save-budget follow-up remain open.
+
+Normal43 opt3 tools include both the filtered-search repair and inline atoms.
+Fresh original `is` native and companion runs agree on all 26 rule partitions:
+96 warnings, zero errors and 127 limitations. Exactly the three traversal
+limitations at original bytes 15821..15850, 16171..16200 and 16509..16538
+disappear relative to normal40; no diagnostic line is added. Search remains
+the only Limited thesis rule. Complete sources, streams, release assets and
+native/companion parity are checked in semantic62-is43-direct-control/
+root-audit.json; the existing original Gecode compile-only precheck is retained.
+
+Both guarded unused-MAX+1 examples still compile with Gecode and retain traversal
+support limitations on normal43. Their selected ranges now cover the initializer
+expressions; no arithmetic-invalid claim is introduced. Full input/compiler/std/
+source/native pins, streams and generated assets are checked in semantic62-is-
+filtered-search-production-preparation/guarded43-root-control/root-audit.json.
