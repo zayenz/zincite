@@ -312,3 +312,277 @@ fn empty_unknown_and_unsupported_domains_have_distinct_outcomes() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn symbolic_union_axes_preserve_closed_minima_and_partial_traversal() {
+    use zincite_lint::{
+        BindingResolution, CallOutcome, DeclarationRole, DefinitionCoverage, DefinitionEnforcement,
+        DefinitionSafety, Instantiation, ReferenceKind, SourceKind, TypeInst, TypeKind,
+        resolve_callables, resolve_definitions, resolve_instantiations,
+    };
+    let source = r#"% Public reduction of a symbolic union used as an array axis and element domain.
+
+% Data
+int: time_horizon;
+int: inner_size;
+
+% Validation
+constraint :: "Positive dimensions"
+    assert(time_horizon >= 1 /\ inner_size >= 1, "Dimensions must be positive");
+
+% Derived domains
+set of int: Time = 0..time_horizon - 1;
+set of int: Inner = 0..inner_size - 1;
+set of int: Dummy = -2..-1;
+set of int: Places = Inner union Dummy;
+
+% Decision variables
+array[Time, Places] of var 0..1: height;
+array[Time, Places] of var Places: next_position;
+
+% Dummy positions have no height and retain their own position.
+constraint :: "Dummy positions stay fixed"
+    forall (t in Time, p in Dummy) (
+        height[t,p] = 0 /\ next_position[t,p] = p
+    );
+
+solve :: seq_search([
+    int_search(next_position, first_fail, indomain_min, complete),
+    int_search(height, first_fail, indomain_min, complete)
+]) satisfy;
+"#;
+    let (directory, _) = model("symbolic-union-axis", source);
+    std::fs::write(
+        directory.join("library/std/stdlib.mzn"),
+        concat!(
+            "function set of $T: 'union'(set of $T: x,set of $T: y);\n",
+            "function set of $$E: '..'($$E: a,$$E: b);\n",
+            "function int: '-'(int: x,int: y); function int: '-'(int: x);\n",
+            "function int: '+'(int: x,int: y); function bool: '>='($T: x,$T: y);\n",
+            "function bool: '/\\'(bool: x,bool: y); function var bool: '/\\'(var bool: x,var bool: y);\n",
+            "function bool: '='($T: x,$T: y); function var bool: '='(any $T: x,any $T: y);\n",
+            "function var bool: forall(array[$T] of var bool: x);\n",
+            "function bool: assert(bool: b,string: msg);\n",
+            "function ann: int_search(array[$X] of var $$E: x,ann: select,ann: choice,ann: explore);\n",
+            "annotation seq_search(array[int] of ann: s);\n",
+            "annotation first_fail; annotation indomain_min; annotation complete;\n",
+        ),
+    )
+    .unwrap();
+    // This data supports the compiler precheck; Zincite loads only the model.
+    std::fs::write(
+        directory.join("instance.dzn"),
+        "time_horizon = 2;\ninner_size = 3;\n",
+    )
+    .unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(directory.join("library")),
+        include_dirs: Vec::new(),
+    };
+    let context = load_model(directory.join("root.mzn"), &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let integer = |ty: &TypeInst| {
+        !ty.optional && ty.instantiation == Instantiation::Parameter && ty.kind == TypeKind::Int
+    };
+    let integer_set = |ty: &TypeInst| {
+        !ty.optional
+            && ty.instantiation == Instantiation::Parameter
+            && matches!(&ty.kind, TypeKind::Set(element) if integer(element))
+    };
+    let union_start = source.find("Inner union Dummy").unwrap();
+    let union = calls
+        .calls
+        .iter()
+        .find(|call| call.file == 0 && call.location.range.start == union_start + "Inner ".len())
+        .unwrap();
+    assert!(
+        matches!(&union.outcome,
+            CallOutcome::Resolved { declaration, parameters, return_type }
+                if bindings.declarations[declaration.0].name == "union"
+                    && context.files[bindings.declarations[declaration.0].file].kind
+                        == SourceKind::StandardLibrary
+                    && context.files[bindings.declarations[declaration.0].file].implicit
+                    && parameters.len() == 2 && parameters.iter().all(integer_set)
+                    && integer_set(return_type)
+        ),
+        "{:?}",
+        union.outcome
+    );
+    for (name, range) in [
+        ("Inner", union_start..union_start + 5),
+        ("Dummy", union_start + 12..union_start + 17),
+    ] {
+        let reference = bindings
+            .references
+            .iter()
+            .find(|reference| {
+                reference.file == 0
+                    && reference.location.range == range
+                    && reference.kind == ReferenceKind::Value
+            })
+            .unwrap();
+        let target = bindings
+            .declarations
+            .iter()
+            .find(|declaration| {
+                declaration.file == 0
+                    && declaration.top_level
+                    && declaration.role == DeclarationRole::Value
+                    && declaration.name == name
+            })
+            .unwrap()
+            .id;
+        assert_eq!(
+            reference.resolution,
+            BindingResolution::Resolved(target),
+            "written union operand: {name} at {range:?}"
+        );
+        let declared = &calls.declarations[target.0];
+        assert_eq!(declared.declaration, target);
+        assert!(
+            integer_set(&declared.ty),
+            "written union operand: {name}: {:?}",
+            declared.ty
+        );
+    }
+    // The generator has its real present Boolean body, not an opaque predicate.
+    let body_start = source.find("height[t,p] = 0").unwrap();
+    let body_end = source.find("next_position[t,p] = p").unwrap() + "next_position[t,p] = p".len();
+    assert!(calls.expressions.iter().any(|expression| {
+        expression.file == 0
+            && expression.location.range == (body_start..body_end)
+            && !expression.ty.optional
+            && expression.ty.kind == TypeKind::Bool
+            && expression.ty.instantiation == Instantiation::Decision
+    }));
+    assert!(
+        calls.calls.iter().all(|call| matches!(
+            call.outcome,
+            CallOutcome::Resolved { .. } | CallOutcome::Intrinsic { .. }
+        )),
+        "{:?}",
+        calls.calls
+    );
+    let rules = LintOptions {
+        rules: vec![
+            Rule::ArrayIndexStart,
+            Rule::UnboundedVariable,
+            Rule::ConstantVariable,
+        ],
+        ..LintOptions::default()
+    };
+    let result = analyze_model(&context, &rules);
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    // First expected RED: the same three consumers limited by the accepted shape.
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    assert_eq!(result.rules.len(), 3);
+    assert!(
+        result
+            .rules
+            .iter()
+            .all(|rule| rule.outcome == RuleOutcome::Completed)
+    );
+    let places_axes: Vec<_> = source
+        .match_indices("array[Time, Places]")
+        .map(|(start, _)| {
+            let start = start + "array[Time, ".len();
+            start..start + "Places".len()
+        })
+        .collect();
+    assert_eq!(result.findings.len(), 2, "{:?}", result.findings);
+    assert_eq!(
+        result
+            .findings
+            .iter()
+            .map(|finding| finding.location.range.clone())
+            .collect::<Vec<_>>(),
+        places_axes
+    );
+    assert!(
+        result
+            .findings
+            .iter()
+            .all(|finding| finding.rule == Rule::ArrayIndexStart
+                && finding.location.path == directory.join("root.mzn")
+                && finding.message.contains("starts at -2"))
+    );
+    let domains = resolve_domains(&context, &bindings);
+    let time = bindings
+        .declarations
+        .iter()
+        .find(|d| d.top_level && d.name == "Time")
+        .unwrap();
+    assert_eq!(
+        domains.declarations[time.id.0].domain.numeric_minimum(),
+        Ok(None)
+    );
+    let positions = bindings
+        .declarations
+        .iter()
+        .find(|d| d.top_level && d.name == "next_position")
+        .unwrap();
+    let places = bindings
+        .declarations
+        .iter()
+        .find(|d| d.top_level && d.name == "Places")
+        .unwrap();
+    assert!(matches!(&domains.declarations[positions.id.0].domain,
+        Domain::Array { element, .. } if matches!(element.as_ref(),
+            Domain::Named { declaration, .. } if *declaration == places.id)));
+    let instantiations = resolve_instantiations(&context, &bindings, &calls);
+    let definitions = resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+    for name in ["height", "next_position"] {
+        let target = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == name)
+            .unwrap()
+            .id;
+        assert!(
+            !definitions.definitions.iter().any(|definition| {
+                definition.target == target
+                    && definition.enforcement == DefinitionEnforcement::Enforced
+                    && definition.coverage == DefinitionCoverage::WholeArray
+                    && definition.safety == DefinitionSafety::Supported
+            }),
+            "Dummy traversal cannot certify all Places: {name}"
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(directory.join("root.mzn")).unwrap(),
+        source
+    );
+
+    // A symbolic sibling must not hide a closed overflow in the union source.
+    let hazardous = source.replace(
+        "set of int: Dummy = -2..-1;",
+        "set of int: Dummy = -2..(9223372036854775807 + 1);",
+    );
+    assert_ne!(hazardous, source);
+    std::fs::write(directory.join("root.mzn"), &hazardous).unwrap();
+    let context = load_model(directory.join("root.mzn"), &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let result = analyze_model(&context, &rules);
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(
+        result
+            .rules
+            .iter()
+            .any(|rule| rule.rule == Rule::ArrayIndexStart
+                && matches!(rule.outcome, RuleOutcome::Limited { .. })),
+        "{:?}",
+        result.rules
+    );
+    assert!(
+        result.limitations.iter().any(|limit| {
+            limit.location.path == directory.join("root.mzn")
+                && &hazardous[limit.location.range.clone()] == "Places"
+                && limit.message.starts_with("array-index-start:")
+        }),
+        "{:?}",
+        result.limitations
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}

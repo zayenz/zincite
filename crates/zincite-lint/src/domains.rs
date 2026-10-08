@@ -36,6 +36,11 @@ pub enum Domain {
         upper: NumericBound,
     },
     LiteralSet(Vec<NumericBound>),
+    /// Checked parameter integer-set union; operands retain source identity.
+    Union {
+        left: Box<Domain>,
+        right: Box<Domain>,
+    },
     Named {
         declaration: DeclarationId,
         domain: Box<Domain>,
@@ -234,7 +239,7 @@ struct Walker<'a> {
     calls: Option<&'a crate::CallableFacts>,
     active: Vec<DeclarationId>,
 }
-impl Walker<'_> {
+impl<'a> Walker<'a> {
     fn inspect(
         &mut self,
         file: FileId,
@@ -430,8 +435,295 @@ impl Walker<'_> {
                     Domain::Unsupported("unresolved or non-domain index expression".into())
                 }
             }
+            BinaryExpression
+                if tokens(&self.context.files[file].parsed, node)
+                    .iter()
+                    .any(|token| token.kind == TokenKind::Union) =>
+            {
+                self.union_set(file, node)
+                    .and_then(|domain| {
+                        union_minimum(&domain).map_err(str::to_owned)?;
+                        Ok(domain)
+                    })
+                    .unwrap_or_else(Domain::Unsupported)
+            }
             _ => Domain::Unsupported("domain form is outside bounded integer/set analysis".into()),
         }
+    }
+    fn union_expression_type(&self, file: FileId, node: &SyntaxNode, set: bool) -> bool {
+        let range = self.context.files[file].location(node.range()).range;
+        self.calls
+            .and_then(|calls| {
+                calls.expressions.iter().find(|expression| {
+                    expression.file == file && expression.location.range == range
+                })
+            })
+            .is_some_and(|expression| union_parameter_type(&expression.ty, set))
+    }
+    fn union_operation(
+        &self,
+        file: FileId,
+        node: &SyntaxNode,
+        name: &str,
+        set_arguments: bool,
+        set_result: bool,
+    ) -> bool {
+        let Some(calls) = self.calls else {
+            return false;
+        };
+        let Some(fact) = crate::callables::operation_fact(self.context, calls, file, node) else {
+            return false;
+        };
+        if crate::callables::core_operation_outcome(
+            self.context,
+            self.bindings,
+            Some(&fact.outcome),
+            node.kind(),
+            name,
+        ) != Ok(true)
+        {
+            return false;
+        }
+        let arity = node.child_nodes().count();
+        match &fact.outcome {
+            crate::CallOutcome::Resolved {
+                parameters,
+                return_type,
+                ..
+            } => {
+                parameters.len() == arity
+                    && parameters
+                        .iter()
+                        .all(|ty| union_parameter_type(ty, set_arguments))
+                    && union_parameter_type(return_type, set_result)
+            }
+            crate::CallOutcome::Intrinsic { name, return_type } => {
+                name == "unary+"
+                    && node.kind() == NodeKind::UnaryExpression
+                    && arity == 1
+                    && !set_arguments
+                    && !set_result
+                    && union_parameter_type(return_type, false)
+            }
+            _ => false,
+        }
+    }
+    fn union_declaration(&self, id: DeclarationId, set: bool) -> Result<&'a SyntaxNode, String> {
+        let declaration = &self.bindings.declarations[id.0];
+        if self.active.contains(&id) {
+            return Err("cyclic union source declaration".into());
+        }
+        if !declaration.top_level
+            || declaration.role != DeclarationRole::Value
+            || declaration.instantiation != crate::Instantiation::Parameter
+            || !self.calls.is_some_and(|calls| {
+                calls.declarations.get(id.0).is_some_and(|fact| {
+                    fact.declaration == id && union_parameter_type(&fact.ty, set)
+                })
+            })
+        {
+            return Err("union source requires a present parameter integer declaration".into());
+        }
+        let node = crate::callables::find_node(
+            self.context.files[declaration.file].parsed.tree(),
+            &declaration.syntax_range,
+            declaration.role,
+        )
+        .ok_or("union source declaration is unavailable")?;
+        if !crate::definitions::annotations_safe(self.context, declaration.file, node) {
+            return Err("union source declaration annotations are unsupported".into());
+        }
+        Ok(node)
+    }
+    fn union_written_type(&mut self, file: FileId, node: &SyntaxNode) -> Result<(), String> {
+        if !crate::definitions::annotations_safe(self.context, file, node) {
+            return Err("union source type annotations are unsupported".into());
+        }
+        let children: Vec<_> = node
+            .child_nodes()
+            .filter(|child| child.kind() != NodeKind::Annotation)
+            .collect();
+        match node.kind() {
+            NodeKind::ScalarType
+                if children.is_empty()
+                    && tokens(&self.context.files[file].parsed, node)
+                        .iter()
+                        .any(|token| token.kind == TokenKind::Int) =>
+            {
+                Ok(())
+            }
+            NodeKind::SetType if children.len() == 1 => self.union_written_type(file, children[0]),
+            NodeKind::DomainType if children.len() == 1 => {
+                self.union_set(file, children[0]).map(|_| ())
+            }
+            _ => Err("union source written type is unsupported".into()),
+        }
+    }
+    // Only this checked union path follows complete typed parameter sources.
+    // The raw domain resolver and its existing range behavior stay independent.
+    fn union_set(&mut self, file: FileId, node: &SyntaxNode) -> Result<Domain, String> {
+        if !self.union_expression_type(file, node, true)
+            || !crate::definitions::annotations_safe(self.context, file, node)
+        {
+            return Err("union operand type or annotations are unsupported".into());
+        }
+        let children: Vec<_> = node
+            .child_nodes()
+            .filter(|child| child.kind() != NodeKind::Annotation)
+            .collect();
+        let domain = match node.kind() {
+            NodeKind::ParenthesizedExpression if children.len() == 1 => {
+                self.union_set(file, children[0])?
+            }
+            NodeKind::RangeExpression
+                if children.len() == 2
+                    && tokens(&self.context.files[file].parsed, node)
+                        .iter()
+                        .any(|token| token.kind == TokenKind::RangeInclusive)
+                    && self.union_operation(file, node, "..", false, true) =>
+            {
+                self.union_integer_source(file, children[0])?;
+                self.union_integer_source(file, children[1])?;
+                Domain::Range {
+                    lower: self.bound(file, children[0]),
+                    upper: self.bound(file, children[1]),
+                }
+            }
+            NodeKind::SetLiteral => {
+                for child in &children {
+                    self.union_integer_source(file, child)?;
+                }
+                Domain::LiteralSet(
+                    children
+                        .iter()
+                        .map(|child| self.bound(file, child))
+                        .collect(),
+                )
+            }
+            NodeKind::BinaryExpression
+                if children.len() == 2 && self.union_operation(file, node, "union", true, true) =>
+            {
+                let left = self.union_set(file, children[0])?;
+                let right = self.union_set(file, children[1])?;
+                Domain::Union {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }
+            }
+            NodeKind::Expression if children.is_empty() => {
+                let direct = tokens(&self.context.files[file].parsed, node);
+                if direct.len() != 1
+                    || !matches!(
+                        direct[0].kind,
+                        TokenKind::Identifier | TokenKind::QuotedIdentifier
+                    )
+                {
+                    return Err("union source is not a bare parameter set".into());
+                }
+                let id = self
+                    .reference(file, node)
+                    .ok_or("union source reference is unresolved")?;
+                let declaration = self.union_declaration(id, true)?;
+                let source_file = self.bindings.declarations[id.0].file;
+                self.active.push(id);
+                let result = (|| {
+                    let written = declaration
+                        .child_nodes()
+                        .next()
+                        .ok_or("union source type is unavailable")?;
+                    self.union_written_type(source_file, written)?;
+                    declaration
+                        .child_nodes()
+                        .find(|child| crate::callables::is_expression(child.kind()))
+                        .map_or(Ok(Domain::Unknown), |value| {
+                            self.union_set(source_file, value)
+                        })
+                })();
+                self.active.pop();
+                Domain::Named {
+                    declaration: id,
+                    domain: Box::new(result?),
+                }
+            }
+            _ => return Err("union source form is unsupported".into()),
+        };
+        Ok(domain)
+    }
+    fn union_integer_source(&mut self, file: FileId, node: &SyntaxNode) -> Result<(), String> {
+        if !self.union_expression_type(file, node, false)
+            || !crate::definitions::annotations_safe(self.context, file, node)
+        {
+            return Err("union bound type or annotations are unsupported".into());
+        }
+        let children: Vec<_> = node
+            .child_nodes()
+            .filter(|child| child.kind() != NodeKind::Annotation)
+            .collect();
+        match node.kind() {
+            NodeKind::ParenthesizedExpression if children.len() == 1 => {
+                self.union_integer_source(file, children[0])?
+            }
+            NodeKind::Expression if children.is_empty() => {
+                let direct = tokens(&self.context.files[file].parsed, node);
+                if direct.len() != 1 {
+                    return Err("union bound form is unsupported".into());
+                }
+                match direct[0].kind {
+                    TokenKind::IntegerLiteral => {}
+                    TokenKind::Identifier | TokenKind::QuotedIdentifier => {
+                        let id = self
+                            .reference(file, node)
+                            .ok_or("union bound reference is unresolved")?;
+                        let declaration = self.union_declaration(id, false)?;
+                        let source_file = self.bindings.declarations[id.0].file;
+                        self.active.push(id);
+                        let result = (|| {
+                            let written = declaration
+                                .child_nodes()
+                                .next()
+                                .ok_or("union bound type is unavailable")?;
+                            self.union_written_type(source_file, written)?;
+                            if let Some(value) = declaration
+                                .child_nodes()
+                                .find(|child| crate::callables::is_expression(child.kind()))
+                            {
+                                self.union_integer_source(source_file, value)?;
+                            }
+                            Ok::<_, String>(())
+                        })();
+                        self.active.pop();
+                        result?;
+                    }
+                    _ => return Err("union bound form is unsupported".into()),
+                }
+            }
+            NodeKind::UnaryExpression | NodeKind::BinaryExpression => {
+                let direct = tokens(&self.context.files[file].parsed, node);
+                let name = direct
+                    .first()
+                    .and_then(|token| crate::bindings::symbolic_operator(token.kind));
+                let Some(name @ ("+" | "-" | "*" | "div" | "mod")) = name else {
+                    return Err("union bound operation is unsupported".into());
+                };
+                let arity = if node.kind() == NodeKind::UnaryExpression {
+                    1
+                } else {
+                    2
+                };
+                if children.len() != arity || !self.union_operation(file, node, name, false, false)
+                {
+                    return Err("union bound operation identity or signature is unsupported".into());
+                }
+                for child in children {
+                    self.union_integer_source(file, child)?;
+                }
+            }
+            _ => return Err("union bound form is unsupported".into()),
+        }
+        // Visit every source child before ordinary symbolic uncertainty can
+        // hide an independently closed overflow or zero divisor.
+        integer(&self.bound(file, node)).map_err(str::to_owned)?;
+        Ok(())
     }
     fn parameter_bound(&mut self, id: DeclarationId) -> NumericBound {
         let declaration = &self.bindings.declarations[id.0];
@@ -707,6 +999,17 @@ fn adjust(bound: NumericBound, delta: i64) -> NumericBound {
     }
 }
 
+fn union_parameter_type(ty: &crate::TypeInst, set: bool) -> bool {
+    ty.known()
+        && !crate::value_safety::optional(ty)
+        && ty.instantiation == crate::Instantiation::Parameter
+        && if set {
+            matches!(&ty.kind, crate::TypeKind::Set(element) if union_parameter_type(element, false))
+        } else {
+            ty.kind == crate::TypeKind::Int
+        }
+}
+
 impl Domain {
     /// Whether a numeric value or array element has no explicit written domain.
     /// Named aliases are followed; unsupported/unknown domain interpretation
@@ -716,6 +1019,7 @@ impl Domain {
             Self::UnconstrainedInt | Self::UnconstrainedFloat => Ok(true),
             Self::Named { domain, .. } => domain.has_unbounded_numeric_elements(),
             Self::Array { element, .. } => element.has_unbounded_numeric_elements(),
+            Self::Union { .. } => union_minimum(self).map(|_| false),
             Self::Unknown => Err("declared domain is unknown"),
             Self::Unsupported(reason) => Err(reason),
             _ => Ok(false),
@@ -726,6 +1030,7 @@ impl Domain {
     pub fn has_explicit_numeric_domain(&self) -> bool {
         match self {
             Self::Range { .. } | Self::LiteralSet(_) => true,
+            Self::Union { .. } => union_minimum(self).is_ok(),
             Self::Named { domain, .. } => domain.has_explicit_numeric_domain(),
             Self::Array { element, .. } => element.has_explicit_numeric_domain(),
             _ => false,
@@ -751,7 +1056,8 @@ impl Domain {
         }
     }
 
-    /// Actual least integer element when closed bounds prove nonemptiness.
+    /// Actual least integer element when closed bounds prove nonemptiness,
+    /// including a checked union whose symbolic operand cannot lower its minimum.
     /// None covers empty sets, enums, open/unbounded values and symbolic uncertainty;
     /// Err identifies an unsupported interpretation rather than guessing.
     pub fn numeric_minimum(&self) -> Result<Option<i64>, &str> {
@@ -803,6 +1109,7 @@ fn integer(bound: &NumericBound) -> Result<Option<i64>, &str> {
 fn minimum(domain: &Domain) -> Result<Option<i64>, &str> {
     match domain {
         Domain::Named { domain, .. } => minimum(domain),
+        Domain::Union { .. } => union_minimum(domain).map(|proof| proof.minimum),
         Domain::Range { lower, upper } => {
             let lower = integer(lower)?;
             let upper = integer(upper)?;
@@ -821,6 +1128,109 @@ fn minimum(domain: &Domain) -> Result<Option<i64>, &str> {
         }
         Domain::Unsupported(reason) => Err(reason),
         _ => Ok(None),
+    }
+}
+
+// A floor is conditional on nonemptiness; it is not necessarily attained.
+// Keep it separate from an actual minimum so an uncertain empty operand cannot
+// establish a union's least element on its own.
+struct UnionMinimum {
+    minimum: Option<i64>,
+    floor: Option<i64>,
+    empty: bool,
+}
+fn union_bound_value(bound: &NumericBound) -> Result<Option<i64>, &str> {
+    fn symbolic(bound: &NumericBound) -> bool {
+        match bound {
+            NumericBound::Defined { .. } | NumericBound::Symbol(_) | NumericBound::Unknown => true,
+            NumericBound::Arithmetic { operands, .. } => operands.iter().any(symbolic),
+            _ => false,
+        }
+    }
+    // Unlike the invariant query, this visits every retained operand for errors.
+    let value = integer(bound)?;
+    Ok(if symbolic(bound) { None } else { value })
+}
+fn union_minimum(domain: &Domain) -> Result<UnionMinimum, &str> {
+    match domain {
+        Domain::Named { domain, .. } => union_minimum(domain),
+        Domain::Range { lower, upper } => {
+            let lower = union_bound_value(lower)?;
+            let upper = union_bound_value(upper)?;
+            let minimum = match (lower, upper) {
+                (Some(lower), Some(upper)) if lower <= upper => Some(lower),
+                _ => None,
+            };
+            Ok(UnionMinimum {
+                minimum,
+                floor: lower,
+                empty: matches!((lower, upper), (Some(lower), Some(upper)) if lower > upper),
+            })
+        }
+        Domain::LiteralSet(values) => {
+            let mut minimum: Option<i64> = None;
+            let mut known = true;
+            for value in values {
+                if let Some(value) = union_bound_value(value)? {
+                    minimum = Some(minimum.map_or(value, |previous| previous.min(value)));
+                } else {
+                    known = false;
+                }
+            }
+            let minimum = known.then_some(minimum).flatten();
+            Ok(UnionMinimum {
+                minimum,
+                floor: minimum,
+                empty: values.is_empty(),
+            })
+        }
+        Domain::Union { left, right } => {
+            let left = union_minimum(left)?;
+            let right = union_minimum(right)?;
+            let minimum = match (left.minimum, right.minimum) {
+                (Some(left), Some(right)) => Some(left.min(right)),
+                (Some(minimum), None)
+                    if right.empty || right.floor.is_some_and(|floor| floor >= minimum) =>
+                {
+                    Some(minimum)
+                }
+                (None, Some(minimum))
+                    if left.empty || left.floor.is_some_and(|floor| floor >= minimum) =>
+                {
+                    Some(minimum)
+                }
+                _ => None,
+            };
+            let floor = if left.empty {
+                right.floor
+            } else if right.empty {
+                left.floor
+            } else {
+                left.floor
+                    .zip(right.floor)
+                    .map(|(left, right)| left.min(right))
+            };
+            Ok(UnionMinimum {
+                minimum,
+                floor,
+                empty: left.empty && right.empty,
+            })
+        }
+        Domain::Unknown => Ok(UnionMinimum {
+            minimum: None,
+            floor: None,
+            empty: false,
+        }),
+        Domain::Unsupported(reason) => Err(reason),
+        _ => Err("union operand is outside integer-set domains"),
+    }
+}
+fn union_error(domain: &Domain) -> Result<(), &str> {
+    match domain {
+        Domain::Named { domain, .. } => union_error(domain),
+        Domain::Union { .. } => union_minimum(domain).map(|_| ()),
+        Domain::Unsupported(reason) => Err(reason),
+        _ => Ok(()),
     }
 }
 
@@ -848,6 +1258,7 @@ pub(super) fn same_members(left: &Domain, right: &Domain) -> Result<Option<bool>
         match domain {
             Domain::Unsupported(reason) => Err(reason.clone()),
             Domain::Named { domain, .. } => failure(domain),
+            Domain::Union { .. } => union_minimum(domain).map(|_| ()).map_err(str::to_owned),
             Domain::Range { lower, upper } => {
                 invariant_integer(lower)?;
                 invariant_integer(upper)?;
@@ -2276,6 +2687,9 @@ impl<'a> Bounds<'a> {
                 declaration,
                 domain,
             } => {
+                if let Err(reason) = union_error(domain) {
+                    return Unsupported(reason.into());
+                }
                 let ty = &self.calls.declarations[declaration.0].ty;
                 if ty.instantiation == crate::Instantiation::Parameter
                     && matches!(ty.kind, crate::TypeKind::Set(_))
@@ -2310,6 +2724,10 @@ impl<'a> Bounds<'a> {
                     Ok(None) => Unknown("numeric domain members depend on parameters".into()),
                 }
             }
+            Domain::Union { .. } => match union_minimum(domain) {
+                Err(reason) => Unsupported(reason.into()),
+                Ok(_) => Unknown("integer-set union has no proved numeric interval".into()),
+            },
             Domain::Unsupported(r) => Unsupported(r.clone()),
             _ => Unknown("no invariant closed integer domain is available".into()),
         }

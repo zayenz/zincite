@@ -809,7 +809,28 @@ pub(super) fn complete_array_coverage(
         }) {
             return DefinitionCoverage::ArrayElement;
         }
-        let domain = expression_domain(context, bindings_facts, file, source);
+        let tokens = significant_tokens(context, file, source);
+        let domain = if source.kind() == NodeKind::Expression
+            && source.child_nodes().next().is_none()
+            && tokens.len() == 1
+            && matches!(
+                tokens[0].kind,
+                TokenKind::Identifier | TokenKind::QuotedIdentifier
+            ) {
+            reference(source).and_then(|id| {
+                domains
+                    .declarations
+                    .get(id.0)
+                    .filter(|domain| domain.declaration == id)
+                    .map(|domain| Domain::Named {
+                        declaration: id,
+                        domain: Box::new(domain.domain.clone()),
+                    })
+            })
+        } else {
+            None
+        }
+        .unwrap_or_else(|| expression_domain(context, bindings_facts, file, source));
         for declaration in bindings_facts.declarations.iter().filter(|d| {
             d.file == file
                 && d.role == DeclarationRole::Generator

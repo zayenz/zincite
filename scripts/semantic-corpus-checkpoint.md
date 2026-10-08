@@ -3967,3 +3967,21 @@ Main formatting,Clippy and all195 workspace tests/42 summaries pass,with full
 streams/current107 sources/helpers and three empty reaped groups checked in
 actual-workspace-gates/root-audit.json. Formatter/lint/loader/raw-fix callers,
 the five original byte-input controls and final corpus acceptance remain open.
+
+The reviewed typed integer-set union increment is integrated through the existing
+domain and array-coverage modules. It checks selected core operations,original
+parameter identities/written sources and annotations,visits retained arithmetic
+errors,and distinguishes conditional floors from attained minima. Symbolic
+0..n-1 union -2..-1 retains the provable -2 minimum without gaining membership,
+interval,nonemptiness or output certificates. Named retained source failures stay
+Limited rather than disappearing behind a parameter-set Unknown shortcut.
+The unchanged RED2 public regression now passes,including two -2 axis findings,
+three Completed consumers,no whole-array certificate from the Dummy-only
+traversal,and the closed overflow veto. Full106 scratch/helper/stream/group
+checks are retained in semantic62-macc-current-gap-preparation/focused-green/
+root-audit.json. Main formatting,Clippy and all196 workspace tests/42 summaries
+pass; current107 sources/helpers,full streams and three empty reaped groups are
+checked in that preparation directory's actual-workspace-gates/root-audit.json.
+Original macc outcomes require a fresh release/control; other semantic gaps,
+opaque-comment caller integration and final complete corpus acceptance remain
+open. This is an incremental commit,not task completion.
