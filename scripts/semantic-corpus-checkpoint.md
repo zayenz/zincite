@@ -3924,3 +3924,22 @@ brief restriction. The brief now requires exact opaque comment-byte preservation
 original byte coordinates and truthful library source access,while retaining
 UTF-8 code/literals and rejection elsewhere. This is a required contract update;
 the byte-input adapter is not yet implemented or accepted.
+
+Current33 native/companion independently reproduce all five compiler-positive
+crossword input failures: status2,five errors,five input_error roots,zero loaded
+files. Full diagnostic/status parity,current originals/std/compiler/main106/
+assets/helpers,all26/five-root/drop accounting and both empty reaped groups are
+checked in semantic62-crosswords33-input-baseline/root-audit.json. No input is
+excluded because its bytes occur in comments. The first syntax-only additive
+byte parser is assigned separately; formatter/lint/raw-fix integration remains.
+
+Macc tests-only RED1 passes the selected union tuple but fails a written-operand
+fact lookup before reaching the consumers. The assertion used a token range
+against expression-node ranges. V2 checks the exact binding token and original
+declaration's type instead; no fallback or source/type weakening is added.
+RED2 passes the selected tuple,original operand identities/types and real Boolean
+generator body,then reproduces exactly the same five public domain limitations.
+Full streams/current106 scratch/helpers and empty reaped group are checked in
+focused-red2/root-audit.json. The reviewed shared Union producer increment is
+assigned in that scratch root; its source/partiality/minimum and coverage gates
+remain subject to root review and validation before integration.
