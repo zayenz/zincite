@@ -5170,3 +5170,26 @@ semantic62-circuit-optional-formal-release-controls-preparation-v1. Final corpus
 reconciliation and the remaining conversion support keep base-083 open.
 Actual main formatting, Clippy with warnings denied and all 221 workspace tests
 pass under semantic62-circuit-optional-main-integration.
+
+Explicit present parameter integer-set conversions now inspect their original
+argument dependencies through the existing traversal. The checked core tuple
+provides no converted values, cardinality, extent or output guarantee. The public
+regression keeps symbolic sets and a guarded local set inspectable while retaining
+the explicit division-by-zero refusal and existing negative guard cases. Transient
+type/CST preflight checks remain in private evidence rather than permanent tests.
+
+Matched normal opt3 controls complete Search in the written circuit, installed
+circuit and guarded conversion reductions. The installed circuit and guarded
+conversion complete all fourteen thesis rules. Original IS removes both circuit
+value-call limitations but retains one separate Search membership limitation at
+its table constraint. Warnings remain seven, one and 97 in written, installed and
+IS controls; limitations change from twelve to ten, three to one and 111 to 109.
+The guarded conversion changes from two warnings/three limitations to three/two,
+adding the legitimate uncovered `xs` warning. Native and companion agree on full
+26-rule outcomes, dependencies and drop records. Six retained Gecode compile-only
+proofs were reused; no solver ran. Evidence is under
+semantic62-set2array-release-controls-preparation-v1. Its native V2 source differs
+from final main only in the simplified permanent test; production bytes match.
+Actual main formatting, Clippy with warnings denied and all 221 workspace tests
+pass under semantic62-set2array-main-integration. The written circuit's symbolic
+index-domain limitation, IS membership and final corpus checks keep base-083 open.

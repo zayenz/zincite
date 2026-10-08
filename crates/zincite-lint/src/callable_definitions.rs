@@ -11291,8 +11291,8 @@ impl<'a> Producer<'a> {
         ))
     }
     // Inspect disjoint closed arithmetic fragments and initialized integer
-    // sources. Only new union inspection follows collections as well. Existing
-    // evaluation supplies an error veto, never a value fact.
+    // sources. Collection inspection follows initialized sets and arrays as well.
+    // Existing evaluation supplies an error veto, never a value fact.
     fn closed_integer_source_error(
         &self,
         file: FileId,
@@ -14834,6 +14834,48 @@ impl<'a> Producer<'a> {
                         );
                     }
                     return self.child_dependencies(file, &children, view, generators);
+                }
+                if self.core(file, node, view, "set2array") {
+                    let argument = children
+                        .first()
+                        .filter(|n| n.kind() != NodeKind::NamedArgument)
+                        .and_then(|n| self.expression_type(facts, file, n));
+                    if children.len() != 1
+                        || argument.is_none_or(|e| {
+                            !e.ty.known()
+                                || optional(&e.ty)
+                                || e.ty.instantiation != Instantiation::Parameter
+                                || !matches!(&e.ty.kind, TypeKind::Set(element)
+                                    if element.known() && !optional(element)
+                                        && element.instantiation == Instantiation::Parameter
+                                        && element.kind == TypeKind::Int)
+                        })
+                        || ty.is_none_or(|t| !parameter_integers(t))
+                        || !self.operation_fact(facts, file, node).is_some_and(|call| {
+                            matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                                if parameters.len() == 1
+                                    && argument.is_some_and(|e| parameters[0] == e.ty)
+                                    && ty == Some(return_type))
+                        })
+                    {
+                        return Err("set2array requires an exact present parameter integer-set conversion".into());
+                    }
+                    if let DefinitionSafety::Unsupported(reason) = self.initialized_source_safety(
+                        file,
+                        children[0],
+                        view,
+                        generators,
+                        &mut Vec::new(),
+                    ) {
+                        return Err(reason);
+                    }
+                    if let Some(reason) =
+                        self.closed_integer_source_error(file, children[0], true, true)
+                    {
+                        return Err(reason);
+                    }
+                    // Inspect the written source without inventing converted values or extent.
+                    return self.dependencies(file, children[0], view, generators);
                 }
                 if ["absent", "occurs"].iter().any(|name| {
                     crate::optional::core_optional_call(
