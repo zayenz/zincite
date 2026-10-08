@@ -316,10 +316,11 @@ pub(super) fn initialized_expression_safety<'a>(
     calls: &'a CallableFacts,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
-    source: (FileId, &'a SyntaxNode),
+    source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode], bool),
     lookups: Option<DirectSafetyLookups<'a>>,
 ) -> DefinitionSafety {
-    Producer {
+    let (file, node, generators, check_eager_integer) = source;
+    let producer = Producer {
         context,
         bindings,
         calls,
@@ -328,8 +329,19 @@ pub(super) fn initialized_expression_safety<'a>(
         lookups,
         instances: Vec::new(),
         boundaries: Vec::new(),
+    };
+    let safety = producer.initialized_source_safety(file, node, calls, generators, &mut Vec::new());
+    // Only newly inspected traversal syntax needs the eager arithmetic veto.
+    // Preserve legacy raw safety; lazy sources supply no new admission.
+    if check_eager_integer
+        && !matches!(safety, DefinitionSafety::Unsupported(_))
+        && crate::expression_safety(context, bindings, calls, file, node)
+            != DefinitionSafety::Supported
+        && let Some(reason) = producer.closed_integer_source_error(file, node, true)
+    {
+        return DefinitionSafety::Unsupported(reason);
     }
-    .initialized_source_safety(source.0, source.1, calls, &[], &mut Vec::new())
+    safety
 }
 // Recognize the written collection and exact selected standard length signature.
 // A set-to-array matching view establishes no evaluation or cardinality fact.
@@ -6581,7 +6593,7 @@ impl<'a> Producer<'a> {
                             unsupported = Some("anonymous enum count type is unsupported".into());
                         }
                         if let Some(reason) =
-                            self.closed_integer_source_error(declaration.file, count)
+                            self.closed_integer_source_error(declaration.file, count, false)
                         {
                             unsupported = Some(reason);
                         }
@@ -7775,16 +7787,36 @@ impl<'a> Producer<'a> {
     }
     // Inspect disjoint closed arithmetic fragments and initialized integer
     // sources. Existing evaluation supplies only an error veto, never a value fact.
-    fn closed_integer_source_error(&self, file: FileId, node: &'a SyntaxNode) -> Option<String> {
+    fn closed_integer_source_error(
+        &self,
+        file: FileId,
+        node: &'a SyntaxNode,
+        eager_only: bool,
+    ) -> Option<String> {
         fn literal_parts(
             context: &ModelContext,
             bindings: &BindingFacts,
             file: FileId,
             node: &SyntaxNode,
+            eager_only: bool,
         ) -> Result<bool, String> {
+            if eager_only
+                && (node.kind() == NodeKind::ConditionalExpression
+                    || node.kind() == NodeKind::BinaryExpression
+                        && matches!(
+                            operator(context, file, node)
+                                .and_then(crate::bindings::symbolic_operator),
+                            Some("/\\" | "\\/" | "<->" | "->" | "<-" | "default")
+                        ))
+            {
+                return Err("lazy initialized arithmetic inspection is unavailable".into());
+            }
             let mut children = Vec::new();
             for child in node.child_nodes() {
-                children.push((child, literal_parts(context, bindings, file, child)?));
+                children.push((
+                    child,
+                    literal_parts(context, bindings, file, child, eager_only)?,
+                ));
             }
             let literal = match node.kind() {
                 NodeKind::Expression => {
@@ -7830,7 +7862,7 @@ impl<'a> Producer<'a> {
         let mut sources = Vec::new();
         let mut pending = vec![(file, node)];
         while let Some((file, root)) = pending.pop() {
-            match literal_parts(self.context, self.bindings, file, root) {
+            match literal_parts(self.context, self.bindings, file, root, eager_only) {
                 Ok(true) => {
                     if let Err(reason) = crate::domains::invariant_expression_integer(
                         self.context,
@@ -7967,7 +7999,7 @@ impl<'a> Producer<'a> {
             {
                 return Err(reason);
             }
-            if let Some(reason) = self.closed_integer_source_error(file, value) {
+            if let Some(reason) = self.closed_integer_source_error(file, value, false) {
                 return Err(reason);
             }
             let ordinal = crate::domains::invariant_expression_integer(
@@ -8553,7 +8585,9 @@ impl<'a> Producer<'a> {
                         );
                     }
                     for selector in &children[1..] {
-                        if let Some(reason) = self.closed_integer_source_error(file, selector) {
+                        if let Some(reason) =
+                            self.closed_integer_source_error(file, selector, false)
+                        {
                             return DefinitionSafety::Unsupported(reason);
                         }
                     }
@@ -10492,7 +10526,7 @@ impl<'a> Producer<'a> {
                     return Err("nondefining Boolean source index domain is unsupported".into());
                 }
                 for selector in &children[1..] {
-                    if let Some(reason) = self.closed_integer_source_error(file, selector) {
+                    if let Some(reason) = self.closed_integer_source_error(file, selector, false) {
                         return Err(reason);
                     }
                 }

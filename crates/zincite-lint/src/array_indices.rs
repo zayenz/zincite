@@ -279,7 +279,7 @@ fn inspected_local_selection_bound(
                             calls,
                             instantiations,
                             domains,
-                            (file, headers[0]),
+                            (file, headers[0], &[], false),
                             None,
                         ),
                         DefinitionSafety::Unsupported(_)
@@ -323,7 +323,7 @@ fn inspected_local_selection_bound(
             calls,
             instantiations,
             domains,
-            (file, value),
+            (file, value, &[], false),
             None,
         ),
         DefinitionSafety::Unsupported(_)
@@ -443,7 +443,7 @@ fn inspected_count_bound(
                 calls,
                 instantiations,
                 domains,
-                (declaration.file, value),
+                (declaration.file, value, &[], false),
                 None,
             ),
             DefinitionSafety::Unsupported(_)
@@ -718,7 +718,7 @@ fn inspected_length_quotient_bound(
             calls,
             instantiations,
             domains,
-            (file, upper),
+            (file, upper, &[], false),
             None,
         );
         return matches!(

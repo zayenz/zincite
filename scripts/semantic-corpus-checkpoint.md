@@ -4469,3 +4469,17 @@ original but Search remains Limited. Full source/original/data/std/compiler/
 release/helper pins,emitted compiler assets,complete streams and three empty
 reaped groups are checked in semantic62-gbac42-direct-control/root-audit.json.
 The deeper membership and guarded nested-output contract remain open.
+
+Filtered search traversals now inspect initialized parameter expressions with
+their actual lexical generator headers. The faithful Eligible/Removed and
+cardinality filters pass without claiming whole-array coverage; eager MAX+1
+still produces a limitation. Conditional and short-circuit arithmetic remain
+outside this new admission path, preserving the guarded compiler-positive
+examples as explicit support gaps.
+
+The combined focused search check passes. Formatting, clippy with warnings
+denied, and all 204 workspace tests pass against the current 108 source files.
+Evidence is retained in semantic62-is-filtered-search-production-preparation:
+focused-green-combined and actual-workspace-gates/root-audit.json. This is an
+implementation checkpoint; original-corpus revalidation and final task
+verification remain open.

@@ -320,6 +320,108 @@ fn typed_searches_aliases_and_direct_closure_preserve_whole_array_and_cycle_boun
         }
         std::fs::remove_dir_all(case_dir).unwrap();
     }
+    // A checked symbolic traversal can be inspected without seeding its whole source.
+    let filtered_source = r#"include "globals.mzn";
+
+% Data and selected values retain a shared named integer axis.
+set of int: Pool;
+set of Pool: Eligible;
+set of Pool: Removed;
+array[Pool] of set of int: first_tags;
+array[Pool] of set of int: second_tags;
+array[Pool] of var bool: chosen;
+
+% Filtered searches do not promise whole-Pool coverage.
+solve :: seq_search([
+    bool_search([chosen[m] | m in Eligible diff Removed
+        where card(first_tags[m]) + card(second_tags[m]) > 2],
+        input_order, indomain_max, complete),
+    bool_search([chosen[m] | m in Eligible diff Removed
+        where card(first_tags[m]) + card(second_tags[m]) = 2],
+        input_order, indomain_max, complete),
+    bool_search([chosen[m] | m in Eligible diff Removed
+        where card(first_tags[m]) + card(second_tags[m]) = 1],
+        input_order, indomain_max, complete)
+]) satisfy;
+"#;
+    let (filtered_dir, _) = model("filtered-parameter-search", "solve satisfy;", "");
+    std::fs::write(filtered_dir.join("root.mzn"), filtered_source).unwrap();
+    std::fs::write(filtered_dir.join("library/std/globals.mzn"), "").unwrap();
+    std::fs::write(
+        filtered_dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}function set of int: 'diff'(set of int: left,set of int: right); function int: card(set of $T: values); function int: '+'(int: left,int: right); function bool: '>'(int: left,int: right); annotation indomain_max;\n"),
+    ).unwrap();
+    let filtered = load_model(
+        filtered_dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(filtered_dir.join("library")),
+            ..Default::default()
+        },
+    );
+    assert!(filtered.errors.is_empty(), "{:?}", filtered.errors);
+    let bindings = resolve_bindings(&filtered);
+    let calls = resolve_callables(&filtered, &bindings);
+    assert!(calls.calls.iter().any(|call| call.name == "diff"));
+    assert!(calls.calls.iter().any(|call| call.name == "card"));
+    for call in calls
+        .calls
+        .iter()
+        .filter(|call| filtered.files[call.file].path == filtered_dir.join("root.mzn"))
+    {
+        assert!(
+            matches!(&call.outcome, zincite_lint::CallOutcome::Resolved { .. }),
+            "{:?}",
+            call
+        );
+    }
+    let result = analyze_model(&filtered, &selected());
+    assert!(
+        matches!(result.rules[0].outcome, RuleOutcome::Completed),
+        "{:?}",
+        result.limitations
+    );
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    let (bindings, search) = facts(&filtered);
+    assert_eq!(
+        coverage(&bindings, &search, "chosen"),
+        SearchCoverage::Uncovered
+    );
+    assert!(
+        !search
+            .searched
+            .iter()
+            .any(|value| value.coverage == SearchCoverage::WholeArray)
+    );
+
+    // An independent closed failure must survive the neighboring symbolic count.
+    let overflow = filtered_source.replace(
+        "card(first_tags[m]) + card(second_tags[m]) > 2",
+        "card(first_tags[m]) + (9223372036854775807 + 1) > 2",
+    );
+    std::fs::write(filtered_dir.join("root.mzn"), overflow).unwrap();
+    let negative = load_model(
+        filtered_dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(filtered_dir.join("library")),
+            ..Default::default()
+        },
+    );
+    assert!(negative.errors.is_empty(), "{:?}", negative.errors);
+    let result = analyze_model(&negative, &selected());
+    assert!(matches!(
+        result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    assert!(!result.limitations.is_empty());
+    let (_, search) = facts(&negative);
+    assert!(!search.limitations.is_empty());
+    assert!(
+        !search
+            .searched
+            .iter()
+            .any(|value| value.coverage == SearchCoverage::WholeArray)
+    );
+    std::fs::remove_dir_all(filtered_dir).unwrap();
     std::fs::remove_dir_all(dir).unwrap();
 }
 #[test]

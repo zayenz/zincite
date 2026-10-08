@@ -1655,7 +1655,7 @@ impl<'a> Producer<'a> {
                 self.calls,
                 self.instantiations,
                 self.domains,
-                (file, node),
+                (file, node, &[], false),
                 None,
             );
             let mut nonempty = self

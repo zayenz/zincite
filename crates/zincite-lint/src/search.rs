@@ -496,9 +496,23 @@ impl<'a> Producer<'a> {
         file: FileId,
         node: &'a SyntaxNode,
         mapping: &[Argument<'a>],
+        generators: Option<&[&'a SyntaxNode]>,
     ) -> DefinitionSafety {
-        let safety = expression_safety(self.context, self.bindings, self.calls, file, node);
-        if safety != DefinitionSafety::Supported {
+        let mut safety = match generators {
+            Some(generators) => crate::callable_definitions::initialized_expression_safety(
+                self.context,
+                self.bindings,
+                self.calls,
+                self.instantiations,
+                self.domains,
+                (file, node, generators, true),
+                None,
+            ),
+            None => expression_safety(self.context, self.bindings, self.calls, file, node),
+        };
+        if matches!(safety, DefinitionSafety::Unsupported(_))
+            || (generators.is_none() && safety != DefinitionSafety::Supported)
+        {
             return safety;
         }
         let mut nodes = vec![(file, node, mapping.len() + 1)];
@@ -533,15 +547,46 @@ impl<'a> Producer<'a> {
                         "reindex actual type or instantiation is unsupported".into(),
                     );
                 }
-                let safety = expression_safety(
-                    self.context,
-                    self.bindings,
-                    self.calls,
-                    *actual_file,
-                    actual,
-                );
-                if safety != DefinitionSafety::Supported {
-                    return safety;
+                let actual_safety = if generators.is_some() {
+                    let mut actual_generators = Vec::new();
+                    collect_generators(
+                        self.context.files[*actual_file].parsed.tree(),
+                        &actual.range(),
+                        &mut actual_generators,
+                    );
+                    actual_generators.retain(|generator| {
+                        generator
+                            .child_nodes()
+                            .find(|n| is_expression(n.kind()))
+                            .is_some_and(|source| source.range().end <= actual.range().start)
+                    });
+                    crate::callable_definitions::initialized_expression_safety(
+                        self.context,
+                        self.bindings,
+                        self.calls,
+                        self.instantiations,
+                        self.domains,
+                        (*actual_file, actual, &actual_generators, true),
+                        None,
+                    )
+                } else {
+                    expression_safety(
+                        self.context,
+                        self.bindings,
+                        self.calls,
+                        *actual_file,
+                        actual,
+                    )
+                };
+                match actual_safety {
+                    unsupported @ DefinitionSafety::Unsupported(_) => return unsupported,
+                    unknown @ DefinitionSafety::Unknown(_) => {
+                        if generators.is_none() {
+                            return unknown;
+                        }
+                        safety = unknown;
+                    }
+                    DefinitionSafety::Supported => {}
                 }
                 nodes.push((*actual_file, actual, remaining - 1));
                 continue;
@@ -567,7 +612,7 @@ impl<'a> Producer<'a> {
             }
             nodes.extend(node.child_nodes().map(|child| (file, child, remaining)));
         }
-        DefinitionSafety::Supported
+        safety
     }
     fn values(&mut self, file: FileId, node: &'a SyntaxNode, mapping: &[Argument<'a>]) {
         let node = unwrap(node);
@@ -637,7 +682,8 @@ impl<'a> Producer<'a> {
                 return;
             };
             let generators: Vec<_> = list.child_nodes().collect();
-            for generator in &generators {
+            let mut strict_traversal = true;
+            for (position, generator) in generators.iter().enumerate() {
                 for child in generator.child_nodes() {
                     let value = if child.kind() == NodeKind::WhereFilter {
                         child.child_nodes().next().unwrap_or(child)
@@ -652,17 +698,33 @@ impl<'a> Producer<'a> {
                             && !optional(&e.ty)
                             && e.ty.instantiation == Instantiation::Parameter
                     });
-                    if !known_parameter
-                        || self.reindex_safety(file, value, mapping) != DefinitionSafety::Supported
-                    {
+                    if !known_parameter {
                         self.uncertain(file, value, "search traversal evaluation is unavailable");
                         return;
+                    }
+                    let lexical = if child.kind() == NodeKind::WhereFilter {
+                        &generators[..=position]
+                    } else {
+                        &generators[..position]
+                    };
+                    match self.reindex_safety(file, value, mapping, Some(lexical)) {
+                        DefinitionSafety::Supported => {}
+                        DefinitionSafety::Unknown(_) => strict_traversal = false,
+                        DefinitionSafety::Unsupported(_) => {
+                            self.uncertain(
+                                file,
+                                value,
+                                "search traversal evaluation is unavailable",
+                            );
+                            return;
+                        }
                     }
                 }
             }
             let body = unwrap(body);
             let children: Vec<_> = body.child_nodes().collect();
-            if body.kind() == NodeKind::ArrayAccessExpression
+            if strict_traversal
+                && body.kind() == NodeKind::ArrayAccessExpression
                 && let Some(subject) = children.first()
                 && subject.kind() == NodeKind::Expression
                 && let Some(id) = self.reference(file, subject)
@@ -758,7 +820,7 @@ impl<'a> Producer<'a> {
                                 && matches!(&e.ty.kind, TypeKind::Set(element) if element.kind == TypeKind::Int)
                         });
                         if known_indices {
-                            match self.reindex_safety(index_file, indices, mapping) {
+                            match self.reindex_safety(index_file, indices, mapping, None) {
                                 DefinitionSafety::Supported => {
                                     // Reindexing retains every source value when the builtin
                                     // succeeds. It does not prove index equality or size validity.
@@ -919,7 +981,7 @@ impl<'a> Producer<'a> {
                 self.calls,
                 self.instantiations,
                 self.domains,
-                (file, reference),
+                (file, reference, &[], false),
                 None,
             )
         {

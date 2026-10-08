@@ -2441,7 +2441,7 @@ impl<'a> Bounds<'a> {
                         self.calls,
                         instantiations,
                         self.domains,
-                        (file, argument),
+                        (file, argument, &[], false),
                         Some(crate::callable_definitions::DirectSafetyLookups {
                             expressions: &self.expression_indices,
                             calls: &self.call_indices,
