@@ -1,4 +1,4 @@
-//! Read-only planning of atomic edits against exact original UTF-8 source.
+//! Read-only planning of atomic edits against exact original source bytes.
 //! Callers supply findings from selected, unsuppressed diagnostics.
 //! Eligibility and syntax validation do not prove semantic safety. No file IO occurs.
 
@@ -13,29 +13,38 @@ use std::sync::Arc;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceSnapshot {
     path: PathBuf,
-    source: Arc<str>,
+    source: Arc<[u8]>,
 }
 impl SourceSnapshot {
-    pub fn new(path: impl Into<PathBuf>, source: impl Into<Arc<str>>) -> Self {
+    pub fn new(path: impl Into<PathBuf>, source: impl AsRef<[u8]>) -> Self {
         Self {
             path: path.into(),
-            source: source.into(),
+            source: Arc::from(source.as_ref()),
         }
     }
     pub fn path(&self) -> &Path {
         &self.path
     }
-    pub fn source(&self) -> &str {
+    pub fn source_bytes(&self) -> &[u8] {
         &self.source
     }
 }
 
+/// UTF-8 insertions and exact copies from the same original snapshot.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EditPart {
+    Text(String),
+    /// A range within the owning edit's target. Copies retain opaque bytes.
+    Original(Range<usize>),
+}
+
 /// Half-open original-file byte coordinates, including any BOM offset.
-/// Replacements are UTF-8 text; untouched bytes are never normalized.
+/// Untouched bytes are never normalized. Every replacement copy is validated
+/// against the owning target range before any candidate is constructed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TextEdit {
     pub range: Range<usize>,
-    pub replacement: String,
+    pub replacement: Vec<EditPart>,
 }
 
 /// Safety established by a fix producer, not by edit validation or reparsing.
@@ -72,7 +81,7 @@ pub struct FixConflict {
 #[derive(Debug, PartialEq, Eq)]
 pub struct PreparedEdits {
     /// Complete source for the caller to reparse before any replacement.
-    pub candidate: String,
+    pub candidate: Vec<u8>,
     pub conflicts: Vec<FixConflict>,
 }
 
@@ -139,10 +148,10 @@ impl std::error::Error for EditPlanError {}
 /// operation upgrades a producer's safety claim. No file IO occurs here.
 pub fn prepare_edits(
     snapshot: &SourceSnapshot,
-    current_source: &str,
+    current_source: &[u8],
     groups: &[Fix],
 ) -> Result<PreparedEdits, EditPlanError> {
-    let source = snapshot.source();
+    let source = snapshot.source_bytes();
     if current_source != source {
         return Err(EditPlanError::StaleSource);
     }
@@ -170,7 +179,9 @@ pub fn prepare_edits(
                 Some("range is reversed")
             } else if range.end > source.len() {
                 Some("range is outside the original source")
-            } else if !source.is_char_boundary(range.start) || !source.is_char_boundary(range.end) {
+            } else if !zincite_syntax::is_utf8_boundary(source, range.start)
+                || !zincite_syntax::is_utf8_boundary(source, range.end)
+            {
                 Some("range splits a UTF-8 character")
             } else {
                 None
@@ -181,6 +192,28 @@ pub fn prepare_edits(
                     edit,
                     reason,
                 });
+            }
+            for part in &change.replacement {
+                if let EditPart::Original(copy) = part {
+                    let invalid = if copy.start > copy.end {
+                        Some("copy range is reversed")
+                    } else if copy.start < range.start || copy.end > range.end {
+                        Some("copy range is outside the owning edit")
+                    } else if !zincite_syntax::is_utf8_boundary(source, copy.start)
+                        || !zincite_syntax::is_utf8_boundary(source, copy.end)
+                    {
+                        Some("copy range splits a UTF-8 character")
+                    } else {
+                        None
+                    };
+                    if let Some(reason) = invalid {
+                        return Err(EditPlanError::InvalidEdit {
+                            group,
+                            edit,
+                            reason,
+                        });
+                    }
+                }
             }
             for (first, previous) in fix.edits[..edit].iter().enumerate() {
                 if overlaps(&previous.range, range) {
@@ -214,14 +247,19 @@ pub fn prepare_edits(
         .flat_map(|(fix, _)| &fix.edits)
         .collect();
     edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
-    let mut candidate = String::new();
+    let mut candidate = Vec::new();
     let mut cursor = 0;
     for edit in edits {
-        candidate.push_str(&source[cursor..edit.range.start]);
-        candidate.push_str(&edit.replacement);
+        candidate.extend_from_slice(&source[cursor..edit.range.start]);
+        for part in &edit.replacement {
+            match part {
+                EditPart::Text(text) => candidate.extend_from_slice(text.as_bytes()),
+                EditPart::Original(range) => candidate.extend_from_slice(&source[range.clone()]),
+            }
+        }
         cursor = edit.range.end;
     }
-    candidate.push_str(&source[cursor..]);
+    candidate.extend_from_slice(&source[cursor..]);
     Ok(PreparedEdits {
         candidate,
         conflicts: conflicts
@@ -278,7 +316,7 @@ pub struct OmittedFix {
 }
 #[derive(Debug, PartialEq, Eq)]
 pub struct PreparedFixes {
-    pub candidate: String,
+    pub candidate: Vec<u8>,
     pub conflicts: Vec<OmittedFix>,
 }
 #[derive(Debug, PartialEq, Eq)]
@@ -306,7 +344,7 @@ impl std::error::Error for FixPreparationError {}
 /// applicability or safety claim. Neither this function nor prepare_edits writes.
 pub fn prepare_fixes(
     snapshot: &SourceSnapshot,
-    current_source: &str,
+    current_source: &[u8],
     findings: &[crate::FileFinding],
     options: &FixOptions,
 ) -> Result<PreparedFixes, FixPreparationError> {
@@ -344,23 +382,44 @@ pub fn prepare_fixes(
 
 pub(crate) fn validate_candidate(
     snapshot: &SourceSnapshot,
-    candidate: &str,
+    candidate: &[u8],
 ) -> Result<(), FixPreparationError> {
-    let text = candidate.strip_prefix('\u{feff}').unwrap_or(candidate);
-    let offset = candidate.len() - text.len();
-    let parsed =
-        zincite_syntax::parse_with_mode(text, zincite_syntax::FileMode::from_path(snapshot.path()));
-    let errors: Vec<_> = parsed
-        .diagnostics()
-        .iter()
-        .map(|diagnostic| crate::SourceDiagnostic {
-            location: crate::SourceLocation::new(
+    let body = candidate.strip_prefix(b"\xef\xbb\xbf").unwrap_or(candidate);
+    let offset = candidate.len() - body.len();
+    let parsed = zincite_syntax::parse_bytes_with_mode(
+        body.to_vec(),
+        zincite_syntax::FileMode::from_path(snapshot.path()),
+    )
+    .map_err(|diagnostic| {
+        FixPreparationError::Syntax(vec![crate::SourceDiagnostic {
+            location: crate::SourceLocation::from_bytes(
                 snapshot.path().to_path_buf(),
-                text,
-                diagnostic.range.clone(),
+                body,
+                diagnostic.range,
                 offset,
             ),
-            message: diagnostic.message.clone(),
+            message: diagnostic.message,
+        }])
+    })?;
+    let parsed = parsed.analysis_file();
+    let diagnostics = if parsed.diagnostics().is_empty() {
+        let items: Vec<_> = parsed.tree().child_nodes().collect();
+        crate::item_suppressions(parsed, &items)
+            .err()
+            .unwrap_or_default()
+    } else {
+        parsed.diagnostics().to_vec()
+    };
+    let errors: Vec<_> = diagnostics
+        .into_iter()
+        .map(|diagnostic| crate::SourceDiagnostic {
+            location: crate::SourceLocation::from_parsed(
+                snapshot.path().to_path_buf(),
+                parsed,
+                diagnostic.range,
+                offset,
+            ),
+            message: diagnostic.message,
         })
         .collect();
     if errors.is_empty() {

@@ -34,7 +34,7 @@ fn check_original(snapshot: &SourceSnapshot) -> Result<fs::Metadata, FileFixErro
     if !metadata.file_type().is_file() {
         return Err(FileFixError::NotRegular);
     }
-    if fs::read(snapshot.path())? != snapshot.source().as_bytes() {
+    if fs::read(snapshot.path())? != snapshot.source_bytes() {
         return Err(FileFixError::StaleSource);
     }
     Ok(metadata)
@@ -46,10 +46,10 @@ fn check_original(snapshot: &SourceSnapshot) -> Result<fs::Metadata, FileFixErro
 /// original byte. Failures remove the temporary and leave the original intact.
 /// This operation does not establish semantic equivalence, select fixes, load
 /// dependencies or perform another fix pass. Callers decide eligibility first.
-pub fn replace_fixed_file(snapshot: &SourceSnapshot, candidate: &str) -> Result<(), FileFixError> {
+pub fn replace_fixed_file(snapshot: &SourceSnapshot, candidate: &[u8]) -> Result<(), FileFixError> {
     validate_candidate(snapshot, candidate).map_err(FileFixError::Candidate)?;
     let metadata = check_original(snapshot)?;
-    if candidate == snapshot.source() {
+    if candidate == snapshot.source_bytes() {
         return Ok(());
     }
     let parent = snapshot
@@ -74,7 +74,7 @@ pub fn replace_fixed_file(snapshot: &SourceSnapshot, candidate: &str) -> Result<
         }
     };
     let result = (|| {
-        file.write_all(candidate.as_bytes())?;
+        file.write_all(candidate)?;
         file.set_permissions(metadata.permissions())?;
         file.sync_all()?;
         drop(file);
@@ -93,14 +93,17 @@ pub fn replace_fixed_file(snapshot: &SourceSnapshot, candidate: &str) -> Result<
 /// newlines remain visible; rendering never changes either source or file.
 pub fn write_fix_diff(
     snapshot: &SourceSnapshot,
-    candidate: &str,
+    candidate: &[u8],
     output: &mut impl Write,
 ) -> io::Result<()> {
-    if snapshot.source() == candidate {
+    if snapshot.source_bytes() == candidate {
         return Ok(());
     }
-    let before: Vec<_> = snapshot.source().split_inclusive('\n').collect();
-    let after: Vec<_> = candidate.split_inclusive('\n').collect();
+    let before: Vec<_> = snapshot
+        .source_bytes()
+        .split_inclusive(|&byte| byte == b'\n')
+        .collect();
+    let after: Vec<_> = candidate.split_inclusive(|&byte| byte == b'\n').collect();
     writeln!(output, "--- a/{}", snapshot.path().display())?;
     writeln!(output, "+++ b/{}", snapshot.path().display())?;
     writeln!(
@@ -111,10 +114,11 @@ pub fn write_fix_diff(
         usize::from(!after.is_empty()),
         after.len()
     )?;
-    for (prefix, lines) in [('-', before), ('+', after)] {
+    for (prefix, lines) in [(b'-', before), (b'+', after)] {
         for line in lines {
-            write!(output, "{prefix}{line}")?;
-            if !line.ends_with('\n') {
+            output.write_all(&[prefix])?;
+            output.write_all(line)?;
+            if !line.ends_with(b"\n") {
                 writeln!(output, "\n\\ No newline at end of file")?;
             }
         }

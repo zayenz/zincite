@@ -285,8 +285,8 @@ fn semantic_report(
         .as_ref()
         .and_then(|c| {
             c.root_file.map(|id| {
-                let parsed = &c.files[id].parsed;
-                (parsed, parsed.source().as_bytes())
+                let file = &c.files[id];
+                (&file.parsed, file.source_bytes())
             })
         })
         .or(parsed);

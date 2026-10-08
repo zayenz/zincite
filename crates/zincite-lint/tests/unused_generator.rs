@@ -208,7 +208,7 @@ fn comprehension_fixes_preserve_anonymous_cartesian_terms_and_trivia() {
     let root = &context.files[context.root_file.unwrap()];
     let prepared = prepare_fixes(
         &root.source_snapshot(),
-        source,
+        source.as_bytes(),
         &result.findings,
         &FixOptions::default(),
     )
@@ -218,9 +218,17 @@ fn comprehension_fixes_preserve_anonymous_cartesian_terms_and_trivia() {
         .replace("extra in", "_ in")
         .replace("unused_set in", "_ in")
         .replace("unused_key in", "_ in");
-    assert_eq!(prepared.candidate, expected);
-    assert!(prepared.candidate.contains("/* same repeated term */"));
-    assert!(prepared.candidate.contains(":: \"kept annotation\""));
+    assert_eq!(prepared.candidate, expected.as_bytes());
+    assert!(
+        std::str::from_utf8(&prepared.candidate)
+            .unwrap()
+            .contains("/* same repeated term */")
+    );
+    assert!(
+        std::str::from_utf8(&prepared.candidate)
+            .unwrap()
+            .contains(":: \"kept annotation\"")
+    );
     assert!(
         result
             .findings
@@ -246,13 +254,13 @@ fn comprehension_fixes_preserve_anonymous_cartesian_terms_and_trivia() {
     assert_eq!(
         prepare_fixes(
             &final_context.files[final_context.root_file.unwrap()].source_snapshot(),
-            &expected,
+            expected.as_bytes(),
             &remaining.findings,
             &FixOptions::default()
         )
         .unwrap()
         .candidate,
-        expected
+        expected.as_bytes()
     );
     std::fs::remove_dir_all(dir).unwrap();
 }

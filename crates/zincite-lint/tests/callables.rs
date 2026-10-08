@@ -542,13 +542,18 @@ fn element_fix_facts_require_actual_indices_total_operands_and_core_equality() {
     assert_eq!(fixes.len(), 2, "{result:?}");
     assert_eq!(fixes[0].safety, FixSafety::Safe);
     let snapshot = context.files[context.root_file.unwrap()].source_snapshot();
-    let prepared =
-        prepare_fixes(&snapshot, source, &result.findings, &FixOptions::default()).unwrap();
+    let prepared = prepare_fixes(
+        &snapshot,
+        source.as_bytes(),
+        &result.findings,
+        &FixOptions::default(),
+    )
+    .unwrap();
     assert!(
-        prepared
-            .candidate
+        std::str::from_utf8(&prepared.candidate)
+            .unwrap()
             .contains("flag <-> ( /* head */ ( value /* y */) = ( xs /* a */)[(index /* i */)])"),
-        "{}",
+        "{:?}",
         prepared.candidate
     );
     for comment in [
@@ -559,9 +564,20 @@ fn element_fix_facts_require_actual_indices_total_operands_and_core_equality() {
         "\"kept label\"",
         "% é",
     ] {
-        assert_eq!(prepared.candidate.matches(comment).count(), 1);
+        assert_eq!(
+            std::str::from_utf8(&prepared.candidate)
+                .unwrap()
+                .matches(comment)
+                .count(),
+            1
+        );
     }
-    assert!(prepared.candidate.starts_with('\u{feff}') && prepared.candidate.contains("\r\n"));
+    assert!(
+        prepared.candidate.starts_with(b"\xef\xbb\xbf")
+            && std::str::from_utf8(&prepared.candidate)
+                .unwrap()
+                .contains("\r\n")
+    );
     replace_fixed_file(&snapshot, &prepared.candidate).unwrap();
     let final_context = load_model(&root, &options);
     assert!(

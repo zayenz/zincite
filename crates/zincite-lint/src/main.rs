@@ -7,7 +7,7 @@ use zincite_lint::{
     analyze_file, analyze_model, load_model, prepare_fixes, replace_fixed_file, write_analysis,
     write_fix_diff,
 };
-use zincite_syntax::{FileMode, parse_with_mode};
+use zincite_syntax::{ByteParsedFile, FileMode, parse_bytes_with_mode};
 
 const HELP: &str = "Usage: zincite-lint [--list-rules | --explain RULE]
        zincite-lint [--rules SELECTION] [--config PATH | --isolated] [--show-settings | --fix | --diff] [--unsafe-fixes] [-I DIR] [--stdlib-dir DIR] [--stdin-filepath PATH] [FILE|DIR...|-]
@@ -76,6 +76,7 @@ only their own rule. Unknown, malformed, misplaced or dangling directives are er
 The shared parser covers MiniZinc 2.10.1 model/data syntax; reserved
 variant_record and case syntax is unsupported. Full semantic validity and solver
 performance are not checked.
+Code and literals use UTF-8; opaque comment bytes are preserved by fixes.
 Syntax errors omit lint rules for that file. Independent files are processed.
 Exit codes: 0 clean, 1 unsuppressed warnings, 2 input/parse/directive/configuration/usage/dependency errors.
 Analysis limitations alone retain status 0 or 1.
@@ -263,14 +264,18 @@ fn analyze_fix_root(
         };
         return Ok((result, snapshot));
     }
-    let source =
-        std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
-    let text = source.strip_prefix('\u{feff}').unwrap_or(&source);
-    let offset = source.len() - text.len();
-    let parsed = parse_with_mode(text, FileMode::from_path(path));
-    let result = analyze_file(&parsed, path, offset, options);
-    let snapshot = (retain && result.findings.iter().any(|finding| finding.fix.is_some()))
-        .then(|| SourceSnapshot::new(path, source));
+    let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let (parsed, offset) = parse_source(&path.to_string_lossy(), bytes, FileMode::from_path(path))?;
+    let result = analyze_file(parsed.analysis_file(), path, offset, options);
+    let snapshot =
+        (retain && result.findings.iter().any(|finding| finding.fix.is_some())).then(|| {
+            let mut source = Vec::with_capacity(parsed.source_bytes().len() + offset);
+            if offset == 3 {
+                source.extend_from_slice(b"\xef\xbb\xbf");
+            }
+            source.extend_from_slice(parsed.source_bytes());
+            SourceSnapshot::new(path, source)
+        });
     Ok((result, snapshot))
 }
 
@@ -303,7 +308,7 @@ fn run_fixes(
                 {
                     match prepare_fixes(
                         &snapshot,
-                        snapshot.source(),
+                        snapshot.source_bytes(),
                         &result.findings,
                         &settings.fixes,
                     ) {
@@ -320,7 +325,7 @@ fn run_fixes(
                             if mode == Mode::Diff {
                                 write_fix_diff(&snapshot, &candidate.candidate, &mut io::stdout())
                                     .map_err(|error| format!("stdout: {error}"))?;
-                            } else if candidate.candidate != snapshot.source() {
+                            } else if candidate.candidate.as_slice() != snapshot.source_bytes() {
                                 prepared.push((snapshot, candidate));
                             }
                         }
@@ -782,20 +787,43 @@ fn check_source(
     mode: FileMode,
     options: &LintOptions,
 ) -> Result<u8, String> {
-    let source = String::from_utf8(bytes).map_err(|error| {
-        format!(
-            "{label}: input is not UTF-8 at byte {}",
-            error.utf8_error().valid_up_to()
-        )
-    })?;
-    let text = source.strip_prefix('\u{feff}').unwrap_or(&source);
-    let offset = source.len() - text.len();
-    let parsed = parse_with_mode(text, mode);
+    let (parsed, offset) = parse_source(label, bytes, mode)?;
     write_analysis(
-        &analyze_file(&parsed, label, offset, options),
+        &analyze_file(parsed.analysis_file(), label, offset, options),
         &mut io::stderr(),
     )
     .map_err(|error| format!("stderr: {error}"))
+}
+
+fn parse_source(
+    label: &str,
+    mut bytes: Vec<u8>,
+    mode: FileMode,
+) -> Result<(ByteParsedFile, usize), String> {
+    let offset = usize::from(bytes.starts_with(b"\xef\xbb\xbf")) * 3;
+    if offset > 0 {
+        drop(bytes.drain(..offset));
+    }
+    let encoding_source = std::str::from_utf8(&bytes).is_err().then(|| bytes.clone());
+    let parsed = parse_bytes_with_mode(bytes, mode).map_err(|diagnostic| {
+        let location = zincite_lint::SourceLocation::from_bytes(
+            label.into(),
+            encoding_source
+                .as_deref()
+                .expect("encoding error has original bytes"),
+            diagnostic.range,
+            offset,
+        );
+        format!(
+            "{label}:{}:{}: bytes {}..{}: {}",
+            location.line,
+            location.column,
+            location.range.start,
+            location.range.end,
+            diagnostic.message
+        )
+    })?;
+    Ok((parsed, offset))
 }
 
 #[cfg(test)]

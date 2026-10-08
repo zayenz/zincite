@@ -16,6 +16,59 @@ fn write(path: impl AsRef<Path>, source: impl AsRef<[u8]>) {
 }
 
 #[test]
+fn opaque_model_comments_supply_exact_fix_snapshots_and_original_locations() {
+    let directory = temporary("raw-fix");
+    let path = directory.join("root.mzn");
+    write(directory.join("library/std/stdlib.mzn"), "annotation core;");
+    let options = ModelOptions {
+        stdlib_dir: Some(directory.join("library")),
+        ..ModelOptions::default()
+    };
+    let source = b"\xef\xbb\xbf/* \xff \xc3\xa9 */\r\narray[int] of int: values=[2 | unused in {1,2}];\r\nsolve satisfy;\r\n";
+    write(&path, source);
+    let context = load_model(&path, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let root = &context.files[context.root_file.unwrap()];
+    assert_eq!(root.source_bytes(), &source[3..]);
+    assert_eq!(root.source_snapshot().source_bytes(), source);
+    let result = analyze_model(
+        &context,
+        &LintOptions::from_selection("unused-generator-binding").unwrap(),
+    );
+    assert!(result.errors.is_empty(), "{result:?}");
+    let finding = result
+        .findings
+        .iter()
+        .find(|finding| finding.fix.is_some())
+        .expect("unused comprehension supplies a fix");
+    let start = source
+        .windows(b"unused".len())
+        .position(|bytes| bytes == b"unused")
+        .unwrap();
+    assert_eq!(finding.location.range, start..start + b"unused".len());
+    assert_eq!(finding.location.line, 2);
+    assert_eq!(
+        finding.fix.as_ref().unwrap().snapshot.source_bytes(),
+        source
+    );
+    for file in &context.files {
+        if file.path != path {
+            assert!(file.original_bytes.is_none());
+        }
+    }
+    write(&path, b"\xef\xbb\xbf/* \xff \xc3\xa9 */ value=\xfe;");
+    let rejected = load_model(&path, &options);
+    let error = rejected
+        .errors
+        .iter()
+        .find(|error| error.message.contains("invalid UTF-8"))
+        .unwrap();
+    assert_eq!(error.location.range, 20..21);
+    assert_eq!((error.location.line, error.location.column), (1, 17));
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn include_graph_preserves_search_order_identity_locations_and_independent_roots() {
     let directory = temporary("graph");
     let root = directory.join("root.mzn");
@@ -213,9 +266,12 @@ fn core_origin_suppressions_and_dependency_errors_remain_file_local() {
     assert!(syntax.location.range.start >= 3);
     let encoding = &broken.errors[1];
     assert_eq!(encoding.location.path, directory.join("invalid.mzn"));
-    assert_eq!(encoding.location.range, 8..8);
+    assert_eq!(encoding.location.range, 8..9);
     assert_eq!((encoding.location.line, encoding.location.column), (2, 1));
-    assert!(encoding.message.contains("UTF-8 at byte 8"));
+    assert_eq!(
+        encoding.message,
+        "invalid UTF-8 is only supported inside comments"
+    );
     assert_eq!(
         broken.errors[2].location.path,
         directory.join("suppression.mzn")

@@ -1,5 +1,7 @@
 //! Exact-source edit builders for already established semantic eligibility.
-use crate::{FileId, Fix, FixSafety, ModelContext, SourceLocation, SourceSnapshot, TextEdit};
+use crate::{
+    EditPart, FileId, Fix, FixSafety, ModelContext, SourceLocation, SourceSnapshot, TextEdit,
+};
 use std::collections::BTreeMap;
 
 pub(super) fn snapshot<'a>(
@@ -19,7 +21,7 @@ pub(super) fn unused_name(snapshot: &SourceSnapshot, name: &SourceLocation) -> F
         snapshot: snapshot.clone(),
         edits: vec![TextEdit {
             range: name.range.clone(),
-            replacement: "_".into(),
+            replacement: vec![EditPart::Text("_".into())],
         }],
     }
 }
@@ -34,16 +36,19 @@ pub(super) fn element(
     commas: [usize; 2],
     close: usize,
 ) -> Fix {
-    let source = snapshot.source();
-    let index = &source[open + 1..commas[0]];
-    let array = &source[commas[0] + 1..commas[1]];
-    let value = &source[commas[1] + 1..close];
-    let replacement = format!(
-        "{}({}({value}) = ({array})[({index})]){}",
-        &source[call.range.start..head.range.start],
-        &source[head.range.end..open],
-        &source[close + 1..call.range.end]
-    );
+    let replacement = vec![
+        EditPart::Original(call.range.start..head.range.start),
+        EditPart::Text("(".into()),
+        EditPart::Original(head.range.end..open),
+        EditPart::Text("(".into()),
+        EditPart::Original(commas[1] + 1..close),
+        EditPart::Text(") = (".into()),
+        EditPart::Original(commas[0] + 1..commas[1]),
+        EditPart::Text(")[(".into()),
+        EditPart::Original(open + 1..commas[0]),
+        EditPart::Text(")])".into()),
+        EditPart::Original(close + 1..call.range.end),
+    ];
     Fix {
         title: "Express element as indexing equality".into(),
         safety: FixSafety::Safe,

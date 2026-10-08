@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use zincite_syntax::{
-    FileMode, NodeKind, ParsedFile, SyntaxElement, TokenKind, literal_include_path, parse_with_mode,
+    FileMode, NodeKind, ParsedFile, SyntaxElement, TokenKind, literal_include_path,
+    parse_bytes_with_mode,
 };
 
 use crate::{Rule, item_suppressions};
@@ -34,6 +35,22 @@ pub struct SourceLocation {
 }
 
 impl SourceLocation {
+    /// Locate exact bytes, counting opaque invalid bytes as single columns.
+    pub fn from_bytes(
+        path: PathBuf,
+        source: &[u8],
+        range: Range<usize>,
+        byte_offset: usize,
+    ) -> Self {
+        let (line, column) = zincite_syntax::byte_line_column(source, range.start);
+        Self {
+            path,
+            range: range.start + byte_offset..range.end + byte_offset,
+            line,
+            column,
+        }
+    }
+
     pub fn new(path: PathBuf, source: &str, range: Range<usize>, byte_offset: usize) -> Self {
         let mut line = 1;
         let mut column = 1;
@@ -91,7 +108,11 @@ pub struct ModelFile {
     /// First readable path, retained for diagnostics.
     pub path: PathBuf,
     pub canonical_path: PathBuf,
+    /// Analysis view; opaque comment bytes are represented by one-byte markers.
+    /// Use source_bytes for exact original spelling.
     pub parsed: ParsedFile,
+    /// Exact body when opaque comments require a separate analysis view.
+    pub original_bytes: Option<Vec<u8>>,
     pub byte_offset: usize,
     pub kind: SourceKind,
     /// Core declarations reached through std/stdlib.mzn are implicitly available.
@@ -103,12 +124,22 @@ pub struct ModelFile {
 }
 
 impl ModelFile {
+    /// Exact source body, excluding the loader's separately retained BOM offset.
+    pub fn source_bytes(&self) -> &[u8] {
+        self.original_bytes
+            .as_deref()
+            .unwrap_or_else(|| self.parsed.source().as_bytes())
+    }
+
     /// Retain exact original root bytes on demand, including the BOM removed by
     /// the loader. Calling this for an edit does not copy every included source.
     pub fn source_snapshot(&self) -> crate::SourceSnapshot {
-        let source = self.parsed.source();
+        let source = self.source_bytes();
         if self.byte_offset == 3 {
-            crate::SourceSnapshot::new(&self.path, format!("\u{feff}{source}"))
+            let mut bytes = Vec::with_capacity(source.len() + 3);
+            bytes.extend_from_slice(b"\xef\xbb\xbf");
+            bytes.extend_from_slice(source);
+            crate::SourceSnapshot::new(&self.path, bytes)
         } else {
             crate::SourceSnapshot::new(&self.path, source)
         }
@@ -257,7 +288,7 @@ impl Loader<'_> {
             }
             return Some(id);
         }
-        let bytes = match std::fs::read(path) {
+        let mut bytes = match std::fs::read(path) {
             Ok(bytes) => bytes,
             Err(error) => {
                 self.error(
@@ -267,27 +298,32 @@ impl Loader<'_> {
                 return None;
             }
         };
-        let source = match String::from_utf8(bytes) {
-            Ok(source) => source,
+        let byte_offset = usize::from(bytes.starts_with(b"\xef\xbb\xbf")) * 3;
+        if byte_offset > 0 {
+            drop(bytes.drain(..byte_offset));
+        }
+        // Encoding rejection consumes its input; only opaque input needs a
+        // temporary copy for the original error coordinates.
+        let encoding_source = std::str::from_utf8(&bytes).is_err().then(|| bytes.clone());
+        let parsed = match parse_bytes_with_mode(bytes, FileMode::from_path(path)) {
+            Ok(parsed) => parsed,
             Err(error) => {
-                let start = error.utf8_error().valid_up_to();
-                let prefix = std::str::from_utf8(&error.as_bytes()[..start]).unwrap();
-                let text = prefix.strip_prefix('\u{feff}').unwrap_or(prefix);
                 self.error(
-                    SourceLocation::new(
+                    SourceLocation::from_bytes(
                         path.to_path_buf(),
-                        text,
-                        text.len()..text.len(),
-                        prefix.len() - text.len(),
+                        encoding_source
+                            .as_deref()
+                            .expect("encoding error has original bytes"),
+                        error.range,
+                        byte_offset,
                     ),
-                    format!("input is not UTF-8 at byte {start}"),
+                    error.message,
                 );
                 return None;
             }
         };
-        let text = source.strip_prefix('\u{feff}').unwrap_or(&source);
-        let byte_offset = source.len() - text.len();
-        let parsed = parse_with_mode(text, FileMode::from_path(path));
+        drop(encoding_source);
+        let (parsed, original_bytes) = parsed.into_parts();
         let items: Vec<_> = parsed.tree().child_nodes().collect();
         let suppressions = if parsed.diagnostics().is_empty() {
             match item_suppressions(&parsed, &items) {
@@ -352,6 +388,7 @@ impl Loader<'_> {
             path: path.to_path_buf(),
             canonical_path: canonical.clone(),
             parsed,
+            original_bytes,
             byte_offset,
             kind: if self
                 .stdlib

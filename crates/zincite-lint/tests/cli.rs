@@ -10,6 +10,10 @@ fn run_with_library(
     source: &str,
     library: Option<&str>,
 ) -> std::process::Output {
+    run_bytes(arguments, source.as_bytes(), library)
+}
+
+fn run_bytes(arguments: &[&str], source: &[u8], library: Option<&str>) -> std::process::Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_zincite-lint"));
     if let Some(library) = library {
         command.env("MZN_STDLIB_DIR", library);
@@ -21,12 +25,7 @@ fn run_with_library(
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(source.as_bytes())
-        .unwrap();
+    child.stdin.take().unwrap().write_all(source).unwrap();
     child.wait_with_output().unwrap()
 }
 
@@ -174,7 +173,7 @@ fn cli_reports_located_advice_errors_and_processes_independent_files_without_wri
     assert!(output.stdout.is_empty());
     let diagnostic = String::from_utf8(output.stderr).unwrap();
     assert!(
-        diagnostic.contains("not UTF-8")
+        diagnostic.contains("invalid UTF-8")
             && diagnostic.contains("warning [missing-constraint-label]")
     );
     assert_eq!(std::fs::read(&bad).unwrap(), b"\xff");
@@ -2396,4 +2395,104 @@ fn semantic_fixes_preview_apply_once_and_respect_selection_suppression_and_roots
     assert!(list.contains("element-predicate\tmodelling\tavailable\tsometimes\tthesis"));
     assert!(list.contains("unused-generator-binding\tsuspicious\tavailable\tsometimes\topt-in"));
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn opaque_comments_survive_element_diff_write_and_encoding_failures() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-raw-fix-cli-{}", std::process::id()));
+    let library = directory.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(
+        library.join("std/stdlib.mzn"),
+        "function set of int:'..'(int:a,int:b); function var bool:'='(var $T:a,var $T:b);\n",
+    )
+    .unwrap();
+    let system = library.join("std/element.mzn");
+    let system_source =
+        b"predicate element(var $$E:i,array[$$E] of var $$T:x,var $$T:y)=y=x[i]; /* \xfa */\r\n";
+    std::fs::write(&system, system_source).unwrap();
+    let path = directory.join("root.mzn");
+    let source = b"\xef\xbb\xbf/* \xff \xc3\xa9 */\r\ninclude \"element.mzn\";\r\narray[0..2] of var int:xs; var 0..2:index; var int:value;\r\nconstraint :: \"kept\" element /* \xfe */ (index /* \xe7 */,xs /* \xe9 */,value /* \xfc */);\r\nsolve satisfy;";
+    let expected = b"\xef\xbb\xbf/* \xff \xc3\xa9 */\r\ninclude \"element.mzn\";\r\narray[0..2] of var int:xs; var 0..2:index; var int:value;\r\nconstraint :: \"kept\" ( /* \xfe */ (value /* \xfc */) = (xs /* \xe9 */)[(index /* \xe7 */)]);\r\nsolve satisfy;";
+    std::fs::write(&path, source).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+    }
+    let invoke = |mode: &str| {
+        run(
+            &[
+                mode,
+                "--rules",
+                "element-predicate",
+                "--stdlib-dir",
+                library.to_str().unwrap(),
+                path.to_str().unwrap(),
+            ],
+            "",
+        )
+    };
+    let preview = invoke("--diff");
+    assert_eq!(preview.status.code(), Some(1), "{:?}", preview.stderr);
+    let before = b"-\xef\xbb\xbf/* \xff \xc3\xa9 */\r\n";
+    let after = b"+constraint :: \"kept\" ( /* \xfe */ (value /* \xfc */) = (xs /* \xe9 */)[(index /* \xe7 */)]);\r\n";
+    assert!(
+        preview
+            .stdout
+            .windows(before.len())
+            .any(|bytes| bytes == before)
+    );
+    assert!(
+        preview
+            .stdout
+            .windows(after.len())
+            .any(|bytes| bytes == after)
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), source);
+    let applied = invoke("--fix");
+    assert!(applied.status.success(), "{:?}", applied.stderr);
+    assert!(applied.stdout.is_empty());
+    assert_eq!(std::fs::read(&path).unwrap(), expected);
+    assert_eq!(std::fs::read(&system).unwrap(), system_source);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+    }
+    assert!(invoke("--fix").status.success());
+    assert_eq!(std::fs::read(&path).unwrap(), expected);
+    assert!(invoke("--diff").stdout.is_empty());
+    for invalid in [
+        b"\xef\xbb\xbf/* \xff \xc3\xa9 */ value=\xfe;".as_slice(),
+        b"\xef\xbb\xbf/* \xff */\r\nstring: value=\"\xfe\";".as_slice(),
+        b"\xef\xbb\xbf/* \xff */\r\n% zincite-lint: ignore naming\xfe\r\nint:BadName=1;".as_slice(),
+    ] {
+        let output = run_bytes(
+            &[
+                "--rules",
+                "naming",
+                "--stdin-filepath",
+                path.to_str().unwrap(),
+            ],
+            invalid,
+            None,
+        );
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let diagnostic = String::from_utf8(output.stderr).unwrap();
+        if invalid == b"\xef\xbb\xbf/* \xff \xc3\xa9 */ value=\xfe;" {
+            assert!(diagnostic.contains(":1:17: bytes 20..21:"), "{diagnostic}");
+        }
+        std::fs::write(&path, invalid).unwrap();
+        let output = run(&["--fix", "--rules", "naming", path.to_str().unwrap()], "");
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty() && !output.stderr.is_empty());
+        assert_eq!(std::fs::read(&path).unwrap(), invalid);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
 }

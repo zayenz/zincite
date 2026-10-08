@@ -23,8 +23,9 @@ mod semantic_fixes;
 pub use fix_files::{FileFixError, replace_fixed_file, write_fix_diff};
 mod fixes;
 pub use fixes::{
-    EditPlanError, Fix, FixConflict, FixOptions, FixPreparationError, FixSafety, OmittedFix,
-    PreparedEdits, PreparedFixes, SourceSnapshot, TextEdit, prepare_edits, prepare_fixes,
+    EditPart, EditPlanError, Fix, FixConflict, FixOptions, FixPreparationError, FixSafety,
+    OmittedFix, PreparedEdits, PreparedFixes, SourceSnapshot, TextEdit, prepare_edits,
+    prepare_fixes,
 };
 mod global_patterns;
 mod global_uses;
