@@ -3315,3 +3315,17 @@ source maps and reaped empty process group. Evidence is
 conditional test draft now retains this countercheck and the preceding negative
 variants. Production remains in the assigned ignored workspace; actual source
 is unchanged combined24. Header safety is being repaired before integration.
+
+Current combined24 processes the previously unreached original cable-tree
+model in both native and companion controls without timeout. Root checked
+full streams/hashes, all original/asset/source/helper pins, complete resolved
+source records, exact 26-rule and 14-thesis partitions and drop return. Both
+status 1 and full diagnostics match: 17 warnings, 11 limitations, zero errors
+and no Unobserved rows. Thesis unbounded-variable and search-coverage remain
+Limited. Located reasons include the Boolean comparison sum defining N, the
+pow-containing objective, and redundant_constraint around all_different. These
+are current support gaps for investigation, not deadline or compiler-invalid
+classifications. The original model/data pair already has positive Gecode
+compile-only evidence. The pair ran with shared CPU, so no isolated timing
+comparison is claimed. Evidence and independent root audit are retained in
+`semantic62-ctw24-pair/`; whole-task acceptance remains open.
