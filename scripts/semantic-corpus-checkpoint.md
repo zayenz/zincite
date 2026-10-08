@@ -2586,3 +2586,12 @@ assert(has_bounds(...)). The scratch correction must decline non-array-selection
 operands before the array-specific veto. No other substantive defect was found
 in the complete draft review. The saved conditional patch remains an unapplied
 checkpoint pending that correction and validation.
+
+The saved conditional draft now includes the narrow scalar-scope correction.
+`scripts/semantic-routing-conditionals-draft.patch` is 13,094 bytes, SHA-256
+`77b2f80535a97d88137589eb5a06421d039cf573ea81df940fe93663114b1628`. Root checked the complete
+1,220-byte source delta against the prior reviewed scratch file, reconstructed
+the production patch from its baseline, and verified unchanged public tests.
+Non-array-selection operands now return to the existing strict reflection path;
+the array-selection checks retain their previous inspection-only behavior.
+The draft remains unapplied, with Zincite regression and workspace gates pending.

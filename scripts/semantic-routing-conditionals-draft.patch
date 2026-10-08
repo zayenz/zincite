@@ -86,7 +86,7 @@
                  let mut branches: Vec<Vec<Output>> = Vec::new();
                  let mut guards = Vec::new();
                  let mut has_else = false;
-@@ -6664,6 +6743,100 @@
+@@ -6664,6 +6743,102 @@
              "reflected array bound is unproved".into(),
          ))
      }
@@ -107,17 +107,19 @@
 +        let [argument] = children.as_slice() else {
 +            return None;
 +        };
++        let selection = unwrap(argument);
++        if selection.kind() != NodeKind::ArrayAccessExpression {
++            return None;
++        }
 +        let facts = self.view(file, node, view);
 +        let actual = self.expression_type(facts, file, argument).map(|e| &e.ty)?;
 +        if actual.instantiation != Instantiation::Decision {
 +            return None;
 +        }
 +        let result = self.expression_type(facts, file, node).map(|e| &e.ty);
-+        let selection = unwrap(argument);
 +        let subject = selection.child_nodes().next().map(unwrap);
 +        let array = subject.and_then(|n| self.reference(file, n));
 +        if argument.kind() == NodeKind::NamedArgument
-+            || selection.kind() != NodeKind::ArrayAccessExpression
 +            || !actual.known() || optional(actual) || actual.kind != TypeKind::Int
 +            || result.is_none_or(|t| !t.known() || optional(t) || t.kind != TypeKind::Int
 +                || t.instantiation != Instantiation::Parameter)
@@ -187,7 +189,7 @@
      fn initialized_children_safety(
          &self,
          file: FileId,
-@@ -6713,6 +6886,9 @@
+@@ -6713,6 +6888,9 @@
              return safety;
          }
          if let Some(safety) = self.decision_array_bound_safety(file, node, view, generators) {
