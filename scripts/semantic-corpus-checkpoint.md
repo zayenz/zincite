@@ -3295,3 +3295,13 @@ Together with the retained exact positives, all five pending BNN models have
 compiler-positive evidence; their Zincite deadlines remain valid-processing
 failures to resolve. Historical no-model/undefined-width crossword checks do
 not establish invalid contents; the encoding boundary remains separate.
+
+The eight remaining unreached sources without compiler evidence now pass
+current Gecode compilation with matching original sibling data. Root reviewed
+the exact commands and launched at most two independent checks, each capped
+at 60 seconds. All eight exit 0 without timeout, are reaped with empty groups,
+and produce FlatZinc/output artifacts. Root checked complete streams/hashes,
+equal before/after original/compiler/standard/helper maps and every output.
+Evidence is `semantic62-unreached-source-prechecks/`, including root-audit.json.
+No solving, synthetic data, conversion or original rewrites occurred. These
+are compiler-positive pairs; fresh Zincite outcomes remain to be collected.
