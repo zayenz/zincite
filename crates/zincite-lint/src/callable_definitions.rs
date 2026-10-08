@@ -236,7 +236,7 @@ pub fn resolve_callable_definitions(
         for clause in clauses.iter().filter(|clause| !inspection_only(clause)) {
             let mut found = Vec::new();
             let mut unavailable = Vec::new();
-            producer.interpret(
+            producer.interpret_root(
                 clause,
                 calls,
                 &facts.outputs,
@@ -741,6 +741,19 @@ struct Output {
     enforced_boolean: bool,
     /// A functional local Boolean for each active model let, not an enforced operand.
     scoped_local: bool,
+}
+// Exists only while one zero-output root invocation is inspected. These are
+// written sources, never value assumptions or cached callable boundaries.
+struct InvocationActual<'a, 'b> {
+    formal: DeclarationId,
+    file: FileId,
+    node: &'a SyntaxNode,
+    view: &'b CallableFacts,
+    generators: Vec<&'a SyntaxNode>,
+}
+struct Invocation<'a, 'b> {
+    actuals: Vec<InvocationActual<'a, 'b>>,
+    reachable: Option<bool>,
 }
 struct Producer<'a> {
     context: &'a ModelContext,
@@ -1562,15 +1575,55 @@ impl<'a> Producer<'a> {
             unavailable,
             inspected,
             &mut Vec::new(),
+            None,
         );
     }
-    fn interpret_forwarded(
+    fn interpret_root(
         &self,
-        inputs: (&Clause<'a>, &CallableFacts, &[CallableOutput]),
+        clause: &Clause<'a>,
+        view: &CallableFacts,
+        known: &[CallableOutput],
+        out: &mut Vec<Output>,
+        unavailable: &mut Vec<UnavailableCallableDefinition>,
+        inspected: &mut Vec<DeclarationId>,
+    ) {
+        let eligible = matches!(clause.kind, ClauseKind::Call)
+            && self
+                .resolved(clause.file, clause.node, view)
+                .is_some_and(|(id, parameters)| {
+                    self.instances.iter().any(|instance| {
+                        instance.id == id
+                            && instance.parameters == parameters
+                            && !instance.recursive
+                    }) && !known
+                        .iter()
+                        .any(|output| output.callable == id && output.parameters == parameters)
+                });
+        if !eligible {
+            self.interpret(clause, view, known, out, unavailable, inspected);
+            return;
+        }
+        let mut invocation = Invocation {
+            actuals: Vec::new(),
+            reachable: Some(true),
+        };
+        self.interpret_forwarded(
+            (clause, view, known),
+            out,
+            unavailable,
+            inspected,
+            &mut Vec::new(),
+            Some(&mut invocation),
+        );
+    }
+    fn interpret_forwarded<'b>(
+        &'b self,
+        inputs: (&Clause<'a>, &'b CallableFacts, &[CallableOutput]),
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
         inspected: &mut Vec<DeclarationId>,
         active: &mut Vec<(FileId, std::ops::Range<usize>)>,
+        invocation: Option<&mut Invocation<'a, 'b>>,
     ) {
         let (clause, _, _) = inputs;
         let key = (clause.file, clause.node.range());
@@ -1583,10 +1636,79 @@ impl<'a> Producer<'a> {
             return;
         }
         active.push(key);
+        // This owning let inspector checks locals and selectors in declaration
+        // order. A context-free prescan must not reopen its partial initializer.
+        if let Some(state) = invocation.as_ref()
+            && (!matches!(clause.kind, ClauseKind::Local)
+                || self.inspect_uncertain_index_let(clause, inputs.1).is_none())
+        {
+            let (_, view, _) = inputs;
+            let mut nodes = vec![clause.node];
+            let mut unsupported = None;
+            while let Some(node) = nodes.pop() {
+                if !crate::definitions::annotations_safe(self.context, clause.file, node) {
+                    unsupported = Some("invoked body annotation is unsupported".into());
+                }
+                if is_expression(node.kind())
+                    && (node.kind() == NodeKind::Expression
+                        || self
+                            .expression_type(self.view(clause.file, node, view), clause.file, node)
+                            .is_none_or(|e| e.ty.kind != TypeKind::Bool))
+                {
+                    let source = self.invocation_source(clause.file, node, state);
+                    let checked = match source {
+                        Ok(Some(actual)) => self.initialized_source_safety(
+                            actual.file,
+                            actual.node,
+                            actual.view,
+                            &actual.generators,
+                            &mut Vec::new(),
+                        ),
+                        Ok(None) => self.initialized_source_safety(
+                            clause.file,
+                            node,
+                            view,
+                            &clause.generators,
+                            &mut Vec::new(),
+                        ),
+                        Err(reason) => DefinitionSafety::Unsupported(reason),
+                    };
+                    if let DefinitionSafety::Unsupported(reason) = checked {
+                        unsupported = Some(reason);
+                    }
+                    continue;
+                }
+                nodes.extend(node.child_nodes());
+            }
+            if let Some(reason) = unsupported {
+                self.unavailable(clause, &reason, unavailable);
+                if unavailable
+                    .last()
+                    .is_some_and(|row| !row.targets.is_empty())
+                {
+                    // A source failure still prevents inspection when its mapped
+                    // dependencies are already searched or parameter values.
+                    unavailable.push(UnavailableCallableDefinition {
+                        location: self.context.files[clause.file].location(clause.node.range()),
+                        targets: Vec::new(),
+                        reason,
+                    });
+                }
+                active.pop();
+                return;
+            }
+        }
         let mut found = Vec::new();
         let mut local_choices = Vec::new();
         let before = unavailable.len();
-        self.interpret_body(inputs, &mut found, unavailable, &mut local_choices, active);
+        self.interpret_body(
+            inputs,
+            &mut found,
+            unavailable,
+            &mut local_choices,
+            active,
+            invocation,
+        );
         if unavailable.len() == before {
             extend(inspected, local_choices);
         }
@@ -1613,13 +1735,14 @@ impl<'a> Producer<'a> {
         }
         active.pop();
     }
-    fn interpret_body(
-        &self,
-        inputs: (&Clause<'a>, &CallableFacts, &[CallableOutput]),
+    fn interpret_body<'b>(
+        &'b self,
+        inputs: (&Clause<'a>, &'b CallableFacts, &[CallableOutput]),
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
         inspected: &mut Vec<DeclarationId>,
         active: &mut Vec<(FileId, std::ops::Range<usize>)>,
+        mut invocation: Option<&mut Invocation<'a, 'b>>,
     ) {
         let (clause, view, known) = inputs;
         match clause.kind {
@@ -1787,15 +1910,20 @@ impl<'a> Producer<'a> {
             ClauseKind::Conditional => {
                 // Inspect a failed guard before any branch contributes outputs or
                 // inspected locals. An unproved test value supplies no direction.
-                let guard_error = clause.node.child_nodes().find_map(|branch| {
-                    (branch.kind() == NodeKind::ConditionalBranch)
-                        .then(|| branch.child_nodes().next())
-                        .flatten()
-                        .and_then(|guard| {
-                            self.dependencies(clause.file, guard, view, &clause.generators)
-                                .err()
+                let guard_error = invocation
+                    .is_none()
+                    .then(|| {
+                        clause.node.child_nodes().find_map(|branch| {
+                            (branch.kind() == NodeKind::ConditionalBranch)
+                                .then(|| branch.child_nodes().next())
+                                .flatten()
+                                .and_then(|guard| {
+                                    self.dependencies(clause.file, guard, view, &clause.generators)
+                                        .err()
+                                })
                         })
-                });
+                    })
+                    .flatten();
                 if let Some(reason) = guard_error {
                     let checked = (|| -> DefinitionSafety {
                         if self
@@ -1867,8 +1995,11 @@ impl<'a> Producer<'a> {
                 let mut branches: Vec<Vec<Output>> = Vec::new();
                 let mut guards = Vec::new();
                 let mut has_else = false;
+                let incoming = invocation.as_ref().and_then(|i| i.reachable);
+                let mut remaining = incoming;
                 for branch in clause.node.child_nodes() {
                     let nodes: Vec<_> = branch.child_nodes().collect();
+                    let mut branch_reachable = incoming;
                     let body = if branch.kind() == NodeKind::ConditionalBranch && nodes.len() == 2 {
                         let range = self.context.files[clause.file]
                             .location(nodes[0].range())
@@ -1887,16 +2018,52 @@ impl<'a> Producer<'a> {
                             self.unavailable(clause, "conditional output guard is not a supported total parameter Boolean", unavailable);
                             return;
                         }
+                        let checked_guard = invocation.as_ref().map(|_| {
+                            self.initialized_source_safety(
+                                clause.file,
+                                nodes[0],
+                                view,
+                                &clause.generators,
+                                &mut Vec::new(),
+                            )
+                        });
+                        if let Some(DefinitionSafety::Unsupported(reason)) = &checked_guard {
+                            self.unavailable(clause, reason, unavailable);
+                            return;
+                        }
                         match self.dependencies(clause.file, nodes[0], view, &clause.generators) {
                             Ok(ids) => extend(&mut guards, ids),
+                            Err(_)
+                                if matches!(checked_guard, Some(DefinitionSafety::Unknown(_))) => {}
                             Err(reason) => {
                                 self.unavailable(clause, &reason, unavailable);
                                 return;
                             }
                         }
+                        if let Some(state) = invocation.as_deref_mut() {
+                            let value =
+                                match self.invocation_guard(clause.file, nodes[0], view, state) {
+                                    Ok(value) => value,
+                                    Err(reason) => {
+                                        self.unavailable(clause, &reason, unavailable);
+                                        return;
+                                    }
+                                };
+                            branch_reachable = match (remaining, value) {
+                                (Some(false), _) | (_, Some(false)) => Some(false),
+                                (Some(true), Some(true)) => Some(true),
+                                _ => None,
+                            };
+                            remaining = match (remaining, value) {
+                                (Some(false), _) | (_, Some(true)) => Some(false),
+                                (value, Some(false)) => value,
+                                _ => None,
+                            };
+                        }
                         nodes[1]
                     } else if branch.kind() == NodeKind::ElseBranch && nodes.len() == 1 {
                         has_else = true;
+                        branch_reachable = remaining;
                         nodes[0]
                     } else {
                         self.unavailable(
@@ -1906,6 +2073,20 @@ impl<'a> Producer<'a> {
                         );
                         return;
                     };
+                    if invocation.is_some()
+                        && self
+                            .expression_type(self.view(clause.file, body, view), clause.file, body)
+                            .is_none_or(|e| {
+                                !e.ty.known() || optional(&e.ty) || e.ty.kind != TypeKind::Bool
+                            })
+                    {
+                        self.unavailable(
+                            clause,
+                            "invoked conditional body type is unsupported",
+                            unavailable,
+                        );
+                        return;
+                    }
                     let mut clauses = Vec::new();
                     self.clauses(
                         clause.file,
@@ -1917,6 +2098,9 @@ impl<'a> Producer<'a> {
                     );
                     let mut values = Vec::new();
                     let before = unavailable.len();
+                    if let Some(state) = invocation.as_deref_mut() {
+                        state.reachable = branch_reachable;
+                    }
                     for branch in clauses {
                         self.interpret_forwarded(
                             (&branch, view, known),
@@ -1924,12 +2108,19 @@ impl<'a> Producer<'a> {
                             unavailable,
                             inspected,
                             active,
+                            invocation.as_deref_mut(),
                         );
                     }
-                    if unavailable.len() != before {
+                    if let Some(state) = invocation.as_deref_mut() {
+                        state.reachable = incoming;
+                    }
+                    if unavailable.len() != before && invocation.is_none() {
                         return;
                     }
                     branches.push(values);
+                }
+                if let Some(state) = invocation.as_deref_mut() {
+                    state.reachable = incoming;
                 }
                 // A missing Boolean else supplies false, never an output.
                 if !has_else {
@@ -2388,6 +2579,7 @@ impl<'a> Producer<'a> {
                         unavailable,
                         inspected,
                         active,
+                        invocation.as_deref_mut(),
                     );
                 }
                 if unavailable.len() == before {
@@ -2505,15 +2697,29 @@ impl<'a> Producer<'a> {
                         }
                     }
                 }
-                let condition = unwrap(args[0].1);
+                let (condition_file, condition) = if let Some(state) = invocation.as_ref() {
+                    match self.invocation_source(args[0].0, args[0].1, state) {
+                        Ok(Some(actual)) => (actual.file, unwrap(actual.node)),
+                        Ok(None) => (args[0].0, unwrap(args[0].1)),
+                        Err(reason) => {
+                            self.unavailable(clause, &reason, unavailable);
+                            return;
+                        }
+                    }
+                } else {
+                    (args[0].0, unwrap(args[0].1))
+                };
                 let literal = (condition.kind() == NodeKind::Expression)
                     .then(|| {
-                        crate::domains::tokens(&self.context.files[args[0].0].parsed, condition)
-                            .first()
-                            .map(|t| t.kind)
+                        crate::domains::tokens(
+                            &self.context.files[condition_file].parsed,
+                            condition,
+                        )
+                        .first()
+                        .map(|t| t.kind)
                     })
                     .flatten();
-                if literal == Some(TokenKind::False) {
+                if literal == Some(TokenKind::False) && invocation.is_none() {
                     self.unavailable(
                         clause,
                         "false assertion condition aborts evaluation",
@@ -2522,6 +2728,20 @@ impl<'a> Producer<'a> {
                     return;
                 }
                 if let Some((file, body)) = args.get(2) {
+                    if invocation.is_some()
+                        && self
+                            .expression_type(self.view(*file, body, view), *file, body)
+                            .is_none_or(|e| {
+                                !e.ty.known() || optional(&e.ty) || e.ty.kind != TypeKind::Bool
+                            })
+                    {
+                        self.unavailable(
+                            clause,
+                            "invoked assertion result type is unsupported",
+                            unavailable,
+                        );
+                        return;
+                    }
                     let mut clauses = Vec::new();
                     self.clauses(
                         *file,
@@ -2551,7 +2771,8 @@ impl<'a> Producer<'a> {
                         && matches!(clauses[0].kind, ClauseKind::Equality))
                     .then(|| self.direct_asserted_forall(clause.file, clause.node, view))
                     .flatten();
-                    let nested_forall = (clause.generators.is_empty()
+                    let nested_forall = (invocation.is_none()
+                        && clause.generators.is_empty()
                         && clauses.len() == 1
                         && matches!(clauses[0].kind, ClauseKind::Call))
                     .then(|| self.nested_asserted_forall(clause.file, clause.node, view))
@@ -2573,6 +2794,7 @@ impl<'a> Producer<'a> {
                                 &mut body_unavailable,
                                 inspected,
                                 active,
+                                invocation.as_deref_mut(),
                             );
                         }
                     }
@@ -2595,6 +2817,29 @@ impl<'a> Producer<'a> {
                             extend(&mut output.dependencies, dependencies.clone());
                             out.push(output);
                         }
+                    }
+                }
+                if literal == Some(TokenKind::False)
+                    && invocation
+                        .as_ref()
+                        .is_some_and(|state| state.reachable == Some(true))
+                {
+                    self.unavailable(
+                        clause,
+                        "false assertion condition aborts evaluation",
+                        unavailable,
+                    );
+                    if unavailable
+                        .last()
+                        .is_some_and(|row| !row.targets.is_empty())
+                    {
+                        // A reached abort remains unavailable even when the
+                        // affected actual result is already explicitly searched.
+                        unavailable.push(UnavailableCallableDefinition {
+                            location: self.context.files[clause.file].location(clause.node.range()),
+                            targets: Vec::new(),
+                            reason: "false assertion condition aborts evaluation".into(),
+                        });
                     }
                 }
             }
@@ -2845,22 +3090,58 @@ impl<'a> Producer<'a> {
                 if selected.is_empty() && instance.recursive {
                     self.unavailable(clause,"callable output guarantees are unsupported or have no independent recursive anchor",unavailable);
                 }
+                if !uncertain_actual && !unsupported_actual {
+                    if let Err(reason) = self.asserted_call_indices(clause, view, instance) {
+                        self.map_boundaries(clause, view, &self.boundaries, unavailable);
+                        self.unavailable(clause, &reason, unavailable);
+                        return;
+                    }
+                    if let Some(mut outputs) = self.literal_call_outputs(clause, view, instance) {
+                        for output in &mut outputs {
+                            extend(&mut output.dependencies, computed_dependencies.clone());
+                        }
+                        out.extend(outputs);
+                        return;
+                    }
+                }
+                if !unsupported_actual
+                    && !instance.recursive
+                    && selected.is_empty()
+                    && let Some(state) = invocation.as_deref_mut()
+                {
+                    let before = state.actuals.len();
+                    match self.invocation_actuals(clause, view, instance, state) {
+                        Ok(()) => {
+                            let mut body_unavailable = Vec::new();
+                            for body in &instance.clauses {
+                                self.interpret_forwarded(
+                                    (body, &instance.view, known),
+                                    &mut Vec::new(),
+                                    &mut body_unavailable,
+                                    &mut Vec::new(),
+                                    active,
+                                    Some(&mut *state),
+                                );
+                            }
+                            let boundaries: Vec<_> = body_unavailable
+                                .into_iter()
+                                .map(|unavailable| Boundary {
+                                    callable: id,
+                                    parameters: parameters.clone(),
+                                    unavailable,
+                                })
+                                .collect();
+                            self.map_boundaries(clause, view, &boundaries, unavailable);
+                        }
+                        Err(reason) => self.unavailable(clause, &reason, unavailable),
+                    }
+                    state.actuals.truncate(before);
+                    return;
+                }
                 if uncertain_actual || unsupported_actual {
                     // Inspect every computed actual and required body boundary before
                     // withholding guarantees; uncertainty cannot hide unsupported siblings.
                     self.map_boundaries(clause, view, &self.boundaries, unavailable);
-                    return;
-                }
-                if let Err(reason) = self.asserted_call_indices(clause, view, instance) {
-                    self.map_boundaries(clause, view, &self.boundaries, unavailable);
-                    self.unavailable(clause, &reason, unavailable);
-                    return;
-                }
-                if let Some(mut outputs) = self.literal_call_outputs(clause, view, instance) {
-                    for output in &mut outputs {
-                        extend(&mut output.dependencies, computed_dependencies.clone());
-                    }
-                    out.extend(outputs);
                     return;
                 }
                 self.map_boundaries(clause, view, &self.boundaries, unavailable);
@@ -2905,6 +3186,7 @@ impl<'a> Producer<'a> {
                                 unavailable,
                                 inspected,
                                 active,
+                                invocation.as_deref_mut(),
                             );
                         }
                         continue;
@@ -3612,6 +3894,7 @@ impl<'a> Producer<'a> {
                     &mut unavailable,
                     &mut Vec::new(),
                     active,
+                    None,
                 );
             }
             match unavailable.into_iter().next() {
@@ -4266,6 +4549,333 @@ impl<'a> Producer<'a> {
             });
         }
         Some(outputs)
+    }
+    // Bind written actuals once per selected invocation. Captures retain their
+    // defining file; only an exact formal reference follows these bindings.
+    fn invocation_actuals<'b>(
+        &'b self,
+        clause: &Clause<'a>,
+        view: &'b CallableFacts,
+        instance: &'b Instance<'a>,
+        invocation: &mut Invocation<'a, 'b>,
+    ) -> Result<(), String> {
+        let owner = &self.bindings.declarations[instance.id.0];
+        let written = find_node(
+            self.context.files[owner.file].parsed.tree(),
+            &owner.syntax_range,
+            owner.role,
+        )
+        .ok_or("invoked declaration unavailable")?;
+        if !self.callable_annotations_safe(owner.file, written) {
+            return Err("invoked declaration annotation is unsupported".into());
+        }
+        self.type_dependencies(owner.file, written, &instance.view, &[])?;
+        let first = invocation.actuals.len();
+        for (position, parameter) in instance.parameters.iter().enumerate() {
+            let formal = formal_parameter(self.context, self.bindings, instance.id, position)
+                .ok_or("invoked formal identity unavailable")?;
+            let formal_node = find_node(
+                self.context.files[owner.file].parsed.tree(),
+                &self.bindings.declarations[formal.0].syntax_range,
+                DeclarationRole::Parameter,
+            )
+            .ok_or("invoked formal declaration unavailable")?;
+            self.type_dependencies(owner.file, formal_node, &instance.view, &[])?;
+            let mut nodes = vec![formal_node];
+            while let Some(node) = nodes.pop() {
+                if !crate::definitions::annotations_safe(self.context, owner.file, node) {
+                    return Err("invoked formal annotation is unsupported".into());
+                }
+                nodes.extend(node.child_nodes());
+            }
+            let (file, node) = call_argument(
+                self.context,
+                self.bindings,
+                self.view(clause.file, clause.node, view),
+                clause.file,
+                clause.node,
+                instance.id,
+                position,
+            )
+            .ok_or("invoked actual or default unavailable")?;
+            let default = file == owner.file
+                && formal_node.range().start <= node.range().start
+                && node.range().end <= formal_node.range().end;
+            let facts = if default {
+                &instance.view
+            } else {
+                self.view(file, node, view)
+            };
+            let ty = self
+                .expression_type(facts, file, node)
+                .map(|e| &e.ty)
+                .or_else(|| {
+                    self.reference(file, unwrap(node))
+                        .map(|id| &facts.declarations[id.0].ty)
+                })
+                .ok_or("invoked actual type unavailable")?;
+            if !parameter.known()
+                || optional(parameter)
+                || !ty.known()
+                || optional(ty)
+                || !crate::types::coerces(ty, parameter)
+                || instance.view.declarations[formal.0].ty != *parameter
+            {
+                return Err("invoked actual type or optionality is unsupported".into());
+            }
+            invocation.actuals.push(InvocationActual {
+                formal,
+                file,
+                node,
+                view: facts,
+                generators: if file == clause.file
+                    && clause.node.range().start <= node.range().start
+                    && node.range().end <= clause.node.range().end
+                {
+                    clause.generators.clone()
+                } else {
+                    Vec::new()
+                },
+            });
+        }
+        let mut unsupported = None;
+        for actual in &invocation.actuals[first..] {
+            let checked = self
+                .invocation_source(actual.file, actual.node, invocation)
+                .and_then(|source| {
+                    let source = source.unwrap_or(actual);
+                    match self.initialized_source_safety(
+                        source.file,
+                        source.node,
+                        source.view,
+                        &source.generators,
+                        &mut Vec::new(),
+                    ) {
+                        DefinitionSafety::Unsupported(reason) => Err(reason),
+                        _ => Ok(()),
+                    }
+                });
+            if let Err(reason) = checked {
+                unsupported = Some(reason);
+            }
+        }
+        // Header sources and filters also evaluate, even when no outputs result.
+        for (position, generator) in clause.generators.iter().enumerate() {
+            for value in generator.child_nodes() {
+                let value = if value.kind() == NodeKind::WhereFilter {
+                    value
+                        .child_nodes()
+                        .next()
+                        .ok_or("invoked generator filter unavailable")?
+                } else {
+                    value
+                };
+                if let DefinitionSafety::Unsupported(reason) = self.initialized_source_safety(
+                    clause.file,
+                    value,
+                    view,
+                    &clause.generators[..=position],
+                    &mut Vec::new(),
+                ) {
+                    unsupported = Some(reason);
+                }
+            }
+        }
+        match unsupported {
+            Some(reason) => Err(reason),
+            None => Ok(()),
+        }
+    }
+    fn invocation_source<'b, 'c>(
+        &self,
+        mut file: FileId,
+        mut node: &'a SyntaxNode,
+        invocation: &'c Invocation<'a, 'b>,
+    ) -> Result<Option<&'c InvocationActual<'a, 'b>>, String> {
+        let mut active = Vec::new();
+        let mut source = None;
+        while let Some(id) = (unwrap(node).kind() == NodeKind::Expression)
+            .then(|| self.reference(file, unwrap(node)))
+            .flatten()
+        {
+            let Some(actual) = invocation
+                .actuals
+                .iter()
+                .rev()
+                .find(|actual| actual.formal == id)
+            else {
+                break;
+            };
+            if active.contains(&id) {
+                return Err("cyclic invoked actual correspondence".into());
+            }
+            active.push(id);
+            source = Some(actual);
+            file = actual.file;
+            node = actual.node;
+        }
+        Ok(source)
+    }
+    // Only a literal Boolean or the existing exact length(array)==0 form gives
+    // branch direction. This never establishes a member, cardinality or value.
+    fn invocation_guard<'b>(
+        &'b self,
+        file: FileId,
+        guard: &'a SyntaxNode,
+        view: &'b CallableFacts,
+        invocation: &Invocation<'a, 'b>,
+    ) -> Result<Option<bool>, String> {
+        let guard = unwrap(guard);
+        let tokens = crate::domains::tokens(&self.context.files[file].parsed, guard);
+        if guard.kind() == NodeKind::Expression && tokens.len() == 1 {
+            return Ok(match tokens[0].kind {
+                TokenKind::True => Some(true),
+                TokenKind::False => Some(false),
+                _ => None,
+            });
+        }
+        for length in guard.child_nodes().map(unwrap) {
+            if !self.core(file, length, view, "length") {
+                continue;
+            }
+            let arguments: Vec<_> = length.child_nodes().collect();
+            let [array] = arguments.as_slice() else {
+                continue;
+            };
+            let Some(id) = self.reference(file, unwrap(array)) else {
+                continue;
+            };
+            if self.length_equals(file, guard, id, 0, view) {
+                return self.invocation_array_empty(
+                    file,
+                    array,
+                    self.view(file, array, view),
+                    invocation,
+                    &mut Vec::new(),
+                );
+            }
+        }
+        Ok(None)
+    }
+    fn invocation_array_empty<'b>(
+        &'b self,
+        file: FileId,
+        node: &'a SyntaxNode,
+        view: &'b CallableFacts,
+        invocation: &Invocation<'a, 'b>,
+        active: &mut Vec<DeclarationId>,
+    ) -> Result<Option<bool>, String> {
+        let source = self.invocation_source(file, node, invocation)?;
+        let (file, node, view) = source.map_or((file, node, view), |source| {
+            (source.file, source.node, source.view)
+        });
+        let node = unwrap(node);
+        match node.kind() {
+            NodeKind::ArrayLiteral => Ok(
+                if node
+                    .child_nodes()
+                    .any(|n| n.kind() == NodeKind::IndexedArrayEntry)
+                {
+                    None
+                } else {
+                    Some(node.child_nodes().count() == 0)
+                },
+            ),
+            NodeKind::ArrayComprehension => {
+                let generators: Vec<_> = node
+                    .child_nodes()
+                    .find(|n| n.kind() == NodeKind::GeneratorList)
+                    .map(|n| n.child_nodes().collect())
+                    .unwrap_or_default();
+                let [generator] = generators.as_slice() else {
+                    return Ok(None);
+                };
+                if crate::domains::generator_slots(&self.context.files[file].parsed, generator) != 1
+                    || generator
+                        .child_nodes()
+                        .any(|n| n.kind() == NodeKind::WhereFilter)
+                {
+                    return Ok(None);
+                }
+                let source = generator
+                    .child_nodes()
+                    .next()
+                    .ok_or("invoked array extent source unavailable")?;
+                let domain = expression_domain(self.context, self.bindings, file, source);
+                match crate::domains::bare_index_domain(&domain) {
+                    Domain::Range { lower, upper } => {
+                        let lower = crate::domains::invariant_integer(lower)?;
+                        let upper = crate::domains::invariant_integer(upper)?;
+                        Ok(lower.zip(upper).map(|(lower, upper)| lower > upper))
+                    }
+                    Domain::Unsupported(reason) => Err(reason.clone()),
+                    _ => Ok(None),
+                }
+            }
+            NodeKind::Expression => {
+                let Some(id) = self.reference(file, node) else {
+                    return Ok(None);
+                };
+                let owner = &self.bindings.declarations[id.0];
+                if owner.role != DeclarationRole::Value || !owner.top_level {
+                    return Ok(None);
+                }
+                if active.contains(&id) {
+                    return Err("cyclic invoked array source".into());
+                }
+                let written = find_node(
+                    self.context.files[owner.file].parsed.tree(),
+                    &owner.syntax_range,
+                    owner.role,
+                )
+                .ok_or("invoked array declaration unavailable")?;
+                let values: Vec<_> = written
+                    .child_nodes()
+                    .filter(|n| is_expression(n.kind()))
+                    .collect();
+                if values.is_empty() {
+                    if let DefinitionSafety::Unsupported(reason) =
+                        self.initialized_source_safety(file, node, view, &[], &mut Vec::new())
+                    {
+                        return Err(reason);
+                    }
+                    let domain =
+                        crate::domains::bare_index_domain(&self.domains.declarations[id.0].domain);
+                    let Domain::Array { indices, .. } = domain else {
+                        return match domain {
+                            Domain::Unsupported(reason) => Err(reason.clone()),
+                            _ => Ok(None),
+                        };
+                    };
+                    let [axis] = indices.as_slice() else {
+                        return Ok(None);
+                    };
+                    return match crate::domains::bare_index_domain(axis) {
+                        Domain::Range { lower, upper } => {
+                            let lower = crate::domains::invariant_integer(lower)?;
+                            let upper = crate::domains::invariant_integer(upper)?;
+                            Ok(lower.zip(upper).map(|(lower, upper)| lower > upper))
+                        }
+                        Domain::Unsupported(reason) => Err(reason.clone()),
+                        _ => Ok(None),
+                    };
+                }
+                let [value] = values.as_slice() else {
+                    return Ok(None);
+                };
+                active.push(id);
+                let result = self.invocation_array_empty(
+                    owner.file,
+                    value,
+                    self.view(owner.file, value, view),
+                    invocation,
+                    active,
+                );
+                active.pop();
+                result
+            }
+            _ => Ok(None),
+        }
     }
     fn actual(
         &self,
@@ -10046,6 +10656,74 @@ impl<'a> Producer<'a> {
             "reflected scalar bound is unproved".into(),
         ))
     }
+    fn integer_array_set_safety(
+        &self,
+        file: FileId,
+        written: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> Option<DefinitionSafety> {
+        let node = unwrap(written);
+        if node.kind() != NodeKind::CallExpression || !self.core(file, node, view, "array2set") {
+            return None;
+        }
+        let integer = TypeInst::par(TypeKind::Int);
+        let array = TypeInst::par(TypeKind::Array {
+            indices: vec![integer.clone()],
+            element: Box::new(integer.clone()),
+        });
+        let set = TypeInst::par(TypeKind::Set(Box::new(integer)));
+        if self
+            .operation_fact(self.view(file, node, view), file, node)
+            .is_none_or(|call| {
+                !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                if parameters.as_slice() == [array.clone()] && *return_type == set)
+            })
+        {
+            return None;
+        }
+        let checked = (|| -> Result<(), String> {
+            let children: Vec<_> = node.child_nodes().collect();
+            let [argument] = children.as_slice() else {
+                return Err("array2set argument correspondence unsupported".into());
+            };
+            if self
+                .expression_type(self.view(file, node, view), file, node)
+                .is_none_or(|e| e.ty != set)
+                || self
+                    .expression_type(self.view(file, argument, view), file, argument)
+                    .map(|e| &e.ty)
+                    .or_else(|| {
+                        self.reference(file, unwrap(argument))
+                            .map(|id| &self.view(file, argument, view).declarations[id.0].ty)
+                    })
+                    .is_none_or(|ty| *ty != array)
+            {
+                return Err(
+                    "array2set requires selected present parameter integer array and set".into(),
+                );
+            }
+            let mut nodes = vec![written];
+            while let Some(node) = nodes.pop() {
+                if !crate::definitions::annotations_safe(self.context, file, node) {
+                    return Err("array2set source annotation is unsupported".into());
+                }
+                nodes.extend(node.child_nodes());
+            }
+            if let DefinitionSafety::Unsupported(reason) =
+                self.initialized_source_safety(file, argument, view, generators, &mut Vec::new())
+            {
+                return Err(reason);
+            }
+            Ok(())
+        })();
+        Some(match checked {
+            Ok(()) => DefinitionSafety::Unknown(
+                "array2set membership and cardinality are unproved".into(),
+            ),
+            Err(reason) => DefinitionSafety::Unsupported(reason),
+        })
+    }
     fn initialized_children_safety(
         &self,
         file: FileId,
@@ -10070,6 +10748,9 @@ impl<'a> Producer<'a> {
         view: &CallableFacts,
         generators: &[&'a SyntaxNode],
     ) -> DefinitionSafety {
+        if let Some(safety) = self.integer_array_set_safety(file, node, view, generators) {
+            return safety;
+        }
         if let Some(safety) = self.parameter_float_safety(file, node, view, generators) {
             return safety;
         }

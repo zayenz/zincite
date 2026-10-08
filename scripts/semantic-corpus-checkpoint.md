@@ -4968,3 +4968,22 @@ Evidence is under semantic62-is-set-local-let-preparation/production-v1/
 warnings denied and all213 workspace tests pass; checks are under
 semantic62-is-set-local-main-integration. Base-083 remains open pending the
 remaining support gaps and final complete corpus evidence.
+
+GCC invocation inspection now keeps selected actuals while inspecting standard
+bodies and their branches. Reachable false assertions remain mandatory causes;
+unreachable branches still receive source checks. The existing strict scalar
+output route is retained, and targeted errors also retain a targetless boundary
+so already searched results cannot erase an evaluation failure.
+
+Fresh matched normal opt3 controls remove the false assertion limitation from
+the compiler-accepted singleton GCC case (three limitations to two). Symbolic
+GCC and original GBAC replace that false assertion with a conditional-domain
+limitation; their limitation totals and warning lines remain unchanged. Both
+compiler-rejected empty controls remain byte-identical. All twenty native and
+companion captures agree, with complete all26/thesis14 partitions and matching
+drop records. Existing Gecode compile-only proofs were reused; no solver ran.
+Evidence is under semantic62-gcc-invocation-release-controls-preparation-v4.
+After preserving the accepted IS, conversion and Macc changes, actual main
+formatting, Clippy with warnings denied and all214 workspace tests pass under
+semantic62-gcc-main-integration. Conditional-domain support, remaining IS and
+BIN/Macc gaps and final corpus evidence keep base-083 open.

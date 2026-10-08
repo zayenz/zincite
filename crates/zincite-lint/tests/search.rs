@@ -64,6 +64,254 @@ fn selected() -> LintOptions {
     LintOptions::from_selection("search-coverage").unwrap()
 }
 #[test]
+fn zero_output_invocations_inspect_all_branches_without_erasing_reachable_aborts() {
+    use zincite_lint::{CallOutcome, Instantiation, SourceKind, TypeInst, TypeKind};
+    let par = |kind| TypeInst {
+        instantiation: Instantiation::Parameter,
+        optional: false,
+        kind,
+    };
+    let body = r#"predicate checked_cover(array[int] of var int: xs, array[int] of int: cover) =
+    assert(true, "outer source inspection",
+        if length(xs) == 0 then assert(true, "empty xs", true)
+        elseif length(cover) == 0 then assert(false, "empty cover", false)
+        else forall(i in index_set(xs))(xs[i] in {d | d in array2set(cover)}) endif);
+predicate forward_cover(array[int] of var int: xs, array[int] of int: cover) = checked_cover(xs,cover);
+predicate abort_value(bool: condition) = assert(condition, "literal actual", false);
+"#;
+    for (name, extent, invocation, partial_else, supported) in [
+        ("symbolic", "count", "checked_cover", false, true),
+        ("singleton", "1", "checked_cover", false, true),
+        ("reachable-empty", "0", "checked_cover", false, false),
+        ("bare-empty-axis", "0", "checked_cover", false, false),
+        ("forwarded-empty", "0", "forward_cover", false, false),
+        ("partial-else", "count", "checked_cover", true, false),
+        ("literal-false-actual", "count", "abort_value", false, false),
+        (
+            "searched-false-result",
+            "count",
+            "abort_result",
+            false,
+            false,
+        ),
+    ] {
+        let body = if partial_else {
+            body.replace("array2set(cover)", "array2set([1 div 0 | k in 1..1])")
+        } else {
+            body.to_owned()
+        };
+        let searched_abort = invocation == "abort_result";
+        let body = if searched_abort {
+            format!(
+                "{body}predicate abort_result(var int: result) = assert(false,\"searched result\",result=0);\n"
+            )
+        } else {
+            body
+        };
+        let constraint = if name == "bare-empty-axis" {
+            "checked_cover([values[i] | i in 1..1],empty_cover)".to_owned()
+        } else if invocation == "abort_value" {
+            "abort_value(false)".to_owned()
+        } else if searched_abort {
+            "abort_result(searched_result)".to_owned()
+        } else {
+            format!("{invocation}([values[i] | i in 1..1],[j | j in 1..{extent}])")
+        };
+        let bare_empty = if name == "bare-empty-axis" {
+            "array[1..0] of int: empty_cover;\n"
+        } else {
+            ""
+        };
+        let result_declaration = if searched_abort {
+            "var int: searched_result;\n"
+        } else {
+            ""
+        };
+        let solve = if searched_abort {
+            "solve :: seq_search([int_search(values,input_order,indomain_min,complete),int_search([searched_result],input_order,indomain_min,complete)]) satisfy;"
+        } else {
+            "solve :: int_search(values,input_order,indomain_min,complete) satisfy;"
+        };
+        let source = format!(
+            "int: count;\narray[1..count] of var 0..3: values;\nvar bool: auxiliary;\n{result_declaration}{bare_empty}{body}\nconstraint {constraint};\n{solve}\n"
+        );
+        let (dir, _) = model(&format!("zero-output-invocation-{name}"), &source, "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}{}",
+                concat!(
+                    "function int: length(array[$T] of any $V: xs);\n",
+                    "function any $T: assert(bool: condition,string: message,any $T: result);\n",
+                    "function set of $$T: array2set(array[int] of $$T: xs);\n",
+                    "function int: 'div'(int: left,int: right);\n"
+                )
+            ),
+        )
+        .unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let integer = par(TypeKind::Int);
+        let array = par(TypeKind::Array {
+            indices: vec![integer.clone()],
+            element: Box::new(integer.clone()),
+        });
+        let set = par(TypeKind::Set(Box::new(integer)));
+        let array_set_calls: Vec<_> = calls
+            .calls
+            .iter()
+            .filter(|call| call.name == "array2set")
+            .collect();
+        assert_eq!(array_set_calls.len(), 1, "{name}: exact written conversion");
+        assert!(
+            matches!(&array_set_calls[0].outcome, CallOutcome::Resolved { declaration, parameters, return_type }
+            if parameters.as_slice() == [array.clone()] && *return_type == set
+                && context.files[bindings.declarations[declaration.0].file].kind == SourceKind::StandardLibrary
+                && context.files[bindings.declarations[declaration.0].file].implicit)
+        );
+        let false_assert = calls
+            .calls
+            .iter()
+            .find(|call| {
+                call.name == "assert"
+                    && context.files[call.file].parsed.source()[call.location.range.end..]
+                        .trim_start()
+                        .starts_with("(false,")
+            })
+            .expect("retained exact false assertion");
+        assert!(
+            matches!(&false_assert.outcome, CallOutcome::Resolved { declaration, parameters, return_type }
+            if parameters.len() == 3 && parameters[0] == par(TypeKind::Bool)
+                && parameters[1] == par(TypeKind::String)
+                && parameters[2] == par(TypeKind::Bool)
+                && *return_type == par(TypeKind::Bool)
+                && context.files[bindings.declarations[declaration.0].file].kind == SourceKind::StandardLibrary
+                && context.files[bindings.declarations[declaration.0].file].implicit)
+        );
+        if searched_abort {
+            let assertion = calls
+                .calls
+                .iter()
+                .find(|call| {
+                    call.name == "assert"
+                        && context.files[call.file].parsed.source()[call.location.range.end..]
+                            .trim_start()
+                            .starts_with("(false,\"searched result\"")
+                })
+                .expect("exact searched-result assertion");
+            let decision_bool = TypeInst {
+                instantiation: Instantiation::Decision,
+                optional: false,
+                kind: TypeKind::Bool,
+            };
+            assert!(matches!(&assertion.outcome,
+                CallOutcome::Resolved { declaration, parameters, return_type }
+                if parameters.as_slice() == [par(TypeKind::Bool), par(TypeKind::String), decision_bool.clone()]
+                    && *return_type == decision_bool
+                    && context.files[bindings.declarations[declaration.0].file].kind == SourceKind::StandardLibrary
+                    && context.files[bindings.declarations[declaration.0].file].implicit));
+        }
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let search = resolve_search_coverage(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+            &definitions,
+        );
+        let auxiliary = bindings
+            .declarations
+            .iter()
+            .find(|declaration| declaration.name == "auxiliary" && declaration.top_level)
+            .unwrap()
+            .id;
+        assert_eq!(
+            search.declarations[auxiliary.0].coverage,
+            SearchCoverage::Uncovered,
+            "{name}"
+        );
+        assert!(
+            callable.outputs.is_empty(),
+            "{name}: {:?}",
+            callable.outputs
+        );
+        assert!(
+            callable.definitions.is_empty(),
+            "{name}: {:?}",
+            callable.definitions
+        );
+        assert!(callable.inspected_locals.is_empty(), "{name}");
+        if searched_abort {
+            assert_eq!(
+                coverage(&bindings, &search, "searched_result"),
+                SearchCoverage::Scalar,
+                "the explicit search still covers the aborted result"
+            );
+        }
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        if supported {
+            assert!(
+                callable.unavailable.is_empty(),
+                "{name}: {:?}",
+                callable.unavailable
+            );
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Completed),
+                "{name}: {:?}",
+                result.limitations
+            );
+        } else {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                result.limitations
+            );
+            if partial_else {
+                assert!(
+                    callable
+                        .unavailable
+                        .iter()
+                        .any(|boundary| boundary.reason.contains("division")
+                            || boundary.reason.contains("partiality")),
+                    "{name}: {:?}",
+                    callable.unavailable
+                );
+            } else {
+                assert!(
+                    callable.unavailable.iter().any(|boundary| boundary.reason
+                        == "false assertion condition aborts evaluation"
+                        && boundary.targets.is_empty()),
+                    "{name}: {:?}",
+                    callable.unavailable
+                );
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
 fn parameter_set_reshape_conditionals_remain_unknown_without_outputs() {
     use zincite_lint::{
         BindingResolution, CallOutcome, DeclarationRole, Domain, Instantiation, SourceKind,
