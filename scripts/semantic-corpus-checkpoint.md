@@ -3188,3 +3188,18 @@ The initial command omitted the formatter package containing the example and
 failed before compilation; its streams are retained separately. The corrected
 command selects both packages and succeeds. Original Routing and Navigation
 comparisons are being prepared; final whole-corpus acceptance remains open.
+
+Root reviewed the Routing24 driver changes and checked its current physical
+prefix: 1,041 compiler/std/model inputs, frozen assets and the four exact
+source deltas match. The original model's Gecode compile-only receipt remains
+valid. The serial native24/companion24 pair is now running with separate
+300-second caps. Current native/companion agreement is required; old/current
+semantic differences remain fully reported. The corrected diagnostic-block
+parser counts actual analysis-limitation headers instead of folding them into
+the preceding warning. The reviewed Navigation24 prefix also passes, including
+all 90 actual source pins; that heavy pair remains unlaunched until Routing.
+
+The original89518 owner confirms its capture is live: 119 of 124 shards have
+closed, covering 6,158 of 6,417 planned roots. Its final report/post-capture
+records remain absent, with all 90 actual source pins matching. Integration
+and final whole-corpus acceptance remain deferred.
