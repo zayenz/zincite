@@ -5059,3 +5059,20 @@ semantic62-gcc-selected-set-extent-release-controls-preparation-v2. Actual main
 formatting, Clippy with warnings denied and all217 workspace tests pass under
 semantic62-gcc-selected-set-extent-main-integration. Remaining IS/BIN/Macc gaps
 and final complete corpus evidence keep base-083 open.
+
+Nested row constraints now inspect the outer table selections and initialized
+integer locals before checking both inner row filters and their local body. The
+prior local identities remain inspection state; they confer no array outputs or
+cell membership. Closed source errors remain explicit.
+
+Matched normal opt3 controls remove the original IS limitation at line403,
+bytes12601..13186, and reveal the separate search warning for sel at line125.
+Original IS changes from96 warnings/117 limitations to97/116; its circuit search
+limitation remains. The public reduction changes from4 warnings/5 limitations to
+5/4, with all fourteen thesis rules complete. All eight native/companion captures
+agree on full26 outcomes, dependencies and drop records. Existing Gecode
+compile-only proofs were reused; no solver ran. Evidence is under
+semantic62-is-nested-row-wrapper-preparation/production-v1/release-controls.
+Actual combined main formatting, Clippy with warnings denied and all218 workspace
+tests pass under semantic62-is-nested-row-main-integration. Remaining circuit,
+BIN and Macc support gaps and final complete corpus evidence keep base-083 open.

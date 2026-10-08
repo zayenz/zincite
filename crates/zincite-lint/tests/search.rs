@@ -8545,3 +8545,160 @@ solve :: int_search(placement, input_order, indomain_min, complete) satisfy;
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn symbolic_nested_row_wrapper_relations_do_not_export_array_outputs() {
+    use zincite_lint::{CallOutcome, Domain};
+    let source = r#"include "globals.mzn";
+
+% Data: symbolic table axes are retained by source analysis.
+set of int: EqualRows;
+set of int: BoundRows;
+set of int: Matches;
+array[EqualRows,1..3] of int: equal_places;
+array[BoundRows,1..4] of int: place_bounds;
+
+array[Matches] of var bool: chosen;
+var bool: gate;
+
+% Rows that require equal places cannot both select disjoint place domains.
+constraint :: "Selected places have compatible domains"
+    redundant_constraint(
+        forall(r in index_set_1of2(equal_places))(
+            let {
+                int: first = equal_places[r,1];
+                int: left_place = equal_places[r,2];
+                int: right_place = equal_places[r,3];
+            } in
+            forall(s in index_set_1of2(place_bounds) where place_bounds[s,2] = left_place)(
+                forall(t in index_set_1of2(place_bounds) where
+                    place_bounds[t,1] = place_bounds[s,1] /\ place_bounds[t,2] = right_place)(
+                    let { int: second = place_bounds[s,1]; } in
+                    card((place_bounds[s,3]..place_bounds[s,4]) intersect
+                         (place_bounds[t,3]..place_bounds[t,4])) = 0 ->
+                        (not chosen[first] \/ not chosen[second])
+                )
+            )
+        )
+    );
+
+solve :: bool_search([gate], input_order, indomain_min, complete) satisfy;
+"#;
+    let (dir, _) = model("nested-row-wrapper-relation", "solve satisfy;", "");
+    std::fs::write(dir.join("root.mzn"), source).unwrap();
+    std::fs::write(dir.join("library/std/globals.mzn"), "").unwrap();
+    let core = CORE.replace(
+        "function var bool: forall(array[int] of var opt bool: body);",
+        "function var bool: forall(array[$T] of var bool: body);",
+    );
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!(
+            "{core}{}",
+            concat!(
+                "function set of $$E: index_set_1of2(array[$$E,$$F] of any $U: x);\n",
+                "function bool: '/\\'(bool: left,bool: right); function set of $T: 'intersect'(set of $T: left,set of $T: right);\n",
+                "function var bool: 'not'(var bool: value); function var bool: '\\/'(var bool: left,var bool: right);\n",
+                "function int: '+'(int: left,int: right); function int: card(set of $T: body); predicate redundant_constraint(var bool: body);\n",
+            ),
+        ),
+    )
+    .unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        ..Default::default()
+    };
+    let context = load_model(dir.join("root.mzn"), &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    assert!(
+        calls
+            .calls
+            .iter()
+            .filter(|call| call.file == 0)
+            .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+        "{:?}",
+        calls.calls
+    );
+    let result = analyze_model(&context, &selected());
+    // The full relation can be inspected without proving unknown cell membership.
+    assert!(
+        matches!(result.rules[0].outcome, RuleOutcome::Completed),
+        "{:?}",
+        result.limitations
+    );
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    let (_, search) = facts(&context);
+    assert_eq!(coverage(&bindings, &search, "gate"), SearchCoverage::Scalar);
+    assert!(matches!(
+        coverage(&bindings, &search, "chosen"),
+        SearchCoverage::Unknown | SearchCoverage::Uncovered
+    ));
+    let chosen = bindings
+        .declarations
+        .iter()
+        .find(|d| d.file == 0 && d.top_level && d.name == "chosen")
+        .unwrap()
+        .id;
+    assert!(
+        !search
+            .searched
+            .iter()
+            .any(|s| s.coverage == SearchCoverage::WholeArray || s.declaration == Some(chosen))
+    );
+    let inst = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let direct = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+    let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+    assert!(
+        !direct
+            .definitions
+            .iter()
+            .chain(&callable.definitions)
+            .any(|d| d.target == chosen),
+        "direct={:?}; callable={:?}",
+        direct.definitions,
+        callable.definitions
+    );
+    // Symbolic rows and an ignored wrapper must not hide a closed table-axis error.
+    let bad_source = source.replace(
+        "array[BoundRows,1..4] of int: place_bounds;",
+        "array[BoundRows,1..(9223372036854775807 + 1)] of int: place_bounds;",
+    );
+    std::fs::write(dir.join("root.mzn"), &bad_source).unwrap();
+    let bad = load_model(dir.join("root.mzn"), &options);
+    assert!(bad.errors.is_empty(), "{:?}", bad.errors);
+    let bad_bindings = resolve_bindings(&bad);
+    let bad_calls = resolve_callables(&bad, &bad_bindings);
+    assert!(
+        bad_calls
+            .calls
+            .iter()
+            .filter(|call| call.file == 0)
+            .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+        "{:?}",
+        bad_calls.calls
+    );
+    let bad_domains = resolve_domains(&bad, &bad_bindings);
+    let table = bad_bindings
+        .declarations
+        .iter()
+        .find(|d| d.file == 0 && d.top_level && d.name == "place_bounds")
+        .unwrap()
+        .id;
+    assert!(
+        matches!(&bad_domains.declarations[table.0].domain, Domain::Array { indices, .. }
+        if indices.len() == 2 && indices[1].numeric_minimum().is_err()),
+        "{:?}",
+        bad_domains.declarations[table.0].domain
+    );
+    let result = analyze_model(&bad, &selected());
+    assert!(
+        matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+        "{:?}",
+        result.limitations
+    );
+    assert!(!result.limitations.is_empty());
+    std::fs::remove_dir_all(dir).unwrap();
+}

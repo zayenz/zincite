@@ -3810,9 +3810,28 @@ impl<'a> Producer<'a> {
                 && self.core(file, quantified, facts, "forall")
             {
                 let parts: Vec<_> = quantified.child_nodes().collect();
+                let nested_rows = parts.get(1).is_some_and(|body| {
+                    let body = unwrap(body);
+                    let Some(first) = body.child_nodes().find(|n| n.kind() != NodeKind::LetBlock)
+                    else {
+                        return false;
+                    };
+                    let first = unwrap(first);
+                    let Some(second) = first.child_nodes().nth(1) else {
+                        return false;
+                    };
+                    let second = unwrap(second);
+                    first.kind() == NodeKind::GeneratorCallExpression
+                        && second.kind() == NodeKind::GeneratorCallExpression
+                        && second
+                            .child_nodes()
+                            .nth(1)
+                            .is_some_and(|inner| unwrap(inner).kind() == NodeKind::LetExpression)
+                });
                 if let [headers, body] = parts.as_slice()
                     && headers.kind() == NodeKind::GeneratorList
-                    && headers.child_nodes().count() == 2
+                    && (headers.child_nodes().count() == 2
+                        || nested_rows && headers.child_nodes().count() == 1)
                     && unwrap(body).kind() == NodeKind::LetExpression
                 {
                     let typed = self.expression_type(facts, file, quantified).map(|e| &e.ty);
@@ -3840,7 +3859,7 @@ impl<'a> Producer<'a> {
                         return Err("redundant constraint row forall signature is unsupported".into());
                     }
                     let generators: Vec<_> = headers.child_nodes().collect();
-                    match self.parameter_row_let_safety(file, body, facts, &generators) {
+                    match self.parameter_row_let_safety(file, body, facts, &generators, &[]) {
                         Some(DefinitionSafety::Unsupported(reason)) => return Err(reason),
                         Some(DefinitionSafety::Unknown(_)) => return Ok(()),
                         _ => {}
@@ -10454,6 +10473,7 @@ impl<'a> Producer<'a> {
         written: &'a SyntaxNode,
         view: &CallableFacts,
         generators: &[&'a SyntaxNode],
+        inspected_locals: &[DeclarationId],
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
         let ty = |value: &SyntaxNode| {
@@ -10466,9 +10486,10 @@ impl<'a> Producer<'a> {
                 && t.kind == TypeKind::Int
                 && t.instantiation == Instantiation::Parameter
         };
+        let nested_rows = generators.len() == 3 && inspected_locals.len() == 3;
         if node.kind() != NodeKind::LetExpression
             || ty(node).is_none_or(|t| !t.known() || optional(t) || t.kind != TypeKind::Bool)
-            || !matches!(generators.len(), 1 | 2)
+            || (!matches!(generators.len(), 1 | 2) && !nested_rows)
             || node
                 .child_nodes()
                 .filter(|n| n.kind() != NodeKind::LetBlock)
@@ -10477,7 +10498,33 @@ impl<'a> Producer<'a> {
         {
             return None;
         }
+        let body = node
+            .child_nodes()
+            .find(|n| n.kind() != NodeKind::LetBlock)?;
+        let first = unwrap(body);
+        let second = first.child_nodes().nth(1).map(unwrap);
+        let nested_body = generators.len() == 1
+            && inspected_locals.is_empty()
+            && first.kind() == NodeKind::GeneratorCallExpression
+            && second.is_some_and(|n| {
+                n.kind() == NodeKind::GeneratorCallExpression
+                    && n.child_nodes()
+                        .nth(1)
+                        .is_some_and(|inner| unwrap(inner).kind() == NodeKind::LetExpression)
+            });
         let dual_rows = generators.len() == 2;
+        let scoped_rows = dual_rows || nested_rows || nested_body;
+        if nested_rows
+            && inspected_locals.iter().any(|id| {
+                let declaration = &self.bindings.declarations[id.0];
+                declaration.file != file
+                    || declaration.role != DeclarationRole::Local
+                    || declaration.syntax_range.end > node.range().start
+                    || !integer(&view.declarations[id.0].ty)
+            })
+        {
+            return None;
+        }
         let integer_set = |t: &TypeInst| {
             t.known()
                 && !optional(t)
@@ -10492,11 +10539,14 @@ impl<'a> Producer<'a> {
                     if indices.len() == 2 && indices.iter().all(integer) && integer(element))
         };
         let mut sources = Vec::new();
-        let mut table = None;
-        for generator in generators {
+        let mut tables = Vec::new();
+        for (position, generator) in generators.iter().enumerate() {
             let source = generator.child_nodes().next()?;
-            if (!dual_rows && generator.child_nodes().count() != 1)
-                || (dual_rows
+            if (!scoped_rows && generator.child_nodes().count() != 1)
+                || (nested_body && generator.child_nodes().count() != 1)
+                || (nested_rows
+                    && generator.child_nodes().count() != if position == 0 { 1 } else { 2 })
+                || (scoped_rows
                     && generator
                         .child_nodes()
                         .skip(1)
@@ -10509,7 +10559,7 @@ impl<'a> Producer<'a> {
             {
                 return None;
             }
-            if dual_rows {
+            if scoped_rows {
                 let binders: Vec<_> = self
                     .bindings
                     .declarations
@@ -10534,7 +10584,9 @@ impl<'a> Producer<'a> {
                         [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
                     || !(owner.role == DeclarationRole::Parameter
                         || owner.role == DeclarationRole::Value && owner.top_level)
-                    || table.is_some_and(|previous| previous != array)
+                    || (dual_rows && tables.first().is_some_and(|previous| *previous != array))
+                    || (nested_rows && position == 1 && tables[0] == array)
+                    || (nested_rows && position == 2 && tables[1] != array)
                     || ty(value).is_none_or(|t| !integer_table(t))
                     || ty(source).is_none_or(|t| !integer_set(t))
                     || self.operation_fact(self.view(file, source, view), file, source).is_none_or(|call|
@@ -10545,7 +10597,7 @@ impl<'a> Producer<'a> {
                 {
                     return None;
                 }
-                table = Some(array);
+                tables.push(array);
             }
             sources.push(source);
         }
@@ -10637,13 +10689,14 @@ impl<'a> Producer<'a> {
                 if !rows.contains(&array) {
                     rows.push(array);
                 }
-                if dual_rows {
-                    locals.push(declaration.id);
-                }
+                locals.push(declaration.id);
                 initializers.push(initializer);
             }
         }
-        if initializers.is_empty() {
+        if initializers.is_empty()
+            || nested_body && locals.len() != 3
+            || nested_rows && locals.len() != 1
+        {
             return None;
         }
         if !crate::definitions::annotations_safe(self.context, file, written)
@@ -10681,7 +10734,7 @@ impl<'a> Producer<'a> {
         }
         // Inspect the exact selected header, every initialized local (including
         // unused ones), and the whole Boolean body in its original lexical scope.
-        if dual_rows {
+        if scoped_rows {
             // Sources see prior headers; each filter also sees its own binder.
             // Check eager errors only after initialized source inspection.
             for (position, generator) in generators.iter().enumerate() {
@@ -10722,21 +10775,91 @@ impl<'a> Producer<'a> {
                             "row filter type or annotation is unsupported".into(),
                         ));
                     }
-                    if let unsupported @ DefinitionSafety::Unsupported(_) = self
-                        .initialized_source_safety(
-                            file,
-                            condition,
-                            view,
-                            &generators[..=position],
-                            &mut Vec::new(),
-                        )
-                    {
-                        return Some(unsupported);
-                    }
-                    if let Some(reason) =
-                        self.closed_integer_source_error(file, condition, true, true)
-                    {
-                        return Some(DefinitionSafety::Unsupported(reason));
+                    if nested_rows {
+                        let range = self.context.files[file].location(condition.range()).range;
+                        if self.bindings.references.iter().any(|reference| {
+                            reference.file == file && reference.kind == ReferenceKind::Value
+                                && range.start <= reference.location.range.start
+                                && reference.location.range.end <= range.end
+                                && matches!(reference.resolution, BindingResolution::Resolved(id)
+                                    if self.bindings.declarations[id.0].role == DeclarationRole::Local
+                                        && !inspected_locals.contains(&id))
+                        }) {
+                            return Some(DefinitionSafety::Unsupported(
+                                "nested row filter has an uninspected local source".into(),
+                            ));
+                        }
+                        let condition = unwrap(condition);
+                        let atoms: Vec<_> = if self.core(file, condition, view, "/\\") {
+                            let parts: Vec<_> = condition.child_nodes().collect();
+                            if parts.len() != 2 || parts.iter().any(|part| ty(part).is_none_or(|t|
+                                !t.known() || optional(t) || t.kind != TypeKind::Bool
+                                    || t.instantiation != Instantiation::Parameter)) || self.operation_fact(self.view(file, condition, view), file, condition)
+                                .is_none_or(|call| !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                                    if parameters.len() == 2 && parameters.iter().chain(std::iter::once(return_type))
+                                        .all(|t| t.known() && !optional(t) && t.kind == TypeKind::Bool
+                                            && t.instantiation == Instantiation::Parameter)
+                                        && Some(return_type) == ty(condition))) {
+                                return Some(DefinitionSafety::Unsupported(
+                                    "nested row conjunction signature is unsupported".into(),
+                                ));
+                            }
+                            parts
+                        } else {
+                            vec![condition]
+                        };
+                        // Both complete comparison atoms are inspected, but the
+                        // closed arithmetic walk never treats a lazy AND as eager.
+                        for atom in atoms {
+                            let atom = unwrap(atom);
+                            if atom.child_nodes().count() != 2
+                                || atom.child_nodes().any(|child| ty(child).is_none_or(|t| !integer(t)))
+                                || !self.core(file, atom, view, "=")
+                                || self.operation_fact(self.view(file, atom, view), file, atom)
+                                    .is_none_or(|call| !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                                        if parameters.len() == 2 && parameters.iter().all(integer)
+                                            && return_type.known() && !optional(return_type)
+                                            && return_type.kind == TypeKind::Bool
+                                            && return_type.instantiation == Instantiation::Parameter
+                                            && Some(return_type) == ty(atom))) {
+                                return Some(DefinitionSafety::Unsupported(
+                                    "nested row comparison signature is unsupported".into(),
+                                ));
+                            }
+                            if let unsupported @ DefinitionSafety::Unsupported(_) = self
+                                .initialized_source_safety(
+                                    file,
+                                    atom,
+                                    view,
+                                    &generators[..=position],
+                                    &mut Vec::new(),
+                                )
+                            {
+                                return Some(unsupported);
+                            }
+                            if let Some(reason) =
+                                self.closed_integer_source_error(file, atom, true, true)
+                            {
+                                return Some(DefinitionSafety::Unsupported(reason));
+                            }
+                        }
+                    } else {
+                        if let unsupported @ DefinitionSafety::Unsupported(_) = self
+                            .initialized_source_safety(
+                                file,
+                                condition,
+                                view,
+                                &generators[..=position],
+                                &mut Vec::new(),
+                            )
+                        {
+                            return Some(unsupported);
+                        }
+                        if let Some(reason) =
+                            self.closed_integer_source_error(file, condition, true, true)
+                        {
+                            return Some(DefinitionSafety::Unsupported(reason));
+                        }
                     }
                 }
             }
@@ -10748,10 +10871,63 @@ impl<'a> Producer<'a> {
         {
             return Some(unsupported);
         }
-        let body = node
-            .child_nodes()
-            .find(|n| n.kind() != NodeKind::LetBlock)?;
-        if dual_rows {
+        if nested_body || nested_rows {
+            for initializer in &initializers {
+                if let Some(reason) =
+                    self.closed_integer_source_error(file, initializer, true, true)
+                {
+                    return Some(DefinitionSafety::Unsupported(reason));
+                }
+            }
+        }
+        if nested_body {
+            let quantified = |value: &'a SyntaxNode| -> Option<(&'a SyntaxNode, &'a SyntaxNode)> {
+                let value = unwrap(value);
+                let parts: Vec<_> = value.child_nodes().collect();
+                let [headers, body] = parts.as_slice() else {
+                    return None;
+                };
+                if value.kind() != NodeKind::GeneratorCallExpression
+                    || headers.kind() != NodeKind::GeneratorList || headers.child_nodes().count() != 1
+                    || !self.core(file, value, view, "forall")
+                    || !crate::definitions::annotations_safe(self.context, file, value)
+                    || self.operation_fact(self.view(file, value, view), file, value).is_none_or(|call|
+                        !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                            if parameters.len() == 1 && return_type.known() && !optional(return_type)
+                                && return_type.kind == TypeKind::Bool && return_type.instantiation == Instantiation::Decision
+                                && Some(return_type) == ty(value) && parameters[0].known() && !optional(&parameters[0])
+                                && parameters[0].instantiation == Instantiation::Decision
+                                && matches!(&parameters[0].kind, TypeKind::Array { indices, element }
+                                    if indices.len() == 1 && integer(&indices[0]) && element.known() && !optional(element)
+                                        && element.kind == TypeKind::Bool && element.instantiation == Instantiation::Decision
+                                        && ty(body).is_some_and(|actual| actual.known() && !optional(actual)
+                                            && crate::types::coerces(actual, element))))) {
+                    return None;
+                }
+                Some((headers.child_nodes().next()?, *body))
+            };
+            let Some((first_header, second)) = quantified(body) else {
+                return Some(DefinitionSafety::Unsupported(
+                    "nested row forall signature is unsupported".into(),
+                ));
+            };
+            let Some((second_header, inner)) = quantified(second) else {
+                return Some(DefinitionSafety::Unsupported(
+                    "nested row forall signature is unsupported".into(),
+                ));
+            };
+            let mut lexical = generators.to_vec();
+            lexical.extend([first_header, second_header]);
+            // The inner let may use only these already fully inspected prior
+            // Local identities. This is inspection state, never output facts.
+            return Some(
+                self.parameter_row_let_safety(file, inner, view, &lexical, &locals)
+                    .unwrap_or_else(|| {
+                        DefinitionSafety::Unsupported("nested row let scope is unsupported".into())
+                    }),
+            );
+        }
+        if dual_rows || nested_rows {
             let range = self.context.files[file].location(body.range()).range;
             for reference in self.bindings.references.iter().filter(|r| {
                 r.file == file
@@ -10761,7 +10937,7 @@ impl<'a> Producer<'a> {
             }) {
                 if let BindingResolution::Resolved(id) = reference.resolution
                     && self.bindings.declarations[id.0].role == DeclarationRole::Local
-                    && (!locals.contains(&id)
+                    && (!locals.contains(&id) && !inspected_locals.contains(&id)
                         || self.bindings.declarations[id.0].syntax_range.end
                             + self.context.files[file].byte_offset
                             > reference.location.range.start)
@@ -11334,7 +11510,7 @@ impl<'a> Producer<'a> {
             Ok(_) => return aggregate.unwrap_or(DefinitionSafety::Supported),
             Err(reason) => reason,
         };
-        if let Some(safety) = self.parameter_row_let_safety(file, node, view, generators) {
+        if let Some(safety) = self.parameter_row_let_safety(file, node, view, generators, &[]) {
             return safety;
         }
         if let Some(safety) = self.parameter_set_extremum_safety(file, node, view, generators) {
