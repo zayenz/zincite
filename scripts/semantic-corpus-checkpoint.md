@@ -3671,3 +3671,11 @@ speed ratio is claimed. Full streams/current pins/empty reaped groups and exact
 parity are checked in `semantic62-cellda-width30-31-controls/root-audit.json`.
 These controls demonstrate local repeated-work reduction; original Cellda31 and
 remaining originals/fresh full6417-root acceptance are still required.
+
+Normal31 original Pentominoes native/companion recheck completes all14 thesis
+rules. Complete all26 analysis/source/drop and full diagnostics/status equal26,
+with10 warnings, zero errors and three non-thesis limitations. Original+02.dzn
+compiler-positive evidence stays unchanged. Current original/std/106 source/assets,
+full streams and reaped empty groups are independently checked in
+`semantic62-pentominoes31-direct-control/root-audit.json`. This is a focused
+original regression check after invariant memo reuse, not final corpus acceptance.
