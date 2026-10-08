@@ -527,6 +527,8 @@ fn supplied_expression_order_and_duplicate_types_keep_any_match_bounds() {
     let bindings = resolve_bindings(&context);
     let mut calls = resolve_callables(&context, &bindings);
     let domains = resolve_domains(&context, &bindings);
+    let inst = resolve_instantiations(&context, &bindings, &calls);
+    let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
     let file = context.root_file.unwrap();
     let target = calls
         .expressions
@@ -539,12 +541,13 @@ fn supplied_expression_order_and_duplicate_types_keep_any_match_bounds() {
         .expressions
         .retain(|e| e.file != file || e.location.range != target.location.range);
     calls.expressions.reverse();
-    let mut wrong_file = target.clone();
-    wrong_file.file = context
+    let included_file = context
         .files
         .iter()
         .position(|f| f.path.ends_with("included.mzn"))
         .unwrap();
+    let mut wrong_file = target.clone();
+    wrong_file.file = included_file;
     let mut wrong_type = target.clone();
     wrong_type.ty.kind = zincite_lint::TypeKind::Bool;
     calls.expressions.insert(0, wrong_file);
@@ -562,6 +565,7 @@ fn supplied_expression_order_and_duplicate_types_keep_any_match_bounds() {
     ] {
         let mut eligible = target.clone();
         eligible.ty.kind = kind;
+        calls.expressions.push(eligible.clone());
         calls.expressions.push(eligible);
         let bounds = resolve_integer_bounds(&context, &bindings, &calls, &domains);
         let value = bounds
@@ -573,7 +577,69 @@ fn supplied_expression_order_and_duplicate_types_keep_any_match_bounds() {
             value.outcome,
             IntegerBoundsOutcome::Known { lower: 7, upper: 7 }
         );
+        let values =
+            resolve_numeric_facts(&context, &bindings, &calls, &inst, &domains, &definitions);
+        let expected: Vec<_> = calls
+            .expressions
+            .iter()
+            .filter(|e| {
+                context.files[e.file].warnings_enabled()
+                    && matches!(
+                        e.ty.kind,
+                        zincite_lint::TypeKind::Int
+                            | zincite_lint::TypeKind::Float
+                            | zincite_lint::TypeKind::Unknown(_)
+                    )
+                    && !(e.file == included_file && e.location.range == target.location.range)
+            })
+            .map(|e| (e.file, e.location.clone()))
+            .collect();
+        assert_eq!(
+            values
+                .expressions
+                .iter()
+                .map(|e| (e.file, e.location.clone()))
+                .collect::<Vec<_>>(),
+            expected
+        );
+        let duplicates: Vec<_> = values
+            .expressions
+            .iter()
+            .filter(|e| e.file == file && e.location.range == target.location.range)
+            .collect();
+        assert_eq!(duplicates.len(), 2);
+        assert!(
+            duplicates
+                .iter()
+                .all(|e| e.outcome == NumericOutcome::Exact(7))
+        );
+        assert!(values.expressions.iter().any(|e| {
+            e.file == included_file
+                && text(&context, e.file, &e.location) == "7"
+                && e.outcome == NumericOutcome::Exact(7)
+        }));
+        calls.expressions.pop();
         calls.expressions.pop();
     }
+    calls.expressions.push(target.clone());
+    calls.expressions[0].ty.optional = true;
+    let values = resolve_numeric_facts(&context, &bindings, &calls, &inst, &domains, &definitions);
+    assert!(values.expressions.iter().any(|e| {
+        e.file == file
+            && e.location.range == target.location.range
+            && matches!(&e.outcome, NumericOutcome::Unsupported(reason) if reason.contains("presence"))
+    }));
+    calls.expressions[0].ty.optional = false;
+    calls.expressions[0].ty.kind = zincite_lint::TypeKind::Float;
+    let values = resolve_numeric_facts(&context, &bindings, &calls, &inst, &domains, &definitions);
+    let duplicates: Vec<_> = values
+        .expressions
+        .iter()
+        .filter(|e| e.file == file && e.location.range == target.location.range)
+        .collect();
+    assert_eq!(duplicates.len(), 2);
+    assert!(duplicates.iter().all(|e| {
+        matches!(&e.outcome, NumericOutcome::Unsupported(reason) if reason.contains("floating-point"))
+    }));
     std::fs::remove_dir_all(dir).unwrap();
 }

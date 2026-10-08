@@ -3535,3 +3535,31 @@ zero. Type availability now permits additional findings, so warning counts are
 not forced to historical equality. Root independently checks full streams, pins
 and reaped empty groups. Evidence is `semantic62-sparse28-direct-control/root-audit.json`.
 The remaining search definitions/membership facts require further work.
+
+The final numeric-expression pass now indexes first-preorder CST nodes once and
+reuses flat outcomes only after declaration interpretation. It preserves supplied
+row order/duplicates, file/BOM offsets, NodeKind distinctions and all existing
+checked evaluation. Active declaration recursion bypasses memo; a new declaration
+cache fill disables it permanently; Symbolic trees are never retained in memo.
+Integer-bounds and the uncached evaluator body remain unchanged. Baseline and
+candidate numeric groups pass, then actual workspace fmt/Clippy/194 tests pass
+with independently checked full streams/source pins and empty reaped groups.
+Normal29's complete opt3 build/22 libraries/106 source files are audited.
+
+All four same-input normal29 width controls complete, with exact baseline24 source,
+all26 analysis, manifest/drop and full native/companion diagnostics/status equality.
+Width32/256 whole-analyze allocations become2,324,655/44,257,189 (baseline
+3,087,078/92,564,954); requested bytes267,874,070/3,554,653,516 (baseline
+308,935,118/6,255,214,532). Native CPU0.777/4.228 seconds versus0.836/8.040.
+Retained and peak analyze deltas are unchanged; native RSS is not reduced in these
+two observations. Evidence is `semantic62-cellda-width29-controls/root-audit.json`.
+This confirms a material repeated-work reduction without claiming linear growth
+or per-producer allocation attribution. Original Cellda's unchanged300-second
+controls and full-task acceptance remain pending.
+
+The Routing182 logging-only diagnostic completes with the existing search
+limitation. Its64-record cap is reached before the final whole-source trace;
+early logs identify reflected 2D selections and ordinary symbolic uncertainty,
+not a proven final repair. Source/streams/groups are independently checked in
+`semantic62-routing182-diagnostic-preparation/capture/root-audit.json`. No logging
+exists in normal29/main. A narrower diagnosis remains necessary.

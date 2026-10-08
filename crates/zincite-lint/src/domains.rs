@@ -1288,6 +1288,39 @@ pub fn resolve_numeric_facts(
             outcome,
         });
     }
+    // Preserve the first preorder expression for each retained range, including
+    // duplicate supplied rows, without restarting at the file root for each row.
+    let mut expression_nodes = vec![None; calls.expressions.len()];
+    for (file, source) in context.files.iter().enumerate() {
+        if !source.warnings_enabled() || !source.parsed.diagnostics().is_empty() {
+            continue;
+        }
+        let mut pending = vec![source.parsed.tree()];
+        while let Some(node) = pending.pop() {
+            if crate::callables::is_expression(node.kind()) {
+                let range = node.range();
+                let key = (
+                    file,
+                    range.start + source.byte_offset,
+                    range.end + source.byte_offset,
+                );
+                if let Some(&row) = interpreter.expression_indices.get(&key) {
+                    expression_nodes[row].get_or_insert(node);
+                }
+            }
+            pending.extend(
+                node.children()
+                    .iter()
+                    .rev()
+                    .filter_map(|child| match child {
+                        SyntaxElement::Node(node) => Some(node),
+                        SyntaxElement::Token(_) => None,
+                    }),
+            );
+        }
+    }
+    // Only this final pass reuses flat outcomes after declaration interpretation.
+    interpreter.expression_memo = Some(vec![None; calls.expressions.len()]);
     for expression in &calls.expressions {
         let source = &context.files[expression.file];
         if !source.warnings_enabled()
@@ -1299,9 +1332,16 @@ pub fn resolve_numeric_facts(
         {
             continue;
         }
-        let range = expression.location.range.start - source.byte_offset
-            ..expression.location.range.end - source.byte_offset;
-        let Some(node) = expression_node(source.parsed.tree(), &range) else {
+        let key = (
+            expression.file,
+            expression.location.range.start,
+            expression.location.range.end,
+        );
+        let Some(node) = interpreter
+            .expression_indices
+            .get(&key)
+            .and_then(|&row| expression_nodes[row])
+        else {
             continue;
         };
         let outcome = interpreter.expression(expression.file, node);
@@ -1511,6 +1551,7 @@ struct Bounds<'a> {
     reference_indices: HashMap<(FileId, usize), usize>,
     call_indices: HashMap<(FileId, usize), usize>,
     expression_indices: HashMap<(FileId, usize, usize), usize>,
+    expression_memo: Option<Vec<Option<(NodeKind, NumericOutcome)>>>,
     float_locations: HashSet<(FileId, usize, usize)>,
     value_reference_indices: Vec<Vec<usize>>,
     context: &'a ModelContext,
@@ -1573,6 +1614,7 @@ impl<'a> Bounds<'a> {
             reference_indices,
             call_indices,
             expression_indices,
+            expression_memo: None,
             float_locations,
             value_reference_indices,
             context,
@@ -1796,6 +1838,39 @@ impl<'a> Bounds<'a> {
         )
     }
     fn expression(&mut self, file: FileId, node: &SyntaxNode) -> NumericOutcome {
+        if !self.active.is_empty() || self.expression_memo.is_none() {
+            return self.expression_uncached(file, node);
+        }
+        let source = &self.context.files[file];
+        let range = node.range();
+        let row = self
+            .expression_indices
+            .get(&(
+                file,
+                range.start + source.byte_offset,
+                range.end + source.byte_offset,
+            ))
+            .copied();
+        if let Some(row) = row
+            && let Some(memo) = self.expression_memo.as_ref()
+            && let Some((kind, outcome)) = &memo[row]
+            && *kind == node.kind()
+        {
+            return outcome.clone();
+        }
+        let outcome = self.expression_uncached(file, node);
+        // Symbolic trees can grow with every prefix. A lazy declaration fill
+        // disables reuse permanently, so a previously unknown value cannot stick.
+        if !matches!(&outcome, NumericOutcome::Symbolic { .. })
+            && self.active.is_empty()
+            && let Some(row) = row
+            && let Some(memo) = self.expression_memo.as_mut()
+        {
+            memo[row] = Some((node.kind(), outcome.clone()));
+        }
+        outcome
+    }
+    fn expression_uncached(&mut self, file: FileId, node: &SyntaxNode) -> NumericOutcome {
         use NumericOutcome::*;
         let range = self.context.files[file].location(node.range()).range;
         let key = (file, range.start, range.end);
@@ -2140,6 +2215,7 @@ impl<'a> Bounds<'a> {
                 .unwrap_or(required)
         };
         self.active.pop();
+        self.expression_memo = None;
         self.declarations[id.0] = Some(value.clone());
         value
     }
