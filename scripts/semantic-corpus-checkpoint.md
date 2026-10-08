@@ -3874,3 +3874,22 @@ are preserved. Formatting,Clippy and workspace tests pass (194 tests/42 summarie
 with full streams/current106 main sources/helpers and all three empty reaped
 groups checked in actual-workspace-gates/root-audit.json. Current release/public/
 original CTW controls and final full-corpus acceptance remain pending.
+
+Normal33 release uses fresh106 copies equal to committed main; full Cargo
+streams,opt3 artifacts,two binaries/22 libraries,current main/copy pins and
+empty reaped group are checked in semantic62-combined33-release/root-build-audit.json.
+The unchanged compiler-positive CTW public reduction completes all14 thesis
+analyses with the real standard library: two warnings,zero errors and one
+non-thesis vacuous-constraint limitation. Its484 loaded files,full streams,
+current compiler/public/std/assets/helpers and complete all26/root/drop
+accounting are checked in normal33-public-probe/root-audit.json.
+
+Original CTW normal33 native/companion finish (2.705/2.412 seconds) with all14
+thesis Completed,18 warnings,zero errors and six non-thesis limitations. Full
+diagnostic/status parity,current original+A031 compiler-positive prerequisite,
+std/compiler/main106/assets/helpers,all26/source/drop accounting and both empty
+reaped groups are checked in semantic62-ctw33-direct-control/root-audit.json.
+Compared with30,the observed search/unbounded source-inspection limitations
+are removed and the genuinely uncovered auxiliary array receives search advice.
+This closes focused CTW thesis coverage; macc/other originals and the fresh
+final complete corpus still keep whole-task acceptance open.
