@@ -4053,3 +4053,39 @@ sources/helpers,full streams and three empty reaped groups are checked in that
 preparation directory's actual-workspace-gates/root-audit.json. No original
 crossword acceptance,preservation example,raw lint loading/fixes or final
 corpus result is inferred from the synthetic CLI check; those remain open.
+
+Fresh normal35 release includes the formatter byte CLI. Current main108/
+copied108,opt3 Cargo events,three binaries,22 libraries,full streams and
+the empty reaped build group are checked in
+semantic62-combined35-release/root-build-audit.json. All five compiler-positive
+original crossword data inputs format successfully,retain each opaque trailing
+block exactly once and retain all invalid byte values,then format identically
+on a second stdin pass using the original path/mode/settings. Their formatted
+.dzn copies compile with Gecode without solving. Every FlatZinc body is byte-
+identical to the original compile after excluding exactly one checked command-
+invocation comment header; each header matches its actual captured argv. All
+five OZN files are byte-identical. Full original/std/compiler/main108/release/
+helper and generated-artifact pins,complete streams and15 empty reaped groups
+are checked in semantic62-crosswords35-format-control-v3/root-audit.json.
+V1 used a .stdout extension rejected by MiniZinc; V2 revealed the expected
+command-header difference. Those harness failures exclude no original inputs.
+Single formatter observations span .120.. .809 seconds and84..566 MiB RSS
+for .91..5.99 MB sources. These are not save p95 samples or an efficiency pass;
+the sub-MiB case needs the brief's bounded stdin/save budget check,including
+its observed84 MiB peak. Raw token/CST/protected preservation-example checks,
+raw lint loading/fixes and final corpus acceptance remain open.
+
+The pillars V1 discrepancy is explained by Search policy: bare searches cover
+all four position arrays and suppress unavailable-wrapper rows whose targets
+are already covered. Original conditional-body comprehensions supply no
+whole-array seed. V2 faithfully retains two alternating-coordinate,two-binder
+conditional searches and checks raw callable.unavailable before Search policy.
+V2 compiles with Gecode without solving (.263s) and reproduces a raw-producer
+RED at line2515 after exact selected wrapper/max/++ preflights: three wrapper
+rows at648..840,878..1124,1260..1303 remain unavailable. Full107 scratch/
+public/std/compiler/helper pins,streams,FZN/OZN and empty reaped groups are
+checked in semantic62-pillars-current-gap-preparation/v2/{compiler-positive,
+focused-red}/root-audit.json. Its frozen tests/public sources remain separate
+from main; a scoped ignored-wrapper/extrema inspection increment is assigned
+against this genuine RED. Neither conditional searches nor ignored constraints
+may gain whole-array or output certificates.
