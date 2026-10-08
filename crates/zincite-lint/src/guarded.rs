@@ -1944,7 +1944,7 @@ impl<'a> Producer<'a> {
             let domain = if inspected_concatenation {
                 Domain::Unknown
             } else {
-                self.domain(file, source)
+                self.generator_domain(file, source)
             };
             let is_membership = tokens(&self.context.files[file].parsed, generator)
                 .iter()
@@ -2852,6 +2852,61 @@ impl<'a> Producer<'a> {
     fn domain(&self, file: FileId, node: &SyntaxNode) -> Domain {
         self.index_domain(file, unwrap(node))
             .unwrap_or_else(|| expression_domain(self.context, self.bindings, file, node))
+    }
+    // Only an independent named top-level source can use its call-aware row.
+    // Other generator forms keep the original bounded-domain interpretation.
+    fn generator_domain(&self, file: FileId, node: &'a SyntaxNode) -> Domain {
+        let source = unwrap(node);
+        let typed_source = (|| {
+            if source.kind() != NodeKind::Expression || source.child_nodes().next().is_some() {
+                return None;
+            }
+            if !matches!(tokens(&self.context.files[file].parsed, source).as_slice(),
+                [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+            {
+                return None;
+            }
+            let id = self.reference(file, source)?;
+            let declaration = &self.bindings.declarations[id.0];
+            let typed = self.calls.declarations.get(id.0)?;
+            if !declaration.top_level
+                || declaration.role != crate::DeclarationRole::Value
+                || declaration.instantiation != Instantiation::Parameter
+                || typed.declaration != id
+                || !typed.ty.known()
+                || crate::value_safety::optional(&typed.ty)
+                || typed.ty.instantiation != Instantiation::Parameter
+                || !matches!(&typed.ty.kind, TypeKind::Set(element)
+                    if element.known() && !crate::value_safety::optional(element)
+                        && element.instantiation == Instantiation::Parameter
+                        && element.kind == TypeKind::Int)
+            {
+                return None;
+            }
+            let row = self.domains.declarations.get(id.0)?;
+            if row.declaration != id || !crate::definitions::uninspected_union(&row.domain) {
+                return None;
+            }
+            Some(Domain::Named {
+                declaration: id,
+                domain: Box::new(row.domain.clone()),
+            })
+        })();
+        let Some(domain) = typed_source else {
+            return self.domain(file, node);
+        };
+        // The source resolves to a top-level value, so enclosing binders cannot
+        // supply its initializer context. Its own binders are inspected normally.
+        crate::definitions::inspect_union_domain(
+            self.context,
+            self.bindings,
+            (self.calls, self.calls),
+            self.instantiations,
+            self.domains,
+            (file, node, &[]),
+            &domain,
+        )
+        .unwrap_or_else(Domain::Unsupported)
     }
     fn replaceable_set(&self, domain: &Domain) -> bool {
         match domain {

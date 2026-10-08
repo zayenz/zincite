@@ -269,3 +269,234 @@ fn enum_identity_unknown_data_and_unsupported_slices_have_distinct_outcomes() {
     );
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn initialized_boundary_unions_keep_unproved_indices_quiet() {
+    let source = r#"% Symbolic parameters remain unassigned during lint analysis.
+int: row_count;
+int: column_count;
+int: step_count;
+
+set of int: Rows = 0..row_count - 1;
+set of int: Columns = 0..column_count - 1;
+set of int: Cells = 0..row_count * column_count - 1;
+set of int: Outside = -2..-1;
+set of int: Places = Cells union Outside;
+set of int: Steps = 0..step_count - 1;
+
+array[Rows, Columns] of Cells: grid = array2d(Rows, Columns,
+    [r * column_count + c | r in Rows, c in Columns]
+);
+set of Cells: Border = {grid[r, 0] | r in Rows}
+    union {grid[r, column_count - 1] | r in Rows};
+
+array[Steps, Places] of var 0..1: levels;
+array[Steps, Places] of var 0..1: fixed_levels;
+
+% This selects a boundary subset, not every place in the declared array.
+constraint :: "Boundary cells remain empty"
+forall (t in Steps, p in Border) (
+    levels[t, p] = 0
+);
+
+% A same-axis control must keep its whole-array constant-variable advice.
+constraint :: "Every fixed level is empty"
+forall (t in Steps, p in Places) (
+    fixed_levels[t, p] = 0
+);
+
+solve satisfy;
+"#;
+    let dir = std::env::temp_dir().join(format!(
+        "zincite-index-mismatch-boundary-union-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        concat!(
+            "function set of $T: 'union'(set of $T: x,set of $T: y);\n",
+            "function set of $$E: '..'($$E: x,$$E: y);\n",
+            "function int: '-'(int: x,int: y); function int: '-'(int: x);\n",
+            "function int: '+'(int: x,int: y); function int: '*'(int: x,int: y);\n",
+            "function var bool: '='(any $T: x,any $T: y);\n",
+            "function var bool: forall(array[$T] of var bool: body);\n",
+            "function array[$$E,$$F] of any $V: array2d(set of $$E: rows,set of $$F: columns,array[$U] of any $V: values);\n",
+        ),
+    ).unwrap();
+    let root = dir.join("root.mzn");
+    std::fs::write(&root, source).unwrap();
+    let options = ModelOptions {
+        include_dirs: Vec::new(),
+        stdlib_dir: Some(dir.join("library")),
+    };
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let parameter_int = |ty: &TypeInst| {
+        !ty.optional && ty.instantiation == Instantiation::Parameter && ty.kind == TypeKind::Int
+    };
+    let parameter_set_int = |ty: &TypeInst| {
+        !ty.optional
+            && ty.instantiation == Instantiation::Parameter
+            && matches!(&ty.kind, TypeKind::Set(element) if parameter_int(element))
+    };
+    let union_calls: Vec<_> = calls
+        .calls
+        .iter()
+        .filter(|call| call.location.path == root && call.name == "union")
+        .collect();
+    assert_eq!(union_calls.len(), 2);
+    for call in union_calls {
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &call.outcome
+        else {
+            panic!("union prerequisite: {:?}", call.outcome);
+        };
+        let selected = &bindings.declarations[declaration.0];
+        assert_eq!(selected.name, "union");
+        assert_eq!(
+            context.files[selected.file].kind,
+            SourceKind::StandardLibrary
+        );
+        assert!(context.files[selected.file].implicit);
+        assert_eq!(parameters.len(), 2);
+        assert!(parameters.iter().all(parameter_set_int) && parameter_set_int(return_type));
+    }
+    let border = bindings
+        .declarations
+        .iter()
+        .find(|d| d.location.path == root && d.top_level && d.name == "Border")
+        .unwrap();
+    assert_eq!(border.role, DeclarationRole::Value);
+    let typed_border = &calls.declarations[border.id.0];
+    assert_eq!(typed_border.declaration, border.id);
+    assert!(parameter_set_int(&typed_border.ty));
+    for name in ["Cells", "Outside"] {
+        let id = bindings
+            .declarations
+            .iter()
+            .find(|d| d.location.path == root && d.top_level && d.name == name)
+            .unwrap()
+            .id;
+        assert_eq!(calls.declarations[id.0].declaration, id);
+        assert!(parameter_set_int(&calls.declarations[id.0].ty));
+    }
+    let (root_file, owning_source) = context
+        .files
+        .iter()
+        .enumerate()
+        .find(|(_, file)| file.path == root)
+        .unwrap();
+    for operand in [
+        "{grid[r, 0] | r in Rows}",
+        "{grid[r, column_count - 1] | r in Rows}",
+    ] {
+        let mut nodes = vec![owning_source.parsed.tree()];
+        let mut matches = Vec::new();
+        while let Some(node) = nodes.pop() {
+            if node.kind() == zincite_syntax::NodeKind::SetComprehension
+                && owning_source.parsed.source()[node.range()].trim() == operand
+            {
+                matches.push(node);
+            }
+            nodes.extend(node.child_nodes());
+        }
+        assert_eq!(
+            matches.len(),
+            1,
+            "expected one CST set comprehension for {operand:?}"
+        );
+        let location = owning_source.location(matches[0].range());
+        let actual = calls
+            .expressions
+            .iter()
+            .find(|expression| {
+                expression.file == root_file && expression.location.range == location.range
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing expression fact for {operand:?} at {location:?}; root facts: {:?}",
+                    calls
+                        .expressions
+                        .iter()
+                        .filter(|expression| expression.file == root_file)
+                        .map(|expression| (&expression.location.range, &expression.ty))
+                        .collect::<Vec<_>>()
+                )
+            });
+        assert!(parameter_set_int(&actual.ty), "{actual:?}");
+    }
+    let border_use = source.find("p in Border").unwrap() + "p in ".len();
+    let reference = bindings
+        .references
+        .iter()
+        .find(|reference| {
+            reference.location.path == root
+                && reference.location.range.start == border_use
+                && reference.kind == ReferenceKind::Value
+        })
+        .unwrap();
+    assert_eq!(reference.resolution, BindingResolution::Resolved(border.id));
+    assert!(
+        calls
+            .calls
+            .iter()
+            .filter(|call| call.location.path == root)
+            .all(|call| {
+                matches!(
+                    call.outcome,
+                    CallOutcome::Resolved { .. } | CallOutcome::Intrinsic { .. }
+                )
+            }),
+        "{:?}",
+        calls.calls
+    );
+
+    // A supported symbolic source remains quiet without a membership warning.
+    // Data used for compiler acceptance is deliberately not loaded.
+    let selected = LintOptions::from_selection("index-set-mismatch").unwrap();
+    let result = analyze_model(&context, &selected);
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert_eq!(
+        result.rules[0].outcome,
+        RuleOutcome::Completed,
+        "{result:?}"
+    );
+    assert!(
+        result.findings.is_empty() && result.limitations.is_empty(),
+        "{result:?}"
+    );
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+
+    // Symbolic iteration cannot conceal an independently closed bad head.
+    let hazardous = source.replace("grid[r, 0]", "9223372036854775807 + 1");
+    assert_ne!(hazardous, source);
+    std::fs::write(&root, &hazardous).unwrap();
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let result = analyze_model(&context, &selected);
+    assert!(
+        result.errors.is_empty() && result.findings.is_empty(),
+        "{result:?}"
+    );
+    assert!(
+        matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+        "{result:?}"
+    );
+    assert!(
+        result.limitations.iter().any(|limit| {
+            limit.location.path == root
+                && &hazardous[limit.location.range.clone()] == "levels[t, p]"
+                && limit.message.contains("integer arithmetic overflow")
+        }),
+        "{:?}",
+        result.limitations
+    );
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), hazardous);
+    std::fs::remove_dir_all(dir).unwrap();
+}

@@ -937,7 +937,7 @@ pub(super) fn complete_array_coverage<'a>(
     }
     DefinitionCoverage::WholeArray
 }
-fn uninspected_union(domain: &Domain) -> bool {
+pub(super) fn uninspected_union(domain: &Domain) -> bool {
     match domain {
         Domain::Named { domain, .. } => uninspected_union(domain),
         Domain::Unsupported(reason) => reason == UNINSPECTED_UNION_COMPREHENSION,
@@ -970,7 +970,7 @@ fn union_axis_source<'a>(
     }
     None
 }
-fn inspect_union_domain<'a>(
+pub(super) fn inspect_union_domain<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
     callables: (&'a CallableFacts, &'a CallableFacts),

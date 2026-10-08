@@ -4755,3 +4755,20 @@ The completion assertion fails before later numeric/iteration and empty-set or
 overflow checks. This genuine behavioral RED is retained under semantic62-macc34-
 extrema-test-preparation/root-red/runtime/root-audit.json; a bounded repair is
 private work, with no main implementation claim yet.
+
+Named initialized union generators now reuse their fully inspected call-aware
+domain row and retain named Unknown membership. The exact deferred marker,
+present parameter integer-set type and top-level declaration identity gate this
+route; other sources keep the previous interpretation. The focused boundary
+test and overflow negative, existing guarded/index/iteration consumers, combined
+workspace gates and actual main gates pass (207 tests in the combined source).
+
+Fresh Gecode compile-only and native/companion all26 controls make boundary-union
+fully Completed with its same seven warnings. Original MACC retains115warnings
+and no errors, with limitations105->101: exactly four IndexSetMismatch union-source
+limitations disappear at3054..3069,6993..7012,7023..7050 and9022..9047, with no new
+diagnostic lines. Other original gaps remain. The current combined opt3 release,
+four assets/22libraries/108sources,42 controls, complete per-rule partitions,
+scope drops and unchanged original/std inputs are independently audited under
+semantic62-weighted-boundary-release-control-preparation. Actual main source and
+gates are retained under semantic62-weighted-boundary-main-integration.
