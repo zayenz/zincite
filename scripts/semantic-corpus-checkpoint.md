@@ -3433,3 +3433,31 @@ Routing repair, so the difference is being diagnosed before this local-axis
 change is accepted or committed. Evidence is `semantic62-current26-workspace-gates/`
 and `semantic62-current26-local-focused/`. The candidate remains uncommitted;
 base-083 acceptance stays open.
+
+The apparent integrated Pentominoes failure was a stale main library artifact.
+A fresh exact-source diagnostic copy passes, then passes again without logging;
+the old main rlib lacks the helper symbol. Root cleared only the lint package's
+build artifacts, confirmed all48 frozen24/25 library/binary assets unchanged,
+and rebuilt the actual test successfully. No Equality semantic change was needed.
+Separately, a new element-domain overflow counterexample genuinely fails fresh
+source with no limitation. V3 adds the same discarded-value error veto to the
+retained element domain, alongside the existing axes/header checks.
+
+The final local-axis repair and all three closed-overflow counterchecks now pass
+actual workspace validation: fmt, Clippy and193 tests across42 summaries, with
+zero failures. Root checked complete streams/terminal receipts and all106 source/
+fixture pins before, after and currently. Evidence is
+`semantic62-current26-v3-actual-workspace-gates/`, including `root-audit.json`.
+Only array_indices.rs and the existing domains regression change for this repair;
+no domain bounds, membership, parameter defaults or output guarantees are added.
+The corrected four-cell Routing fixture also passes these complete checks.
+Fresh original Pentominoes outcomes and final full-corpus validation remain pending.
+
+Root independently reparsed all837 raw sample-tree rows and checked every
+immediate-child subtotal. The80 disjoint samples partition between two numeric-
+fact call sites:61 evaluating bounds and19 locating expression nodes. Source
+review confirms repeated evaluation of left-associated numeric prefixes and
+repeated root-to-range lookup. This is a concrete repeated-work mechanism, not
+a measured whole-run share or allocation volume. A small public32/256-term
+fixed-constraint-count growth control is being prepared before a performance
+repair; the original Cellda cutoff remains explicit.

@@ -236,4 +236,79 @@ fn empty_unknown_and_unsupported_domains_have_distinct_outcomes() {
         RuleOutcome::Limited { .. }
     ));
     std::fs::remove_dir_all(directory).unwrap();
+
+    let source = concat!(
+        "int: ntiles; array[1..ntiles,1..5] of int: tiles;\n",
+        "int: Q=1; int: S=2;\n",
+        "constraint forall(t in 1..ntiles)(let {\n",
+        "  int: q=tiles[t,Q]; int: s=tiles[t,S];\n",
+        "  array[1..q,1..s] of int: d=array2d(1..q,1..s,[0 | i in 1..q,j in 1..s]);\n",
+        "} in true); solve satisfy;\n",
+    );
+    let (directory, _) = model("local-selection-axis", source);
+    std::fs::write(
+        directory.join("library/std/stdlib.mzn"),
+        concat!(
+            "predicate forall(array[int] of var bool: values);\n",
+            "function set of int: '..'(int: left,int: right);\n",
+            "function int: '+'(int: left,int: right);\n",
+            "function array[$A,$B] of int: array2d(set of $A: rows,set of $B: columns,array[int] of int: values);\n",
+        ),
+    )
+    .unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(directory.join("library")),
+        include_dirs: Vec::new(),
+    };
+    let context = load_model(directory.join("root.mzn"), &options);
+    let result = analyze_model(&context, &selected());
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(result.findings.is_empty(), "{:?}", result.findings);
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+
+    let out_of_bounds = source.replace("q=tiles[t,Q]", "q=tiles[t,6]");
+    std::fs::write(directory.join("root.mzn"), &out_of_bounds).unwrap();
+    let context = load_model(directory.join("root.mzn"), &options);
+    let result = analyze_model(&context, &selected());
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(result.findings.is_empty(), "{:?}", result.findings);
+    assert_eq!(
+        result
+            .limitations
+            .iter()
+            .map(|limit| &out_of_bounds[limit.location.range.clone()])
+            .collect::<Vec<_>>(),
+        ["1..q"]
+    );
+    assert!(matches!(
+        result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    for (before, after) in [
+        ("of int: tiles", "of 0..(9223372036854775807+1): tiles"),
+        ("1..ntiles,1..5", "1..ntiles,1..(9223372036854775807+1)"),
+        (
+            "forall(t in 1..ntiles)",
+            "forall(t in 1..(9223372036854775807+1))",
+        ),
+    ] {
+        assert!(source.contains(before));
+        let hazardous = source
+            .replace(before, after)
+            .replace("q=tiles[t,Q]", "q=tiles[t,1]");
+        std::fs::write(directory.join("root.mzn"), &hazardous).unwrap();
+        let context = load_model(directory.join("root.mzn"), &options);
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(
+            result
+                .limitations
+                .iter()
+                .any(|limit| &hazardous[limit.location.range.clone()] == "1..q"),
+            "A closed source failure must keep the local axis Limited: {after}: {:?}",
+            result.limitations
+        );
+    }
+    std::fs::remove_dir_all(directory).unwrap();
 }

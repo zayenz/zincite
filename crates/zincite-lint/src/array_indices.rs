@@ -1,8 +1,9 @@
 //! Numeric array-index advice over domain facts, without domain resolution policy.
 use crate::{
-    BindingFacts, CallableFacts, DeclarationRole, DefinitionCoverage, DefinitionEnforcement,
-    DefinitionFacts, DefinitionSafety, Domain, DomainFacts, FileFinding, Instantiation,
-    InstantiationFacts, ModelContext, NumericBound, Rule, Severity, SourceDiagnostic, TypeKind,
+    ArrayIndexSet, BindingFacts, CallableFacts, DeclarationRole, DefinitionCoverage,
+    DefinitionEnforcement, DefinitionFacts, DefinitionSafety, Domain, DomainFacts, FileFinding,
+    Instantiation, InstantiationFacts, ModelContext, NumericBound, Rule, Severity,
+    SourceDiagnostic, TypeKind,
 };
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 pub(super) struct IndexResult {
@@ -37,7 +38,8 @@ pub(super) fn check_array_indices(
                 message: format!("numeric array index set starts at {lower}; consider starting at 1 for simpler indexing"),
             }),
             Err(_) if inspected_count_bound(context, bindings, calls, definitions, &index.domain)
-                || inspected_length_quotient_bound(context, bindings, calls, instantiations, facts, definitions, &index.domain) => {},
+                || inspected_length_quotient_bound(context, bindings, calls, instantiations, facts, definitions, &index.domain)
+                || inspected_local_selection_bound(context, bindings, calls, instantiations, facts, index) => {},
             Err(reason) => result.limitations.push(SourceDiagnostic {
                 location: index.location.clone(),
                 message: format!("array-index-start: {reason}"),
@@ -46,6 +48,297 @@ pub(super) fn check_array_indices(
         }
     }
     result
+}
+
+// A checked parameter selection can supply a symbolic local axis without a
+// numeric minimum, membership guarantee or definition of the owning array.
+fn inspected_local_selection_bound(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &CallableFacts,
+    instantiations: &InstantiationFacts,
+    domains: &DomainFacts,
+    index: &ArrayIndexSet,
+) -> bool {
+    let Domain::Range {
+        lower: NumericBound::Integer(1),
+        upper: NumericBound::Defined {
+            declaration: id,
+            value,
+        },
+    } = &index.domain
+    else {
+        return false;
+    };
+    let declaration = &bindings.declarations[id.0];
+    let integer = |ty: &crate::TypeInst| {
+        ty.known()
+            && !crate::value_safety::optional(ty)
+            && ty.instantiation == Instantiation::Parameter
+            && ty.kind == TypeKind::Int
+    };
+    if !matches!(value.as_ref(), NumericBound::Unsupported(_))
+        || declaration.role != DeclarationRole::Local
+        || declaration.file != index.file
+        || declaration.item != index.item
+        || !integer(&calls.declarations[id.0].ty)
+    {
+        return false;
+    }
+    let file = index.file;
+    let source = &context.files[file];
+    let reference = |node: &SyntaxNode| {
+        let tokens = crate::domains::tokens(&source.parsed, node);
+        if node.kind() != NodeKind::Expression
+            || node.child_nodes().next().is_some()
+            || !matches!(tokens.as_slice(), [token]
+                if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+        {
+            return None;
+        }
+        crate::definitions::resolved_reference(context, bindings, file, node)
+    };
+    let typed = |node: &SyntaxNode| {
+        let range = source.location(node.range()).range;
+        calls
+            .expressions
+            .iter()
+            .find(|e| e.file == file && e.location.range == range)
+            .map(|e| &e.ty)
+    };
+    let range = index.location.range.start - source.byte_offset
+        ..index.location.range.end - source.byte_offset;
+    let Some(mut node) = source.parsed.tree().child_nodes().nth(index.item) else {
+        return false;
+    };
+    let mut path = Vec::new();
+    while node.kind() != NodeKind::RangeExpression || node.range() != range {
+        path.push(node);
+        let Some(child) = node
+            .child_nodes()
+            .find(|n| n.range().start <= range.start && range.end <= n.range().end)
+        else {
+            return false;
+        };
+        node = child;
+    }
+    let endpoints: Vec<_> = node.child_nodes().collect();
+    let [lower, upper] = endpoints.as_slice() else {
+        return false;
+    };
+    if !matches!(crate::domains::tokens(&source.parsed, lower).as_slice(),
+        [token] if token.kind == TokenKind::IntegerLiteral)
+        || &source.parsed.source()[lower.range()] != "1"
+        || reference(upper) != Some(*id)
+        || crate::callables::core_operation(context, bindings, calls, file, node, "..") != Ok(true)
+        || crate::callables::operation_fact(context, calls, file, node).is_none_or(|fact| {
+            !matches!(&fact.outcome, crate::CallOutcome::Resolved { parameters, return_type, .. }
+                if parameters.len() == 2 && parameters.iter().all(integer)
+                    && return_type.known() && !crate::value_safety::optional(return_type)
+                    && return_type.instantiation == Instantiation::Parameter
+                    && matches!(&return_type.kind, TypeKind::Set(element) if integer(element)))
+        })
+        || path
+            .iter()
+            .chain([&node])
+            .any(|n| !crate::definitions::annotations_safe(context, file, n))
+    {
+        return false;
+    }
+    let Some(local) = path
+        .iter()
+        .find(|n| n.kind() == NodeKind::LetBlock)
+        .and_then(|block| {
+            block
+                .child_nodes()
+                .find(|n| n.range() == declaration.syntax_range)
+        })
+    else {
+        return false;
+    };
+    if local.kind() != NodeKind::Declaration
+        || local.range().end > range.start
+        || !crate::definitions::annotations_safe(context, file, local)
+        || local.child_nodes().next().is_none_or(|header| {
+            header.kind() != NodeKind::ScalarType
+                || header.child_nodes().next().is_some()
+                || !crate::definitions::annotations_safe(context, file, header)
+        })
+    {
+        return false;
+    }
+    let Some(value) = local
+        .child_nodes()
+        .find(|n| crate::callables::is_expression(n.kind()))
+    else {
+        return false;
+    };
+    let children: Vec<_> = value.child_nodes().collect();
+    let [subject, row, column] = children.as_slice() else {
+        return false;
+    };
+    if value.kind() != NodeKind::ArrayAccessExpression || typed(value).is_none_or(|t| !integer(t)) {
+        return false;
+    }
+    let Some(array) = reference(subject) else {
+        return false;
+    };
+    let array_declaration = &bindings.declarations[array.0];
+    let array_type = &calls.declarations[array.0].ty;
+    if array_declaration.role != DeclarationRole::Value
+        || !array_declaration.top_level
+        || !array_type.known()
+        || crate::value_safety::optional(array_type)
+        || array_type.instantiation != Instantiation::Parameter
+        || typed(subject) != Some(array_type)
+        || !matches!(&array_type.kind, TypeKind::Array { indices, element }
+            if indices.len() == 2 && indices.iter().all(integer) && integer(element))
+    {
+        return false;
+    }
+    let Some(written) = crate::callables::find_node(
+        context.files[array_declaration.file].parsed.tree(),
+        &array_declaration.syntax_range,
+        array_declaration.role,
+    ) else {
+        return false;
+    };
+    if written
+        .child_nodes()
+        .any(|n| crate::callables::is_expression(n.kind()))
+    {
+        return false;
+    }
+    let mut domain = &domains.declarations[array.0].domain;
+    while let Domain::Named { domain: inner, .. } = domain {
+        domain = inner;
+    }
+    let Domain::Array { indices, element } = domain else {
+        return false;
+    };
+    if indices.len() != 2
+        || element.numeric_minimum().is_err()
+        || indices.iter().any(|axis| axis.numeric_minimum().is_err())
+    {
+        return false;
+    }
+    let mut generators = Vec::new();
+    for parent in &path {
+        if matches!(
+            parent.kind(),
+            NodeKind::CallExpression | NodeKind::GeneratorCallExpression
+        ) {
+            if parent.kind() != NodeKind::GeneratorCallExpression
+                || crate::callables::core_operation(context, bindings, calls, file, parent, "forall") != Ok(true)
+                || crate::callables::operation_fact(context, calls, file, parent).is_none_or(|fact| {
+                    !matches!(&fact.outcome, crate::CallOutcome::Resolved { parameters, return_type, .. }
+                        if parameters.len() == 1 && parameters[0].known()
+                            && !crate::value_safety::optional(&parameters[0])
+                            && matches!(&parameters[0].kind, TypeKind::Array { indices, element }
+                                if indices.len() == 1 && integer(&indices[0])
+                                    && element.known() && !crate::value_safety::optional(element)
+                                    && element.kind == TypeKind::Bool)
+                            && return_type.known() && !crate::value_safety::optional(return_type)
+                            && return_type.kind == TypeKind::Bool)
+                })
+            {
+                return false;
+            }
+            let Some(list) = parent
+                .child_nodes()
+                .find(|n| n.kind() == NodeKind::GeneratorList)
+            else {
+                return false;
+            };
+            for generator in list.child_nodes() {
+                let headers: Vec<_> = generator.child_nodes().collect();
+                if headers.len() != 1
+                    || generator.range().end > local.range().start
+                    || !crate::domains::tokens(&source.parsed, generator)
+                        .iter()
+                        .any(|t| t.kind == TokenKind::In)
+                    || typed(headers[0]).is_none_or(|t| {
+                        !t.known()
+                            || crate::value_safety::optional(t)
+                            || t.instantiation != Instantiation::Parameter
+                            || !matches!(&t.kind, TypeKind::Set(element) if integer(element))
+                    })
+                    || crate::domains::expression_domain(context, bindings, file, headers[0])
+                        .numeric_minimum()
+                        .is_err()
+                    || !bindings.declarations.iter().any(|d| {
+                        d.file == file
+                            && d.role == DeclarationRole::Generator
+                            && d.syntax_range == generator.range()
+                            && integer(&calls.declarations[d.id.0].ty)
+                    })
+                    || matches!(
+                        crate::callable_definitions::initialized_expression_safety(
+                            context,
+                            bindings,
+                            calls,
+                            instantiations,
+                            domains,
+                            (file, headers[0]),
+                            None,
+                        ),
+                        DefinitionSafety::Unsupported(_)
+                    )
+                {
+                    return false;
+                }
+                generators.push(generator);
+            }
+        }
+    }
+    for (selector, axis) in [row, column].into_iter().zip(indices) {
+        if selector.kind() != NodeKind::Expression
+            || typed(selector).is_none_or(|t| !integer(t))
+            || crate::domains::index_domain_interval(axis)
+                .is_some_and(|(lower, upper)| lower > upper)
+        {
+            return false;
+        }
+        if let Some(id) = reference(selector) {
+            let d = &bindings.declarations[id.0];
+            if !(d.role == DeclarationRole::Value && d.top_level
+                || d.role == DeclarationRole::Generator
+                    && generators.iter().any(|g| g.range() == d.syntax_range))
+            {
+                return false;
+            }
+        }
+        match crate::domains::invariant_expression_integer(context, bindings, file, selector) {
+            Err(_) => return false,
+            Ok(Some(n)) if crate::domains::index_domain_member(axis, n) == Some(false) => {
+                return false;
+            }
+            _ => {}
+        }
+    }
+    !matches!(
+        crate::callable_definitions::initialized_expression_safety(
+            context,
+            bindings,
+            calls,
+            instantiations,
+            domains,
+            (file, value),
+            None,
+        ),
+        DefinitionSafety::Unsupported(_)
+    ) && !matches!(
+        crate::callable_definitions::direct_expression_safety(
+            context,
+            bindings,
+            calls,
+            instantiations,
+            domains,
+            (file, value),
+            &generators,
+        ),
+        DefinitionSafety::Unsupported(_)
+    )
 }
 
 // Checked count evaluation can be supported while its numeric value remains
