@@ -4889,3 +4889,21 @@ and semantic62-macc-local-selection-release-control-preparation-v4/{release-resu
 control-results}/root-*.json. The unchanged Gecode compile-only proofs were reused;
 no solver was run. Remaining support gaps and final corpus acceptance still
 prevent base-083 completion.
+
+Scalar selections over a checked parameter-set difference now retain membership
+in its exact left axis. Both written set sources, selected core signature,
+annotations and closed errors are checked. This proves one selector's membership;
+it supplies no array definition or whole-array coverage.
+
+Actual main formatting, Clippy with warnings denied and all211 workspace tests
+pass. Matched current-build native/companion controls report all26 outcomes and
+all14 thesis partitions. The focused model completes every thesis rule: its
+limitations fall from5 to4, and a newly visible warning correctly identifies the
+unsearched decision array. Original IS retains the same96 warning lines and
+0errors; limitations fall from123 to121. Boolean selections and the objective's
+bounded integer interpretation still require support. Existing Gecode compile-only
+proofs were reused; no solver ran.
+Evidence is under semantic62-is-diff-subset-main-integration/actual-workspace-gates,
+semantic62-is-diff-subset-release-control-preparation/control-results and
+semantic62-is-diff-subset-current-original-before-preparation/output.
+Remaining original-model gaps and final corpus checks keep base-083 open.

@@ -5601,14 +5601,14 @@ impl<'a> Producer<'a> {
                 if declaration.file != file || declaration.role != DeclarationRole::Generator {
                     return false;
                 }
-                let Some(source) = generators
+                let Some(written_source) = generators
                     .iter()
                     .find(|g| g.range() == declaration.syntax_range)
                     .and_then(|g| g.child_nodes().next())
-                    .map(unwrap)
                 else {
                     return false;
                 };
+                let source = unwrap(written_source);
                 let source_type = self.expression_type(view, file, source).map(|e| &e.ty);
                 if source_type.is_none_or(|t| !t.known() || optional(t)
                     || t.instantiation != Instantiation::Parameter
@@ -5644,6 +5644,69 @@ impl<'a> Producer<'a> {
                             &expression_domain(self.context, self.bindings, file, source),
                         )
                         .is_ok_and(|same| same == Some(true));
+                }
+                if source.kind() == NodeKind::BinaryExpression && expected.kind == TypeKind::Int {
+                    let Domain::Named {
+                        declaration: axis, ..
+                    } = domain
+                    else {
+                        return false;
+                    };
+                    let operands: Vec<_> = source.child_nodes().collect();
+                    let [left, right] = operands.as_slice() else {
+                        return false;
+                    };
+                    let parameter_set = |ty: &TypeInst| {
+                        ty.known()
+                            && !optional(ty)
+                            && ty.instantiation == Instantiation::Parameter
+                            && matches!(&ty.kind, TypeKind::Set(element)
+                                if element.kind == TypeKind::Int
+                                    && element.instantiation == Instantiation::Parameter)
+                    };
+                    let operand_type = |operand| {
+                        self.expression_type(view, file, operand).map(|fact| &fact.ty)
+                    };
+                    if !self.core(file, source, view, "diff")
+                        || source_type.is_none_or(|ty| !parameter_set(ty))
+                        || operands.iter().any(|operand| {
+                            let bare = unwrap(operand);
+                            bare.kind() != NodeKind::Expression
+                                || self.reference(file, bare).is_none_or(|id| {
+                                    let owner = &self.bindings.declarations[id.0];
+                                    !owner.top_level || owner.role != DeclarationRole::Value
+                                })
+                                || operand_type(operand).is_none_or(|ty| !parameter_set(ty))
+                        })
+                        || self.reference(file, unwrap(left)) != Some(*axis)
+                        || self.operation_fact(view, file, source).is_none_or(|call| {
+                            !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                                if parameters.len() == 2
+                                    && Some(&parameters[0]) == operand_type(left)
+                                    && Some(&parameters[1]) == operand_type(right)
+                                    && Some(return_type) == source_type)
+                        })
+                    {
+                        return false;
+                    }
+                    // A checked difference contains only members of its exact
+                    // left axis. Inspect both written sources before using this
+                    // one-selector proof; it establishes no array coverage.
+                    if matches!(
+                        self.initialized_source_safety(
+                            file,
+                            written_source,
+                            view,
+                            generators,
+                            &mut Vec::new(),
+                        ),
+                        DefinitionSafety::Unsupported(_)
+                    ) {
+                        return false;
+                    }
+                    return self
+                        .closed_integer_source_error(file, written_source, true, true)
+                        .is_none();
                 }
                 if source.kind() != NodeKind::Expression {
                     return false;
