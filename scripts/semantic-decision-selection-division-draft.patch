@@ -1,0 +1,14 @@
+--- a/crates/zincite-lint/src/callable_definitions.rs
++++ b/crates/zincite-lint/src/callable_definitions.rs
+@@ -7839,7 +7839,10 @@
+                                 t.known()
+                                     && !optional(t)
+                                     && t.kind == TypeKind::Int
+-                                    && t.instantiation == Instantiation::Parameter
++                                    && matches!(
++                                        t.instantiation,
++                                        Instantiation::Parameter | Instantiation::Decision
++                                    )
+                             });
+                         match inspected {
+                             DefinitionSafety::Unsupported(reason) => unsupported = Some(reason),

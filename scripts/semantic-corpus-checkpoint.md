@@ -2859,3 +2859,14 @@ Crucially, checker allocations grow about82x/85x under tenfold source-operation
 growth, so whole-analysis growth observations do not establish bounded checker
 scaling. That cost remains under investigation. A single unchanged300-second
 diagnostic19 Navigation capture is being prepared; it has not launched.
+
+`scripts/semantic-decision-selection-division-draft.patch` saves the reviewed
+788-byte candidate correction: the existing division/remainder inspection
+bypass admits checked present decision-integer array selections alongside
+parameter-integer selections. Such operands retain None in the separate
+integer evaluator, leaving the operation Unknown. Both operand inspections,
+zero-divisor/unsupported-sibling checks and closed-overflow handling remain
+unchanged. Root and an independent reviewer traced the observed domains601
+limitation to this exact boundary. Candidate-only application, restoration of
+the clean public test and one fresh full search-suite check are authorized.
+No passing result or final acceptance exists yet.
