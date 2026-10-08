@@ -2699,3 +2699,15 @@ Evidence and terminal root audit are under
 This proves finite Routing parity for the lookup change, not complete Navigation
 processing, CPU attribution, bounded eligible-operation growth or final task
 acceptance. Those requirements remain open.
+
+The integrated Routing Float-let reduction passes current Gecode compile-only
+precheck in 0.165 seconds: status0, empty full diagnostic streams, reaped child,
+empty group and null verification error. Root checked all1,041 original/compiler/
+standard/helper pins against equal before/after/current state and both emitted
+artifacts (FZN841 bytes, OZN91 bytes). Evidence and terminal root audit are in
+`target/benchmarks/base083/semantic62-routing-conditional-float-integration-preparation/compiler-precheck/`.
+This is a complete supplied-value witness for the nested Float/fix/ceil/set
+shape, not proof of symbolic bounds or search coverage. The two reviewed drafts
+have been mechanically integrated in scratch, with the shared79-line conditional
+prepass present once. Tests-only candidate application and meaningful RED are
+next; production and actual Rust remain unchanged.
