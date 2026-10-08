@@ -2938,3 +2938,21 @@ These builds provide executables for further checks; they do not establish
 model acceptance. The original capture remains live on its actual owner.
 A stock19 original Navigation CLI/companion baseline pair is running, with
 the unchanged 300-second cap for each child; its full comparison is pending.
+
+Both allocation-filter diagnostic20 controls complete with exact full stock19
+stderr and status parity. Root audited global/per-child before/after/current
+state, complete checker records and streams, reaping and empty groups under
+`target/benchmarks/base083/semantic62-partial-abort-filter-attribution-captures/`.
+At 100/1000 declarations the checker makes 5,358/53,067 allocation calls and
+requests 675,824/6,205,748 bytes. Growth is approximately 9.90x/9.18x for
+tenfold source growth, rather than the previous approximately 85x calls.
+At 1000 the reorder removes 4,027,018 calls and 499,350,232 requested bytes;
+retained and peak bytes remain equal. Observed checker walls are 1.938/251.464
+ms and quantized CPU 0/0.25 seconds. These overlapping small measurements do
+not establish linear CPU growth or an isolated speed ratio. Remaining scans
+are being reviewed separately.
+
+Stock19 original Navigation native processing completes in 95.597 seconds
+without timeout, status 1 for the same 5,643 warnings and no other diagnostic
+lines. Root checked complete streams and unchanged inputs; the companion
+child is still running. Full source/outcome/drop parity remains pending.
