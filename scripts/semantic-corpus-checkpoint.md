@@ -3527,3 +3527,11 @@ across42 summaries; root checks complete streams, source pins and reaped empty
 groups. Evidence is `semantic62-sparse-join-repair/actual-workspace-gates/root-audit.json`.
 Other SparseMDS membership/definition gaps and fresh original-model outcomes
 remain pending; no full-model completion is claimed from this type repair.
+
+Normal28 original SparseMDS native/companion finish and match full diagnostics/
+status with preserved source/dependency metadata. Thesis completion rises to13/14: 
+only search-coverage remains Limited. Limitations11 to8; warnings36 to39, errors
+zero. Type availability now permits additional findings, so warning counts are
+not forced to historical equality. Root independently checks full streams, pins
+and reaped empty groups. Evidence is `semantic62-sparse28-direct-control/root-audit.json`.
+The remaining search definitions/membership facts require further work.
