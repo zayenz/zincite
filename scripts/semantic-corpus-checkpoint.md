@@ -3504,3 +3504,15 @@ pins and reaped empty groups. Evidence is
 `semantic62-hoist-callable-preparation/actual-workspace-gates/root-audit.json`.
 Fresh original Hoist all26 outcomes remain pending; this focused repair does not
 establish whole-model or base-083 completion.
+
+The committed Hoist repair is frozen in audited normal27 opt3 binaries/22 libraries
+from106 current source/fixture files. Fresh original Hoist native and companion
+finish, match complete diagnostics/status and preserve source/dependency metadata.
+All14 thesis rules now Completed; warnings remain24 and errors zero. Limitations
+fall113 to14; remaining Limited rules are index-set-mismatch, partial-expression,
+vacuous-constraint and missing-input-precondition. Root rehashes full streams,
+compiler/std/model assets, helpers and current90 sources and checks reaped empty
+groups. Evidence is `semantic62-hoist27-direct-control/root-audit.json`. Historical24
+comparisons use its exact selected companion root, never invented singleton native
+status. This confirms the demonstrated dispatch repair, with whole-corpus and
+base-083 acceptance still pending.
