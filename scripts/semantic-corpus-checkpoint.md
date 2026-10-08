@@ -2595,3 +2595,30 @@ the production patch from its baseline, and verified unchanged public tests.
 Non-array-selection operands now return to the existing strict reflection path;
 the array-selection checks retain their previous inspection-only behavior.
 The draft remains unapplied, with Zincite regression and workspace gates pending.
+
+The independently reviewed partial-expression lookup change is now included
+in the saved combined candidate. Focused before/after tests pass the same seven
+public cases. After a layout-only rustfmt correction, fmt, Clippy with warnings
+denied and all 193 workspace cases across 42 result groups pass. Root checked
+complete streams, exact commands, before/after/current state, reaping and empty
+process groups for every gate. No source/helper/patch change occurred during
+the final gate captures. Actual Rust remains frozen while original89518 runs.
+
+`scripts/semantic-candidate.patch` now reconstructs 21 changed files exactly
+from the original workspace and candidate copy: 245,823 bytes, SHA-256
+`37dad180498e48f247a87f429071d676b70a69c806a4e8f9cb5eb61aebb5a89d`.
+Only partial_expression.rs changes relative to the prior combined candidate;
+its formatted source is 16,094 bytes, SHA-256
+`75314e42bc0196783bcaede7f55f7f2d1dc9483cd7cf9287b5bddfd9cf215576`.
+The superseded standalone draft remains in commit beeda66. Detailed focused
+and final gate evidence is under
+`target/benchmarks/base083/semantic62-draft-workspace-partial-lookups-after-*`
+and `semantic62-draft-workspace-partial-lookups-after-v2-*`.
+
+Independent static review also confirms the exact saved conditional correction
+preserves the bare-scalar strict path, with no other substantive finding. That
+draft is still unapplied. The existing finite Routing case is suitable for a
+matched partial-lookup comparison; retained constraint-true growth cases can
+check general traversal overhead but do not exercise growing operation lookups.
+Targeted growth and successful CPU/allocation attribution remain missing, as do
+fresh complete final-candidate corpus/native evidence and task verification.
