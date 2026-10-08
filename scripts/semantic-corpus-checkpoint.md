@@ -4928,3 +4928,22 @@ support, remaining original-model gaps and final corpus checks remain required.
 After composition with IS, actual main formatting, Clippy with warnings denied
 and all211 workspace tests pass. The combined source and checks are recorded
 under semantic62-already-int-conversion-main-integration.
+
+Parameter integer-set arrays now pass the checked array1d reshape and conditional
+source inspection. A present core exists inspects its Boolean relation body using
+the existing relation checker. These results remain unknown: they grant neither
+set membership nor array definitions. Selected types, source annotations,
+initializers and closed errors remain checked, including an eager axis overflow.
+
+Fresh matched opt3 native/companion controls complete all fourteen thesis rules
+on the public neighbour model and original Macc. Original limitations fall from53
+to51: the two reshape limitations disappear, and pickup/delivery correctly receive
+uncovered-search warnings, taking warnings from115 to117. All26 outcomes, loaded
+sources and drop records agree between native and companion runs. Existing Gecode
+compile-only proofs were reused; no solver ran. Four non-thesis analyses remain
+Limited. These controls use the private candidate before IS/conversion composition.
+Evidence is under semantic62-macc-neighbour-set-reshape-preparation/
+release-controls-v2/{release-results,control-results}. After composition, actual
+main formatting, Clippy with warnings denied and all212 workspace tests pass;
+checks are under semantic62-macc-neighbour-set-main-integration.
+Remaining IS, BIN/GCC support and final full-corpus checks keep base-083 open.

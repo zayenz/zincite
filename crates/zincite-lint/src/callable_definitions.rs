@@ -7758,7 +7758,7 @@ impl<'a> Producer<'a> {
                 (TypeKind::Bool, NodeKind::GeneratorCallExpression)
                     if present(ty)
                         && (self.core(file, node, view, "forall")
-                            || present_parameter(ty) && self.core(file, node, view, "exists")) =>
+                            || self.core(file, node, view, "exists")) =>
                 {
                     ty
                 }
@@ -7968,6 +7968,13 @@ impl<'a> Producer<'a> {
                         )
                     }
                 })()
+            } else if node.kind() == NodeKind::GeneratorCallExpression
+                && self.core(file, node, view, "exists")
+            {
+                self.boolean_relation_safety(file, body, view, &all)
+                    .unwrap_or_else(|| {
+                        self.initialized_source_safety(file, body, view, &all, &mut Vec::new())
+                    })
             } else {
                 self.initialized_source_safety(file, body, view, &all, &mut Vec::new())
             };
@@ -8602,24 +8609,27 @@ impl<'a> Producer<'a> {
                 && t.instantiation == Instantiation::Parameter
                 && t.kind == TypeKind::Int
         };
+        let parameter_set = |t: &TypeInst| {
+            t.known()
+                && !optional(t)
+                && t.instantiation == Instantiation::Parameter
+                && matches!(&t.kind, TypeKind::Set(element) if parameter_int(element))
+        };
         let array = |t: &TypeInst, rank: usize| {
             t.known()
                 && !optional(t)
                 && matches!(&t.kind, TypeKind::Array { indices, element }
                 if indices.len() == rank && indices.iter().all(parameter_int)
                     && element.known() && !optional(element)
-                    && matches!(element.kind, TypeKind::Int | TypeKind::Bool)
-                    && (axes == 2 || element.kind == TypeKind::Bool))
+                    && (matches!(element.kind, TypeKind::Int | TypeKind::Bool)
+                        && (axes == 2 || element.kind == TypeKind::Bool)
+                        || axes == 1 && t.instantiation == Instantiation::Parameter
+                            && parameter_set(element)))
         };
         let valid = children.iter().all(|n| n.kind() != NodeKind::NamedArgument)
-            && children[..axes].iter().all(|n| {
-                typed(n).is_some_and(|t| {
-                    t.known()
-                        && !optional(t)
-                        && t.instantiation == Instantiation::Parameter
-                        && matches!(&t.kind, TypeKind::Set(element) if parameter_int(element))
-                })
-            })
+            && children[..axes]
+                .iter()
+                .all(|n| typed(n).is_some_and(parameter_set))
             && typed(children[axes]).is_some_and(|t| array(t, 1))
             && typed(node).is_some_and(|t| array(t, axes))
             && self.operation_fact(facts, file, node).is_some_and(|call| {
@@ -8641,6 +8651,16 @@ impl<'a> Producer<'a> {
             return Some(DefinitionSafety::Unsupported(
                 "inline reshape selected signature or type is unsupported".into(),
             ));
+        }
+        // New set-array inspection checks its eager axis independently. The
+        // comprehension's lazy branches keep the existing source inspection.
+        if axes == 1
+            && typed(node).is_some_and(
+                |t| matches!(&t.kind, TypeKind::Array { element, .. } if parameter_set(element)),
+            )
+            && let Some(reason) = self.closed_integer_source_error(file, children[0], true, true)
+        {
+            return Some(DefinitionSafety::Unsupported(reason));
         }
         Some(
             match self.initialized_children_safety(file, &children, view, generators) {
@@ -9442,8 +9462,8 @@ impl<'a> Producer<'a> {
             }
         })
     }
-    // Inspect only a fully checked row-local body or a core forall's conditional
-    // body. Numeric operands retain raw Bool-to-Int coercion partiality.
+    // Inspect a checked row-local body, core forall conditional body or core
+    // exists body. Numeric operands retain raw Bool-to-Int coercion partiality.
     fn boolean_relation_safety(
         &self,
         file: FileId,
@@ -9912,7 +9932,14 @@ impl<'a> Producer<'a> {
         }
         if node.kind() == NodeKind::ConditionalExpression
             && ty(node).is_some_and(|t| {
-                t.known() && !optional(t) && matches!(t.kind, TypeKind::Int | TypeKind::Bool)
+                t.known()
+                    && !optional(t)
+                    && (matches!(t.kind, TypeKind::Int | TypeKind::Bool)
+                        || t.instantiation == Instantiation::Parameter
+                            && matches!(&t.kind, TypeKind::Set(element)
+                            if element.known() && !optional(element)
+                                && element.instantiation == Instantiation::Parameter
+                                && element.kind == TypeKind::Int))
             })
         {
             let result = ty(node).unwrap();
@@ -9948,7 +9975,15 @@ impl<'a> Producer<'a> {
                 if ty(body).is_none_or(|t| {
                     !t.known()
                         || optional(t)
-                        || t.kind != result.kind
+                        || (t.kind != result.kind
+                            && !(matches!(&result.kind, TypeKind::Set(_))
+                                && unwrap(body).kind() == NodeKind::SetLiteral
+                                && unwrap(body).child_nodes().count() == 0
+                                && t.instantiation == Instantiation::Parameter
+                                && matches!(&t.kind, TypeKind::Set(element)
+                                    if element.known() && !optional(element)
+                                        && element.instantiation == Instantiation::Parameter
+                                        && element.kind == TypeKind::Bottom)))
                         || !crate::types::coerces(t, result)
                 }) {
                     return DefinitionSafety::Unsupported(

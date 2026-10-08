@@ -64,6 +64,497 @@ fn selected() -> LintOptions {
     LintOptions::from_selection("search-coverage").unwrap()
 }
 #[test]
+fn parameter_set_reshape_conditionals_remain_unknown_without_outputs() {
+    use zincite_lint::{
+        BindingResolution, CallOutcome, DeclarationRole, Domain, Instantiation, SourceKind,
+        TypeInst, TypeKind,
+    };
+    use zincite_syntax::{NodeKind, SyntaxElement, TokenKind};
+
+    let source = r#"int: width;
+int: height;
+int: step_count;
+set of int: Columns = 0..width-1;
+set of int: Rows = 0..height-1;
+set of int: Cells = 0..width*height-1;
+set of int: Steps = 0..step_count-1;
+set of int: ActiveSteps = 0..step_count-2;
+array[Columns, Rows] of Cells: cell_id =
+    array2d(Columns, Rows, [y*width+x | x in Columns, y in Rows]);
+array[Cells] of set of Cells: neighbours = array1d(Cells, [
+    (if x > 0 then {cell_id[x-1,y]} else {} endif)
+    union (if x < width-1 then {cell_id[x+1,y]} else {} endif)
+    union (if y > 0 then {cell_id[x,y-1]} else {} endif)
+    union (if y < height-1 then {cell_id[x,y+1]} else {} endif)
+    | y in Rows, x in Columns
+]);
+array[Steps, Cells] of var 0..9: levels;
+array[Steps, Cells] of var Cells: block_cell;
+array[ActiveSteps, Cells] of var bool: pickup;
+array[ActiveSteps, Cells] of var bool: delivery;
+constraint forall(t in ActiveSteps, i in Cells)(
+    redundant_constraint(levels[t+1,i] = levels[t,i]-1 ->
+        exists(j in neighbours[i])(pickup[t,j] /\ block_cell[t,j] = i))
+);
+constraint forall(t in ActiveSteps, i in Cells)(
+    redundant_constraint(levels[t+1,i] = levels[t,i]+1 ->
+        exists(j in neighbours[i])(delivery[t,j] /\ block_cell[t,j] = i))
+);
+solve satisfy;
+"#;
+    let (dir, _) = model("neighbour-set-reshape", source, "");
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        concat!(
+            "function set of int: '..'(int: left,int: right);\n",
+            "function int: '-'(int: left,int: right); function var int: '-'(var int: left,var int: right);\n",
+            "function int: '+'(int: left,int: right); function var int: '+'(var int: left,var int: right);\n",
+            "function int: '*'(int: left,int: right);\n",
+            "function bool: '>'(int: left,int: right); function bool: '<'(int: left,int: right);\n",
+            "function set of int: 'union'(set of int: left,set of int: right);\n",
+            "function array[$$E] of any $V: array1d(set of $$E: S,array[$U] of any $V: x);\n",
+            "function array[$$E,$$F] of any $V: array2d(set of $$E: S1,set of $$F: S2,array[$U] of any $V: x);\n",
+            "function var bool: '='(any $T: left,any $T: right); function bool: '='($T: left,$T: right);\n",
+            "function var bool: '/\\'(var bool: left,var bool: right);\n",
+            "function var bool: '->'(var bool: left,var bool: right);\n",
+            "function var bool: forall(array[$T] of var bool: body);\n",
+            "function var bool: exists(array[$T] of var bool: body);\n",
+            "predicate redundant_constraint(var bool: b);\n",
+        ),
+    )
+    .unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        include_dirs: Vec::new(),
+    };
+    let root = dir.join("root.mzn");
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let file = context.files.iter().position(|f| f.path == root).unwrap();
+    let written = &context.files[file];
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let parameter = |ty: &TypeInst, kind: &TypeKind| {
+        !ty.optional && ty.instantiation == Instantiation::Parameter && &ty.kind == kind
+    };
+    let integer_set = |ty: &TypeInst| {
+        !ty.optional
+            && ty.instantiation == Instantiation::Parameter
+            && matches!(&ty.kind, TypeKind::Set(element) if parameter(element, &TypeKind::Int))
+    };
+    let array = |ty: &TypeInst, rank, element: &TypeKind, instantiation| {
+        !ty.optional
+            && ty.instantiation == instantiation
+            && matches!(&ty.kind, TypeKind::Array { indices, element: value }
+                if indices.len() == rank && indices.iter().all(|axis| parameter(axis, &TypeKind::Int))
+                    && !value.optional && value.instantiation == instantiation && &value.kind == element)
+    };
+    let named = |name: &str| {
+        bindings
+            .declarations
+            .iter()
+            .find(|d| d.file == file && d.top_level && d.name == name)
+            .unwrap()
+            .id
+    };
+    let mut nodes = Vec::new();
+    let mut pending = vec![written.parsed.tree()];
+    while let Some(node) = pending.pop() {
+        nodes.push(node);
+        pending.extend(node.child_nodes());
+    }
+    let typed = |node: &zincite_syntax::SyntaxNode| {
+        &calls
+            .expressions
+            .iter()
+            .find(|e| e.file == file && e.location.range == written.location(node.range()).range)
+            .unwrap()
+            .ty
+    };
+    let reference = |node: &zincite_syntax::SyntaxNode| {
+        let token = node
+            .children()
+            .iter()
+            .find_map(|child| match child {
+                SyntaxElement::Token(index) => {
+                    let token = &written.parsed.tokens()[*index];
+                    matches!(
+                        token.kind,
+                        TokenKind::Identifier | TokenKind::QuotedIdentifier
+                    )
+                    .then_some(token)
+                }
+                _ => None,
+            })
+            .unwrap();
+        let reference = bindings
+            .references
+            .iter()
+            .find(|r| {
+                r.file == file && r.location.range == written.location(token.range.clone()).range
+            })
+            .unwrap();
+        let BindingResolution::Resolved(id) = reference.resolution else {
+            panic!("unresolved source identity: {:?}", reference.resolution);
+        };
+        id
+    };
+    let initializer = |name: &str| {
+        let declaration = &bindings.declarations[named(name).0];
+        nodes
+            .iter()
+            .find(|n| n.kind() == NodeKind::Declaration && n.range() == declaration.syntax_range)
+            .unwrap()
+            .child_nodes()
+            .find(|n| n.kind() == NodeKind::CallExpression)
+            .unwrap()
+    };
+    let reshape = initializer("neighbours");
+    let coordinates = initializer("cell_id");
+    let coordinate_parts: Vec<_> = coordinates.child_nodes().collect();
+    assert_eq!(coordinate_parts.len(), 3);
+    assert_eq!(reference(coordinate_parts[0]), named("Columns"));
+    assert_eq!(reference(coordinate_parts[1]), named("Rows"));
+    assert!(array(
+        typed(coordinates),
+        2,
+        &TypeKind::Int,
+        Instantiation::Parameter
+    ));
+    let reshape_parts: Vec<_> = reshape.child_nodes().collect();
+    assert_eq!(reshape_parts.len(), 2);
+    assert_eq!(reference(reshape_parts[0]), named("Cells"));
+    assert_eq!(reshape_parts[1].kind(), NodeKind::ArrayComprehension);
+    let set_kind = calls.declarations[named("neighbours").0].ty.clone();
+    let TypeKind::Array { element, .. } = &set_kind.kind else {
+        panic!("set array required")
+    };
+    assert!(integer_set(element));
+    assert!(array(
+        typed(reshape),
+        1,
+        &element.kind,
+        Instantiation::Parameter
+    ));
+    assert_eq!(typed(reshape_parts[1]), typed(reshape));
+    for (construction, sources) in [
+        (coordinates, ["Columns", "Rows"]),
+        (reshape, ["Rows", "Columns"]),
+    ] {
+        let list = construction
+            .child_nodes()
+            .last()
+            .unwrap()
+            .child_nodes()
+            .find(|n| n.kind() == NodeKind::GeneratorList)
+            .unwrap();
+        let headers: Vec<_> = list.child_nodes().collect();
+        assert_eq!(headers.len(), 2);
+        for (header, source_name) in headers.iter().zip(sources) {
+            let source = header.child_nodes().next().unwrap();
+            assert_eq!(reference(source), named(source_name));
+            assert!(integer_set(typed(source)));
+            assert!(
+                header
+                    .child_nodes()
+                    .all(|n| n.kind() != NodeKind::WhereFilter)
+            );
+            let binders: Vec<_> = bindings
+                .declarations
+                .iter()
+                .filter(|d| {
+                    d.file == file
+                        && d.role == DeclarationRole::Generator
+                        && d.syntax_range == header.range()
+                })
+                .collect();
+            assert_eq!(binders.len(), 1);
+            assert!(parameter(
+                &calls.declarations[binders[0].id.0].ty,
+                &TypeKind::Int
+            ));
+        }
+    }
+    let conditionals: Vec<_> = nodes
+        .iter()
+        .filter(|n| n.kind() == NodeKind::ConditionalExpression)
+        .collect();
+    assert_eq!(conditionals.len(), 4);
+    for conditional in conditionals {
+        assert!(integer_set(typed(conditional)));
+        let branches: Vec<_> = conditional.child_nodes().collect();
+        assert_eq!(branches.len(), 2);
+        assert_eq!(branches[0].kind(), NodeKind::ConditionalBranch);
+        assert_eq!(branches[1].kind(), NodeKind::ElseBranch);
+        let parts: Vec<_> = branches[0].child_nodes().collect();
+        assert_eq!(parts.len(), 2);
+        assert!(parameter(typed(parts[0]), &TypeKind::Bool));
+        assert_eq!(parts[1].kind(), NodeKind::SetLiteral);
+        assert!(integer_set(typed(parts[1])));
+        let cell = parts[1].child_nodes().next().unwrap();
+        assert_eq!(cell.kind(), NodeKind::ArrayAccessExpression);
+        let selection: Vec<_> = cell.child_nodes().collect();
+        assert_eq!(selection.len(), 3);
+        assert_eq!(reference(selection[0]), named("cell_id"));
+        assert!(
+            selection[1..]
+                .iter()
+                .all(|n| parameter(typed(n), &TypeKind::Int))
+        );
+        assert!(parameter(typed(cell), &TypeKind::Int));
+        let empty = branches[1].child_nodes().next().unwrap();
+        assert_eq!(empty.kind(), NodeKind::SetLiteral);
+        assert_eq!(empty.child_nodes().count(), 0);
+        // These are actual inferred rows: Set(Bottom) joins the present Set(Int) branch.
+        assert!(
+            matches!(&typed(empty).kind, TypeKind::Set(value) if parameter(value, &TypeKind::Bottom))
+        );
+        assert_eq!(typed(empty).instantiation, Instantiation::Parameter);
+        assert!(!typed(empty).optional);
+        assert_eq!(typed(conditional), typed(parts[1]));
+    }
+    let source_calls: Vec<_> = calls.calls.iter().filter(|c| c.file == file).collect();
+    for call in &source_calls {
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &call.outcome
+        else {
+            panic!(
+                "unresolved selected operation: {} {:?}",
+                call.name, call.outcome
+            );
+        };
+        let owner = &bindings.declarations[declaration.0];
+        assert_eq!(context.files[owner.file].kind, SourceKind::StandardLibrary);
+        assert!(context.files[owner.file].implicit);
+        assert_eq!(owner.name, call.name);
+        let signature = calls
+            .signatures
+            .iter()
+            .find(|s| s.declaration == *declaration)
+            .unwrap();
+        assert!(signature.parameters.iter().all(|p| !p.has_default));
+        match call.name.as_str() {
+            "array1d" | "array2d" => {
+                let (node, rank) = if call.name == "array1d" {
+                    (reshape, 1)
+                } else {
+                    (coordinates, 2)
+                };
+                let head = node
+                    .children()
+                    .iter()
+                    .find_map(|child| match child {
+                        SyntaxElement::Token(index) => {
+                            let token = &written.parsed.tokens()[*index];
+                            matches!(
+                                token.kind,
+                                TokenKind::Identifier | TokenKind::QuotedIdentifier
+                            )
+                            .then_some(token)
+                        }
+                        _ => None,
+                    })
+                    .unwrap();
+                assert_eq!(
+                    call.location.range,
+                    written.location(head.range.clone()).range
+                );
+                let actuals: Vec<_> = node.child_nodes().collect();
+                assert_eq!(parameters.len(), rank + 1);
+                assert!(
+                    parameters
+                        .iter()
+                        .zip(&actuals)
+                        .all(|(formal, actual)| formal == typed(actual))
+                );
+                assert_eq!(return_type, typed(node));
+            }
+            "union" => {
+                assert_eq!(parameters.len(), 2);
+                assert!(parameters.iter().all(integer_set));
+                assert!(integer_set(return_type));
+            }
+            ".." => {
+                assert_eq!(parameters.len(), 2);
+                assert!(parameters.iter().all(|ty| parameter(ty, &TypeKind::Int)));
+                assert!(integer_set(return_type));
+            }
+            "+" | "-" | "*" => {
+                assert_eq!(parameters.len(), 2);
+                assert!(parameters.iter().all(|ty| !ty.optional
+                    && ty.kind == TypeKind::Int
+                    && matches!(
+                        ty.instantiation,
+                        Instantiation::Parameter | Instantiation::Decision
+                    )));
+                assert_eq!(parameters[0], parameters[1]);
+                assert_eq!(return_type, &parameters[0]);
+            }
+            "<" | ">" => {
+                assert_eq!(parameters.len(), 2);
+                assert!(parameters.iter().all(|ty| parameter(ty, &TypeKind::Int)));
+                assert!(parameter(return_type, &TypeKind::Bool));
+            }
+            "=" => {
+                assert_eq!(parameters.len(), 2);
+                assert!(parameters.iter().all(|ty| !ty.optional
+                    && ty.kind == TypeKind::Int
+                    && matches!(
+                        ty.instantiation,
+                        Instantiation::Parameter | Instantiation::Decision
+                    )));
+                assert_eq!(return_type.kind, TypeKind::Bool);
+                assert_eq!(return_type.instantiation, Instantiation::Decision);
+                assert!(!return_type.optional);
+            }
+            "/\\" | "->" => {
+                assert_eq!(parameters.len(), 2);
+                assert!(parameters.iter().all(|ty| !ty.optional
+                    && ty.kind == TypeKind::Bool
+                    && ty.instantiation == Instantiation::Decision));
+                assert_eq!(return_type, &parameters[0]);
+            }
+            "forall" | "exists" => {
+                assert_eq!(parameters.len(), 1);
+                assert!(array(
+                    &parameters[0],
+                    1,
+                    &TypeKind::Bool,
+                    Instantiation::Decision
+                ));
+                assert_eq!(return_type.kind, TypeKind::Bool);
+                assert_eq!(return_type.instantiation, Instantiation::Decision);
+                assert!(!return_type.optional);
+            }
+            "redundant_constraint" => {
+                assert_eq!(owner.role, DeclarationRole::Predicate);
+                assert_eq!(parameters.len(), 1);
+                assert_eq!(parameters[0], *return_type);
+                assert_eq!(return_type.kind, TypeKind::Bool);
+                assert_eq!(return_type.instantiation, Instantiation::Decision);
+                assert!(!return_type.optional);
+            }
+            _ => panic!("unexpected source operation: {}", call.name),
+        }
+    }
+    for (name, count) in [
+        ("array1d", 1),
+        ("array2d", 1),
+        ("union", 3),
+        ("exists", 2),
+        ("redundant_constraint", 2),
+    ] {
+        assert_eq!(
+            source_calls.iter().filter(|c| c.name == name).count(),
+            count,
+            "{name}"
+        );
+    }
+    let selection_headers: Vec<_> = nodes
+        .iter()
+        .filter(|n| {
+            n.kind() == NodeKind::Generator
+                && n.child_nodes()
+                    .next()
+                    .is_some_and(|source| source.kind() == NodeKind::ArrayAccessExpression)
+        })
+        .collect();
+    assert_eq!(selection_headers.len(), 2);
+    for header in selection_headers {
+        let source = header.child_nodes().next().unwrap();
+        let parts: Vec<_> = source.child_nodes().collect();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(reference(parts[0]), named("neighbours"));
+        assert!(integer_set(typed(source)));
+        assert!(parameter(typed(parts[1]), &TypeKind::Int));
+        let outer = &bindings.declarations[reference(parts[1]).0];
+        assert_eq!(outer.role, DeclarationRole::Generator);
+        let outer_header = nodes
+            .iter()
+            .find(|n| n.kind() == NodeKind::Generator && n.range() == outer.syntax_range)
+            .unwrap();
+        assert_eq!(
+            reference(outer_header.child_nodes().next().unwrap()),
+            named("Cells")
+        );
+        let inner = bindings
+            .declarations
+            .iter()
+            .find(|d| {
+                d.file == file
+                    && d.role == DeclarationRole::Generator
+                    && d.syntax_range == header.range()
+            })
+            .unwrap();
+        assert!(parameter(
+            &calls.declarations[inner.id.0].ty,
+            &TypeKind::Int
+        ));
+    }
+    let inst = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    assert!(
+        matches!(&domains.declarations[named("cell_id").0].domain, Domain::Array { indices, .. }
+        if indices.len() == 2 && indices.iter().zip(["Columns", "Rows"]).all(|(axis, name)|
+            matches!(axis, Domain::Named { declaration, .. } if *declaration == named(name))))
+    );
+    for name in ["levels", "block_cell", "pickup", "delivery"] {
+        assert_eq!(
+            calls.declarations[named(name).0].ty.instantiation,
+            Instantiation::Decision
+        );
+    }
+    println!("set-reshape concrete core/type/axis/source/empty-branch preflights passed");
+
+    let result = analyze_model(&context, &selected());
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+    let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+    let (_, search) = facts(&context);
+    for name in ["levels", "block_cell", "pickup", "delivery"] {
+        let id = named(name);
+        assert!(!callable.definitions.iter().any(|d| d.target == id));
+        assert_ne!(
+            coverage(&bindings, &search, name),
+            SearchCoverage::WholeArray
+        );
+    }
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+
+    // The independent axis error is eager; this does not prescribe evaluation of lazy branches.
+    // This arithmetic counterguard is not a claimed compiler-positive instance.
+    let hazardous = source
+        .replace(
+            "int: width;",
+            "int: width;\nint: broken_axis = 9223372036854775807+1;",
+        )
+        .replacen("array1d(Cells,", "array1d(0..broken_axis,", 1);
+    assert_ne!(hazardous, source);
+    std::fs::write(&root, &hazardous).unwrap();
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let result = analyze_model(&context, &selected());
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(matches!(
+        result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    assert!(
+        result
+            .limitations
+            .iter()
+            .any(|l| l.location.path == root && l.message.contains("integer arithmetic overflow")),
+        "{:?}",
+        result.limitations
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn model_local_decision_selectors_remain_unknown_without_membership_or_outputs() {
     use zincite_lint::{
         BindingResolution, CallOutcome, DeclarationRole, Domain, Instantiation, Rule, SourceKind,
