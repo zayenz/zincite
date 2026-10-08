@@ -1,0 +1,152 @@
+--- a/crates/zincite-lint/src/partial_expression.rs
++++ b/crates/zincite-lint/src/partial_expression.rs
+@@ -1,13 +1,13 @@
+ //! Advice over scoped operation requirements, not a feasibility or crash proof.
+ //! Relational Boolean definedness preserves raw hazards; only interpreted core
+ //! default capture can absorb a left-side undefined value. No rewrite is offered.
+-use crate::callables::core_operation;
++use crate::callables::{core_operation_outcome, operation_head_start};
+ use crate::domains::tokens;
+ use crate::{
+-    BindingFacts, CallableFacts, FileFinding, FileId, GuardActivation, GuardAssumptionKind,
+-    GuardContext, GuardEvaluation, GuardObligation, GuardObligationKind, GuardedExpression,
+-    GuardedFacts, GuardedOutcome, IterationCoverage, IterationFacts, ModelContext, Presence, Rule,
+-    Severity, SourceDiagnostic, SourceLocation,
++    BindingFacts, CallFact, CallableFacts, FileFinding, FileId, GuardActivation,
++    GuardAssumptionKind, GuardContext, GuardEvaluation, GuardObligation, GuardObligationKind,
++    GuardedExpression, GuardedFacts, GuardedOutcome, IterationCoverage, IterationFacts,
++    ModelContext, Presence, Rule, Severity, SourceDiagnostic, SourceLocation,
+ };
+ use std::collections::HashMap;
+ use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
+@@ -21,6 +21,17 @@
+     prior_findings: &[FileFinding],
+     input_keys: &[crate::InputObligationKey],
+ ) -> (Vec<FileFinding>, Vec<SourceDiagnostic>) {
++    let mut call_indices = HashMap::with_capacity(calls.calls.len());
++    for (row, fact) in calls.calls.iter().enumerate() {
++        call_indices
++            .entry((fact.file, fact.location.range.start))
++            .or_insert(row);
++    }
++    let operation_at = |file, node: &SyntaxNode| {
++        operation_head_start(context, file, node)
++            .and_then(|start| call_indices.get(&(file, start)))
++            .map(|&row| &calls.calls[row])
++    };
+     let mut expression_indices = HashMap::with_capacity(guarded.expressions.len());
+     for (row, expression) in guarded.expressions.iter().enumerate() {
+         expression_indices
+@@ -85,7 +96,8 @@
+                 })
+                 .collect();
+             for operation in &nodes {
+-                let Some(identity) = operation_identity(context, bindings, calls, file, operation)
++                let Some(identity) =
++                    operation_identity(context, bindings, operation_at, file, operation)
+                 else {
+                     continue;
+                 };
+@@ -112,7 +124,7 @@
+                         || captured_by_default(
+                             context,
+                             bindings,
+-                            calls,
++                            operation_at,
+                             |file, location| {
+                                 expression_indices
+                                     .get(&(file, location.range.start, location.range.end))
+@@ -263,10 +275,10 @@
+         i.file == file && contains(&i.body, location) && i.coverage == IterationCoverage::Empty
+     })
+ }
+-fn operation_identity(
++fn operation_identity<'a>(
+     context: &ModelContext,
+     bindings: &BindingFacts,
+-    calls: &CallableFacts,
++    operation_at: impl Fn(FileId, &SyntaxNode) -> Option<&'a CallFact>,
+     file: FileId,
+     node: &SyntaxNode,
+ ) -> Option<Result<bool, String>> {
+@@ -277,8 +289,20 @@
+     if node.kind() == NodeKind::BinaryExpression {
+         let kind = tokens(parsed, node).first()?.kind;
+         return match kind {
+-            TokenKind::Div => Some(core_operation(context, bindings, calls, file, node, "div")),
+-            TokenKind::Mod => Some(core_operation(context, bindings, calls, file, node, "mod")),
++            TokenKind::Div => Some(core_operation_outcome(
++                context,
++                bindings,
++                operation_at(file, node).map(|fact| &fact.outcome),
++                node.kind(),
++                "div",
++            )),
++            TokenKind::Mod => Some(core_operation_outcome(
++                context,
++                bindings,
++                operation_at(file, node).map(|fact| &fact.outcome),
++                node.kind(),
++                "mod",
++            )),
+             _ => None,
+         };
+     }
+@@ -298,7 +322,13 @@
+             name,
+             "min" | "max" | "deopt" | "ln" | "log10" | "log2" | "log"
+         ) {
+-            return Some(core_operation(context, bindings, calls, file, node, name));
++            return Some(core_operation_outcome(
++                context,
++                bindings,
++                operation_at(file, node).map(|fact| &fact.outcome),
++                node.kind(),
++                name,
++            ));
+         }
+     }
+     None
+@@ -306,7 +336,7 @@
+ pub(super) fn captured_by_default<'a>(
+     context: &ModelContext,
+     bindings: &BindingFacts,
+-    calls: &CallableFacts,
++    operation_at: impl Fn(FileId, &SyntaxNode) -> Option<&'a CallFact>,
+     expression_at: impl Fn(FileId, &SourceLocation) -> Option<&'a GuardedExpression>,
+     file: FileId,
+     nodes: &[&SyntaxNode],
+@@ -320,7 +350,13 @@
+             || !tokens(&source.parsed, node)
+                 .first()
+                 .is_some_and(|t| t.kind == TokenKind::Default)
+-            || core_operation(context, bindings, calls, file, node, "default") != Ok(true)
++            || core_operation_outcome(
++                context,
++                bindings,
++                operation_at(file, node).map(|fact| &fact.outcome),
++                node.kind(),
++                "default",
++            ) != Ok(true)
+         {
+             return false;
+         }
+--- a/crates/zincite-lint/src/input_preconditions.rs
++++ b/crates/zincite-lint/src/input_preconditions.rs
+@@ -1,6 +1,6 @@
+ //! Formal-input requirements in general user callable bodies, independent of lint.
+ //! A missing contract is advice about a named boundary, not a failing input witness.
+-use crate::callables::{find_node, is_expression};
++use crate::callables::{find_node, is_expression, operation_fact};
+ use crate::partial_expression::{captured_by_default, collect_nodes, empty_iteration};
+ use crate::{
+     BindingFacts, BindingResolution, CallableFacts, DeclarationId, DeclarationRole, FileFinding,
+@@ -160,7 +160,7 @@
+             let captured = captured_by_default(
+                 context,
+                 bindings,
+-                calls,
++                |file, node| operation_fact(context, calls, file, node),
+                 |file, location| guarded.expression(file, location),
+                 o.file,
+                 &nodes,

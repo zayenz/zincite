@@ -3138,3 +3138,14 @@ The coefficient path remains unchanged. Broader Rust gates and original-model
 coverage comparisons are pending; focused arithmetic veto checks are being
 added before those gates. The original capture remains live at 112 closed
 shards and 5,773 planned roots, with all 90 actual source pins matching.
+
+The isolated partial-expression candidate now indexes call facts by their
+existing file/head-start identity, retaining the first producer row. It reuses
+`operation_head_start` and the unchanged core-outcome classifier in the two
+existing private helpers; input-preconditions retains its original lookup.
+The incremental patch is `scripts/semantic-partial-call-head-index-draft.patch`.
+Root reviewed semantics and checked formatting, Clippy with warnings denied,
+and the full workspace: 193 tests pass. The initial import-format and two
+needless-borrow failures were corrected before those successful gates.
+Matched measurements for this lookup change remain pending; the tested shared
+candidate and authoritative Rust source have not changed.
