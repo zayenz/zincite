@@ -3831,3 +3831,13 @@ stopped before any measurement child because its historical compiler ledger
 uses hash/bytes without a mode field; every1038 historical input pin field was
 independently rechecked unchanged before the schema-corrected control. The
 deadline stays300 seconds. Current navigation and full-corpus acceptance remain.
+
+Original navigation normal32 native/companion finish (52.743/53.154 seconds)
+with all26 and all14 Completed,5643 warnings,zero errors/limitations. Full
+diagnostic/status parity, complete source/root/drop accounting, the current
+compiler-positive original,std/compiler/main106/assets/helpers and both empty
+reaped groups are checked in
+`semantic62-navigation32-direct-control/root-audit.json`. All five original BNN
+controls now have observed complete thesis/all-rule processing on normal31 or
+normal32. These focused observations do not replace the fresh final full corpus;
+CTW and macc repairs and whole-task acceptance remain open.
