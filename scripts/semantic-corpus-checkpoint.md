@@ -4189,3 +4189,44 @@ drop accounting and three empty reaped groups are checked in
 semantic62-gbac37-direct-control/root-audit.json. The current located Search
 gap is assigned for an independent read-only reduction; no acceptance claim
 is inferred from the other13 completed thesis analyses.
+
+A frozen diagnostic-only byte-aware counting-allocator probe now attributes
+the sub-MiB crossword case without changing production. Raw output exactly
+matches the native formatter; all source allocations return to baseline2023B
+after drop. Parsing has718690 tokens/358996 nodes,retains50.671MB absolute
+live bytes,uses851989 allocation calls and requests132.481MB. Formatting
+adds a26.513MB peak delta,with77.184MB absolute live peak and1.347MB retained
+delta. Read/parse/format instrumented timings are.200/51.980/52.612ms and are
+not save latency or native budgets. Complete main108/scratch108/original/
+native/helper pins,opt3 instrumented asset,raw output,full streams and two
+empty reaped groups are checked in semantic62-crossword-allocation-preparation/
+root-runtime/root-audit.json. Aggregate formatting includes layout and opaque
+restoration; no finer measured attribution is claimed. Source review identifies
+the full output-token buffer retained solely to restore opaque comments. A
+scoped candidate reusing the existing streaming lexical scanner is assigned;
+its actual allocation and native save effects still require measurement.
+
+The public is cardinality-sum axis reduction compiles to FZN/OZN with Gecode
+without solving (.171s). V1 test compilation failed because two checks called
+a private method; its exact frozen test and streams remain visible and are
+not a language RED. V2 removes those inaccessible calls while retaining exact
+nested type/instantiation/optionality checks. The V2 behavioral run fails at
+line442 on the expected 1..extent ArrayIndexStart limitation after selected
+core sum/card,axis identities and matching inspected DefinitionFacts pass.
+Full main108/scratch108/public/std/compiler/helper pins,FZN/OZN,streams and
+empty reaped groups are checked in semantic62-is-current-gap-preparation/
+{compiler-positive,focused-red,focused-red-v2}/root-audit.json. Historical
+V1 captures check their exact preserved owned-test copy. A scoped count-axis
+consumer repair is assigned; raw numeric bounds and closed overflow vetoes
+remain required. No production change or completed original analysis is yet
+inferred from this faithful consumer RED.
+
+The streaming opaque-comment restoration candidate is integrated in c361670.
+It reuses the lexical protected-range scanner and retains comment ranges rather
+than a complete second token buffer. The existing byte-formatting check now
+also covers comment-looking string chunks and opaque interpolation comments.
+All24 focused formatting tests and main fmt/clippy/workspace gates pass
+(198 tests,42 summaries). Full108 source pins,complete streams and three empty
+reaped groups are checked in semantic62-opaque-comment-streaming-formatter-
+preparation/actual-workspace-gates/root-audit.json. Allocation and native save
+budget effects remain unmeasured for this integrated revision.
