@@ -3563,3 +3563,22 @@ early logs identify reflected 2D selections and ordinary symbolic uncertainty,
 not a proven final repair. Source/streams/groups are independently checked in
 `semantic62-routing182-diagnostic-preparation/capture/root-audit.json`. No logging
 exists in normal29/main. A narrower diagnosis remains necessary.
+
+Original current-Gecode-positive Cellda29 still hits the unchanged300-second cap
+for both serial native and companion. Both are reaped with empty groups and full
+streams retained; companion has manifest/load/analyze-begin but zero completed
+root records. All26 rules and14 thesis outcomes remain Unobserved, with no native
+completion count, semantic parity or whole-run allocation result inferred. Root
+checks equal before/after/current original/std/helper/frozen29/current90 source
+pins and full stream hashes. Evidence is
+`semantic62-bnn29-controls/cellda_y_10s/root-audit.json`. Known overlapping tiny
+Routing compiler and isolated RED test are recorded separately; no isolated
+speedup or memory-leak conclusion follows. The public-width improvement is real
+but has not resolved this required original processing failure.
+
+The public Routing membership reduction, with concrete synthetic data, compiles
+with Gecode/no-solve and empty diagnostics. Its tests-only current29 run genuinely
+fails the new positive inspection assertion with the matching index-proof
+limitation; no production change is accepted yet. Exact core-signature/full-child
+Unknown-only inspection is being prepared. All main Rust changes are committed;
+unrelated newly created logo assets are preserved outside task scope.
