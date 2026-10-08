@@ -2916,3 +2916,25 @@ state and terminal records under
 These instrumented observations do not establish stock companion parity or
 final task acceptance. The allocation filter draft remains unapplied to the
 shared candidate; its separate diagnostic build is prepared but unlaunched.
+
+Two isolated optimized builds now pass. The allocation-filter diagnostic20
+build completes in 14.332 seconds and freezes a native-only instrumented
+executable, SHA256
+2977bc1af6084450a8858d9d65e960e6aac71f7a111594a93def9ee80babbb2b.
+Root checked every Cargo event, full streams, equal current source/helper
+state and terminal records under
+`target/benchmarks/base083/semantic62-partial-abort-filter-attribution-preparation/build20/`.
+The two matched growth measurements remain pending.
+
+The Routing candidate release20 build completes in 11.763 seconds, freezing
+normal CLI and companion binaries and 22 reported optimized library artifacts.
+Native SHA256 is
+50fa9ffa598f4e802b30f84650b7bcca1c1c4f77c349f3d82ca6f8238dc66c6a;
+companion SHA256 is
+949524ac62137fdefdb5c118a62749a2a27e3e9dcf1970106bdbed01dd69b687.
+Root audited complete build streams, reported artifacts and unchanged source
+state under `target/benchmarks/base083/semantic62-draft-workspace-semantic-release20/`.
+These builds provide executables for further checks; they do not establish
+model acceptance. The original capture remains live on its actual owner.
+A stock19 original Navigation CLI/companion baseline pair is running, with
+the unchanged 300-second cap for each child; its full comparison is pending.
