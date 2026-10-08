@@ -8174,6 +8174,305 @@ impl<'a> Producer<'a> {
             )
         })
     }
+    fn parameter_row_let_safety(
+        &self,
+        file: FileId,
+        written: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> Option<DefinitionSafety> {
+        let node = unwrap(written);
+        let ty = |value: &SyntaxNode| {
+            self.expression_type(self.view(file, value, view), file, value)
+                .map(|e| &e.ty)
+        };
+        let integer = |t: &TypeInst| {
+            t.known()
+                && !optional(t)
+                && t.kind == TypeKind::Int
+                && t.instantiation == Instantiation::Parameter
+        };
+        if node.kind() != NodeKind::LetExpression
+            || ty(node).is_none_or(|t| !t.known() || optional(t) || t.kind != TypeKind::Bool)
+            || generators.len() != 1
+            || node
+                .child_nodes()
+                .filter(|n| n.kind() != NodeKind::LetBlock)
+                .count()
+                != 1
+        {
+            return None;
+        }
+        let generator = generators[0];
+        let source = generator.child_nodes().next()?;
+        if generator.child_nodes().count() != 1
+            || !generator.children().iter().any(|c| {
+                matches!(c, SyntaxElement::Token(i)
+                if self.context.files[file].parsed.tokens()[*i].kind == TokenKind::In)
+            })
+            || !self.core(file, source, view, "index_set_1of2")
+        {
+            return None;
+        }
+        let mut rows = Vec::new();
+        let mut initializers = Vec::new();
+        for block in node
+            .child_nodes()
+            .filter(|n| n.kind() == NodeKind::LetBlock)
+        {
+            for local in block.child_nodes() {
+                let declaration = self.bindings.declarations.iter().find(|d| {
+                    d.file == file
+                        && d.role == DeclarationRole::Local
+                        && d.syntax_range == local.range()
+                })?;
+                if local.kind() != NodeKind::Declaration
+                    || !integer(&view.declarations[declaration.id.0].ty)
+                {
+                    return None;
+                }
+                let mut values = local.child_nodes().filter(|n| is_expression(n.kind()));
+                let initializer = values.next()?;
+                if values.next().is_some() {
+                    return None;
+                }
+                let access = unwrap(initializer);
+                let parts: Vec<_> = access.child_nodes().collect();
+                if access.kind() != NodeKind::ArrayAccessExpression
+                    || parts.len() != 3
+                    || ty(access).is_none_or(|t| !integer(t))
+                {
+                    return None;
+                }
+                let subject = unwrap(parts[0]);
+                let array = self.reference(file, subject)?;
+                let owner = &self.bindings.declarations[array.0];
+                let row = self.reference(file, unwrap(parts[1]))?;
+                if subject.kind() != NodeKind::Expression
+                    || !matches!(crate::domains::tokens(&self.context.files[file].parsed, subject).as_slice(),
+                        [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+                    || !(owner.role == DeclarationRole::Parameter
+                        || owner.role == DeclarationRole::Value && owner.top_level)
+                    || ty(subject).is_none_or(|t| !t.known() || optional(t)
+                        || t.instantiation != Instantiation::Parameter
+                        || !matches!(&t.kind, TypeKind::Array { indices, element }
+                            if indices.len() == 2 && indices.iter().all(integer) && integer(element)))
+                    || unwrap(parts[1]).kind() != NodeKind::Expression
+                    || !matches!(crate::domains::tokens(&self.context.files[file].parsed, unwrap(parts[1])).as_slice(),
+                        [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+                    || ty(parts[1]).is_none_or(|t| !integer(t))
+                    || ty(parts[2]).is_none_or(|t| !integer(t))
+                    || self.bindings.declarations[row.0].role != DeclarationRole::Generator
+                    || self.bindings.declarations[row.0].syntax_range != generator.range()
+                    || !matches!(crate::domains::tokens(&self.context.files[file].parsed, unwrap(parts[2])).as_slice(),
+                        [token] if token.kind == TokenKind::IntegerLiteral)
+                    || source.child_nodes().count() != 1
+                    || source.child_nodes().next().is_none_or(|n| {
+                        let n = unwrap(n);
+                        n.kind() != NodeKind::Expression || self.reference(file, n) != Some(array)
+                            || !matches!(crate::domains::tokens(&self.context.files[file].parsed, n).as_slice(),
+                                [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+                    })
+                {
+                    return None;
+                }
+                if !crate::definitions::annotations_safe(self.context, file, local) {
+                    return Some(DefinitionSafety::Unsupported(
+                        "row local annotation is unsupported".into(),
+                    ));
+                }
+                if let Err(reason) = self.type_dependencies(file, local, view, generators) {
+                    return Some(DefinitionSafety::Unsupported(reason));
+                }
+                if self.domains.declarations[declaration.id.0]
+                    .domain
+                    .numeric_minimum()
+                    .is_err()
+                {
+                    return Some(DefinitionSafety::Unsupported(
+                        "row local domain is unsupported".into(),
+                    ));
+                }
+                if !rows.contains(&array) {
+                    rows.push(array);
+                }
+                initializers.push(initializer);
+            }
+        }
+        if initializers.is_empty() {
+            return None;
+        }
+        if !crate::definitions::annotations_safe(self.context, file, written)
+            || !crate::definitions::annotations_safe(self.context, file, generator)
+        {
+            return Some(DefinitionSafety::Unsupported(
+                "row let or iteration annotation is unsupported".into(),
+            ));
+        }
+        // Unknown cell values do not excuse a closed source-axis or element error.
+        // Retain the original array identity; neither defaults nor row values are proofs.
+        for array in rows {
+            let mut domain = &self.domains.declarations[array.0].domain;
+            while let Domain::Named {
+                domain: original, ..
+            } = domain
+            {
+                domain = original;
+            }
+            let Domain::Array { indices, element } = domain else {
+                return Some(DefinitionSafety::Unsupported(
+                    "row table domain is unavailable".into(),
+                ));
+            };
+            if indices.len() != 2
+                || indices.iter().any(|axis| axis.numeric_minimum().is_err())
+                || element.numeric_minimum().is_err()
+            {
+                return Some(DefinitionSafety::Unsupported(
+                    "row table index or element domain is unsupported".into(),
+                ));
+            }
+        }
+        // Inspect the exact selected header, every initialized local (including
+        // unused ones), and the whole Boolean body in its original lexical scope.
+        initializers.push(source);
+        if let unsupported @ DefinitionSafety::Unsupported(_) =
+            self.initialized_children_safety(file, &initializers, view, generators)
+        {
+            return Some(unsupported);
+        }
+        let body = node
+            .child_nodes()
+            .find(|n| n.kind() != NodeKind::LetBlock)?;
+        let inspected = self
+            .row_boolean_relation_safety(file, body, view, generators)
+            .unwrap_or_else(|| {
+                self.initialized_source_safety(file, body, view, generators, &mut Vec::new())
+            });
+        Some(match inspected {
+            unsupported @ DefinitionSafety::Unsupported(_) => unsupported,
+            _ => {
+                DefinitionSafety::Unknown("row let selection or relation value is unproved".into())
+            }
+        })
+    }
+    // Called only for the body of a fully inspected row-local let. Numeric
+    // operands keep raw safety, including Bool-to-Int coercion partiality.
+    fn row_boolean_relation_safety(
+        &self,
+        file: FileId,
+        written: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> Option<DefinitionSafety> {
+        let node = unwrap(written);
+        let ty = |value: &SyntaxNode| {
+            self.expression_type(self.view(file, value, view), file, value)
+                .map(|e| &e.ty)
+        };
+        if ty(node).is_none_or(|t| !t.known() || optional(t) || t.kind != TypeKind::Bool) {
+            return None;
+        }
+        let children: Vec<_> = node.child_nodes().collect();
+        let name = operator(self.context, file, node).and_then(crate::bindings::symbolic_operator);
+        let logical = match (node.kind(), name) {
+            (NodeKind::BinaryExpression, Some("/\\" | "\\/" | "<->" | "->" | "<-")) => {
+                children.len() == 2
+            }
+            (NodeKind::UnaryExpression, Some("not")) => children.len() == 1,
+            _ => false,
+        };
+        if logical {
+            if !self.core(file, node, view, name.unwrap())
+                || !crate::definitions::annotations_safe(self.context, file, written)
+                || children.iter().any(|n| ty(n).is_none_or(|t|
+                    !t.known() || optional(t) || t.kind != TypeKind::Bool))
+                || self.operation_fact(self.view(file, node, view), file, node).is_none_or(|call|
+                    !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                        if parameters.len() == children.len() && Some(return_type) == ty(node)
+                            && parameters.iter().zip(&children).all(|(formal, actual)|
+                                formal.known() && !optional(formal) && formal.kind == TypeKind::Bool
+                                    && ty(actual).is_some_and(|t| crate::types::coerces(t, formal)))))
+            {
+                return Some(DefinitionSafety::Unsupported("row Boolean relation identity or signature is unsupported".into()));
+            }
+            for child in children {
+                let inspected = self
+                    .row_boolean_relation_safety(file, child, view, generators)
+                    .unwrap_or_else(|| {
+                        self.initialized_source_safety(
+                            file,
+                            child,
+                            view,
+                            generators,
+                            &mut Vec::new(),
+                        )
+                    });
+                if let unsupported @ DefinitionSafety::Unsupported(_) = inspected {
+                    return Some(unsupported);
+                }
+            }
+            return Some(DefinitionSafety::Unknown(
+                "row Boolean relation value is unproved".into(),
+            ));
+        }
+        if node.kind() != NodeKind::ArrayAccessExpression {
+            return None;
+        }
+        let subject = children.first().copied().map(unwrap)?;
+        let array = self.reference(file, subject)?;
+        if subject.kind() != NodeKind::Expression
+            || !matches!(crate::domains::tokens(&self.context.files[file].parsed, subject).as_slice(),
+                [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+            || !crate::definitions::annotations_safe(self.context, file, written)
+            || ty(subject).is_none_or(|t| !t.known() || optional(t)
+                || !matches!(&t.kind, TypeKind::Array { indices, element }
+                    if matches!(indices.len(), 1 | 2) && children.len() == indices.len() + 1
+                        && element.known() && !optional(element) && element.kind == TypeKind::Bool
+                        && indices.iter().zip(&children[1..]).all(|(axis, selector)|
+                            axis.known() && !optional(axis) && axis.instantiation == Instantiation::Parameter
+                                && matches!(axis.kind, TypeKind::Int | TypeKind::Enum(_))
+                                && ty(selector).is_some_and(|index| index.known() && !optional(index)
+                                    && index.instantiation == Instantiation::Parameter && index.kind == axis.kind))))
+        {
+            return Some(DefinitionSafety::Unsupported("Boolean relation selection type or source is unsupported".into()));
+        }
+        let mut domain = &self.domains.declarations[array.0].domain;
+        while let Domain::Named {
+            domain: original, ..
+        } = domain
+        {
+            domain = original;
+        }
+        let Domain::Array { indices, element } = domain else {
+            return Some(DefinitionSafety::Unsupported(
+                "Boolean relation source domain is unavailable".into(),
+            ));
+        };
+        if indices.len() + 1 != children.len()
+            || indices.iter().any(|axis| axis.numeric_minimum().is_err())
+            || element.numeric_minimum().is_err()
+        {
+            return Some(DefinitionSafety::Unsupported(
+                "Boolean relation source domain is unsupported".into(),
+            ));
+        }
+        for selector in &children[1..] {
+            if let Some(reason) = self.closed_integer_source_error(file, selector, true, false) {
+                return Some(DefinitionSafety::Unsupported(reason));
+            }
+        }
+        // Undefined Boolean selection is false only in the checked Boolean
+        // relation. Inspect its source and selectors; grant no raw membership.
+        Some(
+            match self.initialized_children_safety(file, &children, view, generators) {
+                unsupported @ DefinitionSafety::Unsupported(_) => unsupported,
+                _ => {
+                    DefinitionSafety::Unknown("Boolean relation selection value is unproved".into())
+                }
+            },
+        )
+    }
     fn float_let_safety(
         &self,
         file: FileId,
@@ -8438,6 +8737,9 @@ impl<'a> Producer<'a> {
             Ok(_) => return aggregate.unwrap_or(DefinitionSafety::Supported),
             Err(reason) => reason,
         };
+        if let Some(safety) = self.parameter_row_let_safety(file, node, view, generators) {
+            return safety;
+        }
         if let Some(safety) = self.parameter_set_extremum_safety(file, node, view, generators) {
             return safety;
         }

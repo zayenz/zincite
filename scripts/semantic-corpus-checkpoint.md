@@ -4708,3 +4708,32 @@ private known() calls, before semantic preflight or behavior. This is not RED
 proof; public exact Int/SetInt type checks are being corrected in a new snapshot.
 The failure is preserved in semantic62-boundary-union-index-set-preparation/
 root-red/root-audit.json. No public API or main source change is justified by it.
+
+
+Row-local Search V2 restores the generic Boolean direct-safety branch exactly and
+confines relation selection inspection to the fully checked row-let body. The
+old numeric raw-partiality regression and the full row test (including its closed
+error negative) both pass. All205 private combined workspace tests also pass.
+The owning inspection returns Unknown without exported outputs, local IDs,
+whole-array facts or search seeds; strict dependencies and iteration remain.
+
+Its fresh original is native/companion all26 runs retain96warnings/0errors and
+reduce limitations127->124. Exactly three value-let limitations disappear at
+10928..11095,11111..11330 and11505..11671; no diagnostic lines are added. Search
+remains Limited for other original gaps. Release4opt3 assets/22libraries/108source
+pins, focused/full tests and complete diagnostic/scope-drop audits are retained
+under semantic62-is-search-gap-preparation/normal43-next/production-preparation-v2,
+semantic62-row-search-v2-release and semantic62-is-row-search-v2-direct-control.
+The formatter release bytes are identical to the accepted92ms implementation.
+
+Boundary-union IndexSetMismatch V2 passes compilation and core/declaration
+preflight but fails its expression-range lookup, so it is not behavioral RED.
+V3 uses actual owned CST ranges and passes every preflight, then fails the exact
+selected-rule completion assertion with its located union-source limitation at
+824..836. The subsequent overflow negative has not run in RED. Both failure
+classifications, full streams and input pins remain in the respective v2/v3
+root captures. A bounded Guarded domain-source repair is now private work.
+
+The integrated row Search V2 passes actual main fmt, clippy with warnings denied
+and all205 workspace tests; source pins exactly match the audited opt3 release.
+The actual-workspace-gates/root-audit.json preserves the required command evidence.
