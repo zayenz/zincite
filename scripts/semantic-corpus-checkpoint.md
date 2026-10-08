@@ -4737,3 +4737,21 @@ root captures. A bounded Guarded domain-source repair is now private work.
 The integrated row Search V2 passes actual main fmt, clippy with warnings denied
 and all205 workspace tests; source pins exactly match the audited opt3 release.
 The actual-workspace-gates/root-audit.json preserves the required command evidence.
+
+The direct asserted-array contract passes its new public regression and both
+existing assertion guards in the frozen standalone candidate. Composing its
+owned source and test hunks with current row Search V2 also passes all four
+focused checks, workspace fmt, clippy with warnings denied and all206 tests.
+The caller must prove aligned written axes before forwarding the direct output;
+aborting, shifted, computed and nested cases keep their boundaries. These are
+private candidate checks, not original GBAC coverage or task completion. Full
+streams, unchanged inputs and terminal groups are audited under semantic62-gbac-
+fzn-membership-preparation/{contract-production-preparation/focused-green,
+contract-combined-preparation/combined-gates}/root-audit.json.
+
+The symbolic set extrema test passes its actual unary core/type/declaration
+preflights, then reproduces eight limitations across four selected analyses.
+The completion assertion fails before later numeric/iteration and empty-set or
+overflow checks. This genuine behavioral RED is retained under semantic62-macc34-
+extrema-test-preparation/root-red/runtime/root-audit.json; a bounded repair is
+private work, with no main implementation claim yet.
