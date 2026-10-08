@@ -3700,3 +3700,13 @@ Whole-analyze still requests67,602,244,693 bytes in909,312,633 allocations with
 These are absolute measurements, not an isolated performance ratio or evidence
 of efficient scaling. Original Cellda processing/coverage is now observed; four
 other BNN originals and final full-corpus acceptance remain pending.
+
+The first frozen Sparse production candidate fails its focused existing group:
+the unchanged rank2 Int matrix sum loses expected Scalar search coverage and
+returns Unknown at search.rs1795, before the new906-byte Sparse case executes.
+This is a real earlier behavior regression, not a passing GREEN or acceptance
+of the candidate. Full streams, unchanged106 candidate sources/helpers and
+reaped empty group are checked in
+`semantic62-sparse-search-gap-preparation/focused-green/root-audit.json`.
+The candidate remains scratch-only; its selected aggregate tuple checks are
+being corrected without weakening that existing assertion.
