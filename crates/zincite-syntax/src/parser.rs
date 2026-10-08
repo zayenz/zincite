@@ -1307,10 +1307,29 @@ impl Parser<'_> {
         self.expect(MatrixEnd, children, "expected '|' or '|]' after matrix row")
     }
 
+    fn flat_atom_matrix_row_capacity(&self) -> Option<usize> {
+        let mut capacity = 0;
+        for (offset, token) in self.tokens[self.position..].iter().enumerate() {
+            match token.kind {
+                TokenKind::Pipe | TokenKind::MatrixEnd => return Some(capacity),
+                TokenKind::IntegerLiteral
+                | TokenKind::Identifier
+                | TokenKind::True
+                | TokenKind::False
+                | TokenKind::Comma => capacity = offset + 1,
+                kind if is_trivia(kind) => {}
+                _ => return None,
+            }
+        }
+        None
+    }
+
     fn matrix_row_or_header(&mut self, first: bool) -> Result<SyntaxNode, &'static str> {
         use TokenKind::*;
         let start = self.position;
-        let mut children = Vec::new();
+        // Each admitted atom uses one node; separators and intervening trivia
+        // use one token. Trailing trivia belongs to the enclosing matrix.
+        let mut children = Vec::with_capacity(self.flat_atom_matrix_row_capacity().unwrap_or(0));
         if self.peek() != Some(Pipe) {
             self.expression(&mut children)?;
             if self.peek() == Some(Colon) {

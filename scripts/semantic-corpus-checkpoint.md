@@ -4381,3 +4381,34 @@ Full old/new108 source/input/helper pins,one opt3 probe,complete streams and
 two empty reaped groups are checked in semantic62-plain-matrix-row-shape-
 preparation/root-runtime/root-audit.json. Timings remain diagnostic only;
 final corpus acceptance and the original save-budget repair remain open.
+
+The flat-atom matrix row reservation admits only the observed identifier and
+Boolean atoms in addition to integers/commas. Complex expressions retain the
+ordinary fallback; grammar, source spelling and CST remain unchanged. Parsing
+allocation calls fall851989 to718840 (133149 fewer),requested bytes fall
+132481080 to107318648 (25162432 fewer); retained49760248 and peak delta49760880
+remain unchanged. Formatting allocations remain unchanged and the original
+output is byte-identical. All25 parsing/24 formatting tests and five original
+preservation checks pass. Each of200 CLI saves matches the exact output hash.
+Original p95 is116.479/116.452ms versus the preceding ineffective experiment's
+125.710/126.122ms; it still exceeds100ms. Formatted p95 is129.603/129.489ms for
+1189780B (>1MiB,no100ms cap). One first invocation is515.590ms,CPU121.043ms,
+RSS57.141MiB; filesystem coldness was not controlled. Library timings and that
+single RSS observation are not repeated budget acceptance. Full main/scratch
+108/input/helper pins,three opt3 assets,complete streams and eleven empty
+reaped runtime/build groups are checked in semantic62-flat-atom-matrix-
+capacity-preparation/{root-runtime,root-controls}/root-audit.json. Integrated
+main fmt/clippy/all202 tests (42 summaries) pass; full108 sources and three
+empty reaped gate groups are checked in actual-workspace-gates/root-audit.json.
+Final semantic corpus and the original save-budget repair remain open.
+
+The faithful filtered-search V2 regression fails only after its all-call
+Resolved preflight,at the Completed assertion with the same three traversal
+boundaries as the public native reduction. V1's missing-globals setup was
+caught before launching a child; its failure is not language RED. Separate
+producer regressions fail at the first valid left-hand guarded bound and the
+first enforced Boolean assertion's missing output guarantee. Full pins,
+complete streams and three empty reaped groups are checked in semantic62-is-
+filtered-search-preparation/v2/root-red/root-audit.json and semantic62-gbac-
+public-gap-preparation/test-preparation/repair-preparation/root-red/root-audit.json.
+Scoped production candidates are pending; these failures do not close Search.
