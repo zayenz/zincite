@@ -2669,3 +2669,15 @@ Standalone formatting is the only validation so far. Compiler precheck, public
 RED/GREEN, workspace gates and original Routing outcomes remain pending.
 The shared conditional preflight overlaps the saved182/235 draft and must be
 integrated once. Shared candidate and actual Rust remain unchanged.
+
+The two operation-rich growth models (100/1,000 written declarations) pass
+current Gecode compile-only prechecks in 0.194/0.182 seconds, with no solver
+run. Both child statuses are zero, full stdout/stderr empty, children reaped
+and groups empty with null verification errors. Root checked all 1,044 input
+pins (including 1,035 standard files) against equal before/after/current state
+and all four emitted FZN/OZN artifacts. Evidence is under
+`target/benchmarks/base083/semantic62-partial-operation-growth-preparation/compiler-precheck/`.
+The prepared source family grows initialized-array accesses, div/mod operations
+and scalar defaults tenfold. This establishes compiler acceptance only; actual
+selected semantic facts, full matched outcomes and allocation/native growth
+measurements remain pending.
