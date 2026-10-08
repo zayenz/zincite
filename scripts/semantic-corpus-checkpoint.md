@@ -2956,3 +2956,24 @@ Stock19 original Navigation native processing completes in 95.597 seconds
 without timeout, status 1 for the same 5,643 warnings and no other diagnostic
 lines. Root checked complete streams and unchanged inputs; the companion
 child is still running. Full source/outcome/drop parity remains pending.
+
+The stock19 Navigation pair is complete and root-audited under
+`target/benchmarks/base083/semantic62-stock19-navigation-pair/`. Both native
+and companion finish status 1 without timeout (95.597/96.900 seconds),
+with byte-identical diagnostic streams and empty ordinary CLI stdout. The
+actual companion reports one complete resolved root, 5,643 warnings, zero
+errors/limitations, all 26 rules Completed and all fourteen thesis rules
+Completed. All loaded sources join checked compiler originals and the
+reported scope returns to its allocation baseline after drop. This supplies
+a complete stock19 baseline; final-candidate corpus acceptance remains open.
+
+Independent review and root inspection confirm two remaining limitation
+joins in the partial-expression checker: an all-row scan per operation for
+exact ranges, and an all-row scan per item for abort containment. They cost
+O(operations * limitations) and O(items * limitations), respectively, even
+when there are no abort rows. A small existing-module exact-range row lookup
+and ordered abort subset can remove these joins while preserving producer
+row order and duplicates, suppressions, containment, activation, empty
+iteration checks and final sort/dedup. The observed short checker timings
+do not independently attribute CPU to these joins. Other linear searches
+remain; no overall linearity claim follows from this proposed correction.
