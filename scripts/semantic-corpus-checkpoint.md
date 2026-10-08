@@ -3027,3 +3027,35 @@ and reports the same live session; a scoped process query confirms driver
 41434 is still running. Authoritative Rust integration remains deferred
 because that original driver continues checking its semantic61 source pins.
 No driver signal, restart, draining or source/protocol change was performed.
+
+Routing20 native/companion processing both complete without timeout and
+match each other's full diagnostics/status. Root audited all streams, source
+state, actual companion records and drops under
+`target/benchmarks/base083/semantic62-routing20-pair/`. Both retain 180
+warnings and 194 limitations; 13 of fourteen thesis rules complete and
+search-coverage remains Limited. Entire source/analysis/drop records equal19,
+but three located search limitations now expose narrower unsupported facts
+at lines182/383/378. Their underlying implementation gaps remain under review.
+The prepared diagnostic-block parser had treated analysis-limitation headers
+as part of the last warning. Root corrected classification in
+`diagnostic-block-root-correction.json`: all 180 actual warning blocks are
+byte-identical; only the last three limitation blocks change.
+
+Both diagnostic21 lookup controls complete with full stock19 diagnostic/status
+parity and successful own-PID CPU queries. Root audited exact before/after/current
+state, complete streams and records under
+`target/benchmarks/base083/semantic62-partial-limitation-index-attribution-captures/`.
+Checker allocation calls are 5,769/57,082 and requested bytes 738,764/7,136,560
+at 100/1000 declarations (9.895x/9.660x growth). Retained bytes remain equal
+to20. The added lookup costs 411/4,015 calls and 62,940/930,812 requested bytes;
+peak increases by 37,992/529,512 bytes. Observed walls are1.681/200.889ms,
+quantized CPU0/0.20 seconds. These measurements do not prove linear CPU
+growth or an isolated speed ratio. The remaining repeated default-expression
+searches are being reviewed without adding instrumentation.
+
+Current21 original Navigation CLI/companion comparison is now running with
+the same source, selected IDs and 300-second caps against the complete19
+baseline. Its full comparison is pending. The original semantic61 capture
+is still live; its latest checked ledger closes105/124 shards and accounts
+for5358/6417 planned roots, leaving1059. No final capture report/post-pins or
+terminal receipt exists; all90 original Rust hashes still match.
