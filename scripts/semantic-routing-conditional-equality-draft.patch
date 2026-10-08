@@ -1,0 +1,31 @@
+--- a/crates/zincite-lint/tests/search.rs
++++ b/crates/zincite-lint/tests/search.rs
+@@ -1828,6 +1828,8 @@
+         "constraint forall(i in Rows,k in Cols)(if not leg(i) then legs[i,k]==0 else legs[i,k]>=lb(positions[i,k]) /\\ legs[i,k]<=ub(positions[i,k]) endif);\n",
+         "constraint forall(i in Rows)(if first(i) then exists_leg[i]==0 else exists_leg[i]==exists_leg[i-1]+1 endif);\n",
+         "constraint forall(i in Rows,k in Cols)(if k==(direction[node[i]]-1) mod 3+1 then legs[i,k]>=0 else true endif);\n",
++        "array[Rows] of var 0..6: selected_direction;\n",
++        "constraint forall(i in Rows)(if 1==i then selected_direction[i]==direction[node[i]] else selected_direction[i]==0 endif);\n",
+         "array[Boxes] of int: first_leg=[min(legs_by_pipe[p])|p in Boxes]; array[Boxes] of int: last_leg=[max(legs_by_pipe[p])|p in Boxes];\n",
+         "int: units; int: reduction=1; var int: float_let_output;\n",
+         "constraint let { float: kappa=int2float(units)/4.0; float: unused_kappa=int2float(units)/8.0; } in\n",
+@@ -2015,6 +2017,19 @@
+             .definitions
+             .iter()
+             .any(|definition| definition.target == float_output)
++    );
++    let selected_direction = bindings
++        .declarations
++        .iter()
++        .find(|declaration| declaration.top_level && declaration.name == "selected_direction")
++        .unwrap()
++        .id;
++    assert!(
++        !callable
++            .definitions
++            .iter()
++            .any(|definition| definition.target == selected_direction),
++        "Unproved selected-direction membership must supply no callable output"
+     );
+     let let_start = routing.find("constraint let {").unwrap();
+     let let_end = routing[let_start..].find(" endif);").unwrap() + let_start + " endif);".len();

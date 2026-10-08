@@ -3263,3 +3263,17 @@ combined24 (focused test exit 0, non-timeout). It does not yet reproduce the
 remaining original Routing limitation; implementation changes are withheld
 while its actual traversal path is traced. The full result is retained in
 `semantic62-routing-equality-reduction/focused-red/`.
+
+The conditional selected-direction reduction reproduces the remaining
+membership failure on unchanged combined24: focused test exit 101, non-timeout,
+with the exact output-dependency membership diagnostic at the nested equality.
+The direct equality had passed because the root resolver skips flattened root
+Equality clauses; the conditional enters branch interpretation. Root checked
+this dispatch independently before authorizing the test-only adjustment.
+The exact reduction also compiles with current MiniZinc/Gecode without solving,
+exit 0. Complete streams/hashes and reaped empty-group receipts are retained in
+`semantic62-routing-equality-reduction/focused-conditional-red/` and
+`compiler-conditional/`. The faithful test delta is
+`scripts/semantic-routing-conditional-equality-draft.patch`; it is not yet
+applied to actual tests. A local checked-Unknown-only repair is being prepared;
+strict membership/output guarantees and failures remain required.
