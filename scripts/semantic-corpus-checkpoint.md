@@ -4020,3 +4020,21 @@ preparation directory's actual-workspace-gates/root-audit.json. CLI byte output,
 lint loading,truthful raw snapshots/fixes and original crossword acceptance
 remain open. Formatter CLI integration is assigned in a separate current108
 scratch; this library increment does not complete task083 or corpus acceptance.
+
+The pillars public reduction compiles with Gecode without solving (.291s);
+current public/std/compiler/helpers,full streams,FZN/OZN and the empty reaped
+group are checked in semantic62-pillars-current-gap-preparation/
+compiler-positive/root-audit.json. Its tests-only current34 scratch fails at
+the expected consumer assertion after exact wrapper/max/++ tuple preflights.
+Only objective1305..1415 and bare auxiliary wrapper1260..1303 produce Search
+limitations. Full107 scratch/helper/stream/group checks are retained in
+focused-red/root-audit.json. The installed-standard public normal34 probe
+confirms the same two Search limitations,plus an unbounded objective gap;
+5 warnings,zero errors,7 limitations with all26/source/drop accounting.
+Full historical107 release-copy/current108 main/public/std/assets/helpers
+and streams/group are checked in normal34-public-probe/root-audit.json;
+lint/syntax sources exactly match that release. This reduction does not yet
+reproduce the original's two filtered-wrapper Search limitations. The
+original/public structural difference requires reconciliation before claiming
+a faithful regression or applying the planned wrapper repair. Frozen public
+inputs/tests remain separate from main; no coverage is suppressed.
