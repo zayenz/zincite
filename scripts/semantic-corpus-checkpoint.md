@@ -2813,3 +2813,15 @@ attribution preparation. No model was processed with these diagnostic binaries
 yet; four bounded captures on the already compiler-accepted growth models are
 being prepared. These build results do not close CPU attribution, Navigation
 processing, Routing search regressions or final task acceptance.
+
+The corrected GREEN-v2 search suite passes three cases and fails one. The
+entire existing total-controls case now passes, including Boolean formal guards
+and index-set extrema. The symbolic Float-let output still receives Unknown
+instead of the unchanged expected Uncovered after adding the installed
+decision-integer division signature. Cargo exits101 in20.529 seconds without
+timeout. Root checked complete streams, equal before/after/current source and
+helper state, reaping and an empty group. Evidence and terminal root audit are
+in `target/benchmarks/base083/semantic62-draft-workspace-conditional-float-green-v2-search/`.
+No broader gates ran. A second temporary diagnostic capture is authorized to
+locate the remaining limitation; no additional Float implementation repair is
+yet justified. Original session89518 was freshly polled and remains live.
