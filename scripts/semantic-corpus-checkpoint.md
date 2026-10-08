@@ -3090,3 +3090,13 @@ absent. The remaining 644 roots are still being processed.
 The combined candidate patch also includes this callback change. Root
 reconstructed all 21 candidate files in a temporary directory and compared
 them byte-for-byte with the tested copy. Authoritative source remains unchanged.
+
+The native-only diagnostic22 build passes. It differs from diagnostic21 only
+in the two default-lookup callback files; instrumentation is unchanged. Root
+audited complete Cargo events, stream hashes, source state and frozen binary
+under `target/benchmarks/base083/semantic62-default-expression-lookup-attribution-preparation/build22/`.
+The binary SHA256 is
+`9cfa722015c2056db474595005ea8da7703e7f92312710f95dfb11f72881628e`.
+Matched captures remain pending. The build receipt records a denied cleanup
+signal attempt after completion, with the child reaped and process group
+independently confirmed empty.
