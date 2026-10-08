@@ -4287,3 +4287,13 @@ actual-workspace-gates/root-audit.json. Normal39 opt3 has four binaries and
 22 libraries checked against all108 main/copied sources in its root-build-
 audit.json. Original data acceptance controls remain pending; these gates
 do not establish full corpus coverage or task completion.
+
+Normal39 checks all five compiler-positive opaque crossword originals with
+raw token/CST spelling,safe sorted structure,protected comments,zero parse
+errors and byte-exact idempotence. Native --rules all also accepts all five
+data originals with status0 and empty streams. Full current108/release/
+original/std/compiler/helper pins and five complete empty-reaped controls each
+are checked in semantic62-crosswords39-{preservation,native-lint}/root-audit.json.
+These are data inputs,not complete-model thesis coverage. Source inspection
+found the companion nonmodel read branch still used String::from_utf8; its
+byte-path alignment is assigned before fresh full native/companion comparison.
