@@ -4252,3 +4252,38 @@ streams,two empty reaped groups and all50-sample summary arithmetic are checked
 in semantic62-crossword38-save-streaming/root-audit.json. Parsing allocation
 traffic remains a measured candidate for bounded diagnosis; acceptance stays
 open for the latency budget and final corpus.
+
+The raw-byte lint/fix V1 runtime passes the new opaque-comment CLI,copy-edit
+and model-snapshot controls,then fails one old zero-width encoding assertion
+(8..8 versus the actual offending byte8..9). It is retained in root-focused.
+V2 changes only that existing test range and exact byte-parser message; its
+production is identical. The full five focused lint targets (54 tests),one
+syntax group and two corpus-example tests pass. Full108 source/helper pins,
+complete streams and three empty reaped groups are checked in semantic62-
+opaque-comment-lint-fixes-preparation/root-focused-v2/root-audit.json. Only
+the15 attributable files are integrated; final workspace gates and original
+opaque-data/native outcome checks remain pending.
+
+The first is count-axis production candidate compiles but the faithful V2
+positive still has the same limitation at211..220. Full source/std/compiler/
+helper pins,complete streams and an empty reaped group are checked in
+semantic62-is-current-gap-preparation/focused-green/root-audit.json. It stays
+in scratch for diagnosis; neither the test nor acceptance is weakened.
+
+All seven public gbac controls ran with installed MiniZinc/Gecode compile-only.
+GCC wrapper/direct singleton,BIN singleton/empty and the left empty-weight
+guard compile; raw empty lb_array and the reversed disjunction fail with
+"lower bound of empty array undefined". This establishes operand-order behavior
+for the installed parameter expression,not arbitrary-disjunction safety.
+Full source/1035 standard/compiler/helper pins,seven complete streams,emitted
+assets and seven empty reaped groups are checked in semantic62-gbac-public-gap-
+preparation/compiler-results/root-audit.json. Search reductions are being
+prepared; no semantic repair is inferred from compiler acceptance alone.
+
+Integrated raw-byte lint/fix workspace fmt/clippy and all201 tests pass
+(42 summaries). Full108 source pins,complete streams and three empty reaped
+groups are checked in semantic62-opaque-comment-lint-fixes-preparation/
+actual-workspace-gates/root-audit.json. Normal39 opt3 has four binaries and
+22 libraries checked against all108 main/copied sources in its root-build-
+audit.json. Original data acceptance controls remain pending; these gates
+do not establish full corpus coverage or task completion.
