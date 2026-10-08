@@ -4599,3 +4599,42 @@ attribution-preparation/root-runtime/root-audit.json. This is a local diagnostic
 timer, not a new native p95 result. Reusing ranges when layout leaves their
 coordinates unchanged is the next candidate; transformed-layout fallback and
 the 100 ms budget still require verification.
+
+
+The formatter now reuses its independently scanned comment ranges for raw-byte
+restoration only when layout returns the unchanged LF buffer. Layout rewriting
+and other line endings retain final-output scanning, and existing comment
+kind/text/order checks remain. The private named result passed focused clippy
+and all 24 formatting tests after an earlier tuple-result clippy failure.
+
+The candidate preserves all five original crossword data files through parsing,
+formatting, reparsing and idempotence. Across 200 fresh CLI saves, every output
+matches the retained formatted bytes. The 908,888-byte original now has p95
+91.863 ms/default and 92.005 ms/nested EditorConfig, below the 100 ms budget;
+normal43 previously measured 103.000/103.733 ms. The 1,189,780-byte formatted
+buffer measures 105.765/106.516 ms and remains outside the up-to-1-MiB budget.
+The separate first invocation costs 480.587 ms wall, 88.071 ms CPU and 52.281 MiB
+RSS; filesystem coldness was not controlled. Wall is recorded before process
+cleanup, so its larger delay is not attributed to cleanup sleep. It remains a
+separate first-use observation, not the repeated-save percentile.
+
+The candidate also retains output/status behavior on 1,000 old43/candidate small
+control samples. Candidate p95 ranges from 4.889 to 27.319 ms, including invalid
+edited buffers; diagnostic messages match after substituting only each recorded
+temporary input path. All five formatted model/data pairs compile with Gecode
+without solving. Each FlatZinc difference is confined to physical line 3, the
+command-invocation path comment; all other bytes are equal. Full pinned streams,
+allocation/drop checks, release assets and root audits live under semantic62-
+opaque-comment-range-reuse-preparation/v2/{root-runtime-v2,root-controls,
+small-save-runtime,formatted-compiler-runtime}. Whole-task acceptance remains open.
+
+The row-local Search test V1 stopped in its range preflight and is not behavioral
+RED evidence. V2 uses retained CST ranges and passes all type/core tuple checks;
+it then fails the three intended value-let limitations at 426..655,783..1044 and
+1143..1325. Its following negative checks are not reached in RED. Complete streams
+and source pins are audited in semantic62-is-search-gap-preparation/normal43-next/
+tests-only-v2/root-red/root-audit.json. A narrow production repair remains pending.
+
+The integrated three-file formatter change passes main workspace formatting,
+clippy with warnings denied and all 204 workspace tests. Full receipts are
+audited in the same V2 actual-workspace-gates/root-audit.json.

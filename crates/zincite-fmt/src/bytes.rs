@@ -4,7 +4,7 @@ use zincite_syntax::{
     ByteParsedFile, Diagnostic, ParsedFile, SyntaxElement, TokenKind, lexical_protected_ranges,
 };
 
-use crate::{FormatOptions, format_with_options, includes, protected_ranges};
+use crate::{FormatOptions, FormattedOutput, format_output, includes, protected_ranges};
 
 /// Format byte input, preserving opaque comment bytes and original spelling.
 /// Syntax and directive errors return diagnostics without partial output.
@@ -19,27 +19,34 @@ pub fn format_bytes_with_options(
     options: &FormatOptions,
 ) -> Result<Vec<u8>, Vec<Diagnostic>> {
     let analysis = parsed.analysis_file();
-    let formatted = format_with_options(analysis, options)?;
-    if parsed.source_bytes() == analysis.source().as_bytes() {
+    let restore_comments = parsed.source_bytes() != analysis.source().as_bytes();
+    let FormattedOutput {
+        text: formatted,
+        comment_ranges,
+    } = format_output(analysis, options, restore_comments)?;
+    if !restore_comments {
         return Ok(formatted.into_bytes());
     }
     let protected = protected_ranges(analysis)?;
     let original_comments = ordered_comments(analysis, &protected);
-    let mut output_comments = lexical_protected_ranges(&formatted)?
-        .into_iter()
-        .filter_map(|range| {
-            // The scanner includes the opening '%'/'/*' for comments, and
-            // the opening quote or closing ')' for string chunks.
-            let text = &formatted[range.clone()];
-            let kind = if text.starts_with('%') {
-                TokenKind::LineComment
-            } else if text.starts_with("/*") {
-                TokenKind::BlockComment
-            } else {
-                return None;
-            };
-            Some((range, kind))
-        });
+    let output_ranges = match comment_ranges {
+        Some(ranges) => ranges,
+        // Layout rewriting changes byte coordinates; validate the final output.
+        None => lexical_protected_ranges(&formatted)?,
+    };
+    let mut output_comments = output_ranges.into_iter().filter_map(|range| {
+        // The scanner includes the opening '%'/'/*' for comments, and
+        // the opening quote or closing ')' for string chunks.
+        let text = &formatted[range.clone()];
+        let kind = if text.starts_with('%') {
+            TokenKind::LineComment
+        } else if text.starts_with("/*") {
+            TokenKind::BlockComment
+        } else {
+            return None;
+        };
+        Some((range, kind))
+    });
     let mut replacements = Vec::with_capacity(original_comments.len());
     for index in original_comments {
         let original = &analysis.tokens()[index];

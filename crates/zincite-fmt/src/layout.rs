@@ -2,16 +2,24 @@ use std::ops::Range;
 
 use zincite_syntax::{Diagnostic, lexical_protected_ranges};
 
-use crate::{FormatOptions, LineEnding};
+use crate::{FormatOptions, FormattedOutput, LineEnding};
 
 /// Convert only editable layout, keeping rendered literals/comments and raw
 /// directive spans exact, including text copied through matrix cell previews.
+/// Requested comment ranges use returned-output coordinates only on the
+/// unchanged LF path; rewritten layout returns None for a final-output rescan.
 pub(super) fn apply_layout(
     output: String,
     mut protected: Vec<Range<usize>>,
     options: &FormatOptions,
-) -> Result<String, Vec<Diagnostic>> {
-    protected.extend(lexical_protected_ranges(&output)?);
+    retain_comments: bool,
+) -> Result<FormattedOutput, Vec<Diagnostic>> {
+    let mut lexical = lexical_protected_ranges(&output)?;
+    if retain_comments && options.line_ending == LineEnding::Lf {
+        protected.extend(lexical.iter().cloned());
+    } else {
+        protected.append(&mut lexical);
+    }
     protected.sort_by_key(|range| range.start);
     let mut merged: Vec<Range<usize>> = Vec::new();
     for range in protected {
@@ -30,9 +38,22 @@ pub(super) fn apply_layout(
             position = range.end;
         }
         if unchanged && already_lf(&source[position..], options) {
-            return Ok(source);
+            let comments = retain_comments.then(|| {
+                // These are independent lexical spans, before directive/literal
+                // merging. String chunks cannot begin with comment delimiters.
+                lexical.retain(|range| {
+                    let text = &source[range.clone()];
+                    text.starts_with('%') || text.starts_with("/*")
+                });
+                lexical
+            });
+            return Ok(FormattedOutput {
+                text: source,
+                comment_ranges: comments,
+            });
         }
     }
+    drop(lexical);
     let mut result = String::with_capacity(source.len());
     let mut position = 0;
     for range in merged {
@@ -41,7 +62,10 @@ pub(super) fn apply_layout(
         position = range.end;
     }
     editable(&source[position..], &mut result, options);
-    Ok(result)
+    Ok(FormattedOutput {
+        text: result,
+        comment_ranges: None,
+    })
 }
 
 fn already_lf(text: &str, options: &FormatOptions) -> bool {

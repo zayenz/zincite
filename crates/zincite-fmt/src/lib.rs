@@ -82,6 +82,21 @@ pub fn format_with_options(
     parsed: &ParsedFile,
     options: &FormatOptions,
 ) -> Result<String, Vec<Diagnostic>> {
+    format_output(parsed, options, false).map(|output| output.text)
+}
+
+// Byte restoration can reuse comment ranges only when layout leaves their
+// rendered byte coordinates unchanged. String callers do not retain ranges.
+struct FormattedOutput {
+    text: String,
+    comment_ranges: Option<Vec<std::ops::Range<usize>>>,
+}
+
+fn format_output(
+    parsed: &ParsedFile,
+    options: &FormatOptions,
+    retain_comments: bool,
+) -> Result<FormattedOutput, Vec<Diagnostic>> {
     let protected = protected_ranges(parsed)?;
     let mut formatter = Formatter {
         parsed,
@@ -152,7 +167,7 @@ pub fn format_with_options(
     {
         formatter.newlines(1);
     }
-    layout::apply_layout(formatter.output, protected_output, options)
+    layout::apply_layout(formatter.output, protected_output, options, retain_comments)
 }
 
 struct Formatter<'a> {
