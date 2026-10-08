@@ -2482,6 +2482,11 @@ impl<'a> Producer<'a> {
                         && clauses[0].node.range() == unwrap(body).range()
                         && boolean(*file, body)
                         && boolean(clause.file, clause.node);
+                    let asserted_forall = (clause.generators.is_empty()
+                        && clauses.len() == 1
+                        && matches!(clauses[0].kind, ClauseKind::Equality))
+                    .then(|| self.direct_asserted_forall(clause.file, clause.node, view))
+                    .flatten();
                     let mut found = Vec::new();
                     let mut body_unavailable = Vec::new();
                     for body in clauses {
@@ -2497,7 +2502,16 @@ impl<'a> Producer<'a> {
                     }
                     let supported_body = body_unavailable.is_empty();
                     unavailable.extend(body_unavailable);
-                    if literal == Some(TokenKind::True) || direct_equality && supported_body {
+                    let whole_forall = asserted_forall.is_some_and(|(target, _)| {
+                        found.len() == 1
+                            && found[0].target == target
+                            && found[0].coverage == DefinitionCoverage::WholeArray
+                            && !found[0].enforced_boolean
+                            && !found[0].scoped_local
+                    });
+                    if literal == Some(TokenKind::True)
+                        || (direct_equality || whole_forall) && supported_body
+                    {
                         for mut output in found {
                             extend(&mut output.dependencies, dependencies.clone());
                             out.push(output);
@@ -2756,6 +2770,11 @@ impl<'a> Producer<'a> {
                     // Inspect every computed actual and required body boundary before
                     // withholding guarantees; uncertainty cannot hide unsupported siblings.
                     self.map_boundaries(clause, view, &self.boundaries, unavailable);
+                    return;
+                }
+                if let Err(reason) = self.asserted_call_indices(clause, view, instance) {
+                    self.map_boundaries(clause, view, &self.boundaries, unavailable);
+                    self.unavailable(clause, &reason, unavailable);
                     return;
                 }
                 if let Some(mut outputs) = self.literal_call_outputs(clause, view, instance) {
@@ -4472,6 +4491,415 @@ impl<'a> Producer<'a> {
                             })
                     })
             })
+    }
+    fn integer_index_set(
+        &self,
+        file: FileId,
+        node: &SyntaxNode,
+        view: &CallableFacts,
+    ) -> Option<DeclarationId> {
+        let node = unwrap(node);
+        let facts = self.view(file, node, view);
+        let integer = |ty: &TypeInst| ty.known() && !optional(ty) && ty.kind == TypeKind::Int;
+        let set = |ty: &TypeInst| {
+            ty.known()
+                && !optional(ty)
+                && ty.instantiation == Instantiation::Parameter
+                && matches!(&ty.kind, TypeKind::Set(element)
+                    if integer(element) && element.instantiation == Instantiation::Parameter)
+        };
+        let CallOutcome::Resolved {
+            parameters,
+            return_type,
+            ..
+        } = &self.operation_fact(facts, file, node)?.outcome
+        else {
+            return None;
+        };
+        let [parameter] = parameters.as_slice() else {
+            return None;
+        };
+        let subject = unwrap(node.child_nodes().next()?);
+        let id = self.reference(file, subject)?;
+        let actual = &facts.declarations[id.0].ty;
+        (node.kind() == NodeKind::CallExpression
+            && node.child_nodes().count() == 1
+            && self.core(file, node, view, "index_set")
+            && subject.kind() == NodeKind::Expression
+            && matches!(crate::domains::tokens(&self.context.files[file].parsed, subject).as_slice(),
+                [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+            && actual.known() && !optional(actual)
+            && matches!(&actual.kind, TypeKind::Array { indices, element }
+                if indices.len() == 1 && integer(&indices[0])
+                    && indices[0].instantiation == Instantiation::Parameter && integer(element))
+            && parameter.known() && !optional(parameter)
+            && matches!(&parameter.kind, TypeKind::Array { indices, element }
+                if indices.len() == 1 && integer(&indices[0])
+                    && indices[0].instantiation == Instantiation::Parameter && integer(element))
+            && crate::types::coerces(actual, parameter)
+            && set(return_type)
+            && self.expression_type(facts, file, node).is_some_and(|e| e.ty == *return_type))
+        .then_some(id)
+    }
+    // This first contract belongs to the callable's entire direct body. A
+    // conditional, local or nested call cannot carry it into an output summary.
+    fn direct_asserted_forall(
+        &self,
+        file: FileId,
+        assertion: &'a SyntaxNode,
+        view: &CallableFacts,
+    ) -> Option<(DeclarationId, [DeclarationId; 2])> {
+        let owner = self.bindings.declarations.iter().find(|d| {
+            d.file == file
+                && matches!(
+                    d.role,
+                    DeclarationRole::Predicate | DeclarationRole::Function | DeclarationRole::Test
+                )
+                && d.syntax_range.start <= assertion.range().start
+                && assertion.range().end <= d.syntax_range.end
+        })?;
+        let written = find_node(
+            self.context.files[file].parsed.tree(),
+            &owner.syntax_range,
+            owner.role,
+        )?;
+        let body = written
+            .child_nodes()
+            .filter(|n| is_expression(n.kind()))
+            .last()?;
+        if unwrap(body).range() != assertion.range() {
+            return None;
+        }
+        let args = self.assertion_arguments(file, assertion, view)?;
+        if args.len() != 3 || args.iter().any(|(source, _)| *source != file) {
+            return None;
+        }
+        let present = |ty: &TypeInst, kind, instantiation| {
+            ty.known() && !optional(ty) && ty.kind == kind && ty.instantiation == instantiation
+        };
+        let CallOutcome::Resolved {
+            parameters,
+            return_type,
+            ..
+        } = &self
+            .operation_fact(self.view(file, assertion, view), file, assertion)?
+            .outcome
+        else {
+            return None;
+        };
+        if parameters.len() != 3
+            || !present(&parameters[0], TypeKind::Bool, Instantiation::Parameter)
+            || !present(&parameters[1], TypeKind::String, Instantiation::Parameter)
+            || !present(&parameters[2], TypeKind::Bool, Instantiation::Decision)
+            || return_type != &parameters[2]
+        {
+            return None;
+        }
+        let condition = unwrap(args[0].1);
+        let operands: Vec<_> = condition.child_nodes().collect();
+        let set = |ty: &TypeInst| {
+            ty.known()
+                && !optional(ty)
+                && ty.instantiation == Instantiation::Parameter
+                && matches!(&ty.kind, TypeKind::Set(element)
+                    if present(element, TypeKind::Int, Instantiation::Parameter))
+        };
+        if condition.kind() != NodeKind::BinaryExpression
+            || operands.len() != 2
+            || !self.core(file, condition, view, "=")
+            || !self
+                .operation_fact(self.view(file, condition, view), file, condition)
+                .is_some_and(|call| {
+                    matches!(&call.outcome,
+                    CallOutcome::Resolved { parameters, return_type, .. }
+                    if parameters.len() == 2 && parameters.iter().all(set)
+                        && present(return_type, TypeKind::Bool, Instantiation::Parameter))
+                })
+            || self
+                .expression_type(self.view(file, condition, view), file, condition)
+                .is_none_or(|e| !present(&e.ty, TypeKind::Bool, Instantiation::Parameter))
+        {
+            return None;
+        }
+        let arrays = [
+            self.integer_index_set(file, operands[0], view)?,
+            self.integer_index_set(file, operands[1], view)?,
+        ];
+        if arrays.iter().any(|id| {
+            let d = &self.bindings.declarations[id.0];
+            d.file != file || d.item != owner.item || d.role != DeclarationRole::Parameter
+        }) {
+            return None;
+        }
+        let quantified = unwrap(args[2].1);
+        if quantified.kind() != NodeKind::GeneratorCallExpression
+            || !self.core(file, quantified, view, "forall")
+            || !self.operation_fact(self.view(file, quantified, view), file, quantified)
+                .is_some_and(|call| matches!(&call.outcome,
+                    CallOutcome::Resolved { parameters, return_type, .. }
+                    if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
+                        && parameters[0].instantiation == Instantiation::Decision
+                        && matches!(&parameters[0].kind, TypeKind::Array { indices, element }
+                            if indices.len() == 1 && present(&indices[0], TypeKind::Int, Instantiation::Parameter)
+                                && present(element, TypeKind::Bool, Instantiation::Decision))
+                        && present(return_type, TypeKind::Bool, Instantiation::Decision)))
+        { return None; }
+        let children: Vec<_> = quantified.child_nodes().collect();
+        if children.len() != 2 {
+            return None;
+        }
+        let list = *children
+            .iter()
+            .find(|n| n.kind() == NodeKind::GeneratorList)?;
+        let generators: Vec<_> = list.child_nodes().collect();
+        if generators.len() != 1
+            || generators[0].child_nodes().count() != 1
+            || self.iterations(file, &generators, view).is_err()
+            || self
+                .relation_iterations(file, &generators, 0, view, false)
+                .is_err()
+            || self
+                .bindings
+                .declarations
+                .iter()
+                .filter(|d| {
+                    d.file == file
+                        && d.role == DeclarationRole::Generator
+                        && d.syntax_range == generators[0].range()
+                })
+                .count()
+                != 1
+        {
+            return None;
+        }
+        let output = self.integer_index_set(file, generators[0].child_nodes().next()?, view)?;
+        let equality = unwrap(
+            *children
+                .iter()
+                .find(|n| n.kind() != NodeKind::GeneratorList)?,
+        );
+        let sides: Vec<_> = equality.child_nodes().collect();
+        if equality.kind() != NodeKind::BinaryExpression || sides.len() != 2
+            || !self.core(file, equality, view, "=")
+            || !self.operation_fact(self.view(file, equality, view), file, equality)
+                .is_some_and(|call| matches!(&call.outcome,
+                    CallOutcome::Resolved { parameters, return_type, .. }
+                    if parameters.len() == 2
+                        && parameters.iter().all(|ty| present(ty, TypeKind::Int, Instantiation::Decision))
+                        && present(return_type, TypeKind::Bool, Instantiation::Decision)))
+            || !sides.iter().any(|side| self.target(file, side, view, &generators)
+                == Some((output, DefinitionCoverage::WholeArray)))
+        { return None; }
+        let mut nodes = vec![assertion];
+        while let Some(node) = nodes.pop() {
+            if !crate::definitions::annotations_safe(self.context, file, node) {
+                return None;
+            }
+            nodes.extend(node.child_nodes());
+        }
+        for (position, (_, value)) in args.iter().take(2).enumerate() {
+            let kind = if position == 0 {
+                TypeKind::Bool
+            } else {
+                TypeKind::String
+            };
+            if self
+                .expression_type(self.view(file, value, view), file, value)
+                .is_none_or(|e| !present(&e.ty, kind, Instantiation::Parameter))
+                || self.dependencies(file, value, view, &[]).is_err()
+            {
+                return None;
+            }
+        }
+        Some((output, arrays))
+    }
+    fn asserted_index_membership(
+        &self,
+        file: FileId,
+        access: &'a SyntaxNode,
+        array: DeclarationId,
+        index: &'a SyntaxNode,
+        generators: &[&'a SyntaxNode],
+        view: &CallableFacts,
+    ) -> bool {
+        let index = unwrap(index);
+        let Some(binder) = self
+            .reference(file, index)
+            .filter(|_| index.kind() == NodeKind::Expression)
+        else {
+            return false;
+        };
+        let declaration = &self.bindings.declarations[binder.0];
+        if declaration.file != file || declaration.role != DeclarationRole::Generator {
+            return false;
+        }
+        let Some(source) = generators
+            .iter()
+            .find(|g| g.range() == declaration.syntax_range)
+            .and_then(|g| g.child_nodes().next())
+            .and_then(|source| self.integer_index_set(file, source, view))
+        else {
+            return false;
+        };
+        let contains = |node: &SyntaxNode| {
+            node.range().start <= access.range().start && access.range().end <= node.range().end
+        };
+        let mut nodes = vec![self.context.files[file].parsed.tree()];
+        while let Some(node) = nodes.pop() {
+            if node.kind() == NodeKind::CallExpression
+                && let Some((_, pair)) = self.direct_asserted_forall(file, node, view)
+                && (pair == [array, source] || pair == [source, array])
+                && self
+                    .assertion_arguments(file, node, view)
+                    .is_some_and(|args| contains(args[2].1))
+            {
+                // Normal return from this exact guard proves this selector's
+                // membership only. Whole-array coverage keeps its direct check.
+                return true;
+            }
+            nodes.extend(node.child_nodes().filter(|child| contains(child)));
+        }
+        false
+    }
+    fn asserted_call_indices(
+        &self,
+        clause: &Clause<'a>,
+        view: &CallableFacts,
+        instance: &Instance<'a>,
+    ) -> Result<(), String> {
+        let [body] = instance.clauses.as_slice() else {
+            return Ok(());
+        };
+        if !matches!(body.kind, ClauseKind::Assertion) {
+            return Ok(());
+        }
+        let Some((_, arrays)) = self.direct_asserted_forall(body.file, body.node, &instance.view)
+        else {
+            return Ok(());
+        };
+        let mut axes = Vec::new();
+        for formal in arrays {
+            let (file, value) = self
+                .actual(clause, instance.id, formal, view)
+                .ok_or("asserted array actual/default mapping is unavailable")?;
+            let value = unwrap(value);
+            if value.kind() != NodeKind::Expression
+                || !matches!(crate::domains::tokens(&self.context.files[file].parsed, value).as_slice(),
+                    [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+            {
+                return Err("asserted array actual/default must be a bare array identity".into());
+            }
+            let id = self
+                .reference(file, value)
+                .ok_or("asserted array actual identity is unavailable")?;
+            let facts = self.view(file, value, view);
+            let ty = &facts.declarations[id.0].ty;
+            if !ty.known()
+                || optional(ty)
+                || !matches!(&ty.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 1 && indices[0].kind == TypeKind::Int
+                        && indices[0].instantiation == Instantiation::Parameter && element.kind == TypeKind::Int)
+                || self
+                    .expression_type(facts, file, value)
+                    .is_none_or(|e| e.ty != *ty)
+            {
+                return Err("asserted array actual type or optionality is unsupported".into());
+            }
+            let owner = &self.bindings.declarations[id.0];
+            if !matches!(
+                owner.role,
+                DeclarationRole::Value | DeclarationRole::Parameter
+            ) || owner.role == DeclarationRole::Value && !owner.top_level
+            {
+                return Err("asserted array actual declaration scope is unsupported".into());
+            }
+            let written = find_node(
+                self.context.files[owner.file].parsed.tree(),
+                &owner.syntax_range,
+                owner.role,
+            )
+            .ok_or("asserted array actual declaration is unavailable")?;
+            let Domain::Array { indices, .. } = &self.domains.declarations[id.0].domain else {
+                return Err("asserted array written axis is unavailable".into());
+            };
+            let [axis] = indices.as_slice() else {
+                return Err("asserted array must retain one written axis".into());
+            };
+            let mut nodes = vec![written];
+            while let Some(node) = nodes.pop() {
+                if !crate::definitions::annotations_safe(self.context, owner.file, node) {
+                    return Err("asserted array source annotation is unsupported".into());
+                }
+                nodes.extend(node.child_nodes());
+            }
+            self.type_dependencies(owner.file, written, view, &[])?;
+            match self.initialized_source_safety(file, value, view, &[], &mut Vec::new()) {
+                DefinitionSafety::Supported => {}
+                DefinitionSafety::Unknown(reason) | DefinitionSafety::Unsupported(reason) => {
+                    return Err(reason);
+                }
+            }
+            for initializer in written.child_nodes().filter(|n| is_expression(n.kind())) {
+                let initializer = unwrap(initializer);
+                if initializer.kind() != NodeKind::ArrayLiteral
+                    || initializer
+                        .child_nodes()
+                        .any(|cell| cell.kind() == NodeKind::IndexedArrayEntry)
+                {
+                    return Err("asserted array initializer shape is unproved".into());
+                }
+                let TypeKind::Array { element, .. } = &ty.kind else {
+                    return Err("asserted array literal element type is unavailable".into());
+                };
+                for cell in initializer.child_nodes() {
+                    if self
+                        .expression_type(self.view(owner.file, cell, view), owner.file, cell)
+                        .is_none_or(|e| {
+                            !e.ty.known()
+                                || optional(&e.ty)
+                                || e.ty.kind != TypeKind::Int
+                                || !crate::types::coerces(&e.ty, element)
+                        })
+                    {
+                        return Err("asserted array literal cell type is unsupported".into());
+                    }
+                }
+                match self.initialized_source_safety(
+                    owner.file,
+                    initializer,
+                    view,
+                    &[],
+                    &mut Vec::new(),
+                ) {
+                    DefinitionSafety::Supported => {}
+                    DefinitionSafety::Unknown(reason) | DefinitionSafety::Unsupported(reason) => {
+                        return Err(reason);
+                    }
+                }
+                if let Some(reason) =
+                    self.closed_integer_source_error(owner.file, initializer, true, false)
+                {
+                    return Err(reason);
+                }
+                let count = i64::try_from(initializer.child_nodes().count())
+                    .map_err(|_| "asserted array literal extent is unsupported")?;
+                let literal_axis = Domain::Range {
+                    lower: crate::NumericBound::Integer(1),
+                    upper: crate::NumericBound::Integer(count),
+                };
+                if crate::domains::same_members(axis, &literal_axis)? != Some(true) {
+                    return Err(
+                        "asserted array initializer does not retain its written axis".into(),
+                    );
+                }
+            }
+            axes.push(axis);
+        }
+        match crate::domains::same_members(axes[0], axes[1])? {
+            Some(true) => Ok(()),
+            Some(false) => Err("asserted array index equality is false for these actuals".into()),
+            None => Err("asserted array actual index equality is unproved".into()),
+        }
     }
     fn exact_index(
         &self,
@@ -10227,6 +10655,14 @@ impl<'a> Producer<'a> {
                 }
                 let supported = children.len() == 2
                     && (self.member_index(file, id, children[1], generators, view)
+                        || self.asserted_index_membership(
+                            file,
+                            node,
+                            id,
+                            children[1],
+                            generators,
+                            facts,
+                        )
                         || self.array_bound_index(file, id, children[1], view)
                         || self.shifted_index_membership(
                             file,

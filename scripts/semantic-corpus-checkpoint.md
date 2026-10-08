@@ -4772,3 +4772,20 @@ four assets/22libraries/108sources,42 controls, complete per-rule partitions,
 scope drops and unchanged original/std inputs are independently audited under
 semantic62-weighted-boundary-release-control-preparation. Actual main source and
 gates are retained under semantic62-weighted-boundary-main-integration.
+
+The direct asserted-array contract is now integrated after the same audited
+207-test main gates and fresh controls. Only the callable's entire direct
+assert/forall body can use the selected core index-set equality for dependency
+selectors; whole-array traversal keeps its existing proof. Caller output transfer
+requires checked bare actual/default identities, compatible literal initializer
+axes and same_members==Some(true) for the two written axes. Unproved, unequal,
+computed or converted actuals withhold outputs. All original guards remain.
+
+The direct singleton control now completes Search and all14 thesis analyses;
+VacuousConstraint still has two separate limitations. Invalid assertion/shifted
+and wrong-array partiality controls and valid nested/BIN controls retain explicit
+Search limits. Original GBAC's16warnings/0errors/18limitations and complete
+diagnostic stream are unchanged. Compiler rejection is kept distinct from
+successful capture, and no solver was run. The formatter asset is byte-identical
+to the accepted92ms release. Wider nested-conversion/GCC repairs, symbolic extrema
+and other corpus gaps still prevent base-083 completion.

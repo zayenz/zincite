@@ -4718,3 +4718,371 @@ fn enforced_boolean_assertions_keep_outer_branch_and_abort_boundaries() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn asserted_array_membership_requires_exact_scope_and_successful_actual_axes() {
+    fn present_type(ty: &zincite_lint::TypeInst) -> bool {
+        !ty.optional
+            && matches!(
+                ty.instantiation,
+                zincite_lint::Instantiation::Parameter | zincite_lint::Instantiation::Decision
+            )
+            && match &ty.kind {
+                zincite_lint::TypeKind::Bool
+                | zincite_lint::TypeKind::Int
+                | zincite_lint::TypeKind::String => true,
+                zincite_lint::TypeKind::Set(element) => present_type(element),
+                zincite_lint::TypeKind::Array { indices, element } => {
+                    indices.iter().all(present_type) && present_type(element)
+                }
+                _ => false,
+            }
+    }
+
+    // These core tuples match the captured public direct producer. Compiler
+    // acceptance of the partial controls supplies no selector safety proof.
+    let builtins = concat!(
+        "function var bool: assert(bool: condition,string: message,var bool: value);\n",
+        "function var int: '*'(var int: left,var int: right); annotation first_fail;\n",
+        "function var bool: forall(array[int] of var bool: body);\n",
+    );
+    for (name, source, supported) in [
+        (
+            "aligned-direct-singleton",
+            r#"% Public reduction of fzn_bin_packing_load.mzn:10's weighted selector.
+% This preserves weight[i] under i in index_set(bin), with an unsearched load.
+predicate public_direct_aligned_load(array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight) =
+    assert(
+        index_set(bin) == index_set(weight),
+        "Bin and weight index sets must agree",
+        forall(b in index_set(load))(load[b] = sum(i in index_set(bin))(weight[i] * (bin[i] = b)))
+    );
+
+array[1..1] of int: item_weight = [1];
+array[1..1] of var 1..1: placement;
+array[1..1] of var 0..1: bin_load;
+
+constraint :: "weighted_load_indices"
+    public_direct_aligned_load(bin_load, placement, item_weight);
+
+solve :: int_search(placement, first_fail, indomain_min, complete) satisfy;
+"#,
+            true,
+        ),
+        (
+            "aligned-direct-abort",
+            r#"% Public reduction of fzn_bin_packing_load.mzn:10's weighted selector.
+% This preserves weight[i] under i in index_set(bin), with an unsearched load.
+predicate public_direct_aligned_load(array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight) =
+    assert(
+        index_set(bin) == index_set(weight),
+        "Bin and weight index sets must agree",
+        forall(b in index_set(load))(load[b] = sum(i in index_set(bin))(weight[i] * (bin[i] = b)))
+    );
+
+array[1..0] of int: item_weight = [];
+array[1..1] of var 1..1: placement;
+array[1..1] of var 0..1: bin_load;
+
+constraint :: "weighted_load_indices"
+    public_direct_aligned_load(bin_load, placement, item_weight);
+
+solve :: int_search(placement, first_fail, indomain_min, complete) satisfy;
+"#,
+            false,
+        ),
+        (
+            "other-assert-empty-weight",
+            r#"% Public reduction of fzn_bin_packing_load.mzn:10's weighted selector.
+% This preserves weight[i] under i in index_set(bin), with an unsearched load.
+predicate public_other_aligned_load(
+    array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight, array[int] of int: other
+) =
+    assert(
+        index_set(bin) == index_set(other),
+        "Bin and other index sets must agree",
+        forall(b in index_set(load))(load[b] = sum(i in index_set(bin))(weight[i] * (bin[i] = b)))
+    );
+
+array[1..0] of int: item_weight = [];
+array[1..1] of var 1..1: placement;
+array[1..1] of var 0..1: bin_load;
+array[1..1] of int: other_weight = [1];
+
+constraint :: "weighted_load_indices"
+    public_other_aligned_load(bin_load, placement, item_weight, other_weight);
+
+solve :: int_search(placement, first_fail, indomain_min, complete) satisfy;
+"#,
+            false,
+        ),
+        (
+            "unaligned-empty-weight",
+            r#"% Public reduction of fzn_bin_packing_load.mzn:10's weighted selector.
+% This preserves weight[i] under i in index_set(bin), with an unsearched load.
+predicate public_weighted_load(array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight) =
+    forall(b in index_set(load))(load[b] = sum(i in index_set(bin))(weight[i] * (bin[i] = b)));
+
+array[1..0] of int: item_weight = [];
+array[1..1] of var 1..1: placement;
+array[1..1] of var 0..1: bin_load;
+
+constraint :: "weighted_load_indices"
+    public_weighted_load(bin_load, placement, item_weight);
+
+solve :: int_search(placement, first_fail, indomain_min, complete) satisfy;
+"#,
+            false,
+        ),
+        (
+            "unaligned-shifted-exact-weight",
+            r#"% V2: explicit array1d fixes the initializer axis before testing the selector.
+% Public reduction of fzn_bin_packing_load.mzn:10's weighted selector.
+% This preserves weight[i] under i in index_set(bin), with an unsearched load.
+predicate public_weighted_load(array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight) =
+    forall(b in index_set(load))(load[b] = sum(i in index_set(bin))(weight[i] * (bin[i] = b)));
+
+array[2..2] of int: item_weight = array1d(2..2, [1]);
+array[1..1] of var 1..1: placement;
+array[1..1] of var 0..1: bin_load;
+
+constraint :: "weighted_load_indices"
+    public_weighted_load(bin_load, placement, item_weight);
+
+solve :: int_search(placement, first_fail, indomain_min, complete) satisfy;
+"#,
+            false,
+        ),
+        (
+            "aligned-nested-singleton",
+            r#"% Public reduction of fzn_bin_packing_load.mzn:10's weighted selector.
+% This preserves weight[i] under i in index_set(bin), with an unsearched load.
+predicate public_weighted_load(array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight) =
+    forall(b in index_set(load))(load[b] = sum(i in index_set(bin))(weight[i] * (bin[i] = b)));
+
+predicate public_aligned_load(array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight) =
+    assert(
+        index_set(bin) == index_set(weight),
+        "Bin and weight index sets must agree",
+        public_weighted_load(load, bin, weight)
+    );
+
+array[1..1] of int: item_weight = [1];
+array[1..1] of var 1..1: placement;
+array[1..1] of var 0..1: bin_load;
+
+constraint :: "weighted_load_indices"
+    public_aligned_load(bin_load, placement, item_weight);
+
+solve :: int_search(placement, first_fail, indomain_min, complete) satisfy;
+"#,
+            false,
+        ),
+    ] {
+        let (dir, _) = model(&format!("asserted-array-membership-{name}"), source, "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!("{CORE}{builtins}"),
+        )
+        .unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|f| f.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let parameter = |ty: &zincite_lint::TypeInst, kind| {
+            !ty.optional
+                && ty.instantiation == zincite_lint::Instantiation::Parameter
+                && ty.kind == kind
+        };
+        // Fail fixture preflight before asserting semantic behavior if these
+        // faithful public operations do not retain the observed core tuples.
+        for call in calls.calls.iter().filter(|call| {
+            context.files[call.file].kind == zincite_lint::SourceKind::User
+                && matches!(
+                    call.name.as_str(),
+                    "assert" | "index_set" | "forall" | "sum" | "*" | "="
+                )
+        }) {
+            let zincite_lint::CallOutcome::Resolved {
+                declaration,
+                parameters,
+                return_type,
+            } = &call.outcome
+            else {
+                panic!("{name}: {} fixture tuple {:?}", call.name, call.outcome);
+            };
+            let selected = &bindings.declarations[declaration.0];
+            let owner = &context.files[selected.file];
+            assert_eq!(selected.name, call.name, "{name}");
+            assert_eq!(
+                owner.kind,
+                zincite_lint::SourceKind::StandardLibrary,
+                "{name}"
+            );
+            assert!(owner.implicit, "{name}");
+            assert!(parameters.iter().all(present_type), "{name}");
+            assert!(present_type(return_type), "{name}");
+            if call.name == "assert" {
+                assert_eq!(parameters.len(), 3, "{name}");
+                assert!(
+                    parameter(&parameters[0], zincite_lint::TypeKind::Bool),
+                    "{name}"
+                );
+                assert!(
+                    parameter(&parameters[1], zincite_lint::TypeKind::String),
+                    "{name}"
+                );
+                assert_eq!(parameters[2].kind, zincite_lint::TypeKind::Bool, "{name}");
+                assert_eq!(
+                    parameters[2].instantiation,
+                    zincite_lint::Instantiation::Decision,
+                    "{name}"
+                );
+                assert_eq!(return_type, &parameters[2], "{name}");
+            } else if call.name == "index_set" {
+                assert_eq!(parameters.len(), 1, "{name}");
+                assert!(
+                    matches!(&parameters[0].kind,
+                    zincite_lint::TypeKind::Array { indices, element }
+                    if indices.len() == 1 && parameter(&indices[0], zincite_lint::TypeKind::Int)
+                        && element.instantiation != zincite_lint::Instantiation::Unknown && !element.optional && element.kind == zincite_lint::TypeKind::Int),
+                    "{name}"
+                );
+                assert!(
+                    matches!(&return_type.kind, zincite_lint::TypeKind::Set(element)
+                    if parameter(element, zincite_lint::TypeKind::Int)),
+                    "{name}"
+                );
+                assert_eq!(
+                    return_type.instantiation,
+                    zincite_lint::Instantiation::Parameter,
+                    "{name}"
+                );
+            } else if matches!(call.name.as_str(), "forall" | "sum") {
+                assert_eq!(parameters.len(), 1, "{name}");
+                let kind = if call.name == "forall" {
+                    zincite_lint::TypeKind::Bool
+                } else {
+                    zincite_lint::TypeKind::Int
+                };
+                assert!(
+                    matches!(&parameters[0].kind,
+                    zincite_lint::TypeKind::Array { indices, element }
+                    if indices.len() == 1 && parameter(&indices[0], zincite_lint::TypeKind::Int)
+                        && !element.optional && element.kind == kind
+                        && element.instantiation == zincite_lint::Instantiation::Decision),
+                    "{name}"
+                );
+                assert_eq!(
+                    parameters[0].instantiation,
+                    zincite_lint::Instantiation::Decision,
+                    "{name}"
+                );
+                assert_eq!(return_type.kind, kind, "{name}");
+                assert_eq!(
+                    return_type.instantiation,
+                    zincite_lint::Instantiation::Decision,
+                    "{name}"
+                );
+            } else if call.name == "*" {
+                assert_eq!(parameters.len(), 2, "{name}");
+                assert!(
+                    parameters
+                        .iter()
+                        .all(|ty| ty.kind == zincite_lint::TypeKind::Int
+                            && ty.instantiation == zincite_lint::Instantiation::Decision),
+                    "{name}"
+                );
+                assert_eq!(return_type.kind, zincite_lint::TypeKind::Int, "{name}");
+                assert_eq!(
+                    return_type.instantiation,
+                    zincite_lint::Instantiation::Decision,
+                    "{name}"
+                );
+            } else if call.name == "="
+                && matches!(&parameters[0].kind, zincite_lint::TypeKind::Set(_))
+            {
+                assert_eq!(parameters.len(), 2, "{name}");
+                assert!(
+                    parameters.iter().all(|ty| {
+                        ty.instantiation == zincite_lint::Instantiation::Parameter
+                            && matches!(&ty.kind, zincite_lint::TypeKind::Set(element)
+                            if parameter(element, zincite_lint::TypeKind::Int))
+                    }),
+                    "{name}"
+                );
+                assert!(
+                    parameter(return_type, zincite_lint::TypeKind::Bool),
+                    "{name}"
+                );
+            }
+        }
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        let search =
+            resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+        let load = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "bin_load")
+            .unwrap()
+            .id;
+        let supported_definition = callable.definitions.iter().any(|d| {
+            d.target == load
+                && d.safety == DefinitionSafety::Supported
+                && d.coverage == DefinitionCoverage::WholeArray
+        });
+        assert_eq!(supported_definition, supported, "{name}: {callable:?}");
+        assert_eq!(
+            coverage(&bindings, &search, "placement"),
+            SearchCoverage::WholeArray,
+            "{name}"
+        );
+        assert_eq!(
+            coverage(&bindings, &search, "bin_load"),
+            if supported {
+                SearchCoverage::WholeArray
+            } else {
+                SearchCoverage::Unknown
+            },
+            "{name}: {:?}",
+            search.limitations
+        );
+        let result = analyze_model(&context, &selected());
+        if supported {
+            assert!(
+                callable.unavailable.is_empty(),
+                "{name}: {:?}",
+                callable.unavailable
+            );
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Completed),
+                "{name}: {:?}",
+                result.limitations
+            );
+            assert!(result.findings.is_empty(), "{name}: {:?}", result.findings);
+        } else {
+            assert!(!callable.unavailable.is_empty(), "{name}");
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                result.limitations
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
