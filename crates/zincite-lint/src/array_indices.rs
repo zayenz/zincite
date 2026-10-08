@@ -37,7 +37,7 @@ pub(super) fn check_array_indices(
                 severity: Severity::Warning,
                 message: format!("numeric array index set starts at {lower}; consider starting at 1 for simpler indexing"),
             }),
-            Err(_) if inspected_count_bound(context, bindings, calls, definitions, &index.domain)
+            Err(_) if inspected_count_bound(context, bindings, calls, instantiations, facts, definitions, &index.domain)
                 || inspected_length_quotient_bound(context, bindings, calls, instantiations, facts, definitions, &index.domain)
                 || inspected_local_selection_bound(context, bindings, calls, instantiations, facts, index) => {},
             Err(reason) => result.limitations.push(SourceDiagnostic {
@@ -347,6 +347,8 @@ fn inspected_count_bound(
     context: &ModelContext,
     bindings: &BindingFacts,
     calls: &CallableFacts,
+    instantiations: &InstantiationFacts,
+    domains: &DomainFacts,
     definitions: &DefinitionFacts,
     domain: &Domain,
 ) -> bool {
@@ -400,18 +402,10 @@ fn inspected_count_bound(
         || node.child_nodes().next().is_none_or(|header| {
             header.kind() != NodeKind::ScalarType || header.child_nodes().next().is_some()
         })
-        || call.kind() != NodeKind::CallExpression
-        || crate::definitions::resolved_call(context, calls, declaration.file, call).is_none_or(
-            |selected| {
-                !["length", "card"].iter().any(|name| {
-                    crate::definitions::core_callable(context, bindings, selected, name)
-                })
-            },
-        )
     {
         return false;
     }
-    definitions.definitions.iter().any(|definition| {
+    if !definitions.definitions.iter().any(|definition| {
         definition.target == *id
             && definition.file == declaration.file
             && definition.item == declaration.item
@@ -425,7 +419,125 @@ fn inspected_count_bound(
                 definition.safety,
                 DefinitionSafety::Supported | DefinitionSafety::Unknown(_)
             )
-    })
+    }) {
+        return false;
+    }
+    if call.kind() == NodeKind::CallExpression
+        && crate::definitions::resolved_call(context, calls, declaration.file, call).is_some_and(
+            |selected| {
+                ["length", "card"].iter().any(|name| {
+                    crate::definitions::core_callable(context, bindings, selected, name)
+                })
+            },
+        )
+    {
+        return true;
+    }
+    call.kind() == NodeKind::BinaryExpression
+        && inspected_count_expression(context, bindings, calls, declaration.file, call)
+            == Some(true)
+        && !matches!(
+            crate::callable_definitions::initialized_expression_safety(
+                context,
+                bindings,
+                calls,
+                instantiations,
+                domains,
+                (declaration.file, value),
+                None,
+            ),
+            DefinitionSafety::Unsupported(_)
+        )
+}
+
+// Recognize parameter count addition, retaining no numeric value. Some(true)
+// means a checked count occurs; None declines the shape or a closed error.
+fn inspected_count_expression(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &CallableFacts,
+    file: crate::FileId,
+    node: &SyntaxNode,
+) -> Option<bool> {
+    let integer = |ty: &crate::TypeInst| {
+        ty.known()
+            && !crate::value_safety::optional(ty)
+            && ty.instantiation == Instantiation::Parameter
+            && ty.kind == TypeKind::Int
+    };
+    let typed = |node: &SyntaxNode| {
+        let range = context.files[file].location(node.range()).range;
+        calls
+            .expressions
+            .iter()
+            .find(|expression| expression.file == file && expression.location.range == range)
+            .map(|expression| &expression.ty)
+    };
+    if typed(node).is_none_or(|ty| !integer(ty))
+        || !crate::definitions::annotations_safe(context, file, node)
+    {
+        return None;
+    }
+    let children: Vec<_> = node.child_nodes().collect();
+    match node.kind() {
+        NodeKind::ParenthesizedExpression if children.len() == 1 => {
+            inspected_count_expression(context, bindings, calls, file, children[0])
+        }
+        NodeKind::Expression if children.is_empty() => {
+            // Inspect each ordinary leaf independently. A symbolic sum cannot
+            // hide overflow in the written initializer of another parameter.
+            let _ = crate::domains::expression_integer(context, bindings, file, node).ok()?;
+            Some(false)
+        }
+        NodeKind::BinaryExpression
+            if children.len() == 2
+                && crate::callables::core_operation(context, bindings, calls, file, node, "+")
+                    == Ok(true)
+                && crate::callables::operation_fact(context, calls, file, node).is_some_and(|call|
+                    matches!(&call.outcome, crate::CallOutcome::Resolved { parameters, return_type, .. }
+                        if parameters.len() == 2 && parameters.iter().all(integer)
+                            && typed(node) == Some(return_type))) =>
+        {
+            let left = inspected_count_expression(context, bindings, calls, file, children[0])?;
+            let right = inspected_count_expression(context, bindings, calls, file, children[1])?;
+            if !left && !right {
+                let _ = crate::domains::expression_integer(context, bindings, file, node).ok()?;
+            }
+            Some(left || right)
+        }
+        NodeKind::CallExpression
+            if children.len() == 1 && children[0].kind() != NodeKind::NamedArgument
+                && crate::callables::core_operation(context, bindings, calls, file, node, "card")
+                    == Ok(true)
+                && crate::callables::operation_fact(context, calls, file, node).is_some_and(|call|
+                    matches!(&call.outcome, crate::CallOutcome::Resolved { parameters, return_type, .. }
+                        if parameters.len() == 1 && typed(node) == Some(return_type)
+                            && typed(children[0]) == Some(&parameters[0])
+                            && parameters[0].known() && !crate::value_safety::optional(&parameters[0])
+                            && parameters[0].instantiation == Instantiation::Parameter
+                            && matches!(&parameters[0].kind, TypeKind::Set(element) if integer(element)))) =>
+        {
+            Some(true)
+        }
+        NodeKind::GeneratorCallExpression
+            if children.len() == 2 && children[0].kind() == NodeKind::GeneratorList
+                && children[1].kind() == NodeKind::ParenthesizedExpression
+                && children[1].child_nodes().count() == 1
+                && children[1].child_nodes().next().is_some_and(|body| body.kind() == NodeKind::CallExpression)
+                && crate::callables::core_operation(context, bindings, calls, file, node, "sum")
+                    == Ok(true)
+                && crate::callables::operation_fact(context, calls, file, node).is_some_and(|call|
+                    matches!(&call.outcome, crate::CallOutcome::Resolved { parameters, return_type, .. }
+                        if parameters.len() == 1 && typed(node) == Some(return_type)
+                            && parameters[0].known() && !crate::value_safety::optional(&parameters[0])
+                            && parameters[0].instantiation == Instantiation::Parameter
+                            && matches!(&parameters[0].kind, TypeKind::Array { indices, element }
+                                if indices.len() == 1 && integer(&indices[0]) && integer(element)))) =>
+        {
+            inspected_count_expression(context, bindings, calls, file, children[1])
+        }
+        _ => None,
+    }
 }
 
 // Inspect this written symbolic range without evaluating its minimum or

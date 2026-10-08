@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 use zincite_lint::{
     Domain, LintOptions, ModelOptions, NumericBound, Rule, RuleOutcome, analyze_model, load_model,
-    resolve_bindings, resolve_domains,
+    resolve_bindings, resolve_callables, resolve_definitions, resolve_domains,
+    resolve_instantiations,
 };
 
 fn model(name: &str, source: &str) -> (PathBuf, zincite_lint::ModelContext) {
@@ -310,6 +311,158 @@ fn empty_unknown_and_unsupported_domains_have_distinct_outcomes() {
             result.limitations
         );
     }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn symbolic_cardinality_sum_axes_require_inspected_sources() {
+    use zincite_lint::{
+        CallOutcome, DefinitionCoverage, DefinitionEnforcement, DefinitionSafety, Instantiation,
+        SourceKind, TypeKind,
+    };
+
+    let source = concat!(
+        "% Data.\n",
+        "int: n;\n",
+        "set of int: Nodes = 0..n-1;\n",
+        "array[Nodes] of set of int: edges;\n\n",
+        "% A symbolic cardinality sum determines the parameter table's first axis.\n",
+        "int: extent = sum(i in Nodes)(card(edges[i])) + n;\n",
+        "array[1..extent,1..2] of int: rows;\n",
+        "solve satisfy;\n",
+    );
+    let (directory, _) = model("cardinality-sum-axis", source);
+    std::fs::write(
+        directory.join("library/std/stdlib.mzn"),
+        concat!(
+            "function int: card(set of int: values);\n",
+            "function int: sum(array[$T] of int: values);\n",
+            "function int: '+'(int: left,int: right);\n",
+            "function int: '-'(int: left,int: right);\n",
+            "function set of int: '..'(int: left,int: right);\n",
+        ),
+    )
+    .unwrap();
+    let root = directory.join("root.mzn");
+    let options = ModelOptions {
+        stdlib_dir: Some(directory.join("library")),
+        include_dirs: Vec::new(),
+    };
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let instantiations = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let definitions = resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+    let id = |name: &str| {
+        bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == name)
+            .unwrap()
+            .id
+    };
+    let parameter_int = |ty: &zincite_lint::TypeInst| {
+        !ty.optional && ty.instantiation == Instantiation::Parameter && ty.kind == TypeKind::Int
+    };
+    for name in ["sum", "card"] {
+        let start = source.find(&format!("{name}(")).unwrap();
+        let call = calls
+            .calls
+            .iter()
+            .find(|call| call.location.path == root && call.location.range.start == start)
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &call.outcome
+        else {
+            panic!(
+                "the source prerequisite must select core {name}: {:?}",
+                call.outcome
+            );
+        };
+        let selected = &bindings.declarations[declaration.0];
+        assert_eq!(selected.name, name);
+        assert_eq!(
+            context.files[selected.file].kind,
+            SourceKind::StandardLibrary
+        );
+        assert!(context.files[selected.file].implicit);
+        assert_eq!(parameters.len(), 1);
+        assert!(parameter_int(return_type));
+        assert!(!parameters[0].optional);
+        assert_eq!(parameters[0].instantiation, Instantiation::Parameter);
+        assert!(match (&parameters[0].kind, name) {
+            (TypeKind::Array { indices, element }, "sum") => {
+                indices.len() == 1 && parameter_int(&indices[0]) && parameter_int(element)
+            }
+            (TypeKind::Set(element), "card") => parameter_int(element),
+            _ => false,
+        });
+    }
+    assert!(matches!(&domains.declarations[id("edges").0].domain,
+        Domain::Array { indices, .. } if matches!(&indices[0], Domain::Named { declaration, .. }
+            if *declaration == id("Nodes"))));
+    let axis = domains
+        .array_indices
+        .iter()
+        .find(|axis| {
+            axis.location.path == root && &source[axis.location.range.clone()] == "1..extent"
+        })
+        .unwrap();
+    assert!(
+        matches!(&axis.domain, Domain::Range { upper: NumericBound::Defined { declaration, value }, .. }
+        if *declaration == id("extent") && matches!(value.as_ref(), NumericBound::Unsupported(_)))
+    );
+    assert!(axis.domain.numeric_minimum().is_err());
+    let extent = definitions
+        .definitions
+        .iter()
+        .find(|definition| definition.target == id("extent"))
+        .unwrap();
+    assert_eq!(extent.instantiation, Instantiation::Parameter);
+    assert_eq!(extent.coverage, DefinitionCoverage::Scalar);
+    assert_eq!(extent.enforcement, DefinitionEnforcement::Enforced);
+    assert!(!extent.cyclic);
+    // Check the source prerequisite before the owning rule: a consumer cannot
+    // make this axis Completed by ignoring an Unsupported initializer.
+    assert!(
+        matches!(
+            extent.safety,
+            DefinitionSafety::Supported | DefinitionSafety::Unknown(_)
+        ),
+        "the complete symbolic source must be inspected first: {extent:?}"
+    );
+    let result = analyze_model(&context, &selected());
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(result.findings.is_empty(), "{:?}", result.findings);
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+
+    // A symbolic sum must not hide a closed overflow in a referenced source.
+    let hazardous = source
+        .replace("int: n;", "int: n; int: invalid = 9223372036854775807+1;")
+        .replace("card(edges[i])) + n;", "card(edges[i])) + n + invalid;");
+    std::fs::write(&root, &hazardous).unwrap();
+    let context = load_model(&root, &options);
+    let result = analyze_model(&context, &selected());
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(result.findings.is_empty(), "{:?}", result.findings);
+    assert!(
+        result
+            .limitations
+            .iter()
+            .any(|limit| &hazardous[limit.location.range.clone()] == "1..extent"),
+        "{:?}",
+        result.limitations
+    );
+    assert!(matches!(
+        result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
     std::fs::remove_dir_all(directory).unwrap();
 }
 
