@@ -3803,3 +3803,21 @@ all_different body limitation from a missing standard Boolean disjunction
 signature. Full streams/equal captured106 sources/helpers/reaped empty group are
 checked in focused-red/root-audit.json. The fixture-only signature correction
 is being prepared separately; no production repair is accepted from this RED.
+
+Corrected CTW tests-only RED2 resolves the exact selected standard tuples and
+retains the Boolean generator body, then fails only on the same five public
+search/unbounded penalty/objective/wrapper limitations. Missing fixture Boolean
+disjunction is repaired with the exact standard signature; no fixture body,
+public input or production semantic behavior changed. Full streams/current106
+scratch/helper pins and empty reaped group are checked in focused-red2/root-audit.json.
+Its case is rebased by insertion onto fresh current32 copies, preserving all
+Sparse32 code/tests; the reviewed CTW production seams remain scratch work.
+
+Original macc32 native/companion freshly reproduce109 warnings,zero errors and
+118 limitations with identical57,160-byte diagnostics. Array-index-start,
+constant-variable,unbounded-variable and search-coverage remain thesis Limited.
+Current original+37.dzn compiler-positive prerequisite,std/main106/assets/helpers,
+full streams/complete all26 accounting and both empty reaped groups are checked
+in `semantic62-macc32-direct-control/root-audit.json`. WORLD's ParameterSetInt
+union is a concrete shared domain prerequisite being reviewed separately; this
+observation does not claim the other macc gaps are repaired.
