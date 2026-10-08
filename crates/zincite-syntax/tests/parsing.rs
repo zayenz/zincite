@@ -31,6 +31,78 @@ fn items(parsed: &ParsedFile) -> Vec<&SyntaxNode> {
 }
 
 #[test]
+fn byte_input_retains_comment_spelling_and_rejects_invalid_code() {
+    use zincite_syntax::{FileMode, TokenKind, parse_bytes, parse_bytes_with_mode};
+
+    let source: &[u8] = b"first=1; /* \xe7 \xe9 */ second=2;\r\n% zincite-lint: ignore naming\xff\r\n% zincite-fmt: skip\xfe\r\nthird=\"\xc3\xa9\";\r\n";
+    let parsed = parse_bytes_with_mode(source.to_vec(), FileMode::Data).unwrap();
+    let analysis = parsed.analysis_file();
+    assert!(analysis.diagnostics().is_empty());
+    assert_eq!(parsed.source_bytes(), source);
+    assert_eq!(items(analysis).len(), 3);
+    assert!(
+        items(analysis)
+            .iter()
+            .all(|node| node.kind() == NodeKind::Assignment)
+    );
+
+    let mut leaves = Vec::new();
+    collect_leaves(analysis.tree(), analysis, &mut leaves);
+    assert_eq!(leaves, (0..analysis.tokens().len()).collect::<Vec<_>>());
+    let mut reconstructed = Vec::new();
+    let mut end = 0;
+    for index in leaves {
+        let token = &analysis.tokens()[index];
+        assert_eq!(token.range.start, end);
+        assert!(token.range.end > token.range.start);
+        reconstructed.extend_from_slice(parsed.token_bytes(index));
+        end = token.range.end;
+    }
+    assert_eq!(end, source.len());
+    assert_eq!(reconstructed, source);
+    assert_eq!(
+        &parsed.source_bytes()[items(analysis)[1].range()],
+        b"second=2;"
+    );
+    assert_eq!(
+        parsed.line_column(items(analysis)[1].range().start),
+        (1, 20)
+    );
+    assert_eq!(parsed.line_column(items(analysis)[2].range().start), (4, 1));
+
+    for (raw_directive, accepted_directive) in [
+        (
+            b"% zincite-lint: ignore naming\xff".as_slice(),
+            "% zincite-lint: ignore naming",
+        ),
+        (b"% zincite-fmt: skip\xfe".as_slice(), "% zincite-fmt: skip"),
+    ] {
+        let (_, token) = analysis
+            .tokens()
+            .iter()
+            .enumerate()
+            .find(|(index, _)| parsed.token_bytes(*index) == raw_directive)
+            .unwrap();
+        assert_eq!(token.kind, TokenKind::LineComment);
+        assert_ne!(
+            analysis.source()[token.range.clone()].trim_end(),
+            accepted_directive
+        );
+    }
+
+    for invalid in [b"value=\xff;".as_slice(), b"value=\"\xff\";".as_slice()] {
+        let start = invalid.iter().position(|&byte| byte == 0xff).unwrap();
+        let error = parse_bytes_with_mode(invalid.to_vec(), FileMode::Data).unwrap_err();
+        assert_eq!(error.range, start..start + 1);
+        assert!(error.message.contains("UTF-8"));
+    }
+    let utf8 = parse_bytes(b"int: value=1;".to_vec()).unwrap();
+    assert!(utf8.analysis_file().diagnostics().is_empty());
+    assert_eq!(utf8.source_bytes(), b"int: value=1;");
+    assert_eq!(utf8.analysis_file().source(), "int: value=1;");
+}
+
+#[test]
 fn compiler_item_families_retain_signatures_expressions_and_data_boundaries() {
     use zincite_syntax::{FileMode, TokenKind, parse_with_mode};
     let source = concat!(

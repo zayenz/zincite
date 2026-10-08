@@ -3954,3 +3954,16 @@ and both empty reaped groups are checked in
 semantic62-pillars33-direct-control/root-audit.json. A read-only investigation
 of these original prerequisites runs alongside the two separate repair drafts;
 no supported definition or whole-array coverage is assumed.
+
+The reviewed syntax-only ByteParsedFile increment is integrated. Its additive
+byte entry points retain exact original bytes/token slices separately from an
+explicit UTF-8 analysis view,accept invalid bytes only within lexer-confirmed
+comments,and preserve original coordinates. Existing UTF-8 parse/CST/BOM APIs
+are unchanged. The single public regression checks raw token/tree reconstruction,
+CRLF/code-after-comment positions,malformed directive payloads and invalid
+code/string rejection. All30 syntax tests pass in the frozen107-file scratch
+boundary; full streams/pins/group are checked in focused-syntax/root-audit.json.
+Main formatting,Clippy and all195 workspace tests/42 summaries pass,with full
+streams/current107 sources/helpers and three empty reaped groups checked in
+actual-workspace-gates/root-audit.json. Formatter/lint/loader/raw-fix callers,
+the five original byte-input controls and final corpus acceptance remain open.

@@ -23,9 +23,12 @@ use std::ops::Range;
 use std::path::Path;
 use std::sync::OnceLock;
 
+mod bytes;
 pub mod inputs;
 mod lexer;
 mod parser;
+
+pub use bytes::{ByteParsedFile, parse_bytes, parse_bytes_with_mode};
 
 /// Parse the supported model subset, retaining all tokens even after an error.
 ///
@@ -57,7 +60,10 @@ impl FileMode {
 /// Calls in data expressions are retained: determining whether an operation is
 /// user-defined requires the model and is outside syntax checking.
 pub fn parse_with_mode(source: impl Into<String>, mode: FileMode) -> ParsedFile {
-    let mut lexed = lex(source);
+    parse_lexed(lex(source), mode)
+}
+
+fn parse_lexed(mut lexed: LexedSource, mode: FileMode) -> ParsedFile {
     // Finish large token buffers before constructing the CST. Small files keep
     // their existing allocation path; token indices and owned source stay exact.
     if lexed.tokens.len() >= 65_536 {
