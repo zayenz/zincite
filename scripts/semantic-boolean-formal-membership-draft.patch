@@ -1,0 +1,13 @@
+--- a/crates/zincite-lint/src/callable_definitions.rs
++++ b/crates/zincite-lint/src/callable_definitions.rs
+@@ -7445,8 +7445,8 @@
+                 if element.kind == TypeKind::Bool
+                     && matches!(crate::domains::tokens(&self.context.files[file].parsed, subject).as_slice(),
+                         [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+-                    && owner.role == DeclarationRole::Value
+-                    && owner.top_level
++                    && (owner.role == DeclarationRole::Parameter
++                        || owner.role == DeclarationRole::Value && owner.top_level)
+                     && let Some(written) = find_node(
+                         self.context.files[owner.file].parsed.tree(),
+                         &owner.syntax_range,

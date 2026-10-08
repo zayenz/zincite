@@ -1,0 +1,11 @@
+--- a/crates/zincite-lint/tests/search.rs
++++ b/crates/zincite-lint/tests/search.rs
+@@ -1853,7 +1853,7 @@
+                 "function int: '+'(int: left,int: right); function int: '-'(int: left,int: right);\n",
+                 "function var int: '-'(var int: left,var int: right);\n",
+                 "function int: '*'(int: left,int: right); function var int: '*'(var int: left,var int: right);\n",
+-                "function int: 'div'(int: left,int: right); function int: length(array[$T] of any $U: values);\n",
++                "function int: 'div'(int: left,int: right); function var int: 'div'(var int: left,var int: right); function int: length(array[$T] of any $U: values);\n",
+                 "function bool: '<'(int: left,int: right); function bool: '<='(int: left,int: right);\n",
+                 "function var bool: '<='(var int: left,var int: right); function var bool: '>='(var int: left,var int: right);\n",
+                 "function bool: '/\\'(bool: left,bool: right); function bool: '\\/'(bool: left,bool: right); function bool: 'not'(bool: value);\n",

@@ -2782,3 +2782,23 @@ remaining Float-array implementation gap. Both follow-ups await reviewed narrow
 changes; no public assertion has been weakened and broader gates have not run.
 The original capture remains live on its owned session89518, freshly polled
 without new output. Final task acceptance remains open.
+
+The next narrow Routing rework is saved as two draft patches.
+`scripts/semantic-boolean-formal-membership-draft.patch` extends the existing
+uninitialized Boolean selection membership veto to formal parameters after
+strict dependency checks fail. It preserves initialized producers, strict
+membership success, full child inspection and the separate Boolean-relation
+policy. `scripts/semantic-routing-var-int-div-fixture-draft.patch` adds the
+missing decision-integer division signature to the symbolic fixture; the
+installed MiniZinc stdlib_math.mzn191 confirms that signature. Public assertions
+remain unchanged. Candidate-only application and a fresh full search suite
+are authorized; no passing result exists yet.
+
+The separate native-only checker instrumentation copies each match all106
+frozen18/19 source files before instrumentation, and differ only in the partial
+expression lookup repair. Root verified both complete copy maps, all90 actual
+originals, eight helpers and two build tools, with absent output directories.
+Two offline/locked release builds started in parallel under their own bounded
+runners (300 seconds each). These are diagnostic builds, not stock performance
+measurements or task acceptance. Their evidence is under
+`target/benchmarks/base083/semantic62-partial-check-attribution-preparation/`.
