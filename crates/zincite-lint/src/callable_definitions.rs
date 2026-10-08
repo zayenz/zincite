@@ -2637,7 +2637,7 @@ impl<'a> Producer<'a> {
                     }
                 }
                 if let Some(checked) =
-                    self.inspect_redundant_constraint(clause, view, id, &parameters, known, active)
+                    self.inspect_ignored_constraint(clause, view, id, &parameters, known, active)
                 {
                     if let Err(reason) = checked {
                         self.unavailable(clause, &reason, unavailable);
@@ -3250,7 +3250,7 @@ impl<'a> Producer<'a> {
             && operands.iter().all(|operand| count(file, operand))
     }
     // Inspect the selected argument without treating an ignored wrapper as enforcement.
-    fn inspect_redundant_constraint(
+    fn inspect_ignored_constraint(
         &self,
         clause: &Clause<'a>,
         view: &CallableFacts,
@@ -3261,8 +3261,10 @@ impl<'a> Producer<'a> {
     ) -> Option<Result<(), String>> {
         let declaration = &self.bindings.declarations[id.0];
         let source = &self.context.files[declaration.file];
-        if declaration.name != "redundant_constraint"
-            || declaration.role != DeclarationRole::Predicate
+        if !matches!(
+            declaration.name.as_str(),
+            "redundant_constraint" | "symmetry_breaking_constraint"
+        ) || declaration.role != DeclarationRole::Predicate
             || source.kind != SourceKind::StandardLibrary
             || !source.implicit
         {
@@ -9248,6 +9250,49 @@ impl<'a> Producer<'a> {
                         self.direct_children_safety(file, &values, view, generators),
                         !values.is_empty(),
                     ),
+                    NodeKind::BinaryExpression => {
+                        if !crate::definitions::annotations_safe(self.context, file, written)
+                            || !crate::definitions::annotations_safe(self.context, file, children[0])
+                            || self.operation_fact(self.view(file, node, view), file, node)
+                                .is_none_or(|call| !matches!(&call.outcome,
+                                    CallOutcome::Resolved { return_type, .. }
+                                        if return_type.known() && !optional(return_type)
+                                            && return_type.kind == TypeKind::Int && Some(return_type) == ty(node)))
+                        {
+                            return DefinitionSafety::Unsupported(reason);
+                        }
+                        let Some(arguments) = integer_array_concatenation(
+                            self.context,
+                            self.bindings,
+                            self.view(file, collection, view),
+                            file,
+                            collection,
+                        ) else {
+                            return DefinitionSafety::Unsupported(reason);
+                        };
+                        let mut unsupported = None;
+                        for argument in arguments {
+                            if let DefinitionSafety::Unsupported(reason) = self
+                                .initialized_source_safety(
+                                    file,
+                                    argument,
+                                    view,
+                                    generators,
+                                    &mut Vec::new(),
+                                )
+                            {
+                                unsupported = Some(reason);
+                            }
+                        }
+                        // Source inspection gives neither extent nor extrema value proof.
+                        return match unsupported {
+                            Some(reason) => DefinitionSafety::Unsupported(reason),
+                            None => DefinitionSafety::Unknown(
+                                "integer extrema concatenation extent and value are unproved"
+                                    .into(),
+                            ),
+                        };
+                    }
                     NodeKind::ArrayComprehension => {
                         let Some(list) =
                             values.iter().find(|n| n.kind() == NodeKind::GeneratorList)

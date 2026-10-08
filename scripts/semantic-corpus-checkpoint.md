@@ -4123,3 +4123,15 @@ Full historical107 scratch pins, unchanged V2 tests, complete streams and the
 empty reaped group are checked in semantic62-pillars-current-gap-preparation/
 v2/focused-green/root-audit.json. Main integration, workspace gates and fresh
 original/public normal release controls remain pending.
+
+The scoped pillars production draft and faithful public regression are now
+integrated. Exact selected bodyless symmetry wrappers are inspected through
+the existing ignored-wrapper path; their constraints produce no enforcement
+or definition certificates. Selected integer min/max over rank-one integer
+concatenations inspect both source operands, retaining Unknown extent/value
+and propagating partial-source failures. Strict dependencies and later proof
+helpers stay unchanged. Main fmt, Clippy and all198 workspace tests/42
+summaries pass; full current108 sources, streams and three empty reaped groups
+are checked in semantic62-pillars-current-gap-preparation/v2/
+actual-workspace-gates/root-audit.json. Original/public current release
+outcomes still need refresh before claiming repaired original thesis coverage.

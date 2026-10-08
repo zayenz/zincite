@@ -2341,6 +2341,291 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
     );
     // Existing unsafe-source, annotation, optional, opaque and cycle cases stay above.
     std::fs::remove_dir_all(dir).unwrap();
+    // Keep both filtered symmetry relations and the concatenated maximum together.
+    {
+        use zincite_lint::{CallOutcome, Instantiation, TypeInst, TypeKind};
+        let pillars = r#"include "globals.mzn";
+
+int: plank_count;
+int: pillar_count;
+int: width_limit;
+int: height_limit;
+set of int: Planks = 1..plank_count;
+set of int: Pillars = 1..pillar_count;
+set of int: Horizontal = 0..width_limit-1;
+set of int: Vertical = 0..height_limit-1;
+array[Planks] of int: plank_width;
+array[Pillars] of int: pillar_width;
+array[Pillars] of int: pillar_height;
+array[Planks] of var Horizontal: plank_x;
+array[Planks] of var Vertical: plank_y;
+array[Pillars] of var Horizontal: pillar_x;
+array[Pillars] of var Vertical: pillar_y;
+
+% Interchangeable pieces use the same vertical, then horizontal, ordering.
+constraint :: "Order equal planks" symmetry_breaking_constraint(
+  forall(a,b in Planks where a < b /\ plank_width[a] = plank_width[b])(
+    plank_y[a] <= plank_y[b] /\ (plank_y[a] = plank_y[b] -> plank_x[a] < plank_x[b])
+  )
+);
+constraint :: "Order equal pillars" symmetry_breaking_constraint(
+  forall(a,b in Pillars where a < b /\ pillar_width[a] = pillar_width[b]
+      /\ pillar_height[a] = pillar_height[b])(
+    pillar_y[a] <= pillar_y[b] /\ (pillar_y[a] = pillar_y[b] -> pillar_x[a] < pillar_x[b])
+  )
+);
+
+% Ignoring a symmetry wrapper must not create a definition certificate.
+var int: auxiliary;
+constraint :: "Ignored equality control" symmetry_breaking_constraint(auxiliary = 0);
+var int: objective = max([plank_y[p] + 1 | p in Planks]
+  ++ [pillar_y[p] + pillar_height[p] | p in Pillars]);
+solve :: seq_search([
+  int_search([if j = 1 then plank_x[p] else plank_y[p] endif
+              | p in Planks, j in 1..2], input_order, indomain_min, complete),
+  int_search([if j = 1 then pillar_x[p] else pillar_y[p] endif
+              | p in Pillars, j in 1..2], input_order, indomain_min, complete)
+]) minimize objective;
+"#;
+        let dir = std::env::temp_dir().join(format!(
+            "zincite-search-pillars-symmetry-extrema-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(dir.join("library/std")).unwrap();
+        std::fs::write(dir.join("root.mzn"), pillars).unwrap();
+        let core = CORE
+            .replace(
+                "function var bool: forall(array[int] of var opt bool: body);",
+                "function var bool: forall(array[$T] of var bool: body);",
+            )
+            .replace(
+                "function array[int] of var int: '++'(array[int] of var int: left,array[int] of var int: right);",
+                "function array[int] of any $T: '++'(array[$$X] of any $T: x,array[$$Y] of any $T: y);",
+            );
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{core}{}",
+                concat!(
+                    "predicate symmetry_breaking_constraint(var bool: b);\n",
+                    "function var $$T: max(array[$U] of var $$T: x);\n",
+                    "function bool: '<'($T: x,$T: y); function var bool: '<'(var $T: x,var $T: y);\n",
+                    "function var bool: '<='(var $T: x,var $T: y); function bool: '/\\'(bool: x,bool: y);\n",
+                    "function int: '-'(int: x,int: y); function int: 'div'(int: x,int: y);\n",
+                ),
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("library/std/globals.mzn"), "").unwrap();
+        // The adjacent instance is compiler input, never invariant analysis data.
+        std::fs::write(dir.join("instance.dzn"), "plank_count = 2;\npillar_count = 2;\nwidth_limit = 4;\nheight_limit = 4;\nplank_width = [2, 2];\npillar_width = [1, 1];\npillar_height = [1, 1];\n").unwrap();
+        let options = ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        };
+        let context = load_model(dir.join("root.mzn"), &options);
+        assert!(context.errors.is_empty(), "{:?}", context.errors);
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let integer = |ty: &TypeInst, instantiation| {
+            !ty.optional && ty.kind == TypeKind::Int && ty.instantiation == instantiation
+        };
+        let integer_array = |ty: &TypeInst| {
+            !ty.optional
+                && ty.instantiation == Instantiation::Decision
+                && matches!(&ty.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 1 && integer(&indices[0], Instantiation::Parameter)
+                        && integer(element, Instantiation::Decision))
+        };
+        let boolean = |ty: &TypeInst| {
+            !ty.optional && ty.kind == TypeKind::Bool && ty.instantiation == Instantiation::Decision
+        };
+        let standard = |id: zincite_lint::DeclarationId, name: &str| {
+            let declaration = &bindings.declarations[id.0];
+            let source = &context.files[declaration.file];
+            declaration.name == name
+                && source.kind == zincite_lint::SourceKind::StandardLibrary
+                && source.implicit
+        };
+        let at = |start| {
+            calls
+                .calls
+                .iter()
+                .find(|call| call.file == 0 && call.location.range.start == start)
+                .unwrap()
+        };
+        for written in [
+            "symmetry_breaking_constraint(\n  forall(a,b in Planks",
+            "symmetry_breaking_constraint(\n  forall(a,b in Pillars",
+            "symmetry_breaking_constraint(auxiliary = 0)",
+        ] {
+            let call = at(pillars.find(written).unwrap());
+            assert!(
+                matches!(&call.outcome,
+                CallOutcome::Resolved { declaration, parameters, return_type }
+                    if standard(*declaration, "symmetry_breaking_constraint") && parameters.len() == 1
+                        && boolean(&parameters[0]) && boolean(return_type)),
+                "{written}: {:?}",
+                call.outcome
+            );
+        }
+        let maximum = at(pillars.find("max([").unwrap());
+        assert!(
+            matches!(&maximum.outcome,
+            CallOutcome::Resolved { declaration, parameters, return_type }
+                if standard(*declaration, "max") && parameters.len() == 1
+                    && integer_array(&parameters[0]) && integer(return_type, Instantiation::Decision)),
+            "{:?}",
+            maximum.outcome
+        );
+        // Binary call facts identify the written operator, not its left operand.
+        let concatenation = at(pillars.find("++").unwrap());
+        assert!(
+            matches!(&concatenation.outcome,
+            CallOutcome::Resolved { declaration, parameters, return_type }
+                if standard(*declaration, "++") && parameters.len() == 2
+                    && parameters.iter().chain(std::iter::once(return_type)).all(integer_array)),
+            "{:?}",
+            concatenation.outcome
+        );
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        let wrapper_starts: Vec<_> = [
+            "symmetry_breaking_constraint(\n  forall(a,b in Planks",
+            "symmetry_breaking_constraint(\n  forall(a,b in Pillars",
+            "symmetry_breaking_constraint(auxiliary = 0)",
+        ]
+        .iter()
+        .map(|written| pillars.find(written).unwrap())
+        .collect();
+        // Inspect raw failures before Search can hide them behind covered targets.
+        let wrapper_unavailable: Vec<_> = callable
+            .unavailable
+            .iter()
+            .filter(|missing| {
+                missing.location.path == context.files[0].path
+                    && wrapper_starts.iter().any(|start| {
+                        missing.location.range.start <= *start
+                            && *start < missing.location.range.end
+                    })
+            })
+            .collect();
+        assert!(wrapper_unavailable.is_empty(), "{:?}", wrapper_unavailable);
+        let result = analyze_model(&context, &selected());
+        // A completed inspection may retain uncovered-source warnings.
+        assert!(
+            matches!(result.rules[0].outcome, RuleOutcome::Completed),
+            "{:?}",
+            result.limitations
+        );
+        assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+        let search =
+            resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        assert_eq!(
+            coverage(&bindings, &search, "objective"),
+            SearchCoverage::Unknown
+        );
+        assert_eq!(
+            coverage(&bindings, &search, "auxiliary"),
+            SearchCoverage::Uncovered
+        );
+        let objective = bindings
+            .declarations
+            .iter()
+            .find(|declaration| declaration.top_level && declaration.name == "objective")
+            .unwrap()
+            .id;
+        assert!(
+            definitions
+                .definitions
+                .iter()
+                .any(|definition| definition.target == objective
+                    && matches!(definition.safety, DefinitionSafety::Unknown(_)))
+        );
+        assert!(
+            !callable
+                .definitions
+                .iter()
+                .any(|definition| definition.target == objective
+                    && definition.safety == DefinitionSafety::Supported)
+        );
+        assert!(
+            !definitions
+                .bounded_or_defined_targets(&bindings, &domains)
+                .contains(&objective)
+        );
+        for name in ["plank_x", "plank_y", "pillar_x", "pillar_y"] {
+            let target = bindings
+                .declarations
+                .iter()
+                .find(|declaration| declaration.top_level && declaration.name == name)
+                .unwrap()
+                .id;
+            assert!(
+                matches!(
+                    coverage(&bindings, &search, name),
+                    SearchCoverage::Uncovered | SearchCoverage::Unknown
+                ),
+                "{name}"
+            );
+            assert!(
+                !callable
+                    .definitions
+                    .iter()
+                    .any(|definition| definition.target == target
+                        && definition.safety == DefinitionSafety::Supported),
+                "{name}"
+            );
+            assert!(
+                !search
+                    .searched
+                    .iter()
+                    .any(|value| value.declaration == Some(target)
+                        && value.coverage == SearchCoverage::WholeArray),
+                "{name}"
+            );
+        }
+        // Full operand inspection must reject a closed partial child despite symbolic headers.
+        let partial = pillars.replace("plank_y[p] + 1", "plank_y[p] + (1 div 0)");
+        std::fs::write(dir.join("root.mzn"), &partial).unwrap();
+        let partial_context = load_model(dir.join("root.mzn"), &options);
+        assert!(
+            partial_context.errors.is_empty(),
+            "{:?}",
+            partial_context.errors
+        );
+        let partial_bindings = resolve_bindings(&partial_context);
+        let partial_calls = resolve_callables(&partial_context, &partial_bindings);
+        assert!(partial_calls.calls.iter().any(|call| call.file == 0 && matches!(&call.outcome,
+            CallOutcome::Resolved { declaration, parameters, return_type }
+                if partial_bindings.declarations[declaration.0].name == "div"
+                    && partial_context.files[partial_bindings.declarations[declaration.0].file].kind
+                        == zincite_lint::SourceKind::StandardLibrary
+                    && parameters.len() == 2 && parameters.iter().chain(std::iter::once(return_type))
+                        .all(|ty| integer(ty, Instantiation::Parameter)))));
+        let partial_result = analyze_model(&partial_context, &selected());
+        assert!(matches!(
+            partial_result.rules[0].outcome,
+            RuleOutcome::Limited { .. }
+        ));
+        let maximum_start = partial.find("max([").unwrap();
+        assert!(
+            partial_result
+                .limitations
+                .iter()
+                .any(|limit| limit.location.range.start <= maximum_start
+                    && maximum_start < limit.location.range.end
+                    && limit
+                        .message
+                        .contains("direct definition safety or enforcement is unsupported")),
+            "{:?}",
+            partial_result.limitations
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     // Keep the compiler-positive CTW header, nested selectors and all three calls.
     let ctw = r#"include "globals.mzn";
 
