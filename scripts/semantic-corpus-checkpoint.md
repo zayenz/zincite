@@ -4346,3 +4346,38 @@ root-build-validation}/root-audit.json. Probe baseline differs by10B from
 argument storage; every source scope returns to its own exact baseline.
 Actual row-shape eligibility is being diagnosed before another candidate;
 raw pipe counts are not a substitute for CST evidence.
+
+The concrete gbac producer observer completes all12 public controls. The
+left-hand empty-weight guard compiles for singleton and empty arrays; raw and
+reversed empty bounds fail, and the direct empty-cover GCC fails its assertion.
+All four decision-bearing weight producers retain the bound limitation and
+Unknown result coverage. The concrete BIN body resolves a present core
+ParameterBool OR and a present ParameterInt lb_array result over an actual
+parameter integer array. GCC positive and negative controls have identical
+concrete body types and the same abort boundary; type facts alone cannot
+justify dropping that boundary. Full main/scratch108/std/public/helper pins,
+complete streams and six empty reaped groups are checked in semantic62-gbac-
+public-gap-preparation/test-preparation/producer-preparation/{compiler-results,
+root-observation}/root-audit.json. No producer repair is integrated yet.
+
+The independent is filtered-search and parameter-local public reductions
+compile with their actual data; both MAX+1 controls fail at the intended
+filter/domain expression. Normal41 native Search-only analysis reproduces
+three traversal boundaries and three parameter-Boolean-let boundaries in the
+positive reductions. Negative controls remain Limited rather than receiving
+coverage. Native status0 does not establish rule completion. Full source/
+std/compiler/public/release/helper pins,complete streams and eight empty
+reaped groups are checked in semantic62-is-search-gap-preparation/
+{root-compiler,root-native}/root-audit.json. Scoped regressions remain pending.
+
+A separate scratch-only matrix-shape probe explains the ineffective guard:
+the original has19 matrices,40141 body rows and no column headers; all rows
+start with an Expression child. Raw first tokens are40118 identifiers,3 False
+and20 True,so the integer-only guard rejects every row. No guard is broadened
+by this observation alone. The probe uses8136B stack counters and makes no
+counter allocations; all measured allocation counts/deltas remain unchanged,
+output is byte-identical and source drop returns to its own2019B baseline.
+Full old/new108 source/input/helper pins,one opt3 probe,complete streams and
+two empty reaped groups are checked in semantic62-plain-matrix-row-shape-
+preparation/root-runtime/root-audit.json. Timings remain diagnostic only;
+final corpus acceptance and the original save-budget repair remain open.
