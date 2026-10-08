@@ -2892,3 +2892,27 @@ instrumented executable and does not modify shared or authoritative source.
 Missing checker-end metrics will remain censored; the historical stock cutoff
 cannot support complete diagnostic parity. Evidence is under
 `target/benchmarks/base083/semantic62-partial-navigation-attribution/`.
+
+The combined candidate patch now includes the reviewed Routing corrections.
+Root applied it in a disposable directory and confirmed that all 21 resulting
+files exactly match the current candidate. The patch is 279,855 bytes, SHA256
+b4d124254df43ccabc525e25e5b305b26ca2c5d852afe67371ddf8fb0904ddfa.
+Authoritative Rust remains unchanged while the original capture is active.
+
+The current candidate workspace suite passes all 193 tests, with zero failures,
+in 45.063 seconds. Together with the passing search, fmt and Clippy checks,
+this completes the current candidate Rust gates. Root checked full streams,
+unchanged input state and terminal receipts. Evidence is under
+`target/benchmarks/base083/semantic62-draft-workspace-conditional-float-green-v3-workspace/`.
+
+The instrumented original Navigation run completed in 98.083 seconds under
+the unchanged 300-second cap. It exits 1 for 5,643 warnings: 2,810
+decision-variable-operator and 2,833 missing-constraint-label diagnostics,
+with no errors or analysis limitations. The partial-expression checker uses
+922.638 ms wall time and 0.92 seconds quantized CPU, requesting 1,445,406
+allocations and 209,004,603 bytes. Root audited all diagnostic lines, source
+state and terminal records under
+`target/benchmarks/base083/semantic62-partial-navigation-attribution/`.
+These instrumented observations do not establish stock companion parity or
+final task acceptance. The allocation filter draft remains unapplied to the
+shared candidate; its separate diagnostic build is prepared but unlaunched.
