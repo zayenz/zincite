@@ -3739,3 +3739,13 @@ full streams and empty reaped groups are checked in
 `root-audit.json`. Generator Bool-sum inspection already exists; the actual new
 source-header gap is rank2 index_set_1of2 inspection, alongside ParameterInt pow
 and bodyless redundant_constraint. Repair/public RED preparation is pending.
+
+Original sysadmin4 normal31 native/companion both finish (6.708/6.289 seconds)
+with all26 and all14 Completed,1110 warnings,zero errors/limitations. Full
+316,077-byte diagnostics and statuses match; source/root/drop records are
+complete. Existing current-Gecode compile-only prerequisite, all original/std/
+source/assets/helper pins, full streams and reaped empty groups are independently
+checked in `semantic62-sysadmin4-31-controls/sysadmin_4_2s/root-audit.json`.
+This observes another formerly missing original; inventory4,sysadmin5,navigation
+current controls and final full-corpus acceptance remain pending. Sparse v3's
+focused regression runs after this pair, with production v2 unchanged.
