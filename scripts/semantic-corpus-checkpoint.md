@@ -2681,3 +2681,21 @@ The prepared source family grows initialized-array accesses, div/mod operations
 and scalar defaults tenfold. This establishes compiler acceptance only; actual
 selected semantic facts, full matched outcomes and allocation/native growth
 measurements remain pending.
+
+The four-case matched Routing18/19 control completes with exact full source,
+all26 analysis rows (including thesis14), native/companion status and raw
+diagnostic bytes, and drop-record parity. Root rechecked every original/helper/
+frozen-binary pin, all four complete streams, reaping/empty-group/null-error
+receipts and equal per-child/global before/after/current state. Both baseline18
+source/analysis/diagnostics reproduce the retained complete18 control. Analysis
+allocations decrease by 5,900 calls and 28,932 requested bytes in19; retained
+and peak allocation deltas remain unchanged. Load/render allocation counters
+are identical. These are whole-analysis counters, not checker attribution.
+Native18/19 wall times are172.189/163.958 seconds, CPU170.093/163.193 seconds,
+peak RSS44.781/44.453 MiB. Companion18/19 wall times are169.215/164.793 seconds.
+The protected original corpus overlapped; no isolated timing ratio is claimed.
+Evidence and terminal root audit are under
+`target/benchmarks/base083/semantic62-partial-routing-pair/`.
+This proves finite Routing parity for the lookup change, not complete Navigation
+processing, CPU attribution, bounded eligible-operation growth or final task
+acceptance. Those requirements remain open.
