@@ -417,6 +417,36 @@ impl<'a> Builder<'a> {
                     _ => BindingResolution::Ambiguous(ids),
                 }
             }
+            BindingResolution::Ambiguous(ids) if kind == ReferenceKind::Callable => {
+                // Keep overload selection separate from the same-name value.
+                // Other mixed declarations remain ambiguous in this scope.
+                let mut values = 0;
+                let mut candidates = Vec::new();
+                let mut supported = true;
+                for id in &ids {
+                    let declaration = &self.facts.declarations[id.0];
+                    match declaration.role {
+                        DeclarationRole::Value if declaration.top_level => values += 1,
+                        DeclarationRole::Function
+                        | DeclarationRole::Predicate
+                        | DeclarationRole::Test
+                        | DeclarationRole::Annotation => candidates.push(*id),
+                        _ => {
+                            supported = false;
+                            break;
+                        }
+                    }
+                }
+                if supported && values == 1 {
+                    match candidates.as_slice() {
+                        [id] => BindingResolution::Resolved(*id),
+                        [] => BindingResolution::Ambiguous(ids),
+                        _ => BindingResolution::Overloads(candidates),
+                    }
+                } else {
+                    BindingResolution::Ambiguous(ids)
+                }
+            }
             resolution => resolution,
         };
         self.facts.references.push(Reference {

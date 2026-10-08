@@ -422,6 +422,84 @@ fn lattice_minima_unknown_candidates_and_rule_local_limits_do_not_guess() {
     assert!(
         matches!(outcome(&facts, &root, source, "choose({1,2})"), CallOutcome::Resolved { parameters, .. } if matches!(parameters[0].kind, zincite_lint::TypeKind::Set(_)))
     );
+    let source = concat!(
+        "array[1..1] of int: f = [1];\n",
+        "function int: f(int: i) = f[i];\n",
+        "function float: f(float: i) = i;\n",
+        "int: selected = f(1);\n",
+        "array[1..1] of int: crossing = [0];\n",
+        "function int: crossing(int: x, var int: y) = 1;\n",
+        "function int: crossing(var int: x, int: y) = 2;\n",
+        "int: ambiguous = crossing(1,1);\n",
+        "array[1..1] of int: uncertain = [0];\n",
+        "function int: uncertain(int: x) = 1;\n",
+        "function int: uncertain(MissingType: x) = 2;\n",
+        "int: unavailable = uncertain(1);\n",
+        "int: shadowed = let { int: f = 0; } in 'f'(1);\n",
+        "solve satisfy;\n",
+    );
+    write(&root, source);
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty());
+    let bindings = resolve_bindings(&context);
+    let facts = resolve_callables(&context, &bindings);
+    let selected = resolved(&facts, &bindings, &root, source, "f(1)");
+    assert_eq!(selected.role, DeclarationRole::Function);
+    assert!(matches!(
+        outcome(&facts, &root, source, "f(1)"),
+        CallOutcome::Resolved { parameters, return_type, .. }
+            if parameters.len() == 1
+                && parameters[0].kind == TypeKind::Int
+                && parameters[0].instantiation == Instantiation::Parameter
+                && !parameters[0].optional
+                && return_type.kind == TypeKind::Int
+                && return_type.instantiation == Instantiation::Parameter
+                && !return_type.optional
+    ));
+    let array_reference = bindings
+        .references
+        .iter()
+        .find(|reference| {
+            reference.location.path == root
+                && reference.location.range.start == source.find("f[i]").unwrap()
+        })
+        .unwrap();
+    assert_eq!(array_reference.kind, zincite_lint::ReferenceKind::Value);
+    let zincite_lint::BindingResolution::Resolved(array) = &array_reference.resolution else {
+        panic!("{:?}", array_reference.resolution);
+    };
+    assert_eq!(bindings.declarations[array.0].role, DeclarationRole::Value);
+    assert!(bindings.declarations[array.0].top_level);
+    assert!(matches!(
+        outcome(&facts, &root, source, "crossing(1,1)"),
+        CallOutcome::Ambiguous { candidates }
+            if candidates.len() == 2
+                && candidates.iter().all(|id| bindings.declarations[id.0].role == DeclarationRole::Function)
+    ));
+    assert!(matches!(
+        outcome(&facts, &root, source, "uncertain(1)"),
+        CallOutcome::Unsupported { candidates, .. }
+            if candidates.len() == 2
+                && candidates.iter().all(|id| bindings.declarations[id.0].role == DeclarationRole::Function)
+    ));
+    assert!(matches!(
+        outcome(&facts, &root, source, "'f'(1)"),
+        CallOutcome::NoMatch { .. }
+    ));
+    let local_reference = bindings
+        .references
+        .iter()
+        .find(|reference| {
+            reference.location.path == root
+                && reference.location.range.start == source.find("'f'(1)").unwrap()
+        })
+        .unwrap();
+    assert_eq!(local_reference.kind, zincite_lint::ReferenceKind::Callable);
+    assert!(matches!(
+        &local_reference.resolution,
+        zincite_lint::BindingResolution::Resolved(id)
+            if bindings.declarations[id.0].role == DeclarationRole::Local
+    ));
     std::fs::remove_dir_all(directory).unwrap();
 }
 

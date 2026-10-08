@@ -3491,3 +3491,16 @@ remain close. Native CPU is0.836/8.040 seconds. These are two complete observati
 not per-producer allocation attribution or a candidate speedup. Together with the
 raw sample and source review they justify preparing a small repeated-evaluation
 repair; no performance production change has been authored yet.
+
+The public Hoist mixed value/callable reduction compiles with Gecode. A tests-only
+run on unchanged production genuinely fails f(1): its candidate vector contains
+the array Value and two Functions. The narrow Callable-context binding arm now
+separates exactly one top-level Value from ordinary callable candidates, leaving
+nearest scope lookup, value references, overload ranking and other mixtures intact.
+The same regression passes, including crossing-overload ambiguity, unknown-type
+veto and local shadowing. Actual workspace fmt/Clippy/tests all pass:193 tests,
+42 summaries, independently checked full streams, unchanged106 source/fixture
+pins and reaped empty groups. Evidence is
+`semantic62-hoist-callable-preparation/actual-workspace-gates/root-audit.json`.
+Fresh original Hoist all26 outcomes remain pending; this focused repair does not
+establish whole-model or base-083 completion.
