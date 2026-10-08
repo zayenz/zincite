@@ -1,5 +1,5 @@
 //! Declaration reachability and containment, independent of unused advice.
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use crate::{
     BindingFacts, BindingResolution, CallOutcome, CallableFacts, DeclarationId, DeclarationRole,
@@ -70,7 +70,7 @@ pub fn resolve_unused_declarations(
             limitations: Vec::new(),
         },
         uncertain: Vec::new(),
-        demanded: Vec::new(),
+        demanded: HashMap::new(),
         bodies: Vec::new(),
     };
     producer.collect();
@@ -84,7 +84,6 @@ struct Uncertainty {
     unbounded: bool,
 }
 struct BodyDemand {
-    owner: Option<DeclarationId>,
     declaration: DeclarationId,
     parameters: Option<Vec<TypeInst>>,
     ancestry: Vec<DeclarationId>,
@@ -96,7 +95,7 @@ struct Producer<'a> {
     main_call_indices: &'a HashMap<(FileId, usize), usize>,
     facts: UsageFacts,
     uncertain: Vec<Uncertainty>,
-    demanded: Vec<BodyDemand>,
+    demanded: HashMap<Option<usize>, VecDeque<BodyDemand>>,
     bodies: Vec<(DeclarationId, Option<Vec<TypeInst>>)>,
 }
 impl Producer<'_> {
@@ -276,12 +275,14 @@ impl Producer<'_> {
                         | DeclarationRole::Test
                         | DeclarationRole::Annotation
                 ) {
-                    self.demanded.push(BodyDemand {
-                        owner,
-                        declaration: id,
-                        parameters: parameters.clone(),
-                        ancestry: ancestry.to_vec(),
-                    });
+                    self.demanded
+                        .entry(owner.map(|id| id.0))
+                        .or_default()
+                        .push_back(BodyDemand {
+                            declaration: id,
+                            parameters: parameters.clone(),
+                            ancestry: ancestry.to_vec(),
+                        });
                 }
             }
             for &id in &possible {
@@ -293,12 +294,14 @@ impl Producer<'_> {
                         | DeclarationRole::Test
                         | DeclarationRole::Annotation
                 ) {
-                    self.demanded.push(BodyDemand {
-                        owner,
-                        declaration: id,
-                        parameters: None,
-                        ancestry: ancestry.to_vec(),
-                    });
+                    self.demanded
+                        .entry(owner.map(|id| id.0))
+                        .or_default()
+                        .push_back(BodyDemand {
+                            declaration: id,
+                            parameters: None,
+                            ancestry: ancestry.to_vec(),
+                        });
                 }
             }
             if let Some(reason) = &uncertainty {
@@ -320,8 +323,11 @@ impl Producer<'_> {
         state: UsageOutcome,
         pending: &mut Vec<(DeclarationId, UsageOutcome)>,
     ) {
-        while let Some(position) = self.demanded.iter().position(|d| d.owner == owner) {
-            let mut demand = self.demanded.remove(position);
+        while let Some(mut demand) = self
+            .demanded
+            .get_mut(&owner.map(|id| id.0))
+            .and_then(VecDeque::pop_front)
+        {
             if state == UsageOutcome::Uncertain {
                 demand.parameters = None;
             }

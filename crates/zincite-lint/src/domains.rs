@@ -3,7 +3,7 @@ use crate::{
     BindingFacts, BindingResolution, DeclarationId, DeclarationRole, FileId, ModelContext,
     SourceLocation,
 };
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
 /// An integer bound or retained binding identity. Unknown bounds may be open,
@@ -1209,7 +1209,14 @@ pub fn resolve_numeric_facts(
     domains: &DomainFacts,
     definitions: &crate::DefinitionFacts,
 ) -> NumericFacts {
-    let mut interpreter = Bounds::new(context, bindings, calls, domains, Some(definitions));
+    let mut interpreter = Bounds::new(
+        context,
+        bindings,
+        calls,
+        domains,
+        Some(definitions),
+        Some(instantiations),
+    );
     let mut instantiation_indices = HashMap::with_capacity(instantiations.expressions.len());
     for (index, expression) in instantiations.expressions.iter().enumerate() {
         instantiation_indices
@@ -1490,7 +1497,7 @@ pub fn resolve_integer_bounds(
         })
         .map(|e| (e.file, e.location.range.start, e.location.range.end))
         .collect();
-    let mut interpreter = Bounds::new(context, bindings, calls, domains, None);
+    let mut interpreter = Bounds::new(context, bindings, calls, domains, None, None);
     let mut facts = IntegerBoundsFacts::default();
     for (file, source) in context.files.iter().enumerate() {
         if !source.warnings_enabled() || !source.parsed.diagnostics().is_empty() {
@@ -1502,12 +1509,16 @@ pub fn resolve_integer_bounds(
 }
 struct Bounds<'a> {
     reference_indices: HashMap<(FileId, usize), usize>,
-    expression_indices: HashMap<(FileId, usize, usize), (usize, bool)>,
+    call_indices: HashMap<(FileId, usize), usize>,
+    expression_indices: HashMap<(FileId, usize, usize), usize>,
+    float_locations: HashSet<(FileId, usize, usize)>,
+    value_reference_indices: Vec<Vec<usize>>,
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
     calls: &'a crate::CallableFacts,
     domains: &'a DomainFacts,
     definitions: Option<&'a crate::DefinitionFacts>,
+    instantiations: Option<&'a crate::InstantiationFacts>,
     declarations: Vec<Option<NumericOutcome>>,
     active: Vec<DeclarationId>,
 }
@@ -1518,6 +1529,7 @@ impl<'a> Bounds<'a> {
         calls: &'a crate::CallableFacts,
         domains: &'a DomainFacts,
         definitions: Option<&'a crate::DefinitionFacts>,
+        instantiations: Option<&'a crate::InstantiationFacts>,
     ) -> Self {
         let mut reference_indices = HashMap::with_capacity(bindings.references.len());
         for (index, reference) in bindings.references.iter().enumerate() {
@@ -1525,26 +1537,50 @@ impl<'a> Bounds<'a> {
                 .entry((reference.file, reference.location.range.start))
                 .or_insert(index);
         }
+        let mut call_indices = HashMap::with_capacity(calls.calls.len());
+        for (index, call) in calls.calls.iter().enumerate() {
+            call_indices
+                .entry((call.file, call.location.range.start))
+                .or_insert(index);
+        }
         let mut expression_indices = HashMap::with_capacity(calls.expressions.len());
+        let mut float_locations = HashSet::new();
         for (index, expression) in calls.expressions.iter().enumerate() {
-            let float = expression.ty.kind == crate::TypeKind::Float;
-            expression_indices
-                .entry((
-                    expression.file,
-                    expression.location.range.start,
-                    expression.location.range.end,
-                ))
-                .and_modify(|entry: &mut (usize, bool)| entry.1 |= float)
-                .or_insert((index, float));
+            let key = (
+                expression.file,
+                expression.location.range.start,
+                expression.location.range.end,
+            );
+            expression_indices.entry(key).or_insert(index);
+            if expression.ty.kind == crate::TypeKind::Float {
+                float_locations.insert(key);
+            }
+        }
+        let mut value_reference_indices = vec![Vec::new(); context.files.len()];
+        if definitions.is_some() {
+            for (row, reference) in bindings.references.iter().enumerate() {
+                if reference.kind == crate::ReferenceKind::Value {
+                    value_reference_indices[reference.file].push(row);
+                }
+            }
+            for indices in &mut value_reference_indices {
+                indices.sort_unstable_by_key(|&row| {
+                    (bindings.references[row].location.range.start, row)
+                });
+            }
         }
         Self {
             reference_indices,
+            call_indices,
             expression_indices,
+            float_locations,
+            value_reference_indices,
             context,
             bindings,
             calls,
             domains,
             definitions,
+            instantiations,
             declarations: if definitions.is_some() {
                 vec![None; bindings.declarations.len()]
             } else {
@@ -1584,20 +1620,226 @@ impl<'a> Bounds<'a> {
             _ => None,
         }
     }
+    fn literal_bool_selection(&self, file: FileId, access: &SyntaxNode) -> bool {
+        let children: Vec<_> = access.child_nodes().collect();
+        let [subject, index] = children.as_slice() else {
+            return false;
+        };
+        let parsed = &self.context.files[file].parsed;
+        if subject.kind() != NodeKind::Expression
+            || !matches!(tokens(parsed, subject).as_slice(),
+                [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+            || index.kind() != NodeKind::Expression
+            || index.child_nodes().next().is_some()
+            || !matches!(tokens(parsed, index).as_slice(),
+                [token] if token.kind == TokenKind::IntegerLiteral)
+        {
+            return false;
+        }
+        let Some(array) = self.reference(file, subject) else {
+            return false;
+        };
+        let declared = &self.calls.declarations[array.0].ty;
+        let type_of = |node: &SyntaxNode| {
+            let range = node.range();
+            let offset = self.context.files[file].byte_offset;
+            let key = (file, range.start + offset, range.end + offset);
+            self.expression_indices
+                .get(&key)
+                .filter(|_| !self.float_locations.contains(&key))
+                .map(|&row| &self.calls.expressions[row].ty)
+        };
+        let optional = crate::value_safety::optional;
+        if !declared.known()
+            || optional(declared)
+            || type_of(subject) != Some(declared)
+            || type_of(access)
+                .is_none_or(|ty| !ty.known() || optional(ty) || ty.kind != crate::TypeKind::Bool)
+            || type_of(index).is_none_or(|ty| {
+                !ty.known()
+                    || optional(ty)
+                    || ty.instantiation != crate::Instantiation::Parameter
+                    || ty.kind != crate::TypeKind::Int
+            })
+            || !matches!(&declared.kind, crate::TypeKind::Array { indices, element }
+                if indices.len() == 1 && indices[0].known() && !optional(&indices[0])
+                    && indices[0].instantiation == crate::Instantiation::Parameter
+                    && indices[0].kind == crate::TypeKind::Int && element.kind == crate::TypeKind::Bool)
+        {
+            return false;
+        }
+        let Domain::Array { indices, .. } = &self.domains.declarations[array.0].domain else {
+            return false;
+        };
+        let [Domain::Range { .. }] = indices.as_slice() else {
+            return false;
+        };
+        let Some((lower, upper)) = index_domain_interval(&indices[0]) else {
+            return false;
+        };
+        if !invariant_expression_integer(self.context, self.bindings, file, index)
+            .is_ok_and(|value| value.is_some_and(|value| lower <= value && value <= upper))
+        {
+            return false;
+        }
+        let owner = &self.bindings.declarations[array.0];
+        if owner.role != DeclarationRole::Value || !owner.top_level {
+            return false;
+        }
+        let Some(written) = crate::callables::find_node(
+            self.context.files[owner.file].parsed.tree(),
+            &owner.syntax_range,
+            owner.role,
+        ) else {
+            return false;
+        };
+        if !crate::definitions::annotations_safe(self.context, owner.file, written)
+            || written
+                .child_nodes()
+                .any(|node| crate::callables::is_expression(node.kind()))
+        {
+            return false;
+        }
+        let Some(array_type) = written
+            .child_nodes()
+            .next()
+            .filter(|node| node.kind() == NodeKind::ArrayType)
+        else {
+            return false;
+        };
+        let types: Vec<_> = array_type.child_nodes().collect();
+        if types.len() != 2 || types[0].kind() != NodeKind::DomainType {
+            return false;
+        }
+        let axes: Vec<_> = types[0].child_nodes().collect();
+        if axes.len() != 1
+            || axes[0].kind() != NodeKind::RangeExpression
+            || crate::callables::core_operation(
+                self.context,
+                self.bindings,
+                self.calls,
+                owner.file,
+                axes[0],
+                "..",
+            ) != Ok(true)
+            || self.type_operations(array).is_err()
+        {
+            return false;
+        }
+        true
+    }
+    fn length(&self, file: FileId, node: &SyntaxNode) -> Option<NumericOutcome> {
+        // Only numeric interpretation has the actual instantiation facts needed
+        // by the existing source inspector. Independent bounds stay unchanged.
+        let instantiations = self.instantiations?;
+        let outcome = crate::callables::operation_head_start(self.context, file, node)
+            .and_then(|start| self.call_indices.get(&(file, start)))
+            .map(|&index| &self.calls.calls[index].outcome);
+        if crate::callables::core_operation_outcome(
+            self.context,
+            self.bindings,
+            outcome,
+            node.kind(),
+            "length",
+        ) != Ok(true)
+        {
+            return None;
+        }
+        let argument = crate::callable_definitions::length_argument(
+            self.context,
+            self.bindings,
+            self.calls,
+            file,
+            node,
+        )?;
+        let written = tokens(&self.context.files[file].parsed, argument);
+        if argument.kind() != NodeKind::Expression
+            || argument.child_nodes().next().is_some()
+            || !matches!(written.as_slice(), [token]
+                if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+        {
+            return None;
+        }
+        let id = self.reference(file, argument)?;
+        let declaration = &self.bindings.declarations[id.0];
+        if declaration.role != DeclarationRole::Value || !declaration.top_level {
+            return None;
+        }
+        let range = self.context.files[file].location(argument.range()).range;
+        let actual = self
+            .calls
+            .expressions
+            .iter()
+            .find(|e| e.file == file && e.location.range == range)?;
+        if actual.ty != self.calls.declarations[id.0].ty {
+            return None;
+        }
+        // Borrow retained syntax; inspect original initialization, written
+        // domains, annotations and children before an ordinary numeric decline.
+        let retained = expression_node(self.context.files[file].parsed.tree(), &node.range())?;
+        Some(
+            match crate::callable_definitions::direct_expression_safety(
+                self.context,
+                self.bindings,
+                self.calls,
+                instantiations,
+                self.domains,
+                (file, retained),
+                &[],
+            ) {
+                crate::DefinitionSafety::Supported => NumericOutcome::Unknown(
+                    "collection length is not an established numeric value".into(),
+                ),
+                crate::DefinitionSafety::Unknown(reason) => NumericOutcome::Unknown(reason),
+                crate::DefinitionSafety::Unsupported(reason) => NumericOutcome::Unsupported(reason),
+            },
+        )
+    }
     fn expression(&mut self, file: FileId, node: &SyntaxNode) -> NumericOutcome {
         use NumericOutcome::*;
         let range = self.context.files[file].location(node.range()).range;
-        let expression = self.expression_indices.get(&(file, range.start, range.end));
-        if expression.is_some_and(|&(index, _)| {
-            crate::value_safety::optional(&self.calls.expressions[index].ty)
-        }) {
+        let key = (file, range.start, range.end);
+        let expression = self.expression_indices.get(&key);
+        if expression
+            .is_some_and(|&index| crate::value_safety::optional(&self.calls.expressions[index].ty))
+        {
             return Unsupported("optional integer bounds require a presence proof".into());
         }
-        if self.definitions.is_some() && expression.is_some_and(|&(_, float)| float) {
+        if self.definitions.is_some() && self.float_locations.contains(&key) {
             return Unsupported("floating-point bounds are outside integer interpretation".into());
         }
         let children: Vec<_> = node.child_nodes().collect();
         match node.kind() {
+            NodeKind::AnnotatedExpression if self.definitions.is_some() => {
+                if !crate::definitions::annotations_safe(self.context, file, node) {
+                    let mut nodes: Vec<_> = children.first().copied().into_iter().collect();
+                    while let Some(value) = nodes.pop() {
+                        if value.kind() == NodeKind::CallExpression {
+                            let outcome =
+                                crate::callables::operation_head_start(self.context, file, value)
+                                    .and_then(|start| self.call_indices.get(&(file, start)))
+                                    .map(|&index| &self.calls.calls[index].outcome);
+                            if matches!(outcome,
+                            Some(crate::CallOutcome::Resolved { declaration, .. })
+                                if ["length", "min", "max", "bool2int"].iter().any(|name| {
+                                    crate::definitions::core_callable(
+                                        self.context, self.bindings, *declaration, name,
+                                    )
+                                }))
+                            {
+                                return Unsupported(
+                                    "numeric inspection call annotation is unsupported".into(),
+                                );
+                            }
+                        }
+                        nodes.extend(value.child_nodes());
+                    }
+                }
+                children
+                    .first()
+                    .map(|n| self.expression(file, n))
+                    .unwrap_or_else(|| Unsupported("integer operand is missing".into()))
+            }
             NodeKind::ParenthesizedExpression | NodeKind::AnnotatedExpression => children
                 .first()
                 .map(|n| self.expression(file, n))
@@ -1635,6 +1877,9 @@ impl<'a> Bounds<'a> {
             }
             NodeKind::ArrayAccessExpression => {
                 if self.definitions.is_some() {
+                    if self.literal_bool_selection(file, node) {
+                        return Unknown("selected Boolean numeric value is unproved".into());
+                    }
                     return Unsupported(
                         "numeric array access requires an index-membership proof".into(),
                     );
@@ -1643,6 +1888,125 @@ impl<'a> Bounds<'a> {
                     return Unsupported("array identity is unavailable".into());
                 };
                 self.array_elements(id).into()
+            }
+            NodeKind::CallExpression if self.definitions.is_some() => {
+                if let Some(value) = self.length(file, node) {
+                    return value;
+                }
+                let integer = |t: &crate::TypeInst| {
+                    t.known() && !t.optional && t.kind == crate::TypeKind::Int
+                };
+                let typed = |value: &SyntaxNode| {
+                    let range = value.range();
+                    let offset = self.context.files[file].byte_offset;
+                    self.expression_indices
+                        .get(&(file, range.start + offset, range.end + offset))
+                        .map(|&index| &self.calls.expressions[index].ty)
+                };
+                let outcome = crate::callables::operation_head_start(self.context, file, node)
+                    .and_then(|start| self.call_indices.get(&(file, start)))
+                    .map(|&index| &self.calls.calls[index].outcome);
+                if matches!(outcome,
+                Some(crate::CallOutcome::Resolved { declaration, .. })
+                    if crate::definitions::core_callable(
+                        self.context, self.bindings, *declaration, "bool2int",
+                    ))
+                {
+                    let boolean = |t: &crate::TypeInst| {
+                        t.known()
+                            && !t.optional
+                            && t.kind == crate::TypeKind::Bool
+                            && matches!(
+                                t.instantiation,
+                                crate::Instantiation::Parameter | crate::Instantiation::Decision
+                            )
+                    };
+                    if children.len() != 1
+                        || children[0].kind() == NodeKind::NamedArgument
+                        || typed(node).is_none_or(|t| !integer(t))
+                        || typed(children[0]).is_none_or(|t| !boolean(t))
+                        || !matches!(outcome,
+                            Some(crate::CallOutcome::Resolved { parameters, return_type, .. })
+                                if parameters.len() == 1 && boolean(&parameters[0])
+                                    && integer(return_type))
+                    {
+                        return Unsupported("bool2int numeric inspection requires a present scalar Boolean signature".into());
+                    }
+                    if !crate::definitions::annotations_safe(self.context, file, node) {
+                        return Unsupported("Boolean conversion annotation is unsupported".into());
+                    }
+                    let Some(instantiations) = self.instantiations else {
+                        return Unsupported(
+                            "Boolean conversion instantiation facts are unavailable".into(),
+                        );
+                    };
+                    let Some(argument) = expression_node(
+                        self.context.files[file].parsed.tree(),
+                        &children[0].range(),
+                    ) else {
+                        return Unsupported(
+                            "Boolean conversion source argument is unavailable".into(),
+                        );
+                    };
+                    return match crate::callable_definitions::initialized_expression_safety(
+                        self.context,
+                        self.bindings,
+                        self.calls,
+                        instantiations,
+                        self.domains,
+                        (file, argument),
+                        Some(crate::callable_definitions::DirectSafetyLookups {
+                            expressions: &self.expression_indices,
+                            calls: &self.call_indices,
+                            value_references: &self.value_reference_indices,
+                        }),
+                    ) {
+                        crate::DefinitionSafety::Supported => {
+                            Unknown("scalar Boolean conversion value is unproved".into())
+                        }
+                        crate::DefinitionSafety::Unknown(reason) => Unknown(reason),
+                        crate::DefinitionSafety::Unsupported(reason) => Unsupported(reason),
+                    };
+                }
+                if children.len() != 2
+                    || children.iter().any(|n| n.kind() == NodeKind::NamedArgument)
+                    || typed(node).is_none_or(|t| !integer(t))
+                    || children
+                        .iter()
+                        .any(|child| typed(child).is_none_or(|t| !integer(t)))
+                    || !matches!(outcome,
+                    Some(crate::CallOutcome::Resolved { declaration, parameters, return_type })
+                        if parameters.len() == 2
+                            && parameters.iter().all(integer)
+                            && integer(return_type)
+                            && ["min", "max"].iter().any(|name| {
+                                crate::definitions::core_callable(
+                                    self.context, self.bindings, *declaration, name,
+                                )
+                            }))
+                {
+                    return Unsupported("integer call is outside numeric interpretation".into());
+                }
+                let mut nodes = vec![node];
+                while let Some(value) = nodes.pop() {
+                    if !crate::definitions::annotations_safe(self.context, file, value) {
+                        return Unsupported(
+                            "scalar extremum operand annotation is unsupported".into(),
+                        );
+                    }
+                    nodes.extend(value.child_nodes());
+                }
+                let values: Vec<_> = children.iter().map(|n| self.expression(file, n)).collect();
+                if let Some(reason) = values.iter().find_map(|value| {
+                    if let Unsupported(reason) = value {
+                        Some(reason)
+                    } else {
+                        None
+                    }
+                }) {
+                    return Unsupported(reason.clone());
+                }
+                Unknown("scalar integer extremum value is unproved".into())
             }
             NodeKind::UnaryExpression | NodeKind::BinaryExpression => {
                 let Some(operator) = tokens(&self.context.files[file].parsed, node)
@@ -1654,12 +2018,14 @@ impl<'a> Bounds<'a> {
                 let Some(name) = crate::bindings::symbolic_operator(operator) else {
                     return Unsupported("integer operator is outside bounded arithmetic".into());
                 };
-                match crate::callables::core_operation(
+                let outcome = crate::callables::operation_head_start(self.context, file, node)
+                    .and_then(|start| self.call_indices.get(&(file, start)))
+                    .map(|&index| &self.calls.calls[index].outcome);
+                match crate::callables::core_operation_outcome(
                     self.context,
                     self.bindings,
-                    self.calls,
-                    file,
-                    node,
+                    outcome,
+                    node.kind(),
                     name,
                 ) {
                     Ok(true) => {}
@@ -1673,6 +2039,9 @@ impl<'a> Bounds<'a> {
                 let values: Vec<_> = children.iter().map(|n| self.expression(file, n)).collect();
                 numeric_arithmetic(operator, &values, self.definitions.is_none())
             }
+            NodeKind::CallExpression => self.length(file, node).unwrap_or_else(|| {
+                Unsupported("integer expression is outside bounded interpretation".into())
+            }),
             _ => Unsupported("integer expression is outside bounded interpretation".into()),
         }
     }

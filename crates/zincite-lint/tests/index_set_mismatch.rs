@@ -182,6 +182,74 @@ fn enum_identity_unknown_data_and_unsupported_slices_have_distinct_outcomes() {
     );
     assert!(result.limitations.is_empty(), "{:?}", result.limitations);
     std::fs::remove_dir_all(dir).unwrap();
+    let source = concat!(
+        "enum X={A,B}; array[X,1..2] of int:grid;\n",
+        "array[X,1..2] of int:whole=grid[..,..]; array[1..2] of int:row=grid[A,..]; array[X] of int:column=grid[..,1]; solve satisfy;\n",
+    );
+    let (dir, context, result) = model("full-axes", source);
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+    assert!(
+        result.findings.is_empty() && result.limitations.is_empty(),
+        "{result:?}"
+    );
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let axis = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "X")
+        .unwrap()
+        .id;
+    for (access, expected) in [
+        ("grid[..,..]", vec![TypeKind::Enum(axis), TypeKind::Int]),
+        ("grid[A,..]", vec![TypeKind::Int]),
+        ("grid[..,1]", vec![TypeKind::Enum(axis)]),
+    ] {
+        let ty = &calls
+            .expressions
+            .iter()
+            .find(|e| {
+                e.location.path == dir.join("root.mzn")
+                    && &source[e.location.range.clone()] == access
+            })
+            .unwrap()
+            .ty;
+        assert_eq!(ty.instantiation, Instantiation::Parameter);
+        assert!(!ty.optional);
+        let TypeKind::Array { indices, element } = &ty.kind else {
+            panic!("{access}: {ty:?}");
+        };
+        assert_eq!(
+            indices.iter().map(|i| i.kind.clone()).collect::<Vec<_>>(),
+            expected
+        );
+        assert!(
+            indices
+                .iter()
+                .all(|i| i.instantiation == Instantiation::Parameter && !i.optional)
+        );
+        assert_eq!(element.kind, TypeKind::Int);
+        assert_eq!(element.instantiation, Instantiation::Parameter);
+        assert!(!element.optional);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+    let (dir, _, result) = model(
+        "decision-slice",
+        "enum X={A,B}; array[X,1..2] of int:grid; var int:k; array[X] of var int:slice=grid[..,k]; solve satisfy;",
+    );
+    assert!(matches!(
+        result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    assert!(result.findings.is_empty());
+    assert!(
+        result
+            .limitations
+            .iter()
+            .any(|l| l.message.contains("type is unavailable")),
+        "{result:?}"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
     let (dir, _, result) = model(
         "unsupported",
         "array[1..2,1..2] of int:grid; array[int,int] of int:slice=grid[..,1..2]; solve satisfy;",

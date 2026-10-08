@@ -67,6 +67,34 @@ fn warned(b: &BindingFacts, f: &[CallableInputFact]) -> Vec<String> {
 }
 #[test]
 fn arrays_keep_source_dimension_identity_and_explicit_matching_guards() {
+    let (dir, _, _, facts, result) = model(
+        "unsupported-alias",
+        "function array[int,int] of int:opaque(array[int,int] of int:a); function int:alias(array[int,int] of int:a,int:i,int:j)=let {array[int,int] of int:b=opaque(a);} in b[i,j]; solve satisfy;",
+        "missing-input-precondition",
+    );
+    assert_eq!(facts.len(), 2, "{facts:?}");
+    assert!(
+        facts
+            .iter()
+            .all(|fact| matches!(fact.obligation.outcome, GuardedOutcome::Unsupported(_)))
+    );
+    assert_eq!(
+        facts
+            .iter()
+            .map(|fact| match fact.obligation.kind {
+                GuardObligationKind::Index { dimension, .. } => dimension,
+                _ => panic!("{fact:?}"),
+            })
+            .collect::<Vec<_>>(),
+        [1, 2]
+    );
+    assert_eq!(result.limitations.len(), 1, "{result:?}");
+    assert!(result.findings.is_empty(), "{result:?}");
+    assert!(matches!(
+        result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    std::fs::remove_dir_all(dir).unwrap();
     let source = concat!(
         "function int:cross(array[int] of int:a,array[int] of int:b)=sum(i in index_set(a))(b[i]);\n",
         "function int:own(array[int] of int:a)=sum(i in index_set(a))(a[i]);\n",

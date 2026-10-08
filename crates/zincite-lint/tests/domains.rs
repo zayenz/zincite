@@ -144,4 +144,96 @@ fn empty_unknown_and_unsupported_domains_have_distinct_outcomes() {
         RuleOutcome::Limited { .. }
     ));
     std::fs::remove_dir_all(directory).unwrap();
+
+    let source = concat!(
+        "array[1..3] of var int: choices; set of int: Coords;\n",
+        "set of int: Nodes=1..(length(choices) div length(Coords));\n",
+        "set of int: Alias=Nodes; array[Alias] of int: positions; solve satisfy;\n",
+    );
+    let (directory, _) = model("length-quotient", source);
+    std::fs::write(
+        directory.join("library/std/stdlib.mzn"),
+        concat!(
+            "function int: length(array[int] of int: values);\n",
+            "function int: length(array[int] of var int: values);\n",
+            "function int: 'div'(int: left,int: right);\n",
+            "function set of int: '..'(int: left,int: right);\n",
+        ),
+    )
+    .unwrap();
+    let context = load_model(
+        directory.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(directory.join("library")),
+            include_dirs: Vec::new(),
+        },
+    );
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let bindings = resolve_bindings(&context);
+    let domains = resolve_domains(&context, &bindings);
+    let alias_domain = domains
+        .array_indices
+        .iter()
+        .find(|index| {
+            index.location.path == directory.join("root.mzn")
+                && &source[index.location.range.clone()] == "Alias"
+        })
+        .unwrap();
+    assert!(
+        alias_domain.domain.numeric_minimum().is_err(),
+        "{:?}",
+        alias_domain
+    );
+    let result = analyze_model(&context, &selected());
+    assert!(result.findings.is_empty(), "{:?}", result.findings);
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+    let unsafe_source = concat!(
+        "array[1..3] of var int: choices; set of int: Coords; annotation tag;\n",
+        "function set of int: opaque(); set of int: UnsafeCoords=opaque();\n",
+        "array[1..3] of var opt int: optional_choices;\n",
+        "set of int: Tagged :: tag =1..(length(choices) div length(Coords));\n",
+        "set of int: Opaque=1..(length(choices) div length(UnsafeCoords));\n",
+        "set of int: Optional=1..(length(optional_choices) div length(Coords));\n",
+        "int: bad=1 div 0; set of int: BadCoords={bad};\n",
+        "set of int: Partial=1..(length(choices) div length(BadCoords));\n",
+        "array[Tagged,Opaque,Optional,Partial] of int: positions; solve satisfy;\n",
+    );
+    std::fs::write(directory.join("root.mzn"), unsafe_source).unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(directory.join("library")),
+        include_dirs: Vec::new(),
+    };
+    let context = load_model(directory.join("root.mzn"), &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let result = analyze_model(&context, &selected());
+    assert!(result.findings.is_empty());
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert_eq!(
+        result
+            .limitations
+            .iter()
+            .map(|limit| &unsafe_source[limit.location.range.clone()])
+            .collect::<Vec<_>>(),
+        ["Tagged", "Opaque", "Optional", "Partial"]
+    );
+    assert!(matches!(
+        result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+
+    std::fs::write(
+        directory.join("root.mzn"),
+        format!("function int: length(set of int: values)=0;\n{source}"),
+    )
+    .unwrap();
+    let context = load_model(directory.join("root.mzn"), &options);
+    let result = analyze_model(&context, &selected());
+    assert!(result.findings.is_empty());
+    assert_eq!(result.limitations.len(), 1, "{:?}", result.limitations);
+    assert!(matches!(
+        result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    std::fs::remove_dir_all(directory).unwrap();
 }

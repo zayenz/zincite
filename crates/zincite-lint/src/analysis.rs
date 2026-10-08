@@ -321,6 +321,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                 calls.as_ref().unwrap(),
                 domains,
                 &index_prerequisites.as_ref().unwrap().1,
+                &index_prerequisites.as_ref().unwrap().0,
             );
             array_incomplete = !indices.limitations.is_empty();
             result.findings.extend(indices.findings);

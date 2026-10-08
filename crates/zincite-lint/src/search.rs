@@ -340,10 +340,12 @@ impl<'a> Producer<'a> {
             self.uncertain(file, node, "annotation alias body is unavailable");
             return;
         };
-        let Some(value) = declaration
+        let Some((value_file, value)) = declaration
             .child_nodes()
             .filter(|n| is_expression(n.kind()))
             .last()
+            .map(|value| (d.file, value))
+            .or_else(|| self.assigned_annotation(id, declaration))
         else {
             self.uncertain(
                 file,
@@ -385,8 +387,109 @@ impl<'a> Producer<'a> {
             }
         }
         self.active.push(id);
-        self.annotation(d.file, value, &arguments);
+        self.annotation(value_file, value, &arguments);
         self.active.pop();
+    }
+    fn assigned_annotation(
+        &self,
+        id: DeclarationId,
+        declaration: &SyntaxNode,
+    ) -> Option<(FileId, &'a SyntaxNode)> {
+        let d = &self.bindings.declarations[id.0];
+        let ty = &self.calls.declarations[id.0].ty;
+        if d.role != DeclarationRole::Annotation
+            || !d.top_level
+            || self.context.files[d.file].kind != SourceKind::User
+            || !ty.known()
+            || optional(ty)
+            || ty.instantiation != Instantiation::Parameter
+            || ty.kind != TypeKind::Annotation
+            || declaration
+                .child_nodes()
+                .any(|node| node.kind() == NodeKind::ParameterList || is_expression(node.kind()))
+        {
+            return None;
+        }
+        let mut selected = None;
+        for (file, source) in self.context.files.iter().enumerate() {
+            if source.kind != SourceKind::User || !source.parsed.diagnostics().is_empty() {
+                continue;
+            }
+            for (item, assignment) in source.parsed.tree().child_nodes().enumerate() {
+                if assignment.kind() != NodeKind::Assignment {
+                    continue;
+                }
+                let target = assignment.children().iter().find_map(|child| match child {
+                    SyntaxElement::Token(index) => {
+                        let token = &source.parsed.tokens()[*index];
+                        matches!(
+                            token.kind,
+                            TokenKind::Identifier | TokenKind::QuotedIdentifier
+                        )
+                        .then_some(token)
+                    }
+                    _ => None,
+                })?;
+                let target_range = source.location(target.range.clone()).range;
+                let reference = self.bindings.references.iter().find(|reference| {
+                    reference.file == file
+                        && reference.item == item
+                        && reference.kind == crate::ReferenceKind::Value
+                        && reference.callable.is_none()
+                        && reference.location.range == target_range
+                })?;
+                match &reference.resolution {
+                    BindingResolution::Resolved(target) if *target == id => {}
+                    BindingResolution::Ambiguous(targets)
+                    | BindingResolution::Overloads(targets)
+                        if targets.contains(&id) =>
+                    {
+                        return None;
+                    }
+                    BindingResolution::Unresolved if reference.name == d.name => return None,
+                    _ => continue,
+                }
+                if selected.is_some() {
+                    return None;
+                }
+                let mut values = assignment
+                    .child_nodes()
+                    .filter(|node| is_expression(node.kind()));
+                let value = values.next()?;
+                if values.next().is_some() {
+                    return None;
+                }
+                let range = source.location(value.range()).range;
+                let ty = &self
+                    .calls
+                    .expressions
+                    .iter()
+                    .find(|expression| {
+                        expression.file == file && expression.location.range == range
+                    })?
+                    .ty;
+                if !ty.known()
+                    || optional(ty)
+                    || ty.instantiation != Instantiation::Parameter
+                    || ty.kind != TypeKind::Annotation
+                {
+                    return None;
+                }
+                // Do not strip annotations whose effect on this assigned body is unexamined.
+                let mut pending = vec![declaration, value];
+                while let Some(node) = pending.pop() {
+                    if matches!(
+                        node.kind(),
+                        NodeKind::Annotation | NodeKind::AnnotatedExpression
+                    ) {
+                        return None;
+                    }
+                    pending.extend(node.child_nodes());
+                }
+                selected = Some((file, value));
+            }
+        }
+        selected
     }
     fn reindex_safety(
         &self,
@@ -710,6 +813,9 @@ impl<'a> Producer<'a> {
                 extent
             };
             self.record_value(id, location, extent);
+            if extent == SearchCoverage::WholeArray {
+                self.array_sources(id, file, subject, mapping);
+            }
             return;
         }
         // A fresh computed search value has no source declaration identity.
@@ -719,6 +825,115 @@ impl<'a> Producer<'a> {
             location,
             coverage: SearchCoverage::Uncovered,
         });
+    }
+    fn array_sources(
+        &mut self,
+        id: DeclarationId,
+        file: FileId,
+        reference: &'a SyntaxNode,
+        mapping: &[Argument<'a>],
+    ) {
+        let declaration = &self.bindings.declarations[id.0];
+        let source = &self.context.files[declaration.file];
+        if !declaration.top_level
+            || declaration.role != DeclarationRole::Value
+            || source.kind != SourceKind::User
+            || !source.parsed.diagnostics().is_empty()
+        {
+            return;
+        }
+        let Some(written) = find_node(
+            source.parsed.tree(),
+            &declaration.syntax_range,
+            declaration.role,
+        ) else {
+            return;
+        };
+        if written.kind() != NodeKind::Declaration {
+            return;
+        }
+        let mut values = written
+            .child_nodes()
+            .filter(|node| is_expression(node.kind()));
+        let Some(value) = values.next() else {
+            return;
+        };
+        if values.next().is_some() {
+            return;
+        }
+        let value = unwrap(value);
+        let value_range = source.location(value.range()).range;
+        if self
+            .calls
+            .expressions
+            .iter()
+            .find(|e| e.file == declaration.file && e.location.range == value_range)
+            .is_none_or(|e| {
+                !e.ty.known() || optional(&e.ty) || !matches!(e.ty.kind, TypeKind::Array { .. })
+            })
+        {
+            return;
+        }
+        let next = match value.kind() {
+            NodeKind::Expression | NodeKind::ArrayLiteral => value,
+            NodeKind::CallExpression
+                if core_operation(
+                    self.context,
+                    self.bindings,
+                    self.calls,
+                    declaration.file,
+                    value,
+                    "array1d",
+                ) == Ok(true) =>
+            {
+                value
+            }
+            NodeKind::CallExpression => {
+                let Some(values) = crate::callable_definitions::set_axis_integer_reshape_source(
+                    self.context,
+                    self.bindings,
+                    self.calls,
+                    self.instantiations,
+                    self.domains,
+                    (declaration.file, value),
+                    None,
+                ) else {
+                    return;
+                };
+                values
+            }
+            _ => return,
+        };
+        if self.active.contains(&id) {
+            self.uncertain(
+                file,
+                reference,
+                "cyclic searched array initializer is unsupported",
+            );
+            return;
+        }
+        if let DefinitionSafety::Unsupported(reason) =
+            crate::callable_definitions::initialized_expression_safety(
+                self.context,
+                self.bindings,
+                self.calls,
+                self.instantiations,
+                self.domains,
+                (file, reference),
+                None,
+            )
+        {
+            self.uncertain(
+                file,
+                reference,
+                &format!("searched array initializer is unsupported: {reason}"),
+            );
+            return;
+        }
+        // Cardinality uncertainty does not change the values of a successful pure view.
+        self.active.push(id);
+        self.values(declaration.file, next, mapping);
+        self.active.pop();
     }
     fn partial_source(
         &self,

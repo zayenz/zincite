@@ -4,7 +4,8 @@ use crate::{
     GuardedFacts, GuardedOutcome, IterationCoverage, IterationFacts, IterationIndexSet,
     ModelContext, NumericBound, Rule, Severity, SourceDiagnostic, SourceLocation,
 };
-use zincite_syntax::{NodeKind, SyntaxNode};
+use std::collections::HashMap;
+use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 
 pub(super) fn check_index_set_mismatches(
     context: &ModelContext,
@@ -12,6 +13,29 @@ pub(super) fn check_index_set_mismatches(
     guarded: &GuardedFacts,
     iteration: &IterationFacts,
 ) -> (Vec<FileFinding>, Vec<SourceDiagnostic>) {
+    let mut expression_indices = HashMap::with_capacity(guarded.expressions.len());
+    for (row, expression) in guarded.expressions.iter().enumerate() {
+        expression_indices
+            .entry((
+                expression.file,
+                expression.location.range.start,
+                expression.location.range.end,
+            ))
+            .or_insert(row);
+    }
+    let mut index_obligation_indices: HashMap<_, Vec<_>> = HashMap::new();
+    for (row, obligation) in guarded.obligations.iter().enumerate() {
+        if matches!(obligation.kind, GuardObligationKind::Index { .. }) {
+            index_obligation_indices
+                .entry((
+                    obligation.file,
+                    obligation.operation.range.start,
+                    obligation.operation.range.end,
+                ))
+                .or_default()
+                .push(row);
+        }
+    }
     let mut findings = Vec::new();
     let mut limitations = Vec::new();
     for (file, source) in context.files.iter().enumerate() {
@@ -29,9 +53,11 @@ pub(super) fn check_index_set_mismatches(
             collect_accesses(node, &mut accesses);
             for access in accesses {
                 let location = source.location(access.range());
-                if guarded
-                    .expression(file, &location)
-                    .is_some_and(|e| e.context.activation == GuardActivation::Inactive)
+                let key = (file, location.range.start, location.range.end);
+                let evaluation = expression_indices
+                    .get(&key)
+                    .map(|&row| &guarded.expressions[row]);
+                if evaluation.is_some_and(|e| e.context.activation == GuardActivation::Inactive)
                     || iteration.iterations.iter().any(|i| {
                         i.file == file
                             && contains(&i.location, &location)
@@ -40,11 +66,33 @@ pub(super) fn check_index_set_mismatches(
                 {
                     continue;
                 }
-                let obligations: Vec<_> = guarded
-                    .obligations_at(file, &location)
-                    .filter(|o| matches!(o.kind, GuardObligationKind::Index { .. }))
-                    .collect();
+                let obligations = index_obligation_indices
+                    .get(&key)
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]);
                 if obligations.is_empty() {
+                    let selectors: Vec<_> = access.child_nodes().skip(1).collect();
+                    let full_axes = !selectors.is_empty() && selectors.iter().all(|selector| {
+                        selector.kind() == NodeKind::RangeExpression
+                            && selector.child_nodes().next().is_none()
+                            && matches!(crate::domains::tokens(&source.parsed, selector).as_slice(),
+                                [token] if token.kind == TokenKind::RangeInclusive)
+                    });
+                    if full_axes
+                        && evaluation.is_some_and(|e| {
+                            matches!(
+                                e.definedness,
+                                GuardedOutcome::Proven | GuardedOutcome::Unknown
+                            ) && matches!(
+                                e.raw_definedness,
+                                GuardedOutcome::Proven | GuardedOutcome::Unknown
+                            )
+                        })
+                    {
+                        // The inspected access selects its own complete axes.
+                        // No scalar index candidate needs a membership comparison.
+                        continue;
+                    }
                     let reason = guarded
                         .limitations
                         .iter()
@@ -55,7 +103,8 @@ pub(super) fn check_index_set_mismatches(
                     continue;
                 }
                 let mut reported = Vec::new();
-                for obligation in obligations {
+                for &row in obligations {
+                    let obligation = &guarded.obligations[row];
                     let GuardObligationKind::Index {
                         array,
                         dimension,

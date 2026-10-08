@@ -1,6 +1,6 @@
 //! Formal-input requirements in general user callable bodies, independent of lint.
 //! A missing contract is advice about a named boundary, not a failing input witness.
-use crate::callables::{find_node, is_expression};
+use crate::callables::{find_node, is_expression, operation_fact};
 use crate::partial_expression::{captured_by_default, collect_nodes, empty_iteration};
 use crate::{
     BindingFacts, BindingResolution, CallableFacts, DeclarationId, DeclarationRole, FileFinding,
@@ -157,9 +157,15 @@ pub fn resolve_callable_input_facts(
                         .into(),
                 );
             }
-            let captured =
-                captured_by_default(context, bindings, calls, guarded, o.file, &nodes, o)
-                    || empty_iteration(iteration, o.file, &o.operation);
+            let captured = captured_by_default(
+                context,
+                bindings,
+                |file, node| operation_fact(context, calls, file, node),
+                |file, location| guarded.expression(file, location),
+                o.file,
+                &nodes,
+                o,
+            ) || empty_iteration(iteration, o.file, &o.operation);
             facts.push(CallableInputFact {
                 callable: callable.id,
                 inputs: inputs.into_iter().map(DeclarationId).collect(),
@@ -264,10 +270,14 @@ pub(super) fn check_input_preconditions(
             continue;
         }
         if let GuardedOutcome::Unsupported(reason) = &o.outcome {
-            limits.push(SourceDiagnostic {
+            let diagnostic = SourceDiagnostic {
                 location: o.operation.clone(),
                 message: format!("missing-input-precondition: {reason}"),
-            });
+            };
+            if limits.last() == Some(&diagnostic) {
+                continue;
+            }
+            limits.push(diagnostic);
             continue;
         }
         let names = fact

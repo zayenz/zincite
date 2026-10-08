@@ -3241,3 +3241,25 @@ compact audit is `exhaustive-semantic61/terminal-report-root-audit.json` under
 the existing base083 benchmark directory. The Unobserved roots are being
 reconciled separately. Actual source integration waits for Navigation's own
 protected-source checks to finish.
+
+Navigation24 is terminal: native 94.289 seconds, companion 96.258 seconds,
+without timeout. Root checked full streams/hashes, exact source and analysis,
+all 26 and thesis 14 Completed outcomes, drop return and reparsed coverage.
+All diagnostics/outcomes match21; 5,643 warnings, zero errors or limitations.
+Before/after/current input, protected source and helper pins match. The audit
+is `semantic62-current24-navigation-pair/pair-root-audit.json`.
+
+With both captures terminal, root integrated the tested combined24 candidate
+into the actual workspace. All 21 patch paths exactly match frozen tested
+source. Actual fmt, Clippy with warnings denied and workspace tests pass:
+42 suites, 193 tests, zero failures. Source-preservation/default/include/fix,
+save and batch behavior remain covered by existing public workspace checks.
+Evidence is `combined24-actual-integration.json` and the complete actual gate
+logs under the existing base083 benchmark directory. Task acceptance stays
+open pending Routing and fresh complete corpus reconciliation.
+
+The proposed direct selected-direction Equality case passes unchanged
+combined24 (focused test exit 0, non-timeout). It does not yet reproduce the
+remaining original Routing limitation; implementation changes are withheld
+while its actual traversal path is traced. The full result is retained in
+`semantic62-routing-equality-reduction/focused-red/`.

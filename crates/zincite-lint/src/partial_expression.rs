@@ -1,14 +1,15 @@
 //! Advice over scoped operation requirements, not a feasibility or crash proof.
 //! Relational Boolean definedness preserves raw hazards; only interpreted core
 //! default capture can absorb a left-side undefined value. No rewrite is offered.
-use crate::callables::core_operation;
+use crate::callables::{core_operation_outcome, operation_head_start};
 use crate::domains::tokens;
 use crate::{
-    BindingFacts, CallableFacts, FileFinding, FileId, GuardActivation, GuardAssumptionKind,
-    GuardContext, GuardEvaluation, GuardObligation, GuardObligationKind, GuardedFacts,
-    GuardedOutcome, IterationCoverage, IterationFacts, ModelContext, Presence, Rule, Severity,
-    SourceDiagnostic, SourceLocation,
+    BindingFacts, CallFact, CallableFacts, FileFinding, FileId, GuardActivation,
+    GuardAssumptionKind, GuardContext, GuardEvaluation, GuardObligation, GuardObligationKind,
+    GuardedExpression, GuardedFacts, GuardedOutcome, IterationCoverage, IterationFacts,
+    ModelContext, Presence, Rule, Severity, SourceDiagnostic, SourceLocation,
 };
+use std::collections::HashMap;
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 
 pub(super) fn check_partial_expressions(
@@ -20,6 +21,55 @@ pub(super) fn check_partial_expressions(
     prior_findings: &[FileFinding],
     input_keys: &[crate::InputObligationKey],
 ) -> (Vec<FileFinding>, Vec<SourceDiagnostic>) {
+    let mut call_indices = HashMap::with_capacity(calls.calls.len());
+    for (row, fact) in calls.calls.iter().enumerate() {
+        call_indices
+            .entry((fact.file, fact.location.range.start))
+            .or_insert(row);
+    }
+    let operation_at = |file, node: &SyntaxNode| {
+        operation_head_start(context, file, node)
+            .and_then(|start| call_indices.get(&(file, start)))
+            .map(|&row| &calls.calls[row])
+    };
+    let mut expression_indices = HashMap::with_capacity(guarded.expressions.len());
+    for (row, expression) in guarded.expressions.iter().enumerate() {
+        expression_indices
+            .entry((
+                expression.file,
+                expression.location.range.start,
+                expression.location.range.end,
+            ))
+            .or_insert(row);
+    }
+    let mut obligation_indices: HashMap<_, Vec<_>> = HashMap::new();
+    for (row, obligation) in guarded.obligations.iter().enumerate() {
+        if !matches!(obligation.kind, GuardObligationKind::Assertion) {
+            obligation_indices
+                .entry((
+                    obligation.file,
+                    obligation.operation.range.start,
+                    obligation.operation.range.end,
+                ))
+                .or_default()
+                .push(row);
+        }
+    }
+    let mut limitation_indices: HashMap<_, Vec<_>> = HashMap::new();
+    let mut abort_limitations = Vec::new();
+    for (row, limitation) in guarded.limitations.iter().enumerate() {
+        limitation_indices
+            .entry((
+                limitation.file,
+                limitation.location.range.start,
+                limitation.location.range.end,
+            ))
+            .or_default()
+            .push(row);
+        if limitation.reason == "default capture of aborting assertion is unsupported" {
+            abort_limitations.push(row);
+        }
+    }
     let mut findings = Vec::new();
     let mut limitations = Vec::new();
     for (file, source) in context.files.iter().enumerate() {
@@ -35,8 +85,19 @@ pub(super) fn check_partial_expressions(
             }
             let mut nodes = Vec::new();
             collect_nodes(node, &mut nodes);
+            let default_nodes: Vec<_> = nodes
+                .iter()
+                .copied()
+                .filter(|node| {
+                    node.kind() == NodeKind::BinaryExpression
+                        && tokens(&source.parsed, node)
+                            .first()
+                            .is_some_and(|token| token.kind == TokenKind::Default)
+                })
+                .collect();
             for operation in &nodes {
-                let Some(identity) = operation_identity(context, bindings, calls, file, operation)
+                let Some(identity) =
+                    operation_identity(context, bindings, operation_at, file, operation)
                 else {
                     continue;
                 };
@@ -44,9 +105,11 @@ pub(super) fn check_partial_expressions(
                     continue;
                 }
                 let location = source.location(operation.range());
-                if guarded
-                    .expression(file, &location)
-                    .is_some_and(|e| e.context.activation == GuardActivation::Inactive)
+                let key = (file, location.range.start, location.range.end);
+                let evaluation = expression_indices
+                    .get(&key)
+                    .map(|&row| &guarded.expressions[row]);
+                if evaluation.is_some_and(|e| e.context.activation == GuardActivation::Inactive)
                     || empty_iteration(iteration, file, &location)
                 {
                     continue;
@@ -55,14 +118,21 @@ pub(super) fn check_partial_expressions(
                     limitations.push(limitation(location, &reason));
                     continue;
                 }
-                let obligations: Vec<_> = guarded
-                    .obligations_at(file, &location)
-                    .filter(|o| !matches!(o.kind, GuardObligationKind::Assertion))
-                    .collect();
-                for obligation in obligations {
+                for &row in obligation_indices.get(&key).into_iter().flatten() {
+                    let obligation = &guarded.obligations[row];
                     if obligation.context.activation == GuardActivation::Inactive
                         || captured_by_default(
-                            context, bindings, calls, guarded, file, &nodes, obligation,
+                            context,
+                            bindings,
+                            operation_at,
+                            |file, location| {
+                                expression_indices
+                                    .get(&(file, location.range.start, location.range.end))
+                                    .map(|&row| &guarded.expressions[row])
+                            },
+                            file,
+                            &default_nodes,
+                            obligation,
                         )
                     {
                         continue;
@@ -149,24 +219,23 @@ pub(super) fn check_partial_expressions(
                         });
                     }
                 }
-                for l in guarded
-                    .limitations
-                    .iter()
-                    .filter(|l| l.file == file && l.location.range == location.range)
-                {
+                for &row in limitation_indices.get(&key).into_iter().flatten() {
+                    let l = &guarded.limitations[row];
                     limitations.push(limitation(location.clone(), &l.reason));
                 }
             }
             // An abort is not ordinary undefinedness. Retain the producer's
             // explicit default-capture boundary without inventing an assertion rule.
-            for l in guarded.limitations.iter().filter(|l| {
-                l.file == file
-                    && contains(&source.location(node.range()), &l.location)
-                    && l.reason == "default capture of aborting assertion is unsupported"
-            }) {
-                if !guarded
-                    .expression(file, &l.location)
-                    .is_some_and(|e| e.context.activation == GuardActivation::Inactive)
+            for l in abort_limitations
+                .iter()
+                .map(|&row| &guarded.limitations[row])
+                .filter(|l| l.file == file && contains(&source.location(node.range()), &l.location))
+            {
+                let key = (file, l.location.range.start, l.location.range.end);
+                let evaluation = expression_indices
+                    .get(&key)
+                    .map(|&row| &guarded.expressions[row]);
+                if !evaluation.is_some_and(|e| e.context.activation == GuardActivation::Inactive)
                     && !empty_iteration(iteration, file, &l.location)
                 {
                     limitations.push(limitation(l.location.clone(), &l.reason));
@@ -206,10 +275,10 @@ pub(super) fn empty_iteration(
         i.file == file && contains(&i.body, location) && i.coverage == IterationCoverage::Empty
     })
 }
-fn operation_identity(
+fn operation_identity<'a>(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    operation_at: impl Fn(FileId, &SyntaxNode) -> Option<&'a CallFact>,
     file: FileId,
     node: &SyntaxNode,
 ) -> Option<Result<bool, String>> {
@@ -220,8 +289,20 @@ fn operation_identity(
     if node.kind() == NodeKind::BinaryExpression {
         let kind = tokens(parsed, node).first()?.kind;
         return match kind {
-            TokenKind::Div => Some(core_operation(context, bindings, calls, file, node, "div")),
-            TokenKind::Mod => Some(core_operation(context, bindings, calls, file, node, "mod")),
+            TokenKind::Div => Some(core_operation_outcome(
+                context,
+                bindings,
+                operation_at(file, node).map(|fact| &fact.outcome),
+                node.kind(),
+                "div",
+            )),
+            TokenKind::Mod => Some(core_operation_outcome(
+                context,
+                bindings,
+                operation_at(file, node).map(|fact| &fact.outcome),
+                node.kind(),
+                "mod",
+            )),
             _ => None,
         };
     }
@@ -241,16 +322,22 @@ fn operation_identity(
             name,
             "min" | "max" | "deopt" | "ln" | "log10" | "log2" | "log"
         ) {
-            return Some(core_operation(context, bindings, calls, file, node, name));
+            return Some(core_operation_outcome(
+                context,
+                bindings,
+                operation_at(file, node).map(|fact| &fact.outcome),
+                node.kind(),
+                name,
+            ));
         }
     }
     None
 }
-pub(super) fn captured_by_default(
+pub(super) fn captured_by_default<'a>(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
-    guarded: &GuardedFacts,
+    operation_at: impl Fn(FileId, &SyntaxNode) -> Option<&'a CallFact>,
+    expression_at: impl Fn(FileId, &SourceLocation) -> Option<&'a GuardedExpression>,
     file: FileId,
     nodes: &[&SyntaxNode],
     obligation: &GuardObligation,
@@ -263,7 +350,13 @@ pub(super) fn captured_by_default(
             || !tokens(&source.parsed, node)
                 .first()
                 .is_some_and(|t| t.kind == TokenKind::Default)
-            || core_operation(context, bindings, calls, file, node, "default") != Ok(true)
+            || core_operation_outcome(
+                context,
+                bindings,
+                operation_at(file, node).map(|fact| &fact.outcome),
+                node.kind(),
+                "default",
+            ) != Ok(true)
         {
             return false;
         }
@@ -279,10 +372,10 @@ pub(super) fn captured_by_default(
         {
             return false;
         }
-        let Some(expression) = guarded.expression(file, &source.location(node.range())) else {
+        let Some(expression) = expression_at(file, &source.location(node.range())) else {
             return false;
         };
-        let Some(left_value) = guarded.expression(file, &left) else {
+        let Some(left_value) = expression_at(file, &left) else {
             return false;
         };
         expression.raw_definedness == GuardedOutcome::Proven

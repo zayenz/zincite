@@ -175,6 +175,151 @@ fn typed_searches_aliases_and_direct_closure_preserve_whole_array_and_cycle_boun
         std::fs::read_to_string(dir.join("root.mzn")).unwrap(),
         source
     );
+    // Searching a pure reshape retains its literal source values, not unrelated values.
+    for (name, rows, expected) in [
+        (
+            "searched-reshape-alias",
+            "set of int: Rows;",
+            SearchCoverage::Scalar,
+        ),
+        (
+            "searched-reshape-unsafe",
+            "set of int: Rows=1..(1 div 0);",
+            SearchCoverage::Unknown,
+        ),
+    ] {
+        let source = format!(
+            "{rows} set of int: Columns; var 0..9: first_cell; var 0..9: second_cell; var 0..9: unrelated; array[1..2] of var int: cells=[first_cell,second_cell]; array[int] of var int: alias=cells; array[int,int] of var int: view=array2d(Rows,Columns,alias); solve :: int_search(array1d(view),input_order,indomain_min,complete) satisfy;"
+        );
+        let (case_dir, _) = model(name, &source, "");
+        std::fs::write(
+            case_dir.join("library/std/stdlib.mzn"),
+            format!("{CORE}\nfunction array[int,int] of any $V: array2d(set of int: rows,set of int: columns,array[int] of any $V: values); function int: 'div'(int: left,int: right);\n"),
+        ).unwrap();
+        let context = load_model(
+            case_dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(case_dir.join("library")),
+                ..Default::default()
+            },
+        );
+        let (bindings, search) = facts(&context);
+        for name in ["first_cell", "second_cell"] {
+            assert_eq!(
+                coverage(&bindings, &search, name),
+                expected,
+                "{name}: {:?}",
+                search.limitations
+            );
+        }
+        let result = analyze_model(&context, &selected());
+        if expected == SearchCoverage::Scalar {
+            assert_eq!(
+                coverage(&bindings, &search, "unrelated"),
+                SearchCoverage::Uncovered
+            );
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Completed),
+                "{:?}",
+                result.limitations
+            );
+            assert_eq!(result.findings.len(), 1);
+            let calls = resolve_callables(&context, &bindings);
+            let inst = resolve_instantiations(&context, &bindings, &calls);
+            let domains = resolve_domains(&context, &bindings);
+            let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+            let view = bindings
+                .declarations
+                .iter()
+                .find(|d| d.name == "view" && d.top_level)
+                .unwrap()
+                .id;
+            let definition = definitions
+                .definitions
+                .iter()
+                .find(|d| d.target == view)
+                .unwrap();
+            assert!(matches!(definition.safety, DefinitionSafety::Unknown(_)));
+        } else {
+            assert!(matches!(
+                result.rules[0].outcome,
+                RuleOutcome::Limited { .. }
+            ));
+        }
+        std::fs::remove_dir_all(case_dir).unwrap();
+    }
+    // An inspected reshape keeps unproved cardinality and search coverage unknown.
+    for (name, declarations, inspected) in [
+        (
+            "reshape-symbolic",
+            "set of int: Rows; set of int: Columns; array[1..4] of var 0..9: cells; array[int,int] of var int: value=array2d(Rows,Columns,cells);",
+            true,
+        ),
+        (
+            "reshape-unsafe-axis",
+            "set of int: Rows=1..(1 div 0); set of int: Columns; array[1..4] of var 0..9: cells; array[int,int] of var int: value=array2d(Rows,Columns,cells);",
+            false,
+        ),
+        (
+            "reshape-cyclic-axis",
+            "set of int: Rows=Other; set of int: Other=Rows; set of int: Columns; array[1..4] of var 0..9: cells; array[int,int] of var int: value=array2d(Rows,Columns,cells);",
+            false,
+        ),
+        (
+            "reshape-annotated",
+            "set of int: Rows; set of int: Columns; array[1..4] of var 0..9: cells; annotation tag; array[int,int] of var int: value=(array2d(Rows,Columns,cells))::tag;",
+            false,
+        ),
+        (
+            "reshape-user",
+            "function array[int,int] of var int: array2d(set of int: r,set of int: c,array[int] of var int: a)=[|a[1],a[2]|]; set of int: Rows; set of int: Columns; array[1..4] of var 0..9: cells; array[int,int] of var int: value=array2d(Rows,Columns,cells);",
+            false,
+        ),
+        (
+            "reshape-optional",
+            "set of int: Rows; set of int: Columns; array[1..4] of var opt 0..9: cells; array[int,int] of var opt int: value=array2d(Rows,Columns,cells);",
+            false,
+        ),
+    ] {
+        let source = format!(
+            "{declarations} solve :: int_search(cells,input_order,indomain_min,complete) satisfy;"
+        );
+        let (case_dir, _) = model(name, &source, "");
+        std::fs::write(
+            case_dir.join("library/std/stdlib.mzn"),
+            format!("{CORE}\nfunction array[int,int] of any $V: array2d(set of int: rows,set of int: columns,array[int] of any $V: values); function int: 'div'(int: left,int: right);\n"),
+        ).unwrap();
+        let context = load_model(
+            case_dir.join("root.mzn"),
+            &ModelOptions {
+                include_dirs: vec![],
+                stdlib_dir: Some(case_dir.join("library")),
+            },
+        );
+        let (bindings, search) = facts(&context);
+        assert_eq!(
+            coverage(&bindings, &search, "value"),
+            SearchCoverage::Unknown,
+            "{name}"
+        );
+        let result = analyze_model(&context, &selected());
+        assert!(result.findings.is_empty(), "{name}: {:?}", result.findings);
+        if inspected {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Completed),
+                "{name}: {:?}",
+                result.limitations
+            );
+            assert!(result.limitations.is_empty(), "{name}");
+        } else {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}"
+            );
+            assert!(!result.limitations.is_empty(), "{name}");
+        }
+        std::fs::remove_dir_all(case_dir).unwrap();
+    }
     std::fs::remove_dir_all(dir).unwrap();
 }
 #[test]
@@ -203,6 +348,18 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
             "array[1..2] of var int: value; function ann: first_only(array[int] of var int: xs)=int_search([xs[1]],input_order,indomain_min,complete); solve :: first_only(value) satisfy;",
             SearchCoverage::PartialArray,
             1,
+        ),
+        (
+            "assigned-annotation",
+            "var 0..9: value; var 0..9: unrelated; annotation strategy; strategy=seq_search([int_search([value],input_order,indomain_min,complete)]); solve :: strategy satisfy;",
+            SearchCoverage::Scalar,
+            1,
+        ),
+        (
+            "multiple-annotation-assignments",
+            "var 0..9: value; annotation strategy; strategy=int_search([value],input_order,indomain_min,complete); strategy=int_search([value],input_order,indomain_min,complete); solve :: strategy satisfy;",
+            SearchCoverage::Unknown,
+            0,
         ),
         (
             "cyclic",
@@ -268,6 +425,12 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
             "{name}: {:?}",
             search.limitations
         );
+        if name == "assigned-annotation" {
+            assert_eq!(
+                coverage(&bindings, &search, "unrelated"),
+                SearchCoverage::Uncovered
+            );
+        }
         let result = analyze_model(&context, &selected());
         assert_eq!(
             result.findings.len(),
@@ -381,6 +544,54 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
             result.rules[0].outcome,
             RuleOutcome::Limited { .. }
         ));
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+    let source = concat!(
+        "int: N; array[1..N] of var 1..N: left; array[1..N] of var 1..N: right; var int: result;\n",
+        "constraint forall(C in 1..N)(exists(Y in left++right)(Y=C));\n",
+        "constraint exists(Y in left++right)(result=Y);\n",
+        "solve :: seq_search([int_search(left,input_order,indomain_min,complete),int_search(right,input_order,indomain_min,complete)]) satisfy;\n"
+    );
+    let (dir, _) = model("decision-array-exists", source, "");
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}\nfunction var bool: exists(array[int] of var bool: body);\n"),
+    )
+    .unwrap();
+    let context = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    let (bindings, search) = facts(&context);
+    assert!(search.limitations.is_empty(), "{:?}", search.limitations);
+    assert_eq!(
+        coverage(&bindings, &search, "left"),
+        SearchCoverage::WholeArray
+    );
+    assert_eq!(
+        coverage(&bindings, &search, "right"),
+        SearchCoverage::WholeArray
+    );
+    assert_eq!(
+        coverage(&bindings, &search, "result"),
+        SearchCoverage::Uncovered
+    );
+    let result = analyze_model(&context, &selected());
+    assert!(
+        matches!(result.rules[0].outcome, RuleOutcome::Completed),
+        "{:?}",
+        result
+    );
+    for rule in ["expensive-comprehension", "vacuous-constraint"] {
+        let result = analyze_model(&context, &LintOptions::from_selection(rule).unwrap());
+        assert!(
+            matches!(result.rules[0].outcome, RuleOutcome::Completed),
+            "{:?}",
+            result
+        );
     }
     std::fs::remove_dir_all(dir).unwrap();
     let source = concat!(
@@ -1591,6 +1802,409 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
     );
     assert!(result.limitations.is_empty(), "{:?}", result.limitations);
     std::fs::remove_dir_all(dir).unwrap();
+    // Keep the complete Routing336 producer chain in one symbolic public case.
+    let routing = concat!(
+        "int: count; set of int: Cols=1..2; array[1..2*count] of var 0..9: coords;\n",
+        "set of int: Rows=1..length(coords) div length(Cols);\n",
+        "array[int] of int: kinds=[5,3]; set of int: Boxes=index_set(kinds);\n",
+        "set of int: Pref={z|z in Boxes where 5==kinds[z]};\n",
+        "array[int] of int: pipe=[1,1]; array[int] of int: diam=[4];\n",
+        "array[int] of int: node=[1,2]; array[int] of int: direction=[3,4];\n",
+        "array[int] of int: radius=[diam[p] div 2|p in index_set(diam)];\n",
+        "array[int] of int: base=[0,0,0,0]; array[int] of int: sizes=[1,1,1,1];\n",
+        "array[int,int] of int: corners=array2d(Boxes,Cols,[base[k]+sizes[k]|k in index_set(base)]);\n",
+        "array[int,int] of var int: positions=array2d(Rows,Cols,coords);\n",
+        "var 0..9: first_coord; var 0..9: last_coord; array[int] of var int: bound_coords=[first_coord,last_coord];\n",
+        "array[Rows,Cols] of var lb_array(bound_coords)..ub_array(bound_coords): legs;\n",
+        "test first(Rows: i)=1==i;\n",
+        "test leg(Rows: i)=i<length(Rows) /\\ pipe[i+1]==pipe[i];\n",
+        "array[int,int,int] of var bool: disjoint=array3d(Boxes,Rows,Cols,[if kinds[z]<3 \\/ not leg(i) then true else corners[z,k]<=legs[i,k] endif|z in Boxes,i in Rows,k in Cols]);\n",
+        "array[int,int] of var bool: inside=array2d(Rows,Boxes,[if kinds[z]<3 then false else forall(k in Cols)(if 1==k then positions[i,k]-radius[pipe[i]]>=corners[z,k] /\\ positions[i,k]-radius[pipe[i]]<=corners[z,k] else positions[i,k]<=corners[z,k] endif) endif|i in Rows,z in Boxes]);\n",
+        "array[int] of var 0..1: not_pref=[if first(i) \\/ not leg(i) then 0 else 1-sum(z in Pref)(inside[i,z]) endif|i in Rows];\n",
+        "array[Rows] of var 0..1: exists_leg; array[int] of int: price=[3,4];\n",
+        "array[int] of var int: cost=[if first(i) \\/ not leg(i) then 0 else exists_leg[i]*(not_pref[i]+sum(z in Pref)(inside[i,z] * (price[z] div 2+1))) endif|i in Rows];\n",
+        "array[int] of set of int: legs_by_pipe=[{i|i in Rows where p==node[i]}|p in Boxes]; array[int] of float: factor=[1.0,0.0];\n",
+        "array[int,int] of var int: orthogonal=array2d(Boxes,Cols,[sum(j in legs_by_pipe[p],q in Cols diff{k})(if factor[p]<=0.0 then 0 else pow(legs[j,q],3) endif)|p in Boxes,k in Cols]);\n",
+        "constraint forall(i in Rows,k in Cols)(if not leg(i) then legs[i,k]==0 else legs[i,k]>=lb(positions[i,k]) /\\ legs[i,k]<=ub(positions[i,k]) endif);\n",
+        "constraint forall(i in Rows)(if first(i) then exists_leg[i]==0 else exists_leg[i]==exists_leg[i-1]+1 endif);\n",
+        "constraint forall(i in Rows,k in Cols)(if k==(direction[node[i]]-1) mod 3+1 then legs[i,k]>=0 else true endif);\n",
+        "array[Boxes] of int: first_leg=[min(legs_by_pipe[p])|p in Boxes]; array[Boxes] of int: last_leg=[max(legs_by_pipe[p])|p in Boxes];\n",
+        "int: units; int: reduction=1; var int: float_let_output;\n",
+        "constraint let { float: kappa=int2float(units)/4.0; float: unused_kappa=int2float(units)/8.0; } in\n",
+        "forall(p in Boxes,k in Cols)(if factor[p]<=0.0 then true else\n",
+        "let { int: delta=abs(fix(legs[last_leg[p],k])-fix(legs[first_leg[p],k])); int: coefficient=ceil(factor[p]*int2float(delta)/kappa); } in\n",
+        "forall(j in legs_by_pipe[p],q in Cols diff{k})(float_let_output=coefficient /\\ ((coefficient+reduction-1) div reduction)*legs[j,q]<=orthogonal[p,k]) endif);\n",
+        "var 0..9: unrelated; solve :: int_search(coords,input_order,indomain_min,complete) satisfy;\n"
+    );
+    let (dir, _) = model("routing-symbolic-producer-chain", routing, "");
+    // This case uses the present standard signatures; other cases retain CORE.
+    let routing_core = CORE
+        .replace(
+            "function var bool: forall(array[int] of var opt bool: body);\n",
+            "",
+        )
+        .replace(
+            "function var int: sum(array[int] of var int: body);",
+            "function var int: sum(array[$T] of var int: body);",
+        );
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!(
+            "{routing_core}{}",
+            concat!(
+                "function int: '+'(int: left,int: right); function int: '-'(int: left,int: right);\n",
+                "function var int: '-'(var int: left,var int: right);\n",
+                "function int: '*'(int: left,int: right); function var int: '*'(var int: left,var int: right);\n",
+                "function int: 'div'(int: left,int: right); function var int: 'div'(var int: left,var int: right); function int: 'mod'(int: left,int: right); function int: length(array[$T] of any $U: values);\n",
+                "function bool: '<'(int: left,int: right); function bool: '<='(int: left,int: right);\n",
+                "function var bool: '<='(var int: left,var int: right); function var bool: '>='(var int: left,var int: right);\n",
+                "function bool: '/\\'(bool: left,bool: right); function bool: '\\/'(bool: left,bool: right); function bool: 'not'(bool: value);\n",
+                "function bool: forall(array[$T] of bool: body); function var bool: forall(array[$T] of var bool: body);\n",
+                "function int: sum(array[$T] of int: body);\n",
+                "function array[$$R,$$C] of any $V: array2d(set of $$R: rows,set of $$C: columns,array[$U] of any $V: values);\n",
+                "function array[$$R,$$C,$$D] of any $V: array3d(set of $$R: rows,set of $$C: columns,set of $$D: depths,array[$U] of any $V: values);\n",
+                "function int: lb_array(array[$U] of var int: values); function int: ub_array(array[$U] of var int: values);\n",
+                "function int: lb(var int: value); function int: ub(var int: value);\n",
+                "function bool: '<='(float: left,float: right); function var int: pow(var int: value,int: exponent);\n",
+                "function set of int: 'diff'(set of int: left,set of int: right);\n",
+                "function float: int2float(int: value); function int: ceil(float: value); function int: fix(var int: value);\n",
+                "function float: '*'(float: left,float: right); function float: '/'(float: left,float: right);\n",
+                "function int: abs(int: value); function int: min(set of int: values); function int: max(set of int: values);\n",
+            )
+        ),
+    )
+    .unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        ..Default::default()
+    };
+    let context = load_model(dir.join("root.mzn"), &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let parameter_int = |ty: &zincite_lint::TypeInst| {
+        ty.kind == zincite_lint::TypeKind::Int
+            && ty.instantiation == zincite_lint::Instantiation::Parameter
+            && !ty.optional
+    };
+    for written in ["length(Cols)", "length(Rows)"] {
+        let start = routing.find(written).unwrap();
+        let call = calls
+            .calls
+            .iter()
+            .find(|call| call.file == 0 && call.location.range.start == start)
+            .unwrap();
+        assert!(
+            matches!(&call.outcome,
+                zincite_lint::CallOutcome::Resolved { declaration, parameters, return_type }
+                    if context.files[bindings.declarations[declaration.0].file].kind
+                        == zincite_lint::SourceKind::StandardLibrary
+                        && bindings.declarations[declaration.0].name == "length"
+                        && parameter_int(return_type)
+                        && parameters.len() == 1
+                        && parameters[0].instantiation == zincite_lint::Instantiation::Parameter
+                        && !parameters[0].optional
+                        && matches!(&parameters[0].kind,
+                            zincite_lint::TypeKind::Array { indices, element }
+                                if indices.len() == 1 && parameter_int(&indices[0])
+                                    && parameter_int(element))
+            ),
+            "{written}: {:?}",
+            call.outcome
+        );
+        let argument_start = start + "length(".len();
+        let argument_end = start + written.len() - 1;
+        assert!(
+            calls.expressions.iter().any(|expression| {
+                expression.file == 0
+                    && expression.location.range == (argument_start..argument_end)
+                    && expression.ty.instantiation == zincite_lint::Instantiation::Parameter
+                    && !expression.ty.optional
+                    && matches!(&expression.ty.kind, zincite_lint::TypeKind::Set(element)
+                    if parameter_int(element))
+            }),
+            "{written}: written set facts must remain sets"
+        );
+    }
+    // Compiler matching must retain the written Bool instead of relabelling it Int.
+    for (start, written) in routing.match_indices("inside[i,z]") {
+        assert!(calls.expressions.iter().any(|expression| {
+            expression.file == 0
+                && expression.location.range == (start..start + written.len())
+                && expression.ty.kind == zincite_lint::TypeKind::Bool
+                && expression.ty.instantiation == zincite_lint::Instantiation::Decision
+                && !expression.ty.optional
+        }));
+    }
+    let product_start = routing.rfind("inside[i,z] *").unwrap() + "inside[i,z] ".len();
+    let product = calls
+        .calls
+        .iter()
+        .find(|call| call.file == 0 && call.location.range.start == product_start)
+        .unwrap();
+    assert!(
+        matches!(&product.outcome,
+            zincite_lint::CallOutcome::Resolved { declaration, parameters, return_type }
+                if context.files[bindings.declarations[declaration.0].file].kind
+                    == zincite_lint::SourceKind::StandardLibrary
+                    && parameters.len() == 2
+                    && parameters.iter().chain(std::iter::once(return_type)).all(|ty|
+                        ty.kind == zincite_lint::TypeKind::Int
+                            && ty.instantiation == zincite_lint::Instantiation::Decision
+                            && !ty.optional)
+        ),
+        "{:?}",
+        product.outcome
+    );
+    let inst = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+    let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+    let search =
+        resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+    for name in ["inside", "not_pref", "cost", "disjoint", "orthogonal"] {
+        let id = bindings
+            .declarations
+            .iter()
+            .find(|declaration| declaration.top_level && declaration.name == name)
+            .unwrap()
+            .id;
+        assert_eq!(search.declarations[id.0].coverage, SearchCoverage::Unknown);
+        assert!(
+            !definitions
+                .definitions
+                .iter()
+                .chain(&callable.definitions)
+                .any(|definition| definition.target == id
+                    && definition.safety == DefinitionSafety::Supported
+                    && definition.coverage == DefinitionCoverage::WholeArray)
+        );
+    }
+    let orthogonal = bindings
+        .declarations
+        .iter()
+        .find(|d| d.top_level && d.name == "orthogonal")
+        .unwrap()
+        .id;
+    assert!(
+        definitions
+            .definitions
+            .iter()
+            .any(|d| d.target == orthogonal && matches!(d.safety, DefinitionSafety::Unknown(_)))
+    );
+    assert_eq!(
+        coverage(&bindings, &search, "coords"),
+        SearchCoverage::WholeArray
+    );
+    assert_eq!(
+        coverage(&bindings, &search, "unrelated"),
+        SearchCoverage::Uncovered
+    );
+    let float_output = bindings
+        .declarations
+        .iter()
+        .find(|declaration| declaration.top_level && declaration.name == "float_let_output")
+        .unwrap()
+        .id;
+    assert_eq!(
+        search.declarations[float_output.0].coverage,
+        SearchCoverage::Uncovered
+    );
+    assert!(
+        !callable
+            .definitions
+            .iter()
+            .any(|definition| definition.target == float_output)
+    );
+    let let_start = routing.find("constraint let {").unwrap();
+    let let_end = routing[let_start..].find(" endif);").unwrap() + let_start + " endif);".len();
+    assert!(!callable.inspected_locals.iter().any(|id| {
+        let local = &bindings.declarations[id.0];
+        local.file == 0
+            && let_start <= local.syntax_range.start
+            && local.syntax_range.end <= let_end
+    }));
+    let result = analyze_model(&context, &selected());
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+    let unrelated = bindings
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "unrelated")
+        .unwrap();
+    assert!(
+        result
+            .findings
+            .iter()
+            .any(|finding| finding.location == unrelated.location)
+    );
+    let conditional_target = bindings
+        .declarations
+        .iter()
+        .find(|d| d.top_level && d.name == "exists_leg")
+        .unwrap()
+        .id;
+    assert!(matches!(
+        search.declarations[conditional_target.0].coverage,
+        SearchCoverage::Uncovered | SearchCoverage::Unknown
+    ));
+    assert!(
+        !definitions
+            .definitions
+            .iter()
+            .chain(&callable.definitions)
+            .any(|d| d.target == conditional_target
+                && d.enforcement == zincite_lint::DefinitionEnforcement::Enforced
+                && d.safety == DefinitionSafety::Supported
+                && d.coverage == DefinitionCoverage::WholeArray)
+    );
+    // A closed hazardous sibling cannot become an unknown wrapped selection.
+    for wrapped in [
+        "direction[node[i]]-(1 div 0)",
+        "direction[node[i]]-(9223372036854775807+1)",
+    ] {
+        std::fs::write(
+            dir.join("root.mzn"),
+            routing.replace("direction[node[i]]-1", wrapped),
+        )
+        .unwrap();
+        let wrapped_context = load_model(dir.join("root.mzn"), &options);
+        assert!(
+            wrapped_context.errors.is_empty(),
+            "{wrapped}: {:?}",
+            wrapped_context.errors
+        );
+        let wrapped_result = analyze_model(&wrapped_context, &selected());
+        assert!(
+            matches!(wrapped_result.rules[0].outcome, RuleOutcome::Limited { .. }),
+            "{wrapped}: {:?}",
+            wrapped_result.rules[0].outcome
+        );
+        assert!(
+            !wrapped_result.limitations.is_empty(),
+            "{wrapped}: a hazardous sibling must retain a search limitation"
+        );
+    }
+    // Inspection must retain a partial child in the otherwise unproved else.
+    std::fs::write(
+        dir.join("root.mzn"),
+        routing.replace(
+            "legs[i,k]>=lb(positions[i,k])",
+            "legs[i,k]>=lb(positions[i,k])+(1 div 0)",
+        ),
+    )
+    .unwrap();
+    let partial_context = load_model(dir.join("root.mzn"), &options);
+    assert!(
+        partial_context.errors.is_empty(),
+        "{:?}",
+        partial_context.errors
+    );
+    let partial_result = analyze_model(&partial_context, &selected());
+    assert!(matches!(
+        partial_result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    assert!(!partial_result.limitations.is_empty());
+    // A partial child remains unsupported even when its Float branch may be unused.
+    std::fs::write(
+        dir.join("root.mzn"),
+        routing.replace("pow(legs[j,q],3)", "pow(legs[j,q]+(1 div 0),3)"),
+    )
+    .unwrap();
+    let unsafe_context = load_model(dir.join("root.mzn"), &options);
+    assert!(
+        unsafe_context.errors.is_empty(),
+        "{:?}",
+        unsafe_context.errors
+    );
+    let unsafe_bindings = resolve_bindings(&unsafe_context);
+    let unsafe_calls = resolve_callables(&unsafe_context, &unsafe_bindings);
+    let unsafe_inst = resolve_instantiations(&unsafe_context, &unsafe_bindings, &unsafe_calls);
+    let unsafe_domains = resolve_domains(&unsafe_context, &unsafe_bindings);
+    let unsafe_definitions = resolve_definitions(
+        &unsafe_context,
+        &unsafe_bindings,
+        &unsafe_calls,
+        &unsafe_inst,
+        &unsafe_domains,
+    );
+    let unsafe_target = unsafe_bindings
+        .declarations
+        .iter()
+        .find(|d| d.top_level && d.name == "orthogonal")
+        .unwrap()
+        .id;
+    assert!(
+        unsafe_definitions
+            .definitions
+            .iter()
+            .any(|d| d.target == unsafe_target
+                && matches!(d.safety, DefinitionSafety::Unsupported(_)))
+    );
+    let unsafe_result = analyze_model(&unsafe_context, &selected());
+    assert!(!unsafe_result.limitations.is_empty());
+    // The unused Float local is still inspected with an unknown numerator.
+    std::fs::write(
+        dir.join("root.mzn"),
+        routing.replace(
+            "unused_kappa=int2float(units)/8.0",
+            "unused_kappa=int2float(units)/0.0",
+        ),
+    )
+    .unwrap();
+    let zero_context = load_model(dir.join("root.mzn"), &options);
+    assert!(zero_context.errors.is_empty(), "{:?}", zero_context.errors);
+    let zero_result = analyze_model(&zero_context, &selected());
+    assert!(!zero_result.limitations.is_empty());
+    assert!(matches!(
+        zero_result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    let zero_start = routing.find("unused_kappa=int2float(units)/8.0").unwrap();
+    assert!(
+        zero_result
+            .limitations
+            .iter()
+            .any(|limit| limit.location.range.start <= zero_start
+                && zero_start < limit.location.range.end),
+        "{:?}",
+        zero_result.limitations
+    );
+    // A named global source must also be inspected for an unused local.
+    // The declaration initializer takes the public direct-safety/RHS path.
+    let transitive = format!(
+        "{routing}\nfloat: bad=int2float(units)/0.0;\nvar bool: transitive_let=let {{ float: unused=bad; }} in true;\n"
+    );
+    std::fs::write(dir.join("root.mzn"), &transitive).unwrap();
+    let transitive_context = load_model(dir.join("root.mzn"), &options);
+    assert!(
+        transitive_context.errors.is_empty(),
+        "{:?}",
+        transitive_context.errors
+    );
+    let (transitive_bindings, transitive_search) = facts(&transitive_context);
+    assert_eq!(
+        coverage(&transitive_bindings, &transitive_search, "transitive_let"),
+        SearchCoverage::Unknown
+    );
+    let transitive_result = analyze_model(&transitive_context, &selected());
+    assert!(matches!(
+        transitive_result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    let transitive_start = transitive.find("var bool: transitive_let").unwrap();
+    assert!(
+        transitive_result
+            .limitations
+            .iter()
+            .any(|limit| limit.location.range.start <= transitive_start
+                && transitive_start < limit.location.range.end),
+        "{:?}",
+        transitive_result.limitations
+    );
+    // Existing unsafe-source, annotation, optional, opaque and cycle cases stay above.
+    std::fs::remove_dir_all(dir).unwrap();
     let (dir, context) = model("fragment", "var int: exported;", "");
     let (_, search) = facts(&context);
     assert_eq!(search.root_state, ModelRootState::Fragment);
@@ -2415,5 +3029,58 @@ fn total_controls_and_filtered_relations_separate_outputs_from_unavailable_bodie
         analyze_model(&supported, &selected()).rules[0].outcome,
         RuleOutcome::Completed
     ));
+    std::fs::write(dir.join("included.mzn"), "").unwrap();
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}function int: min(int: a,int: b); function int: max(int: a,int: b); function var int: min(var int: a,var int: b); function var int: max(var int: a,var int: b); function var int: '*'(var int: a,var int: b); function int: 'div'(int: a,int: b);\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("root.mzn"),
+        concat!(
+            "int: input; var int: seed; var int: parameter_extrema=max(min(input,3),1); var int: decision_extrema=max(min(seed,3),1);\n",
+            "var int: partial_extrema=min(seed,1 div 0); array[1..4] of var bool: flags; array[1..4] of var bool: unsearched_flags;\n",
+            "var int: selected=1*flags[1]; var int: outside=1*flags[5]; var int: unseeded=1*unsearched_flags[1];\n",
+            "solve :: seq_search([int_search([seed],input_order,indomain_min,complete),bool_search(flags,input_order,indomain_min,complete)]) satisfy;\n",
+        ),
+    )
+    .unwrap();
+    let extrema_and_selections = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    assert!(extrema_and_selections.errors.is_empty());
+    let (bindings, search) = facts(&extrema_and_selections);
+    for name in ["parameter_extrema", "decision_extrema", "selected"] {
+        assert_eq!(
+            coverage(&bindings, &search, name),
+            SearchCoverage::Scalar,
+            "{name}: {:?}",
+            search.limitations
+        );
+    }
+    for name in ["partial_extrema", "outside"] {
+        assert_eq!(
+            coverage(&bindings, &search, name),
+            SearchCoverage::Unknown,
+            "{name}: {:?}",
+            search.limitations
+        );
+    }
+    assert_eq!(
+        coverage(&bindings, &search, "flags"),
+        SearchCoverage::WholeArray
+    );
+    assert_eq!(
+        coverage(&bindings, &search, "unsearched_flags"),
+        SearchCoverage::Uncovered
+    );
+    assert_eq!(
+        coverage(&bindings, &search, "unseeded"),
+        SearchCoverage::Uncovered
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }

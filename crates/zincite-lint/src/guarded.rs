@@ -1,5 +1,7 @@
 //! Guarded truth and operation obligations, independent of lint policy.
-use crate::callables::{core_operation, is_expression, operation_head_start};
+use crate::callables::{
+    call_argument, core_operation, integer_array_concatenation, is_expression, operation_head_start,
+};
 use crate::definitions::{
     annotations_safe, core_callable, resolved_call, resolved_reference,
     transparent_boolean_argument,
@@ -15,7 +17,7 @@ use crate::{
 };
 use std::collections::HashMap;
 use std::sync::Arc;
-use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
+use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
 /// A proved/refuted proposition, ordinary uncertainty, or missing interpretation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -676,6 +678,15 @@ impl<'a> Producer<'a> {
             Err("user operator is outside guarded interpretation".into())
         }
     }
+    fn operation_fact(&self, file: FileId, node: &SyntaxNode) -> Option<&crate::CallFact> {
+        if let Some(indices) = &self.call_indices {
+            let start = operation_head_start(self.context, file, node)?;
+            return indices
+                .get(&(file, start))
+                .map(|index| &self.calls.calls[*index]);
+        }
+        crate::callables::operation_fact(self.context, self.calls, file, node)
+    }
     fn core_operation(&self, file: FileId, node: &SyntaxNode, name: &str) -> Result<bool, String> {
         let Some(indices) = &self.call_indices else {
             return core_operation(self.context, self.bindings, self.calls, file, node, name);
@@ -1170,6 +1181,13 @@ impl<'a> Producer<'a> {
         let Some(operator) = self.operator(file, node) else {
             return self.unsupported(file, node, "operator syntax is unavailable");
         };
+        if integer_array_concatenation(self.context, self.bindings, self.calls, file, node)
+            .is_some()
+        {
+            result.numeric = None;
+            result.truth = None;
+            return result;
+        }
         if self.options.is_some()
             && children
                 .iter()
@@ -1329,8 +1347,19 @@ impl<'a> Producer<'a> {
         scope: &Scope<'a>,
     ) -> Evaluation {
         let children: Vec<_> = node.child_nodes().collect();
+        let context = self.context;
+        let parsed = &context.files[file].parsed;
+        let full_axis = |selector: &SyntaxNode| {
+            let selector = unwrap(selector);
+            selector.kind() == NodeKind::RangeExpression
+                && selector.child_nodes().next().is_none()
+                && matches!(tokens(parsed, selector).as_slice(),
+                    [token] if token.kind == TokenKind::RangeInclusive)
+        };
+        let has_full_axis = children[1..].iter().any(|selector| full_axis(selector));
         let values: Vec<_> = children
             .iter()
+            .filter(|selector| !full_axis(selector))
             .map(|n| self.walk(file, item, n, scope.clone()))
             .collect();
         let Some(array) = children
@@ -1353,9 +1382,23 @@ impl<'a> Producer<'a> {
                 "sliced or mismatched array dimensions are unsupported",
             );
         }
+        if has_full_axis {
+            if self.ty(file, node).is_none_or(|ty| {
+                !ty.known()
+                    || crate::value_safety::optional(ty)
+                    || !matches!(ty.kind, TypeKind::Array { .. })
+            }) {
+                return self.unsupported(file, node, "sliced array type is unavailable");
+            }
+            if let Some(reason) = self.array_domain_error(array) {
+                return self.unsupported(file, node, &reason);
+            }
+        }
         if children[1..].iter().any(|index| {
             let index = unwrap(index);
-            index.kind() == NodeKind::RangeExpression && index.child_nodes().count() != 2
+            index.kind() == NodeKind::RangeExpression
+                && index.child_nodes().count() != 2
+                && !full_axis(index)
         }) {
             return self.unsupported(
                 file,
@@ -1366,6 +1409,11 @@ impl<'a> Producer<'a> {
         let mut result = combine(&values);
         result.numeric = None;
         for (dimension, (index, domain)) in children[1..].iter().zip(indices).enumerate() {
+            // A literal full axis selects the source axis itself; only written
+            // scalar/range selectors need a separate membership obligation.
+            if full_axis(index) {
+                continue;
+            }
             let (invariant, outcome, selection) =
                 self.index_membership(file, index, array, dimension + 1, domain, scope);
             self.obligation(
@@ -1557,6 +1605,121 @@ impl<'a> Producer<'a> {
         {
             return result;
         }
+        if children.len() == 1
+            && self.core_operation(file, node, "show") == Ok(true)
+            && annotations_safe(self.context, file, node)
+            && self.ty(file, children[0]).is_some_and(|t| {
+                t.known()
+                    && !t.optional
+                    && t.kind == TypeKind::Bool
+                    && matches!(
+                        t.instantiation,
+                        Instantiation::Parameter | Instantiation::Decision
+                    )
+            })
+            && self.ty(file, node).is_some_and(|t| {
+                t.known()
+                    && !t.optional
+                    && t.kind == TypeKind::String
+                    && t.instantiation == Instantiation::Parameter
+            })
+            && crate::callables::operation_fact(self.context, self.calls, file, node).is_some_and(
+                |call| {
+                    matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                        if parameters.len() == 1 && parameters[0].known() && !parameters[0].optional
+                            && parameters[0].kind == TypeKind::Bool
+                            && matches!(parameters[0].instantiation,
+                                Instantiation::Parameter | Instantiation::Decision)
+                            && return_type.known() && !return_type.optional
+                            && return_type.kind == TypeKind::String
+                            && return_type.instantiation == Instantiation::Parameter)
+                },
+            )
+        {
+            // Rendering a present scalar Boolean adds no evaluation hazard.
+            // Keep child partiality/assertions; infer no string content or truth.
+            return result;
+        }
+        if children.len() == 1
+            && let Some(name) = ["lb_array", "ub_array"]
+                .into_iter()
+                .find(|name| self.core_operation(file, node, name) == Ok(true))
+            && self.ty(file, children[0]).is_some_and(|ty| {
+                ty.instantiation == Instantiation::Decision
+                    && matches!(ty.kind, TypeKind::Array { .. })
+            })
+        {
+            let safety = crate::callable_definitions::initialized_expression_safety(
+                self.context,
+                self.bindings,
+                self.calls,
+                self.instantiations,
+                self.domains,
+                (file, node),
+                None,
+            );
+            let mut nonempty = self
+                .collection_nonempty(file, children[0], name)
+                .unwrap_or_else(|| self.nonempty(file, children[0]));
+            let source = unwrap(children[0]);
+            if nonempty == GuardedOutcome::Unknown
+                && source.kind() == NodeKind::Expression
+                && matches!(tokens(&self.context.files[file].parsed, source).as_slice(),
+                    [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+                && let Some(array) = self.reference(file, source)
+            {
+                let declaration = &self.bindings.declarations[array.0];
+                if declaration.role == crate::DeclarationRole::Value
+                    && declaration.top_level
+                    && let Some(written) = crate::callables::find_node(
+                        self.context.files[declaration.file].parsed.tree(),
+                        &declaration.syntax_range,
+                        declaration.role,
+                    )
+                    && let Some(value) = written
+                        .child_nodes()
+                        .find(|node| is_expression(node.kind()))
+                        .map(unwrap)
+                    && value.kind() == NodeKind::ArrayLiteral
+                    && value
+                        .child_nodes()
+                        .all(|cell| cell.kind() != NodeKind::IndexedArrayEntry)
+                {
+                    nonempty = if value.child_nodes().next().is_some() {
+                        GuardedOutcome::Proven
+                    } else {
+                        GuardedOutcome::Refuted
+                    };
+                }
+            }
+            let scoped = if nonempty == GuardedOutcome::Unknown
+                && self.guarded_nonempty(file, children[0], scope)
+            {
+                GuardedOutcome::Proven
+            } else {
+                nonempty.clone()
+            };
+            self.obligation(
+                file,
+                node,
+                children[0],
+                GuardObligationKind::Nonempty {
+                    aggregate: name.into(),
+                },
+                (nonempty, scoped.clone()),
+                scope,
+            );
+            let inspected = match safety {
+                crate::DefinitionSafety::Unsupported(reason) => {
+                    self.unsupported(file, node, reason).definedness
+                }
+                _ => GuardedOutcome::Unknown,
+            };
+            result.definedness = conjoin(&result.definedness, &inspected);
+            result.definedness = conjoin(&result.definedness, &scoped);
+            result.numeric = None;
+            return result;
+        }
         if ["ln", "log10", "log2", "log"]
             .iter()
             .any(|name| self.core_call(file, node, name))
@@ -1635,6 +1798,33 @@ impl<'a> Producer<'a> {
             if !self.core_call(file, node, name) {
                 continue;
             }
+            if matches!(name, "min" | "max") && children.len() == 2 {
+                let integer =
+                    |t: &crate::TypeInst| t.known() && !t.optional && t.kind == TypeKind::Int;
+                if children.iter().any(|n| n.kind() == NodeKind::NamedArgument)
+                    || self.ty(file, node).is_none_or(|t| !integer(t))
+                    || children
+                        .iter()
+                        .any(|child| self.ty(file, child).is_none_or(|t| !integer(t)))
+                    || crate::callables::operation_fact(self.context, self.calls, file, node)
+                        .is_none_or(|fact| {
+                            !matches!(&fact.outcome,
+                                CallOutcome::Resolved { parameters, return_type, .. }
+                                    if parameters.len() == 2
+                                        && parameters.iter().all(integer)
+                                        && integer(return_type))
+                        })
+                {
+                    return self.unsupported(
+                        file,
+                        node,
+                        "scalar extremum requires two known present integer operands and signature",
+                    );
+                }
+                // Both operands were walked above; keep their raw definedness
+                // without adding the collection overload's nonempty obligation.
+                return result;
+            }
             if children.len() != 1 {
                 return self.unsupported(
                     file,
@@ -1685,6 +1875,20 @@ impl<'a> Producer<'a> {
         if self.core_call(file, node, "index_sets_agree") && children.len() == 2 {
             return result;
         }
+        if let Some((argument_file, argument_item, argument)) =
+            self.integer_all_different_argument(file, node)
+        {
+            if argument_file != file
+                || argument.range().start < node.range().start
+                || argument.range().end > node.range().end
+            {
+                let value = self.walk(argument_file, argument_item, argument, own);
+                result = combine(&[result, value]);
+            }
+            result.truth = None;
+            result.numeric = None;
+            return result;
+        }
         if self.index_domain(file, node).is_some() {
             return result;
         }
@@ -1724,8 +1928,24 @@ impl<'a> Producer<'a> {
             source_scope.evaluation = GuardEvaluation::Strict;
             source_scope.enforcement = DefinitionEnforcement::Conditional;
             let source_value = self.walk(file, item, source, source_scope);
+            let inspected_concatenation = integer_array_concatenation(
+                self.context,
+                self.bindings,
+                self.calls,
+                file,
+                unwrap(source),
+            )
+            .is_some()
+                && matches!(
+                    &source_value.definedness,
+                    GuardedOutcome::Proven | GuardedOutcome::Unknown
+                );
             inputs.push(evaluated_when(source_value, own.activation));
-            let domain = self.domain(file, source);
+            let domain = if inspected_concatenation {
+                Domain::Unknown
+            } else {
+                self.domain(file, source)
+            };
             let is_membership = tokens(&self.context.files[file].parsed, generator)
                 .iter()
                 .any(|t| t.kind == TokenKind::In);
@@ -1860,6 +2080,112 @@ impl<'a> Producer<'a> {
             }
         }
         result
+    }
+    fn integer_all_different_argument(
+        &self,
+        file: FileId,
+        node: &'a SyntaxNode,
+    ) -> Option<(FileId, usize, &'a SyntaxNode)> {
+        let parsed = &self.context.files[file].parsed;
+        let name = node.children().iter().find_map(|child| {
+            let SyntaxElement::Token(index) = child else {
+                return None;
+            };
+            let token = &parsed.tokens()[*index];
+            matches!(
+                token.kind,
+                TokenKind::Identifier | TokenKind::QuotedIdentifier | TokenKind::InfixIdentifier
+            )
+            .then(|| parsed.source()[token.range.clone()].trim_matches(['\'', '`']))
+        })?;
+        if !matches!(name, "all_different" | "alldifferent") {
+            return None;
+        }
+        let children: Vec<_> = node.child_nodes().collect();
+        if !matches!(children.len(), 1 | 2)
+            || children.iter().any(|n| n.kind() == NodeKind::NamedArgument)
+        {
+            return None;
+        }
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &self.operation_fact(file, node)?.outcome
+        else {
+            return None;
+        };
+        let selected = &self.bindings.declarations[declaration.0];
+        let source = &self.context.files[selected.file];
+        let boolean = |ty: &crate::TypeInst| {
+            ty.known() && !crate::value_safety::optional(ty) && ty.kind == TypeKind::Bool
+        };
+        let array = |ty: &crate::TypeInst| {
+            ty.known()
+                && !crate::value_safety::optional(ty)
+                && matches!(&ty.kind, TypeKind::Array { indices, element }
+                if indices.len() == 1 && indices[0].known()
+                    && !crate::value_safety::optional(&indices[0])
+                    && indices[0].instantiation == Instantiation::Parameter
+                    && matches!(indices[0].kind, TypeKind::Int | TypeKind::Enum(_))
+                    && element.kind == TypeKind::Int)
+        };
+        let set = |ty: &crate::TypeInst| {
+            ty.known()
+                && !crate::value_safety::optional(ty)
+                && ty.instantiation == Instantiation::Parameter
+                && matches!(&ty.kind, TypeKind::Set(element)
+                if element.kind == TypeKind::Int && element.instantiation == Instantiation::Parameter)
+        };
+        if selected.role != crate::DeclarationRole::Predicate
+            || source.kind != crate::SourceKind::StandardLibrary
+            || source.implicit
+            || !matches!(selected.name.as_str(), "all_different" | "alldifferent")
+            || parameters.len() != 2
+            || !array(&parameters[0])
+            || !set(&parameters[1])
+            || !boolean(return_type)
+            || self.ty(file, node) != Some(return_type)
+            || self
+                .ty(file, children[0])
+                .is_none_or(|ty| !array(ty) || !crate::types::coerces(ty, &parameters[0]))
+        {
+            return None;
+        }
+        let declaration = crate::callables::find_node(
+            source.parsed.tree(),
+            &selected.syntax_range,
+            selected.role,
+        )?;
+        if !annotations_safe(self.context, selected.file, declaration) {
+            return None;
+        }
+        let (argument_file, argument) = call_argument(
+            self.context,
+            self.bindings,
+            self.calls,
+            file,
+            node,
+            selected.id,
+            1,
+        )?;
+        if children.len() == 1 {
+            let value = unwrap(argument);
+            if value.kind() != NodeKind::SetLiteral
+                || value.child_nodes().next().is_some()
+                || !annotations_safe(self.context, argument_file, argument)
+                || !matches!(tokens(&self.context.files[argument_file].parsed, value).as_slice(),
+                    [left, right] if left.kind == TokenKind::LeftBrace && right.kind == TokenKind::RightBrace)
+            {
+                return None;
+            }
+        } else if self
+            .ty(file, children[1])
+            .is_none_or(|ty| !set(ty) || !crate::types::coerces(ty, &parameters[1]))
+        {
+            return None;
+        }
+        Some((argument_file, selected.item, argument))
     }
     fn optional_call(&self, file: FileId, node: &SyntaxNode, name: &str) -> bool {
         crate::optional::core_optional_call(

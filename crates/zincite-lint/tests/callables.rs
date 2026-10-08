@@ -402,6 +402,26 @@ fn lattice_minima_unknown_candidates_and_rule_local_limits_do_not_guess() {
     ));
     assert!(Rule::ElementPredicate.is_available());
     assert_eq!(Rule::DEFAULT.len(), 2);
+    let source = concat!(
+        "predicate set_cross(array[int] of int:x,var int:y)=true; predicate set_cross(array[int] of var int:x,int:y)=true; constraint set_cross({1,2},1);\n",
+        "predicate set_uncertain(array[int] of int:x)=true; predicate set_uncertain(MissingType:x)=true; constraint set_uncertain({1,2});\n",
+        "function int: choose(set of int:values)=1; function int: choose(array[int] of int:values)=2; int: chosen=choose({1,2});\n",
+        "solve satisfy;\n",
+    );
+    write(&root, source);
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty());
+    let bindings = resolve_bindings(&context);
+    let facts = resolve_callables(&context, &bindings);
+    assert!(
+        matches!(outcome(&facts,&root,source,"set_cross({1,2},1)"),CallOutcome::Ambiguous {candidates} if candidates.len()==2)
+    );
+    assert!(
+        matches!(outcome(&facts,&root,source,"set_uncertain({1,2})"),CallOutcome::Unsupported {candidates,..} if candidates.len()==2)
+    );
+    assert!(
+        matches!(outcome(&facts, &root, source, "choose({1,2})"), CallOutcome::Resolved { parameters, .. } if matches!(parameters[0].kind, zincite_lint::TypeKind::Set(_)))
+    );
     std::fs::remove_dir_all(directory).unwrap();
 }
 

@@ -641,7 +641,22 @@ impl<'context> Producer<'context> {
         {
             let initializer = (ty.kind == TypeKind::Int
                 || matches!(&ty.kind, TypeKind::Array { indices, element }
-                    if indices.len() == 1 && element.kind == TypeKind::Int))
+                    if indices.len() == 1 && element.kind == TypeKind::Int)
+                || matches!(&ty.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 2 && element.kind == TypeKind::Int)
+                    && crate::callable_definitions::indexed_set_axis_integer_reshape(
+                        self.context,
+                        self.bindings,
+                        self.calls,
+                        self.instantiations,
+                        self.domains,
+                        (file, value),
+                        crate::callable_definitions::DirectSafetyLookups {
+                            expressions: &self.expression_indices,
+                            calls: &self.call_indices,
+                            value_references: &self.dependency_reference_indices,
+                        },
+                    ))
                 && node.kind() == NodeKind::Declaration
                 && node.range() == declaration.syntax_range;
             let integer_target = match (&coverage, &ty.kind) {

@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use zincite_lint::*;
 const CORE: &str = concat!(
+    "function string:show(var bool:x);\n",
     "function set of int: '..'(int:a,int:b); function int: 'div'(int:a,int:b); function var int: 'div'(var int:a,var int:b);\n",
     "function var bool: '='(any $T:a,any $T:b); function bool: '>'(int:a,int:b);\n",
     "function var bool: '/\\'(var bool:a,var bool:b); function var bool: '\\/'(var bool:a,var bool:b); function var bool: 'not'(var bool:a);\n",
@@ -86,6 +87,15 @@ fn empty_filters_and_constant_truth_report_the_exact_context() {
 }
 #[test]
 fn partiality_optional_presence_and_upstream_evaluation_remain_distinct() {
+    let (dir, _, result) = model(
+        "show-condition",
+        "var bool:p; string:s=if show(p)=\"true\" then \"yes\" else \"no\" endif; solve satisfy;",
+        "vacuous-constraint",
+    );
+    assert!(result.findings.is_empty(), "{result:?}");
+    assert!(result.limitations.is_empty(), "{result:?}");
+    assert!(matches!(result.rules[0].outcome, RuleOutcome::Completed));
+    std::fs::remove_dir_all(dir).unwrap();
     let source = concat!(
         "var int:x; int:d; array[1..2] of var opt bool:unknown_values;\n",
         "constraint x=x; constraint (1 div d)=(1 div d); constraint (1 div 0)=(1 div 0);\n",

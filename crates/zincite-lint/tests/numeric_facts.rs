@@ -6,6 +6,10 @@ use zincite_lint::{
     resolve_instantiations, resolve_integer_bounds, resolve_numeric_facts,
 };
 const CORE: &str = concat!(
+    "function int:bool2int(bool:x); function var int:bool2int(var bool:x); function opt int:bool2int(opt bool:x);\n",
+    "function int: min(int:a,int:b); function int: max(int:a,int:b);\n",
+    "function var int: min(var int:a,var int:b); function var int: max(var int:a,var int:b);\n",
+    "function int: length(array[int] of int:a); function int: length(array[int] of var int:a);\n",
     "function var bool: '='(var int: left,var int: right);\n",
     "function var bool: '/\\'(var bool: left,var bool: right); function var bool: '->'(var bool: left,var bool: right);\n",
     "function int: '+'(int: left,int: right); function int: '-'(int: left,int: right); function int: '-'(int: value);\n",
@@ -281,11 +285,112 @@ fn missing_data_distinct_defaults_and_unsupported_math_retain_identity_and_locat
             .any(|e| text(&context, e.file, &e.location) == "missing div 0"
                 && matches!(e.outcome, IntegerBoundsOutcome::Unknown(_)))
     );
+    std::fs::write(dir.join("included.mzn"), "").unwrap();
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}function set of int: '..'(int: left,int: right); function var bool: 'not'(var bool: value);\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("root.mzn"),
+        concat!(
+            "array[1..4] of var bool: flags; int: N; array[1..N] of var bool: symbolic;\n",
+            "var int: selected=1*flags[1]; var int: outside=1*flags[5]; var int: unproved=1*symbolic[1];\n",
+            "var int: nested_unknown=1*(not symbolic[1]); solve satisfy;\n",
+        ),
+    )
+    .unwrap();
+    let selections = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    assert!(selections.errors.is_empty());
+    let (bindings, numeric) = self::facts(&selections);
+    let definition = |name: &str| {
+        &numeric
+            .definitions
+            .iter()
+            .find(|d| d.target == id(&bindings, name))
+            .unwrap()
+            .outcome
+    };
+    assert!(matches!(definition("selected"), NumericOutcome::Unknown(_)));
+    for name in ["nested_unknown", "outside", "unproved"] {
+        assert!(
+            matches!(definition(name), NumericOutcome::Unsupported(_)),
+            "{name}: {:?}",
+            definition(name)
+        );
+    }
     std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
 fn cycles_and_conditional_or_unsafe_definitions_cannot_establish_values() {
+    let (dir, context) = model(
+        "bool2int-numeric",
+        concat!(
+            "bool:p; var bool:q; bool:safe=p; function bool:opaque(); bool:bad=opaque(); bool:cycle=cycle;\n",
+            "annotation unsafe; bool:annotated::unsafe=p; opt bool:o; int:a=bool2int(p); var int:b=bool2int(q); int:c=bool2int(safe); int:d=bool2int(true);\n",
+            "int:e=bool2int(opaque()); int:f=bool2int(bad); int:g=(bool2int(p)::unsafe); int:h=bool2int(annotated); int:i=bool2int(cycle); opt int:j=bool2int(o); solve satisfy;\n",
+        ),
+        "",
+    );
+    let (_, values) = self::facts(&context);
+    let outcome = |source| {
+        &values
+            .expressions
+            .iter()
+            .find(|value| text(&context, value.file, &value.location) == source)
+            .unwrap_or_else(|| panic!("missing {source}"))
+            .outcome
+    };
+    for source in [
+        "bool2int(p)",
+        "bool2int(q)",
+        "bool2int(safe)",
+        "bool2int(true)",
+    ] {
+        assert!(
+            matches!(outcome(source), NumericOutcome::Unknown(_)),
+            "{source}: {:?}",
+            outcome(source)
+        );
+    }
+    for source in [
+        "bool2int(opaque())",
+        "bool2int(bad)",
+        "bool2int(p)::unsafe",
+        "bool2int(annotated)",
+        "bool2int(cycle)",
+        "bool2int(o)",
+    ] {
+        assert!(
+            matches!(outcome(source), NumericOutcome::Unsupported(_)),
+            "{source}: {:?}",
+            outcome(source)
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+    let (dir, context) = model(
+        "user-bool2int-numeric",
+        "function int:bool2int(bool:x)=1; int:a=bool2int(true); solve satisfy;",
+        "",
+    );
+    let (_, values) = self::facts(&context);
+    assert!(
+        values
+            .expressions
+            .iter()
+            .any(
+                |value| text(&context, value.file, &value.location) == "bool2int(true)"
+                    && matches!(value.outcome, NumericOutcome::Unsupported(_))
+            )
+    );
+    std::fs::remove_dir_all(dir).unwrap();
     let source = concat!(
         "var int: self; constraint self=self; var int: left; var int: right; constraint left=right /\\ right=left;\n",
         "var 1..3: anchored; constraint anchored=anchored+1; var int: uses_anchor=anchored+1;\n",
@@ -335,6 +440,79 @@ fn cycles_and_conditional_or_unsafe_definitions_cannot_establish_values() {
             .limitations
             .iter()
             .any(|l| text(&context, l.file, &l.location) == "if true then 2 else 3 endif")
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+    let (dir, _) = model(
+        "length-extrema",
+        concat!(
+            "int: N; set of int: S; set of int: R=1..N; array[1..3] of var int: values;\n",
+            "var int:x; int:a=length(S); int:b=length(R); int:c=length(values);\n",
+            "int:d=min(N,2); var int:e=max(x,N); int:f=max(N,9 div 0);\n",
+            "set of int:bad={1 div 0}; int:g=length(bad); annotation unsafe;\n",
+            "int:h=(max(N,2)::unsafe); int:i=(length(S)::unsafe); solve satisfy;\n",
+        ),
+        "",
+    );
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}function set of int: '..'(int:a,int:b);\n"),
+    )
+    .unwrap();
+    let context = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    assert!(context.errors.is_empty());
+    let (_, values) = self::facts(&context);
+    let outcome = |source| {
+        &values
+            .expressions
+            .iter()
+            .find(|e| text(&context, e.file, &e.location) == source)
+            .unwrap_or_else(|| panic!("missing {source}"))
+            .outcome
+    };
+    for source in [
+        "length(S)",
+        "length(R)",
+        "length(values)",
+        "min(N,2)",
+        "max(x,N)",
+    ] {
+        assert!(
+            matches!(outcome(source), NumericOutcome::Unknown(_)),
+            "{source}: {:?}",
+            outcome(source)
+        );
+    }
+    for source in [
+        "max(N,9 div 0)",
+        "length(bad)",
+        "max(N,2)::unsafe",
+        "length(S)::unsafe",
+    ] {
+        assert!(
+            matches!(outcome(source), NumericOutcome::Unsupported(_)),
+            "{source}: {:?}",
+            outcome(source)
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+    let (dir, context) = model(
+        "user-length",
+        "array[1..2] of int: a; function int:length(array[int] of int:v)=1; int:n=length(a); solve satisfy;",
+        "",
+    );
+    let (_, values) = self::facts(&context);
+    assert!(
+        values
+            .expressions
+            .iter()
+            .any(|e| text(&context, e.file, &e.location) == "length(a)"
+                && matches!(e.outcome, NumericOutcome::Unsupported(_)))
     );
     std::fs::remove_dir_all(dir).unwrap();
 }

@@ -1,5 +1,5 @@
 //! Index membership, lexical use and bounded expansion, independent of lint policy.
-use crate::callables::{core_operation, find_node, is_expression};
+use crate::callables::{core_operation, find_node, integer_array_concatenation, is_expression};
 use crate::definitions::{core_callable, resolved_call};
 use crate::domains::{
     bare_index_domain as bare, core_arithmetic, expression_domain, generator_slots,
@@ -574,6 +574,24 @@ impl Producer<'_> {
         known: &BTreeMap<usize, Domain>,
     ) -> IterationIndexSet {
         let node = unwrap(node);
+        if integer_array_concatenation(self.context, self.bindings, self.calls, file, node)
+            .is_some()
+            && self
+                .guarded
+                .expression(file, &self.location(file, node))
+                .is_some_and(|fact| {
+                    matches!(
+                        &fact.raw_definedness,
+                        GuardedOutcome::Proven | GuardedOutcome::Unknown
+                    ) && matches!(
+                        &fact.definedness,
+                        GuardedOutcome::Proven | GuardedOutcome::Unknown
+                    )
+                })
+        {
+            // Inspected value traversal supplies neither a set identity nor a count.
+            return self.set(file, self.location(file, node), Domain::Unknown, None);
+        }
         let helper = resolved_index_domain(
             self.context,
             self.bindings,

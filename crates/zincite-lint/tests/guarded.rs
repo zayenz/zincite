@@ -8,12 +8,16 @@ use zincite_lint::{
 };
 
 const CORE: &str = concat!(
+    "function string:show(bool:x); function string:show(var bool:x); function string:show(opt bool:x);\n",
+    "function int: min(int:a,int:b); function int: max(int:a,int:b);\n",
+    "function var int: min(var int:a,var int:b); function var int: max(var int:a,var int:b);\n",
     "function int: bool2int(bool:x); function var int: bool2int(var bool:x);\n",
     "function opt int: bool2int(opt bool:x); function array[$I] of int: bool2int(array[$I] of bool:x); function set of int: bool2int(set of bool:x);\n",
     "function bool: '='(int: a,int: b); function bool: '!='(int: a,int: b);\n",
     "function bool: '<'(int: a,int: b); function bool: '<='(int: a,int: b);\n",
     "function bool: '>'(int: a,int: b); function bool: '>='(int: a,int: b);\n",
     "function int: '-'(int: a,int: b);\n",
+    "function set of int: '..'(int: left,int: right);\n",
     "function var bool: '='(var int: a,var int: b); function var bool: '!='(var int: a,var int: b);\n",
     "function var bool: '<'(var int: a,var int: b); function var bool: '<='(var int: a,var int: b);\n",
     "function var bool: '>'(var int: a,var int: b); function var bool: '>='(var int: a,var int: b);\n",
@@ -27,6 +31,7 @@ const CORE: &str = concat!(
     "function var bool: exists(array[int] of var opt bool: a);\n",
     "function var int: min(array[int] of var opt int: a);\n",
     "function int: min(set of int: a);\n",
+    "function int: lb_array(array[int] of var int: a); function int: ub_array(array[int] of var int: a);\n",
     "function var int: min(array[int] of var int: a); function var int: max(array[int] of var int: a);\n",
     "function var int: sum(array[int] of var int: a); function var int: product(array[int] of var int: a);\n",
     "function int: length(array[$I] of $T: a);\n",
@@ -204,6 +209,52 @@ fn local_guards_preserve_obligations_identity_and_boolean_ranges() {
     assert_eq!(
         std::fs::read_to_string(dir.join("root.mzn")).unwrap(),
         source
+    );
+    std::fs::write(dir.join("library/std/stdlib.mzn"), format!("{CORE}\nfunction array[int] of var int: '++'(array[int] of var int: left,array[int] of var int: right); function var bool: exists(array[int] of var bool: body); function set of int: index_set(array[int] of var int: a);\n")).unwrap();
+    std::fs::write(
+        dir.join("library/std/all_different.mzn"),
+        "predicate alldifferent(array[$X] of var int: values,set of int: except={});\n",
+    )
+    .unwrap();
+    let source = concat!(
+        "include \"all_different.mzn\"; array[1..2] of var int: left; array[1..2] of var int: right;\n",
+        "constraint exists(Y in left++right)(Y=1);\n",
+        "constraint alldifferent([left[i]|i in index_set(left)]);\n",
+        "constraint alldifferent([left[0]]); solve satisfy;\n"
+    );
+    std::fs::write(dir.join("root.mzn"), source).unwrap();
+    let context = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let inst = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+    let numeric = resolve_numeric_facts(&context, &bindings, &calls, &inst, &domains, &definitions);
+    let facts = resolve_guarded_facts(&context, &bindings, &calls, &inst, &domains, &numeric);
+    let joined = expression(&context, &facts, "left++right");
+    assert_eq!(joined.definedness, GuardedOutcome::Proven);
+    assert_eq!(joined.numeric, None);
+    let different = expression(
+        &context,
+        &facts,
+        "alldifferent([left[i]|i in index_set(left)])",
+    );
+    assert!(!matches!(
+        different.raw_definedness,
+        GuardedOutcome::Unsupported(_)
+    ));
+    assert_eq!(different.truth, Some(GuardedOutcome::Unknown));
+    let partial = expression(&context, &facts, "alldifferent([left[0]])");
+    assert_eq!(partial.raw_definedness, GuardedOutcome::Refuted);
+    assert_eq!(
+        obligation(&context, &facts, "left[0]").outcome,
+        GuardedOutcome::Refuted
     );
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -435,6 +486,67 @@ fn aggregate_preconditions_and_missing_interpretation_remain_explicit() {
     ));
     assert!(facts.limitations.iter().any(|l| l.reason.contains("user")));
     std::fs::remove_dir_all(dir).unwrap();
+    let (dir, context, facts) = model(
+        "array-reflection",
+        "var 0..9: x; var 0..9: y; array[int] of var int: values=[x,y]; array[1..0] of var int: empty; int: low=lb_array(values); int: high=ub_array(values); int: bad=lb_array(empty); function int: overridable(array[int] of var int: choice=[x])=lb_array(choice); int: overridden=overridable(empty); solve satisfy;",
+    );
+    for source in ["lb_array(values)", "ub_array(values)"] {
+        assert_eq!(
+            expression(&context, &facts, source).definedness,
+            GuardedOutcome::Unknown
+        );
+        assert_eq!(
+            obligation(&context, &facts, source).outcome,
+            GuardedOutcome::Proven
+        );
+        assert_eq!(expression(&context, &facts, source).numeric, None);
+    }
+    assert_eq!(
+        obligation(&context, &facts, "lb_array(empty)").outcome,
+        GuardedOutcome::Refuted
+    );
+    assert_eq!(
+        expression(&context, &facts, "lb_array(empty)").definedness,
+        GuardedOutcome::Refuted
+    );
+    assert_ne!(
+        obligation(&context, &facts, "lb_array(choice)").outcome,
+        GuardedOutcome::Proven
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+    for options in [false, true] {
+        let (dir, context, facts) = model_using_options(
+            "scalar-extrema",
+            "int:N; var int:x; int:a=min(N,2); var int:b=max(x,N); int:c=max(9 div 0,1); annotation unsafe; int:d=(max(N,3)::unsafe); solve satisfy;",
+            options,
+        );
+        for source in ["min(N,2)", "max(x,N)"] {
+            assert_eq!(
+                expression(&context, &facts, source).definedness,
+                GuardedOutcome::Proven
+            );
+            assert!(
+                !facts
+                    .obligations
+                    .iter()
+                    .any(|o| text(&context, o.file, &o.operation) == source
+                        && matches!(o.kind, GuardObligationKind::Nonempty { .. }))
+            );
+        }
+        assert_eq!(
+            expression(&context, &facts, "max(9 div 0,1)").definedness,
+            GuardedOutcome::Refuted
+        );
+        assert_eq!(
+            obligation(&context, &facts, "9 div 0").outcome,
+            GuardedOutcome::Refuted
+        );
+        assert!(matches!(
+            expression(&context, &facts, "max(N,3)::unsafe").definedness,
+            GuardedOutcome::Unsupported(_)
+        ));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
 
 #[test]
@@ -616,6 +728,39 @@ fn boolean_complements_require_total_operands_and_keep_raw_partiality() {
 
 #[test]
 fn scalar_bool2int_retains_boolean_and_raw_partiality_boundaries() {
+    for options in [false, true] {
+        let (dir, context, facts) = model_using_options(
+            if options { "show-options" } else { "show" },
+            "bool:p; var bool:q; opt bool:o; function bool:opaque(); annotation unsafe; string:a=show(p); string:b=show(q); string:c=show(assert(false,\"abort\",true)); string:d=show(opaque()); string:e=show(o); string:f=(show(p)::unsafe); solve satisfy;",
+            options,
+        );
+        for shown in ["show(p)", "show(q)"] {
+            let value = expression(&context, &facts, shown);
+            assert_eq!(value.definedness, GuardedOutcome::Proven);
+            assert_eq!(value.truth, None);
+            assert_eq!(value.numeric, None);
+        }
+        assert_ne!(
+            expression(&context, &facts, "show(assert(false,\"abort\",true))").definedness,
+            GuardedOutcome::Proven
+        );
+        for shown in ["show(opaque())", "show(o)", "show(p)::unsafe"] {
+            assert!(matches!(
+                expression(&context, &facts, shown).definedness,
+                GuardedOutcome::Unsupported(_)
+            ));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    let (dir, context, facts) = model(
+        "user-show",
+        "function string:show(bool:x)=\"yes\"; string:s=show(true); solve satisfy;",
+    );
+    assert!(matches!(
+        expression(&context, &facts, "show(true)").definedness,
+        GuardedOutcome::Unsupported(_)
+    ));
+    std::fs::remove_dir_all(dir).unwrap();
     let source = concat!(
         "bool:p; int:d; function bool:opaque();\n",
         "int:yes=bool2int(true); int:no=bool2int(false); int:unknown=bool2int(p);\n",

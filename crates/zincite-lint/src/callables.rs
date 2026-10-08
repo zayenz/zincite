@@ -572,6 +572,11 @@ impl<'a> Engine<'a> {
         Some(signature)
     }
     fn inspect(&mut self, file: FileId, item: usize, node: &'a SyntaxNode) {
+        // Full-axis selectors get their type from the owning array axis before
+        // ordinary child inference sees them as standalone range operations.
+        if node.kind() == NodeKind::ArrayAccessExpression {
+            self.infer(file, item, node);
+        }
         if matches!(
             node.kind(),
             NodeKind::CallExpression | NodeKind::GeneratorCallExpression
@@ -639,19 +644,47 @@ impl<'a> Engine<'a> {
                     .unwrap_or_else(|| TypeInst::unknown("array subject is missing"));
                 match subject.kind {
                     TypeKind::Array { indices, element } if indices.len() == children.len() - 1 => {
-                        let actual: Vec<_> = children[1..]
-                            .iter()
-                            .map(|n| self.infer(file, item, n))
-                            .collect();
-                        if actual.iter().zip(&indices).any(|(a, b)| {
-                            a.optional
-                                || !coerces(&a.clone().with_inst(Instantiation::Parameter), b)
-                        }) {
+                        let mut retained = Vec::new();
+                        let mut decision_index = false;
+                        let mut supported = true;
+                        for (selector, index) in children[1..].iter().zip(&indices) {
+                            if selector.kind() == NodeKind::RangeExpression
+                                && selector.child_nodes().next().is_none()
+                                && matches!(
+                                    self.tokens(file, selector).as_slice(),
+                                    [(TokenKind::RangeInclusive, _, _)]
+                                )
+                            {
+                                let range = selector.range();
+                                self.expressions.insert(
+                                    (file, range.start, range.end),
+                                    TypeInst::par(TypeKind::Set(Box::new(index.clone()))),
+                                );
+                                retained.push(index.clone());
+                                continue;
+                            }
+                            let actual = self.infer(file, item, selector);
+                            supported &= !actual.optional
+                                && coerces(
+                                    &actual.clone().with_inst(Instantiation::Parameter),
+                                    index,
+                                );
+                            decision_index |= actual.instantiation == Instantiation::Decision;
+                        }
+                        if !supported || !retained.is_empty() && decision_index {
                             TypeInst::unknown("array index or slicing type is unsupported")
-                        } else if actual
-                            .iter()
-                            .any(|t| t.instantiation == Instantiation::Decision)
-                        {
+                        } else if !retained.is_empty() {
+                            // A full-axis slice retains each selected index type.
+                            // MiniZinc forbids decision selectors when any axis is sliced.
+                            TypeInst {
+                                instantiation: subject.instantiation,
+                                optional: subject.optional,
+                                kind: TypeKind::Array {
+                                    indices: retained,
+                                    element,
+                                },
+                            }
+                        } else if decision_index {
                             element.with_inst(Instantiation::Decision)
                         } else {
                             *element
@@ -1323,7 +1356,7 @@ impl<'a> Engine<'a> {
             }
             // Pinned standard searches, array1d and integer sum coerce multidimensional
             // arrays to row-major one-dimensional inputs. Keep this limited
-            // to retained standard identities; ordinary user matching is unchanged.
+            // to retained standard identities.
             let d = &self.bindings.declarations[id.0];
             let standard = self.context.files[d.file].kind == crate::SourceKind::StandardLibrary
                 && self.context.files[d.file].implicit;
@@ -1350,6 +1383,24 @@ impl<'a> Engine<'a> {
                                 if indices.len() == 1 && element.known() && element.kind == TypeKind::Int
                                     && !crate::value_safety::optional(&formal.ty));
                         let mut actual = actual.clone();
+                        // MiniZinc inserts set2array for present parameter Int/Enum
+                        // sets supplied to rank-one array formals. This matching
+                        // view preserves element identity and proves no value safety.
+                        if actual.instantiation == Instantiation::Parameter
+                            && !crate::value_safety::optional(&actual)
+                            && let (
+                                TypeKind::Set(element),
+                                TypeKind::Array { indices, .. },
+                            ) = (&actual.kind, &formal.ty.kind)
+                            && indices.len() == 1
+                            && element.instantiation == Instantiation::Parameter
+                            && matches!(element.kind, TypeKind::Int | TypeKind::Enum(_))
+                        {
+                            actual.kind = TypeKind::Array {
+                                indices: vec![TypeInst::par(TypeKind::Int)],
+                                element: element.clone(),
+                            };
+                        }
                         if (standard_view || integer_sum_view)
                             && let (
                                 TypeKind::Array { indices, .. },
@@ -1534,25 +1585,46 @@ impl<'a> Engine<'a> {
         // Written patterns break ties between equivalent instantiated inputs.
         // A bounded par/nonoptional input precedes its var/optional lift, but
         // scalar `any` accepts actual qualifiers without declaring them narrower.
+        // A supplied parameter set prefers a direct set formal over a
+        // set2array view, including a var set lift. Other input ordering stays
+        // componentwise; no preference is added for unknown arguments.
+        let set_before_array = |from: &TypeInst, to: &TypeInst, actual: &TypeInst| {
+            actual.known()
+                && actual.instantiation == Instantiation::Parameter
+                && !crate::value_safety::optional(actual)
+                && matches!(&actual.kind, TypeKind::Set(element)
+                    if element.instantiation == Instantiation::Parameter
+                        && matches!(element.kind, TypeKind::Int | TypeKind::Enum(_)))
+                && matches!(from.kind, TypeKind::Set(_))
+                && matches!(&to.kind, TypeKind::Array { indices, .. } if indices.len() == 1)
+        };
         let minima: Vec<_> = matches
             .iter()
             .filter(|candidate| {
                 matches.iter().all(|other| {
                     candidate.1.len() == other.1.len()
-                        && candidate.1.iter().zip(&other.1).all(|(a, b)| coerces(a, b))
-                        && (!candidate.1.iter().zip(&other.1).zip(&candidate.2).all(
-                            |((a, b), pattern)| {
+                        && candidate.1.iter().zip(&other.1).zip(arguments).all(
+                            |((a, b), (_, actual))| coerces(a, b) || set_before_array(a, b, actual),
+                        )
+                        && (!candidate
+                            .1
+                            .iter()
+                            .zip(&other.1)
+                            .zip(&candidate.2)
+                            .zip(arguments)
+                            .all(|(((a, b), pattern), (_, actual))| {
                                 coerces(b, a)
+                                    || set_before_array(b, a, actual)
                                     || (matches!(
                                         pattern.kind,
                                         TypeKind::Variable { any: true, .. }
                                     ) && a.kind == b.kind)
-                            },
-                        ) || candidate
-                            .2
-                            .iter()
-                            .zip(&other.2)
-                            .all(|(a, b)| pattern_narrower(a, b)))
+                            })
+                            || candidate
+                                .2
+                                .iter()
+                                .zip(&other.2)
+                                .all(|(a, b)| pattern_narrower(a, b)))
                 })
             })
             .collect();
@@ -1634,6 +1706,111 @@ pub(super) fn operation_fact<'a>(
         .iter()
         .find(|fact| fact.file == file && fact.location.range.start == start)
 }
+/// Selected rank-one integer-array concatenation shape, not an evaluation proof.
+pub(super) fn integer_array_concatenation<'a>(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &CallableFacts,
+    file: FileId,
+    node: &'a SyntaxNode,
+) -> Option<[&'a SyntaxNode; 2]> {
+    let parsed = &context.files[file].parsed;
+    if node.kind() != NodeKind::BinaryExpression
+        || !node.children().iter().any(|child| {
+            let SyntaxElement::Token(index) = child else {
+                return false;
+            };
+            let token = &parsed.tokens()[*index];
+            token.kind == TokenKind::Concat
+                || (matches!(
+                    token.kind,
+                    TokenKind::Identifier
+                        | TokenKind::QuotedIdentifier
+                        | TokenKind::InfixIdentifier
+                ) && parsed.source()[token.range.clone()].trim_matches(['\'', '`']) == "++")
+        })
+    {
+        return None;
+    }
+    let fact = operation_fact(context, calls, file, node)?;
+    if core_operation_outcome(context, bindings, Some(&fact.outcome), node.kind(), "++") != Ok(true)
+    {
+        return None;
+    }
+    let arguments: Vec<_> = node.child_nodes().collect();
+    let [left, right] = arguments.as_slice() else {
+        return None;
+    };
+    let CallOutcome::Resolved {
+        parameters,
+        return_type,
+        ..
+    } = &fact.outcome
+    else {
+        return None;
+    };
+    let array = |ty: &TypeInst| {
+        ty.known()
+            && !crate::value_safety::optional(ty)
+            && matches!(&ty.kind, TypeKind::Array { indices, element }
+                if indices.len() == 1 && indices[0].known()
+                    && indices[0].instantiation == Instantiation::Parameter
+                    && !crate::value_safety::optional(&indices[0])
+                    && matches!(indices[0].kind, TypeKind::Int | TypeKind::Enum(_))
+                    && element.known() && !crate::value_safety::optional(element)
+                    && element.kind == TypeKind::Int)
+    };
+    let ty = |value: &SyntaxNode| {
+        let range = context.files[file].location(value.range()).range;
+        calls
+            .expressions
+            .iter()
+            .find(|e| e.file == file && e.location.range == range)
+            .map(|e| &e.ty)
+    };
+    if parameters.len() != 2
+        || !parameters.iter().all(array)
+        || !array(return_type)
+        || ty(node) != Some(return_type)
+        || !matches!(&return_type.kind, TypeKind::Array { indices, .. }
+            if indices[0].kind == TypeKind::Int)
+    {
+        return None;
+    }
+    for (argument, formal) in arguments.iter().zip(parameters) {
+        let actual = ty(argument)?;
+        if !array(actual) || !crate::types::coerces(actual, formal) {
+            return None;
+        }
+        let (
+            TypeKind::Array {
+                indices: actual, ..
+            },
+            TypeKind::Array {
+                indices: formal, ..
+            },
+        ) = (&actual.kind, &formal.kind)
+        else {
+            return None;
+        };
+        if actual != formal {
+            return None;
+        }
+    }
+    let elements: Vec<_> = parameters
+        .iter()
+        .chain(std::iter::once(return_type))
+        .filter_map(|ty| match &ty.kind {
+            TypeKind::Array { element, .. } => Some(element),
+            _ => None,
+        })
+        .collect();
+    if !elements.windows(2).all(|pair| pair[0] == pair[1]) {
+        return None;
+    }
+    Some([*left, *right])
+}
+
 pub(super) fn core_operation(
     context: &ModelContext,
     bindings: &BindingFacts,
