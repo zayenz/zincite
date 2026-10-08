@@ -4520,3 +4520,25 @@ support limitations on normal43. Their selected ranges now cover the initializer
 expressions; no arithmetic-invalid claim is introduced. Full input/compiler/std/
 source/native pins, streams and generated assets are checked in semantic62-is-
 filtered-search-production-preparation/guarded43-root-control/root-audit.json.
+
+The existing ordinary changed/formatted, invalid edited, nested and grown-nested
+save cases retain exact output/status parity across 1,000 baseline/candidate
+samples (50 per case and settings). Candidate p95 spans 5.09..27.88 ms, below
+the 50 ms small-input limit. Nested growth keeps the existing output bytes;
+the grown case's separate native wait4 RSS rises from 3.641 to 3.797 MiB.
+The private node header grows by eight bytes, so the allocation reduction is
+not universal. Ordinary/invalid/nested RSS remains below 4 MiB in these controls.
+The driver's `/usr/bin/time` RSS is unavailable because its clockrate sysctl is
+denied; this is not a formatter error. Separate bounded per-child wait4 captures
+retain the usable memory measurement. Full streams, source pins, sample arithmetic
+and output parity are checked in semantic62-inline-cst-small-save-control/runtime/
+root-audit.json and rss-controls/root-audit.json. The slow crossword still needs
+the separate 100 ms budget follow-up.
+
+The compiler-positive boundary-set union now has a focused public regression
+that fails on the actual unsupported union-source limitation at bytes 824..840,
+while retaining a same-axis whole-array control. This is a private RED candidate,
+not an accepted repair. Its current108 snapshot, full streams and expected failure
+are checked in semantic62-macc34-union-comprehension-test-preparation/
+root-red-runtime/root-audit.json. The local-initializer reduction still has no
+reproduced current UnboundedVariable failure and does not claim an original fix.
