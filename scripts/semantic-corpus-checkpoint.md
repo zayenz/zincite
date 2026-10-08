@@ -3212,3 +3212,19 @@ one at line182: an output dependency array access lacks an exact traversal
 membership proof. This remaining owning path is being diagnosed; no membership
 or output facts are guessed. The companion run is live under root session2641,
 so per-rule completion and complete pair acceptance remain unverified.
+
+Routing24 companion processing also finishes without timeout, status 1,
+in 169.521 seconds. Root independently checked both full streams and hashes,
+complete source records, exact all26 order, reparsed coverage and drop records.
+Native/companion diagnostics agree. All fourteen thesis rows equal20:
+thirteen are Completed and search-coverage remains Limited. Full source and
+reported drop records equal20; no processing errors or Unobserved roots occur.
+The remaining membership gap keeps semantic acceptance open. The audit is
+`target/benchmarks/base083/semantic62-routing24-pair/pair-root-audit.json`.
+
+The Navigation24 child-free preflight passes again: 1,041 compiler/std/model
+inputs, 90 actual source files, frozen binaries and 104 control helpers match.
+Routing has terminated before this pair starts. Navigation now runs under
+root session85127, with serial native/companion children and 300-second caps.
+The original corpus capture remains protected; this comparison uses frozen
+assets and makes no isolated timing or whole-task completion claim.
