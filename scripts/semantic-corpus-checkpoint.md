@@ -5114,3 +5114,22 @@ hunks preserve the selected Macc repair on main. Actual main formatting, Clippy
 with warnings denied and all 220 workspace tests pass under
 semantic62-computed-bin-row-main-integration. Remaining circuit and inactive
 Macc Search work and final complete corpus evidence keep base-083 open.
+
+The installed MiniZinc source/type precheck now accounts for all 6,417 retained
+roots in their original interleaved order: 2,541 models and 3,876 standalone data
+files. Model-only checks accept 2,241 sources. The remaining 300 results comprise
+270 type rejections, twelve syntax rejections, seventeen missing includes and
+one include cycle. Missing includes remain unavailable prerequisites; standalone
+data has no invented model pairing. All 2,234 new checks completed without
+timeouts, alongside 307 reused checked receipts.
+
+ROOT independently verified all 5,082 complete compiler streams, every new
+child's reaped empty process group and the complete root order. All 189,496
+original files were rehashed unchanged; the existing dangling-file discovery
+error remains explicit. The 276 new nonzero captures have independently checked
+raw error headlines and categories. Evidence is under
+semantic62-complete-compiler-source-check-preparation/source-types-v1 and
+semantic62-compiler-nonzero-review-v1. These model-check-only results establish
+source/type processing, not complete-instance validity or FlatZinc compilation.
+Paired Gecode compile-only controls, final semantic corpus reconciliation and
+the remaining support repairs are still required for base-083 acceptance.
