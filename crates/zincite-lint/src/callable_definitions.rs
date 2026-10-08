@@ -9890,7 +9890,6 @@ impl<'a> Producer<'a> {
                 && element.known()
                 && !optional(element)
                 && Some(&element.kind) == ty(node).map(|t| &t.kind)
-                && (!matches!(element.kind, TypeKind::Enum(_)) || indices.len() == 1)
                 && (element.kind != TypeKind::Float
                     || indices.len() == 1
                         && source.instantiation == Instantiation::Parameter
@@ -9899,25 +9898,73 @@ impl<'a> Producer<'a> {
                         && self.bindings.declarations[array.0].top_level
                         && matches!(crate::domains::tokens(&self.context.files[file].parsed, subject).as_slice(),
                             [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier)))
-                && indices.iter().zip(&children[1..]).all(|(axis, selector)| {
-                    axis.known()
-                        && !optional(axis)
-                        && axis.kind == TypeKind::Int
-                        && axis.instantiation == Instantiation::Parameter
-                        && ty(selector).is_some_and(|t| {
-                            t.known()
-                                && !optional(t)
-                                && t.kind == TypeKind::Int
-                                && t.instantiation == Instantiation::Parameter
-                        })
-                })
+                && indices.iter().zip(&children[1..]).enumerate().all(
+                    |(position, (axis, selector))| {
+                        axis.known()
+                            && !optional(axis)
+                            && axis.kind == TypeKind::Int
+                            && axis.instantiation == Instantiation::Parameter
+                            && ty(selector).is_some_and(|t| {
+                                t.known()
+                                    && !optional(t)
+                                    && t.kind == TypeKind::Int
+                                    && (t.instantiation == Instantiation::Parameter
+                                        || indices.len() == 2
+                                            && position == 1
+                                            && element.kind == TypeKind::Int
+                                            && t.instantiation == Instantiation::Decision)
+                            })
+                    },
+                )
             {
                 if let unsupported @ DefinitionSafety::Unsupported(_) =
                     self.initialized_children_safety(file, &children, view, generators)
                 {
                     return unsupported;
                 }
-                if matches!(element.kind, TypeKind::Enum(_)) {
+                let inspected_selection = indices.len() == 2
+                    && (matches!(element.kind, TypeKind::Enum(_))
+                        || ty(children[2])
+                            .is_some_and(|t| t.instantiation == Instantiation::Decision));
+                if inspected_selection {
+                    if !crate::definitions::annotations_safe(self.context, file, written) {
+                        return DefinitionSafety::Unsupported(
+                            "scalar selection annotation is unsupported".into(),
+                        );
+                    }
+                    let (axes, source_element) = match crate::domains::bare_index_domain(
+                        &self.domains.declarations[array.0].domain,
+                    ) {
+                        Domain::Array { indices, element }
+                            if indices.len() == children.len() - 1 =>
+                        {
+                            (indices, element)
+                        }
+                        Domain::Unsupported(reason) => {
+                            return DefinitionSafety::Unsupported(reason.clone());
+                        }
+                        _ => {
+                            return DefinitionSafety::Unsupported(
+                                "scalar selection source domain is unsupported".into(),
+                            );
+                        }
+                    };
+                    // The closed source checker does not follow decision arrays.
+                    // Inspect every retained axis and element before uncertainty.
+                    for domain in axes.iter().chain(std::iter::once(source_element.as_ref())) {
+                        if let Err(reason) = domain.numeric_minimum() {
+                            return DefinitionSafety::Unsupported(reason.into());
+                        }
+                    }
+                    for selector in &children[1..] {
+                        if let Some(reason) =
+                            self.closed_integer_source_error(file, selector, false, false)
+                        {
+                            return DefinitionSafety::Unsupported(reason);
+                        }
+                    }
+                }
+                if matches!(element.kind, TypeKind::Enum(_)) && !inspected_selection {
                     if let Domain::Array { indices, .. } =
                         &self.domains.declarations[array.0].domain
                         && indices.iter().any(|axis| axis.numeric_minimum().is_err())

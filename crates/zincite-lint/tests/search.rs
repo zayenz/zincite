@@ -64,6 +64,378 @@ fn selected() -> LintOptions {
     LintOptions::from_selection("search-coverage").unwrap()
 }
 #[test]
+fn model_local_decision_selectors_remain_unknown_without_membership_or_outputs() {
+    use zincite_lint::{
+        BindingResolution, CallOutcome, DeclarationRole, Domain, Instantiation, Rule, SourceKind,
+        TypeInst, TypeKind,
+    };
+    use zincite_syntax::{NodeKind, SyntaxElement, TokenKind};
+
+    let source = r#"% Independent dimensions retain a symbolic prefix and product-bounded cells.
+int: step_count;
+int: width;
+int: height;
+int: level_count;
+set of int: Steps = 0..step_count-1;
+set of int: ActiveSteps = 0..step_count-2;
+set of int: Cells = 0..width*height-1;
+set of int: Outside = -2..-1;
+set of int: Places = Cells union Outside;
+set of int: Levels = 0..level_count-1;
+enum Action = {Idle, Advance};
+array[Steps, Places] of var Levels: levels;
+array[Steps, Places] of var Action: action;
+array[Steps, Places] of var Places: next_place;
+array[Steps, Cells] of var Cells: block_place;
+array[ActiveSteps, Cells] of var bool: pickup;
+
+% The private choice is reused as an index after an enum-valued guard.
+constraint :: "Selected destination retains the level"
+forall (t in ActiveSteps, c in Cells) (
+    let { var int: next_local = next_place[t,c]; } in
+    (action[t,c] = Advance /\ levels[t,c] = 0) ->
+        levels[t+1,next_local] = levels[t,c]
+);
+
+% A second private choice indexes both shifted and unshifted rows.
+constraint :: "Selected block retains the level"
+forall (t in ActiveSteps, c in Cells) (
+    let { var int: block_local = block_place[t,c]; } in
+    pickup[t,c] -> levels[t+1,block_local] = levels[t,block_local]
+);
+
+solve satisfy;
+"#;
+    let (dir, _) = model("local-decision-selectors", source, "");
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        concat!(
+            "function set of int: '..'(int: left,int: right);\n",
+            "function int: '-'(int: left,int: right); function int: '-'(int: value);\n",
+            "function int: '*'(int: left,int: right); function int: '+'(int: left,int: right);\n",
+            "function set of int: 'union'(set of int: left,set of int: right);\n",
+            "function var bool: '='(any $T: left,any $T: right);\n",
+            "function bool: '='($T: left,$T: right);\n",
+            "function var bool: '/\\'(var bool: left,var bool: right);\n",
+            "function var bool: '->'(var bool: left,var bool: right);\n",
+            "function var bool: forall(array[$T] of var bool: body);\n",
+        ),
+    )
+    .unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        include_dirs: Vec::new(),
+    };
+    let root = dir.join("root.mzn");
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let file = context.files.iter().position(|f| f.path == root).unwrap();
+    let written = &context.files[file];
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let present_int = |ty: &TypeInst, instantiation| {
+        !ty.optional && ty.kind == TypeKind::Int && ty.instantiation == instantiation
+    };
+    let parameter_set_int = |ty: &TypeInst| {
+        !ty.optional
+            && ty.instantiation == Instantiation::Parameter
+            && matches!(&ty.kind, TypeKind::Set(element)
+                if present_int(element, Instantiation::Parameter))
+    };
+    let named = |name: &str| {
+        bindings
+            .declarations
+            .iter()
+            .find(|d| d.file == file && d.top_level && d.name == name)
+            .unwrap()
+            .id
+    };
+    let mut nodes = Vec::new();
+    let mut pending = vec![written.parsed.tree()];
+    while let Some(node) = pending.pop() {
+        nodes.push(node);
+        pending.extend(node.child_nodes());
+    }
+    let reference = |node: &zincite_syntax::SyntaxNode| {
+        let token = node
+            .children()
+            .iter()
+            .find_map(|child| match child {
+                SyntaxElement::Token(index) => {
+                    let token = &written.parsed.tokens()[*index];
+                    matches!(
+                        token.kind,
+                        TokenKind::Identifier | TokenKind::QuotedIdentifier
+                    )
+                    .then_some(token)
+                }
+                _ => None,
+            })
+            .unwrap();
+        let location = written.location(token.range.clone());
+        let fact = bindings
+            .references
+            .iter()
+            .find(|r| r.file == file && r.location.range == location.range)
+            .unwrap();
+        let BindingResolution::Resolved(id) = fact.resolution else {
+            panic!("source reference did not resolve: {:?}", fact.resolution);
+        };
+        id
+    };
+    let typed = |node: &zincite_syntax::SyntaxNode| {
+        let range = written.location(node.range()).range;
+        &calls
+            .expressions
+            .iter()
+            .find(|e| e.file == file && e.location.range == range)
+            .unwrap()
+            .ty
+    };
+    let inst = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let mut locals = Vec::new();
+    let mut private_selections = 0;
+    for (name, array_name, element_domain) in [
+        ("next_local", "next_place", "Places"),
+        ("block_local", "block_place", "Cells"),
+    ] {
+        let local = bindings
+            .declarations
+            .iter()
+            .find(|d| d.file == file && d.role == DeclarationRole::Local && d.name == name)
+            .unwrap();
+        assert!(present_int(
+            &calls.declarations[local.id.0].ty,
+            Instantiation::Decision
+        ));
+        let declaration = nodes
+            .iter()
+            .find(|n| n.kind() == NodeKind::Declaration && n.range() == local.syntax_range)
+            .unwrap();
+        let initializer = declaration
+            .child_nodes()
+            .find(|n| n.kind() == NodeKind::ArrayAccessExpression)
+            .unwrap();
+        let parts: Vec<_> = initializer.child_nodes().collect();
+        assert_eq!(parts.len(), 3);
+        assert_eq!(reference(parts[0]), named(array_name));
+        assert!(present_int(typed(initializer), Instantiation::Decision));
+        assert!(inst.expressions.iter().any(|e| e.file == file
+            && e.location.range == written.location(initializer.range()).range
+            && e.instantiation == Instantiation::Decision));
+        assert!(
+            matches!(&typed(parts[0]).kind, TypeKind::Array { indices, element }
+            if indices.len() == 2
+                && indices.iter().all(|axis| present_int(axis, Instantiation::Parameter))
+                && present_int(element, Instantiation::Decision))
+        );
+        for (selector, source_name) in parts[1..].iter().zip(["ActiveSteps", "Cells"]) {
+            assert!(present_int(typed(selector), Instantiation::Parameter));
+            let binder = &bindings.declarations[reference(selector).0];
+            assert_eq!(binder.role, DeclarationRole::Generator);
+            let generator = nodes
+                .iter()
+                .find(|n| n.range() == binder.syntax_range)
+                .unwrap();
+            let source = generator.child_nodes().next().unwrap();
+            assert_eq!(source.kind(), NodeKind::Expression);
+            assert_eq!(reference(source), named(source_name));
+            assert!(parameter_set_int(typed(source)));
+            assert!(generator.range().end <= local.syntax_range.start);
+        }
+        assert!(matches!(&domains.declarations[named(array_name).0].domain,
+            Domain::Array { element, .. }
+                if matches!(element.as_ref(), Domain::Named { declaration, .. }
+                    if *declaration == named(element_domain))));
+        for access in nodes
+            .iter()
+            .filter(|n| n.kind() == NodeKind::ArrayAccessExpression)
+        {
+            let selection: Vec<_> = access.child_nodes().collect();
+            if selection.len() != 3 || reference(selection[2]) != local.id {
+                continue;
+            }
+            assert_eq!(reference(selection[0]), named("levels"));
+            assert!(present_int(typed(selection[1]), Instantiation::Parameter));
+            assert!(present_int(typed(selection[2]), Instantiation::Decision));
+            let time = if selection[1].kind() == NodeKind::BinaryExpression {
+                let operands: Vec<_> = selection[1].child_nodes().collect();
+                assert_eq!(operands.len(), 2);
+                operands[0]
+            } else {
+                selection[1]
+            };
+            assert_eq!(reference(time), reference(parts[1]));
+            private_selections += 1;
+        }
+        locals.push(local.id);
+    }
+    assert_eq!(private_selections, 3);
+    let enum_selection = nodes
+        .iter()
+        .find(|n| {
+            n.kind() == NodeKind::ArrayAccessExpression
+                && n.child_nodes()
+                    .next()
+                    .is_some_and(|subject| reference(subject) == named("action"))
+        })
+        .unwrap();
+    assert!(matches!(typed(enum_selection).kind, TypeKind::Enum(id) if id == named("Action")));
+    assert_eq!(typed(enum_selection).instantiation, Instantiation::Decision);
+    assert!(
+        matches!(&typed(enum_selection.child_nodes().next().unwrap()).kind,
+        TypeKind::Array { indices, element } if indices.len() == 2
+            && indices.iter().all(|axis| present_int(axis, Instantiation::Parameter))
+            && matches!(element.kind, TypeKind::Enum(id) if id == named("Action")))
+    );
+    let source_calls: Vec<_> = calls.calls.iter().filter(|c| c.file == file).collect();
+    for call in &source_calls {
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &call.outcome
+        else {
+            panic!(
+                "source operation did not resolve: {} {:?}",
+                call.name, call.outcome
+            );
+        };
+        let owner = &bindings.declarations[declaration.0];
+        assert_eq!(context.files[owner.file].kind, SourceKind::StandardLibrary);
+        assert_eq!(owner.name, call.name);
+        assert!(!return_type.optional);
+        match call.name.as_str() {
+            ".." => {
+                assert_eq!(parameters.len(), 2);
+                assert!(
+                    parameters
+                        .iter()
+                        .all(|ty| present_int(ty, Instantiation::Parameter))
+                );
+                assert!(parameter_set_int(return_type));
+            }
+            "-" | "*" | "+" => {
+                assert!(matches!(parameters.len(), 1 | 2));
+                assert!(
+                    parameters
+                        .iter()
+                        .all(|ty| present_int(ty, Instantiation::Parameter))
+                );
+                assert!(present_int(return_type, Instantiation::Parameter));
+            }
+            "union" => {
+                assert_eq!(parameters.len(), 2);
+                assert!(parameters.iter().all(parameter_set_int));
+                assert!(parameter_set_int(return_type));
+            }
+            "=" => {
+                assert_eq!(parameters.len(), 2);
+                assert_eq!(parameters[0].kind, parameters[1].kind);
+                assert!(parameters.iter().all(|ty| !ty.optional
+                    && matches!(
+                        ty.instantiation,
+                        Instantiation::Parameter | Instantiation::Decision
+                    )
+                    && matches!(ty.kind, TypeKind::Int | TypeKind::Enum(_))));
+                assert_eq!(return_type.kind, TypeKind::Bool);
+            }
+            "/\\" | "->" => {
+                assert_eq!(parameters.len(), 2);
+                assert!(parameters.iter().all(|ty| !ty.optional
+                    && ty.instantiation == Instantiation::Decision
+                    && ty.kind == TypeKind::Bool));
+                assert_eq!(return_type.kind, TypeKind::Bool);
+                assert_eq!(return_type.instantiation, Instantiation::Decision);
+            }
+            "forall" => {
+                assert!(matches!(parameters.as_slice(), [parameter]
+                    if !parameter.optional && matches!(&parameter.kind,
+                        TypeKind::Array { indices, element } if indices.len() == 1
+                            && present_int(&indices[0], Instantiation::Parameter)
+                            && !element.optional && element.kind == TypeKind::Bool
+                            && element.instantiation == Instantiation::Decision)));
+                assert_eq!(return_type.kind, TypeKind::Bool);
+                assert_eq!(return_type.instantiation, Instantiation::Decision);
+            }
+            _ => panic!("unexpected source operation: {}", call.name),
+        }
+    }
+    for required in ["forall", "->", "/\\", "=", "+", "union"] {
+        assert!(
+            source_calls.iter().any(|c| c.name == required),
+            "{required}"
+        );
+    }
+    println!("local-selector core/type/source/generator preflights passed");
+
+    let result = analyze_model(
+        &context,
+        &LintOptions::from_selection("search-coverage,unbounded-variable").unwrap(),
+    );
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    assert!(
+        result
+            .rules
+            .iter()
+            .all(|r| r.outcome == RuleOutcome::Completed)
+    );
+    assert!(
+        result
+            .findings
+            .iter()
+            .all(|f| f.rule != Rule::UnboundedVariable)
+    );
+    // Raw domains cannot inspect Places' initialized union without call facts.
+    // Keep the manual path's Unknown coverage and absence of output guarantees.
+    let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+    let (_, search) = facts(&context);
+    for local in locals {
+        assert_eq!(
+            search.declarations[local.0].coverage,
+            SearchCoverage::Unknown
+        );
+        assert!(!callable.definitions.iter().any(|d| d.target == local));
+    }
+    for name in ["levels", "action", "next_place", "block_place", "pickup"] {
+        assert_ne!(
+            coverage(&bindings, &search, name),
+            SearchCoverage::WholeArray
+        );
+    }
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+
+    // A closed error in the first selector cannot be hidden by the private choice.
+    // This arithmetic guard is not a claimed compiler-positive instance.
+    let hazardous = source
+        .replace(
+            "int: level_count;",
+            "int: level_count;\nint: bad_step = 9223372036854775807+1;",
+        )
+        .replacen("levels[t+1,next_local]", "levels[bad_step,next_local]", 1);
+    assert_ne!(hazardous, source);
+    std::fs::write(&root, &hazardous).unwrap();
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let result = analyze_model(&context, &selected());
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(matches!(
+        result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    assert!(
+        result
+            .limitations
+            .iter()
+            .any(|l| l.location.path == root && l.message.contains("integer arithmetic overflow")),
+        "{:?}",
+        result.limitations
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+#[test]
 fn typed_searches_aliases_and_direct_closure_preserve_whole_array_and_cycle_boundaries() {
     let source = concat!(
         "\u{feff}% é\r\ninclude \"included.mzn\"; int: parameter_value; var 0..9: seed; var int: constant_value=parameter_value;\n",

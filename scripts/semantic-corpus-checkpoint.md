@@ -4851,3 +4851,23 @@ Evidence is under semantic62-is-conditional-main-integration/actual-workspace-ga
 and semantic62-is-conditional-release-control-preparation/{release-results,
 control-results}/root-*.json. Remaining original-model gaps and the final corpus
 checks still prevent base-083 completion.
+
+Model-local scalar selections can now inspect a two-axis integer decision array
+with a parameter first selector and decision second selector, or an enum-valued
+array with parameter selectors. The result remains unknown. Source domains,
+both selectors and annotations are checked before accepting that uncertainty;
+no membership, definition or whole-array output is granted.
+
+The focused original-shaped model and closed-selector overflow counter pass.
+Actual main formatting, Clippy with warnings denied and all210 workspace tests
+pass, retaining the IS and nested-call repairs. Fresh opt3 native/companion all26
+controls match the separately verified Macc repair exactly: the public model has
+12warnings/0errors/0limitations and all26 analyses complete; original Macc has
+115warnings/0errors/53limitations, down from77 before the repair. The24 removed
+limitation lines have no replacements or added warnings. UnboundedVariable now
+completes; SearchCoverage retains the remaining reshape limitations.
+Evidence is under semantic62-macc-local-selection-main-integration/actual-workspace-gates
+and semantic62-macc-local-selection-release-control-preparation-v4/{release-results,
+control-results}/root-*.json. The unchanged Gecode compile-only proofs were reused;
+no solver was run. Remaining support gaps and final corpus acceptance still
+prevent base-083 completion.
