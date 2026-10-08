@@ -2870,3 +2870,25 @@ unchanged. Root and an independent reviewer traced the observed domains601
 limitation to this exact boundary. Candidate-only application, restoration of
 the clean public test and one fresh full search-suite check are authorized.
 No passing result or final acceptance exists yet.
+
+The reviewed decision-selection correction passes all four full search cases
+with unchanged public assertions, Cargo status0 in20.552 seconds, no timeout
+and equal before/after/current source/helper state. Root verified complete
+streams, reaping and an empty group. Candidate fmt and Clippy with warnings
+denied also pass (1.049/3.695 seconds) with complete terminal audits. Workspace
+tests are running; these are candidate gates, not authoritative integration.
+Evidence is in the conditional-float-green-v3 search/fmt/clippy directories.
+
+`scripts/semantic-partial-abort-filter-draft.patch` saves an unapplied717-byte
+filter reorder against frozen19. It checks the abort reason before constructing
+a source location, avoiding repeated PathBuf clones for non-abort limitation
+rows without changing the predicate, row order or diagnostics. The remaining
+scan cost and after-measurements are unverified. No extra index or engine is
+introduced. Root independently reviewed the exact filter and location conversion.
+
+A single original Navigation diagnostic19 capture has started with the unchanged
+300-second cap and reviewed own-PID CPU permission. It uses a separate frozen
+instrumented executable and does not modify shared or authoritative source.
+Missing checker-end metrics will remain censored; the historical stock cutoff
+cannot support complete diagnostic parity. Evidence is under
+`target/benchmarks/base083/semantic62-partial-navigation-attribution/`.

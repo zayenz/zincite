@@ -1,0 +1,12 @@
+--- a/crates/zincite-lint/src/partial_expression.rs
++++ b/crates/zincite-lint/src/partial_expression.rs
+@@ -200,8 +200,8 @@
+             // explicit default-capture boundary without inventing an assertion rule.
+             for l in guarded.limitations.iter().filter(|l| {
+                 l.file == file
++                    && l.reason == "default capture of aborting assertion is unsupported"
+                     && contains(&source.location(node.range()), &l.location)
+-                    && l.reason == "default capture of aborting assertion is unsupported"
+             }) {
+                 let key = (file, l.location.range.start, l.location.range.end);
+                 let evaluation = expression_indices
