@@ -2711,3 +2711,28 @@ shape, not proof of symbolic bounds or search coverage. The two reviewed drafts
 have been mechanically integrated in scratch, with the shared79-line conditional
 prepass present once. Tests-only candidate application and meaningful RED are
 next; production and actual Rust remain unchanged.
+
+The operation-rich100/1000 growth comparison completes all eight bounded
+native/allocator captures. Root checked full raw streams, exact source/all26
+analysis/drop/status parity at each size and every current frozen input/helper
+pin against equal before/after captures. All fourteen thesis rules complete;
+partial-expression and vacuous-constraint remain Limited identically in both
+versions, with no warnings/errors. These limitations are retained, not hidden.
+At100/1000 declarations, release19 makes2,185/21,982 fewer analysis allocations
+but requests165,164/1,180,228 MORE bytes for the lookup tables. Retained/peak
+allocation totals do not change. Native CPU18 is0.719/3.386 seconds and19 is
+0.709/3.131 seconds; observed whole-analysis allocation growth is6.766x/6.759x
+for18/19 under tenfold source-operation growth. These are two-point observations
+with corpus overlap, not isolated speedups or checker CPU attribution. Full
+evidence and terminal root audit are in
+`target/benchmarks/base083/semantic62-partial-operation-growth/`.
+
+The integrated Routing tests-only RED is meaningful: three existing search
+cases pass and the extended symbolic case expects float_let_output Uncovered
+but receives Unknown at search.rs2007. Cargo exits101 without timeout in20.075
+seconds; root checked complete streams, equal/current state, reaping/empty group
+and null verification error. Compiler/fixture setup succeeds. Evidence and root
+audit are in
+`target/benchmarks/base083/semantic62-draft-workspace-conditional-float-red-search/`.
+Reviewed production-only candidate application is next; public assertions remain
+unchanged, and no authoritative Rust source has changed.
