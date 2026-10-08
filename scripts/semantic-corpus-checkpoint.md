@@ -3626,3 +3626,17 @@ groups are independently checked in `semantic62-routing30-controls/root-audit.js
 Known tiny Sparse probe overlap is retained separately, with no timing ratio.
 This closes the observed Routing thesis gap; remaining originals and final full
 corpus evidence still keep base-083 open.
+
+The frozen29 Cellda phase-only diagnostic is terminal at the unchanged300-second
+limit. It records102.261575 seconds in resolve_integer_bounds and6.780964 seconds
+in resolve_numeric_facts. The first numeric memo invalidation is the final output
+Generator (declaration1374), after the weighted source expressions; it is not
+established as the remaining cutoff cause. Integer-bounds still reevaluates each
+eligible prefix without memo, a concrete local cost candidate. Substantial cost
+elsewhere remains unattributed. Full build/native streams, equal1182 physical
+original/std/scratch/assets/helper pins and both reaped empty groups are checked
+in `semantic62-cellda29-phase-diagnostic/root-audit.json`. Native ends timeout/-9,
+with no completed rule/drop record; all26 acceptance remains Unobserved. This is
+instrumented phase attribution, with no isolated speedup, allocation or semantic
+acceptance claim. A one-line invariant-pass memo candidate is scratch-only and
+its unchanged correctness controls are being compared before acceptance.
