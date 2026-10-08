@@ -8702,3 +8702,259 @@ solve :: bool_search([gate], input_order, indomain_min, complete) satisfy;
     assert!(!result.limitations.is_empty());
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn constructed_weighted_rows_require_same_source_and_complete_output_traversal() {
+    use zincite_lint::{
+        CallOutcome, DeclarationRole, Instantiation, SourceKind, TypeInst, TypeKind,
+    };
+    let body = r#"% Public reduction of the complete selected BIN/FZN body; all array axes are Int.
+predicate public_full_weighted_load(
+    array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight
+) =
+    sum(load) = sum(weight) /\
+    forall(i in index_set(bin))(
+        min(index_set(load)) <= bin[i] /\ bin[i] <= max(index_set(load))
+    ) /\
+    forall(b in index_set(load))(
+        load[b] = sum(i in index_set(bin))(weight[i] * (bin[i] = b))
+    );
+
+predicate public_full_bin_load(
+    array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight
+) =
+    assert(
+        index_set(bin) == index_set(weight),
+        "Bin and weight indices must agree",
+        assert(
+            length(weight) == 0 \/ lb_array(weight) >= 0,
+            "Weights must be nonnegative",
+            public_full_weighted_load(index2int(load), index2int(enum2int(bin)), index2int(weight))
+        )
+    );
+
+"#;
+    let row = r#"include "bin_packing_load.mzn";
+
+% Data
+int: row_count;
+int: bin_count;
+int: item_count;
+set of int: Rows = 1..row_count;
+set of int: Bins = 1..bin_count;
+set of int: Items = 1..item_count;
+array[Rows] of set of Items: row_items;
+array[Items] of 1..1: item_weight;
+
+% Decision variables
+array[Items] of var Bins: placement;
+array[Rows, Bins] of var 0..item_count: row_load;
+
+% Constraints
+% Each complete load row follows its selected items, including noncontiguous subsets.
+constraint :: "Row load follows the same selected items"
+    forall(r in Rows)(
+        bin_packing_load(
+            [row_load[r, b] | b in Bins],
+            [placement[i] | i in row_items[r]],
+            [item_weight[i] | i in row_items[r]]
+        )
+    );
+
+% Search
+solve :: int_search(placement, input_order, indomain_min, complete) satisfy;
+"#;
+    let builtins = concat!(
+        "function var bool: assert(bool: condition,string: message,var bool: value);\n",
+        "function var int: '*'(var int: left,var int: right);\n",
+        "function var bool: forall(array[int] of var bool: body);\n",
+        "function int: sum(array[int] of int: body);\n",
+        "function int: 'div'(int: left,int: right);\n",
+        "function int: length(array[int] of any $V: body);\n",
+        "function int: lb_array(array[int] of var int: body);\n",
+        "function int: min(set of int: body); function int: max(set of int: body);\n",
+        "function bool: '\\/'(bool: left,bool: right);\n",
+        "function bool: '>='(int: left,int: right);\n",
+        "function var bool: '<='(int: left,var int: right);\n",
+        "function var bool: '<='(var int: left,int: right);\n",
+    );
+
+    let different_source = row
+        .replace("array[Rows] of set of Items: row_items;", "array[Rows] of set of Items: row_items;\narray[Rows] of set of Items: other_row_items;")
+        .replace("[item_weight[i] | i in row_items[r]]", "[item_weight[i] | i in other_row_items[r]]");
+    let filtered = row.replace(
+        "[row_load[r, b] | b in Bins]",
+        "[row_load[r, b] | b in Bins where b > 1]",
+    );
+    let unbounded = row.replace(
+        "array[Rows] of set of Items: row_items;",
+        "array[Rows] of set of int: row_items;",
+    );
+    let partial_source = row.replace(
+        "array[Rows] of set of Items: row_items;",
+        "array[Rows] of set of Items: row_items = [{1 div 0} | p in Rows];",
+    );
+    for (name, source, supported) in [
+        ("different-source", different_source, false),
+        ("filtered-row", filtered, false),
+        ("unbounded-items", unbounded, false),
+        ("partial-item-source", partial_source, false),
+        ("aligned-row", row.to_owned(), true),
+    ] {
+        // The permanent reduction retains the accepted complete concrete public
+        // body. Installed generic/concrete body facts are checked separately.
+        let source = source
+            .replace("include \"bin_packing_load.mzn\";", body)
+            .replace("bin_packing_load(", "public_full_bin_load(");
+        let (dir, _) = model(&format!("constructed-weighted-{name}"), &source, "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!("{CORE}{builtins}function bool: '>'(int: left,int: right);\n"),
+        )
+        .unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let scalar = |instantiation| TypeInst {
+            instantiation,
+            optional: false,
+            kind: TypeKind::Int,
+        };
+        let array = |instantiation| TypeInst {
+            instantiation,
+            optional: false,
+            kind: TypeKind::Array {
+                indices: vec![scalar(Instantiation::Parameter)],
+                element: Box::new(scalar(instantiation)),
+            },
+        };
+        let root = calls
+            .calls
+            .iter()
+            .find(|call| {
+                context.files[call.file].kind == SourceKind::User
+                    && call.name == "public_full_bin_load"
+            })
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &root.outcome
+        else {
+            panic!("{name}: actual public selection {root:?}");
+        };
+        assert_eq!(
+            parameters,
+            &[
+                array(Instantiation::Decision),
+                array(Instantiation::Decision),
+                array(Instantiation::Parameter)
+            ]
+        );
+        assert_eq!(
+            *return_type,
+            TypeInst {
+                instantiation: Instantiation::Decision,
+                optional: false,
+                kind: TypeKind::Bool
+            }
+        );
+        assert_eq!(
+            bindings.declarations[declaration.0].role,
+            DeclarationRole::Predicate
+        );
+        let binders: Vec<_> = bindings
+            .declarations
+            .iter()
+            .filter(|d| {
+                d.file == root.file && d.item == root.item && d.role == DeclarationRole::Generator
+            })
+            .collect();
+        assert_eq!(
+            binders.len(),
+            4,
+            "{name}: outer row and three actual binders"
+        );
+        assert!(
+            binders
+                .iter()
+                .all(|d| calls.declarations[d.id.0].ty == scalar(Instantiation::Parameter))
+        );
+        let load = bindings
+            .declarations
+            .iter()
+            .find(|d| d.file == root.file && d.top_level && d.name == "row_load")
+            .unwrap()
+            .id;
+        assert!(
+            matches!(&calls.declarations[load.0].ty.kind, TypeKind::Array { indices, .. } if indices.len() == 2)
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        assert_eq!(
+            callable.definitions.iter().any(|d| d.target == load
+                && d.coverage == DefinitionCoverage::WholeArray
+                && d.safety == DefinitionSafety::Supported
+                && d.enforcement == zincite_lint::DefinitionEnforcement::Enforced),
+            supported,
+            "{name}: {:?}",
+            callable.unavailable
+        );
+        let search = resolve_search_coverage(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+            &definitions,
+        );
+        assert_eq!(
+            coverage(&bindings, &search, "placement"),
+            SearchCoverage::WholeArray,
+            "{name}"
+        );
+        assert_eq!(
+            coverage(&bindings, &search, "row_load"),
+            if supported {
+                SearchCoverage::WholeArray
+            } else {
+                SearchCoverage::Unknown
+            },
+            "{name}: {:?}",
+            search.limitations
+        );
+        let result = analyze_model(&context, &selected());
+        if supported {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Completed),
+                "{name}: {:?}",
+                result.limitations
+            );
+        } else {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                result.limitations
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

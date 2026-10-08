@@ -860,6 +860,13 @@ struct Output {
     /// A functional local Boolean for each active model let, not an enforced operand.
     scoped_local: bool,
 }
+// A checked caller comprehension; never retained in callable summaries or raw facts.
+struct ConstructedArray {
+    target: DeclarationId,
+    item_source: Option<(FileId, DeclarationId, DeclarationId)>,
+    dependencies: Vec<DeclarationId>,
+    coverage: DefinitionCoverage,
+}
 // Exists only while one zero-output root invocation is inspected. These are
 // written sources, never value assumptions or cached callable boundaries.
 struct InvocationActual<'a, 'b> {
@@ -1823,6 +1830,7 @@ impl<'a> Producer<'a> {
         let mut found = Vec::new();
         let mut local_choices = Vec::new();
         let before = unavailable.len();
+        let direct_invocation = invocation.is_none();
         self.interpret_body(
             inputs,
             &mut found,
@@ -1849,7 +1857,16 @@ impl<'a> Producer<'a> {
                         && !clause
                             .generators
                             .iter()
-                            .all(|g| self.nonempty_source(clause.file, g)))
+                            .all(|g| self.nonempty_source(clause.file, g))
+                        && !(direct_invocation
+                            && matches!(clause.kind, ClauseKind::Call)
+                            && output.coverage == DefinitionCoverage::WholeArray
+                            && self.complete_constructed_call_output(
+                                clause,
+                                inputs.1,
+                                inputs.2,
+                                output.target,
+                            )))
             {
                 continue;
             }
@@ -3213,7 +3230,9 @@ impl<'a> Producer<'a> {
                     self.unavailable(clause,"callable output guarantees are unsupported or have no independent recursive anchor",unavailable);
                 }
                 if !uncertain_actual && !unsupported_actual {
-                    if let Err(reason) = self.asserted_call_indices(clause, view, instance) {
+                    if let Err(reason) =
+                        self.asserted_call_indices(clause, view, instance, invocation.is_none())
+                    {
                         self.map_boundaries(clause, view, &self.boundaries, unavailable);
                         self.unavailable(clause, &reason, unavailable);
                         return;
@@ -3313,7 +3332,24 @@ impl<'a> Producer<'a> {
                         }
                         continue;
                     }
-                    let mapped = if self.bindings.declarations[guarantee.target.0].role
+                    let constructed_row = if invocation.is_none()
+                        && guarantee.coverage == DefinitionCoverage::WholeArray
+                        && self.bindings.declarations[guarantee.target.0].role
+                            == DeclarationRole::Parameter
+                    {
+                        match self.constructed_call_row(clause, view, instance, guarantee.target) {
+                            Ok(actual) => actual,
+                            Err(reason) => {
+                                self.unavailable(clause, &reason, unavailable);
+                                continue;
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    let mapped = if let Some(actual) = &constructed_row {
+                        Some((actual.target, actual.coverage.clone()))
+                    } else if self.bindings.declarations[guarantee.target.0].role
                         != DeclarationRole::Parameter
                     {
                         Some((guarantee.target, guarantee.coverage.clone()))
@@ -3343,6 +3379,19 @@ impl<'a> Producer<'a> {
                         coverage = DefinitionCoverage::ArrayElement;
                     }
                     let mut dependencies = Vec::new();
+                    if let Some(actual) = &constructed_row {
+                        // The output selection is inspected, not read as a new
+                        // prerequisite. Genuine mapped RHS dependencies remain below.
+                        extend(
+                            &mut dependencies,
+                            actual
+                                .dependencies
+                                .iter()
+                                .copied()
+                                .filter(|id| *id != actual.target)
+                                .collect(),
+                        );
+                    }
                     let mut safe = true;
                     for dep in &guarantee.dependencies {
                         if self.bindings.declarations[dep.0].role != DeclarationRole::Parameter {
@@ -3357,6 +3406,26 @@ impl<'a> Producer<'a> {
                                 // Optional formals enter a supported output only
                                 // through total presence guards, never deopt.
                                 self.presence_dependencies(file, value, view)
+                            } else if constructed_row.is_some() {
+                                let lexical = if file == clause.file
+                                    && clause.node.range().start <= value.range().start
+                                    && value.range().end <= clause.node.range().end
+                                {
+                                    &clause.generators[..]
+                                } else {
+                                    &[]
+                                };
+                                self.constructed_array_actual(file, value, view, lexical)
+                                    .and_then(|actual| match actual {
+                                        Some(actual) => {
+                                            if self.expression_type(self.view(file, value, view), file, value)
+                                                .is_none_or(|e| &e.ty != formal) {
+                                                return Err("constructed dependency does not retain its selected formal type".into());
+                                            }
+                                            Ok(actual.dependencies)
+                                        }
+                                        None => self.dependencies(file, value, view, lexical),
+                                    })
                             } else {
                                 self.dependencies(file, value, view, &[])
                             };
@@ -6408,28 +6477,481 @@ impl<'a> Producer<'a> {
         }
         false
     }
+    // Only this complete owning assertion can admit a constructed actual pair.
+    fn asserted_forall_contract(
+        &self,
+        instance: &Instance<'a>,
+    ) -> Option<(DeclarationId, [DeclarationId; 2])> {
+        let [body] = instance.clauses.as_slice() else {
+            return None;
+        };
+        if !matches!(body.kind, ClauseKind::Assertion) {
+            return None;
+        }
+        self.direct_asserted_forall(body.file, body.node, &instance.view)
+            .or_else(|| {
+                self.nested_asserted_forall(body.file, body.node, &instance.view)
+                    .map(|(output, arrays)| (output.target, arrays))
+            })
+    }
+    fn constructed_array_actual(
+        &self,
+        file: FileId,
+        node: &'a SyntaxNode,
+        view: &CallableFacts,
+        lexical: &[&'a SyntaxNode],
+    ) -> Result<Option<ConstructedArray>, String> {
+        let written_actual = node;
+        let node = unwrap(node);
+        if node.kind() != NodeKind::ArrayComprehension {
+            return Ok(None);
+        }
+        // The whole source graph remains an error veto. Its generic collection
+        // uncertainty is resolved only by the exact shape/membership checks below.
+        if let DefinitionSafety::Unsupported(reason) =
+            self.initialized_source_safety(file, written_actual, view, lexical, &mut Vec::new())
+        {
+            return Err(reason);
+        }
+        if let Some(reason) = self.closed_integer_source_error(file, written_actual, true, true) {
+            return Err(reason);
+        }
+        let present_int = |ty: &TypeInst, inst| {
+            ty.known() && !optional(ty) && ty.instantiation == inst && ty.kind == TypeKind::Int
+        };
+        let integer_set = |ty: &TypeInst| {
+            ty.known()
+                && !optional(ty)
+                && ty.instantiation == Instantiation::Parameter
+                && matches!(&ty.kind, TypeKind::Set(element)
+                    if present_int(element, Instantiation::Parameter))
+        };
+        let facts = self.view(file, node, view);
+        let ty = &self
+            .expression_type(facts, file, node)
+            .ok_or("constructed array actual type is unavailable")?
+            .ty;
+        let TypeKind::Array { indices, element } = &ty.kind else {
+            return Err("constructed actual must retain an integer array type".into());
+        };
+        if !ty.known()
+            || optional(ty)
+            || indices.len() != 1
+            || !present_int(&indices[0], Instantiation::Parameter)
+            || !element.known()
+            || optional(element)
+            || element.kind != TypeKind::Int
+            || element.instantiation != ty.instantiation
+        {
+            return Err("constructed array qualifiers or axis are unsupported".into());
+        }
+        let [outer] = lexical else {
+            return Err("constructed array requires one owning row traversal".into());
+        };
+        let children: Vec<_> = node.child_nodes().collect();
+        let [body, list] = children.as_slice() else {
+            return Err("constructed array body or headers are unsupported".into());
+        };
+        if list.kind() != NodeKind::GeneratorList {
+            return Err("constructed array headers are unavailable".into());
+        }
+        let headers: Vec<_> = list.child_nodes().collect();
+        let [inner] = headers.as_slice() else {
+            return Err("constructed array requires one inner traversal".into());
+        };
+        let all = [*outer, *inner];
+        let mut binders = Vec::new();
+        let mut dependencies = Vec::new();
+        for (position, generator) in all.iter().enumerate() {
+            let declared: Vec<_> = self
+                .bindings
+                .declarations
+                .iter()
+                .filter(|d| {
+                    d.file == file
+                        && d.role == DeclarationRole::Generator
+                        && d.syntax_range == generator.range()
+                })
+                .collect();
+            let [binder] = declared.as_slice() else {
+                return Err("constructed traversal binder identity is unsupported".into());
+            };
+            if crate::domains::generator_slots(&self.context.files[file].parsed, generator) != 1
+                || generator.child_nodes().count() != 1
+                || !present_int(
+                    &facts.declarations[binder.id.0].ty,
+                    Instantiation::Parameter,
+                )
+            {
+                return Err(
+                    "constructed traversal is filtered, assigned or not present Int".into(),
+                );
+            }
+            let source = generator
+                .child_nodes()
+                .next()
+                .ok_or("constructed source unavailable")?;
+            if self
+                .expression_type(self.view(file, source, facts), file, source)
+                .is_none_or(|e| !integer_set(&e.ty))
+            {
+                return Err(
+                    "constructed traversal source is not a present parameter Int set".into(),
+                );
+            }
+            match self.initialized_source_safety(
+                file,
+                source,
+                view,
+                &all[..position],
+                &mut Vec::new(),
+            ) {
+                DefinitionSafety::Supported => {}
+                DefinitionSafety::Unknown(reason) | DefinitionSafety::Unsupported(reason) => {
+                    return Err(reason);
+                }
+            }
+            extend(
+                &mut dependencies,
+                self.dependencies(file, source, view, &all[..position])?,
+            );
+            binders.push(binder.id);
+        }
+        if binders[0] == binders[1] {
+            return Err("constructed row selectors must be distinct binders".into());
+        }
+        self.iterations(file, &all, view)?;
+        self.relation_iterations(file, &all, 0, view, false)?;
+        let mut inspected = vec![written_actual, *outer];
+        while let Some(part) = inspected.pop() {
+            if !crate::definitions::annotations_safe(self.context, file, part) {
+                return Err("constructed actual or header annotation is unsupported".into());
+            }
+            inspected.extend(part.child_nodes());
+        }
+        let body = unwrap(body);
+        if body.kind() != NodeKind::ArrayAccessExpression {
+            return Err("constructed array element must retain a direct array selection".into());
+        }
+        let selected: Vec<_> = body.child_nodes().collect();
+        let subject = unwrap(
+            selected
+                .first()
+                .ok_or("constructed selection owner unavailable")?,
+        );
+        let bare = |value: &SyntaxNode| {
+            value.kind() == NodeKind::Expression
+                && matches!(crate::domains::tokens(&self.context.files[file].parsed, value).as_slice(),
+                    [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+        };
+        let target = self
+            .reference(file, subject)
+            .filter(|_| bare(subject))
+            .ok_or("constructed selection requires a bare array owner")?;
+        let owner = &self.bindings.declarations[target.0];
+        if owner.file != file || owner.role != DeclarationRole::Value || !owner.top_level {
+            return Err("constructed selection owner scope is unsupported".into());
+        }
+        let owner_type = &facts.declarations[target.0].ty;
+        let TypeKind::Array {
+            indices: owner_axes,
+            element: owner_element,
+        } = &owner_type.kind
+        else {
+            return Err("constructed selection owner type is unavailable".into());
+        };
+        if !owner_type.known()
+            || optional(owner_type)
+            || owner_type.instantiation != ty.instantiation
+            || owner_element != element
+            || !owner_axes
+                .iter()
+                .all(|axis| present_int(axis, Instantiation::Parameter))
+            || self
+                .expression_type(self.view(file, body, facts), file, body)
+                .is_none_or(|e| &e.ty != element.as_ref())
+        {
+            return Err("constructed selection type or optionality is unsupported".into());
+        }
+        let written = find_node(
+            self.context.files[file].parsed.tree(),
+            &owner.syntax_range,
+            owner.role,
+        )
+        .ok_or("constructed selection declaration unavailable")?;
+        self.type_dependencies(file, written, view, &[])?;
+        match self.initialized_source_safety(file, subject, view, lexical, &mut Vec::new()) {
+            DefinitionSafety::Supported => {}
+            DefinitionSafety::Unknown(reason) | DefinitionSafety::Unsupported(reason) => {
+                return Err(reason);
+            }
+        }
+        if let Some(reason) = self.closed_integer_source_error(file, written, true, true) {
+            return Err(reason);
+        }
+        let mut declarations = vec![written];
+        while let Some(part) = declarations.pop() {
+            if !crate::definitions::annotations_safe(self.context, file, part) {
+                return Err("constructed selection declaration annotation is unsupported".into());
+            }
+            declarations.extend(part.child_nodes());
+        }
+        let selectors = &selected[1..];
+        for selector in selectors {
+            let selector = unwrap(selector);
+            if !bare(selector)
+                || self
+                    .expression_type(self.view(file, selector, facts), file, selector)
+                    .is_none_or(|e| !present_int(&e.ty, Instantiation::Parameter))
+            {
+                return Err(
+                    "constructed element selector is not a bare parameter Int binder".into(),
+                );
+            }
+            match self.initialized_source_safety(file, selector, view, &all, &mut Vec::new()) {
+                DefinitionSafety::Supported => {}
+                DefinitionSafety::Unknown(reason) | DefinitionSafety::Unsupported(reason) => {
+                    return Err(reason);
+                }
+            }
+        }
+        let source = unwrap(
+            inner
+                .child_nodes()
+                .next()
+                .ok_or("constructed inner source unavailable")?,
+        );
+        let (item_source, coverage) = if owner_axes.len() == 1 && selectors.len() == 1 {
+            if self.reference(file, unwrap(selectors[0])) != Some(binders[1])
+                || source.kind() != NodeKind::ArrayAccessExpression
+            {
+                return Err("constructed item selection lacks its exact set traversal".into());
+            }
+            let parts: Vec<_> = source.child_nodes().map(unwrap).collect();
+            let [set_array, row] = parts.as_slice() else {
+                return Err("constructed item set must retain one row selector".into());
+            };
+            let set_id = self
+                .reference(file, set_array)
+                .filter(|_| bare(set_array))
+                .ok_or("constructed item set array identity is unavailable")?;
+            if !bare(row) || self.reference(file, row) != Some(binders[0]) {
+                return Err("constructed item set must retain the owning outer binder".into());
+            }
+            let set_type = &facts.declarations[set_id.0].ty;
+            if !set_type.known()
+                || optional(set_type)
+                || set_type.instantiation != Instantiation::Parameter
+                || !matches!(&set_type.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 1 && present_int(&indices[0], Instantiation::Parameter)
+                        && integer_set(element))
+            {
+                return Err(
+                    "constructed item source is not a present parameter array of Int sets".into(),
+                );
+            }
+            let set_owner = &self.bindings.declarations[set_id.0];
+            if set_owner.file != file
+                || set_owner.role != DeclarationRole::Value
+                || !set_owner.top_level
+            {
+                return Err("constructed item set declaration scope is unsupported".into());
+            }
+            let set_written = find_node(
+                self.context.files[file].parsed.tree(),
+                &set_owner.syntax_range,
+                set_owner.role,
+            )
+            .ok_or("constructed item set declaration unavailable")?;
+            self.type_dependencies(file, set_written, view, &[])?;
+            let Domain::Array { indices, element } =
+                crate::domains::bare_index_domain(&self.domains.declarations[set_id.0].domain)
+            else {
+                return Err("constructed item set written domains are unavailable".into());
+            };
+            let Domain::Set(bound) = element.as_ref() else {
+                return Err("constructed item set requires a written element bound".into());
+            };
+            let Domain::Array {
+                indices: destination,
+                ..
+            } = crate::domains::bare_index_domain(&self.domains.declarations[target.0].domain)
+            else {
+                return Err("constructed item destination axis unavailable".into());
+            };
+            if indices.len() != 1
+                || destination.len() != 1
+                || !matches!(bound.as_ref(), Domain::Named { .. } | Domain::Range { .. })
+                || crate::domains::same_members(bound, &destination[0])? != Some(true)
+            {
+                return Err(
+                    "constructed item set bound does not prove destination membership".into(),
+                );
+            }
+            // This is subset membership only. Neither the selected set's count
+            // nor complete coverage of the input owner follows from its bound.
+            (
+                Some((file, set_id, binders[0])),
+                DefinitionCoverage::ArrayElement,
+            )
+        } else if owner_axes.len() == 2
+            && selectors.len() == 2
+            && ty.instantiation == Instantiation::Decision
+            && self.reference(file, unwrap(selectors[0])) == Some(binders[0])
+            && self.reference(file, unwrap(selectors[1])) == Some(binders[1])
+            && bare(source)
+        {
+            if dependencies.contains(&target) {
+                return Err("constructed output traversal depends on destination values".into());
+            }
+            let coverage = complete_array_coverage(
+                self.context,
+                self.bindings,
+                (self.calls, facts),
+                self.instantiations,
+                self.domains,
+                (file, target),
+                (selectors, &all),
+            );
+            if coverage != DefinitionCoverage::WholeArray {
+                return Err("constructed output row lacks complete rectangular traversal".into());
+            }
+            self.dependencies(file, body, view, &all)?;
+            (None, coverage)
+        } else {
+            return Err(
+                "constructed actual is not a supported item array or complete output row".into(),
+            );
+        };
+        extend(&mut dependencies, vec![target]);
+        Ok(Some(ConstructedArray {
+            target,
+            item_source,
+            dependencies,
+            coverage,
+        }))
+    }
+    fn constructed_call_row(
+        &self,
+        clause: &Clause<'a>,
+        view: &CallableFacts,
+        instance: &Instance<'a>,
+        formal: DeclarationId,
+    ) -> Result<Option<ConstructedArray>, String> {
+        if instance.recursive
+            || self
+                .asserted_forall_contract(instance)
+                .is_none_or(|(output, _)| output != formal)
+        {
+            return Ok(None);
+        }
+        self.asserted_call_indices(clause, view, instance, true)?;
+        let (file, node) = self
+            .actual(clause, instance.id, formal, view)
+            .ok_or("constructed output actual/default correspondence is unavailable")?;
+        let lexical = if file == clause.file
+            && clause.node.range().start <= node.range().start
+            && node.range().end <= clause.node.range().end
+        {
+            &clause.generators[..]
+        } else {
+            &[]
+        };
+        let Some(actual) = self.constructed_array_actual(file, node, view, lexical)? else {
+            return Ok(None);
+        };
+        if actual.item_source.is_some() || actual.coverage != DefinitionCoverage::WholeArray {
+            return Ok(None);
+        }
+        Ok(Some(actual))
+    }
+    fn complete_constructed_call_output(
+        &self,
+        clause: &Clause<'a>,
+        view: &CallableFacts,
+        known: &[CallableOutput],
+        target: DeclarationId,
+    ) -> bool {
+        let Some((id, parameters)) = self.resolved(clause.file, clause.node, view) else {
+            return false;
+        };
+        let Some(instance) = self
+            .instances
+            .iter()
+            .find(|i| i.id == id && i.parameters == parameters)
+        else {
+            return false;
+        };
+        known
+            .iter()
+            .filter(|g| {
+                g.callable == id
+                    && g.parameters == parameters
+                    && g.coverage == DefinitionCoverage::WholeArray
+                    && self.bindings.declarations[g.target.0].role == DeclarationRole::Parameter
+            })
+            .any(|g| {
+                self.constructed_call_row(clause, view, instance, g.target)
+                    .is_ok_and(|actual| actual.is_some_and(|actual| actual.target == target))
+            })
+    }
     fn asserted_call_indices(
         &self,
         clause: &Clause<'a>,
         view: &CallableFacts,
         instance: &Instance<'a>,
+        allow_constructed: bool,
     ) -> Result<(), String> {
-        let [body] = instance.clauses.as_slice() else {
+        let Some((_, arrays)) = self.asserted_forall_contract(instance) else {
             return Ok(());
         };
-        if !matches!(body.kind, ClauseKind::Assertion) {
-            return Ok(());
+        if allow_constructed && !instance.recursive {
+            let actuals: Vec<_> = arrays
+                .iter()
+                .map(|formal| {
+                    self.actual(clause, instance.id, *formal, view)
+                        .ok_or("asserted array actual/default mapping is unavailable")
+                })
+                .collect::<Result<_, _>>()?;
+            if actuals
+                .iter()
+                .all(|(_, node)| unwrap(node).kind() == NodeKind::ArrayComprehension)
+            {
+                let mut sources = Vec::new();
+                for ((file, node), formal) in actuals.into_iter().zip(arrays) {
+                    if self
+                        .expression_type(self.view(file, node, view), file, node)
+                        .is_none_or(|e| e.ty != instance.view.declarations[formal.0].ty)
+                    {
+                        return Err(
+                            "constructed asserted actual does not retain its selected formal type"
+                                .into(),
+                        );
+                    }
+                    let lexical = if file == clause.file
+                        && clause.node.range().start <= node.range().start
+                        && node.range().end <= clause.node.range().end
+                    {
+                        &clause.generators[..]
+                    } else {
+                        &[]
+                    };
+                    let actual = self
+                        .constructed_array_actual(file, node, view, lexical)?
+                        .ok_or("asserted constructed array actual unavailable")?;
+                    sources.push(actual.item_source.ok_or(
+                        "asserted constructed input requires a checked item-set selection",
+                    )?);
+                }
+                // Both implicit axes are 1..card(this exact inspected set),
+                // including zero and noncontiguous members. No count is guessed.
+                return if sources[0] == sources[1] {
+                    Ok(())
+                } else {
+                    Err("constructed asserted array axes have different source identities".into())
+                };
+            }
         }
-        let Some(arrays) = self
-            .direct_asserted_forall(body.file, body.node, &instance.view)
-            .map(|(_, arrays)| arrays)
-            .or_else(|| {
-                self.nested_asserted_forall(body.file, body.node, &instance.view)
-                    .map(|(_, arrays)| arrays)
-            })
-        else {
-            return Ok(());
-        };
         let mut axes = Vec::new();
         for formal in arrays {
             let (file, value) = self

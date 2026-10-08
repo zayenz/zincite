@@ -5096,3 +5096,21 @@ semantic62-macc-neighbours-release-controls-preparation-v1. Actual main
 formatting, Clippy with warnings denied and all 219 workspace tests pass under
 semantic62-macc-neighbours-main-integration. Remaining support gaps and final
 complete corpus evidence keep base-083 open.
+
+Computed weighted BIN rows now inspect their selected item sources and require
+exact shared source identity, checked implicit axes and complete output traversal.
+Unknown membership, filtered traversal, partial initialization and dependency
+cycles retain their existing refusals.
+
+Matched normal opt3 controls remove the bare-array Search limitation from both
+the public aligned-row reduction and original GBAC. The public model changes
+from eight limitations to seven with no warnings; GBAC changes from seventeen
+to sixteen while retaining all sixteen warnings. All fourteen thesis rules
+complete in both after captures. No diagnostics are added. Native and companion
+captures agree on all 26 rules, dependencies and drop records. Existing Gecode
+compile-only proofs were reused; no solver ran. Evidence is under
+semantic62-computed-bin-row-release-controls-preparation-v1. The exact owned
+hunks preserve the selected Macc repair on main. Actual main formatting, Clippy
+with warnings denied and all 220 workspace tests pass under
+semantic62-computed-bin-row-main-integration. Remaining circuit and inactive
+Macc Search work and final complete corpus evidence keep base-083 open.
