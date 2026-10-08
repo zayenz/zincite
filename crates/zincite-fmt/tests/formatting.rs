@@ -38,6 +38,18 @@ fn byte_formatting_retains_raw_comments_with_sorted_and_protected_includes() {
         expected
     );
 
+    let source = b"string: value=\"% /* \\(1 /* \xff */ + 2) /* % \\(3 % \xfe\n) tail % /*\";";
+    let parsed = parse_bytes(source.to_vec()).unwrap();
+    assert!(parsed.analysis_file().diagnostics().is_empty());
+    let formatted = format_bytes(&parsed).unwrap();
+    assert_eq!(
+        formatted,
+        b"string: value = \"% /* \\(1 /* \xff */ + 2) /* % \\(3 % \xfe\n) tail % /*\";\n"
+    );
+    let reparsed = parse_bytes(formatted.clone()).unwrap();
+    assert!(reparsed.analysis_file().diagnostics().is_empty());
+    assert_eq!(format_bytes(&reparsed).unwrap(), formatted);
+
     let malformed = parse_bytes(b"% zincite-fmt: skip\xff\r\ninclude \"a.mzn\";".to_vec()).unwrap();
     let errors = format_bytes(&malformed).unwrap_err();
     assert_eq!(errors.len(), 1);

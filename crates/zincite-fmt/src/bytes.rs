@@ -1,6 +1,8 @@
 use std::ops::Range;
 
-use zincite_syntax::{ByteParsedFile, Diagnostic, ParsedFile, SyntaxElement, TokenKind, lex};
+use zincite_syntax::{
+    ByteParsedFile, Diagnostic, ParsedFile, SyntaxElement, TokenKind, lexical_protected_ranges,
+};
 
 use crate::{FormatOptions, format_with_options, includes, protected_ranges};
 
@@ -23,11 +25,21 @@ pub fn format_bytes_with_options(
     }
     let protected = protected_ranges(analysis)?;
     let original_comments = ordered_comments(analysis, &protected);
-    let lexed = lex(formatted);
-    let mut output_comments = lexed
-        .tokens()
-        .iter()
-        .filter(|token| matches!(token.kind, TokenKind::LineComment | TokenKind::BlockComment));
+    let mut output_comments = lexical_protected_ranges(&formatted)?
+        .into_iter()
+        .filter_map(|range| {
+            // The scanner includes the opening '%'/'/*' for comments, and
+            // the opening quote or closing ')' for string chunks.
+            let text = &formatted[range.clone()];
+            let kind = if text.starts_with('%') {
+                TokenKind::LineComment
+            } else if text.starts_with("/*") {
+                TokenKind::BlockComment
+            } else {
+                return None;
+            };
+            Some((range, kind))
+        });
     let mut replacements = Vec::with_capacity(original_comments.len());
     for index in original_comments {
         let original = &analysis.tokens()[index];
@@ -37,15 +49,15 @@ pub fn format_bytes_with_options(
                 message: "formatted comment does not match its original spelling or order".into(),
             }]
         };
-        let Some(output) = output_comments.next() else {
+        let Some((output_range, output_kind)) = output_comments.next() else {
             return Err(error());
         };
-        if output.kind != original.kind
-            || lexed.source()[output.range.clone()] != analysis.source()[original.range.clone()]
+        if output_kind != original.kind
+            || formatted[output_range.clone()] != analysis.source()[original.range.clone()]
         {
             return Err(error());
         }
-        replacements.push((output.range.clone(), index));
+        replacements.push((output_range, index));
     }
     if output_comments.next().is_some() {
         return Err(vec![Diagnostic {
@@ -53,7 +65,7 @@ pub fn format_bytes_with_options(
             message: "formatted source contains an additional comment".into(),
         }]);
     }
-    let mut formatted = lexed.into_source().into_bytes();
+    let mut formatted = formatted.into_bytes();
     for (range, index) in replacements {
         formatted[range].copy_from_slice(parsed.token_bytes(index));
     }
