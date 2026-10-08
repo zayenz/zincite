@@ -3355,3 +3355,24 @@ records and before/after/current original/asset/source/helper pins. Evidence is
 now have current processing observations; each retains thesis limitations.
 These separate controls preserve the incomplete historical capture and do not
 replace the final full corpus requirement.
+
+The faithful Pentominoes local-axis public reduction passes current MiniZinc
+model-check-only with Gecode and no solve, but fails unchanged24 ArrayIndexStart
+on both q/s axes. Root checked the focused exit 101, full diagnostics and
+unchanged105 baseline files. The negative uses literal column6 against written
+axis1..5, independent of parameter defaults. Evidence is
+`semantic62-local-selection-axis-repair/focused-red/` and `compiler-positive/`;
+the test-only delta is retained in `scripts/semantic-local-selection-axis-draft.patch`.
+A separate consumer-local repair is being implemented without changing global
+minimum, membership or output facts.
+
+The frozen24 largest BNN control, cellda_y_10s, reaches both 300-second
+processing deadlines. Root checked actual terminal -9/timeout receipts, reaped
+empty groups, full streams and before/after/current original/std/frozen-source/
+asset pins. Each child consumed about295 CPU seconds and peaked at about5,049 MiB
+RSS. Companion records load followed by analyze begin; no root/drop/completion
+record exists, so all26 and thesis14 outcomes remain Unobserved. No completion,
+allocation delta, isolated timing ratio or leak is inferred. The current Gecode
+compile-only positive remains valid. Evidence is `semantic62-cellda24-pair/`,
+including root-audit.json and reparsed coverage.json. Bounded cost attribution
+is being prepared; the cutoff remains explicit and acceptance open.
