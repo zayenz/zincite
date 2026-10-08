@@ -4165,3 +4165,16 @@ Full current108/original/std/compiler/release/helper pins,streams,50-sample
 summary arithmetic and two empty reaped outer groups are checked in
 semantic62-crossword37-save-baseline/root-audit.json. CPU/allocation attribution
 and a measured bounded repair remain required; no budget is relaxed.
+
+Fresh normal37 original is control confirms the next support boundary. Native/
+companion agree on96 warnings,zero errors,131 limitations (2.358/2.377s),
+with74 loaded files/413868B. Array-index-start and search-coverage remain
+Limited; the other12 thesis analyses complete. Exact all26 partitions,source/
+drop accounting,current108/original/compiler/std/release/helper pins,complete
+streams,parity and two empty reaped groups are checked in
+semantic62-is37-direct-control/root-audit.json. The already compiler-positive
+source has a parameter sum/card/SetInt-array selection plus arithmetic feeding
+a named1..extent axis; the existing count fallback admits only direct
+length/card initializers. A public source-safety/consumer reduction is assigned
+without changing production. Search has separate remaining located gaps; no
+consumer bridge or task completion is inferred from this diagnosis.
