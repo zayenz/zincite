@@ -3157,3 +3157,21 @@ a closed addition-overflow sibling. This test delta is saved in
 `scripts/semantic-routing-wrapped-arithmetic-veto-draft.patch`.
 Original Routing native/companion outcomes and final combined-source checks
 remain pending; the authoritative source remains pinned to the live capture.
+
+The combined normal candidate passes formatting, Clippy with warnings denied
+and all 193 workspace tests. Root reconstructed all 21 patch paths exactly;
+only the four approved Routing/lookup sections differ from the prior patch.
+The two overlaid source files were touched before rerunning Clippy/tests so
+their preserved copy timestamps could not leave an older Cargo artifact fresh.
+`scripts/semantic-candidate.patch` now records this combined candidate.
+
+Diagnostic23 native-only build and both growth controls also pass. Root
+audited all streams, counter records and source state under
+`target/benchmarks/base083/semantic62-call-head-lookup-attribution-captures/`.
+Full diagnostic/status parity with stock19 and diagnostic22 is exact.
+Checker wall times are 1.116/10.471 ms at 100/1000 declarations; quantized
+CPU deltas are 0/0.01 seconds. Calls are 5,770/57,083; requested bytes are
+841,172/7,546,168. The index adds one allocation and 102,408/409,608 bytes
+to requested/peak memory, with retained memory unchanged. These are bounded
+observations, not an overall linearity claim or isolated speed ratio.
+Normal combined binaries and original Routing comparisons remain pending.
