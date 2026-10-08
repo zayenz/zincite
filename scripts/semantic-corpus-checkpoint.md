@@ -4987,3 +4987,20 @@ After preserving the accepted IS, conversion and Macc changes, actual main
 formatting, Clippy with warnings denied and all214 workspace tests pass under
 semantic62-gcc-main-integration. Conditional-domain support, remaining IS and
 BIN/Macc gaps and final corpus evidence keep base-083 open.
+
+Ignored Boolean wrappers now inspect the owning two-row forall and complete
+initialized row-local scope. Both headers use the same checked table identity;
+each source/filter sees its original preceding scope, and all initializers,
+written axes, annotations and Boolean relation sources remain checked. This
+inspection grants no array outputs or inferred selector membership.
+
+Matched normal opt3 all26 controls complete all fourteen thesis rules on the
+public model. Original IS retains its96 warning lines and0errors; limitations
+fall from117 to116, removing only wrapper388 at12039..12423 with no added
+diagnostics. Native and companion streams, partitions, dependencies and drop
+records agree. Existing Gecode compile-only proofs were reused; no solver ran.
+Evidence is under semantic62-is-dual-row-wrapper-preparation/production-v1/
+release-controls. After preserving GCC and earlier accepted repairs, actual
+main formatting, Clippy with warnings denied and all215 workspace tests pass
+under semantic62-is-dual-row-main-integration. The nested wrapper403 and circuit
+boundaries, remaining BIN/GCC/Macc gaps and final corpus evidence keep base-083 open.

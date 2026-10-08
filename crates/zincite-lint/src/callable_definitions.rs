@@ -3802,6 +3802,51 @@ impl<'a> Producer<'a> {
             } else {
                 &[]
             };
+            // Inspect this complete owning scope before visiting naked Local
+            // references. An ignored wrapper grants no outputs or membership.
+            let quantified = unwrap(argument);
+            if lexical.is_empty()
+                && quantified.kind() == NodeKind::GeneratorCallExpression
+                && self.core(file, quantified, facts, "forall")
+            {
+                let parts: Vec<_> = quantified.child_nodes().collect();
+                if let [headers, body] = parts.as_slice()
+                    && headers.kind() == NodeKind::GeneratorList
+                    && headers.child_nodes().count() == 2
+                    && unwrap(body).kind() == NodeKind::LetExpression
+                {
+                    let typed = self.expression_type(facts, file, quantified).map(|e| &e.ty);
+                    let parameter_int = |t: &TypeInst| {
+                        t.known()
+                            && !optional(t)
+                            && t.kind == TypeKind::Int
+                            && t.instantiation == Instantiation::Parameter
+                    };
+                    let decision_bool =
+                        |t: &TypeInst| boolean(t) && t.instantiation == Instantiation::Decision;
+                    if self.operation_fact(facts, file, quantified).is_none_or(|call|
+                        !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                            if parameters.len() == 1 && decision_bool(return_type)
+                                && Some(return_type) == typed && parameters[0].known()
+                                && !optional(&parameters[0])
+                                && parameters[0].instantiation == Instantiation::Decision
+                                && matches!(&parameters[0].kind, TypeKind::Array { indices, element }
+                                    if indices.len() == 1 && parameter_int(&indices[0])
+                                        && decision_bool(element)
+                                        && self.expression_type(self.view(file, body, facts), file, body)
+                                            .is_some_and(|e| boolean(&e.ty)
+                                                && crate::types::coerces(&e.ty, element)))))
+                    {
+                        return Err("redundant constraint row forall signature is unsupported".into());
+                    }
+                    let generators: Vec<_> = headers.child_nodes().collect();
+                    match self.parameter_row_let_safety(file, body, facts, &generators) {
+                        Some(DefinitionSafety::Unsupported(reason)) => return Err(reason),
+                        Some(DefinitionSafety::Unknown(_)) => return Ok(()),
+                        _ => {}
+                    }
+                }
+            }
             // Boolean call bodies use the existing instance interpreter. Evaluate
             // their non-Boolean actuals and initialized references independently.
             let mut nodes = vec![argument];
@@ -10085,7 +10130,7 @@ impl<'a> Producer<'a> {
         };
         if node.kind() != NodeKind::LetExpression
             || ty(node).is_none_or(|t| !t.known() || optional(t) || t.kind != TypeKind::Bool)
-            || generators.len() != 1
+            || !matches!(generators.len(), 1 | 2)
             || node
                 .child_nodes()
                 .filter(|n| n.kind() != NodeKind::LetBlock)
@@ -10094,18 +10139,80 @@ impl<'a> Producer<'a> {
         {
             return None;
         }
-        let generator = generators[0];
-        let source = generator.child_nodes().next()?;
-        if generator.child_nodes().count() != 1
-            || !generator.children().iter().any(|c| {
-                matches!(c, SyntaxElement::Token(i)
-                if self.context.files[file].parsed.tokens()[*i].kind == TokenKind::In)
-            })
-            || !self.core(file, source, view, "index_set_1of2")
-        {
-            return None;
+        let dual_rows = generators.len() == 2;
+        let integer_set = |t: &TypeInst| {
+            t.known()
+                && !optional(t)
+                && t.instantiation == Instantiation::Parameter
+                && matches!(&t.kind, TypeKind::Set(element) if integer(element))
+        };
+        let integer_table = |t: &TypeInst| {
+            t.known()
+                && !optional(t)
+                && t.instantiation == Instantiation::Parameter
+                && matches!(&t.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 2 && indices.iter().all(integer) && integer(element))
+        };
+        let mut sources = Vec::new();
+        let mut table = None;
+        for generator in generators {
+            let source = generator.child_nodes().next()?;
+            if (!dual_rows && generator.child_nodes().count() != 1)
+                || (dual_rows
+                    && generator
+                        .child_nodes()
+                        .skip(1)
+                        .any(|n| n.kind() != NodeKind::WhereFilter))
+                || !generator.children().iter().any(|c| {
+                    matches!(c, SyntaxElement::Token(i)
+                    if self.context.files[file].parsed.tokens()[*i].kind == TokenKind::In)
+                })
+                || !self.core(file, source, view, "index_set_1of2")
+            {
+                return None;
+            }
+            if dual_rows {
+                let binders: Vec<_> = self
+                    .bindings
+                    .declarations
+                    .iter()
+                    .filter(|d| {
+                        d.file == file
+                            && d.role == DeclarationRole::Generator
+                            && d.syntax_range == generator.range()
+                    })
+                    .collect();
+                let values: Vec<_> = source.child_nodes().collect();
+                let [value] = values.as_slice() else {
+                    return None;
+                };
+                let subject = unwrap(value);
+                let array = self.reference(file, subject)?;
+                let owner = &self.bindings.declarations[array.0];
+                if binders.len() != 1
+                    || !integer(&view.declarations[binders[0].id.0].ty)
+                    || subject.kind() != NodeKind::Expression
+                    || !matches!(crate::domains::tokens(&self.context.files[file].parsed, subject).as_slice(),
+                        [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+                    || !(owner.role == DeclarationRole::Parameter
+                        || owner.role == DeclarationRole::Value && owner.top_level)
+                    || table.is_some_and(|previous| previous != array)
+                    || ty(value).is_none_or(|t| !integer_table(t))
+                    || ty(source).is_none_or(|t| !integer_set(t))
+                    || self.operation_fact(self.view(file, source, view), file, source).is_none_or(|call|
+                        !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                            if parameters.len() == 1 && integer_table(&parameters[0])
+                                && ty(value).is_some_and(|actual| crate::types::coerces(actual, &parameters[0]))
+                                && integer_set(return_type) && Some(return_type) == ty(source)))
+                {
+                    return None;
+                }
+                table = Some(array);
+            }
+            sources.push(source);
         }
         let mut rows = Vec::new();
+        let mut locals = Vec::new();
         let mut initializers = Vec::new();
         for block in node
             .child_nodes()
@@ -10139,6 +10246,11 @@ impl<'a> Producer<'a> {
                 let array = self.reference(file, subject)?;
                 let owner = &self.bindings.declarations[array.0];
                 let row = self.reference(file, unwrap(parts[1]))?;
+                let position = generators.iter().position(|generator| {
+                    self.bindings.declarations[row.0].syntax_range == generator.range()
+                })?;
+                let generator = generators[position];
+                let source = sources[position];
                 if subject.kind() != NodeKind::Expression
                     || !matches!(crate::domains::tokens(&self.context.files[file].parsed, subject).as_slice(),
                         [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
@@ -10187,6 +10299,9 @@ impl<'a> Producer<'a> {
                 if !rows.contains(&array) {
                     rows.push(array);
                 }
+                if dual_rows {
+                    locals.push(declaration.id);
+                }
                 initializers.push(initializer);
             }
         }
@@ -10194,7 +10309,9 @@ impl<'a> Producer<'a> {
             return None;
         }
         if !crate::definitions::annotations_safe(self.context, file, written)
-            || !crate::definitions::annotations_safe(self.context, file, generator)
+            || generators.iter().any(|generator| {
+                !crate::definitions::annotations_safe(self.context, file, generator)
+            })
         {
             return Some(DefinitionSafety::Unsupported(
                 "row let or iteration annotation is unsupported".into(),
@@ -10226,7 +10343,68 @@ impl<'a> Producer<'a> {
         }
         // Inspect the exact selected header, every initialized local (including
         // unused ones), and the whole Boolean body in its original lexical scope.
-        initializers.push(source);
+        if dual_rows {
+            // Sources see prior headers; each filter also sees its own binder.
+            // Check eager errors only after initialized source inspection.
+            for (position, generator) in generators.iter().enumerate() {
+                let source = sources[position];
+                if let unsupported @ DefinitionSafety::Unsupported(_) = self
+                    .initialized_source_safety(
+                        file,
+                        source,
+                        view,
+                        &generators[..position],
+                        &mut Vec::new(),
+                    )
+                {
+                    return Some(unsupported);
+                }
+                if let Some(reason) = self.closed_integer_source_error(file, source, true, true) {
+                    return Some(DefinitionSafety::Unsupported(reason));
+                }
+                for filter in generator
+                    .child_nodes()
+                    .filter(|n| n.kind() == NodeKind::WhereFilter)
+                {
+                    let values: Vec<_> = filter.child_nodes().collect();
+                    let [condition] = values.as_slice() else {
+                        return Some(DefinitionSafety::Unsupported(
+                            "row filter is unsupported".into(),
+                        ));
+                    };
+                    if !crate::definitions::annotations_safe(self.context, file, filter)
+                        || ty(condition).is_none_or(|t| {
+                            !t.known()
+                                || optional(t)
+                                || t.kind != TypeKind::Bool
+                                || t.instantiation != Instantiation::Parameter
+                        })
+                    {
+                        return Some(DefinitionSafety::Unsupported(
+                            "row filter type or annotation is unsupported".into(),
+                        ));
+                    }
+                    if let unsupported @ DefinitionSafety::Unsupported(_) = self
+                        .initialized_source_safety(
+                            file,
+                            condition,
+                            view,
+                            &generators[..=position],
+                            &mut Vec::new(),
+                        )
+                    {
+                        return Some(unsupported);
+                    }
+                    if let Some(reason) =
+                        self.closed_integer_source_error(file, condition, true, true)
+                    {
+                        return Some(DefinitionSafety::Unsupported(reason));
+                    }
+                }
+            }
+        } else {
+            initializers.push(sources[0]);
+        }
         if let unsupported @ DefinitionSafety::Unsupported(_) =
             self.initialized_children_safety(file, &initializers, view, generators)
         {
@@ -10235,6 +10413,27 @@ impl<'a> Producer<'a> {
         let body = node
             .child_nodes()
             .find(|n| n.kind() != NodeKind::LetBlock)?;
+        if dual_rows {
+            let range = self.context.files[file].location(body.range()).range;
+            for reference in self.bindings.references.iter().filter(|r| {
+                r.file == file
+                    && r.kind == ReferenceKind::Value
+                    && range.start <= r.location.range.start
+                    && r.location.range.end <= range.end
+            }) {
+                if let BindingResolution::Resolved(id) = reference.resolution
+                    && self.bindings.declarations[id.0].role == DeclarationRole::Local
+                    && (!locals.contains(&id)
+                        || self.bindings.declarations[id.0].syntax_range.end
+                            + self.context.files[file].byte_offset
+                            > reference.location.range.start)
+                {
+                    return Some(DefinitionSafety::Unsupported(
+                        "row body has an uninspected or forward local source".into(),
+                    ));
+                }
+            }
+        }
         let inspected = self
             .boolean_relation_safety(file, body, view, generators)
             .unwrap_or_else(|| {
