@@ -8958,3 +8958,261 @@ solve :: int_search(placement, input_order, indomain_min, complete) satisfy;
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn guarded_private_integer_array_relations_inspect_without_output_certificates() {
+    use zincite_lint::{
+        CallOutcome, DeclarationRole, Instantiation, SourceKind, TypeInst, TypeKind,
+    };
+    let written = r###"include "all_different.mzn";
+predicate written_circuit(array[int] of var int: xs) =
+    if length(xs) = 0 then true
+    else let {
+        set of int: S = index_set(xs);
+        int: l = min(S);
+        int: n = card(S);
+        array[S] of var 1..n: order;
+    } in all_different(xs) /\
+        all_different(order) /\
+        forall(i in S)(xs[i] != i) /\
+        order[l] = 1 /\
+        forall(i in S)(order[xs[i]] = if order[i] = n then 1 else order[i] + 1 endif)
+    endif;
+int: node_count;
+set of int: Nodes = 1..node_count;
+array[Nodes] of var Nodes: successor;
+constraint written_circuit(successor);
+constraint analyse_all_different(array1d(successor));
+solve :: int_search(successor, input_order, indomain_min, complete) satisfy;
+"###;
+    for (partial, optional_actual) in [(false, false), (true, false), (false, true)] {
+        let source = if partial {
+            written.replace("order[i] + 1", "order[i] + (1 div 0)")
+        } else if optional_actual {
+            written.replace(
+                "constraint analyse_all_different(array1d(successor));",
+                "array[Nodes] of var opt Nodes: optional_successor;\nconstraint analyse_all_different(array1d(optional_successor));",
+            )
+        } else {
+            written.to_owned()
+        };
+        let (dir, _) = model(
+            if partial {
+                "private-order-partial"
+            } else if optional_actual {
+                "private-order-optional-actual"
+            } else {
+                "private-order-inspection"
+            },
+            "solve satisfy;",
+            "",
+        );
+        std::fs::write(dir.join("library/std/stdlib.mzn"), format!("{CORE}{}", concat!(
+            "function int: length(array[$T] of any $U: x);\n",
+            "function $$E: min(set of $$E: s); function int: card(set of $T: x);\n",
+            "function var bool: '!='(var int: x,var int: y); function bool: '<'(int: x,int: y);\n",
+            "function var bool: '\\/'(var bool: x,var bool: y); function int: 'div'(int: x,int: y);\n"
+        ))).unwrap();
+        // A complete relational body with the standard generic/defaulted signature;
+        // no bodyless output promise substitutes for the two calls.
+        std::fs::write(
+            dir.join("library/std/analyse_all_different.mzn"),
+            "predicate analyse_all_different(array[$X] of var opt $$E: x)=true;\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("library/std/all_different.mzn"), concat!(
+            "include \"analyse_all_different.mzn\";\n",
+            "predicate all_different(array[$X] of var $$E: xs,set of $$E: except={})=analyse_all_different(array1d(xs)) /\\ forall(i,j in index_set(xs) where i<j)(xs[i]!=xs[j] \\/ (xs[i] in except /\\ xs[j] in except));\n"
+        )).unwrap();
+        std::fs::write(dir.join("root.mzn"), &source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                include_dirs: vec![],
+                stdlib_dir: Some(dir.join("library")),
+            },
+        );
+        assert!(context.errors.is_empty(), "{:?}", context.errors);
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let integer_array = |ty: &TypeInst, element_optional| {
+            !ty.optional
+                && ty.instantiation == Instantiation::Decision
+                && matches!(&ty.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 1 && indices[0].kind == TypeKind::Int
+                        && indices[0].instantiation == Instantiation::Parameter && !indices[0].optional
+                        && element.kind == TypeKind::Int && element.instantiation == Instantiation::Decision
+                        && element.optional == element_optional)
+        };
+        let analyse = calls
+            .calls
+            .iter()
+            .find(|call| call.file == 0 && call.name == "analyse_all_different")
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration: analyse_id,
+            parameters,
+            return_type,
+        } = &analyse.outcome
+        else {
+            panic!("analyse tuple: {:?}", analyse.outcome);
+        };
+        let analyse_decl = &bindings.declarations[analyse_id.0];
+        assert_eq!(analyse_decl.name, "analyse_all_different");
+        assert_eq!(
+            context.files[analyse_decl.file].kind,
+            SourceKind::StandardLibrary
+        );
+        assert_eq!(
+            context.files[analyse_decl.file].path,
+            dir.join("library/std/analyse_all_different.mzn")
+        );
+        assert_eq!(parameters.len(), 1);
+        assert!(integer_array(&parameters[0], true), "{parameters:?}");
+        assert_eq!(return_type.kind, TypeKind::Bool);
+        assert_eq!(return_type.instantiation, Instantiation::Decision);
+        assert!(!return_type.optional);
+        let actual_text = if optional_actual {
+            "array1d(optional_successor)"
+        } else {
+            "array1d(successor)"
+        };
+        let actual_start = source.find(actual_text).unwrap();
+        let actual = calls
+            .expressions
+            .iter()
+            .filter(|fact| {
+                fact.file == 0
+                    && fact.location.range.start <= actual_start
+                    && actual_start + actual_text.len() <= fact.location.range.end
+            })
+            .min_by_key(|fact| fact.location.range.len())
+            .unwrap();
+        assert!(
+            integer_array(&actual.ty, optional_actual),
+            "written actual: {:?}",
+            actual.ty
+        );
+        for (text, name, is_array) in [
+            ("index_set(xs)", "index_set", true),
+            ("min(S)", "min", false),
+            ("card(S)", "card", false),
+        ] {
+            let call = calls
+                .calls
+                .iter()
+                .find(|call| {
+                    call.file == 0 && call.location.range.start == source.find(text).unwrap()
+                })
+                .unwrap();
+            assert!(
+                matches!(&call.outcome, CallOutcome::Resolved { declaration, parameters, return_type }
+                if bindings.declarations[declaration.0].name == name
+                    && context.files[bindings.declarations[declaration.0].file].kind == SourceKind::StandardLibrary
+                    && context.files[bindings.declarations[declaration.0].file].implicit
+                    && parameters.len() == 1 && !parameters[0].optional && !return_type.optional
+                    && (if is_array { matches!(&parameters[0].kind, TypeKind::Array { indices, element }
+                        if parameters[0].instantiation == Instantiation::Decision && indices.len() == 1
+                            && indices[0].kind == TypeKind::Int && indices[0].instantiation == Instantiation::Parameter
+                            && !indices[0].optional && element.kind == TypeKind::Int && !element.optional
+                            && element.instantiation == Instantiation::Decision) }
+                        else { parameters[0].instantiation == Instantiation::Parameter
+                            && matches!(&parameters[0].kind, TypeKind::Set(element) if element.kind == TypeKind::Int
+                                && element.instantiation == Instantiation::Parameter && !element.optional) })
+                    && return_type.instantiation == Instantiation::Parameter
+                    && (if is_array { matches!(&return_type.kind, TypeKind::Set(element) if element.kind == TypeKind::Int
+                        && element.instantiation == Instantiation::Parameter && !element.optional) }
+                        else { return_type.kind == TypeKind::Int })),
+                "{text}: {:?}",
+                call.outcome
+            );
+        }
+        let predicate = bindings
+            .declarations
+            .iter()
+            .find(|d| {
+                d.file == 0 && d.name == "written_circuit" && d.role == DeclarationRole::Predicate
+            })
+            .unwrap()
+            .id;
+        let private = bindings
+            .declarations
+            .iter()
+            .find(|d| d.file == 0 && d.name == "order" && d.role == DeclarationRole::Local)
+            .unwrap()
+            .id;
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        assert!(
+            callable
+                .outputs
+                .iter()
+                .all(|output| output.callable != predicate)
+        );
+        assert!(
+            callable
+                .definitions
+                .iter()
+                .all(|definition| definition.target != private)
+        );
+        assert!(!callable.inspected_locals.contains(&private));
+        assert!(
+            callable
+                .outputs
+                .iter()
+                .all(|output| output.callable != *analyse_id)
+        );
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        if partial || optional_actual {
+            let refused = if partial {
+                "1 div 0"
+            } else {
+                "analyse_all_different(array1d(optional_successor))"
+            };
+            let start = source.find(refused).unwrap();
+            assert!(
+                callable
+                    .unavailable
+                    .iter()
+                    .any(|row| row.location.path == context.files[0].path
+                        && row.location.range.start <= start
+                        && start + refused.len() <= row.location.range.end),
+                "{:?}",
+                callable.unavailable
+            );
+            assert!(
+                result
+                    .rules
+                    .iter()
+                    .all(|rule| matches!(rule.outcome, RuleOutcome::Limited { .. })),
+                "{:?}",
+                result.rules
+            );
+        } else {
+            assert!(
+                callable.unavailable.is_empty(),
+                "{:?}",
+                callable.unavailable
+            );
+            assert!(
+                result
+                    .rules
+                    .iter()
+                    .all(|rule| matches!(rule.outcome, RuleOutcome::Completed)),
+                "{:?}",
+                result.rules
+            );
+            let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+            let search =
+                resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+            // This coverage belongs to the explicit search, never the private body.
+            assert_eq!(
+                coverage(&bindings, &search, "successor"),
+                SearchCoverage::WholeArray
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

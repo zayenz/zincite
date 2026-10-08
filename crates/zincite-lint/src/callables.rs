@@ -1955,6 +1955,17 @@ pub(super) fn instantiated_body(
             engine.declared[formal.0] = Some(ty.clone());
         }
     }
+    // Defaults retain the same concrete formal view as the selected body.
+    if let Some(list) = node
+        .child_nodes()
+        .find(|n| n.kind() == NodeKind::ParameterList)
+    {
+        for parameter in list.child_nodes() {
+            for default in parameter.child_nodes().filter(|n| is_expression(n.kind())) {
+                engine.inspect(declaration.file, declaration.item, default);
+            }
+        }
+    }
     if let Some(body) = node
         .child_nodes()
         .filter(|n| is_expression(n.kind()))

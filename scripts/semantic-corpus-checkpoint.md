@@ -5150,3 +5150,23 @@ semantic62-macc-inactive-search-release-controls-preparation-v1. Final corpus
 reconciliation and circuit support remain required for base-083 acceptance.
 Actual main formatting, Clippy with warnings denied and all 220 workspace tests
 pass under semantic62-macc-inactive-search-main-integration.
+
+Guarded circuit bodies now inspect their private index set, extrema, cardinality,
+order array and selectors in the owning scope. This inspection preserves unknown
+membership and produces no private output certificates. Selected callable views
+also retain default-expression types. Present actuals can reach optional formals
+when the existing coercion check allows them; optional actuals remain unsupported.
+The focused public circuit regression passes its positive, partial-initializer
+and optional-actual cases.
+
+Matched normal opt3 controls remove the installed `all_different` optionality
+refusal. Limitations change from thirteen to twelve in the written circuit,
+four to three in the installed circuit and 112 to 111 in original IS. Warnings
+remain seven, one and 97 respectively. All three Search outcomes remain Limited
+at the remaining value-call dependency gap. Native and companion agree on full
+26-rule outcomes, dependencies and drop records. Five retained Gecode compile-only
+proofs were reused; no solver ran. Evidence is under
+semantic62-circuit-optional-formal-release-controls-preparation-v1. Final corpus
+reconciliation and the remaining conversion support keep base-083 open.
+Actual main formatting, Clippy with warnings denied and all 221 workspace tests
+pass under semantic62-circuit-optional-main-integration.
