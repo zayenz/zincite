@@ -8,11 +8,30 @@ use zincite_syntax::{NodeKind, ParsedFile, SyntaxElement, SyntaxNode, TokenKind}
 #[path = "../src/includes.rs"]
 mod includes;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 enum Event<'a> {
     Start(NodeKind),
     End,
-    Token(TokenKind, &'a str),
+    Token(TokenKind, &'a [u8]),
+}
+
+impl std::fmt::Debug for Event<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Start(kind) => formatter.debug_tuple("Start").field(kind).finish(),
+            Self::End => formatter.write_str("End"),
+            Self::Token(kind, bytes) => {
+                let mut token = formatter.debug_tuple("Token");
+                token.field(kind);
+                // Retain existing UTF-8 difference samples without disguising
+                // opaque comment bytes as decoded source text.
+                match std::str::from_utf8(bytes) {
+                    Ok(text) => token.field(&text).finish(),
+                    Err(_) => token.field(bytes).finish(),
+                }
+            }
+        }
+    }
 }
 
 fn trivia(kind: TokenKind) -> bool {
@@ -55,7 +74,7 @@ fn punctuation_allowed(parsed: &ParsedFile, node: &SyntaxNode, index: usize) -> 
         })
 }
 
-fn events<'a>(parsed: &ParsedFile, source: &'a str, sort_includes: bool) -> Vec<Event<'a>> {
+fn events<'a>(parsed: &ParsedFile, source: &'a [u8], sort_includes: bool) -> Vec<Event<'a>> {
     let mut result = vec![Event::Start(NodeKind::Root)];
     let children = parsed.tree().children();
     let protected = zincite_fmt::protected_ranges(parsed).unwrap_or_default();
@@ -102,7 +121,7 @@ fn events<'a>(parsed: &ParsedFile, source: &'a str, sort_includes: bool) -> Vec<
 fn append<'a>(
     child: &SyntaxElement,
     parsed: &ParsedFile,
-    source: &'a str,
+    source: &'a [u8],
     final_item: bool,
     events: &mut Vec<Event<'a>>,
 ) {
@@ -123,7 +142,7 @@ fn append<'a>(
                 SyntaxElement::Token(index) if parsed.tokens()[*index].kind == TokenKind::Semicolon)
                 })
             {
-                events.push(Event::Token(TokenKind::Semicolon, ";"));
+                events.push(Event::Token(TokenKind::Semicolon, b";"));
             }
             events.push(Event::End);
         }
@@ -138,13 +157,13 @@ fn append<'a>(
 
 // Protected spans include their boundary trivia; neither layout nor optional
 // punctuation normalization applies to these original bytes.
-fn protected_slices<'a>(parsed: &ParsedFile, source: &'a str) -> Option<Vec<&'a str>> {
+fn protected_slices<'a>(parsed: &ParsedFile, source: &'a [u8]) -> Option<Vec<&'a [u8]>> {
     zincite_fmt::protected_ranges(parsed)
         .ok()
         .map(|ranges| ranges.into_iter().map(|range| &source[range]).collect())
 }
 
-fn spelling_counts<'a>(events: &[Event<'a>]) -> HashMap<(usize, &'a str), usize> {
+fn spelling_counts<'a>(events: &[Event<'a>]) -> HashMap<(usize, &'a [u8]), usize> {
     let mut counts = HashMap::new();
     for event in events {
         if let Event::Token(kind, text) = event {
@@ -154,7 +173,7 @@ fn spelling_counts<'a>(events: &[Event<'a>]) -> HashMap<(usize, &'a str), usize>
     counts
 }
 
-fn coverage(parsed: &ParsedFile) -> (bool, bool) {
+fn coverage(parsed: &ParsedFile, source: &[u8]) -> (bool, bool) {
     let mut position = 0;
     let tokens_ok = parsed.tokens().iter().all(|token| {
         let valid = token.range.start == position
@@ -163,7 +182,8 @@ fn coverage(parsed: &ParsedFile) -> (bool, bool) {
             && parsed.source().is_char_boundary(token.range.end);
         position = token.range.end;
         valid
-    }) && position == parsed.source().len();
+    }) && position == source.len()
+        && source.len() == parsed.source().len();
     fn leaves(node: &SyntaxNode, next: &mut usize) -> bool {
         node.children().iter().all(|child| match child {
             SyntaxElement::Node(node) => leaves(node, next),
@@ -239,7 +259,7 @@ fn location_sample(
 
 fn semantic_report(
     path: &std::path::Path,
-    parsed: Option<&ParsedFile>,
+    parsed: Option<(&ParsedFile, &[u8])>,
     byte_offset: usize,
     preset: &str,
     model_options: &zincite_lint::ModelOptions,
@@ -255,7 +275,7 @@ fn semantic_report(
         zincite_lint::analyze_model(context, &options)
     } else {
         zincite_lint::analyze_file(
-            parsed.expect("source-local input was parsed"),
+            parsed.expect("source-local input was parsed").0,
             path,
             byte_offset,
             &options,
@@ -263,11 +283,16 @@ fn semantic_report(
     };
     let parsed = context
         .as_ref()
-        .and_then(|c| c.root_file.map(|id| &c.files[id].parsed))
+        .and_then(|c| {
+            c.root_file.map(|id| {
+                let parsed = &c.files[id].parsed;
+                (parsed, parsed.source().as_bytes())
+            })
+        })
         .or(parsed);
     let solves = context.as_ref().map_or_else(
         || {
-            parsed.map_or(0, |p| {
+            parsed.map_or(0, |(p, _)| {
                 p.tree()
                     .child_nodes()
                     .filter(|n| {
@@ -297,7 +322,7 @@ fn semantic_report(
         "data"
     } else if parsed.is_none() {
         "input_error"
-    } else if parsed.is_some_and(|p| !p.diagnostics().is_empty()) {
+    } else if parsed.is_some_and(|(p, _)| !p.diagnostics().is_empty()) {
         "syntax_rejected"
     } else if solves == 0 {
         "fragment"
@@ -343,12 +368,12 @@ fn semantic_report(
         .take(12)
         .map(|e| location_sample(&e.location, &e.message, context.as_ref()))
         .collect();
-    let (tokens, tree) = parsed.map_or(("null".into(), "null".into()), |p| {
-        let (tokens, tree) = coverage(p);
+    let (tokens, tree) = parsed.map_or(("null".into(), "null".into()), |(p, source)| {
+        let (tokens, tree) = coverage(p, source);
         (tokens.to_string(), tree.to_string())
     });
-    let parse_count = parsed.map_or("null".into(), |p| p.diagnostics().len().to_string());
-    let parse_errors = parsed.map_or("[]".into(), |p| messages(p.diagnostics()));
+    let parse_count = parsed.map_or("null".into(), |(p, _)| p.diagnostics().len().to_string());
+    let parse_errors = parsed.map_or("[]".into(), |(p, _)| messages(p.diagnostics()));
     println!(
         "{{\"input_status\":\"ok\",\"check_kind\":\"semantic\",\"selection\":{},\"file_mode\":{},\"root_state\":{},\"loaded_solve_count\":{solves},\"dependencies\":{dependencies},\"parse_count\":{},\"parse_errors\":{},\"token_coverage\":{tokens},\"tree_coverage\":{tree},\"analysis_status\":{},\"warning_count\":{},\"error_count\":{},\"limitation_count\":{},\"rules\":{{{}}},\"error_samples\":[{}],\"limitation_samples\":[{}],\"sample_limits\":{{\"findings_per_rule\":3,\"errors\":12,\"limitations\":12,\"message_characters\":512}}}}",
         quoted(preset),
@@ -442,7 +467,7 @@ fn main() {
         );
         return;
     }
-    let bytes = match std::fs::read(&path) {
+    let mut bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) => {
             println!(
@@ -452,35 +477,40 @@ fn main() {
             return;
         }
     };
-    let source = match String::from_utf8(bytes) {
-        Ok(source) => source,
+    let byte_offset = usize::from(bytes.starts_with(b"\xef\xbb\xbf")) * 3;
+    if byte_offset > 0 {
+        drop(bytes.drain(..byte_offset));
+    }
+    // Keep original byte storage independent of the CST, so the first tree can
+    // still be released before reparsing. Code/literals remain UTF-8; opaque
+    // comments are accepted and compared without decoding their payloads.
+    let parsed = match zincite_syntax::parse_bytes_with_mode(bytes.clone(), mode) {
+        Ok(parsed) => parsed,
         Err(error) => {
             println!(
                 "{{\"input_status\":\"invalid_utf8\",\"offset\":{}}}",
-                error.utf8_error().valid_up_to()
+                error.range.start + byte_offset
             );
             return;
         }
     };
-    let byte_offset = usize::from(source.starts_with('\u{feff}')) * 3;
-    let source = source.strip_prefix('\u{feff}').unwrap_or(&source);
-    let mode = zincite_syntax::FileMode::from_path(&path);
-    let parsed = zincite_syntax::parse_with_mode(source, mode);
+    let source = bytes.as_slice();
+    let analysis = parsed.analysis_file();
     if let Some(preset) = preset {
         semantic_report(
             std::path::Path::new(&path),
-            Some(&parsed),
+            Some((analysis, source)),
             byte_offset,
             &preset,
             &model_options,
         );
         return;
     }
-    let (token_coverage, tree_coverage) = coverage(&parsed);
-    let parse_errors = messages(parsed.diagnostics());
-    let parse_count = parsed.diagnostics().len();
+    let (token_coverage, tree_coverage) = coverage(analysis, source);
+    let parse_errors = messages(analysis.diagnostics());
+    let parse_count = analysis.diagnostics().len();
     let data_model_items = mode == zincite_syntax::FileMode::Data && parse_count > 0 && {
-        let model = zincite_syntax::parse(source);
+        let model = zincite_syntax::parse(analysis.source());
         model.diagnostics().is_empty()
             && model
                 .tree()
@@ -490,7 +520,7 @@ fn main() {
     let (lint_status, warnings, naming, labels, lint_errors) = if parse_count > 0 {
         ("skipped_parse_errors", 0, 0, 0, "[]".into())
     } else {
-        match zincite_lint::lint(&parsed) {
+        match zincite_lint::lint(analysis) {
             Ok(warnings) => {
                 let naming = warnings
                     .iter()
@@ -511,65 +541,73 @@ fn main() {
     let mut idempotence = "not_run";
     let mut first_difference = "null".to_owned();
     if parse_count == 0 {
-        match zincite_fmt::format(&parsed) {
+        match zincite_fmt::format_bytes(&parsed) {
             Err(errors) => {
                 format_status = "directive_error";
                 format_errors = messages(&errors);
             }
             Ok(formatted) => {
                 format_status = "ok";
-                let original_protected = protected_slices(&parsed, source);
-                let original_counts = spelling_counts(&events(&parsed, source, false));
-                let expected = events(&parsed, source, true);
+                let original_protected = protected_slices(analysis, source);
+                let original_counts = spelling_counts(&events(analysis, source, false));
+                let expected = events(analysis, source, true);
                 drop(parsed);
-                let reparsed = zincite_syntax::parse_with_mode(&formatted, mode);
-                reparse_count = reparsed.diagnostics().len();
-                if reparse_count == 0 {
-                    protected_bytes = if original_protected.is_some()
-                        && original_protected == protected_slices(&reparsed, &formatted)
-                    {
-                        "ok"
-                    } else {
-                        "mismatch"
-                    };
-                    let actual = events(&reparsed, &formatted, false);
-                    spellings = if original_counts == spelling_counts(&actual) {
-                        "ok"
-                    } else {
-                        "mismatch"
-                    };
-                    structure = if expected == actual { "ok" } else { "mismatch" };
-                    if structure == "mismatch" {
-                        let position = expected
-                            .iter()
-                            .zip(&actual)
-                            .position(|(a, b)| a != b)
-                            .unwrap_or(expected.len().min(actual.len()));
-                        first_difference = format!(
-                            "{{\"event\":{position},\"expected\":{},\"actual\":{}}}",
-                            quoted(&format!("{:?}", expected.get(position))),
-                            quoted(&format!("{:?}", actual.get(position)))
-                        );
+                match zincite_syntax::parse_bytes_with_mode(formatted.clone(), mode) {
+                    Err(error) => {
+                        reparse_count = 1;
+                        format_errors = messages(&[error]);
                     }
-                    idempotence = match zincite_fmt::format(&reparsed) {
-                        Ok(second) if second == formatted => "ok",
-                        Ok(second) => {
-                            if first_difference == "null" {
-                                let offset = second
-                                    .bytes()
-                                    .zip(formatted.bytes())
+                    Ok(reparsed) => {
+                        let analysis = reparsed.analysis_file();
+                        reparse_count = analysis.diagnostics().len();
+                        if reparse_count == 0 {
+                            protected_bytes = if original_protected.is_some()
+                                && original_protected == protected_slices(analysis, &formatted)
+                            {
+                                "ok"
+                            } else {
+                                "mismatch"
+                            };
+                            let actual = events(analysis, &formatted, false);
+                            spellings = if original_counts == spelling_counts(&actual) {
+                                "ok"
+                            } else {
+                                "mismatch"
+                            };
+                            structure = if expected == actual { "ok" } else { "mismatch" };
+                            if structure == "mismatch" {
+                                let position = expected
+                                    .iter()
+                                    .zip(&actual)
                                     .position(|(a, b)| a != b)
-                                    .unwrap_or(second.len().min(formatted.len()));
+                                    .unwrap_or(expected.len().min(actual.len()));
                                 first_difference = format!(
-                                    "{{\"second_pass_byte\":{offset},\"first_length\":{},\"second_length\":{}}}",
-                                    formatted.len(),
-                                    second.len()
+                                    "{{\"event\":{position},\"expected\":{},\"actual\":{}}}",
+                                    quoted(&format!("{:?}", expected.get(position))),
+                                    quoted(&format!("{:?}", actual.get(position)))
                                 );
                             }
-                            "mismatch"
+                            idempotence = match zincite_fmt::format_bytes(&reparsed) {
+                                Ok(second) if second == formatted => "ok",
+                                Ok(second) => {
+                                    if first_difference == "null" {
+                                        let offset = second
+                                            .iter()
+                                            .zip(&formatted)
+                                            .position(|(a, b)| a != b)
+                                            .unwrap_or(second.len().min(formatted.len()));
+                                        first_difference = format!(
+                                            "{{\"second_pass_byte\":{offset},\"first_length\":{},\"second_length\":{}}}",
+                                            formatted.len(),
+                                            second.len()
+                                        );
+                                    }
+                                    "mismatch"
+                                }
+                                Err(_) => "error",
+                            };
                         }
-                        Err(_) => "error",
-                    };
+                    }
                 }
             }
         }
@@ -590,6 +628,55 @@ mod tests {
     use super::*;
 
     #[test]
+    fn opaque_comments_are_checked_as_raw_bytes_after_sorted_and_protected_formatting() {
+        let source = b"/* \xe7 */\ninclude \"z.mzn\";\n/* \xe9 */\ninclude \"a.mzn\";\r\n% zincite-fmt: off\r\ninclude  \"y.mzn\" ; /* \xff */\r\n% zincite-fmt: on\r\n";
+        let parsed = zincite_syntax::parse_bytes(source.to_vec()).unwrap();
+        let analysis = parsed.analysis_file();
+        assert!(analysis.diagnostics().is_empty());
+        assert_eq!(coverage(analysis, source), (true, true));
+        let expected = events(analysis, source, true);
+        let counts = spelling_counts(&events(analysis, source, false));
+        let protected = protected_slices(analysis, source);
+        let formatted = zincite_fmt::format_bytes(&parsed).unwrap();
+        let reparsed = zincite_syntax::parse_bytes(formatted.clone()).unwrap();
+        let analysis = reparsed.analysis_file();
+        assert!(analysis.diagnostics().is_empty());
+        assert_eq!(coverage(analysis, &formatted), (true, true));
+        let actual = events(analysis, &formatted, false);
+        assert_eq!(expected, actual);
+        assert_eq!(counts, spelling_counts(&actual));
+        assert_eq!(protected, protected_slices(analysis, &formatted));
+        assert_eq!(zincite_fmt::format_bytes(&reparsed).unwrap(), formatted);
+
+        // Swapped raw comments have the same analysis spelling and counts, but
+        // the checker must still detect incorrect attachment after sorting.
+        let swapped: Vec<_> = formatted
+            .iter()
+            .map(|&byte| match byte {
+                0xe7 => 0xe9,
+                0xe9 => 0xe7,
+                _ => byte,
+            })
+            .collect();
+        let swapped_parsed = zincite_syntax::parse_bytes(swapped.clone()).unwrap();
+        assert_eq!(analysis.source(), swapped_parsed.analysis_file().source());
+        let swapped_events = events(swapped_parsed.analysis_file(), &swapped, false);
+        assert_eq!(counts, spelling_counts(&swapped_events));
+        assert_ne!(expected, swapped_events);
+
+        let changed: Vec<_> = formatted
+            .iter()
+            .map(|&byte| if byte == 0xff { 0xfe } else { byte })
+            .collect();
+        let changed_parsed = zincite_syntax::parse_bytes(changed.clone()).unwrap();
+        assert_eq!(analysis.source(), changed_parsed.analysis_file().source());
+        assert_ne!(
+            protected,
+            protected_slices(changed_parsed.analysis_file(), &changed)
+        );
+    }
+
+    #[test]
     fn protected_bytes_detect_layout_and_punctuation_changes_and_accept_real_output() {
         let source = "% zincite-fmt: skip\nany: x = [1,  2,];\n";
         let parsed = zincite_syntax::parse(source);
@@ -600,8 +687,8 @@ mod tests {
         ] {
             let changed_parsed = zincite_syntax::parse(changed);
             assert_ne!(
-                protected_slices(&parsed, source),
-                protected_slices(&changed_parsed, changed)
+                protected_slices(&parsed, source.as_bytes()),
+                protected_slices(&changed_parsed, changed.as_bytes())
             );
         }
         for source in [
@@ -612,8 +699,8 @@ mod tests {
             let formatted = zincite_fmt::format(&parsed).unwrap();
             let reparsed = zincite_syntax::parse(&formatted);
             assert_eq!(
-                protected_slices(&parsed, source),
-                protected_slices(&reparsed, &formatted)
+                protected_slices(&parsed, source.as_bytes()),
+                protected_slices(&reparsed, formatted.as_bytes())
             );
         }
     }

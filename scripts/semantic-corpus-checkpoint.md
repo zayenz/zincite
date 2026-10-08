@@ -4089,3 +4089,17 @@ focused-red}/root-audit.json. Its frozen tests/public sources remain separate
 from main; a scoped ignored-wrapper/extrema inspection increment is assigned
 against this genuine RED. Neither conditional searches nor ignored constraints
 may gain whole-array or output certificates.
+
+The corpus preservation example now parses and formats raw comment bytes.
+Token spelling counts, sorted CST events and protected spans compare original
+bytes, with UTF-8 diagnostics retaining their earlier debug representation.
+Its two inline tests pass, including detection of swapped opaque include
+comments and changed protected payloads despite identical analysis text.
+Full frozen108 source/helper pins, streams and the empty reaped group are
+checked in semantic62-opaque-comment-corpus-example-preparation/
+focused-example/root-audit.json. Main fmt, Clippy and all198 workspace tests/
+42 summaries pass; current108 sources and full streams/groups are checked
+in that preparation directory's actual-workspace-gates/root-audit.json.
+Original crossword preservation-example runs still require a fresh release;
+model-dependent lint loading and raw snapshots/fixes remain open. This
+increment does not complete task083 or substitute for final corpus evidence.
