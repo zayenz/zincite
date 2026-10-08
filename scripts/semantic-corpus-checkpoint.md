@@ -3615,3 +3615,14 @@ checked in `semantic62-sparse-search-gap-preparation/normal30-public-probe/`
 `root-audit.json`. The tiny runtime overlap with Routing30 is retained separately;
 no isolated performance conclusion is drawn. Tests-only regression preparation
 and the conservative source repairs remain pending.
+
+Normal30 original Routing native and companion now complete with all14 thesis
+rules Completed, including search-coverage. Both have status1, matching full
+stderr (81,524 bytes),182 warnings and zero errors. Limitations fall192 to191;
+four non-thesis rules remain Limited: expensive-comprehension, index-set-mismatch,
+partial-expression and vacuous-constraint. Original/source metadata and drop
+records equal25; full streams, current pins, exact14/26 partitions and reaped empty
+groups are independently checked in `semantic62-routing30-controls/root-audit.json`.
+Known tiny Sparse probe overlap is retained separately, with no timing ratio.
+This closes the observed Routing thesis gap; remaining originals and final full
+corpus evidence still keep base-083 open.
