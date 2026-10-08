@@ -4814,3 +4814,23 @@ semantic62-extrema-release-control-preparation/{release-results/root-build-audit
 control-results/root-audit.json}. No solver was run. This is a useful source
 checkpoint; remaining original-model gaps and final corpus acceptance still
 prevent base-083 completion.
+
+
+A whole owning assert can now inspect one selected nested weighted-load predicate
+without changing that child's unconditional summary. The bounded path checks the
+complete one-binder forall equality and weighted sum, maps only distinct owning
+formals, and uses the checked index-set equality for that invocation's weight
+selector. Caller output transfer still requires equal checked actual axes;
+unknown, mismatched and computed actuals retain their limitations.
+
+The independent same-callee mismatch counter and prior assertion/BIN guards pass.
+Actual main formatting, Clippy with warnings denied and all208 workspace tests
+pass; all108 source paths match the gated opt3 candidate. Fresh Gecode compile-only
+and native/companion all26 controls complete Search and all14 thesis analyses in
+the bare nested singleton, with one warning and two separate VacuousConstraint
+limits. Conversion and BIN controls remain Limited. Original GBAC remains exactly
+16warnings/0errors/18limitations, with byte-identical diagnostics and partitions.
+Evidence is under semantic62-nested-weighted-main-integration/actual-workspace-gates
+and semantic62-nested-weighted-release-control-preparation/{release-results,
+control-results}/root-*.json. No solver was run. Conversion, computed-row and GCC
+support and the final corpus checks remain required for base-083.

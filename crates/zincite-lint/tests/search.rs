@@ -4748,6 +4748,40 @@ fn asserted_array_membership_requires_exact_scope_and_successful_actual_axes() {
     );
     for (name, source, supported) in [
         (
+            "same-callee-unguarded-mismatched-axis",
+            r#"% Public reduction of fzn_bin_packing_load.mzn:10's weighted selector.
+% This preserves weight[i] under i in index_set(bin), with an unsearched load.
+predicate public_weighted_load(array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight) =
+    forall(b in index_set(load))(load[b] = sum(i in index_set(bin))(weight[i] * (bin[i] = b)));
+
+predicate public_aligned_load(array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight) =
+    assert(
+        index_set(bin) == index_set(weight),
+        "Bin and weight index sets must agree",
+        public_weighted_load(load, bin, weight)
+    );
+
+% A guarded use must not certify another invocation of the same declaration.
+array[1..1] of int: guarded_weight = [1];
+array[1..1] of var 1..1: guarded_placement;
+array[1..1] of var 0..1: guarded_load;
+array[1..0] of int: item_weight = [];
+array[1..1] of var 1..1: placement;
+array[1..1] of var 0..1: bin_load;
+
+constraint :: "The first invocation has its own index guard"
+    public_aligned_load(guarded_load, guarded_placement, guarded_weight);
+constraint :: "The second invocation has no index guard"
+    public_weighted_load(bin_load, placement, item_weight);
+
+solve :: seq_search([
+    int_search(placement, first_fail, indomain_min, complete),
+    int_search(guarded_placement, first_fail, indomain_min, complete)
+]) satisfy;
+"#,
+            false,
+        ),
+        (
             "aligned-direct-singleton",
             r#"% Public reduction of fzn_bin_packing_load.mzn:10's weighted selector.
 % This preserves weight[i] under i in index_set(bin), with an unsearched load.
@@ -4876,7 +4910,7 @@ constraint :: "weighted_load_indices"
 
 solve :: int_search(placement, first_fail, indomain_min, complete) satisfy;
 "#,
-            false,
+            true,
         ),
     ] {
         let (dir, _) = model(&format!("asserted-array-membership-{name}"), source, "");
@@ -5029,10 +5063,121 @@ solve :: int_search(placement, first_fail, indomain_min, complete) satisfy;
                 );
             }
         }
+        for call in calls.calls.iter().filter(|call| {
+            context.files[call.file].kind == zincite_lint::SourceKind::User
+                && matches!(
+                    call.name.as_str(),
+                    "public_weighted_load" | "public_aligned_load"
+                )
+        }) {
+            let zincite_lint::CallOutcome::Resolved {
+                declaration,
+                parameters,
+                return_type,
+            } = &call.outcome
+            else {
+                panic!("{name}: nested selection {:?}", call.outcome);
+            };
+            let selected = &bindings.declarations[declaration.0];
+            assert_eq!(selected.name, call.name, "{name}");
+            assert_eq!(
+                selected.role,
+                zincite_lint::DeclarationRole::Predicate,
+                "{name}"
+            );
+            assert_eq!(
+                context.files[selected.file].kind,
+                zincite_lint::SourceKind::User,
+                "{name}"
+            );
+            let integer_array = |ty: &zincite_lint::TypeInst, instantiation| {
+                present_type(ty)
+                    && ty.instantiation == instantiation
+                    && matches!(&ty.kind, zincite_lint::TypeKind::Array { indices, element }
+                        if indices.len() == 1 && parameter(&indices[0], zincite_lint::TypeKind::Int)
+                            && element.kind == zincite_lint::TypeKind::Int
+                            && element.instantiation == instantiation)
+            };
+            assert_eq!(parameters.len(), 3, "{name}");
+            assert!(
+                integer_array(&parameters[0], zincite_lint::Instantiation::Decision),
+                "{name}"
+            );
+            assert!(
+                integer_array(&parameters[1], zincite_lint::Instantiation::Decision),
+                "{name}"
+            );
+            assert!(
+                integer_array(&parameters[2], zincite_lint::Instantiation::Parameter),
+                "{name}"
+            );
+            assert!(present_type(return_type), "{name}");
+            assert_eq!(return_type.kind, zincite_lint::TypeKind::Bool, "{name}");
+            assert_eq!(
+                return_type.instantiation,
+                zincite_lint::Instantiation::Decision,
+                "{name}"
+            );
+        }
         let inst = resolve_instantiations(&context, &bindings, &calls);
         let domains = resolve_domains(&context, &bindings);
+        if matches!(
+            name,
+            "aligned-nested-singleton" | "same-callee-unguarded-mismatched-axis"
+        ) {
+            let axis = |name| {
+                let id = bindings
+                    .declarations
+                    .iter()
+                    .find(|d| d.top_level && d.name == name)
+                    .unwrap()
+                    .id;
+                let zincite_lint::Domain::Array { indices, .. } =
+                    &domains.declarations[id.0].domain
+                else {
+                    panic!("{name}: written array domain unavailable");
+                };
+                indices.clone()
+            };
+            let singleton = vec![zincite_lint::Domain::Range {
+                lower: zincite_lint::NumericBound::Integer(1),
+                upper: zincite_lint::NumericBound::Integer(1),
+            }];
+            assert_eq!(axis("placement"), singleton, "{name}");
+            assert_eq!(
+                axis("item_weight"),
+                if name == "aligned-nested-singleton" {
+                    singleton.clone()
+                } else {
+                    vec![zincite_lint::Domain::Range {
+                        lower: zincite_lint::NumericBound::Integer(1),
+                        upper: zincite_lint::NumericBound::Integer(0),
+                    }]
+                },
+                "{name}"
+            );
+            if name == "same-callee-unguarded-mismatched-axis" {
+                assert_eq!(axis("guarded_placement"), singleton, "{name}");
+                assert_eq!(axis("guarded_weight"), singleton, "{name}");
+            }
+        }
         let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
         let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        if name == "same-callee-unguarded-mismatched-axis" {
+            let callee = bindings
+                .declarations
+                .iter()
+                .find(|d| d.top_level && d.name == "public_weighted_load")
+                .unwrap()
+                .id;
+            assert!(
+                !callable.outputs.iter().any(|output| {
+                    output.callable == callee && output.coverage == DefinitionCoverage::WholeArray
+                }),
+                "{name}: guarded invocation leaked into an unconditional callee summary: {:?}",
+                callable.outputs
+            );
+        }
         let search =
             resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
         let load = bindings

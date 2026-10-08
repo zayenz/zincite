@@ -2530,28 +2530,43 @@ impl<'a> Producer<'a> {
                         && matches!(clauses[0].kind, ClauseKind::Equality))
                     .then(|| self.direct_asserted_forall(clause.file, clause.node, view))
                     .flatten();
+                    let nested_forall = (clause.generators.is_empty()
+                        && clauses.len() == 1
+                        && matches!(clauses[0].kind, ClauseKind::Call))
+                    .then(|| self.nested_asserted_forall(clause.file, clause.node, view))
+                    .flatten();
+                    let nested_target = nested_forall.as_ref().map(|(output, _)| output.target);
                     let mut found = Vec::new();
                     let mut body_unavailable = Vec::new();
-                    for body in clauses {
-                        // Every third argument remains inspected. A fresh boundary
-                        // collection also retains causes already reported by siblings.
-                        self.interpret_forwarded(
-                            (&body, view, known),
-                            &mut found,
-                            &mut body_unavailable,
-                            inspected,
-                            active,
-                        );
+                    if let Some((output, _)) = nested_forall {
+                        // This complete selected-body check belongs to this guard's
+                        // invocation. The unguarded child's summaries and causes remain.
+                        found.push(output);
+                    } else {
+                        for body in clauses {
+                            // Every third argument remains inspected. A fresh boundary
+                            // collection also retains causes already reported by siblings.
+                            self.interpret_forwarded(
+                                (&body, view, known),
+                                &mut found,
+                                &mut body_unavailable,
+                                inspected,
+                                active,
+                            );
+                        }
                     }
                     let supported_body = body_unavailable.is_empty();
                     unavailable.extend(body_unavailable);
-                    let whole_forall = asserted_forall.is_some_and(|(target, _)| {
-                        found.len() == 1
-                            && found[0].target == target
-                            && found[0].coverage == DefinitionCoverage::WholeArray
-                            && !found[0].enforced_boolean
-                            && !found[0].scoped_local
-                    });
+                    let whole_forall = asserted_forall
+                        .map(|(target, _)| target)
+                        .or(nested_target)
+                        .is_some_and(|target| {
+                            found.len() == 1
+                                && found[0].target == target
+                                && found[0].coverage == DefinitionCoverage::WholeArray
+                                && !found[0].enforced_boolean
+                                && !found[0].scoped_local
+                        });
                     if literal == Some(TokenKind::True)
                         || (direct_equality || whole_forall) && supported_body
                     {
@@ -4586,12 +4601,12 @@ impl<'a> Producer<'a> {
     }
     // This first contract belongs to the callable's entire direct body. A
     // conditional, local or nested call cannot carry it into an output summary.
-    fn direct_asserted_forall(
+    fn asserted_index_pair(
         &self,
         file: FileId,
         assertion: &'a SyntaxNode,
         view: &CallableFacts,
-    ) -> Option<(DeclarationId, [DeclarationId; 2])> {
+    ) -> Option<[DeclarationId; 2]> {
         let owner = self.bindings.declarations.iter().find(|d| {
             d.file == file
                 && matches!(
@@ -4674,7 +4689,39 @@ impl<'a> Producer<'a> {
         }) {
             return None;
         }
-        let quantified = unwrap(args[2].1);
+        let mut nodes = vec![assertion];
+        while let Some(node) = nodes.pop() {
+            if !crate::definitions::annotations_safe(self.context, file, node) {
+                return None;
+            }
+            nodes.extend(node.child_nodes());
+        }
+        for (position, (_, value)) in args.iter().take(2).enumerate() {
+            let kind = if position == 0 {
+                TypeKind::Bool
+            } else {
+                TypeKind::String
+            };
+            if self
+                .expression_type(self.view(file, value, view), file, value)
+                .is_none_or(|e| !present(&e.ty, kind, Instantiation::Parameter))
+                || self.dependencies(file, value, view, &[]).is_err()
+            {
+                return None;
+            }
+        }
+        Some(arrays)
+    }
+    fn direct_forall_equality(
+        &self,
+        file: FileId,
+        quantified: &'a SyntaxNode,
+        view: &CallableFacts,
+    ) -> Option<(DeclarationId, &'a SyntaxNode, Vec<&'a SyntaxNode>)> {
+        let present = |ty: &TypeInst, kind, instantiation| {
+            ty.known() && !optional(ty) && ty.kind == kind && ty.instantiation == instantiation
+        };
+        let quantified = unwrap(quantified);
         if quantified.kind() != NodeKind::GeneratorCallExpression
             || !self.core(file, quantified, view, "forall")
             || !self.operation_fact(self.view(file, quantified, view), file, quantified)
@@ -4733,28 +4780,392 @@ impl<'a> Producer<'a> {
             || !sides.iter().any(|side| self.target(file, side, view, &generators)
                 == Some((output, DefinitionCoverage::WholeArray)))
         { return None; }
-        let mut nodes = vec![assertion];
+        Some((output, equality, generators))
+    }
+    fn direct_asserted_forall(
+        &self,
+        file: FileId,
+        assertion: &'a SyntaxNode,
+        view: &CallableFacts,
+    ) -> Option<(DeclarationId, [DeclarationId; 2])> {
+        let arrays = self.asserted_index_pair(file, assertion, view)?;
+        let args = self.assertion_arguments(file, assertion, view)?;
+        let (output, _, _) = self.direct_forall_equality(file, args[2].1, view)?;
+        Some((output, arrays))
+    }
+    fn nested_asserted_forall(
+        &self,
+        file: FileId,
+        assertion: &'a SyntaxNode,
+        view: &CallableFacts,
+    ) -> Option<(Output, [DeclarationId; 2])> {
+        let arrays = self.asserted_index_pair(file, assertion, view)?;
+        let args = self.assertion_arguments(file, assertion, view)?;
+        let call = unwrap(args[2].1);
+        if call.kind() != NodeKind::CallExpression {
+            return None;
+        }
+        let (id, parameters) = self.resolved(file, call, view)?;
+        let array = |ty: &TypeInst, instantiation| {
+            ty.known()
+                && !optional(ty)
+                && ty.instantiation == instantiation
+                && matches!(&ty.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 1 && indices[0] == TypeInst::par(TypeKind::Int)
+                        && element.kind == TypeKind::Int && element.instantiation == instantiation)
+        };
+        if parameters.len() != 3
+            || !array(&parameters[0], Instantiation::Decision)
+            || !array(&parameters[1], Instantiation::Decision)
+            || !array(&parameters[2], Instantiation::Parameter)
+            || self.expression_type(self.view(file, call, view), file, call)
+                .is_none_or(|e| e.ty != TypeInst::par(TypeKind::Bool).with_inst(Instantiation::Decision))
+            || self.operation_fact(self.view(file, call, view), file, call)
+                .is_none_or(|fact| !matches!(&fact.outcome,
+                    CallOutcome::Resolved { return_type, .. } if *return_type == TypeInst::par(TypeKind::Bool).with_inst(Instantiation::Decision)))
+        {
+            return None;
+        }
+        let owner = &self.bindings.declarations[arrays[0].0];
+        let child = &self.bindings.declarations[id.0];
+        let instance = self
+            .instances
+            .iter()
+            .find(|instance| instance.id == id && instance.parameters == parameters)?;
+        if instance.recursive
+            || child.role != DeclarationRole::Predicate
+            || child.file == owner.file && child.item == owner.item
+        {
+            return None;
+        }
+        let written = find_node(
+            self.context.files[child.file].parsed.tree(),
+            &child.syntax_range,
+            child.role,
+        )?;
+        if !self.callable_annotations_safe(child.file, written) {
+            return None;
+        }
+        let body = written
+            .child_nodes()
+            .filter(|node| is_expression(node.kind()))
+            .last()?;
+        let [equality_clause] = instance.clauses.as_slice() else {
+            return None;
+        };
+        if !matches!(equality_clause.kind, ClauseKind::Equality) {
+            return None;
+        }
+        let (output, equality, generators) =
+            self.direct_forall_equality(child.file, body, &instance.view)?;
+        if equality.range() != equality_clause.node.range()
+            || equality_clause.generators.len() != generators.len()
+            || equality_clause
+                .generators
+                .iter()
+                .zip(&generators)
+                .any(|(clause, source)| !std::ptr::eq(*clause, *source))
+        {
+            return None;
+        }
+        let invocation = Clause {
+            file,
+            item: owner.item,
+            node: call,
+            generators: Vec::new(),
+            kind: ClauseKind::Call,
+        };
+        let mut mapped = Vec::new();
+        for (position, parameter) in parameters.iter().enumerate() {
+            let formal = formal_parameter(self.context, self.bindings, id, position)?;
+            let (source, value) = self.actual(&invocation, id, formal, view)?;
+            let value = unwrap(value);
+            if source != file
+                || value.kind() != NodeKind::Expression
+                || !matches!(crate::domains::tokens(&self.context.files[file].parsed, value).as_slice(),
+                    [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+            {
+                return None;
+            }
+            let actual = self.reference(file, value)?;
+            let declaration = &self.bindings.declarations[actual.0];
+            if declaration.file != file
+                || declaration.item != owner.item
+                || declaration.role != DeclarationRole::Parameter
+                || instance.view.declarations[formal.0].ty != *parameter
+                || self
+                    .expression_type(self.view(file, value, view), file, value)
+                    .is_none_or(|e| e.ty != *parameter)
+                || mapped.iter().any(|(_, previous)| *previous == actual)
+                || self.dependencies(file, value, view, &[]).is_err()
+                || self.initialized_source_safety(file, value, view, &[], &mut Vec::new())
+                    != DefinitionSafety::Supported
+            {
+                return None;
+            }
+            let parameter_node = find_node(
+                self.context.files[file].parsed.tree(),
+                &declaration.syntax_range,
+                declaration.role,
+            )?;
+            let formal_declaration = &self.bindings.declarations[formal.0];
+            let formal_node = find_node(
+                self.context.files[child.file].parsed.tree(),
+                &formal_declaration.syntax_range,
+                formal_declaration.role,
+            )?;
+            if self
+                .type_dependencies(file, parameter_node, view, &[])
+                .is_err()
+                || self
+                    .type_dependencies(child.file, formal_node, &instance.view, &[])
+                    .is_err()
+                || self
+                    .closed_integer_source_error(file, parameter_node, true, false)
+                    .is_some()
+            {
+                return None;
+            }
+            let mut nodes = vec![parameter_node];
+            while let Some(node) = nodes.pop() {
+                if !crate::definitions::annotations_safe(self.context, file, node) {
+                    return None;
+                }
+                nodes.extend(node.child_nodes());
+            }
+            mapped.push((formal, actual));
+        }
+        let child_pair = [
+            mapped.iter().find(|(_, actual)| *actual == arrays[0])?.0,
+            mapped.iter().find(|(_, actual)| *actual == arrays[1])?.0,
+        ];
+        let mut nodes = vec![written];
         while let Some(node) = nodes.pop() {
-            if !crate::definitions::annotations_safe(self.context, file, node) {
+            if !crate::definitions::annotations_safe(self.context, child.file, node) {
                 return None;
             }
             nodes.extend(node.child_nodes());
         }
-        for (position, (_, value)) in args.iter().take(2).enumerate() {
-            let kind = if position == 0 {
-                TypeKind::Bool
-            } else {
-                TypeKind::String
-            };
-            if self
-                .expression_type(self.view(file, value, view), file, value)
-                .is_none_or(|e| !present(&e.ty, kind, Instantiation::Parameter))
-                || self.dependencies(file, value, view, &[]).is_err()
-            {
-                return None;
-            }
+        if self
+            .closed_integer_source_error(child.file, body, true, false)
+            .is_some()
+        {
+            return None;
         }
-        Some((output, arrays))
+        // No other selected body or sibling enters this bounded check. A failed
+        // prerequisite falls back to ordinary inspection and its full causes.
+        let dependencies = self.nested_weighted_dependencies(
+            child.file,
+            equality,
+            output,
+            &generators,
+            child_pair,
+            &instance.view,
+        )?;
+        let dependencies = dependencies
+            .into_iter()
+            .map(|formal| {
+                mapped
+                    .iter()
+                    .find(|(child, _)| *child == formal)
+                    .map(|(_, actual)| *actual)
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some((
+            Output {
+                target: mapped.iter().find(|(child, _)| *child == output)?.1,
+                dependencies,
+                coverage: DefinitionCoverage::WholeArray,
+                location: self.context.files[file].location(call.range()),
+                enforced_boolean: false,
+                scoped_local: false,
+            },
+            arrays,
+        ))
+    }
+    fn nested_weighted_dependencies(
+        &self,
+        file: FileId,
+        equality: &'a SyntaxNode,
+        output: DeclarationId,
+        generators: &[&'a SyntaxNode],
+        pair: [DeclarationId; 2],
+        view: &CallableFacts,
+    ) -> Option<Vec<DeclarationId>> {
+        let present = |node: &SyntaxNode, kind, instantiation| {
+            self.expression_type(self.view(file, node, view), file, node)
+                .is_some_and(|e| {
+                    e.ty.known()
+                        && !optional(&e.ty)
+                        && e.ty.kind == kind
+                        && e.ty.instantiation == instantiation
+                })
+        };
+        let sides: Vec<_> = equality.child_nodes().map(unwrap).collect();
+        let position = sides.iter().position(|side| {
+            self.target(file, side, view, generators)
+                == Some((output, DefinitionCoverage::WholeArray))
+        })?;
+        if sides.len() != 2
+            || !present(equality, TypeKind::Bool, Instantiation::Decision)
+            || !present(sides[position], TypeKind::Int, Instantiation::Decision)
+        {
+            return None;
+        }
+        let sum = sides[1 - position];
+        if sum.kind() != NodeKind::GeneratorCallExpression || !self.core(file, sum, view, "sum")
+            || !present(sum, TypeKind::Int, Instantiation::Decision)
+            || !self.operation_fact(self.view(file, sum, view), file, sum)
+                .is_some_and(|fact| matches!(&fact.outcome,
+                    CallOutcome::Resolved { parameters, return_type, .. }
+                    if *return_type == TypeInst::par(TypeKind::Int).with_inst(Instantiation::Decision) && parameters.len() == 1
+                        && parameters[0].known() && !optional(&parameters[0])
+                        && parameters[0].instantiation == Instantiation::Decision
+                        && matches!(&parameters[0].kind, TypeKind::Array { indices, element }
+                            if indices.as_slice() == [TypeInst::par(TypeKind::Int)]
+                                && **element == TypeInst::par(TypeKind::Int).with_inst(Instantiation::Decision))))
+        {
+            return None;
+        }
+        let parts: Vec<_> = sum.child_nodes().collect();
+        if parts.len() != 2 {
+            return None;
+        }
+        let list = *parts
+            .iter()
+            .find(|node| node.kind() == NodeKind::GeneratorList)?;
+        let inner: Vec<_> = list.child_nodes().collect();
+        if inner.len() != 1 || inner[0].child_nodes().count() != 1 {
+            return None;
+        }
+        let source = inner[0].child_nodes().next()?;
+        let bin = self.integer_index_set(file, source, view)?;
+        let mut all = generators.to_vec();
+        all.extend(inner.iter().copied());
+        if self.iterations(file, &all, view).is_err()
+            || self
+                .relation_iterations(file, &all, generators.len(), view, false)
+                .is_err()
+            || self
+                .bindings
+                .declarations
+                .iter()
+                .filter(|declaration| {
+                    declaration.file == file
+                        && declaration.role == DeclarationRole::Generator
+                        && declaration.syntax_range == inner[0].range()
+                })
+                .count()
+                != 1
+        {
+            return None;
+        }
+        let product = unwrap(
+            *parts
+                .iter()
+                .find(|node| node.kind() != NodeKind::GeneratorList)?,
+        );
+        let operands: Vec<_> = product.child_nodes().map(unwrap).collect();
+        if product.kind() != NodeKind::BinaryExpression || operands.len() != 2
+            || !self.core(file, product, view, "*")
+            || !present(product, TypeKind::Int, Instantiation::Decision)
+            || !self.operation_fact(self.view(file, product, view), file, product)
+                .is_some_and(|fact| matches!(&fact.outcome,
+                    CallOutcome::Resolved { parameters, return_type, .. }
+                    if parameters.as_slice() == [TypeInst::par(TypeKind::Int).with_inst(Instantiation::Decision), TypeInst::par(TypeKind::Int).with_inst(Instantiation::Decision)]
+                        && *return_type == TypeInst::par(TypeKind::Int).with_inst(Instantiation::Decision)
+                        && parameters.iter().zip(&operands).all(|(formal, actual)|
+                            self.expression_type(self.view(file, actual, view), file, actual)
+                                .is_some_and(|e| crate::types::coerces(&e.ty, formal)))))
+        {
+            return None;
+        }
+        let weight_position = operands.iter().position(|node| {
+            node.kind() == NodeKind::ArrayAccessExpression
+                && present(node, TypeKind::Int, Instantiation::Parameter)
+        })?;
+        let weight = operands[weight_position];
+        let selection: Vec<_> = weight.child_nodes().map(unwrap).collect();
+        if selection.len() != 2
+            || selection
+                .iter()
+                .any(|node| node.kind() != NodeKind::Expression)
+            || !present(selection[1], TypeKind::Int, Instantiation::Parameter)
+            || self.reference(file, selection[1]).is_none_or(|id| {
+                let d = &self.bindings.declarations[id.0];
+                d.file != file
+                    || d.role != DeclarationRole::Generator
+                    || d.syntax_range != inner[0].range()
+            })
+        {
+            return None;
+        }
+        let weight_array = self.reference(file, selection[0])?;
+        if pair != [bin, weight_array] && pair != [weight_array, bin] {
+            return None;
+        }
+        let comparison = operands[1 - weight_position];
+        let compared: Vec<_> = comparison.child_nodes().map(unwrap).collect();
+        if comparison.kind() != NodeKind::BinaryExpression || compared.len() != 2
+            || !self.core(file, comparison, view, "=")
+            || !present(comparison, TypeKind::Bool, Instantiation::Decision)
+            || !self.operation_fact(self.view(file, comparison, view), file, comparison)
+                .is_some_and(|fact| matches!(&fact.outcome,
+                    CallOutcome::Resolved { parameters, return_type, .. }
+                    if parameters.len() == 2 && *return_type == TypeInst::par(TypeKind::Bool).with_inst(Instantiation::Decision)
+                        && parameters.iter().zip(&compared).all(|(formal, actual)| formal.known()
+                            && !optional(formal) && formal.kind == TypeKind::Int
+                            && self.expression_type(self.view(file, actual, view), file, actual)
+                                .is_some_and(|e| crate::types::coerces(&e.ty, formal)))))
+        {
+            return None;
+        }
+        let bin_position = compared.iter().position(|node| {
+            let children: Vec<_> = node.child_nodes().map(unwrap).collect();
+            node.kind() == NodeKind::ArrayAccessExpression
+                && children.len() == 2
+                && children[0].kind() == NodeKind::Expression
+                && self.reference(file, children[0]) == Some(bin)
+                && self.reference(file, children[1]) == self.reference(file, selection[1])
+                && self.member_index(file, bin, children[1], &all, view)
+                && present(node, TypeKind::Int, Instantiation::Decision)
+        })?;
+        let outer_index = compared[1 - bin_position];
+        if outer_index.kind() != NodeKind::Expression
+            || !present(outer_index, TypeKind::Int, Instantiation::Parameter)
+            || self.reference(file, outer_index).is_none_or(|id| {
+                let d = &self.bindings.declarations[id.0];
+                d.file != file
+                    || d.role != DeclarationRole::Generator
+                    || !generators
+                        .iter()
+                        .any(|generator| generator.range() == d.syntax_range)
+            })
+        {
+            return None;
+        }
+        // Only weight[i] needs the invocation's index-set equality. All headers
+        // and remaining operands keep strict source/membership dependencies.
+        let mut dependencies = self.dependencies(file, selection[0], view, &all).ok()?;
+        extend(
+            &mut dependencies,
+            self.dependencies(file, selection[1], view, &all).ok()?,
+        );
+        extend(
+            &mut dependencies,
+            self.dependencies(file, comparison, view, &all).ok()?,
+        );
+        extend(
+            &mut dependencies,
+            self.dependencies(file, source, view, generators).ok()?,
+        );
+        for generator in generators {
+            // This exact index_set(output) is inspected as the target's traversal,
+            // not a dependency on the output values themselves.
+            self.dependencies(file, generator.child_nodes().next()?, view, &[])
+                .ok()?;
+        }
+        Some(dependencies)
     }
     fn asserted_index_membership(
         &self,
@@ -4816,7 +5227,13 @@ impl<'a> Producer<'a> {
         if !matches!(body.kind, ClauseKind::Assertion) {
             return Ok(());
         }
-        let Some((_, arrays)) = self.direct_asserted_forall(body.file, body.node, &instance.view)
+        let Some(arrays) = self
+            .direct_asserted_forall(body.file, body.node, &instance.view)
+            .map(|(_, arrays)| arrays)
+            .or_else(|| {
+                self.nested_asserted_forall(body.file, body.node, &instance.view)
+                    .map(|(_, arrays)| arrays)
+            })
         else {
             return Ok(());
         };
