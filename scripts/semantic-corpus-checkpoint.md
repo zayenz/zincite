@@ -2767,3 +2767,18 @@ or task acceptance is claimed. Preparation evidence for these drafts is under
 `target/benchmarks/base083/semantic62-conditional-float-failure-preparation/` and
 `target/benchmarks/base083/semantic62-partial-check-attribution-preparation/`.
 Authoritative Rust remains unchanged while the original capture is live.
+
+The precedence-corrected full search diagnostic still fails: two cases pass and
+two fail, with Cargo status101 in16.904 seconds and no timeout. Root checked
+complete streams, equal before/after/current source and helper state, child
+reaping and an empty process group. Evidence and terminal root audit are under
+`target/benchmarks/base083/semantic62-draft-workspace-conditional-float-diagnostic-v1-search/`.
+The earlier unavailable-body assertion now passes, but a later Boolean-array
+guard case receives Uncovered where the unchanged test requires Unknown. Its
+unproved array index must remain a partiality veto. The symbolic Routing case
+also retains a NoMatch for decision-integer division: its test library only
+declares parameter-integer division. Correct that fixture before inferring any
+remaining Float-array implementation gap. Both follow-ups await reviewed narrow
+changes; no public assertion has been weakened and broader gates have not run.
+The original capture remains live on its owned session89518, freshly polled
+without new output. Final task acceptance remains open.
