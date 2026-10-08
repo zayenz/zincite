@@ -3305,3 +3305,13 @@ equal before/after original/compiler/standard/helper maps and every output.
 Evidence is `semantic62-unreached-source-prechecks/`, including root-audit.json.
 No solving, synthetic data, conversion or original rewrites occurred. These
 are compiler-positive pairs; fresh Zincite outcomes remain to be collected.
+
+The proposed Routing equality repair passes the faithful conditional positive
+and the selected arithmetic/literal overflow checks, but a generator-source
+countercheck fails: `Rows=1..(9223372036854775807+1)` incorrectly yields search
+Completed. Root verified the focused exit 101, full streams and hashes, unchanged
+source maps and reaped empty process group. Evidence is
+`semantic62-routing-equality-reduction/focused-header-countercheck/`. The tracked
+conditional test draft now retains this countercheck and the preceding negative
+variants. Production remains in the assigned ignored workspace; actual source
+is unchanged combined24. Header safety is being repaired before integration.
