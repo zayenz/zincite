@@ -4577,3 +4577,25 @@ source/compiler/std/helper pins and both outcomes are checked in semantic62-is-
 search-gap-preparation/normal43-next/root-compiler/root-audit.json. These establish
 compiler expectations for the next focused regression; no Search repair is
 claimed yet.
+
+The weighted-load observation reaches the corrected shifted initializer using
+array1d(2..2, [1]); that model compiles successfully. Ten public/concrete producer
+captures and matching native/companion Search runs all retain one membership
+limitation. Aligned direct and nested positives, actual BIN positives, partiality
+negatives and compiler-invalid rows remain distinguished; no output guarantee
+is inferred from matching array element/index types. Two existing producer-guard
+tests pass unchanged. All 24 bounded commands, source/input/release/compiler pins,
+full streams, exact selected one-rule partitions and source-drop checks are
+retained in semantic62-gbac-fzn-membership-preparation/observation-preparation/
+root-observation/root-audit.json and coverage-summary.json. A scoped successful
+assertion relation and nested-output propagation remain separate repair concerns.
+
+Diagnostic attribution on normal43 identifies a second lexical scan in raw-byte
+comment restoration: 11.949 ms scanning the 1,189,780-byte formatted output,
+within a measured 51.983 ms formatting phase. Exact output, parse/format allocation
+counts and source-drop baseline remain unchanged. Full source/helper/build/probe
+streams and the opt3 asset are checked in semantic62-crossword43-second-scan-
+attribution-preparation/root-runtime/root-audit.json. This is a local diagnostic
+timer, not a new native p95 result. Reusing ranges when layout leaves their
+coordinates unchanged is the next candidate; transformed-layout fallback and
+the 100 ms budget still require verification.
