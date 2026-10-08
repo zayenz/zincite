@@ -2839,3 +2839,23 @@ checked parameter-array selections, but still invokes it for decision-array
 selections. That is a concrete next trace candidate; it is not yet a confirmed
 repair. Keep literal-zero and unsupported-sibling checks and infer no numeric
 value from an unproved selection. No production change or broader gate ran.
+
+All four native checker attribution captures complete with successful own-PID
+CPU queries and exact full stock semantic stderr/status parity. Root rechecked
+all current inputs, actual and isolated sources, binaries and helpers against
+equal global/per-child before/after state, complete stream hashes, reaping and
+empty groups. Complete begin/end records and terminal root audit are under
+`target/benchmarks/base083/semantic62-partial-check-attribution-captures/`.
+At100 declarations, checker18/19 request50,261/48,076 allocations and
+5,764,974/5,930,138 bytes; measured walls are6.610/4.288ms and quantized CPU
+both0.01 seconds. At1000, they request4,102,067/4,080,085 allocations and
+504,375,752/505,555,980 bytes; measured walls are649.824/392.587ms and CPU
+0.65/0.39 seconds. The earlier fewer-call/more-byte deltas are now attributed
+to this checker. Retained output bytes are identical, while peak allocation
+increases with lookup tables (100:77,080 to284,904;1000:731,840 to2,438,672).
+CPU has10ms resolution and process-query/snapshot overhead; allocator
+instrumentation affects measurements. No isolated stock speed ratio is claimed.
+Crucially, checker allocations grow about82x/85x under tenfold source-operation
+growth, so whole-analysis growth observations do not establish bounded checker
+scaling. That cost remains under investigation. A single unchanged300-second
+diagnostic19 Navigation capture is being prepared; it has not launched.
