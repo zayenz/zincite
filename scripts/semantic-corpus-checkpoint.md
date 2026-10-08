@@ -4815,6 +4815,24 @@ control-results/root-audit.json}. No solver was run. This is a useful source
 checkpoint; remaining original-model gaps and final corpus acceptance still
 prevent base-083 completion.
 
+Two remaining support gaps now have faithful public compiler controls. The IS
+subset reduction retains the scalar sum/card/bool2int relation over a named
+axis minus a parameter set. Gecode accepts it. After checking the actual mixed
+decision/parameter equality tuple and binder/axis identities, the focused test
+reaches the missing traversal-membership limitation. The numeric guard passes.
+Evidence is under semantic62-is-diff-subset-selection-preparation/v2/root-runner/output.
+
+The four real-library GCC controls use the installed four-argument deprecated
+wrapper and complete standard bodies. Gecode accepts symbolic and singleton
+models; both deliberately invalid empty-cover models abort at the real standard
+assertion. All four observation preflights preserve the unrelated unsearched
+auxiliary. The symbolic positive reaches the false-assert source limitation;
+the prior scratch build error is retained separately. Historical a2b78 native
+and companion all26/thesis14 records agree for every control, with checked drop
+snapshots. Evidence is under semantic62-gcc-real-body-controls-preparation-v2/root-capture.
+These are diagnosed gaps, not repairs or current-main acceptance. No solver was
+run. The next source changes and final corpus checks remain required.
+
 
 A whole owning assert can now inspect one selected nested weighted-load predicate
 without changing that child's unconditional summary. The bounded path checks the
