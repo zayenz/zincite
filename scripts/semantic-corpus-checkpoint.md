@@ -3841,3 +3841,17 @@ reaped groups are checked in
 controls now have observed complete thesis/all-rule processing on normal31 or
 normal32. These focused observations do not replace the fresh final full corpus;
 CTW and macc repairs and whole-task acceptance remain open.
+
+The public898-byte macc union-axis reduction with34-byte data compiles with
+current Gecode without solving; full streams/current1035 standard files,
+compiler/model/data/helpers, FlatZinc artifacts and empty reaped group are
+checked in `semantic62-macc-current-gap-preparation/compiler-positive/root-audit.json`.
+Normal32 real-standard-library processing reports one warning,zero errors and
+five limitations across array-index-start,constant-variable and unbounded-variable;
+all26 outcomes/source/drop accounting are checked in normal32-public-probe/root-audit.json.
+The written union has minimum -2 whenever its operand constructions are defined:
+the symbolic Inner range is empty or nonnegative and Dummy is nonempty.
+A blanket Unknown decline would lose this checkable fact. Operand arithmetic
+errors also need an independent veto; initialized-source dependency inspection
+alone does not establish that a closed addition is defined. The shared domain
+repair is under review; this observation supplies no accepted production change.
