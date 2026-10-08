@@ -3087,3 +3087,6 @@ The original capture's owning worker confirms its session is still live:
 112 of 124 shards have closed, covering 5,773 of 6,417 planned roots.
 All 90 actual source pins match; final report and post-capture records are
 absent. The remaining 644 roots are still being processed.
+The combined candidate patch also includes this callback change. Root
+reconstructed all 21 candidate files in a temporary directory and compared
+them byte-for-byte with the tested copy. Authoritative source remains unchanged.
