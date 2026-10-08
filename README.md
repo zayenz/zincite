@@ -1,5 +1,11 @@
 # Zincite
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/zincite-logo-light.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/zincite-logo-dark.svg">
+  <img alt="Zincite — orange crystal Z logo" src="assets/zincite-logo-dark.svg" width="420">
+</picture>
+
 Zincite provides a formatter and linter for MiniZinc model (`.mzn`) and data
 (`.dzn`) files:
 

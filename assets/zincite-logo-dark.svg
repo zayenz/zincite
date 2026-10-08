@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 180" role="img" aria-labelledby="title desc">
+  <title id="title">Zincite</title>
+  <desc id="desc">The orange crystal Z beside the Zincite wordmark.</desc>
+  <g transform="translate(0 0) scale(.35)">
+    <g fill="#f86708">
+    <path d="M156 30 464 102 92 186Z"/>
+    <path d="M40 410 434 306 356 472Z"/>
+  </g>
+  <g fill="#c84b08">
+    <path d="M44 124 156 30 92 186Z"/>
+    <path d="M44 404 288 152 460 112 228 340Z"/>
+    <path d="M434 306 476 368 356 472Z"/>
+  </g>
+  </g>
+  <text x="208" y="126" fill="#11191f" font-family="Arial, Helvetica, sans-serif" font-size="104" font-weight="700">Zincite</text>
+</svg>
