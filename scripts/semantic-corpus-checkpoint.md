@@ -3203,3 +3203,12 @@ The original89518 owner confirms its capture is live: 119 of 124 shards have
 closed, covering 6,158 of 6,417 planned roots. Its final report/post-capture
 records remain absent, with all 90 actual source pins matching. Integration
 and final whole-corpus acceptance remain deferred.
+
+Routing24 native processing finishes without timeout in 168.914 seconds,
+status 1. Root checked complete streams, hashes and before/after state:
+all 180 warning blocks equal20, limitations decrease from 194 to 192, and
+no errors are emitted. The three prior search limitations are replaced by
+one at line182: an output dependency array access lacks an exact traversal
+membership proof. This remaining owning path is being diagnosed; no membership
+or output facts are guessed. The companion run is live under root session2641,
+so per-rule completion and complete pair acceptance remain unverified.
