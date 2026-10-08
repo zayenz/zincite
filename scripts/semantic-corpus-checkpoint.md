@@ -3595,3 +3595,12 @@ pins and reaped empty groups independently checked in the membership preparation
 are checked in `semantic62-combined30-release/root-build-audit.json`. The required
 original Routing all26 pair and full final corpus acceptance remain pending.
 Logo concepts were committed separately at the user’s request.
+
+The full public Sparse search reduction (906 bytes) is current-Gecode
+compile-positive without solving. It retains Enum extrema/conversion, both
+Boolean sums, guarded zero-based reshape and mixed rank2 selection. The two
+implicit Enum-to-Int deprecation warnings are retained. Complete streams,
+FlatZinc/ozn and unchanged original/1035 standard/compiler/helper pins are
+independently checked in `semantic62-sparse-search-gap-preparation/`
+`compiler-positive/root-audit.json`. This establishes the processing prerequisite;
+public Zincite RED and conservative repairs remain pending.
