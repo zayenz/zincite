@@ -9247,6 +9247,37 @@ impl<'a> Producer<'a> {
             Err(reason) => DefinitionSafety::Unsupported(reason),
         })
     }
+    // Only an actual in-header can delegate its selected set source. The typed
+    // helper inspects its complete initializer and returns no membership facts.
+    fn selected_generator_source_safety(
+        &self,
+        file: FileId,
+        header: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> Option<DefinitionSafety> {
+        if self.selected_set_source
+            || header.kind() != NodeKind::Generator
+            || !header.children().iter().any(|child| {
+                matches!(child, SyntaxElement::Token(i)
+                    if self.context.files[file].parsed.tokens()[*i].kind == TokenKind::In)
+            })
+        {
+            return None;
+        }
+        selected_integer_set_source_safety(
+            self.context,
+            self.bindings,
+            (self.calls, view),
+            self.instantiations,
+            self.domains,
+            (file, header.child_nodes().next()?, generators),
+        )
+        .map(|checked| match checked {
+            unsupported @ DefinitionSafety::Unsupported(_) => unsupported,
+            _ => DefinitionSafety::Unknown("selected parameter set membership is unproved".into()),
+        })
+    }
     // Inspection only: a bare source dependency is not proof that its written
     // initializer, domains and transitive initialized sources are supported.
     fn initialized_source_safety(
@@ -9273,6 +9304,25 @@ impl<'a> Producer<'a> {
                     unknown @ DefinitionSafety::Unknown(_) => safety = unknown,
                     DefinitionSafety::Supported => {}
                 }
+            }
+            if !self.selected_set_source
+                && current.kind() == NodeKind::Generator
+                && current
+                    .child_nodes()
+                    .next()
+                    .is_some_and(|source| unwrap(source).kind() == NodeKind::ArrayAccessExpression)
+                && let Some(scope) = generator_source_scope(node, current, generators)
+                && let Some(checked) =
+                    self.selected_generator_source_safety(file, current, view, &scope)
+            {
+                match checked {
+                    unsupported @ DefinitionSafety::Unsupported(_) => return unsupported,
+                    unknown => safety = unknown,
+                }
+                // The delegated source was fully inspected. Keep its attached
+                // filters in the ordinary strict scan.
+                nodes.extend(current.child_nodes().skip(1));
+                continue;
             }
             nodes.extend(current.child_nodes());
             if current.kind() != NodeKind::Expression {
@@ -9566,9 +9616,12 @@ impl<'a> Producer<'a> {
                             .into(),
                     );
                 }
-                if let DefinitionSafety::Unsupported(reason) =
-                    self.initialized_source_safety(file, source, view, &all, &mut Vec::new())
-                {
+                let source_safety = self
+                    .selected_generator_source_safety(file, header, view, &all)
+                    .unwrap_or_else(|| {
+                        self.initialized_source_safety(file, source, view, &all, &mut Vec::new())
+                    });
+                if let DefinitionSafety::Unsupported(reason) = source_safety {
                     unsupported = Some(reason);
                 } else if conditional_relation
                     && let Some(reason) = self.closed_integer_source_error(file, source, true, true)
@@ -14721,6 +14774,63 @@ fn same_output(a: &CallableOutput, b: &CallableOutput) -> bool {
         && a.dependencies == b.dependencies
         && a.coverage == b.coverage
         && a.enforced_boolean == b.enforced_boolean
+}
+// Recover only the lexical prefix of this actual header inside the retained
+// subtree. An unavailable or ambiguous owning path keeps ordinary strict safety.
+fn generator_source_scope<'a>(
+    mut node: &'a SyntaxNode,
+    header: &'a SyntaxNode,
+    ambient: &[&'a SyntaxNode],
+) -> Option<Vec<&'a SyntaxNode>> {
+    if std::ptr::eq(node, header) {
+        return None;
+    }
+    let contains = |outer: &SyntaxNode| {
+        outer.range().start <= header.range().start && header.range().end <= outer.range().end
+    };
+    let mut scope = ambient.to_vec();
+    while !std::ptr::eq(node, header) {
+        if let Some(list) = node
+            .child_nodes()
+            .find(|child| child.kind() == NodeKind::GeneratorList)
+        {
+            if !matches!(
+                node.kind(),
+                NodeKind::GeneratorCallExpression
+                    | NodeKind::ArrayComprehension
+                    | NodeKind::SetComprehension
+            ) {
+                return None;
+            }
+            if contains(list) {
+                let owners: Vec<_> = list.child_nodes().filter(|child| contains(child)).collect();
+                let [owner] = owners.as_slice() else {
+                    return None;
+                };
+                scope.extend(
+                    list.child_nodes()
+                        .take_while(|child| !std::ptr::eq(*child, *owner)),
+                );
+                if owner
+                    .child_nodes()
+                    .any(|child| child.kind() == NodeKind::WhereFilter && contains(child))
+                {
+                    scope.push(owner);
+                }
+            } else {
+                scope.extend(list.child_nodes());
+            }
+        }
+        let children: Vec<_> = node.child_nodes().filter(|child| contains(child)).collect();
+        let [child] = children.as_slice() else {
+            return None;
+        };
+        if std::ptr::eq(*child, header) && node.kind() != NodeKind::GeneratorList {
+            return None;
+        }
+        node = child;
+    }
+    Some(scope)
 }
 fn unwrap(mut node: &SyntaxNode) -> &SyntaxNode {
     while matches!(

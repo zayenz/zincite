@@ -5133,3 +5133,20 @@ semantic62-compiler-nonzero-review-v1. These model-check-only results establish
 source/type processing, not complete-instance validity or FlatZinc compilation.
 Paired Gecode compile-only controls, final semantic corpus reconciliation and
 the remaining support repairs are still required for base-083 acceptance.
+
+Inactive selected-set branches now use the checked generator source when Search
+inspects initialized dependencies. Unknown membership remains unknown, and an
+active division by zero still refuses inspection.
+
+Matched normal opt3 controls remove the inactive public reduction's false Search
+division-by-zero limitation. Its warnings change from four to five because Search
+can now report the uncovered `load` variable; limitations change from two to one.
+The selected reduction and original Macc and GBAC retain byte-identical diagnostics
+between the fresh before/after captures. All fourteen thesis rules complete in
+every after capture. Native and companion agree on full 26-rule outcomes,
+dependencies and drop records. Four retained Gecode compile-only proofs were
+reused; no solver ran. Evidence is under
+semantic62-macc-inactive-search-release-controls-preparation-v1. Final corpus
+reconciliation and circuit support remain required for base-083 acceptance.
+Actual main formatting, Clippy with warnings denied and all 220 workspace tests
+pass under semantic62-macc-inactive-search-main-integration.

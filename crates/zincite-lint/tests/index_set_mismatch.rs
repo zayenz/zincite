@@ -720,7 +720,7 @@ solve satisfy;
         include_dirs: vec![],
         stdlib_dir: Some(dir.join("library")),
     };
-    let selected = LintOptions::from_selection("index-set-mismatch").unwrap();
+    let selected = LintOptions::from_selection("index-set-mismatch,search-coverage").unwrap();
     let inspect = |text: &str| {
         std::fs::write(&root, text).unwrap();
         let context = load_model(&root, &options);
@@ -741,6 +741,16 @@ solve satisfy;
     let inactive = source.replace("if x > 0 then {cell_id[x-1,y]}", "if false then {1 div 0}");
     for text in [source, inactive.as_str()] {
         let (context, guarded, result) = inspect(text);
+        assert_eq!(
+            result
+                .rules
+                .iter()
+                .find(|r| r.rule.id() == "search-coverage")
+                .unwrap()
+                .outcome,
+            RuleOutcome::Completed,
+            "{result:?}"
+        );
         let target = guarded
             .obligations
             .iter()
@@ -787,6 +797,26 @@ solve satisfy;
     );
     let active = source.replace("if x > 0 then {cell_id[x-1,y]}", "if true then {1 div 0}");
     let (context, guarded, result) = inspect(&active);
+    assert!(
+        matches!(
+            result
+                .rules
+                .iter()
+                .find(|r| r.rule.id() == "search-coverage")
+                .unwrap()
+                .outcome,
+            RuleOutcome::Limited { .. }
+        ),
+        "{result:?}"
+    );
+    assert!(
+        result
+            .limitations
+            .iter()
+            .any(|l| l.message.starts_with("search-coverage:")
+                && l.message.contains("division by zero")),
+        "{result:?}"
+    );
     let error = guarded
         .obligations
         .iter()
