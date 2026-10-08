@@ -2622,3 +2622,21 @@ matched partial-lookup comparison; retained constraint-true growth cases can
 check general traversal overhead but do not exercise growing operation lookups.
 Targeted growth and successful CPU/allocation attribution remain missing, as do
 fresh complete final-candidate corpus/native evidence and task verification.
+
+The optimized partial-expression successor (release19) builds successfully in
+13.150 seconds with no timeout. Root checked all complete Cargo streams,
+16 events, 14 artifacts and 13 optimized non-test artifacts, plus unchanged
+before/after/current input state. Both native and allocator-probe executables
+are frozen independently of mutable Cargo origins. The native is 2,964,464
+bytes, SHA-256
+`9d2ff843da47b2086374cba213484795d35954e96f7c87c4cac14546f2885996`;
+the probe is 2,703,712 bytes, SHA-256
+`8ec42c080694cfa07f3c2399db8c85df0fd3fb6d75ba7cc55742451ec6ea4ee5`.
+All 22 optimized libraries (28,255,154 bytes), their Cargo-reported origins and
+compiler pin were checked. Only the lint rlib/rmeta differ from release18.
+The child is reaped, its group empty and the verification error null. Build
+evidence and the root audit are under
+`target/benchmarks/base083/semantic62-draft-workspace-semantic-release19/`;
+frozen artifacts are in `semantic62-draft-partial-lookups-binaries/` and
+`semantic62-partial-lookups-libraries/`. This is build evidence; model parity,
+performance and final corpus/task acceptance remain pending.
