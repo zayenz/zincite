@@ -4230,3 +4230,25 @@ All24 focused formatting tests and main fmt/clippy/workspace gates pass
 reaped groups are checked in semantic62-opaque-comment-streaming-formatter-
 preparation/actual-workspace-gates/root-audit.json. Allocation and native save
 budget effects remain unmeasured for this integrated revision.
+
+The normal38 release and identical frozen byte-aware allocator probe confirm
+the streaming restoration removes the full output-token buffer. Formatting
+peak delta falls26,512,728→1,477,924B and requested bytes56,636,290→6,305,186B;
+retained bytes,token/node counts,raw output and post-drop baseline are identical.
+Instrumented phase timings remain attribution only. Full pins,opt3 asset,
+complete streams and two empty reaped groups are checked in semantic62-
+crossword38-allocation-streaming/root-runtime/root-audit.json.
+
+Fresh native save samples retain all200 exact output hashes across50 samples
+per original/formatted/default/nested variant. Original908888B p95 is187.771/
+147.536ms,still above100ms; formatted1189780B p95 is159.005/252.321ms and is
+over the1MiB category. No latency improvement is claimed from this variable
+run. The separate actual-path first observation has539.545ms wall,120.986ms
+CPU and61.875MiB RSS,versus historical84.547MiB RSS. This one memory sample
+is below64MiB; it does not establish a repeated peak or cold-I/O result. The
+benchmark time utility still cannot query kern.clockrate,so its RSS remains
+unavailable. Full1209 source/std/compiler/release/helper pins,complete outer
+streams,two empty reaped groups and all50-sample summary arithmetic are checked
+in semantic62-crossword38-save-streaming/root-audit.json. Parsing allocation
+traffic remains a measured candidate for bounded diagnosis; acceptance stays
+open for the latency budget and final corpus.
