@@ -3376,3 +3376,17 @@ allocation delta, isolated timing ratio or leak is inferred. The current Gecode
 compile-only positive remains valid. Evidence is `semantic62-cellda24-pair/`,
 including root-audit.json and reparsed coverage.json. Bounded cost attribution
 is being prepared; the cutoff remains explicit and acceptance open.
+
+The Routing conditional equality repair is now integrated from its checked
+staging workspace. The faithful public case uses bare decision-variable cells
+in the coordinate literal, matching the original header shape. The baseline
+fails on unproved selected-direction membership; the repair permits inspection
+without deriving membership or callable output. Arithmetic selector failures,
+literal overflow and generator-header overflow remain explicit limitations.
+Only callable_definitions.rs and tests/search.rs change. Root checked all 106
+source/fixture pins and the complete validation streams: formatting and Clippy
+pass, and 193 workspace tests pass with zero failures across 42 summaries.
+The integrated files exactly match those tested bytes. Evidence is retained in
+`semantic62-routing-equality-reduction/header-v2-workspace-gates/` and
+`integration-current.json`. Original Routing coverage and final corpus checks
+remain pending; base-083 remains open.

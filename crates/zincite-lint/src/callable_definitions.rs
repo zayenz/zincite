@@ -2505,6 +2505,12 @@ impl<'a> Producer<'a> {
                                 out.truncate(before);
                                 return;
                             }
+                            if self.uncertain_integer_equality(clause, view) {
+                                // Checked selection uncertainty inspects the relation,
+                                // but cannot establish either output direction.
+                                out.truncate(before);
+                                return;
+                            }
                             self.unavailable(clause, &reason, unavailable);
                         }
                     }
@@ -2793,6 +2799,446 @@ impl<'a> Producer<'a> {
                 }
             }
         }
+    }
+    fn uncertain_integer_equality(&self, clause: &Clause<'a>, view: &CallableFacts) -> bool {
+        let file = clause.file;
+        let node = clause.node;
+        let operands: Vec<_> = node.child_nodes().collect();
+        let typed = |value: &SyntaxNode| {
+            self.expression_type(self.view(file, value, view), file, value)
+                .map(|expression| &expression.ty)
+        };
+        let integer = |ty: &TypeInst| ty.known() && !optional(ty) && ty.kind == TypeKind::Int;
+        if operands.len() != 2
+            || !self.core(file, node, view, "=")
+            || !crate::definitions::annotations_safe(self.context, file, node)
+            || operands
+                .iter()
+                .any(|operand| typed(operand).is_none_or(|ty| !integer(ty)))
+            || typed(node).is_none_or(|ty| !ty.known() || optional(ty) || ty.kind != TypeKind::Bool)
+            || self
+                .operation_fact(self.view(file, node, view), file, node)
+                .is_none_or(|call| {
+                    !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                    if parameters.len() == 2 && Some(return_type) == typed(node)
+                        && parameters.iter().zip(&operands).all(|(formal, actual)| integer(formal)
+                            && typed(actual).is_some_and(|ty| crate::types::coerces(ty, formal))))
+                })
+            || self
+                .relation_iterations(file, &clause.generators, 0, view, false)
+                .is_err()
+        {
+            return false;
+        }
+        // Only the demonstrated bare selection chain enters this uncertainty
+        // path. Arithmetic selectors keep their original strict limitation.
+        let mut selections = operands.clone();
+        while let Some(value) = selections.pop() {
+            let value = unwrap(value);
+            match value.kind() {
+                NodeKind::ArrayAccessExpression => selections.extend(value.child_nodes()),
+                NodeKind::Expression => {
+                    let tokens = crate::domains::tokens(&self.context.files[file].parsed, value);
+                    if !matches!(tokens.as_slice(), [token] if matches!(token.kind,
+                        TokenKind::Identifier | TokenKind::QuotedIdentifier | TokenKind::IntegerLiteral))
+                    {
+                        return false;
+                    }
+                    let Some(ty) = typed(value) else {
+                        return false;
+                    };
+                    if integer(ty) {
+                        if crate::domains::expression_integer(
+                            self.context,
+                            self.bindings,
+                            file,
+                            value,
+                        )
+                        .is_err()
+                        {
+                            return false;
+                        }
+                        if let Some(id) = self.reference(file, value) {
+                            let declaration = &self.bindings.declarations[id.0];
+                            if declaration.role == DeclarationRole::Value && declaration.top_level {
+                                if self.domains.declarations[id.0]
+                                    .domain
+                                    .numeric_minimum()
+                                    .is_err()
+                                {
+                                    return false;
+                                }
+                                let Some(written) = find_node(
+                                    self.context.files[declaration.file].parsed.tree(),
+                                    &declaration.syntax_range,
+                                    declaration.role,
+                                ) else {
+                                    return false;
+                                };
+                                if written
+                                    .child_nodes()
+                                    .filter(|child| is_expression(child.kind()))
+                                    .any(|initializer| {
+                                        crate::domains::expression_integer(
+                                            self.context,
+                                            self.bindings,
+                                            declaration.file,
+                                            initializer,
+                                        )
+                                        .is_err()
+                                    })
+                                {
+                                    return false;
+                                }
+                            } else if declaration.role != DeclarationRole::Generator {
+                                return false;
+                            }
+                        }
+                        continue;
+                    }
+                    let TypeKind::Array { indices, element } = &ty.kind else {
+                        return false;
+                    };
+                    if !ty.known()
+                        || optional(ty)
+                        || !integer(element)
+                        || !matches!(indices.len(), 1 | 2)
+                        || indices.iter().any(|index| {
+                            !integer(index) || index.instantiation != Instantiation::Parameter
+                        })
+                    {
+                        return false;
+                    }
+                    let Some(array) = self.reference(file, value) else {
+                        return false;
+                    };
+                    let declaration = &self.bindings.declarations[array.0];
+                    if declaration.role != DeclarationRole::Value || !declaration.top_level {
+                        return false;
+                    }
+                    let Domain::Array { element, .. } = &self.domains.declarations[array.0].domain
+                    else {
+                        return false;
+                    };
+                    if element.numeric_minimum().is_err() {
+                        return false;
+                    }
+                    let Some(written) = find_node(
+                        self.context.files[declaration.file].parsed.tree(),
+                        &declaration.syntax_range,
+                        declaration.role,
+                    ) else {
+                        return false;
+                    };
+                    // A literal source is inspected without treating its written
+                    // defaults as values of every instance. The closed evaluator
+                    // supplies only a veto, including overflow in a literal cell.
+                    for initializer in written
+                        .child_nodes()
+                        .filter(|child| is_expression(child.kind()))
+                    {
+                        let initializer = unwrap(initializer);
+                        if ty.instantiation != Instantiation::Parameter
+                            || initializer.kind() != NodeKind::ArrayLiteral
+                            || initializer.child_nodes().any(|cell| {
+                                !matches!(crate::domains::tokens(&self.context.files[declaration.file].parsed,
+                                    unwrap(cell)).as_slice(), [token] if token.kind == TokenKind::IntegerLiteral)
+                                    || self.expression_type(self.calls, declaration.file, cell)
+                                    .is_none_or(|expression| {
+                                        !integer(&expression.ty)
+                                            || expression.ty.instantiation
+                                                != Instantiation::Parameter
+                                    })
+                                    || crate::domains::expression_integer(
+                                        self.context,
+                                        self.bindings,
+                                        declaration.file,
+                                        cell,
+                                    )
+                                    .is_err()
+                            })
+                        {
+                            return false;
+                        }
+                    }
+                }
+                _ => return false,
+            }
+        }
+        let mut unknown = false;
+        for (position, generator) in clause.generators.iter().enumerate() {
+            let Some(source) = generator.child_nodes().next() else {
+                return false;
+            };
+            match self.initialized_source_safety(
+                file,
+                source,
+                view,
+                &clause.generators[..position],
+                &mut Vec::new(),
+            ) {
+                DefinitionSafety::Unsupported(_) => return false,
+                DefinitionSafety::Unknown(_) => unknown = true,
+                DefinitionSafety::Supported => {}
+            }
+            if !self.uncertain_equality_header(file, source, view) {
+                return false;
+            }
+            // Filter arithmetic remains on the strict route in this local
+            // selection-only admission.
+            if generator
+                .child_nodes()
+                .any(|child| child.kind() == NodeKind::WhereFilter)
+            {
+                return false;
+            }
+        }
+        match self.initialized_children_safety(file, &operands, view, &clause.generators) {
+            DefinitionSafety::Unknown(_) => true,
+            DefinitionSafety::Unsupported(_) => false,
+            DefinitionSafety::Supported => unknown,
+        }
+    }
+    // A closed domain error must not disappear behind source-safety Unknown.
+    // Admit only the demonstrated symbolic count header when the independent
+    // domain walk cannot interpret length; no count or membership is derived.
+    fn uncertain_equality_header(
+        &self,
+        file: FileId,
+        source: &SyntaxNode,
+        view: &CallableFacts,
+    ) -> bool {
+        let numeric = |domain: Domain| {
+            let mut domains = vec![domain];
+            while let Some(domain) = domains.pop() {
+                match domain {
+                    Domain::Named { domain, .. } | Domain::Set(domain) => domains.push(*domain),
+                    Domain::Array { indices, element } => {
+                        domains.extend(indices);
+                        domains.push(*element);
+                    }
+                    Domain::Range { lower, upper }
+                        if !matches!(
+                            (&lower, &upper),
+                            (
+                                crate::domains::NumericBound::Integer(_),
+                                crate::domains::NumericBound::Integer(_)
+                            )
+                        ) =>
+                    {
+                        return false;
+                    }
+                    Domain::LiteralSet(bounds)
+                        if bounds.is_empty()
+                            || bounds.iter().any(|bound| {
+                                !matches!(bound, crate::domains::NumericBound::Integer(_))
+                            }) =>
+                    {
+                        return false;
+                    }
+                    domain if domain.numeric_minimum().is_err() => return false,
+                    _ => {}
+                }
+            }
+            true
+        };
+        let count = |file: FileId, node: &SyntaxNode| {
+            let node = unwrap(node);
+            let facts = self.view(file, node, view);
+            let Some(argument) = length_argument(self.context, self.bindings, facts, file, node)
+                .or_else(|| {
+                    crate::domains::parameter_set_cardinality(
+                        self.context,
+                        self.bindings,
+                        facts,
+                        file,
+                        node,
+                    )
+                    .and_then(|_| node.child_nodes().next())
+                })
+            else {
+                return false;
+            };
+            let argument = unwrap(argument);
+            if argument.kind() != NodeKind::Expression
+                || !matches!(crate::domains::tokens(&self.context.files[file].parsed, argument).as_slice(),
+                    [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+            {
+                return false;
+            }
+            let Some(id) = self.reference(file, argument) else {
+                return false;
+            };
+            let declaration = &self.bindings.declarations[id.0];
+            if declaration.role != DeclarationRole::Value
+                || !declaration.top_level
+                || !numeric(self.domains.declarations[id.0].domain.clone())
+            {
+                return false;
+            }
+            let Some(written) = find_node(
+                self.context.files[declaration.file].parsed.tree(),
+                &declaration.syntax_range,
+                declaration.role,
+            ) else {
+                return false;
+            };
+            if written.child_nodes().take(1).any(|ty| {
+                !numeric(expression_domain(
+                    self.context,
+                    self.bindings,
+                    declaration.file,
+                    ty,
+                ))
+            }) {
+                return false;
+            }
+            // Length does not evaluate cells, but its source must not hide a
+            // closed failure. Computed/reshaped initializers stay outside this
+            // local admission; a literal retains only checked scalar cells.
+            for initializer in written
+                .child_nodes()
+                .filter(|child| is_expression(child.kind()))
+            {
+                let initializer = unwrap(initializer);
+                if matches!(self.calls.declarations[id.0].ty.kind, TypeKind::Set(_)) {
+                    if !matches!(initializer.kind(), NodeKind::RangeExpression | NodeKind::SetLiteral)
+                        || initializer.child_nodes().any(|bound| {
+                            let bound = unwrap(bound);
+                            !matches!(crate::domains::tokens(&self.context.files[declaration.file].parsed, bound).as_slice(),
+                                [token] if token.kind == TokenKind::IntegerLiteral)
+                        })
+                    {
+                        return false;
+                    }
+                    continue;
+                }
+                if initializer.kind() != NodeKind::ArrayLiteral
+                    || initializer.child_nodes().next().is_none()
+                {
+                    return false;
+                }
+                for cell in initializer.child_nodes() {
+                    let cell = unwrap(cell);
+                    if cell.kind() != NodeKind::Expression
+                        || crate::domains::expression_integer(
+                            self.context,
+                            self.bindings,
+                            declaration.file,
+                            cell,
+                        )
+                        .is_err()
+                    {
+                        return false;
+                    }
+                    if let Some(cell_id) = self.reference(declaration.file, cell) {
+                        let cell_declaration = &self.bindings.declarations[cell_id.0];
+                        if cell_declaration.role != DeclarationRole::Value
+                            || !cell_declaration.top_level
+                            || !numeric(self.domains.declarations[cell_id.0].domain.clone())
+                        {
+                            return false;
+                        }
+                        let Some(cell_written) = find_node(
+                            self.context.files[cell_declaration.file].parsed.tree(),
+                            &cell_declaration.syntax_range,
+                            cell_declaration.role,
+                        ) else {
+                            return false;
+                        };
+                        if cell_written.child_nodes().any(|n| is_expression(n.kind())) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            true
+        };
+        let mut source = unwrap(source);
+        let mut file = file;
+        let mut active = Vec::new();
+        while source.kind() == NodeKind::Expression {
+            let Some(id) = self.reference(file, source) else {
+                return false;
+            };
+            let declaration = &self.bindings.declarations[id.0];
+            if active.contains(&id)
+                || declaration.role != DeclarationRole::Value
+                || !declaration.top_level
+            {
+                return false;
+            }
+            active.push(id);
+            let Some(written) = find_node(
+                self.context.files[declaration.file].parsed.tree(),
+                &declaration.syntax_range,
+                declaration.role,
+            ) else {
+                return false;
+            };
+            if written.child_nodes().take(1).any(|ty| {
+                !numeric(expression_domain(
+                    self.context,
+                    self.bindings,
+                    declaration.file,
+                    ty,
+                ))
+            }) {
+                return false;
+            }
+            let ty = &self.calls.declarations[id.0].ty;
+            if !ty.known()
+                || optional(ty)
+                || ty.instantiation != Instantiation::Parameter
+                || !matches!(&ty.kind, TypeKind::Set(element) if element.kind == TypeKind::Int
+                    && element.known() && !optional(element))
+            {
+                return false;
+            }
+            let Some(initializer) = written
+                .child_nodes()
+                .find(|child| is_expression(child.kind()))
+            else {
+                return self.domains.declarations[id.0]
+                    .domain
+                    .numeric_minimum()
+                    .is_ok();
+            };
+            source = unwrap(initializer);
+            file = declaration.file;
+        }
+        let domain = expression_domain(self.context, self.bindings, file, source);
+        let mut constants = vec![source];
+        let mut closed = true;
+        while let Some(value) = constants.pop() {
+            if value.kind() == NodeKind::Expression
+                && !matches!(crate::domains::tokens(&self.context.files[file].parsed, value).as_slice(),
+                    [token] if token.kind == TokenKind::IntegerLiteral)
+            {
+                closed = false;
+            }
+            constants.extend(value.child_nodes());
+        }
+        if closed && domain.numeric_minimum().is_ok() {
+            return true;
+        }
+        let bounds: Vec<_> = source.child_nodes().map(unwrap).collect();
+        if source.kind() != NodeKind::RangeExpression
+            || bounds.len() != 2
+            || crate::domains::expression_integer(self.context, self.bindings, file, bounds[0])
+                != Ok(Some(1))
+        {
+            return false;
+        }
+        let upper = bounds[1];
+        if count(file, upper) {
+            return true;
+        }
+        let operands: Vec<_> = upper.child_nodes().collect();
+        upper.kind() == NodeKind::BinaryExpression
+            && operands.len() == 2
+            && self.core(file, upper, view, "div")
+            && operands.iter().all(|operand| count(file, operand))
     }
     fn inspect_bodyless_integer_maximum(
         &self,

@@ -1804,7 +1804,7 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
     std::fs::remove_dir_all(dir).unwrap();
     // Keep the complete Routing336 producer chain in one symbolic public case.
     let routing = concat!(
-        "int: count; set of int: Cols=1..2; array[1..2*count] of var 0..9: coords;\n",
+        "int: count; set of int: Cols=1..2; var 0..9: coord_a; var 0..9: coord_b; array[int] of var int: coords=[coord_a,coord_b];\n",
         "set of int: Rows=1..length(coords) div length(Cols);\n",
         "array[int] of int: kinds=[5,3]; set of int: Boxes=index_set(kinds);\n",
         "set of int: Pref={z|z in Boxes where 5==kinds[z]};\n",
@@ -1828,6 +1828,8 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
         "constraint forall(i in Rows,k in Cols)(if not leg(i) then legs[i,k]==0 else legs[i,k]>=lb(positions[i,k]) /\\ legs[i,k]<=ub(positions[i,k]) endif);\n",
         "constraint forall(i in Rows)(if first(i) then exists_leg[i]==0 else exists_leg[i]==exists_leg[i-1]+1 endif);\n",
         "constraint forall(i in Rows,k in Cols)(if k==(direction[node[i]]-1) mod 3+1 then legs[i,k]>=0 else true endif);\n",
+        "array[Rows] of var 0..6: selected_direction;\n",
+        "constraint forall(i in Rows)(if 1==i then selected_direction[i]==direction[node[i]] else selected_direction[i]==0 endif);\n",
         "array[Boxes] of int: first_leg=[min(legs_by_pipe[p])|p in Boxes]; array[Boxes] of int: last_leg=[max(legs_by_pipe[p])|p in Boxes];\n",
         "int: units; int: reduction=1; var int: float_let_output;\n",
         "constraint let { float: kappa=int2float(units)/4.0; float: unused_kappa=int2float(units)/8.0; } in\n",
@@ -2016,6 +2018,19 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
             .iter()
             .any(|definition| definition.target == float_output)
     );
+    let selected_direction = bindings
+        .declarations
+        .iter()
+        .find(|declaration| declaration.top_level && declaration.name == "selected_direction")
+        .unwrap()
+        .id;
+    assert!(
+        !callable
+            .definitions
+            .iter()
+            .any(|definition| definition.target == selected_direction),
+        "Unproved selected-direction membership must supply no callable output"
+    );
     let let_start = routing.find("constraint let {").unwrap();
     let let_end = routing[let_start..].find(" endif);").unwrap() + let_start + " endif);".len();
     assert!(!callable.inspected_locals.iter().any(|id| {
@@ -2058,6 +2073,47 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
                 && d.safety == DefinitionSafety::Supported
                 && d.coverage == DefinitionCoverage::WholeArray)
     );
+    // Equality inspection cannot hide a hazardous selector or literal source.
+    for (before, after) in [
+        (
+            "selected_direction[i]==direction[node[i]]",
+            "selected_direction[i]==direction[node[i]-(1 div 0)]",
+        ),
+        (
+            "selected_direction[i]==direction[node[i]]",
+            "selected_direction[i]==direction[node[i]-(9223372036854775807+1)]",
+        ),
+        (
+            "array[int] of int: direction=[3,4]",
+            "array[int] of int: direction=[9223372036854775807+1,4]",
+        ),
+        (
+            "set of int: Rows=1..length(coords) div length(Cols)",
+            "set of int: Rows=1..(9223372036854775807+1)",
+        ),
+    ] {
+        assert!(routing.contains(before));
+        std::fs::write(dir.join("root.mzn"), routing.replace(before, after)).unwrap();
+        let equality_context = load_model(dir.join("root.mzn"), &options);
+        assert!(
+            equality_context.errors.is_empty(),
+            "{after}: {:?}",
+            equality_context.errors
+        );
+        let equality_result = analyze_model(&equality_context, &selected());
+        assert!(
+            matches!(
+                equality_result.rules[0].outcome,
+                RuleOutcome::Limited { .. }
+            ),
+            "{after}: {:?}",
+            equality_result.rules[0].outcome
+        );
+        assert!(
+            !equality_result.limitations.is_empty(),
+            "{after}: a hazardous equality must retain a search limitation"
+        );
+    }
     // A closed hazardous sibling cannot become an unknown wrapped selection.
     for wrapped in [
         "direction[node[i]]-(1 div 0)",
