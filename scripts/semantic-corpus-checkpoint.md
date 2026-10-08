@@ -4103,3 +4103,23 @@ in that preparation directory's actual-workspace-gates/root-audit.json.
 Original crossword preservation-example runs still require a fresh release;
 model-dependent lint loading and raw snapshots/fixes remain open. This
 increment does not complete task083 or substitute for final corpus evidence.
+
+Fresh normal36 release includes the raw corpus checker. Current main108/
+copied108, four opt3 binaries, 22 libraries and complete build streams/group
+are checked in semantic62-combined36-release/root-build-audit.json. All five
+compiler-positive original crossword inputs now pass raw token coverage, CST
+coverage, spelling counts, sorted structure, protected bytes and idempotence
+with zero parse/reparse errors. Full original/std/compiler/main/assets/helper
+pins, complete streams and five empty reaped groups are checked in
+semantic62-crosswords36-preservation/root-audit.json. Default source-local
+checks succeed; model-loader and raw safe-fix support remain open.
+
+The frozen pillars V2 regression is GREEN with the scoped production draft:
+selected bodyless symmetry wrappers reuse ignored-argument inspection and
+integer extrema inspect both concatenated source operands while retaining
+Unknown extent/value. The genuine failing raw-wrapper assertion, negative
+partiality case and no-whole-array/output-certificate checks pass together.
+Full historical107 scratch pins, unchanged V2 tests, complete streams and the
+empty reaped group are checked in semantic62-pillars-current-gap-preparation/
+v2/focused-green/root-audit.json. Main integration, workspace gates and fresh
+original/public normal release controls remain pending.
