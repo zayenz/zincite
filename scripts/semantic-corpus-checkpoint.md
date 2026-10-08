@@ -3390,3 +3390,46 @@ The integrated files exactly match those tested bytes. Evidence is retained in
 `semantic62-routing-equality-reduction/header-v2-workspace-gates/` and
 `integration-current.json`. Original Routing coverage and final corpus checks
 remain pending; base-083 remains open.
+
+The original Routing model finishes both normal25 controls within their
+unchanged 300-second limits. Root independently checked full streams, before/
+after/current pins, terminal status and empty reaped groups, source/drop records,
+and exact26/thesis14 accounting. Both status1 and complete diagnostics match24:
+180 warnings, 192 limitations and zero errors. All fourteen thesis outcomes are
+unchanged: thirteen Completed and search Limited at line182. The focused repair
+does not establish a fix for this original gap. Evidence is
+`semantic62-routing25-pair/`, including `pair-root-audit.json`; further diagnosis
+is being prepared rather than declaring original coverage complete.
+
+Gecode compile-only of the exact two-cell public Routing fixture exposed an
+unrelated min(empty) failure. The fixture now retains four bare decision-variable
+cells, giving both pipe selections nonempty sets while preserving the relevant
+header shape. That source compiles successfully without solving, with identical
+original/std pins before and after, in `compiler-header-v3/`. The four-cell test
+still fails the baseline at the intended membership limitation. Its interrupted
+current focused run printed a passing test but lost its parent terminal receipt;
+that observation is not counted as a completed control. Workspace validation of
+the corrected current test follows separately. Frozen25 build files remain
+unchanged, and the failed two-cell compiler result remains recorded.
+
+The bounded native Cellda attribution control also reaches its 300-second
+deadline. Its single owned-child sample at age240 succeeds and captures a raw
+graph. Root checked exact PID34361, invocation window, full native/sampler
+streams, reaped empty groups and before/after/current input/asset/helper pins.
+The graph's main-thread branch has 80 samples, with61 under numeric-fact bounds
+analysis and deep Bounds::expression recursion. This identifies a path for
+inspection within that one-second window; it proves neither whole-run share nor
+allocation/leak attribution. Evidence is `semantic62-cellda24-native-attribution/`,
+including `root-audit.json`. Native per-rule/root/drop completion remains
+unavailable. Analysis of the full graph and the relevant producer is in progress.
+
+The staged Pentominoes v2 positive and literal-membership/closed-overflow
+counterchecks pass in isolation, but integrated workspace validation fails the
+positive on both local axes. Formatting and Clippy pass. Root reproduced the
+failure in a separate current focused run, with terminal101 and unchanged
+production/test hashes; the isolated and integrated array-index/test files are
+byte-identical. The actual callable-definition source includes the committed
+Routing repair, so the difference is being diagnosed before this local-axis
+change is accepted or committed. Evidence is `semantic62-current26-workspace-gates/`
+and `semantic62-current26-local-focused/`. The candidate remains uncommitted;
+base-083 acceptance stays open.
