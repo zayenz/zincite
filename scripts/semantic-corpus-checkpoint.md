@@ -3855,3 +3855,22 @@ A blanket Unknown decline would lose this checkable fact. Operand arithmetic
 errors also need an independent veto; initialized-source dependency inspection
 alone does not establish that a closed addition is defined. The shared domain
 repair is under review; this observation supplies no accepted production change.
+
+CTW current32 scratch GREEN1 passes the positive source-inspection/Unknown/
+coverage assertions and rejects the partial wrapper at its source location,
+then fails an over-specific division-by-zero message assertion. The existing
+projected-parameter dependency check rejects it earlier for strict partiality;
+production is unchanged in the assertion-only v2. GREEN2 passes the complete
+public group. Full streams/current106 scratch/helpers and reaped empty groups
+are checked in focused-green1/root-audit.json and focused-green2/root-audit.json.
+
+The two-file CTW repair is integrated and formatted: selected rank2 integer
+index_set_1of2 sources and ParameterInt pow operands receive inspection with
+Unknown results; selected bodyless redundant_constraint inspects its child
+through existing clauses/instances and discards outputs/local certificates.
+Exact selected signatures, full sources, annotations, defaults, optionality,
+cycles and partiality remain guarded. Strict dependencies and Sparse inspection
+are preserved. Formatting,Clippy and workspace tests pass (194 tests/42 summaries),
+with full streams/current106 main sources/helpers and all three empty reaped
+groups checked in actual-workspace-gates/root-audit.json. Current release/public/
+original CTW controls and final full-corpus acceptance remain pending.

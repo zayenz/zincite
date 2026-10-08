@@ -2637,6 +2637,15 @@ impl<'a> Producer<'a> {
                     }
                 }
                 if let Some(checked) =
+                    self.inspect_redundant_constraint(clause, view, id, &parameters, known, active)
+                {
+                    if let Err(reason) = checked {
+                        self.unavailable(clause, &reason, unavailable);
+                    }
+                    // The wrapper may be ignored: never forward outputs or locals.
+                    return;
+                }
+                if let Some(checked) =
                     self.inspect_bodyless_integer_maximum(clause, view, id, &parameters)
                 {
                     if let Err(reason) = checked {
@@ -3239,6 +3248,197 @@ impl<'a> Producer<'a> {
             && operands.len() == 2
             && self.core(file, upper, view, "div")
             && operands.iter().all(|operand| count(file, operand))
+    }
+    // Inspect the selected argument without treating an ignored wrapper as enforcement.
+    fn inspect_redundant_constraint(
+        &self,
+        clause: &Clause<'a>,
+        view: &CallableFacts,
+        id: DeclarationId,
+        parameters: &[TypeInst],
+        known: &[CallableOutput],
+        active: &mut Vec<(FileId, std::ops::Range<usize>)>,
+    ) -> Option<Result<(), String>> {
+        let declaration = &self.bindings.declarations[id.0];
+        let source = &self.context.files[declaration.file];
+        if declaration.name != "redundant_constraint"
+            || declaration.role != DeclarationRole::Predicate
+            || source.kind != SourceKind::StandardLibrary
+            || !source.implicit
+        {
+            return None;
+        }
+        Some((|| {
+            let written = find_node(
+                source.parsed.tree(),
+                &declaration.syntax_range,
+                declaration.role,
+            )
+            .ok_or("redundant constraint declaration unavailable")?;
+            let boolean = |ty: &TypeInst| ty.known() && !optional(ty) && ty.kind == TypeKind::Bool;
+            let formal = formal_parameter(self.context, self.bindings, id, 0)
+                .ok_or("redundant constraint formal unavailable")?;
+            let formals: Vec<_> = written
+                .child_nodes()
+                .find(|n| n.kind() == NodeKind::ParameterList)
+                .ok_or("redundant constraint parameters unavailable")?
+                .child_nodes()
+                .collect();
+            let declared = &self.calls.declarations[formal.0].ty;
+            if clause.node.kind() != NodeKind::CallExpression
+                || clause.node.child_nodes().count() != 1
+                || written.child_nodes().any(|n| is_expression(n.kind()))
+                || formals.len() != 1
+                || formals[0].child_nodes().any(|n| is_expression(n.kind()))
+                || !boolean(declared) || declared.instantiation != Instantiation::Decision
+                || parameters.len() != 1 || !boolean(&parameters[0])
+                || self.operation_fact(self.view(clause.file, clause.node, view), clause.file, clause.node)
+                    .is_none_or(|call| !matches!(&call.outcome,
+                        CallOutcome::Resolved { declaration: selected, parameters, return_type }
+                            if *selected == id && parameters.len() == 1 && parameters[0] == *declared
+                                && boolean(return_type) && return_type.instantiation == Instantiation::Decision))
+            {
+                return Err("redundant constraint signature, body or defaults are unsupported".into());
+            }
+            for (file, root) in [(declaration.file, written), (clause.file, clause.node)] {
+                let mut nodes = vec![root];
+                while let Some(node) = nodes.pop() {
+                    if !crate::definitions::annotations_safe(self.context, file, node) {
+                        return Err(
+                            "redundant constraint declaration or call annotation is unsupported"
+                                .into(),
+                        );
+                    }
+                    nodes.extend(node.child_nodes());
+                }
+            }
+            let (file, argument) = call_argument(
+                self.context,
+                self.bindings,
+                self.view(clause.file, clause.node, view),
+                clause.file,
+                clause.node,
+                id,
+                0,
+            )
+            .ok_or("redundant constraint argument unavailable")?;
+            let facts = self.view(file, argument, view);
+            let ty = self
+                .expression_type(facts, file, argument)
+                .map(|e| &e.ty)
+                .ok_or("redundant constraint argument type unavailable")?;
+            if !boolean(ty) || !crate::types::coerces(ty, declared) {
+                return Err(
+                    "redundant constraint argument type or optionality is unsupported".into(),
+                );
+            }
+            let lexical = if file == clause.file
+                && clause.node.range().start <= argument.range().start
+                && argument.range().end <= clause.node.range().end
+            {
+                &clause.generators[..]
+            } else {
+                &[]
+            };
+            // Boolean call bodies use the existing instance interpreter. Evaluate
+            // their non-Boolean actuals and initialized references independently.
+            let mut nodes = vec![argument];
+            while let Some(node) = nodes.pop() {
+                if !crate::definitions::annotations_safe(self.context, file, node) {
+                    return Err("redundant constraint argument annotation is unsupported".into());
+                }
+                if node.kind() == NodeKind::Expression
+                    && self.reference(file, node).is_some_and(|id| {
+                        self.bindings.declarations[id.0].role == DeclarationRole::Local
+                    })
+                {
+                    return Err(
+                        "redundant constraint local source inspection is unsupported".into(),
+                    );
+                }
+                if is_expression(node.kind())
+                    && (node.kind() == NodeKind::Expression
+                        || self
+                            .expression_type(self.view(file, node, view), file, node)
+                            .is_none_or(|e| !boolean(&e.ty)))
+                {
+                    if let DefinitionSafety::Unsupported(reason) =
+                        self.initialized_source_safety(file, node, view, lexical, &mut Vec::new())
+                    {
+                        return Err(reason);
+                    }
+                    continue;
+                }
+                if node.kind() == NodeKind::CallExpression {
+                    let (selected, concrete) = self
+                        .resolved(file, node, view)
+                        .ok_or("redundant constraint nested selection is unsupported")?;
+                    for (position, formal) in concrete.iter().enumerate() {
+                        let (actual_file, actual) = call_argument(
+                            self.context,
+                            self.bindings,
+                            self.view(file, node, view),
+                            file,
+                            node,
+                            selected,
+                            position,
+                        )
+                        .ok_or("redundant constraint nested actual or default unavailable")?;
+                        if actual_file == file
+                            && node.range().start <= actual.range().start
+                            && actual.range().end <= node.range().end
+                        {
+                            continue;
+                        }
+                        // An empty set has no evaluated cells. Its selected concrete
+                        // formal supplies its type, not an instance-value certificate.
+                        let empty_set = unwrap(actual).kind() == NodeKind::SetLiteral
+                            && unwrap(actual).child_nodes().count() == 0
+                            && formal.known()
+                            && !optional(formal)
+                            && formal.instantiation == Instantiation::Parameter
+                            && matches!(formal.kind, TypeKind::Set(_))
+                            && crate::definitions::annotations_safe(
+                                self.context,
+                                actual_file,
+                                actual,
+                            );
+                        if !empty_set
+                            && let DefinitionSafety::Unsupported(reason) = self
+                                .initialized_source_safety(
+                                    actual_file,
+                                    actual,
+                                    view,
+                                    &[],
+                                    &mut Vec::new(),
+                                )
+                        {
+                            return Err(reason);
+                        }
+                    }
+                }
+                nodes.extend(node.child_nodes());
+            }
+            let mut clauses = Vec::new();
+            self.clauses(file, clause.item, argument, view, lexical, &mut clauses);
+            if clauses.is_empty() {
+                return Err("redundant constraint argument clauses unavailable".into());
+            }
+            let mut unavailable = Vec::new();
+            for child in clauses {
+                self.interpret_forwarded(
+                    (&child, view, known),
+                    &mut Vec::new(),
+                    &mut unavailable,
+                    &mut Vec::new(),
+                    active,
+                );
+            }
+            match unavailable.into_iter().next() {
+                Some(unavailable) => Err(unavailable.reason),
+                None => Ok(()),
+            }
+        })())
     }
     fn inspect_bodyless_integer_maximum(
         &self,
@@ -8134,6 +8334,58 @@ impl<'a> Producer<'a> {
             self.expression_type(self.view(file, node, view), file, node)
                 .map(|e| &e.ty)
         };
+        if node.kind() == NodeKind::CallExpression && self.core(file, node, view, "index_set_1of2")
+        {
+            let children: Vec<_> = node.child_nodes().collect();
+            let integer = |t: &TypeInst| {
+                t.known()
+                    && !optional(t)
+                    && t.instantiation == Instantiation::Parameter
+                    && t.kind == TypeKind::Int
+            };
+            let array = |t: &TypeInst| {
+                t.known()
+                    && !optional(t)
+                    && t.instantiation == Instantiation::Parameter
+                    && matches!(&t.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 2 && indices.iter().all(integer) && integer(element))
+            };
+            let set = |t: &TypeInst| {
+                t.known()
+                    && !optional(t)
+                    && t.instantiation == Instantiation::Parameter
+                    && matches!(&t.kind, TypeKind::Set(element) if integer(element))
+            };
+            let subject = children.first().copied().map(unwrap);
+            let owner = subject.and_then(|n| self.reference(file, n));
+            if children.len() != 1
+                || subject.is_none_or(|n| n.kind() != NodeKind::Expression)
+                || owner.is_none_or(|id| {
+                    let declaration = &self.bindings.declarations[id.0];
+                    declaration.role != DeclarationRole::Value || !declaration.top_level
+                })
+                || !crate::definitions::annotations_safe(self.context, file, written)
+                || ty(children[0]).is_none_or(|t| !array(t))
+                || ty(node).is_none_or(|t| !set(t))
+                || self.operation_fact(self.view(file, node, view), file, node).is_none_or(|call|
+                    !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                        if parameters.len() == 1 && array(&parameters[0])
+                            && ty(children[0]).is_some_and(|actual| crate::types::coerces(actual, &parameters[0]))
+                            && Some(return_type) == ty(node)))
+            {
+                return DefinitionSafety::Unsupported("rank-two integer index-set source is unsupported".into());
+            }
+            return match self.initialized_source_safety(
+                file,
+                children[0],
+                view,
+                generators,
+                &mut Vec::new(),
+            ) {
+                unsupported @ DefinitionSafety::Unsupported(_) => unsupported,
+                _ => DefinitionSafety::Unknown("rank-two index-set membership is unproved".into()),
+            };
+        }
         if let Some(safety) =
             self.parameter_test_safety(file, written, view, generators, &mut Vec::new())
         {
@@ -8834,11 +9086,14 @@ impl<'a> Producer<'a> {
             }
             NodeKind::CallExpression => {
                 if self.core(file, node, view, "pow") {
-                    let decision_int = |t: &TypeInst| {
+                    let base_int = |t: &TypeInst| {
                         t.known()
                             && !optional(t)
                             && t.kind == TypeKind::Int
-                            && t.instantiation == Instantiation::Decision
+                            && matches!(
+                                t.instantiation,
+                                Instantiation::Parameter | Instantiation::Decision
+                            )
                     };
                     let parameter_int = |t: &TypeInst| {
                         t.known()
@@ -8849,13 +9104,14 @@ impl<'a> Producer<'a> {
                     if children.len() != 2
                         || children.iter().any(|child| child.kind() == NodeKind::NamedArgument)
                         || !crate::definitions::annotations_safe(self.context, file, written)
-                        || ty(children[0]).is_none_or(|t| !decision_int(t))
+                        || ty(children[0]).is_none_or(|t| !base_int(t))
                         || ty(children[1]).is_none_or(|t| !parameter_int(t))
-                        || ty(node).is_none_or(|t| !decision_int(t))
+                        || ty(node).is_none_or(|t| !base_int(t) || ty(children[0]) != Some(t))
                         || self.operation_fact(self.view(file, node, view), file, node).is_none_or(|call| {
                             !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
-                                if parameters.len() == 2 && decision_int(&parameters[0])
-                                    && parameter_int(&parameters[1]) && Some(return_type) == ty(node))
+                                if parameters.len() == 2 && base_int(&parameters[0])
+                                    && parameter_int(&parameters[1]) && Some(&parameters[0]) == ty(children[0])
+                                    && Some(&parameters[1]) == ty(children[1]) && Some(return_type) == ty(node))
                         })
                     {
                         return DefinitionSafety::Unsupported(reason);

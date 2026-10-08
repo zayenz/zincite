@@ -2341,6 +2341,273 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
     );
     // Existing unsafe-source, annotation, optional, opaque and cycle cases stay above.
     std::fs::remove_dir_all(dir).unwrap();
+    // Keep the compiler-positive CTW header, nested selectors and all three calls.
+    let ctw = r#"include "globals.mzn";
+
+int: size;
+set of int: Positions = 1..size;
+array[int, int] of Positions: preference_pairs;
+array[Positions] of var Positions: positions;
+
+% Choose one position per item; preferences only contribute to the objective.
+constraint :: "Distinct positions" all_different(positions);
+var int: penalty = sum(row in index_set_1of2(preference_pairs))(
+  positions[preference_pairs[row, 1]] > positions[preference_pairs[row, 2]]
+);
+var int: objective = penalty * pow(size, 3) + penalty * pow(size, 2)
+  + penalty * pow(size, 1) + penalty;
+
+% This ignored-capable wrapper supplies no search coverage for these variables.
+array[Positions] of var Positions: auxiliary;
+constraint :: "Redundant distinct positions"
+  redundant_constraint(all_different(auxiliary));
+solve :: int_search(positions, first_fail, indomain_split) minimize objective;
+"#;
+    let dir = std::env::temp_dir().join(format!(
+        "zincite-search-ctw-generator-power-wrapper-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(dir.join("root.mzn"), ctw).unwrap();
+    // Data is retained for the compiler precheck, not loaded as invariant facts.
+    std::fs::write(
+        dir.join("instance.dzn"),
+        "size = 3;\npreference_pairs = [|1, 2|2, 3|];\n",
+    )
+    .unwrap();
+    let ctw_core = CORE
+        .replace(
+            "function var bool: forall(array[int] of var opt bool: body);",
+            "function var bool: forall(array[$T] of var bool: body);",
+        )
+        .replace(
+            "function var int: sum(array[int] of var int: body);",
+            "function var int: sum(array[$T] of var int: body);",
+        )
+        .replace(
+            "annotation int_search(array[int] of var int: x,ann: select,ann: choice,ann: explore);",
+            "annotation int_search(array[int] of var int: x,ann: select,ann: choice,ann: explore=complete);",
+        );
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!(
+            "{ctw_core}{}",
+            concat!(
+                "function set of $$E: index_set_1of2(array[$$E,$$F] of any $U: x);\n",
+                "function int: pow(int: x,int: y); function var int: pow(var int: x,int: y);\n",
+                "function var int: '*'(var int: x,var int: y); function var bool: '>'(var int: x,var int: y);\n",
+                "function var bool: '!='(var int: x,var int: y); function bool: '<'(int: x,int: y);\n",
+                "function var bool: '\\/'(var bool: x,var bool: y);\n",
+                "predicate redundant_constraint(var bool: b); annotation first_fail; annotation indomain_split;\n",
+                "function int: 'div'(int: x,int: y);\n",
+            ),
+        ),
+    )
+    .unwrap();
+    // Retain the standard generic/defaulted signature and pairwise semantics.
+    std::fs::write(
+        dir.join("library/std/globals.mzn"),
+        "predicate all_different(array[$X] of var $$E: xs,set of $$E: except={})=forall(i,j in index_set(xs) where i<j)(xs[i]!=xs[j] \\/ (xs[i] in except /\\ xs[j] in except));\n",
+    )
+    .unwrap();
+    let options = ModelOptions {
+        include_dirs: vec![],
+        stdlib_dir: Some(dir.join("library")),
+    };
+    let context = load_model(dir.join("root.mzn"), &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let integer = |ty: &zincite_lint::TypeInst, instantiation| {
+        !ty.optional && ty.kind == zincite_lint::TypeKind::Int && ty.instantiation == instantiation
+    };
+    let standard = |id: zincite_lint::DeclarationId, name: &str| {
+        let declaration = &bindings.declarations[id.0];
+        let source = &context.files[declaration.file];
+        declaration.name == name
+            && source.kind == zincite_lint::SourceKind::StandardLibrary
+            && source.implicit
+    };
+    let at = |written: &str| {
+        let start = ctw.find(written).unwrap();
+        calls
+            .calls
+            .iter()
+            .find(|call| call.file == 0 && call.location.range.start == start)
+            .unwrap()
+    };
+    let header = at("index_set_1of2(preference_pairs)");
+    assert!(
+        matches!(&header.outcome,
+            zincite_lint::CallOutcome::Resolved { declaration, parameters, return_type }
+                if standard(*declaration, "index_set_1of2") && parameters.len() == 1
+                    && !parameters[0].optional
+                    && parameters[0].instantiation == zincite_lint::Instantiation::Parameter
+                    && matches!(&parameters[0].kind, zincite_lint::TypeKind::Array { indices, element }
+                        if indices.len() == 2 && indices.iter().all(|ty| integer(ty, zincite_lint::Instantiation::Parameter))
+                            && integer(element, zincite_lint::Instantiation::Parameter))
+                    && !return_type.optional
+                    && return_type.instantiation == zincite_lint::Instantiation::Parameter
+                    && matches!(&return_type.kind, zincite_lint::TypeKind::Set(element)
+                        if integer(element, zincite_lint::Instantiation::Parameter))
+        ),
+        "{:?}",
+        header.outcome
+    );
+    let sum = at("sum(row in");
+    assert!(
+        matches!(&sum.outcome,
+            zincite_lint::CallOutcome::Resolved { declaration, parameters, return_type }
+                if standard(*declaration, "sum") && parameters.len() == 1
+                    && integer(return_type, zincite_lint::Instantiation::Decision)
+                    && !parameters[0].optional
+                    && parameters[0].instantiation == zincite_lint::Instantiation::Decision
+                    && matches!(&parameters[0].kind, zincite_lint::TypeKind::Array { indices, element }
+                        if indices.len() == 1 && integer(&indices[0], zincite_lint::Instantiation::Parameter)
+                            && integer(element, zincite_lint::Instantiation::Decision))
+        ),
+        "{:?}",
+        sum.outcome
+    );
+    let body = "positions[preference_pairs[row, 1]] > positions[preference_pairs[row, 2]]";
+    let body_start = ctw.find(body).unwrap();
+    assert!(
+        calls
+            .expressions
+            .iter()
+            .any(|expression| expression.file == 0
+                && expression.location.range == (body_start..body_start + body.len())
+                && !expression.ty.optional
+                && expression.ty.kind == zincite_lint::TypeKind::Bool
+                && expression.ty.instantiation == zincite_lint::Instantiation::Decision)
+    );
+    for written in ["pow(size, 3)", "pow(size, 2)", "pow(size, 1)"] {
+        let call = at(written);
+        assert!(
+            matches!(&call.outcome,
+                zincite_lint::CallOutcome::Resolved { declaration, parameters, return_type }
+                    if standard(*declaration, "pow") && parameters.len() == 2
+                        && parameters.iter().chain(std::iter::once(return_type))
+                            .all(|ty| integer(ty, zincite_lint::Instantiation::Parameter))
+            ),
+            "{written}: {:?}",
+            call.outcome
+        );
+    }
+    let wrapper = at("redundant_constraint(all_different(auxiliary))");
+    assert!(
+        matches!(&wrapper.outcome,
+            zincite_lint::CallOutcome::Resolved { declaration, parameters, return_type }
+                if standard(*declaration, "redundant_constraint") && parameters.len() == 1
+                    && parameters.iter().chain(std::iter::once(return_type)).all(|ty|
+                        !ty.optional && ty.kind == zincite_lint::TypeKind::Bool
+                            && ty.instantiation == zincite_lint::Instantiation::Decision)
+        ),
+        "{:?}",
+        wrapper.outcome
+    );
+    let result = analyze_model(
+        &context,
+        &LintOptions::from_selection("search-coverage,unbounded-variable").unwrap(),
+    );
+    // This is the first expected RED: the same located compiler-positive gaps.
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    assert!(
+        result
+            .rules
+            .iter()
+            .all(|rule| matches!(rule.outcome, RuleOutcome::Completed))
+    );
+    let inst = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+    let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+    let search =
+        resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+    assert_eq!(search.root_state, ModelRootState::Complete);
+    for name in ["penalty", "objective"] {
+        let target = bindings
+            .declarations
+            .iter()
+            .find(|declaration| declaration.top_level && declaration.name == name)
+            .unwrap()
+            .id;
+        assert!(
+            definitions
+                .definitions
+                .iter()
+                .any(|definition| definition.target == target
+                    && matches!(definition.safety, DefinitionSafety::Unknown(_))),
+            "{name}"
+        );
+        assert!(
+            !callable
+                .definitions
+                .iter()
+                .any(|definition| definition.target == target
+                    && definition.safety == DefinitionSafety::Supported),
+            "{name}"
+        );
+        assert!(
+            !definitions
+                .bounded_or_defined_targets(&bindings, &domains)
+                .contains(&target)
+        );
+        assert_eq!(
+            coverage(&bindings, &search, name),
+            SearchCoverage::Unknown,
+            "{name}"
+        );
+    }
+    assert_eq!(
+        coverage(&bindings, &search, "positions"),
+        SearchCoverage::WholeArray
+    );
+    assert_eq!(
+        coverage(&bindings, &search, "auxiliary"),
+        SearchCoverage::Uncovered
+    );
+    // An ignored-capable wrapper must still evaluate its partial argument.
+    let partial = ctw.replace(
+        "redundant_constraint(all_different(auxiliary))",
+        "redundant_constraint((1 div 0)=0)",
+    );
+    std::fs::write(dir.join("root.mzn"), &partial).unwrap();
+    let partial_context = load_model(dir.join("root.mzn"), &options);
+    assert!(
+        partial_context.errors.is_empty(),
+        "{:?}",
+        partial_context.errors
+    );
+    let partial_bindings = resolve_bindings(&partial_context);
+    let partial_calls = resolve_callables(&partial_context, &partial_bindings);
+    assert!(partial_calls.calls.iter().any(|call| call.file == 0 && matches!(&call.outcome,
+        zincite_lint::CallOutcome::Resolved { declaration, parameters, return_type }
+            if partial_bindings.declarations[declaration.0].name == "div"
+                && partial_context.files[partial_bindings.declarations[declaration.0].file].kind
+                    == zincite_lint::SourceKind::StandardLibrary
+                && parameters.len() == 2 && parameters.iter().chain(std::iter::once(return_type))
+                    .all(|ty| integer(ty, zincite_lint::Instantiation::Parameter))
+    )));
+    let partial_result = analyze_model(&partial_context, &selected());
+    assert!(matches!(
+        partial_result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    let wrapper_start = partial.find("redundant_constraint((1 div 0)=0)").unwrap();
+    assert!(
+        partial_result
+            .limitations
+            .iter()
+            .any(|limit| limit.location.range.start <= wrapper_start
+                && wrapper_start < limit.location.range.end
+                && limit
+                    .message
+                    .contains("output dependency operator identity or partiality is unsupported")),
+        "{:?}",
+        partial_result.limitations
+    );
+    std::fs::remove_dir_all(dir).unwrap();
     let (dir, context) = model("fragment", "var int: exported;", "");
     let (_, search) = facts(&context);
     assert_eq!(search.root_state, ModelRootState::Fragment);
