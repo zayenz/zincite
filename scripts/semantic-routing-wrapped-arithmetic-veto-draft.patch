@@ -1,0 +1,36 @@
+--- a/crates/zincite-lint/tests/search.rs
++++ b/crates/zincite-lint/tests/search.rs
+@@ -2058,6 +2058,33 @@
+                 && d.safety == DefinitionSafety::Supported
+                 && d.coverage == DefinitionCoverage::WholeArray)
+     );
++    // A closed hazardous sibling cannot become an unknown wrapped selection.
++    for wrapped in [
++        "direction[node[i]]-(1 div 0)",
++        "direction[node[i]]-(9223372036854775807+1)",
++    ] {
++        std::fs::write(
++            dir.join("root.mzn"),
++            routing.replace("direction[node[i]]-1", wrapped),
++        )
++        .unwrap();
++        let wrapped_context = load_model(dir.join("root.mzn"), &options);
++        assert!(
++            wrapped_context.errors.is_empty(),
++            "{wrapped}: {:?}",
++            wrapped_context.errors
++        );
++        let wrapped_result = analyze_model(&wrapped_context, &selected());
++        assert!(
++            matches!(wrapped_result.rules[0].outcome, RuleOutcome::Limited { .. }),
++            "{wrapped}: {:?}",
++            wrapped_result.rules[0].outcome
++        );
++        assert!(
++            !wrapped_result.limitations.is_empty(),
++            "{wrapped}: a hazardous sibling must retain a search limitation"
++        );
++    }
+     // Inspection must retain a partial child in the otherwise unproved else.
+     std::fs::write(
+         dir.join("root.mzn"),

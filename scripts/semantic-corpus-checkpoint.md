@@ -3149,3 +3149,11 @@ and the full workspace: 193 tests pass. The initial import-format and two
 needless-borrow failures were corrected before those successful gates.
 Matched measurements for this lookup change remain pending; the tested shared
 candidate and authoritative Rust source have not changed.
+
+The isolated Routing repair now passes formatting, Clippy with warnings
+denied, and all 193 workspace tests. The same public case retains search
+limitations for wrapped selections with a literal-zero division sibling or
+a closed addition-overflow sibling. This test delta is saved in
+`scripts/semantic-routing-wrapped-arithmetic-veto-draft.patch`.
+Original Routing native/companion outcomes and final combined-source checks
+remain pending; the authoritative source remains pinned to the live capture.
