@@ -3119,3 +3119,10 @@ FlatZinc and output metadata; no solving occurs. The existing focused search
 test then fails: `float_let_output` is Unknown where Uncovered is expected.
 All expectations remain unchanged. Narrow repairs are being prepared in an
 isolated copy; the tested shared candidate and authoritative source are frozen.
+
+Independent arithmetic review rules out the proposed coefficient bridge as
+an established gap. For the written local coefficient, the integer walker
+wraps its initializer in `NumericBound::Defined`; `invariant_integer` returns
+unknown for that wrapper and for the enclosing arithmetic. A failure in the
+initializer's value interpreter alone does not prove this dividend fails.
+No additional coefficient handling is authorized without a reproduced failure.
