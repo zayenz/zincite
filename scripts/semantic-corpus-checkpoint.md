@@ -3329,3 +3329,17 @@ classifications. The original model/data pair already has positive Gecode
 compile-only evidence. The pair ran with shared CPU, so no isolated timing
 comparison is claimed. Evidence and independent root audit are retained in
 `semantic62-ctw24-pair/`; whole-task acceptance remains open.
+
+The other seven previously unreached compiler-positive original models also
+finish current24 native/companion processing without timeout. Root checked
+complete streams/hashes and before/after/current pins, seven complete resolved
+root/drop records, exact all26/thesis14 partitions and no Unobserved rows. Native
+and companion status 1 and full diagnostics match: 323 warnings, 430 limitations
+and zero errors. Every model retains at least one thesis limitation; this
+resolves missing processing observations, not semantic acceptance. Evidence is
+`semantic62-unreached-seven24-pair/`, with root-audit.json and full root-results.json.
+Pentominoes retains only array-index-start among thesis rules: the local bounds
+q/s are initialized by parameter array selections, which the numeric-bound
+walker currently rejects. Other distinct facts are being reviewed. These
+controls shared CPU and support no isolated speed comparison; final corpus
+evidence must follow final source changes.
