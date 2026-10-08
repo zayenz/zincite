@@ -460,8 +460,146 @@ impl<'a> Walker<'a> {
                     })
                     .unwrap_or_else(Domain::Unsupported)
             }
+            CallExpression => self.index_set_domain(file, node).unwrap_or_else(|| {
+                Domain::Unsupported("domain form is outside bounded integer/set analysis".into())
+            }),
             _ => Domain::Unsupported("domain form is outside bounded integer/set analysis".into()),
         }
+    }
+    // Recover a declared axis, not array initializer safety or output facts.
+    fn index_set_domain(&mut self, file: FileId, node: &SyntaxNode) -> Option<Domain> {
+        let calls = self.calls?;
+        let arguments: Vec<_> = node.child_nodes().collect();
+        let [argument] = arguments.as_slice() else {
+            return None;
+        };
+        let mut argument = *argument;
+        while argument.kind() == NodeKind::ParenthesizedExpression {
+            if !crate::definitions::annotations_safe(self.context, file, argument) {
+                return None;
+            }
+            argument = argument.child_nodes().next()?;
+        }
+        let written = tokens(&self.context.files[file].parsed, argument);
+        if argument.kind() != NodeKind::Expression
+            || argument.child_nodes().next().is_some()
+            || !matches!(written.as_slice(), [token]
+                if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+            || !crate::definitions::annotations_safe(self.context, file, node)
+            || !crate::definitions::annotations_safe(self.context, file, argument)
+        {
+            return None;
+        }
+        let fact = crate::callables::operation_fact(self.context, calls, file, node)?;
+        if crate::callables::core_operation_outcome(
+            self.context,
+            self.bindings,
+            Some(&fact.outcome),
+            node.kind(),
+            "index_set",
+        ) != Ok(true)
+        {
+            return None;
+        }
+        let crate::CallOutcome::Resolved {
+            parameters,
+            return_type,
+            ..
+        } = &fact.outcome
+        else {
+            return None;
+        };
+        let integer = |ty: &crate::TypeInst| {
+            ty.known()
+                && !crate::value_safety::optional(ty)
+                && ty.instantiation == crate::Instantiation::Parameter
+                && ty.kind == crate::TypeKind::Int
+        };
+        let array = |ty: &crate::TypeInst| {
+            ty.known()
+                && !crate::value_safety::optional(ty)
+                && matches!(&ty.kind, crate::TypeKind::Array { indices, element }
+                    if indices.len() == 1 && integer(&indices[0])
+                        && element.kind == crate::TypeKind::Int)
+        };
+        let typed = |value: &SyntaxNode| {
+            let range = self.context.files[file].location(value.range()).range;
+            calls
+                .expressions
+                .iter()
+                .find(|e| e.file == file && e.location.range == range)
+                .map(|e| &e.ty)
+        };
+        let [parameter] = parameters.as_slice() else {
+            return None;
+        };
+        let id = self.reference(file, argument)?;
+        let actual = &calls.declarations.get(id.0)?.ty;
+        if !array(actual)
+            || !array(parameter)
+            || typed(argument) != Some(actual)
+            || !crate::types::coerces(actual, parameter)
+            || !union_parameter_type(return_type, true)
+            || typed(node) != Some(return_type)
+        {
+            return None;
+        }
+        let source = &self.bindings.declarations[id.0];
+        if !matches!(
+            source.role,
+            DeclarationRole::Value | DeclarationRole::Local | DeclarationRole::Parameter
+        ) {
+            return None;
+        }
+        // Include the owning initialized set and the array's written type.
+        // Array values are deliberately outside this declared-domain query.
+        for id in self.active.iter().copied().chain(std::iter::once(id)) {
+            let declaration = &self.bindings.declarations[id.0];
+            let declaration_node = crate::callables::find_node(
+                self.context.files[declaration.file].parsed.tree(),
+                &declaration.syntax_range,
+                declaration.role,
+            )?;
+            if !crate::definitions::annotations_safe(
+                self.context,
+                declaration.file,
+                declaration_node,
+            ) {
+                return None;
+            }
+            let mut types: Vec<_> = declaration_node.child_nodes().take(1).collect();
+            while let Some(ty) = types.pop() {
+                if !crate::definitions::annotations_safe(self.context, declaration.file, ty) {
+                    return None;
+                }
+                types.extend(ty.child_nodes());
+            }
+        }
+        let mut domain = self.declared(id);
+        while let Domain::Named { domain: inner, .. } = domain {
+            domain = *inner;
+        }
+        let Domain::Array { indices, element } = domain else {
+            return matches!(domain, Domain::Unsupported(_)).then_some(domain);
+        };
+        if indices.len() != 1 {
+            return None;
+        }
+        // Written element errors remain a conservative source-type veto.
+        if let Err(reason) = element.numeric_minimum() {
+            return Some(Domain::Unsupported(reason.into()));
+        }
+        let axis = indices.into_iter().next()?;
+        // Return the retained axis intact: its consumers propagate errors without
+        // dropping named declaration identity.
+        Some(
+            if matches!(bare_index_domain(&axis), Domain::UnconstrainedInt) {
+                // An array[int] formal has an unproved actual set, not all integers.
+                Domain::Unknown
+            } else {
+                axis
+            },
+        )
     }
     fn union_expression_type(&self, file: FileId, node: &SyntaxNode, set: bool) -> bool {
         let range = self.context.files[file].location(node.range()).range;

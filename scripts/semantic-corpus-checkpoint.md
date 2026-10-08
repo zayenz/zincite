@@ -5193,3 +5193,23 @@ from final main only in the simplified permanent test; production bytes match.
 Actual main formatting, Clippy with warnings denied and all 221 workspace tests
 pass under semantic62-set2array-main-integration. The written circuit's symbolic
 index-domain limitation, IS membership and final corpus checks keep base-083 open.
+
+Checked core `index_set` calls on a bare rank-one integer array now recover its
+declared axis in the shared domain producer. Named axes and arithmetic errors
+remain intact; an unconstrained formal axis remains Unknown. This query does not
+inspect array value initializers or establish membership, totality or outputs.
+The public regression covers the written circuit's symbolic axis, closed start
+advice and retained overflow refusal. The API without callable facts remains
+conservative.
+
+Matched normal opt3 controls remove the written circuit's sole thesis limitation:
+all fourteen thesis rules now complete there. Warnings remain seven and all-rule
+limitations decrease from ten to nine. Installed circuit, original IS and guarded
+conversion diagnostics remain unchanged; IS still has its separate Search table
+limitation. Native and companion agree on full 26-rule outcomes, dependencies and
+drop records across all sixteen runs. Six retained Gecode compile-only proofs were
+reused. Evidence is under semantic62-circuit-domain-release-controls-preparation-v1;
+the audited release's 108 source files match current main. Actual main formatting,
+Clippy with warnings denied and all 222 workspace tests pass under
+semantic62-circuit-index-domain-main-integration. IS table inspection and final
+corpus, functional and performance checks keep base-083 open.

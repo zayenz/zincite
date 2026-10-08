@@ -34,6 +34,106 @@ fn selected() -> LintOptions {
 }
 
 #[test]
+fn index_set_axes_retain_declared_bounds_and_symbolic_uncertainty() {
+    let source = r#"include "all_different.mzn";
+predicate written_circuit(array[int] of var int: xs) =
+    if length(xs) = 0 then true
+    else let {
+        set of int: S = index_set(xs);
+        int: l = min(S);
+        int: n = card(S);
+        array[S] of var 1..n: order;
+    } in all_different(xs) /\
+        all_different(order) /\
+        forall(i in S)(xs[i] != i) /\
+        order[l] = 1 /\
+        forall(i in S)(order[xs[i]] = if order[i] = n then 1 else order[i] + 1 endif)
+    endif;
+int: node_count;
+set of int: Nodes = 1..node_count;
+array[Nodes] of var Nodes: successor;
+constraint written_circuit(successor);
+solve :: int_search(successor, input_order, indomain_min, complete) satisfy;
+"#;
+    let (directory, _) = model("index-set-axis", "solve satisfy;");
+    std::fs::write(
+        directory.join("library/std/stdlib.mzn"),
+        concat!(
+            "function set of int: index_set(array[int] of var int: values);\n",
+            "function int: length(array[int] of var int: values);\n",
+            "function int: min(set of int: values); function int: card(set of int: values);\n",
+            "function set of int: '..'(int: left,int: right);\n",
+            "function int: '+'(int: left,int: right);\n",
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        directory.join("library/std/all_different.mzn"),
+        "predicate all_different(array[int] of var int: values);\n",
+    )
+    .unwrap();
+    let root = directory.join("root.mzn");
+    let options = ModelOptions {
+        stdlib_dir: Some(directory.join("library")),
+        include_dirs: Vec::new(),
+    };
+    std::fs::write(&root, source).unwrap();
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let bindings = resolve_bindings(&context);
+    let raw = resolve_domains(&context, &bindings);
+    assert!(raw.array_indices.iter().any(|axis| {
+        axis.location.path == root
+            && &source[axis.location.range.clone()] == "S"
+            && axis.domain.numeric_minimum().is_err()
+    }));
+    let result = analyze_model(&context, &selected());
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    assert!(result.findings.is_empty(), "{:?}", result.findings);
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+
+    let closed = concat!(
+        "array[0..3] of var int: input; set of int: Axis=index_set(input);\n",
+        "array[Axis] of var int: copy; solve satisfy;\n",
+    );
+    std::fs::write(&root, closed).unwrap();
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let result = analyze_model(&context, &selected());
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+    assert!(
+        result.findings.iter().any(|finding| {
+            &closed[finding.location.range.clone()] == "Axis"
+                && finding.message.contains("starts at 0")
+        }),
+        "{:?}",
+        result.findings
+    );
+
+    let unsafe_source = closed.replace("0..3", "0..(9223372036854775807 + 1)");
+    std::fs::write(&root, &unsafe_source).unwrap();
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let result = analyze_model(&context, &selected());
+    assert!(matches!(
+        result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    assert!(
+        result.limitations.iter().any(|limit| {
+            &unsafe_source[limit.location.range.clone()] == "Axis"
+                && limit.message.contains("overflow")
+        }),
+        "{:?}",
+        result.limitations
+    );
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), unsafe_source);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn named_domains_and_symbolic_bounds_retain_identity_and_precise_advice() {
     let source = concat!(
         "\u{feff}% é\r\n",
