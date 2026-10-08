@@ -3720,6 +3720,14 @@ remains unintegrated. Full streams/unchanged106 sources/helpers/empty reaped
 group are checked in `semantic62-sparse-search-gap-preparation/focused-green2/`
 `root-audit.json`; the closed-axis inspection path is being diagnosed.
 
+Independent source review locates that counter's Boolean context: the existing
+relational_operand_dependencies intentionally converts undefined numeric/Enum
+selection to false and returns only forward dependencies. Requiring Limited
+there was an overstrong new test expectation. Preserve that relation behavior;
+the targeted counter is being moved to a standalone raw Enum initializer,
+where the new closed-axis veto applies. Production v2 remains unchanged pending
+the corrected public check; failed v2 evidence remains retained.
+
 Current CTW public reduction retains rank2 input/index_set_1of2, nested selectors,
 written Boolean generator sum, symbolic ParameterInt powers and the ignored-capable
 redundant wrapper. Its model+data passes current Gecode compile-only with no
