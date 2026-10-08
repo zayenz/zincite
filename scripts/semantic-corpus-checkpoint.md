@@ -5040,3 +5040,22 @@ accepted BIN and other repairs, actual main formatting, Clippy with warnings
 denied and all217 workspace tests pass under semantic62-macc-offset-main-integration.
 Neighbour-source inspection, remaining IS/GCC/BIN gaps and final complete corpus
 evidence keep base-083 open.
+
+GCC invocation extent inspection now checks selected parameter-set sources using
+the mapped actual's lexical generators. A successfully inspected selection has
+unknown extent; it proves no emptiness, cardinality or array membership. An
+unsupported or erroneous selected source remains an explicit cause. Existing
+literal and written-range extent paths retain their behavior.
+
+Matched normal opt3 controls remove only the standard GCC conditional-domain
+limitation from symbolic GCC and original GBAC. Symbolic GCC keeps5 warnings and
+4 limitations, with all fourteen thesis rules complete. Original GBAC keeps16
+warnings and17 limitations; its separate BIN search gap remains. The singleton
+and both compiler-rejected empty controls retain diagnostics byte-for-byte. All
+twenty native/companion captures agree with complete all26/thesis14 partitions,
+unchanged sources and matching drop records. Existing Gecode compile-only proofs
+were reused; no solver ran. Evidence is under
+semantic62-gcc-selected-set-extent-release-controls-preparation-v2. Actual main
+formatting, Clippy with warnings denied and all217 workspace tests pass under
+semantic62-gcc-selected-set-extent-main-integration. Remaining IS/BIN/Macc gaps
+and final complete corpus evidence keep base-083 open.

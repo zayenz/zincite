@@ -4810,10 +4810,11 @@ impl<'a> Producer<'a> {
         invocation: &Invocation<'a, 'b>,
         active: &mut Vec<DeclarationId>,
     ) -> Result<Option<bool>, String> {
-        let source = self.invocation_source(file, node, invocation)?;
-        let (file, node, view) = source.map_or((file, node, view), |source| {
-            (source.file, source.node, source.view)
+        let actual = self.invocation_source(file, node, invocation)?;
+        let (file, node, view) = actual.map_or((file, node, view), |actual| {
+            (actual.file, actual.node, actual.view)
         });
+        let actual_generators = actual.map_or(&[][..], |actual| actual.generators.as_slice());
         let node = unwrap(node);
         match node.kind() {
             NodeKind::ArrayLiteral => Ok(
@@ -4846,6 +4847,29 @@ impl<'a> Producer<'a> {
                     .child_nodes()
                     .next()
                     .ok_or("invoked array extent source unavailable")?;
+                // A fully inspected parameter set selection has unproved extent.
+                // Retain its written caller's lexical generators for source checks.
+                if unwrap(source).kind() == NodeKind::ArrayAccessExpression
+                    && self.expression_type(view, file, source).is_some_and(|e| {
+                        e.ty.known()
+                            && !optional(&e.ty)
+                            && e.ty.instantiation == Instantiation::Parameter
+                            && matches!(&e.ty.kind, TypeKind::Set(element)
+                                if element.instantiation == Instantiation::Parameter
+                                    && element.kind == TypeKind::Int)
+                    })
+                {
+                    return match self.initialized_source_safety(
+                        file,
+                        source,
+                        view,
+                        actual_generators,
+                        &mut Vec::new(),
+                    ) {
+                        DefinitionSafety::Unsupported(reason) => Err(reason),
+                        _ => Ok(None),
+                    };
+                }
                 let domain = expression_domain(self.context, self.bindings, file, source);
                 match crate::domains::bare_index_domain(&domain) {
                     Domain::Range { lower, upper } => {

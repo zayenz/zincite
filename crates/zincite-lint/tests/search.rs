@@ -82,6 +82,20 @@ predicate abort_value(bool: condition) = assert(condition, "literal actual", fal
     for (name, extent, invocation, partial_else, supported) in [
         ("symbolic", "count", "checked_cover", false, true),
         ("singleton", "1", "checked_cover", false, true),
+        (
+            "symbolic-set-selection",
+            "count",
+            "checked_cover",
+            false,
+            true,
+        ),
+        (
+            "partial-set-selector",
+            "count",
+            "checked_cover",
+            false,
+            false,
+        ),
         ("reachable-empty", "0", "checked_cover", false, false),
         ("bare-empty-axis", "0", "checked_cover", false, false),
         ("forwarded-empty", "0", "forward_cover", false, false),
@@ -108,7 +122,17 @@ predicate abort_value(bool: condition) = assert(condition, "literal actual", fal
         } else {
             body
         };
-        let constraint = if name == "bare-empty-axis" {
+        let set_selection = matches!(name, "symbolic-set-selection" | "partial-set-selector");
+        let constraint = if set_selection {
+            let selector = if name == "partial-set-selector" {
+                "g div 0"
+            } else {
+                "g"
+            };
+            format!(
+                "forall(g in 1..count)(checked_cover([values[i] | i in groups[{selector}]], [j | j in 1..count]))"
+            )
+        } else if name == "bare-empty-axis" {
             "checked_cover([values[i] | i in 1..1],empty_cover)".to_owned()
         } else if invocation == "abort_value" {
             "abort_value(false)".to_owned()
@@ -132,8 +156,13 @@ predicate abort_value(bool: condition) = assert(condition, "literal actual", fal
         } else {
             "solve :: int_search(values,input_order,indomain_min,complete) satisfy;"
         };
+        let set_declaration = if set_selection {
+            "array[1..count] of set of int: groups;\n"
+        } else {
+            ""
+        };
         let source = format!(
-            "int: count;\narray[1..count] of var 0..3: values;\nvar bool: auxiliary;\n{result_declaration}{bare_empty}{body}\nconstraint {constraint};\n{solve}\n"
+            "int: count;\narray[1..count] of var 0..3: values;\nvar bool: auxiliary;\n{set_declaration}{result_declaration}{bare_empty}{body}\nconstraint {constraint};\n{solve}\n"
         );
         let (dir, _) = model(&format!("zero-output-invocation-{name}"), &source, "");
         std::fs::write(
@@ -171,6 +200,46 @@ predicate abort_value(bool: condition) = assert(condition, "literal actual", fal
             element: Box::new(integer.clone()),
         });
         let set = par(TypeKind::Set(Box::new(integer)));
+        if set_selection {
+            let groups = bindings
+                .declarations
+                .iter()
+                .find(|d| d.name == "groups" && d.top_level)
+                .unwrap();
+            assert_eq!(
+                calls.declarations[groups.id.0].ty,
+                par(TypeKind::Array {
+                    indices: vec![par(TypeKind::Int)],
+                    element: Box::new(set.clone()),
+                }),
+                "{name}: exact present parameter array of integer sets"
+            );
+            let root_file = groups.file;
+            let parsed = &context.files[root_file].parsed;
+            let mut nodes = vec![parsed.tree()];
+            let mut selections = Vec::new();
+            while let Some(node) = nodes.pop() {
+                if node.kind() == zincite_syntax::NodeKind::ArrayAccessExpression
+                    && node
+                        .child_nodes()
+                        .next()
+                        .is_some_and(|subject| parsed.source()[subject.range()].trim() == "groups")
+                {
+                    selections.push(context.files[root_file].location(node.range()).range);
+                }
+                nodes.extend(node.child_nodes());
+            }
+            assert_eq!(selections.len(), 1, "{name}: exact owned selection range");
+            let selected_type = calls
+                .expressions
+                .iter()
+                .find(|e| e.file == root_file && e.location.range == selections[0])
+                .expect("written parameter-set selection expression fact");
+            assert_eq!(
+                selected_type.ty, set,
+                "{name}: present ParameterSetInt selection"
+            );
+        }
         let array_set_calls: Vec<_> = calls
             .calls
             .iter()
@@ -287,7 +356,7 @@ predicate abort_value(bool: condition) = assert(condition, "literal actual", fal
                 "{name}: {:?}",
                 result.limitations
             );
-            if partial_else {
+            if partial_else || name == "partial-set-selector" {
                 assert!(
                     callable
                         .unavailable
