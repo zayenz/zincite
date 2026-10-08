@@ -1,8 +1,11 @@
 use std::path::{Path, PathBuf};
 use zincite_lint::{
-    BindingFacts, DefinitionCoverage, DefinitionEnforcement, DefinitionFacts, DefinitionSafety,
-    LintOptions, ModelOptions, RuleOutcome, analyze_model, load_model, resolve_bindings,
-    resolve_callables, resolve_definitions, resolve_domains, resolve_instantiations,
+    BindingFacts, BindingResolution, CallOutcome, Cardinality, DefinitionCoverage,
+    DefinitionEnforcement, DefinitionFacts, DefinitionSafety, Instantiation, IterationCoverage,
+    LintOptions, ModelOptions, NumericOutcome, Rule, RuleOutcome, SourceKind, TypeInst, TypeKind,
+    analyze_model, load_model, resolve_bindings, resolve_callables, resolve_definitions,
+    resolve_domains, resolve_guarded_facts_with_options, resolve_instantiations,
+    resolve_iteration_facts, resolve_numeric_facts, resolve_optional_facts,
 };
 fn write(path: &Path, source: &str) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -364,6 +367,300 @@ solve satisfy;
             .map(|finding| &hazardous[finding.location.range.clone()])
             .collect::<Vec<_>>(),
         ["fixed_levels[t, p] = 0"],
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn symbolic_set_extrema_headers_complete_without_proving_boundary_membership() {
+    let source = r#"% The data file is only for compilation; lint retains symbolic parameters.
+int: step_count;
+int: column_count;
+
+set of int: Steps = 0..step_count - 1;
+set of int: Columns = 0..column_count - 1;
+array[Steps, Columns] of var 0..1: levels;
+
+% Neither boundary range establishes a whole-array definition.
+constraint :: "Initial boundary levels are empty"
+forall (t in min(Steps)..min(Steps) + 1, c in Columns) (
+    levels[t, c] = 0
+);
+
+constraint :: "Final boundary levels are full"
+forall (t in max(Steps) - 1..max(Steps), c in Columns) (
+    levels[t, c] = 1
+);
+
+solve satisfy;
+"#;
+    let (directory, _) = model("extrema-headers", source, "");
+    write(
+        &directory.join("library/std/stdlib.mzn"),
+        concat!(
+            "function $$E: min(set of $$E: s);\n",
+            "function $$E: max(set of $$E: s);\n",
+            "function set of $$E: '..'($$E: x,$$E: y);\n",
+            "function int: '-'(int: x,int: y); function int: '-'(int: x);\n",
+            "function int: '+'(int: x,int: y);\n",
+            "function var bool: '='(any $T: x,any $T: y);\n",
+            "function var bool: forall(array[$T] of var bool: body);\n",
+        ),
+    );
+    let options = ModelOptions {
+        stdlib_dir: Some(directory.join("library")),
+        include_dirs: Vec::new(),
+    };
+    let root = directory.join("root.mzn");
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let file = context.files.iter().position(|f| f.path == root).unwrap();
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let steps = bindings
+        .declarations
+        .iter()
+        .find(|d| d.file == file && d.name == "Steps" && d.top_level)
+        .unwrap()
+        .id;
+    let parameter_int = |ty: &TypeInst| {
+        ty.instantiation == Instantiation::Parameter && !ty.optional && ty.kind == TypeKind::Int
+    };
+    let parameter_set_int = |ty: &TypeInst| {
+        ty.instantiation == Instantiation::Parameter
+            && !ty.optional
+            && matches!(&ty.kind, TypeKind::Set(element) if parameter_int(element))
+    };
+    let declaration_type = calls
+        .declarations
+        .iter()
+        .find(|d| d.declaration == steps)
+        .unwrap();
+    assert!(parameter_set_int(&declaration_type.ty));
+    let axis_start = source.find("array[Steps").unwrap() + "array[".len();
+    assert!(bindings.references.iter().any(|reference| {
+        reference.file == file
+            && reference.location.range == (axis_start..axis_start + 5)
+            && reference.resolution == BindingResolution::Resolved(steps)
+    }));
+    let extrema: Vec<_> = calls
+        .calls
+        .iter()
+        .filter(|call| call.file == file && matches!(call.name.as_str(), "min" | "max"))
+        .collect();
+    assert_eq!(extrema.len(), 4);
+    let mut extremum_ranges = Vec::new();
+    for call in extrema {
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &call.outcome
+        else {
+            panic!("extremum did not resolve: {:?}", call.outcome);
+        };
+        let selected = &bindings.declarations[declaration.0];
+        assert!(!call.symbolic_operator);
+        assert_eq!(selected.name, call.name);
+        assert_eq!(
+            context.files[selected.file].kind,
+            SourceKind::StandardLibrary
+        );
+        assert!(matches!(parameters.as_slice(), [parameter] if parameter_set_int(parameter)));
+        assert!(parameter_int(return_type));
+        let written = format!("{}(Steps)", call.name);
+        let range = call.location.range.start..call.location.range.start + written.len();
+        assert_eq!(&source[range.clone()], written);
+        let argument = range.start + call.name.len() + 1..range.end - 1;
+        assert!(bindings.references.iter().any(|reference| {
+            reference.file == file
+                && reference.location.range == argument
+                && reference.resolution == BindingResolution::Resolved(steps)
+        }));
+        assert!(calls.expressions.iter().any(|expression| {
+            expression.file == file
+                && expression.location.range == argument
+                && expression.ty == parameters[0]
+        }));
+        assert!(calls.expressions.iter().any(|expression| {
+            expression.file == file
+                && expression.location.range == range
+                && expression.ty == *return_type
+        }));
+        extremum_ranges.push(range);
+    }
+
+    let selected = LintOptions::from_selection(
+        "constant-variable,expensive-comprehension,index-set-mismatch,vacuous-constraint",
+    )
+    .unwrap();
+    let result = analyze_model(&context, &selected);
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    assert_eq!(result.rules.len(), 4);
+    assert!(
+        result
+            .rules
+            .iter()
+            .all(|rule| rule.outcome == RuleOutcome::Completed),
+        "{:?}",
+        result.rules
+    );
+    // Symbolic cost advice may remain; boundary membership and vacuity are unproved.
+    assert!(
+        result
+            .findings
+            .iter()
+            .all(|finding| finding.rule == Rule::ExpensiveComprehension),
+        "{:?}",
+        result.findings
+    );
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+
+    let instantiations = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let definitions = resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+    let levels = bindings
+        .declarations
+        .iter()
+        .find(|d| d.file == file && d.name == "levels")
+        .unwrap()
+        .id;
+    assert!(
+        definitions
+            .definitions
+            .iter()
+            .filter(|d| d.target == levels)
+            .all(|d| { d.coverage != DefinitionCoverage::WholeArray })
+    );
+    let numeric = resolve_numeric_facts(
+        &context,
+        &bindings,
+        &calls,
+        &instantiations,
+        &domains,
+        &definitions,
+    );
+    for range in extremum_ranges {
+        let expression = numeric
+            .expressions
+            .iter()
+            .find(|e| e.file == file && e.location.range == range)
+            .unwrap();
+        assert!(
+            matches!(expression.outcome, NumericOutcome::Unknown(_)),
+            "{:?}",
+            expression.outcome
+        );
+    }
+    let optional = resolve_optional_facts(
+        &context,
+        &bindings,
+        &calls,
+        &instantiations,
+        &domains,
+        &numeric,
+        &definitions,
+    );
+    let guarded = resolve_guarded_facts_with_options(
+        &context,
+        &bindings,
+        &calls,
+        &instantiations,
+        &domains,
+        &numeric,
+        &optional,
+    );
+    let iterations = resolve_iteration_facts(
+        &context,
+        &bindings,
+        &calls,
+        &instantiations,
+        &domains,
+        &numeric,
+        &optional,
+        &guarded,
+    );
+    let axis = &iterations
+        .arrays
+        .iter()
+        .find(|array| array.declaration == levels)
+        .unwrap()
+        .dimensions[0];
+    for written in ["min(Steps)..min(Steps) + 1", "max(Steps) - 1..max(Steps)"] {
+        let start = source.find(written).unwrap();
+        let header = iterations
+            .index_sets
+            .iter()
+            .find(|set| set.file == file && set.location.range == (start..start + written.len()))
+            .unwrap();
+        assert!(matches!(
+            header.cardinality,
+            Cardinality::Unknown | Cardinality::Symbolic { .. }
+        ));
+        assert_eq!(header.coverage_of(axis), IterationCoverage::Unknown);
+    }
+
+    // These are arithmetic/partiality guards, not compiler-positive instances.
+    for (initializer, reason) in [
+        (
+            "set of int: Steps = {};",
+            "parameter set extremum is undefined for an empty set",
+        ),
+        (
+            "int: invalid = 9223372036854775807 + 1;\nset of int: Base = {invalid};\nset of int: Steps = Base;",
+            "integer arithmetic overflow",
+        ),
+    ] {
+        let hazardous = source.replace("set of int: Steps = 0..step_count - 1;", initializer);
+        assert_ne!(hazardous, source);
+        write(&root, &hazardous);
+        let context = load_model(&root, &options);
+        assert!(context.errors.is_empty(), "{:?}", context.errors);
+        let result = analyze_model(
+            &context,
+            &LintOptions::from_selection("constant-variable").unwrap(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(matches!(
+            result.rules[0].outcome,
+            RuleOutcome::Limited { .. }
+        ));
+        assert!(result.findings.is_empty(), "{:?}", result.findings);
+        assert!(
+            result.limitations.iter().any(|limitation| {
+                limitation.location.path == root && limitation.message.contains(reason)
+            }),
+            "{:?}",
+            result.limitations
+        );
+    }
+    // The first symbolic axis must not conceal a closed error in another axis.
+    let hazardous = source.replace(
+        "set of int: Columns = 0..column_count - 1;",
+        "int: invalid_column = 9223372036854775807 + 1;\nset of int: ColumnBase = {invalid_column};\nset of int: Columns = ColumnBase;",
+    );
+    assert_ne!(hazardous, source);
+    write(&root, &hazardous);
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let result = analyze_model(
+        &context,
+        &LintOptions::from_selection("constant-variable").unwrap(),
+    );
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(matches!(
+        result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    assert!(result.findings.is_empty(), "{:?}", result.findings);
+    assert!(
+        result.limitations.iter().any(|limitation| {
+            limitation.location.path == root
+                && limitation.message.contains("integer arithmetic overflow")
+        }),
+        "{:?}",
+        result.limitations
     );
     std::fs::remove_dir_all(directory).unwrap();
 }

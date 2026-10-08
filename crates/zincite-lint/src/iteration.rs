@@ -603,6 +603,16 @@ impl Producer<'_> {
         let mut domain = helper
             .as_ref()
             .map(|(_, _, d)| d.clone())
+            .or_else(|| {
+                crate::domains::inspected_parameter_extremum_range_domain(
+                    self.context,
+                    self.bindings,
+                    (self.calls, self.calls),
+                    self.instantiations,
+                    self.domains,
+                    (file, node, &[]),
+                )
+            })
             .unwrap_or_else(|| expression_domain(self.context, self.bindings, file, node));
         if node.kind() == NodeKind::Expression {
             if let Some(id) = self.resolved_reference(file, node)

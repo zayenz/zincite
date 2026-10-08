@@ -343,9 +343,9 @@ pub(super) fn initialized_expression_safety<'a>(
     }
     safety
 }
-// Coverage can inspect a typed union source only after all semantic facts exist.
+// Inspect a typed integer-set source only after all semantic facts exist.
 // Original calls own initialized declarations; the current view owns this source.
-pub(super) fn initialized_union_source_safety<'a>(
+pub(super) fn initialized_integer_set_source_safety<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
     callables: (&'a CallableFacts, &'a CallableFacts),
@@ -382,7 +382,7 @@ pub(super) fn initialized_union_source_safety<'a>(
         })
     {
         return DefinitionSafety::Unsupported(
-            "union source requires a present parameter integer set".into(),
+            "source requires a present parameter integer set".into(),
         );
     }
     let safety = producer.initialized_source_safety(file, node, view, generators, &mut Vec::new());
@@ -392,6 +392,49 @@ pub(super) fn initialized_union_source_safety<'a>(
         return DefinitionSafety::Unsupported(reason);
     }
     safety
+}
+// Admit only the selected present parameter integer-set extremum, never its value.
+pub(super) fn initialized_parameter_set_extremum_safety<'a>(
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    callables: (&'a CallableFacts, &'a CallableFacts),
+    instantiations: &'a InstantiationFacts,
+    domains: &'a DomainFacts,
+    source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
+) -> Option<DefinitionSafety> {
+    let (file, node, generators) = source;
+    let written = unwrap(node);
+    if written.kind() != NodeKind::CallExpression || written.child_nodes().count() != 1 {
+        return None;
+    }
+    let (calls, view) = callables;
+    let producer = Producer {
+        context,
+        bindings,
+        calls,
+        instantiations,
+        domains,
+        lookups: None,
+        instances: Vec::new(),
+        boundaries: Vec::new(),
+    };
+    let ty = &producer
+        .expression_type(producer.view(file, written, view), file, written)?
+        .ty;
+    if !ty.known()
+        || optional(ty)
+        || ty.instantiation != Instantiation::Parameter
+        || ty.kind != TypeKind::Int
+    {
+        return None;
+    }
+    let safety = producer.parameter_set_extremum_safety(file, node, view, generators)?;
+    if !matches!(safety, DefinitionSafety::Unsupported(_))
+        && let Some(reason) = producer.closed_integer_source_error(file, node, true, true)
+    {
+        return Some(DefinitionSafety::Unsupported(reason));
+    }
+    Some(safety)
 }
 // Recognize the written collection and exact selected standard length signature.
 // A set-to-array matching view establishes no evaluation or cardinality fact.

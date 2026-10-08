@@ -100,6 +100,8 @@ pub(super) fn resolve_domains_with_callables<'a>(
         context,
         bindings,
         calls,
+        initialized_facts: None,
+        inspected_extremum: false,
         active: Vec::new(),
     };
     let declarations = bindings
@@ -241,6 +243,13 @@ struct Walker<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
     calls: Option<&'a crate::CallableFacts>,
+    initialized_facts: Option<(
+        &'a crate::CallableFacts,
+        &'a crate::InstantiationFacts,
+        &'a DomainFacts,
+        &'a [&'a SyntaxNode],
+    )>,
+    inspected_extremum: bool,
     active: Vec<DeclarationId>,
 }
 impl<'a> Walker<'a> {
@@ -882,7 +891,7 @@ impl<'a> Walker<'a> {
                 };
                 value.map(Integer).unwrap_or_else(arithmetic_failure)
             }
-            NodeKind::CallExpression
+            NodeKind::CallExpression => {
                 if self.calls.is_some_and(|calls| {
                     crate::callable_definitions::parameter_index_extremum(
                         self.context,
@@ -892,11 +901,36 @@ impl<'a> Walker<'a> {
                         node,
                     )
                     .is_some()
-                }) =>
-            {
-                Unknown
+                }) {
+                    return Unknown;
+                }
+                if let Some((calls, instantiations, domains, generators)) = self.initialized_facts
+                    && let Some(view) = self.calls
+                    && let Some(retained) =
+                        expression_node(self.context.files[file].parsed.tree(), &node.range())
+                    && let Some(safety) =
+                        crate::callable_definitions::initialized_parameter_set_extremum_safety(
+                            self.context,
+                            self.bindings,
+                            (calls, view),
+                            instantiations,
+                            domains,
+                            (file, retained, generators),
+                        )
+                {
+                    self.inspected_extremum = true;
+                    return match safety {
+                        crate::DefinitionSafety::Supported
+                        | crate::DefinitionSafety::Unknown(_) => Unknown,
+                        crate::DefinitionSafety::Unsupported(reason) => Unsupported(reason),
+                    };
+                }
+                if self.parameter_set_cardinality(file, node) {
+                    Unknown
+                } else {
+                    Unsupported("numeric expression is outside bounded integer arithmetic".into())
+                }
             }
-            NodeKind::CallExpression if self.parameter_set_cardinality(file, node) => Unknown,
             _ => Unsupported("numeric expression is outside bounded integer arithmetic".into()),
         }
     }
@@ -1253,9 +1287,71 @@ pub(super) fn expression_domain(
         context,
         bindings,
         calls: None,
+        initialized_facts: None,
+        inspected_extremum: false,
         active: Vec::new(),
     }
     .domain(file, node)
+}
+
+// Raw domain APIs retain their bounded interpretation; only this late Range
+// query can inspect initialized parameter-set extrema with complete facts.
+pub(super) fn inspected_parameter_extremum_range_domain<'a>(
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    callables: (&'a crate::CallableFacts, &'a crate::CallableFacts),
+    instantiations: &'a crate::InstantiationFacts,
+    domains: &'a DomainFacts,
+    source: (FileId, &'a SyntaxNode, &'a [&'a SyntaxNode]),
+) -> Option<Domain> {
+    let (file, mut node, generators) = source;
+    while node.kind() == NodeKind::ParenthesizedExpression {
+        node = node.child_nodes().next()?;
+    }
+    if node.kind() != NodeKind::RangeExpression {
+        return None;
+    }
+    let (calls, view) = callables;
+    let mut walker = Walker {
+        context,
+        bindings,
+        calls: Some(view),
+        initialized_facts: Some((calls, instantiations, domains, generators)),
+        inspected_extremum: false,
+        active: Vec::new(),
+    };
+    let domain = walker.domain(file, node);
+    if !walker.inspected_extremum {
+        return None;
+    }
+    let Domain::Range { lower, upper } = domain else {
+        return Some(Domain::Unsupported(
+            "extremum range bounds are unavailable".into(),
+        ));
+    };
+    // Check both endpoints even when one depends on an unknown extremum.
+    for result in [integer(&lower), integer(&upper)] {
+        if let Err(reason) = result {
+            return Some(Domain::Unsupported(reason.into()));
+        }
+    }
+    if let Err(reason) = core_arithmetic(context, bindings, view, file, node) {
+        return Some(Domain::Unsupported(reason));
+    }
+    if let crate::DefinitionSafety::Unsupported(reason) =
+        crate::callable_definitions::initialized_integer_set_source_safety(
+            context,
+            bindings,
+            callables,
+            instantiations,
+            domains,
+            (file, node, generators),
+        )
+    {
+        return Some(Domain::Unsupported(reason));
+    }
+    // This source inspection proves neither endpoint, membership nor count.
+    Some(Domain::Unknown)
 }
 
 /// Compare membership by named identity or closed supported values. None is
@@ -1389,6 +1485,8 @@ pub(super) fn expression_integer(
         context,
         bindings,
         calls: None,
+        initialized_facts: None,
+        inspected_extremum: false,
         active: Vec::new(),
     }
     .bound(file, node);
@@ -1405,6 +1503,8 @@ pub(super) fn invariant_expression_integer(
         context,
         bindings,
         calls: None,
+        initialized_facts: None,
+        inspected_extremum: false,
         active: Vec::new(),
     }
     .bound(file, node);
@@ -2348,6 +2448,8 @@ impl<'a> Bounds<'a> {
                         context: self.context,
                         bindings: self.bindings,
                         calls: None,
+                        initialized_facts: None,
+                        inspected_extremum: false,
                         active: Vec::new(),
                     }
                     .bound(file, node);
@@ -2457,6 +2559,35 @@ impl<'a> Bounds<'a> {
                     ) {
                         crate::DefinitionSafety::Supported => {
                             Unknown("scalar Boolean conversion value is unproved".into())
+                        }
+                        crate::DefinitionSafety::Unknown(reason) => Unknown(reason),
+                        crate::DefinitionSafety::Unsupported(reason) => Unsupported(reason),
+                    };
+                }
+                if children.len() == 1
+                    && matches!(outcome,
+                    Some(crate::CallOutcome::Resolved { declaration, .. })
+                        if ["min", "max"].iter().any(|name| {
+                            crate::definitions::core_callable(
+                                self.context, self.bindings, *declaration, name,
+                            )
+                        }))
+                    && let Some(instantiations) = self.instantiations
+                    && let Some(retained) =
+                        expression_node(self.context.files[file].parsed.tree(), &node.range())
+                    && let Some(safety) =
+                        crate::callable_definitions::initialized_parameter_set_extremum_safety(
+                            self.context,
+                            self.bindings,
+                            (self.calls, self.calls),
+                            instantiations,
+                            self.domains,
+                            (file, retained, &[]),
+                        )
+                {
+                    return match safety {
+                        crate::DefinitionSafety::Supported => {
+                            Unknown("parameter set extremum value is unproved".into())
                         }
                         crate::DefinitionSafety::Unknown(reason) => Unknown(reason),
                         crate::DefinitionSafety::Unsupported(reason) => Unsupported(reason),

@@ -781,6 +781,7 @@ pub(super) fn complete_array_coverage<'a>(
         return DefinitionCoverage::Unsupported("array index domains are unavailable".into());
     };
     let mut bindings = Vec::new();
+    let mut inspected_extrema = false;
     for generator in generators {
         if generator
             .child_nodes()
@@ -832,7 +833,21 @@ pub(super) fn complete_array_coverage<'a>(
         } else {
             None
         }
-        .unwrap_or_else(|| expression_domain(context, bindings_facts, file, source));
+        .unwrap_or_else(|| {
+            if let Some(domain) = crate::domains::inspected_parameter_extremum_range_domain(
+                context,
+                bindings_facts,
+                callables,
+                instantiations,
+                domains,
+                (file, source, generators),
+            ) {
+                inspected_extrema = true;
+                domain
+            } else {
+                expression_domain(context, bindings_facts, file, source)
+            }
+        });
         for declaration in bindings_facts.declarations.iter().filter(|d| {
             d.file == file
                 && d.role == DeclarationRole::Generator
@@ -857,17 +872,63 @@ pub(super) fn complete_array_coverage<'a>(
         }
         selected_bindings.push(position);
     }
-    // Only the newly admitted union source needs initialized inspection. Check
-    // every expected axis before an unknown actual membership can end comparison.
-    let inspect_union = declared.iter().any(uninspected_union)
+    // Newly inspected sources must not let unknown membership conceal an error
+    // in another actual source or expected axis.
+    let inspect_sources = inspected_extrema
+        || declared.iter().any(uninspected_union)
         || bindings
             .iter()
             .any(|(_, domain, _)| uninspected_union(domain));
-    let inspected_declared = if inspect_union {
+    let inspected_declared = if inspect_sources {
+        for (_, domain, source) in &mut bindings {
+            match inspect_union_domain(
+                context,
+                bindings_facts,
+                callables,
+                instantiations,
+                domains,
+                (file, source, generators),
+                domain,
+            ) {
+                Ok(checked) => *domain = checked,
+                Err(reason) => return DefinitionCoverage::Unsupported(reason),
+            }
+            if let Err(reason) = same_members(domain, domain) {
+                return DefinitionCoverage::Unsupported(reason);
+            }
+        }
         let mut axes = Vec::new();
         for axis in declared {
+            // A newly admitted unknown header must not hide a closed error in
+            // an independent named integer-set axis. Its initializer belongs to
+            // the original declaration view, not an instantiated caller view.
+            if inspected_extrema
+                && let Some((id, source_file, source)) =
+                    initialized_axis_source(context, bindings_facts, axis)
+                && let Some(typed) = callables.0.declarations.get(id.0)
+                && typed.declaration == id
+                && typed.ty.known()
+                && !optional(&typed.ty)
+                && typed.ty.instantiation == Instantiation::Parameter
+                && matches!(&typed.ty.kind, TypeKind::Set(element)
+                    if element.known() && !optional(element)
+                        && element.instantiation == Instantiation::Parameter
+                        && element.kind == TypeKind::Int)
+                && let DefinitionSafety::Unsupported(reason) =
+                    crate::callable_definitions::initialized_integer_set_source_safety(
+                        context,
+                        bindings_facts,
+                        (callables.0, callables.0),
+                        instantiations,
+                        domains,
+                        (source_file, source, &[]),
+                    )
+            {
+                return DefinitionCoverage::Unsupported(reason);
+            }
             let checked = if uninspected_union(axis) {
-                let Some((source_file, source)) = union_axis_source(context, bindings_facts, axis)
+                let Some((_, source_file, source)) =
+                    initialized_axis_source(context, bindings_facts, axis)
                 else {
                     return DefinitionCoverage::Unsupported(
                         "union index source declaration unavailable".into(),
@@ -893,23 +954,6 @@ pub(super) fn complete_array_coverage<'a>(
                 return DefinitionCoverage::Unsupported(reason);
             }
             axes.push(axis);
-        }
-        for (_, domain, source) in &mut bindings {
-            match inspect_union_domain(
-                context,
-                bindings_facts,
-                callables,
-                instantiations,
-                domains,
-                (file, source, generators),
-                domain,
-            ) {
-                Ok(checked) => *domain = checked,
-                Err(reason) => return DefinitionCoverage::Unsupported(reason),
-            }
-            if let Err(reason) = same_members(domain, domain) {
-                return DefinitionCoverage::Unsupported(reason);
-            }
         }
         Some(axes)
     } else {
@@ -944,11 +988,11 @@ pub(super) fn uninspected_union(domain: &Domain) -> bool {
         _ => false,
     }
 }
-fn union_axis_source<'a>(
+fn initialized_axis_source<'a>(
     context: &'a ModelContext,
     bindings: &BindingFacts,
     mut domain: &Domain,
-) -> Option<(FileId, &'a SyntaxNode)> {
+) -> Option<(DeclarationId, FileId, &'a SyntaxNode)> {
     while let Domain::Named {
         declaration,
         domain: inner,
@@ -964,7 +1008,7 @@ fn union_axis_source<'a>(
             return written
                 .child_nodes()
                 .find(|node| is_expression(node.kind()))
-                .map(|source| (declaration.file, source));
+                .map(|source| (declaration.id, declaration.file, source));
         }
         domain = inner;
     }
@@ -983,7 +1027,7 @@ pub(super) fn inspect_union_domain<'a>(
         return Ok(domain.clone());
     }
     if let DefinitionSafety::Unsupported(reason) =
-        crate::callable_definitions::initialized_union_source_safety(
+        crate::callable_definitions::initialized_integer_set_source_safety(
             context,
             bindings,
             callables,

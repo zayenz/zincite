@@ -2851,6 +2851,16 @@ impl<'a> Producer<'a> {
     }
     fn domain(&self, file: FileId, node: &SyntaxNode) -> Domain {
         self.index_domain(file, unwrap(node))
+            .or_else(|| {
+                crate::domains::inspected_parameter_extremum_range_domain(
+                    self.context,
+                    self.bindings,
+                    (self.calls, self.calls),
+                    self.instantiations,
+                    self.domains,
+                    (file, node, &[]),
+                )
+            })
             .unwrap_or_else(|| expression_domain(self.context, self.bindings, file, node))
     }
     // Only an independent named top-level source can use its call-aware row.

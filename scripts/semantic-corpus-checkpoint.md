@@ -4789,3 +4789,28 @@ diagnostic stream are unchanged. Compiler rejection is kept distinct from
 successful capture, and no solver was run. The formatter asset is byte-identical
 to the accepted92ms release. Wider nested-conversion/GCC repairs, symbolic extrema
 and other corpus gaps still prevent base-083 completion.
+
+Symbolic parameter integer-set extrema now use full initialized source inspection
+in late range queries. Only selected core min/max calls with present parameter
+integer-set arguments enter this route. Endpoints, arithmetic, aliases and
+independent expected axes retain closed-error checks before unknown membership
+can end comparison. The result supplies no extremum value, cardinality, membership
+or whole-array coverage. Raw domain queries keep their existing interpretation.
+
+The public boundary-header regression reproduces the old eight limitations and
+passes after the repair, including empty-set, transitive overflow and independent
+axis overflow guards. Actual main fmt, clippy with warnings denied and all208
+workspace tests pass; all108 source paths match the frozen candidate. Evidence is
+under semantic62-extrema-main-integration/actual-workspace-gates/root-audit.json.
+
+Fresh opt3 Gecode compile-only and native/companion all26 controls make the public
+extremum model fully Completed with its one warning unchanged. Original MACC has
+115warnings/0errors/77limitations, down from101:30 old limitation lines disappear
+and six remaining-reason lines appear, for a net24 reduction. Four opaque index
+offsets and two bounded-integer source gaps remain explicit. ConstantVariable
+completes; UnboundedVariable and SearchCoverage remain Limited among thesis rules.
+Full streams, assets, input pins and per-rule partitions are checked under
+semantic62-extrema-release-control-preparation/{release-results/root-build-audit.json,
+control-results/root-audit.json}. No solver was run. This is a useful source
+checkpoint; remaining original-model gaps and final corpus acceptance still
+prevent base-083 completion.
