@@ -3821,3 +3821,13 @@ full streams/complete all26 accounting and both empty reaped groups are checked
 in `semantic62-macc32-direct-control/root-audit.json`. WORLD's ParameterSetInt
 union is a concrete shared domain prerequisite being reviewed separately; this
 observation does not claim the other macc gaps are repaired.
+
+Original sysadmin5 normal32 native/companion finish (25.185/25.363 seconds) with
+all26 and all14 Completed,3251 warnings,zero errors/limitations. Full diagnostic/
+status parity, complete source/root/drop accounting, current original/std/compiler/
+main106/assets/helpers and both empty reaped groups are checked in
+`semantic62-sysadmin5-32-direct-control-v2/root-audit.json`. The first derivative
+stopped before any measurement child because its historical compiler ledger
+uses hash/bytes without a mode field; every1038 historical input pin field was
+independently rechecked unchanged before the schema-corrected control. The
+deadline stays300 seconds. Current navigation and full-corpus acceptance remain.
