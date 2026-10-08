@@ -4297,3 +4297,16 @@ are checked in semantic62-crosswords39-{preservation,native-lint}/root-audit.jso
 These are data inputs,not complete-model thesis coverage. Source inspection
 found the companion nonmodel read branch still used String::from_utf8; its
 byte-path alignment is assigned before fresh full native/companion comparison.
+
+The is count-axis production V2 corrects only the parser-required single
+parenthesized generator body. The unchanged faithful positive and referenced
+MAX+1 negative pass; all202 main tests/fmt/clippy pass. Full pins,complete
+streams and empty reaped groups are checked in semantic62-is-current-gap-
+preparation/{focused-green-v2-checked,actual-workspace-gates}/root-audit.json.
+Normal40 original is native/companion both report96 warnings,0 errors and130
+limitations,with exactly the prior ArrayIndexStart line299 bytes9633..9646
+removed and no added diagnostic. ArrayIndexStart is Completed; only Search
+remains thesis Limited. All26 partitions,source/drop parity,full current108/
+original/std/compiler/release/helper pins and two empty reaped groups are
+checked in semantic62-is40-direct-control/root-audit.json. Production and the
+faithful regression are committed in1063a8f; final corpus remains pending.
