@@ -37,6 +37,8 @@ baseline; the Corpus and thesis expansion section explicitly extends them.
 - Accept explicit file paths and stdin. Extend linting and formatter check mode
   to directories in the next bundle. Provide formatter stdout, check and explicit
   file-write modes, with text diagnostics. JSON output remains deferred.
+- Add the root `zincite` command and the query/data-reduction subsystem described
+  below. Query inspection may produce JSON; formatter and lint JSON remain deferred.
 
 ## Implementation direction
 
@@ -67,7 +69,8 @@ Observable success for the eventual foundation:
 This is source tooling, not a new solver or a replacement MiniZinc compiler.
 Full type checking, flattening, language-server support, Python bindings,
 incremental reparsing, a query language, and automatic semantic rewrites are not
-initial requirements. Do not copy Zirium's MLIR dialect machinery. The expanded
+initial requirements. The Query and data transformation expansion below adds a
+bounded query language and explicit instance transformations. Do not copy Zirium's MLIR dialect machinery. The expanded
 scope includes the thesis's entire fourteen-rule catalogue, with conservative
 analysis and advisory wording where a conclusion is heuristic. Do not promise
 solver speedups from syntactic rewrites. A source-preserving parse and a formatter are different operations.
@@ -326,7 +329,8 @@ Keep the parser and formatter independent of semantic linting. Retain
 `lint(&ParsedFile)` with its current defaults; expose selected rules and model
 analysis through library APIs used by the CLI. Start with direct traversal and
 small modules in `zincite-lint`; a new semantic crate needs an actual second
-consumer. Do not build a generic AST query engine.
+consumer. Keep lint fact production independent of the later query consumer;
+do not make lint execution depend on a query engine.
 
 When selected rules need it, analyse each positional `.mzn` as its own root with
 its include closure. Resolve relative includes from the including file, then
@@ -548,6 +552,183 @@ before/after semantic reasoning; compilation alone does not prove equivalence.
 Reuse the corpus runner on temporary copies for integration, reconcile limitations
 and sample false positives, and measure added lint cost against the existing
 baseline. No broad test matrix or new benchmark platform is required.
+
+## Query and data transformation expansion
+
+Agreed on 2026-10-08. Add source inspection and explicit data transformations,
+including reducing an enum and its dependent instance data to make smaller cases.
+These extend the earlier scope exclusions; formatter and ordinary lint behavior
+remain governed by their existing contracts. Existing corpus/thesis acceptance
+tasks retain their original boundary and do not acquire query acceptance work.
+
+### Commands and ownership
+
+Add a package named `zincite` at the Cargo workspace root. Its binary dispatches
+`fmt`, `lint`, and, when implemented, `query` directly to callable CLI entry points.
+Retain `zincite-fmt`, `zincite-lint`, and add `zincite-query`; both invocation forms
+use the same argument processing, settings, output and exit semantics. Adapt help
+to the invocation. Root help lists implemented subcommands; no subcommand shows
+help, while an unknown subcommand is a usage error. Keep formatter stdout as its
+default; lint is diagnostic-only unless explicitly asked to fix.
+
+Use a reusable `zincite-query` library with a thin binary and root subcommand.
+Traverse the existing CST and consume existing semantic APIs. Depending on
+`zincite-lint` for its public model/fact APIs is sufficient initially. Move shared
+code only when the new consumer actually needs it; keep lint-fix safety policy
+separate from general source-edit validation. No generic backend interface,
+plugin system, second parser, compiler or permanent mutable query document.
+
+The query command accepts one query argument and one input file or `-`; omitted
+input means stdin. `--stdin-filepath` supplies mode and a diagnostic label, as
+for the existing tools. `--model PATH` supplies optional model declarations for
+data interpretation; use the existing `-I`/`--stdlib-dir` include rules when a
+query requires semantic context. Syntax queries require no library installation.
+Model/include files supply facts and are never implicit transformation targets.
+Multiple input files, directory inputs and query-program files are deferred.
+
+### Initial query language
+
+Implement one pipeline of fixed stages and bounded predicates. `items` starts
+with top-level items in written order; it is the initial selection. `filter`
+supports `kind("assignment")`, `name("capacity")`, parentheses, and Boolean
+`not`, `and`, `or` in that precedence order. Names compare identifier identity
+without changing retained spelling, including quoted names. `head(n)` truncates
+the computed selection. `count` returns a number. `emit` reproduces selected
+source; a read-only pipeline without an emitter implicitly emits its selection.
+
+Extend this with expression selection, `children`, `subtree`, half-open byte-range
+selection within the input, `names`, `call_names`, `annotation_names`, `text`,
+`unique`, `tally`, and `json`. Nodes retain file/range identity; navigation
+preserves source order and duplicates, while `unique` explicitly removes duplicate
+nodes. Counts describe static written occurrences, never execution frequency.
+JSON inspection contains kind, available names, file, range and original text;
+projected strings, counts and histograms use their corresponding JSON shapes.
+This format is inspection output, not a claim of round-trippable MiniZinc data.
+Expression fragments need not be complete standalone models.
+
+Treat retained line comments after an item as attached to that item. A preceding
+standalone comment block without a blank-line boundary attaches to the following
+item. Keep separated section comments in document output; fragment output includes
+only selected items and their attached comments. Comments attached to removed
+entries disappear with those entries; retained comments and untouched bytes stay
+unchanged. Directives must not become attached to a different surviving item:
+remove next-item directives with their target and diagnose transformations that
+would unbalance paired formatter directives.
+
+Keep results native in the library until rendering. Query errors identify query
+byte ranges; input/semantic limitations identify source file/ranges. Bound query
+nesting, evaluation work and collection expansion, report exceeded limits, and
+never silently truncate results. Reuse Zirium's limit approach without importing
+its entire language. Bindings, arbitrary callbacks, fixed-point programs, semantic
+diff, Markdown reports and general expression evaluation are deferred.
+
+### Data edits and structured values
+
+`set_value("EXPRESSION")` replaces selected assignment right-hand sides; `remove`
+removes selected assignments. Selection does not edit source. An editing pipeline
+ends with `emit_document` (also its implicit output), producing the complete
+candidate. Allow one transformation stage per pipeline followed by its emitter;
+do not evaluate later queries against stale CST ranges. `--diff` previews edits;
+`--write` explicitly replaces the single regular file. These modes are mutually
+exclusive and writes reject stdin and symlinks.
+
+Use original UTF-8 byte coordinates including BOM offsets, preserve untouched
+source, validate overlaps, reparse the complete candidate, compare originals
+again before replacing, and preserve file permissions. No partial stdout or file
+replacement on parse, query, I/O or candidate-validation errors. Explicit edits
+change instance meaning; they must not be advertised as safe lint fixes.
+
+Support a bounded structured view of literal scalar values, enum member names,
+sets, records, tuples, arrays, array keys and nested literal values. Preserve the
+distinction between a record field label, an enum reference and a string. Expose
+record fields, collection elements and keys through query projections. Provide
+explicit element filtering with equality and numeric comparisons, including
+`filter_elements(gt(0))` for a selected literal array. Compact ordinary list
+indices only as part of an explicit filtering transformation; preserve enum keys.
+Report unsupported computed expressions rather than guessing their values.
+
+### Enum reduction and best effort
+
+`reduce_enum("Guests", keep("A", "B"))` keeps named members;
+`reduce_enum("Guests", keep_first(20))` keeps a deterministic prefix in the
+original enum order. Retained names are not renamed. Support explicit member
+lists assigned in `.dzn`; constructed/anonymous enum reductions can remain
+unsupported with a located explanation. Empty retained selections produce the
+corresponding candidate; do not invent minimum counts or modify model constraints.
+
+Reduce dependent data using established membership, keys and model declarations:
+
+- Remove explicitly enum-keyed entries, including whole records, for removed
+  members. Model context supplies enum identity and positional-array alignment
+  when these are not evident from data syntax alone.
+- Remove corresponding slices along every supported enum-indexed array dimension,
+  including nested arrays inside records; retain rectangularity and other axes.
+- Prune removed members from supported set values recursively. Drop newly empty
+  set entries from variable-length group arrays; retain singleton groups. Empty
+  record fields or fixed-index array cells cannot be dropped without changing
+  their type/coverage obligations, so retain or report them as appropriate.
+- Compact supported integer group indices and update supported dependent array
+  accesses through an explicit old-to-new mapping. Enum ordinals follow the
+  reduced enum declaration. Do not reinterpret arbitrary integers as guest IDs.
+- Preserve unrelated enums, records, scalar settings, strings and comments on
+  surviving entries. Never use textual name replacement to identify dependencies.
+
+Best effort returns a candidate plus located unresolved dependencies and a clear
+complete/incomplete result. Known dangling scalar references, unsupported computed
+indices and unavailable required type information stay visible. Do not delete a
+whole unrelated assignment or record merely because a required field is unresolved.
+Reindexing must not claim completion if dependent references remain unresolved.
+Reparse incomplete candidates too. CLI status is 0 for completed queries/edits,
+1 for an incomplete best-effort candidate, and 2 for actual errors, with diagnostics
+on stderr. Incomplete candidates may be inspected on stdout or as a diff; in-place
+replacement requires a complete result. None of these outcomes proves model
+satisfiability or full compiler type validity.
+
+Implement data reduction before general semantic query navigation. Later model
+queries may expose reference-to-declaration navigation, declaration uses, bounded
+transitive reference traversal and available type/instantiation facts. Reuse
+binding identity, overload resolution and unknown/unsupported outcomes from the
+linter; a negated unknown predicate must not turn uncertainty into a match.
+These are static source relationships, not MiniZinc flattening/data-dependency
+instrumentation. Ordinary linting does not require data values or query execution.
+
+### References and focused acceptance
+
+Research inspected `mzn-analyse` develop at
+`d8de855d5fc52f71bfc44e40a66dba90a2bc0d49` and Zirium at
+`00f5cc6c1001cb60ac6dadb980d309e57449a702`. Read
+[mzn-analyse's pass dispatch](https://github.com/MiniZinc/mzn-analyse/blob/d8de855d5fc52f71bfc44e40a66dba90a2bc0d49/mzn-analyse.cpp)
+for filtering/inspection precedents. Adapt operations, not its compiler AST or
+code. FlatZinc instrumentation, objective-term expansion, slackification,
+discretisation, model replication and include inlining remain deferred.
+Zirium's local `~/projects/zirium/docs/query-language.md` and
+`crates/zirium/src/query/{lexer,parser,model}.rs` provide pipeline, predicate,
+ordering and diagnostic patterns. Small lexer/parser portions may be adapted
+under their license; no Zirium crate dependency, SSA evaluator or dialect machinery.
+[Ruff's command split](https://docs.astral.sh/ruff/tutorial/) informs the root
+dispatcher; retain Zincite's existing defaults.
+
+The local acceptance model is `~/MiniZinc/models/misc/seating/seating.mzn`.
+Use `test_data/small.dzn` and
+`instances/mixed/instance-guests-150-topics-10-tables-mixed.dzn` beneath that
+directory, with temporary outputs. The model declares an enum-indexed array of
+guest records and variable-length arrays of guest sets. Manual temporary
+reductions passed MiniZinc 2.10.1 build 33348285743 `--instance-check-only`:
+12 to 8 guests/records (same-table groups 2 to 1), and 150 to 110 guests/records
+(same-table groups 23 to 22, different-table groups 14 to 13). These are feasibility
+controls, not evidence that Zincite already implements reduction.
+
+Keep the area's focused testing level. Add a few synthetic public-behavior checks
+for retained source/comments, nested records/sets, keyed and positional alignment,
+empty-group cleanup, rectangular axes, reindexing and an incomplete dependency.
+Do not copy local guest data into fixtures or publish private sources. Run the
+actual commands on the two known model/data pairs and check originals and reduced
+candidates with `minizinc --instance-check-only`; solving is unnecessary. Inspect
+removed-member absence, key coverage, retained values and ordering directly:
+compiler acceptance alone does not establish the requested transformation.
+Reuse existing performance scripts for representative growing data and repeat
+the existing save checks only when shared syntax/layout code changes. No broad
+test matrix, full query corpus campaign or new benchmark platform is required.
 
 ## Performance and format-on-save
 
