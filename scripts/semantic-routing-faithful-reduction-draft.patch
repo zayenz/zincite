@@ -1,0 +1,41 @@
+--- a/crates/zincite-lint/tests/search.rs
++++ b/crates/zincite-lint/tests/search.rs
+@@ -1809,6 +1809,7 @@
+         "array[int] of int: kinds=[5,3]; set of int: Boxes=index_set(kinds);\n",
+         "set of int: Pref={z|z in Boxes where 5==kinds[z]};\n",
+         "array[int] of int: pipe=[1,1]; array[int] of int: diam=[4];\n",
++        "array[int] of int: node=[1,2]; array[int] of int: direction=[3,4];\n",
+         "array[int] of int: radius=[diam[p] div 2|p in index_set(diam)];\n",
+         "array[int] of int: base=[0,0,0,0]; array[int] of int: sizes=[1,1,1,1];\n",
+         "array[int,int] of int: corners=array2d(Boxes,Cols,[base[k]+sizes[k]|k in index_set(base)]);\n",
+@@ -1822,16 +1823,17 @@
+         "array[int] of var 0..1: not_pref=[if first(i) \\/ not leg(i) then 0 else 1-sum(z in Pref)(inside[i,z]) endif|i in Rows];\n",
+         "array[Rows] of var 0..1: exists_leg; array[int] of int: price=[3,4];\n",
+         "array[int] of var int: cost=[if first(i) \\/ not leg(i) then 0 else exists_leg[i]*(not_pref[i]+sum(z in Pref)(inside[i,z] * (price[z] div 2+1))) endif|i in Rows];\n",
+-        "array[Boxes] of set of int: legs_by_pipe=[Rows|p in Boxes]; array[int] of float: factor=[1.0,0.0];\n",
++        "array[int] of set of int: legs_by_pipe=[{i|i in Rows where p==node[i]}|p in Boxes]; array[int] of float: factor=[1.0,0.0];\n",
+         "array[int,int] of var int: orthogonal=array2d(Boxes,Cols,[sum(j in legs_by_pipe[p],q in Cols diff{k})(if factor[p]<=0.0 then 0 else pow(legs[j,q],3) endif)|p in Boxes,k in Cols]);\n",
+         "constraint forall(i in Rows,k in Cols)(if not leg(i) then legs[i,k]==0 else legs[i,k]>=lb(positions[i,k]) /\\ legs[i,k]<=ub(positions[i,k]) endif);\n",
+         "constraint forall(i in Rows)(if first(i) then exists_leg[i]==0 else exists_leg[i]==exists_leg[i-1]+1 endif);\n",
++        "constraint forall(i in Rows,k in Cols)(if k==(direction[node[i]]-1) mod 3+1 then legs[i,k]>=0 else true endif);\n",
+         "array[Boxes] of int: first_leg=[min(legs_by_pipe[p])|p in Boxes]; array[Boxes] of int: last_leg=[max(legs_by_pipe[p])|p in Boxes];\n",
+-        "int: units; var int: float_let_output;\n",
++        "int: units; int: reduction=1; var int: float_let_output;\n",
+         "constraint let { float: kappa=int2float(units)/4.0; float: unused_kappa=int2float(units)/8.0; } in\n",
+         "forall(p in Boxes,k in Cols)(if factor[p]<=0.0 then true else\n",
+-        "let { int: delta=abs(fix(legs[last_leg[p],k])-fix(legs[first_leg[p],k])); int: coefficient=ceil(int2float(delta)/(2.0*kappa)); } in\n",
+-        "forall(j in legs_by_pipe[p],q in Cols diff{k})(float_let_output=coefficient /\\ legs[j,q] div 2<=coefficient*legs[j,q]) endif);\n",
++        "let { int: delta=abs(fix(legs[last_leg[p],k])-fix(legs[first_leg[p],k])); int: coefficient=ceil(factor[p]*int2float(delta)/kappa); } in\n",
++        "forall(j in legs_by_pipe[p],q in Cols diff{k})(float_let_output=coefficient /\\ ((coefficient+reduction-1) div reduction)*legs[j,q]<=orthogonal[p,k]) endif);\n",
+         "var 0..9: unrelated; solve :: int_search(coords,input_order,indomain_min,complete) satisfy;\n"
+     );
+     let (dir, _) = model("routing-symbolic-producer-chain", routing, "");
+@@ -1853,7 +1855,7 @@
+                 "function int: '+'(int: left,int: right); function int: '-'(int: left,int: right);\n",
+                 "function var int: '-'(var int: left,var int: right);\n",
+                 "function int: '*'(int: left,int: right); function var int: '*'(var int: left,var int: right);\n",
+-                "function int: 'div'(int: left,int: right); function var int: 'div'(var int: left,var int: right); function int: length(array[$T] of any $U: values);\n",
++                "function int: 'div'(int: left,int: right); function var int: 'div'(var int: left,var int: right); function int: 'mod'(int: left,int: right); function int: length(array[$T] of any $U: values);\n",
+                 "function bool: '<'(int: left,int: right); function bool: '<='(int: left,int: right);\n",
+                 "function var bool: '<='(var int: left,var int: right); function var bool: '>='(var int: left,var int: right);\n",
+                 "function bool: '/\\'(bool: left,bool: right); function bool: '\\/'(bool: left,bool: right); function bool: 'not'(bool: value);\n",

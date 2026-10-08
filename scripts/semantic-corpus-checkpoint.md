@@ -3100,3 +3100,22 @@ The binary SHA256 is
 Matched captures remain pending. The build receipt records a denied cleanup
 signal attempt after completion, with the child reaped and process group
 independently confirmed empty.
+
+Both diagnostic22 controls complete with full stock19 and diagnostic21
+diagnostic/status parity. Root checked all streams, counter records and source
+state under `target/benchmarks/base083/semantic62-default-expression-lookup-attribution-captures/`.
+Allocation counts, requested bytes, retained bytes and peak deltas equal21.
+Observed checker wall times are 0.967/59.768 ms at 100/1000 declarations;
+quantized own-process CPU deltas are 0/0.06 seconds, versus21's 0/0.20.
+Other repeated scans remain; these observations do not establish linear CPU
+growth or an isolated speed ratio.
+
+The faithful Routing reduction includes the original wrapped modulo shape,
+an `array[int]` filtered set collection and the composite coefficient dividend.
+The incremental public fixture is saved in
+`scripts/semantic-routing-faithful-reduction-draft.patch`.
+Gecode compile-only processing succeeds with no diagnostics and produces
+FlatZinc and output metadata; no solving occurs. The existing focused search
+test then fails: `float_let_output` is Unknown where Uncovered is expected.
+All expectations remain unchanged. Narrow repairs are being prepared in an
+isolated copy; the tested shared candidate and authoritative source are frozen.
