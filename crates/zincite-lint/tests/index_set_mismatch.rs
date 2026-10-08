@@ -500,3 +500,187 @@ solve satisfy;
     assert_eq!(std::fs::read_to_string(&root).unwrap(), hazardous);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn symbolic_extremum_offsets_keep_membership_unproved() {
+    use zincite_syntax::NodeKind;
+
+    let source = r#"int: width;
+int: height;
+int: step_count;
+set of int: Columns = 0..width-1;
+set of int: Rows = 0..height-1;
+set of int: Cells = 0..width*height-1;
+set of int: Times = 0..step_count-1;
+set of int: OtherTimes = 0..step_count-2;
+set of int: Outside = {-2, -1};
+set of int: World = Cells union Outside;
+enum Action = { WAIT, MOVE };
+array[Columns, Rows] of Cells: cell_id =
+    array2d(Columns, Rows, [y*width+x | x in Columns, y in Rows]);
+array[Cells] of set of Cells: neighbours = array1d(Cells, [
+    (if x > 0 then {cell_id[x-1,y]} else {} endif)
+    union (if x < width-1 then {cell_id[x+1,y]} else {} endif)
+    union (if y > 0 then {cell_id[x,y-1]} else {} endif)
+    union (if y < height-1 then {cell_id[x,y+1]} else {} endif)
+    | y in Rows, x in Columns
+]);
+set of Cells: Border =
+    {cell_id[x,0] | x in Columns} union
+    {cell_id[x,height-1] | x in Columns} union
+    {cell_id[0,y] | y in Rows} union
+    {cell_id[width-1,y] | y in Rows};
+array[Times, World] of var Action: action;
+array[Times, Cells] of var Cells: block_cell;
+array[Times, World] of var World: next_cell;
+constraint forall(t in min(Times)+1..max(Times)-1, i in Cells)(
+    sum(j in neighbours[i])(
+        bool2int(action[t+1,j] = MOVE /\ block_cell[t+1,j] = i)
+    ) <= 1
+);
+constraint forall(t in min(Times)+1..max(Times))(
+    sum(i in Border)(
+        bool2int(action[t-1,i] = WAIT /\ next_cell[t-1,i] = i)
+    ) <= 1
+);
+solve satisfy;
+"#;
+    let dir = std::env::temp_dir().join(format!(
+        "zincite-index-mismatch-extremum-offset-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        concat!(
+            "function set of int: '..'(int: left,int: right);\n",
+            "function int: '-'(int: left,int: right); function int: '-'(int: value);\n",
+            "function int: '+'(int: left,int: right); function int: '*'(int: left,int: right);\n",
+            "function bool: '>'(int: left,int: right); function bool: '<'(int: left,int: right);\n",
+            "function set of int: 'union'(set of int: left,set of int: right);\n",
+            "function array[$$E] of any $V: array1d(set of $$E: S,array[$U] of any $V: x);\n",
+            "function array[$$E,$$F] of any $V: array2d(set of $$E: S1,set of $$F: S2,array[$U] of any $V: x);\n",
+            "function var bool: '='(any $T: left,any $T: right);\n",
+            "function var bool: '/\\'(var bool: left,var bool: right);\n",
+            "function var bool: '<='(var int: left,var int: right);\n",
+            "function var bool: forall(array[$T] of var bool: body);\n",
+            "function var int: sum(array[$T] of var int: body); function var int: bool2int(var bool: body);\n",
+            "function $$E: min(set of $$E: s); function $$E: max(set of $$E: s);\n",
+        ),
+    ).unwrap();
+    let root = dir.join("root.mzn");
+    std::fs::write(&root, source).unwrap();
+    let options = ModelOptions {
+        include_dirs: Vec::new(),
+        stdlib_dir: Some(dir.join("library")),
+    };
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let file = context
+        .files
+        .iter()
+        .position(|file| file.path == root)
+        .unwrap();
+    let written = &context.files[file];
+    let mut accesses = Vec::new();
+    let mut pending = vec![written.parsed.tree()];
+    while let Some(node) = pending.pop() {
+        if node.kind() == NodeKind::ArrayAccessExpression
+            && [
+                "action[t+1,j]",
+                "block_cell[t+1,j]",
+                "action[t-1,i]",
+                "next_cell[t-1,i]",
+            ]
+            .contains(&written.parsed.source()[node.range()].trim())
+        {
+            accesses.push(written.location(node.range()).range);
+        }
+        pending.extend(node.child_nodes());
+    }
+    assert_eq!(accesses.len(), 4);
+    let selected = LintOptions::from_selection("index-set-mismatch").unwrap();
+    let result = analyze_model(&context, &selected);
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(
+        result
+            .findings
+            .iter()
+            .all(|finding| !accesses.contains(&finding.location.range)),
+        "{result:?}"
+    );
+
+    // The raw fact view checks only that no membership or traversal was proved.
+    // The call-aware rule result may retain the separate neighbours-source gap.
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let inst = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+    let numeric = resolve_numeric_facts(&context, &bindings, &calls, &inst, &domains, &definitions);
+    let guarded = resolve_guarded_facts(&context, &bindings, &calls, &inst, &domains, &numeric);
+    let offsets: Vec<_> = guarded
+        .obligations
+        .iter()
+        .filter(|obligation| {
+            obligation.file == file
+                && accesses.contains(&obligation.operation.range)
+                && matches!(
+                    obligation.kind,
+                    GuardObligationKind::Index { dimension: 1, .. }
+                )
+        })
+        .collect();
+    assert_eq!(offsets.len(), 4);
+    for obligation in offsets {
+        assert_eq!(obligation.invariant, GuardedOutcome::Unknown);
+        assert_eq!(obligation.outcome, GuardedOutcome::Unknown);
+        let GuardObligationKind::Index {
+            selection: Some(selection),
+            ..
+        } = &obligation.kind
+        else {
+            panic!("{obligation:?}");
+        };
+        assert!(
+            !selection.exact && selection.array_dimension.is_none(),
+            "{selection:?}"
+        );
+        assert_eq!(selection.domain, Domain::Unknown, "{obligation:?}");
+    }
+    assert!(
+        !result.limitations.iter().any(|limit| {
+            accesses.contains(&limit.location.range)
+                && limit.message.contains("offset of an opaque index set")
+        }),
+        "{result:?}"
+    );
+    assert!(!definitions.definitions.iter().any(|definition| {
+        definition.coverage == DefinitionCoverage::WholeArray
+            && ["action", "block_cell", "next_cell"]
+                .contains(&bindings.declarations[definition.target.0].name.as_str())
+    }));
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+
+    // A closed selector error stays explicit even inside a symbolic iteration.
+    let hazardous = source.replace("t+1", "t+(9223372036854775807 + 1)");
+    assert_ne!(hazardous, source);
+    std::fs::write(&root, &hazardous).unwrap();
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let result = analyze_model(&context, &selected);
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(
+        matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+        "{result:?}"
+    );
+    assert!(
+        result
+            .limitations
+            .iter()
+            .any(|limit| limit.message.contains("integer arithmetic overflow")),
+        "{result:?}"
+    );
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), hazardous);
+    std::fs::remove_dir_all(dir).unwrap();
+}

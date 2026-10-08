@@ -3277,12 +3277,13 @@ impl<'a> Producer<'a> {
             return None;
         }
         let id = self.reference(file, binding)?;
-        let mut domain = scope.assumptions.iter().find_map(|a| match a {
+        let (source_file, source, mut domain) = scope.assumptions.iter().find_map(|a| match a {
             Assumption::Membership {
+                file,
+                source,
                 declaration,
                 domain,
-                ..
-            } if *declaration == id => Some(domain.clone()),
+            } if *declaration == id => Some((*file, *source, domain.clone())),
             _ => None,
         })?;
         let mut exact = matches!(bare_index_domain(&domain), Domain::Enum(_))
@@ -3342,7 +3343,43 @@ impl<'a> Producer<'a> {
             }
         }
         if offset != 0 {
-            domain = shift_index_domain(&domain, Some(offset));
+            let parameter_integer = |ty: &crate::TypeInst| {
+                ty.known()
+                    && !ty.optional
+                    && ty.instantiation == Instantiation::Parameter
+                    && ty.kind == TypeKind::Int
+            };
+            let inspected = if matches!(&domain, Domain::Unknown)
+                && self.ty(file, node).is_some_and(parameter_integer)
+                && self.ty(file, binding).is_some_and(parameter_integer)
+                && self.operation_fact(file, node).is_some_and(|call| {
+                    matches!(&call.outcome,
+                        CallOutcome::Resolved { parameters, return_type, .. }
+                        if parameters.len() == 2
+                            && parameters.iter().all(parameter_integer)
+                            && parameter_integer(return_type))
+                }) {
+                // Inspect the actual generator range, without proving that its
+                // shifted members belong to the selected array's index set.
+                crate::domains::inspected_parameter_extremum_range_domain(
+                    self.context,
+                    self.bindings,
+                    (self.calls, self.calls),
+                    self.instantiations,
+                    self.domains,
+                    (source_file, source, &[]),
+                )
+            } else {
+                None
+            };
+            domain = match inspected {
+                Some(Domain::Unknown) => {
+                    exact = false;
+                    Domain::Unknown
+                }
+                Some(unsupported @ Domain::Unsupported(_)) => unsupported,
+                _ => shift_index_domain(&domain, Some(offset)),
+            };
         }
         Some(GuardedIndexSpace {
             domain,

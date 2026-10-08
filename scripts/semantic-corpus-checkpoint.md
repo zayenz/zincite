@@ -5021,3 +5021,22 @@ semantic62-full-bin-v2-release-control-preparation. Actual combined main
 formatting, Clippy with warnings denied and all216 workspace tests pass under
 semantic62-full-bin-main-integration. Computed row support, remaining IS/GCC/Macc
 gaps and final complete corpus evidence keep base-083 open.
+
+Offset selectors now retain the original generator source. For present parameter
+integer arithmetic over a checked extremum range, an inspected symbolic range
+stays Unknown instead of becoming an unsupported opaque offset. This establishes
+neither shifted membership nor exact array coverage. Closed arithmetic errors
+remain explicit; selectors with unavailable prerequisites keep the existing path.
+
+Matched normal opt3 public and original Macc controls remove exactly four offset
+limitations each, with no added diagnostics or changed warnings. The public
+reduction retains12 warnings and5 limitations; original Macc retains117 warnings
+and47 limitations. All fourteen thesis rules complete before and after, and all
+eight native/companion captures agree with complete all26 partitions, unchanged
+sources and matching drop records. Existing Gecode compile-only proofs were
+reused; no solver ran. Evidence is under
+semantic62-macc-offset-index-release-control-preparation. After retaining the
+accepted BIN and other repairs, actual main formatting, Clippy with warnings
+denied and all217 workspace tests pass under semantic62-macc-offset-main-integration.
+Neighbour-source inspection, remaining IS/GCC/BIN gaps and final complete corpus
+evidence keep base-083 open.
