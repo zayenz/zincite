@@ -4560,3 +4560,20 @@ The explicit alignment-abort control fails its assertion. The shifted-index
 control fails its array declaration before reaching the call, so it does not
 yet establish a shifted-selector expectation. All nine captures, complete
 streams and fourteen generated assets remain accounted for; no solve ran.
+
+Normal43 formats the complete crossword_opt model and all five compiler-positive
+raw-comment data instances into a temporary tree. Each formatted pair compiles
+with the same Gecode backend without solving. Raw FlatZinc bytes differ only
+in physical line 3, the compiler's `% Command line invocation:` comment containing
+the staged input/output paths; every other byte is equal. The six formatted
+sources, ten compiler assets, complete original/current streams and eleven
+empty reaped groups are checked in semantic62-crossword43-formatted-compiler-
+control/runtime/root-audit.json. Installed standard includes remain the same.
+
+The three row-local Boolean relation reduction compiles cleanly with its explicit
+data. Its separately retained MAX+1 table-domain variation fails with integer
+overflow in the triples declaration, before any relation-body guess. Complete
+source/compiler/std/helper pins and both outcomes are checked in semantic62-is-
+search-gap-preparation/normal43-next/root-compiler/root-audit.json. These establish
+compiler expectations for the next focused regression; no Search repair is
+claimed yet.
