@@ -723,6 +723,23 @@ impl Parser<'_> {
     ) -> Result<SyntaxNode, &'static str> {
         use TokenKind::*;
         let start = self.position;
+        // A raw atom has no preceding trivia to retain. Calls and inverse heads
+        // keep the ordinary branch; both paths share the access suffix loop.
+        let plain = match self.tokens.get(start).map(|token| token.kind) {
+            Some(IntegerLiteral) => true,
+            Some(True | False) => grammar != Grammar::Numeric,
+            Some(Identifier) => !matches!(self.peek_after(1), Some(LeftParen | Inverse | Power)),
+            _ => false,
+        };
+        if plain {
+            self.position += 1;
+            let node = SyntaxNode::with_child(
+                NodeKind::Expression,
+                self.tokens[start].range.clone(),
+                SyntaxElement::Token(start),
+            );
+            return self.atom_access(start, node);
+        }
         let mut children = Vec::with_capacity(1);
         let kind = match self.peek() {
             Some(Plus | Minus | Not) if grammar != Grammar::Numeric || self.peek() != Some(Not) => {
@@ -833,7 +850,16 @@ impl Parser<'_> {
                 },
             )),
         };
-        let mut node = self.node(kind, start, children);
+        let node = self.node(kind, start, children);
+        self.atom_access(start, node)
+    }
+
+    fn atom_access(
+        &mut self,
+        start: usize,
+        mut node: SyntaxNode,
+    ) -> Result<SyntaxNode, &'static str> {
+        use TokenKind::*;
         while matches!(self.peek(), Some(LeftBracket | Dot)) {
             let mut access = vec![SyntaxElement::Node(node)];
             let kind = if self.peek() == Some(LeftBracket) {

@@ -4483,3 +4483,25 @@ Evidence is retained in semantic62-is-filtered-search-production-preparation:
 focused-green-combined and actual-workspace-gates/root-audit.json. This is an
 implementation checkpoint; original-corpus revalidation and final task
 verification remain open.
+
+Plain identifier, integer and Boolean atoms now retain their single token inline
+in the private CST child representation. Calls, inverse heads and trivia retain
+the ordinary path; both paths use the same access-suffix parser. Public children,
+debug output, source spelling and ranges keep their existing shape.
+
+On the 908,888-byte crossword input, parsing allocation calls fall from 718,840
+to 400,296 and retained storage falls by 2,224,736 bytes. Five original inputs
+pass token/tree coverage, protected-byte, spelling and idempotence checks. All
+200 fresh CLI save outputs match the previous formatted bytes. Original-input
+p95 is 103.000/103.733 ms with default/nested EditorConfig, versus the preceding
+116.479/116.452 ms. The 100 ms target remains open. The 1,189,780-byte formatted
+input takes 117.113/117.432 ms p95; it is above the size band for that target.
+First invocation takes 403.181 ms and peaks at 52.078 MiB; filesystem coldness
+was not controlled. Evidence is in semantic62-single-child-cst-prototype-
+preparation/root-runtime and root-controls/root-audit.json. The old inferred
+owning-box count does not apply to the changed representation.
+
+Formatting, clippy with warnings denied and all 204 workspace tests pass on
+the integrated syntax change; actual-workspace-gates/root-audit.json retains
+the checked source snapshot and complete streams. Final corpus acceptance and
+the remaining save-budget follow-up remain open.

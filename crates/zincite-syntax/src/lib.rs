@@ -182,7 +182,27 @@ pub struct SyntaxNode {
 struct NodeData {
     kind: NodeKind,
     range: Range<usize>,
-    children: Box<[SyntaxElement]>,
+    children: NodeChildren,
+}
+
+enum NodeChildren {
+    One(SyntaxElement),
+    Slice(Box<[SyntaxElement]>),
+}
+
+impl NodeChildren {
+    fn as_slice(&self) -> &[SyntaxElement] {
+        match self {
+            Self::One(child) => std::slice::from_ref(child),
+            Self::Slice(children) => children,
+        }
+    }
+}
+
+impl std::fmt::Debug for NodeChildren {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self.as_slice(), formatter)
+    }
 }
 
 impl SyntaxNode {
@@ -191,7 +211,17 @@ impl SyntaxNode {
             data: Box::new(NodeData {
                 kind,
                 range,
-                children,
+                children: NodeChildren::Slice(children),
+            }),
+        }
+    }
+
+    fn with_child(kind: NodeKind, range: Range<usize>, child: SyntaxElement) -> Self {
+        Self {
+            data: Box::new(NodeData {
+                kind,
+                range,
+                children: NodeChildren::One(child),
             }),
         }
     }
@@ -205,7 +235,7 @@ impl SyntaxNode {
     }
 
     pub fn children(&self) -> &[SyntaxElement] {
-        &self.data.children
+        self.data.children.as_slice()
     }
 
     /// Borrow the direct child nodes in source order, excluding token leaves.
