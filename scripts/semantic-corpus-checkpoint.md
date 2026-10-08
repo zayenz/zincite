@@ -4135,3 +4135,18 @@ summaries pass; full current108 sources, streams and three empty reaped groups
 are checked in semantic62-pillars-current-gap-preparation/v2/
 actual-workspace-gates/root-audit.json. Original/public current release
 outcomes still need refresh before claiming repaired original thesis coverage.
+
+Fresh normal37 release contains the pillars repair. Current main108/copy108,
+four opt3 binaries,22 libraries,complete build streams and the empty reaped
+group are checked in semantic62-combined37-release/root-build-audit.json.
+Original pillars native/companion agree on39 warnings,zero errors,18 retained
+nonthesis limitations (1.655/1.305s); all14 thesis analyses now complete. The
+compiler-positive V2 public model likewise completes all14 thesis analyses
+with12 warnings,zero errors,4 nonthesis limitations (1.421/1.310s). Both
+controls retain every all26 rule partition,exact source/drop accounting and
+uncovered-array/auxiliary advice. Full original/public/compiler/std/main/
+release/helper pins,streams,parity and two empty reaped groups per control
+are checked in semantic62-pillars37-{direct,public}-control/root-audit.json.
+No solve ran,coverage certificate was invented or nonthesis gap suppressed.
+Remaining original gaps,opaque-byte lint/fixes,save budgets and final complete
+corpus evidence keep task083 open.
