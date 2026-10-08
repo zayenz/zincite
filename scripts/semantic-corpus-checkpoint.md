@@ -3679,3 +3679,12 @@ compiler-positive evidence stays unchanged. Current original/std/106 source/asse
 full streams and reaped empty groups are independently checked in
 `semantic62-pentominoes31-direct-control/root-audit.json`. This is a focused
 original regression check after invariant memo reuse, not final corpus acceptance.
+
+Normal31 original Cellda native finishes within the unchanged300-second cap:
+286.917 seconds wall,286.193 seconds child CPU,status1 with no timeout. Complete
+native streams and unchanged pins are retained in
+`semantic62-cellda31-controls/cellda_y_10s/native31/`; its process is reaped and
+the group is empty. The companion is still running. Native termination alone
+does not establish rule completion or diagnostic parity; semantic acceptance
+remains pending the companion and independent full capture audit. The earlier
+normal29 timeout remains a censored baseline, with no speed ratio claimed.
