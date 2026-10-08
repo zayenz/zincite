@@ -4310,3 +4310,25 @@ remains thesis Limited. All26 partitions,source/drop parity,full current108/
 original/std/compiler/release/helper pins and two empty reaped groups are
 checked in semantic62-is40-direct-control/root-audit.json. Production and the
 faithful regression are committed in1063a8f; final corpus remains pending.
+
+The byte-aware companion passes main fmt/clippy/all202 tests and normal41
+opt3 build checks. All five compiler-positive opaque data originals plus four
+public BOM/CRLF/opaque-comment/code/literal/directive controls have exact native
+status and stderr parity,all26 outcome partitions and source-drop baseline.
+Full current108/release/original/std/compiler/helper pins,complete18 streams
+and18 empty reaped groups are checked in semantic62-crosswords41-native-
+companion/root-audit.json. Data classification remains explicit; this does
+not claim complete-model thesis analysis.
+
+The separate scratch-only gbac Search observer completes all seven cases.
+GCC wrapper/direct singleton reductions retain the targetless false-assertion
+boundary atstd4125..4258; BIN singleton/empty retain the nonempty-boundary at
+std945..1159 and Unknown bin-load coverage. Public standard template OR/lb
+facts remain Unsupported; the exact core ParameterBool OR tuple is observed
+only for the isolated left/reversed expressions. Raw lb has an unavailable
+boundary; reversed OR lacks it despite compiler rejection. Their Search
+Completed result has no decision variables and is not a safety proof. Full
+main/scratch108/std/public/helper pins,complete streams and an empty reaped
+group are checked in semantic62-gbac-public-gap-preparation/test-preparation/
+root-observation/root-audit.json. Concrete instantiated-body evidence and
+faithful producer regressions remain prerequisites for a production repair.
