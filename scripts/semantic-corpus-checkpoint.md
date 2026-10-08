@@ -4315,7 +4315,7 @@ The byte-aware companion passes main fmt/clippy/all202 tests and normal41
 opt3 build checks. All five compiler-positive opaque data originals plus four
 public BOM/CRLF/opaque-comment/code/literal/directive controls have exact native
 status and stderr parity,all26 outcome partitions and source-drop baseline.
-Full current108/release/original/std/compiler/helper pins,complete18 streams
+Full current108/release/original/std/compiler/helper pins,complete streams from18 controls
 and18 empty reaped groups are checked in semantic62-crosswords41-native-
 companion/root-audit.json. Data classification remains explicit; this does
 not claim complete-model thesis analysis.
@@ -4332,3 +4332,17 @@ main/scratch108/std/public/helper pins,complete streams and an empty reaped
 group are checked in semantic62-gbac-public-gap-preparation/test-preparation/
 root-observation/root-audit.json. Concrete instantiated-body evidence and
 faithful producer regressions remain prerequisites for a production repair.
+
+The guarded plain-integer matrix row reservation is falsified on the measured
+original: all parse/format allocation calls,requested bytes,retained deltas
+and peak deltas are unchanged. It passes25 parsing/24 formatting tests and
+all five original preservation checks; every200 fresh native output hashes
+match,but original p95 remains125.710/126.122ms above100ms. No performance
+improvement or acceptance is claimed,and the candidate is not integrated.
+Full main/scratch108/original/std/compiler/helper pins,three opt3 assets,
+complete streams,eight runtime and three build/test empty reaped groups are
+checked in semantic62-plain-matrix-capacity-experiment/{root-measurements,
+root-build-validation}/root-audit.json. Probe baseline differs by10B from
+argument storage; every source scope returns to its own exact baseline.
+Actual row-shape eligibility is being diagnosed before another candidate;
+raw pipe counts are not a substitute for CST evidence.
