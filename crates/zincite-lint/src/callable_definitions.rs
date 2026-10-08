@@ -337,7 +337,57 @@ pub(super) fn initialized_expression_safety<'a>(
         && !matches!(safety, DefinitionSafety::Unsupported(_))
         && crate::expression_safety(context, bindings, calls, file, node)
             != DefinitionSafety::Supported
-        && let Some(reason) = producer.closed_integer_source_error(file, node, true)
+        && let Some(reason) = producer.closed_integer_source_error(file, node, true, false)
+    {
+        return DefinitionSafety::Unsupported(reason);
+    }
+    safety
+}
+// Coverage can inspect a typed union source only after all semantic facts exist.
+// Original calls own initialized declarations; the current view owns this source.
+pub(super) fn initialized_union_source_safety<'a>(
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    callables: (&'a CallableFacts, &'a CallableFacts),
+    instantiations: &'a InstantiationFacts,
+    domains: &'a DomainFacts,
+    source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
+) -> DefinitionSafety {
+    let (file, node, generators) = source;
+    let (calls, view) = callables;
+    let producer = Producer {
+        context,
+        bindings,
+        calls,
+        instantiations,
+        domains,
+        lookups: None,
+        instances: Vec::new(),
+        boundaries: Vec::new(),
+    };
+    let present_integer = |ty: &TypeInst| {
+        ty.known()
+            && !optional(ty)
+            && ty.instantiation == Instantiation::Parameter
+            && ty.kind == TypeKind::Int
+    };
+    if producer
+        .expression_type(producer.view(file, node, view), file, node)
+        .is_none_or(|expression| {
+            let ty = &expression.ty;
+            !ty.known()
+                || optional(ty)
+                || ty.instantiation != Instantiation::Parameter
+                || !matches!(&ty.kind, TypeKind::Set(element) if present_integer(element))
+        })
+    {
+        return DefinitionSafety::Unsupported(
+            "union source requires a present parameter integer set".into(),
+        );
+    }
+    let safety = producer.initialized_source_safety(file, node, view, generators, &mut Vec::new());
+    if !matches!(safety, DefinitionSafety::Unsupported(_))
+        && let Some(reason) = producer.closed_integer_source_error(file, node, true, true)
     {
         return DefinitionSafety::Unsupported(reason);
     }
@@ -4191,6 +4241,7 @@ impl<'a> Producer<'a> {
                 complete_array_coverage(
                     self.context,
                     self.bindings,
+                    (self.calls, self.view(file, node, view)),
                     self.instantiations,
                     self.domains,
                     (file, id),
@@ -6593,7 +6644,7 @@ impl<'a> Producer<'a> {
                             unsupported = Some("anonymous enum count type is unsupported".into());
                         }
                         if let Some(reason) =
-                            self.closed_integer_source_error(declaration.file, count, false)
+                            self.closed_integer_source_error(declaration.file, count, false, false)
                         {
                             unsupported = Some(reason);
                         }
@@ -7786,12 +7837,14 @@ impl<'a> Producer<'a> {
         ))
     }
     // Inspect disjoint closed arithmetic fragments and initialized integer
-    // sources. Existing evaluation supplies only an error veto, never a value fact.
+    // sources. Only new union inspection follows collections as well. Existing
+    // evaluation supplies an error veto, never a value fact.
     fn closed_integer_source_error(
         &self,
         file: FileId,
         node: &'a SyntaxNode,
         eager_only: bool,
+        follow_collections: bool,
     ) -> Option<String> {
         fn literal_parts(
             context: &ModelContext,
@@ -7890,7 +7943,9 @@ impl<'a> Producer<'a> {
                         && ty.known()
                         && !optional(ty)
                         && ty.instantiation == Instantiation::Parameter
-                        && ty.kind == TypeKind::Int
+                        && (ty.kind == TypeKind::Int
+                            || follow_collections
+                                && matches!(ty.kind, TypeKind::Set(_) | TypeKind::Array { .. }))
                         && let Some(written) = find_node(
                             self.context.files[declaration.file].parsed.tree(),
                             &declaration.syntax_range,
@@ -7999,7 +8054,7 @@ impl<'a> Producer<'a> {
             {
                 return Err(reason);
             }
-            if let Some(reason) = self.closed_integer_source_error(file, value, false) {
+            if let Some(reason) = self.closed_integer_source_error(file, value, false, false) {
                 return Err(reason);
             }
             let ordinal = crate::domains::invariant_expression_integer(
@@ -8586,7 +8641,7 @@ impl<'a> Producer<'a> {
                     }
                     for selector in &children[1..] {
                         if let Some(reason) =
-                            self.closed_integer_source_error(file, selector, false)
+                            self.closed_integer_source_error(file, selector, false, false)
                         {
                             return DefinitionSafety::Unsupported(reason);
                         }
@@ -9883,6 +9938,7 @@ impl<'a> Producer<'a> {
                     || complete_array_coverage(
                         self.context,
                         self.bindings,
+                        (self.calls, facts),
                         self.instantiations,
                         self.domains,
                         (file, id),
@@ -10526,7 +10582,9 @@ impl<'a> Producer<'a> {
                     return Err("nondefining Boolean source index domain is unsupported".into());
                 }
                 for selector in &children[1..] {
-                    if let Some(reason) = self.closed_integer_source_error(file, selector, false) {
+                    if let Some(reason) =
+                        self.closed_integer_source_error(file, selector, false, false)
+                    {
                         return Err(reason);
                     }
                 }

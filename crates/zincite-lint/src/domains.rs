@@ -6,6 +6,10 @@ use crate::{
 use std::collections::{BTreeSet, HashMap, HashSet};
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
+// Full initialized-source facts exist only after raw domain production.
+pub(super) const UNINSPECTED_UNION_COMPREHENSION: &str =
+    "union set comprehension source requires initialized inspection";
+
 /// An integer bound or retained binding identity. Unknown bounds may be open,
 /// unbounded or data-dependent;
 /// unsupported bounds exceed this producer's bounded integer interpretation.
@@ -599,6 +603,9 @@ impl<'a> Walker<'a> {
                         .map(|child| self.bound(file, child))
                         .collect(),
                 )
+            }
+            NodeKind::SetComprehension => {
+                return Err(UNINSPECTED_UNION_COMPREHENSION.into());
             }
             NodeKind::BinaryExpression
                 if children.len() == 2 && self.union_operation(file, node, "union", true, true) =>

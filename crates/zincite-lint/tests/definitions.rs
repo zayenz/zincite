@@ -241,3 +241,129 @@ fn unsupported_value_safety_limits_only_constant_variable() {
     assert_eq!(result.status(), 1);
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn boundary_union_comprehensions_do_not_prove_whole_arrays() {
+    let source = r#"% Symbolic parameters remain unassigned during lint analysis.
+int: row_count;
+int: column_count;
+int: step_count;
+
+set of int: Rows = 0..row_count - 1;
+set of int: Columns = 0..column_count - 1;
+set of int: Cells = 0..row_count * column_count - 1;
+set of int: Outside = -2..-1;
+set of int: Places = Cells union Outside;
+set of int: Steps = 0..step_count - 1;
+
+array[Rows, Columns] of Cells: grid = array2d(Rows, Columns,
+    [r * column_count + c | r in Rows, c in Columns]
+);
+set of Cells: Border = {grid[r, 0] | r in Rows}
+    union {grid[r, column_count - 1] | r in Rows};
+
+array[Steps, Places] of var 0..1: levels;
+array[Steps, Places] of var 0..1: fixed_levels;
+
+% This selects a boundary subset, not every place in the declared array.
+constraint :: "Boundary cells remain empty"
+forall (t in Steps, p in Border) (
+    levels[t, p] = 0
+);
+
+% A same-axis control must keep its whole-array constant-variable advice.
+constraint :: "Every fixed level is empty"
+forall (t in Steps, p in Places) (
+    fixed_levels[t, p] = 0
+);
+
+solve satisfy;
+"#;
+    let (directory, _) = model("boundary-union", source, "");
+    write(
+        &directory.join("library/std/stdlib.mzn"),
+        concat!(
+            "function set of $T: 'union'(set of $T: x,set of $T: y);\n",
+            "function set of $$E: '..'($$E: x,$$E: y);\n",
+            "function int: '-'(int: x,int: y); function int: '-'(int: x);\n",
+            "function int: '+'(int: x,int: y); function int: '*'(int: x,int: y);\n",
+            "function var bool: '='(any $T: x,any $T: y);\n",
+            "function var bool: forall(array[$T] of var bool: body);\n",
+            "function array[$$E,$$F] of any $V: array2d(set of $$E: rows,set of $$F: columns,array[$U] of any $V: values);\n",
+        ),
+    );
+    let options = ModelOptions {
+        stdlib_dir: Some(directory.join("library")),
+        include_dirs: Vec::new(),
+    };
+    let root = directory.join("root.mzn");
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let result = analyze_model(&context, &selected());
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+    assert_eq!(
+        result
+            .findings
+            .iter()
+            .map(|finding| &source[finding.location.range.clone()])
+            .collect::<Vec<_>>(),
+        ["fixed_levels[t, p] = 0"],
+    );
+    assert_eq!(result.findings[0].location.path, root);
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+
+    // Equal element types do not prove equality of named index domains.
+    for (written, replacement) in [
+        (
+            "array[Steps, Places] of var 0..1: fixed_levels;",
+            "array[Columns, Places] of var 0..1: fixed_levels;",
+        ),
+        (
+            "p in Places) (\n    fixed_levels",
+            "p in Rows) (\n    fixed_levels",
+        ),
+    ] {
+        let partial = source.replace(written, replacement);
+        assert_ne!(partial, source);
+        write(&root, &partial);
+        let context = load_model(&root, &options);
+        assert!(context.errors.is_empty(), "{:?}", context.errors);
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(result.findings.is_empty(), "{:?}", result.findings);
+        assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+        assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+    }
+
+    // A symbolic generator must not conceal closed overflow in its head.
+    let hazardous = source.replace("grid[r, 0]", "9223372036854775807 + 1");
+    write(&root, &hazardous);
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let result = analyze_model(&context, &selected());
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(matches!(
+        result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    assert!(
+        result.limitations.iter().any(|limitation| {
+            limitation.location.path == root
+                && &hazardous[limitation.location.range.clone()] == "levels[t, p] = 0"
+                && limitation.message.contains("integer arithmetic overflow")
+        }),
+        "{:?}",
+        result.limitations,
+    );
+    assert_eq!(
+        result
+            .findings
+            .iter()
+            .map(|finding| &hazardous[finding.location.range.clone()])
+            .collect::<Vec<_>>(),
+        ["fixed_levels[t, p] = 0"],
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}

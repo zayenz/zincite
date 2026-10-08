@@ -4638,3 +4638,37 @@ tests-only-v2/root-red/root-audit.json. A narrow production repair remains pendi
 The integrated three-file formatter change passes main workspace formatting,
 clippy with warnings denied and all 204 workspace tests. Full receipts are
 audited in the same V2 actual-workspace-gates/root-audit.json.
+
+
+The boundary union-comprehension repair now passes its exact previously failing
+public regression, all six consumer suites and all 205 combined workspace tests.
+It defers only the exact present typed parameter-integer comprehension marker
+until complete callable, instantiation and domain facts exist. The coverage
+consumer checks every expected axis and actual initialized source before
+comparison; it retains named identities and converts inspected membership to
+Unknown, without fabricating members or cardinality. The separate closed-error
+check follows collection aliases only on this new path. Existing non-bare domain
+handling and legacy scalar/Boolean/lazy inspection remain unchanged. Independent
+static review found no substantive correctness issue within the bounded patch.
+
+A fresh original macc native/companion all26 comparison removes exactly one
+constant-variable unsupported union limitation at bytes3054..3074 and adds no
+diagnostics. Warnings remain115, errors0, limitations106->105. ConstantVariable,
+UnboundedVariable and Search remain Limited; separate extrema and six original
+array-membership gaps are still required work. The fresh release has four opt3
+assets,22 libraries and108 copied sources. Full frozen tests, combined gates,
+release/source audits and original diagnostic/parity/drop checks are retained
+under semantic62-macc34-union-comprehension-repair-preparation and semantic62-
+macc-union-candidate-direct-control/root-audit.json. This increment does not
+complete task base-083 or substitute for the final fresh expanded corpus.
+
+Weighted-load tests-only V1 fails compilation because five checks call private
+TypeInst::known from an integration test. All three stored commands exit101
+before test semantics, including both existing guard tests. The input/fullstream
+and empty-group audit is retained in semantic62-gbac-fzn-membership-preparation/
+contract-red-preparation/root-red/root-audit.json. This is not behavioral RED;
+production is unchanged and a public-type-check correction is pending.
+
+The integrated union repair also passes actual main workspace fmt, clippy with
+warnings denied and all205 tests; source sets exactly match the audited opt3
+combined release. Receipts are in the repair preparation actual-workspace-gates.

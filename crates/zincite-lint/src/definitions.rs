@@ -1,6 +1,6 @@
 //! Definition candidates and dependencies, independent of diagnostic policy.
 use crate::callables::{find_node, is_expression};
-use crate::domains::{expression_domain, same_members};
+use crate::domains::{UNINSPECTED_UNION_COMPREHENSION, expression_domain, same_members};
 use crate::value_safety::optional;
 use crate::{
     BindingFacts, BindingResolution, CallOutcome, CallableFacts, DeclarationId, DeclarationRole,
@@ -569,6 +569,7 @@ impl<'context> Producer<'context> {
         complete_array_coverage(
             self.context,
             self.bindings,
+            (self.calls, self.calls),
             self.instantiations,
             self.domains,
             (file, id),
@@ -735,13 +736,14 @@ fn source_name(parsed: &zincite_syntax::ParsedFile, token: &zincite_syntax::Toke
 
 /// Exact, unfiltered index correspondence; arithmetic consumers also rely on
 /// distinct binders and no dependent/extra generators to preserve multiplicity.
-pub(super) fn complete_array_coverage(
-    context: &ModelContext,
-    bindings_facts: &BindingFacts,
-    instantiations: &InstantiationFacts,
-    domains: &DomainFacts,
+pub(super) fn complete_array_coverage<'a>(
+    context: &'a ModelContext,
+    bindings_facts: &'a BindingFacts,
+    callables: (&'a CallableFacts, &'a CallableFacts),
+    instantiations: &'a InstantiationFacts,
+    domains: &'a DomainFacts,
     scope: (FileId, DeclarationId),
-    syntax: (&[&SyntaxNode], &[&SyntaxNode]),
+    syntax: (&[&'a SyntaxNode], &[&'a SyntaxNode]),
 ) -> DefinitionCoverage {
     let (file, id) = scope;
     let (indices, generators) = syntax;
@@ -836,24 +838,86 @@ pub(super) fn complete_array_coverage(
                 && d.role == DeclarationRole::Generator
                 && d.syntax_range == generator.range()
         }) {
-            bindings.push((declaration.id, domain.clone()));
+            bindings.push((declaration.id, domain.clone(), source));
         }
     }
     if declared.len() != indices.len() || bindings.len() != indices.len() {
         return DefinitionCoverage::ArrayElement;
     }
-    let mut used = Vec::new();
-    for (index, expected) in indices.iter().zip(declared) {
+    let mut selected_bindings = Vec::new();
+    for index in indices {
         let Some(id) = reference(unwrap_parentheses(index)) else {
             return DefinitionCoverage::ArrayElement;
         };
-        if used.contains(&id) {
-            return DefinitionCoverage::ArrayElement;
-        }
-        let Some((_, actual)) = bindings.iter().find(|(binder, _)| *binder == id) else {
+        let Some(position) = bindings.iter().position(|(binder, _, _)| *binder == id) else {
             return DefinitionCoverage::ArrayElement;
         };
-        used.push(id);
+        if selected_bindings.contains(&position) {
+            return DefinitionCoverage::ArrayElement;
+        }
+        selected_bindings.push(position);
+    }
+    // Only the newly admitted union source needs initialized inspection. Check
+    // every expected axis before an unknown actual membership can end comparison.
+    let inspect_union = declared.iter().any(uninspected_union)
+        || bindings
+            .iter()
+            .any(|(_, domain, _)| uninspected_union(domain));
+    let inspected_declared = if inspect_union {
+        let mut axes = Vec::new();
+        for axis in declared {
+            let checked = if uninspected_union(axis) {
+                let Some((source_file, source)) = union_axis_source(context, bindings_facts, axis)
+                else {
+                    return DefinitionCoverage::Unsupported(
+                        "union index source declaration unavailable".into(),
+                    );
+                };
+                inspect_union_domain(
+                    context,
+                    bindings_facts,
+                    (callables.0, callables.0),
+                    instantiations,
+                    domains,
+                    (source_file, source, &[]),
+                    axis,
+                )
+            } else {
+                Ok(axis.clone())
+            };
+            let axis = match checked {
+                Ok(axis) => axis,
+                Err(reason) => return DefinitionCoverage::Unsupported(reason),
+            };
+            if let Err(reason) = same_members(&axis, &axis) {
+                return DefinitionCoverage::Unsupported(reason);
+            }
+            axes.push(axis);
+        }
+        for (_, domain, source) in &mut bindings {
+            match inspect_union_domain(
+                context,
+                bindings_facts,
+                callables,
+                instantiations,
+                domains,
+                (file, source, generators),
+                domain,
+            ) {
+                Ok(checked) => *domain = checked,
+                Err(reason) => return DefinitionCoverage::Unsupported(reason),
+            }
+            if let Err(reason) = same_members(domain, domain) {
+                return DefinitionCoverage::Unsupported(reason);
+            }
+        }
+        Some(axes)
+    } else {
+        None
+    };
+    let declared = inspected_declared.as_deref().unwrap_or(declared);
+    for (position, expected) in selected_bindings.into_iter().zip(declared) {
+        let actual = &bindings[position].1;
         let membership = same_members(actual, expected).and_then(|_| {
             same_members(
                 &index_membership(actual, bindings_facts),
@@ -872,6 +936,81 @@ pub(super) fn complete_array_coverage(
         }
     }
     DefinitionCoverage::WholeArray
+}
+fn uninspected_union(domain: &Domain) -> bool {
+    match domain {
+        Domain::Named { domain, .. } => uninspected_union(domain),
+        Domain::Unsupported(reason) => reason == UNINSPECTED_UNION_COMPREHENSION,
+        _ => false,
+    }
+}
+fn union_axis_source<'a>(
+    context: &'a ModelContext,
+    bindings: &BindingFacts,
+    mut domain: &Domain,
+) -> Option<(FileId, &'a SyntaxNode)> {
+    while let Domain::Named {
+        declaration,
+        domain: inner,
+    } = domain
+    {
+        let declaration = &bindings.declarations[declaration.0];
+        if declaration.top_level && declaration.role == DeclarationRole::Value {
+            let written = find_node(
+                context.files[declaration.file].parsed.tree(),
+                &declaration.syntax_range,
+                declaration.role,
+            )?;
+            return written
+                .child_nodes()
+                .find(|node| is_expression(node.kind()))
+                .map(|source| (declaration.file, source));
+        }
+        domain = inner;
+    }
+    None
+}
+fn inspect_union_domain<'a>(
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    callables: (&'a CallableFacts, &'a CallableFacts),
+    instantiations: &'a InstantiationFacts,
+    domains: &'a DomainFacts,
+    source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
+    domain: &Domain,
+) -> Result<Domain, String> {
+    if !uninspected_union(domain) {
+        return Ok(domain.clone());
+    }
+    if let DefinitionSafety::Unsupported(reason) =
+        crate::callable_definitions::initialized_union_source_safety(
+            context,
+            bindings,
+            callables,
+            instantiations,
+            domains,
+            source,
+        )
+    {
+        return Err(reason);
+    }
+    fn membership(domain: &Domain) -> Domain {
+        match domain {
+            Domain::Named {
+                declaration,
+                domain,
+            } => Domain::Named {
+                declaration: *declaration,
+                domain: Box::new(membership(domain)),
+            },
+            Domain::Unsupported(reason) if reason == UNINSPECTED_UNION_COMPREHENSION => {
+                Domain::Unknown
+            }
+            _ => domain.clone(),
+        }
+    }
+    // Inspection admits the source form, never its members or cardinality.
+    Ok(membership(domain))
 }
 // Keep parameter-set identities and alias chains, without substituting their
 // initializers into an unrelated literal traversal. Written type aliases and

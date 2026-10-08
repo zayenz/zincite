@@ -408,6 +408,7 @@ impl Interpreter<'_> {
         match complete_array_coverage(
             self.context,
             self.bindings,
+            (self.calls, self.calls),
             self.instantiations,
             self.domains,
             (file, id),

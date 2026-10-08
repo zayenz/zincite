@@ -750,6 +750,7 @@ impl<'a> Producer<'a> {
                 match complete_array_coverage(
                     self.context,
                     self.bindings,
+                    (self.calls, self.calls),
                     self.instantiations,
                     self.domains,
                     (file, id),
@@ -1280,6 +1281,7 @@ impl<'a> Producer<'a> {
         if complete_array_coverage(
             self.context,
             self.bindings,
+            (self.calls, self.calls),
             self.instantiations,
             self.domains,
             (d.file, id),
