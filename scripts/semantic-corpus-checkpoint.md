@@ -3903,3 +3903,14 @@ accounting and both empty reaped groups are checked in
 semantic62-macc33-direct-control/root-audit.json. CTW's inspected wrapper path
 does not close these original macc gaps. A tests-only public union-domain RED is
 being prepared against fresh106 current33 copies; no producer repair is accepted.
+
+All five previously UTF-8-rejected original crossword data files compile with
+their original adjacent crossword_opt.mzn using current Gecode,without solving.
+Full five compiler streams/receipts/FlatZinc artifacts,current originals/1035
+standard files/compiler/helpers and all five empty reaped groups are checked in
+semantic62-crosswords-current-prechecks/root-audit.json. Earlier data-only and
+synthetic-context failures did not establish original compiler invalidity.
+These five files remain required valid-input coverage; Zincite's UTF-8 input
+rejection is a concrete processing gap. A byte-preserving loader/parser boundary
+investigation is running separately from the union-domain tests-only preparation.
+No original encoding or source bytes are changed and no coverage is excluded.
