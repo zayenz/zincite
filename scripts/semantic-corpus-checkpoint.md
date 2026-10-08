@@ -3710,3 +3710,24 @@ reaped empty group are checked in
 `semantic62-sparse-search-gap-preparation/focused-green/root-audit.json`.
 The candidate remains scratch-only; its selected aggregate tuple checks are
 being corrected without weakening that existing assertion.
+
+Sparse candidate v2 preserves the existing matrix sum and reaches/passes the
+full906-byte positive with its unchanged Unknown/uncovered expectations.
+Ordinal-zero and count-overflow counters also pass. The next counter fails:
+literal Enum-array selection outside its written1..1 axis completes without a
+limitation instead of the expected Limited result (search.rs2536). Candidate v2
+remains unintegrated. Full streams/unchanged106 sources/helpers/empty reaped
+group are checked in `semantic62-sparse-search-gap-preparation/focused-green2/`
+`root-audit.json`; the closed-axis inspection path is being diagnosed.
+
+Current CTW public reduction retains rank2 input/index_set_1of2, nested selectors,
+written Boolean generator sum, symbolic ParameterInt powers and the ignored-capable
+redundant wrapper. Its model+data passes current Gecode compile-only with no
+warnings/errors; normal31 full all26 probe finishes with1 warning,zero errors and
+6 limitations. Thesis unbounded-variable and search-coverage remain Limited at
+the penalty/objective/wrapper shapes. Current inputs/std/compiler/assets/helpers,
+full streams and empty reaped groups are checked in
+`semantic62-ctw-current-gap-preparation/{compiler-positive,normal31-public-probe}/`
+`root-audit.json`. Generator Bool-sum inspection already exists; the actual new
+source-header gap is rank2 index_set_1of2 inspection, alongside ParameterInt pow
+and bodyless redundant_constraint. Repair/public RED preparation is pending.
