@@ -3943,3 +3943,14 @@ Full streams/current106 scratch/helpers and empty reaped group are checked in
 focused-red2/root-audit.json. The reviewed shared Union producer increment is
 assigned in that scratch root; its source/partiality/minimum and coverage gates
 remain subject to root review and validation before integration.
+
+Original pillars-and-planks normal33 native/companion finish (1.327/1.434
+seconds) with33 warnings,zero errors and22 limitations; search-coverage is
+the sole thesis Limited rule. Its three located prerequisites are two selected
+body/instance boundaries and one direct-definition safety/enforcement boundary.
+Full diagnostic/status parity,current original+p-d2 compiler-positive
+prerequisite,std/compiler/main106/assets/helpers,all26/source/drop accounting
+and both empty reaped groups are checked in
+semantic62-pillars33-direct-control/root-audit.json. A read-only investigation
+of these original prerequisites runs alongside the two separate repair drafts;
+no supported definition or whole-array coverage is assumed.
