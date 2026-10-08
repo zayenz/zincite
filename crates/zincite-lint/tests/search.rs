@@ -2259,6 +2259,86 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
         "{:?}",
         transitive_result.limitations
     );
+    let membership = concat!(
+        "set of int: Index;\n",
+        "array[Index] of int: selected;\n",
+        "array[int] of int: direction;\n",
+        "array[Index] of var 0..6: result;\n",
+        "test active(int: index) = index > 0;\n",
+        "constraint forall(index in Index)(\n",
+        "  if active(index) then result[index] in {0, direction[selected[index]]}\n",
+        "  else result[index] = 0 endif\n",
+        ");\n",
+        "solve satisfy;\n",
+    );
+    let library = dir.join("library/std/stdlib.mzn");
+    let mut standard = std::fs::read_to_string(&library).unwrap();
+    standard.push_str("function bool: '>'(int: left,int: right);\n");
+    std::fs::write(&library, standard).unwrap();
+    std::fs::write(dir.join("root.mzn"), membership).unwrap();
+    let membership_context = load_model(dir.join("root.mzn"), &options);
+    assert!(membership_context.errors.is_empty());
+    let (membership_bindings, membership_search) = facts(&membership_context);
+    assert_eq!(membership_search.root_state, ModelRootState::Complete);
+    assert!(
+        membership_search.limitations.is_empty(),
+        "{:?}",
+        membership_search.limitations
+    );
+    assert_eq!(
+        coverage(&membership_bindings, &membership_search, "result"),
+        SearchCoverage::Uncovered
+    );
+    let membership_calls = resolve_callables(&membership_context, &membership_bindings);
+    let membership_inst =
+        resolve_instantiations(&membership_context, &membership_bindings, &membership_calls);
+    let membership_domains = resolve_domains(&membership_context, &membership_bindings);
+    let membership_callable = resolve_callable_definitions(
+        &membership_context,
+        &membership_bindings,
+        &membership_calls,
+        &membership_inst,
+        &membership_domains,
+    );
+    let membership_result = membership_bindings
+        .declarations
+        .iter()
+        .find(|declaration| declaration.top_level && declaration.name == "result")
+        .unwrap()
+        .id;
+    assert!(
+        !membership_callable
+            .definitions
+            .iter()
+            .any(|definition| definition.target == membership_result)
+    );
+    assert!(matches!(
+        analyze_model(&membership_context, &selected()).rules[0].outcome,
+        RuleOutcome::Completed
+    ));
+    let outside_membership = membership
+        .replace(
+            "array[int] of int: direction;",
+            "array[1..1] of int: direction;",
+        )
+        .replace("direction[selected[index]]", "direction[2]");
+    std::fs::write(dir.join("root.mzn"), &outside_membership).unwrap();
+    let outside_context = load_model(dir.join("root.mzn"), &options);
+    assert!(outside_context.errors.is_empty());
+    let outside_result = analyze_model(&outside_context, &selected());
+    assert!(matches!(
+        outside_result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    let membership_start = outside_membership.find("result[index] in").unwrap();
+    assert!(
+        outside_result.limitations.iter().any(|limit| {
+            limit.location.range.start <= membership_start
+                && membership_start < limit.location.range.end
+        }),
+        "{:?}",
+        outside_result.limitations
+    );
     // Existing unsafe-source, annotation, optional, opaque and cycle cases stay above.
     std::fs::remove_dir_all(dir).unwrap();
     let (dir, context) = model("fragment", "var int: exported;", "");

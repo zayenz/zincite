@@ -3582,3 +3582,16 @@ fails the new positive inspection assertion with the matching index-proof
 limitation; no production change is accepted yet. Exact core-signature/full-child
 Unknown-only inspection is being prepared. All main Rust changes are committed;
 unrelated newly created logo assets are preserved outside task scope.
+
+The Routing membership repair now passes the retained RED/GREEN public control.
+Only the exact selected core `in` signature with present DecisionInt and
+ParameterSetInt operands is eligible; every initialized child is inspected.
+Unsupported child safety stays Unsupported and successful inspection returns
+Unknown, without a membership truth, definition or output-coverage certificate.
+The positive result remains Uncovered and closed out-of-range selection remains
+Limited. Actual workspace fmt/Clippy/194 tests pass, with full streams/source
+pins and reaped empty groups independently checked in the membership preparation
+`actual-workspace-gates/root-audit.json`. Normal30 opt3/106 sources/22 libraries
+are checked in `semantic62-combined30-release/root-build-audit.json`. The required
+original Routing all26 pair and full final corpus acceptance remain pending.
+Logo concepts were committed separately at the user’s request.

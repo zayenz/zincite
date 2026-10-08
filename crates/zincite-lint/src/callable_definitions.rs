@@ -8018,6 +8018,34 @@ impl<'a> Producer<'a> {
             let children: Vec<_> = node.child_nodes().collect();
             let name =
                 operator(self.context, file, node).and_then(crate::bindings::symbolic_operator);
+            if node.kind() == NodeKind::BinaryExpression
+                && name == Some("in")
+                && children.len() == 2
+                && self.core(file, node, view, "in")
+                && crate::definitions::annotations_safe(self.context, file, written)
+                && let (Some(value), Some(choices)) = (ty(children[0]), ty(children[1]))
+                && value.known()
+                && !optional(value)
+                && value.instantiation == Instantiation::Decision
+                && value.kind == TypeKind::Int
+                && choices.known()
+                && !optional(choices)
+                && choices.instantiation == Instantiation::Parameter
+                && matches!(&choices.kind, TypeKind::Set(element)
+                    if element.known() && !optional(element)
+                        && element.instantiation == Instantiation::Parameter
+                        && element.kind == TypeKind::Int)
+                && self.operation_fact(self.view(file, node, view), file, node).is_some_and(|call| {
+                    matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                        if parameters.len() == 2 && parameters[0] == *value
+                            && parameters[1] == *choices && Some(return_type) == ty(node))
+                })
+            {
+                return match self.initialized_children_safety(file, &children, view, generators) {
+                    unsupported @ DefinitionSafety::Unsupported(_) => unsupported,
+                    _ => DefinitionSafety::Unknown("integer membership value is unproved".into()),
+                };
+            }
             let operand_kind = match (node.kind(), name) {
                 (NodeKind::BinaryExpression, Some("=" | "!=" | "<" | "<=" | ">" | ">="))
                     if children.len() == 2 =>
