@@ -4907,3 +4907,24 @@ Evidence is under semantic62-is-diff-subset-main-integration/actual-workspace-ga
 semantic62-is-diff-subset-release-control-preparation/control-results and
 semantic62-is-diff-subset-current-original-before-preparation/output.
 Remaining original-model gaps and final corpus checks keep base-083 open.
+
+Nested asserted weighted equalities can retain their owning array identities
+through exact type-preserving core index2int calls, including enum2int on the
+already-Int bin argument. Every written conversion and source is inspected;
+the existing formal ownership, complete body and actual-axis checks still apply.
+
+The candidate passes all210 existing tests and focused mismatch, unknown-axis,
+captured-source and abort guards. Its eight matched current-build controls retain
+all26 partitions, fourteen thesis outcomes and native/companion agreement.
+The converted aligned singleton loses its membership limitation and completes
+every thesis rule. False and unproved actual axes remain Limited with explicit
+axis causes; the independent unguarded mismatch remains Limited. Original GBAC
+is unchanged at16warnings/0errors/18limitations. Compiler-invalid and partial
+controls retain their classifications; the compiler proofs were reused without
+solving. These candidate captures precede composition with the IS subset repair.
+Evidence is under semantic62-already-int-conversion-production-preparation/
+{root-results,release-results,control-results}. Full BIN/GCC and computed-row
+support, remaining original-model gaps and final corpus checks remain required.
+After composition with IS, actual main formatting, Clippy with warnings denied
+and all211 workspace tests pass. The combined source and checks are recorded
+under semantic62-already-int-conversion-main-integration.

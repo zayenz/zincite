@@ -5284,6 +5284,143 @@ solve :: int_search(placement, first_fail, indomain_min, complete) satisfy;
 "#,
             true,
         ),
+        (
+            "converted-same-callee-unguarded-mismatch",
+            r#"% Public reduction of fzn_bin_packing_load.mzn:10's weighted selector.
+% This preserves weight[i] under i in index_set(bin), with an unsearched load.
+predicate public_weighted_load(array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight) =
+    forall(b in index_set(load))(load[b] = sum(i in index_set(bin))(weight[i] * (bin[i] = b)));
+
+predicate public_aligned_load(array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight) =
+    assert(
+        index_set(bin) == index_set(weight),
+        "Bin and weight index sets must agree",
+        public_weighted_load(index2int(load), index2int(enum2int(bin)), index2int(weight))
+    );
+
+% A guarded use must not certify another invocation of the same declaration.
+array[1..1] of int: guarded_weight = [1];
+array[1..1] of var 1..1: guarded_placement;
+array[1..1] of var 0..1: guarded_load;
+array[1..0] of int: item_weight = [];
+array[1..1] of var 1..1: placement;
+array[1..1] of var 0..1: bin_load;
+
+constraint :: "The first invocation has its own index guard"
+    public_aligned_load(guarded_load, guarded_placement, guarded_weight);
+constraint :: "The second invocation has no index guard"
+    public_weighted_load(bin_load, placement, item_weight);
+
+solve :: seq_search([
+    int_search(placement, first_fail, indomain_min, complete),
+    int_search(guarded_placement, first_fail, indomain_min, complete)
+]) satisfy;
+"#,
+            false,
+        ),
+        (
+            "converted-false-actual-axes",
+            r#"% Public reduction of fzn_bin_packing_load.mzn:10's weighted selector.
+% This preserves weight[i] under i in index_set(bin), with an unsearched load.
+predicate public_weighted_load(array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight) =
+    forall(b in index_set(load))(load[b] = sum(i in index_set(bin))(weight[i] * (bin[i] = b)));
+
+predicate public_aligned_load(array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight) =
+    assert(
+        index_set(bin) == index_set(weight),
+        "Bin and weight index sets must agree",
+        public_weighted_load(index2int(load), index2int(enum2int(bin)), index2int(weight))
+    );
+
+array[1..0] of int: item_weight = [];
+array[1..1] of var 1..1: placement;
+array[1..1] of var 0..1: bin_load;
+
+constraint :: "weighted_load_indices"
+    public_aligned_load(bin_load, placement, item_weight);
+
+solve :: int_search(placement, first_fail, indomain_min, complete) satisfy;
+"#,
+            false,
+        ),
+        (
+            "converted-unknown-actual-axes",
+            r#"% Public reduction of fzn_bin_packing_load.mzn:10's weighted selector.
+% This preserves weight[i] under i in index_set(bin), with an unsearched load.
+predicate public_weighted_load(array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight) =
+    forall(b in index_set(load))(load[b] = sum(i in index_set(bin))(weight[i] * (bin[i] = b)));
+
+predicate public_aligned_load(array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight) =
+    assert(
+        index_set(bin) == index_set(weight),
+        "Bin and weight index sets must agree",
+        public_weighted_load(index2int(load), index2int(enum2int(bin)), index2int(weight))
+    );
+
+int: bin_end;
+int: weight_end;
+array[1..weight_end] of int: item_weight;
+array[1..bin_end] of var 1..1: placement;
+array[1..1] of var 0..1: bin_load;
+
+constraint :: "weighted_load_indices"
+    public_aligned_load(bin_load, placement, item_weight);
+
+solve :: int_search(placement, first_fail, indomain_min, complete) satisfy;
+"#,
+            false,
+        ),
+        (
+            "converted-captured-global-weight",
+            r#"% Public reduction of fzn_bin_packing_load.mzn:10's weighted selector.
+% This preserves weight[i] under i in index_set(bin), with an unsearched load.
+predicate public_weighted_load(array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight) =
+    forall(b in index_set(load))(load[b] = sum(i in index_set(bin))(weight[i] * (bin[i] = b)));
+
+predicate public_aligned_load(array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight) =
+    assert(
+        index_set(bin) == index_set(weight),
+        "Bin and weight index sets must agree",
+        public_weighted_load(index2int(load), index2int(enum2int(bin)), index2int(global_weight))
+    );
+
+array[1..1] of int: global_weight = [1];
+array[1..1] of int: item_weight = [1];
+array[1..1] of var 1..1: placement;
+array[1..1] of var 0..1: bin_load;
+
+constraint :: "weighted_load_indices"
+    public_aligned_load(bin_load, placement, item_weight);
+
+solve :: int_search(placement, first_fail, indomain_min, complete) satisfy;
+"#,
+            false,
+        ),
+        (
+            "converted-aligned-singleton",
+            r#"% Public reduction of fzn_bin_packing_load.mzn:10's weighted selector.
+% This preserves weight[i] under i in index_set(bin), with an unsearched load.
+predicate public_weighted_load(array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight) =
+    forall(b in index_set(load))(load[b] = sum(i in index_set(bin))(weight[i] * (bin[i] = b)));
+
+predicate public_aligned_load(array[int] of var int: load, array[int] of var int: bin, array[int] of int: weight) =
+    assert(
+        index_set(bin) == index_set(weight),
+        "Bin and weight index sets must agree",
+        public_weighted_load(index2int(load), index2int(enum2int(bin)), index2int(weight))
+    );
+
+array[1..1] of int: item_weight = [1];
+array[1..1] of var 1..1: placement;
+array[1..1] of var 0..1: bin_load;
+
+constraint :: "weighted_load_indices"
+    public_aligned_load(bin_load, placement, item_weight);
+
+solve :: int_search(placement, first_fail, indomain_min, complete) satisfy;
+"#,
+            true,
+        ),
     ] {
         let (dir, _) = model(&format!("asserted-array-membership-{name}"), source, "");
         std::fs::write(
@@ -5318,7 +5455,14 @@ solve :: int_search(placement, first_fail, indomain_min, complete) satisfy;
             context.files[call.file].kind == zincite_lint::SourceKind::User
                 && matches!(
                     call.name.as_str(),
-                    "assert" | "index_set" | "forall" | "sum" | "*" | "="
+                    "assert"
+                        | "index_set"
+                        | "forall"
+                        | "sum"
+                        | "*"
+                        | "="
+                        | "index2int"
+                        | "enum2int"
                 )
         }) {
             let zincite_lint::CallOutcome::Resolved {
@@ -5340,7 +5484,25 @@ solve :: int_search(placement, first_fail, indomain_min, complete) satisfy;
             assert!(owner.implicit, "{name}");
             assert!(parameters.iter().all(present_type), "{name}");
             assert!(present_type(return_type), "{name}");
-            if call.name == "assert" {
+            if matches!(call.name.as_str(), "index2int" | "enum2int") {
+                assert_eq!(parameters.len(), 1, "{name}");
+                assert_eq!(
+                    return_type, &parameters[0],
+                    "{name}: conversion changed its concrete type"
+                );
+                assert!(
+                    matches!(&parameters[0].kind,
+                    zincite_lint::TypeKind::Array { indices, element }
+                    if indices.as_slice() == [zincite_lint::TypeInst {
+                        instantiation: zincite_lint::Instantiation::Parameter,
+                        optional: false,
+                        kind: zincite_lint::TypeKind::Int,
+                    }]
+                        && element.kind == zincite_lint::TypeKind::Int
+                        && element.instantiation == parameters[0].instantiation),
+                    "{name}"
+                );
+            } else if call.name == "assert" {
                 assert_eq!(parameters.len(), 3, "{name}");
                 assert!(
                     parameter(&parameters[0], zincite_lint::TypeKind::Bool),
@@ -5433,6 +5595,162 @@ solve :: int_search(placement, first_fail, indomain_min, complete) satisfy;
                     parameter(return_type, zincite_lint::TypeKind::Bool),
                     "{name}"
                 );
+            }
+        }
+        if name.starts_with("converted-") {
+            let wrapper = bindings
+                .declarations
+                .iter()
+                .find(|d| d.top_level && d.name == "public_aligned_load")
+                .unwrap();
+            let child = calls
+                .calls
+                .iter()
+                .find(|call| {
+                    call.file == wrapper.file
+                        && call.item == wrapper.item
+                        && call.name == "public_weighted_load"
+                })
+                .unwrap();
+            let zincite_lint::CallOutcome::Resolved {
+                declaration: child_id,
+                parameters,
+                ..
+            } = &child.outcome
+            else {
+                panic!("{name}: concrete child selection {:?}", child.outcome);
+            };
+            assert_eq!(
+                bindings.declarations[child_id.0].name, "public_weighted_load",
+                "{name}"
+            );
+            let mut pending = vec![context.files[wrapper.file].parsed.tree()];
+            let mut node = None;
+            while let Some(candidate) = pending.pop() {
+                if candidate.kind() == zincite_syntax::NodeKind::CallExpression
+                    && candidate.range().start == child.location.range.start
+                {
+                    node = Some(candidate);
+                    break;
+                }
+                pending.extend(candidate.child_nodes());
+            }
+            let arguments: Vec<_> = node.unwrap().child_nodes().collect();
+            assert_eq!(arguments.len(), 3, "{name}");
+            let conversion_count = calls
+                .calls
+                .iter()
+                .filter(|call| {
+                    call.file == wrapper.file
+                        && call.item == wrapper.item
+                        && call.name == "index2int"
+                })
+                .count();
+            assert_eq!(conversion_count, 3, "{name}");
+            assert_eq!(
+                calls
+                    .calls
+                    .iter()
+                    .filter(|call| call.file == wrapper.file
+                        && call.item == wrapper.item
+                        && call.name == "enum2int")
+                    .count(),
+                1,
+                "{name}"
+            );
+            for (position, argument) in arguments.iter().enumerate() {
+                assert_eq!(
+                    argument.kind(),
+                    zincite_syntax::NodeKind::CallExpression,
+                    "{name}"
+                );
+                let conversion = calls
+                    .calls
+                    .iter()
+                    .find(|call| {
+                        call.file == wrapper.file
+                            && call.location.range.start == argument.range().start
+                    })
+                    .unwrap();
+                assert_eq!(conversion.name, "index2int", "{name}");
+                let zincite_lint::CallOutcome::Resolved {
+                    parameters: input,
+                    return_type,
+                    ..
+                } = &conversion.outcome
+                else {
+                    panic!("{name}: conversion unresolved");
+                };
+                assert_eq!(input.as_slice(), &parameters[position..=position], "{name}");
+                assert_eq!(return_type, &parameters[position], "{name}");
+                let children: Vec<_> = argument.child_nodes().collect();
+                assert_eq!(children.len(), 1, "{name}");
+                let mut leaf = children[0];
+                if position == 1 {
+                    assert_eq!(
+                        leaf.kind(),
+                        zincite_syntax::NodeKind::CallExpression,
+                        "{name}"
+                    );
+                    let inner = calls
+                        .calls
+                        .iter()
+                        .find(|call| {
+                            call.file == wrapper.file
+                                && call.location.range.start == leaf.range().start
+                        })
+                        .unwrap();
+                    assert_eq!(inner.name, "enum2int", "{name}");
+                    let zincite_lint::CallOutcome::Resolved {
+                        parameters: input,
+                        return_type,
+                        ..
+                    } = &inner.outcome
+                    else {
+                        panic!("{name}: inner conversion unresolved");
+                    };
+                    assert_eq!(input.as_slice(), &parameters[position..=position], "{name}");
+                    assert_eq!(return_type, &parameters[position], "{name}");
+                    let children: Vec<_> = leaf.child_nodes().collect();
+                    assert_eq!(children.len(), 1, "{name}");
+                    leaf = children[0];
+                }
+                assert_eq!(leaf.kind(), zincite_syntax::NodeKind::Expression, "{name}");
+                let reference = bindings
+                    .references
+                    .iter()
+                    .find(|reference| {
+                        reference.file == wrapper.file && reference.location.range == leaf.range()
+                    })
+                    .unwrap();
+                let zincite_lint::BindingResolution::Resolved(id) = reference.resolution else {
+                    panic!("{name}: source identity unresolved");
+                };
+                let declaration = &bindings.declarations[id.0];
+                assert_eq!(calls.declarations[id.0].ty, parameters[position], "{name}");
+                assert_eq!(declaration.file, wrapper.file, "{name}");
+                if name == "converted-captured-global-weight" && position == 2 {
+                    assert_eq!(declaration.name, "global_weight", "{name}");
+                    assert_eq!(
+                        declaration.role,
+                        zincite_lint::DeclarationRole::Value,
+                        "{name}"
+                    );
+                    assert!(declaration.top_level, "{name}");
+                    assert_ne!(declaration.item, wrapper.item, "{name}");
+                } else {
+                    assert_eq!(
+                        declaration.name,
+                        ["load", "bin", "weight"][position],
+                        "{name}"
+                    );
+                    assert_eq!(
+                        declaration.role,
+                        zincite_lint::DeclarationRole::Parameter,
+                        "{name}"
+                    );
+                    assert_eq!(declaration.item, wrapper.item, "{name}");
+                }
             }
         }
         for call in calls.calls.iter().filter(|call| {
@@ -5533,9 +5851,80 @@ solve :: int_search(placement, first_fail, indomain_min, complete) satisfy;
                 assert_eq!(axis("guarded_weight"), singleton, "{name}");
             }
         }
+        if name.starts_with("converted-") {
+            let axis = |array| {
+                let id = bindings
+                    .declarations
+                    .iter()
+                    .find(|d| d.top_level && d.name == array)
+                    .unwrap()
+                    .id;
+                let zincite_lint::Domain::Array { indices, .. } =
+                    &domains.declarations[id.0].domain
+                else {
+                    panic!("{name}: written axis unavailable");
+                };
+                indices.clone()
+            };
+            if name == "converted-unknown-actual-axes" {
+                let bin_end = bindings
+                    .declarations
+                    .iter()
+                    .find(|d| d.top_level && d.name == "bin_end")
+                    .unwrap()
+                    .id;
+                let weight_end = bindings
+                    .declarations
+                    .iter()
+                    .find(|d| d.top_level && d.name == "weight_end")
+                    .unwrap()
+                    .id;
+                assert_ne!(bin_end, weight_end, "{name}");
+                assert_eq!(
+                    axis("placement"),
+                    vec![zincite_lint::Domain::Range {
+                        lower: zincite_lint::NumericBound::Integer(1),
+                        upper: zincite_lint::NumericBound::Symbol(bin_end)
+                    }],
+                    "{name}"
+                );
+                assert_eq!(
+                    axis("item_weight"),
+                    vec![zincite_lint::Domain::Range {
+                        lower: zincite_lint::NumericBound::Integer(1),
+                        upper: zincite_lint::NumericBound::Symbol(weight_end)
+                    }],
+                    "{name}"
+                );
+            } else {
+                let singleton = vec![zincite_lint::Domain::Range {
+                    lower: zincite_lint::NumericBound::Integer(1),
+                    upper: zincite_lint::NumericBound::Integer(1),
+                }];
+                assert_eq!(axis("placement"), singleton, "{name}");
+                assert_eq!(
+                    axis("item_weight"),
+                    if matches!(
+                        name,
+                        "converted-false-actual-axes" | "converted-same-callee-unguarded-mismatch"
+                    ) {
+                        vec![zincite_lint::Domain::Range {
+                            lower: zincite_lint::NumericBound::Integer(1),
+                            upper: zincite_lint::NumericBound::Integer(0),
+                        }]
+                    } else {
+                        singleton
+                    },
+                    "{name}"
+                );
+            }
+        }
         let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
         let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
-        if name == "same-callee-unguarded-mismatched-axis" {
+        if matches!(
+            name,
+            "same-callee-unguarded-mismatched-axis" | "converted-same-callee-unguarded-mismatch"
+        ) {
             let callee = bindings
                 .declarations
                 .iter()

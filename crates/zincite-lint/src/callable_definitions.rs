@@ -4887,10 +4887,48 @@ impl<'a> Producer<'a> {
         let mut mapped = Vec::new();
         for (position, parameter) in parameters.iter().enumerate() {
             let formal = formal_parameter(self.context, self.bindings, id, position)?;
-            let (source, value) = self.actual(&invocation, id, formal, view)?;
-            let value = unwrap(value);
-            if source != file
-                || value.kind() != NodeKind::Expression
+            let (source, written_actual) = self.actual(&invocation, id, formal, view)?;
+            if source != file {
+                return None;
+            }
+            let mut value = unwrap(written_actual);
+            if value.kind() == NodeKind::CallExpression {
+                // Only these already-Int views preserve the asserted axis and
+                // value identities. Enum-changing views keep ordinary inspection.
+                for name in ["index2int", "enum2int"] {
+                    if name == "enum2int"
+                        && (position != 1 || value.kind() != NodeKind::CallExpression)
+                    {
+                        break;
+                    }
+                    if !self.core(file, value, view, name) {
+                        return None;
+                    }
+                    let argument = self.array_conversion_argument(file, value, view)?;
+                    if [value, argument].into_iter().any(|node| {
+                        self.expression_type(self.view(file, node, view), file, node)
+                            .is_none_or(|e| e.ty != *parameter)
+                    }) {
+                        return None;
+                    }
+                    value = unwrap(argument);
+                }
+                if self.dependencies(file, written_actual, view, &[]).is_err()
+                    || self.initialized_source_safety(
+                        file,
+                        written_actual,
+                        view,
+                        &[],
+                        &mut Vec::new(),
+                    ) != DefinitionSafety::Supported
+                    || self
+                        .closed_integer_source_error(file, written_actual, true, false)
+                        .is_some()
+                {
+                    return None;
+                }
+            }
+            if value.kind() != NodeKind::Expression
                 || !matches!(crate::domains::tokens(&self.context.files[file].parsed, value).as_slice(),
                     [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
             {
