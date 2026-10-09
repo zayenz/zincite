@@ -5391,9 +5391,13 @@ Reproduction evidence is under semantic62-zip-queens-axis-error-reproduction-pre
 
 The private named-selector domain veto passes the five-case group and existing
 cycle/alias guard. A second focused reproduction nevertheless confirms that an
-annotated lookup-source declaration can still produce a Supported output; restoring
-the existing initialized-source veto remains pending before integration. Both
-reproductions preserve main and retain their complete failing streams.
+annotated lookup-source declaration can still produce a Supported output. The
+third private candidate restores the initialized-source veto and passes all six
+cases plus the cycle/alias guard. ROOT verified 240 unchanged input pins, four
+complete streams and two reaped empty groups; independent local source review
+has no unresolved finding. Both failing reproductions remain preserved. Evidence
+is under semantic62-zip-queens-named-selector-repair-preparation-v3; original-model
+controls, actual-main gates and integration remain pending.
 
 The Challenge nonogram model with its existing non_fast_4 data also compiles
 with MiniZinc 2.10.1 and Gecode without solving. ROOT verified empty diagnostics,
