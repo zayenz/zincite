@@ -5547,3 +5547,23 @@ confirmed generator behavior failure. The numeric safety guard passes. ROOT
 checked four full streams, 1173 unchanged inputs and both reaped empty groups
 under semantic62-zip-queens-generator-actual-red-preparation-v1/root-results.
 The diagnostic is being corrected before any production repair is authorized.
+
+The private Jobshop successor repair passes its unchanged positive and negative
+regression and the existing whole-array/alias-cycle guard. ROOT checked four
+full streams, 1321 unchanged inputs and both reaped empty groups under
+semantic62-jobshop-enum-next-production-preparation-v1/root-green/runtime.
+The repair returns Unknown successor value and index membership. Independent
+local review and original-model controls remain pending; actual-main integration
+and task acceptance are not established by these focused checks.
+
+The corrected ZipQueens diagnostic reaches a genuine generator behavior failure.
+The bare-array control completes through the same installed standard predicate
+and retained default; the generator positive then fails at invoked actual typing.
+The trace maps the generator header and scalar body as two arguments, whereas
+overload selection correctly sees one comprehension array and the second formal
+has a retained default. ROOT checked four full streams, 1201 unchanged inputs
+and both reaped empty groups; the numeric safety guard passes. Later filter and
+closed-error cases were not reached. Evidence is under
+semantic62-zip-queens-generator-actual-red-preparation-v3/root-results.
+A private argument-mapping repair is now authorized. Earlier diagnostic failures
+remain retained separately; no production behavior or whole-task pass is claimed.
