@@ -11481,3 +11481,101 @@ solve satisfy;
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn decision_integer_selections_inspect_parameter_array_extremum_bounds() {
+    use zincite_lint::CallOutcome;
+    let positive = r#"
+int: count;
+set of int: Jobs = 1..count;
+int: demand_count;
+set of int: Demands = 1..demand_count;
+array[Jobs] of int: times;
+int: lower = min(times);
+int: upper = max(times);
+array[Jobs] of var lower..upper: ends;
+array[Demands] of var Jobs: chosen;
+array[Demands] of var lower..upper: finished;
+constraint forall(d in Demands)(finished[d] = ends[chosen[d]]);
+solve satisfy;
+"#;
+    let zero = positive.replace(
+        "int: lower = min(times);",
+        "int: lower = min(times) + (1 div 0);",
+    );
+    let empty = positive.replace("array[Jobs] of int: times;", "array[1..0] of int: times;");
+    let core = format!(
+        "{CORE}{}",
+        concat!(
+            "annotation promise_commutative;\n",
+            "function int: min(array[int] of int: values) :: promise_commutative;\n",
+            "function int: max(array[int] of int: values) :: promise_commutative;\n",
+            "function int: '+'(int: left,int: right); function int: 'div'(int: left,int: right);\n",
+        )
+    );
+    for (name, source, error) in [
+        ("atsp-minmax-symbolic", positive, None),
+        ("atsp-minmax-bound-zero", zero.as_str(), Some("zero")),
+        ("atsp-minmax-empty-source", empty.as_str(), Some("empty")),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(dir.join("library/std/stdlib.mzn"), &core).unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let (bindings, search) = facts(&context);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == 0)
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let outputs =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        assert!(outputs.outputs.is_empty(), "{name}: {:?}", outputs.outputs);
+        for target in ["ends", "chosen", "finished"] {
+            assert!(
+                !matches!(
+                    coverage(&bindings, &search, target),
+                    SearchCoverage::Scalar | SearchCoverage::WholeArray
+                ),
+                "{name}: unexpected output certificate for {target}"
+            );
+        }
+        if let Some(error) = error {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert!(
+                search.limitations.iter().any(|l| l.message.contains(error)),
+                "{name}: closed extrema source/bound error must survive: {:?}",
+                search.limitations
+            );
+        } else {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                search.limitations
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

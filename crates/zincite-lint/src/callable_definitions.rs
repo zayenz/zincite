@@ -6,7 +6,7 @@ use crate::callables::{
     instantiated_body, is_expression, operation_fact,
 };
 use crate::definitions::complete_array_coverage;
-use crate::domains::expression_domain;
+use crate::domains::{NumericBound, expression_domain};
 use crate::value_safety::optional;
 use crate::{
     BindingFacts, BindingResolution, CallFact, CallOutcome, CallableFacts, DeclarationId,
@@ -12481,6 +12481,174 @@ impl<'a> Producer<'a> {
             "reflected array bound is unproved".into(),
         ))
     }
+    // A local interpretation only: checked array extrema stay symbolic, while
+    // the retained raw bounds and their declaration identities remain unchanged.
+    fn inspect_array_extremum_bound(&self, bound: &NumericBound) -> Result<NumericBound, String> {
+        match bound {
+            NumericBound::Unsupported(reason) => Err(reason.clone()),
+            NumericBound::Arithmetic { operator, operands } => Ok(NumericBound::Arithmetic {
+                operator: *operator,
+                operands: operands
+                    .iter()
+                    .map(|operand| self.inspect_array_extremum_bound(operand))
+                    .collect::<Result<_, _>>()?,
+            }),
+            NumericBound::Defined { declaration, value } => {
+                let owner = &self.bindings.declarations[declaration.0];
+                let parameter_int = TypeInst {
+                    instantiation: Instantiation::Parameter,
+                    optional: false,
+                    kind: TypeKind::Int,
+                };
+                if !owner.top_level
+                    || owner.role != DeclarationRole::Value
+                    || self.calls.declarations[declaration.0].ty != parameter_int
+                {
+                    return Err("array extrema bound requires a present parameter integer".into());
+                }
+                let written = find_node(
+                    self.context.files[owner.file].parsed.tree(),
+                    &owner.syntax_range,
+                    owner.role,
+                )
+                .ok_or("array extrema bound declaration unavailable")?;
+                if !self.source_annotations_safe(owner.file, written) {
+                    return Err("array extrema bound annotation is unsupported".into());
+                }
+                let initializer = written
+                    .child_nodes()
+                    .find(|node| is_expression(node.kind()))
+                    .map(unwrap)
+                    .ok_or("array extrema bound initializer unavailable")?;
+                let facts = self.view(owner.file, initializer, self.calls);
+                if self
+                    .expression_type(facts, owner.file, initializer)
+                    .is_none_or(|expression| expression.ty != parameter_int)
+                {
+                    return Err("array extrema bound initializer type is unsupported".into());
+                }
+                crate::domains::core_arithmetic(
+                    self.context,
+                    self.bindings,
+                    facts,
+                    owner.file,
+                    initializer,
+                )?;
+                if let DefinitionSafety::Unsupported(reason) = self.initialized_source_safety(
+                    owner.file,
+                    initializer,
+                    facts,
+                    &[],
+                    &mut Vec::new(),
+                ) {
+                    return Err(reason);
+                }
+                let checked = if let NumericBound::Unsupported(reason) = value.as_ref() {
+                    let arguments: Vec<_> = initializer.child_nodes().collect();
+                    let [argument] = arguments.as_slice() else {
+                        return Err(reason.clone());
+                    };
+                    let source = unwrap(argument);
+                    let Some(array) = self.reference(owner.file, source) else {
+                        return Err(reason.clone());
+                    };
+                    let source_owner = &self.bindings.declarations[array.0];
+                    let actual = &self.calls.declarations[array.0].ty;
+                    if initializer.kind() != NodeKind::CallExpression
+                        || !(self.core(owner.file, initializer, facts, "min")
+                            || self.core(owner.file, initializer, facts, "max"))
+                        || argument.kind() == NodeKind::NamedArgument
+                        || source.kind() != NodeKind::Expression
+                        || !matches!(crate::domains::tokens(&self.context.files[owner.file].parsed, source).as_slice(),
+                            [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+                        || source_owner.role != DeclarationRole::Value
+                        || !source_owner.top_level
+                        || actual.instantiation != Instantiation::Parameter
+                        || optional(actual)
+                        || !matches!(&actual.kind, TypeKind::Array { indices, element }
+                            if indices.as_slice() == [parameter_int.clone()]
+                                && element.as_ref() == &parameter_int)
+                        || self.expression_type(facts, owner.file, source)
+                            .is_none_or(|expression| &expression.ty != actual)
+                        || !self.operation_fact(facts, owner.file, initializer).is_some_and(|call| {
+                            matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                                if parameters.as_slice() == [actual.clone()] && return_type == &parameter_int)
+                        })
+                    {
+                        return Err(reason.clone());
+                    }
+                    let Some(CallOutcome::Resolved { declaration, .. }) = self
+                        .operation_fact(facts, owner.file, initializer)
+                        .map(|call| &call.outcome)
+                    else {
+                        return Err(reason.clone());
+                    };
+                    let primitive = &self.bindings.declarations[declaration.0];
+                    let written = find_node(
+                        self.context.files[primitive.file].parsed.tree(),
+                        &primitive.syntax_range,
+                        primitive.role,
+                    )
+                    .ok_or("array extrema primitive declaration unavailable")?;
+                    let mut nodes = vec![written];
+                    while let Some(node) = nodes.pop() {
+                        if is_expression(node.kind())
+                            || !self.callable_annotations_safe(primitive.file, node)
+                        {
+                            return Err("array extrema primitive body, default, domain or annotation is unsupported".into());
+                        }
+                        // Only validated hint subtrees are skipped; inspect every
+                        // other descendant for bodies, defaults and domain sources.
+                        nodes.extend(
+                            node.child_nodes()
+                                .filter(|child| child.kind() != NodeKind::Annotation),
+                        );
+                    }
+                    let Domain::Array { indices, element } = crate::domains::bare_index_domain(
+                        &self.domains.declarations[array.0].domain,
+                    ) else {
+                        return Err(reason.clone());
+                    };
+                    if indices.len() != 1 {
+                        return Err(reason.clone());
+                    }
+                    for domain in indices.iter().chain(std::iter::once(element.as_ref())) {
+                        domain.numeric_minimum().map_err(str::to_owned)?;
+                    }
+                    let axis = crate::domains::bare_index_domain(&indices[0]);
+                    if crate::domains::index_domain_interval(axis)
+                        .is_some_and(|(lower, upper)| upper < lower)
+                        || matches!(axis, Domain::LiteralSet(values) if values.is_empty())
+                    {
+                        return Err("integer extrema source is empty".into());
+                    }
+                    if let Some(written) = find_node(
+                        self.context.files[source_owner.file].parsed.tree(),
+                        &source_owner.syntax_range,
+                        source_owner.role,
+                    ) && written
+                        .child_nodes()
+                        .find(|node| is_expression(node.kind()))
+                        .is_some_and(|value| {
+                            let value = unwrap(value);
+                            value.kind() == NodeKind::ArrayLiteral
+                                && value.child_nodes().next().is_none()
+                        })
+                    {
+                        return Err("integer extrema source is empty".into());
+                    }
+                    NumericBound::Unknown
+                } else {
+                    self.inspect_array_extremum_bound(value)?
+                };
+                Ok(NumericBound::Defined {
+                    declaration: *declaration,
+                    value: Box::new(checked),
+                })
+            }
+            _ => Ok(bound.clone()),
+        }
+    }
     fn parameter_float_safety(
         &self,
         file: FileId,
@@ -15049,9 +15217,35 @@ impl<'a> Producer<'a> {
                     };
                     // The closed source checker does not follow decision arrays.
                     // Inspect every retained axis and element before uncertainty.
-                    for domain in axes.iter().chain(std::iter::once(source_element.as_ref())) {
+                    for domain in axes {
                         if let Err(reason) = domain.numeric_minimum() {
                             return DefinitionSafety::Unsupported(reason.into());
+                        }
+                    }
+                    if let Err(reason) = source_element.numeric_minimum() {
+                        let checked = (|| -> Result<(), String> {
+                            if element.kind != TypeKind::Int
+                                || source != &self.calls.declarations[array.0].ty
+                                || self.bindings.declarations[array.0].role
+                                    != DeclarationRole::Value
+                                || !self.bindings.declarations[array.0].top_level
+                            {
+                                return Err(reason.into());
+                            }
+                            let Domain::Range { lower, upper } =
+                                crate::domains::bare_index_domain(source_element)
+                            else {
+                                return Err(reason.into());
+                            };
+                            let inspected = Domain::Range {
+                                lower: self.inspect_array_extremum_bound(lower)?,
+                                upper: self.inspect_array_extremum_bound(upper)?,
+                            };
+                            inspected.numeric_minimum().map_err(str::to_owned)?;
+                            Ok(())
+                        })();
+                        if let Err(reason) = checked {
+                            return DefinitionSafety::Unsupported(reason);
                         }
                     }
                     for selector in &children[1..] {

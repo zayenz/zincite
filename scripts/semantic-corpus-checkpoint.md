@@ -5950,3 +5950,20 @@ Actual-main formatting, clippy and all 239 tests pass under
 main-social-singleton-sources-gates-v1, with 108 unchanged source files, six full
 streams and three reaped empty groups. Original Social and task acceptance
 remain pending.
+
+Decision integer selections now locally interpret only checked parameter-array
+min/max bounds as Unknown, retaining their declaration IDs, raw Unsupported facts,
+source axes and closed arithmetic/empty-source vetoes. Selected primitive written
+bodies, defaults, domains and annotations are checked before that interpretation.
+Search now includes its existing safety/enforcement refusal reason under the same
+prefix and location. The first private minmax candidate completed the symbolic
+case and retained closed-zero Limited, then failed its generic-message assertion;
+it was not a wholly green suite. The deep-guard candidate plus the retained reason
+passes all three cases, including zero and known-empty errors, under
+semantic65-atsp-minmax-green-preparation-v2. ROOT checked 119 unchanged inputs,
+two full streams and one reaped empty group. A 98-line permanent projection
+retains public outcomes, withheld certificates and the located errors, and uses
+standard commutative metadata on its min/max stubs. Actual-main formatting,
+clippy and all 240 tests pass under main-atsp-extremum-bounds-gates-v1, with 108
+unchanged source files, six full streams and three reaped empty groups. Fresh
+original ATSP outcomes and final task acceptance remain pending.

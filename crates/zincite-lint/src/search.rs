@@ -1392,12 +1392,14 @@ impl<'a> Producer<'a> {
             {
                 if !covered(self.facts.declarations[d.target.0].coverage) {
                     self.facts.declarations[d.target.0].coverage = SearchCoverage::Unknown;
-                    if matches!(safety, DefinitionSafety::Unsupported(_))
-                        || matches!(d.enforcement, DefinitionEnforcement::Unsupported(_))
-                    {
+                    if let Some(reason) = match (&safety, &d.enforcement) {
+                        (DefinitionSafety::Unsupported(reason), _)
+                        | (_, DefinitionEnforcement::Unsupported(reason)) => Some(reason),
+                        _ => None,
+                    } {
                         self.facts.limitations.push(SourceDiagnostic {
                             location: d.location.clone(),
-                            message: "search-coverage: direct definition safety or enforcement is unsupported".into(),
+                            message: format!("search-coverage: direct definition safety or enforcement is unsupported: {reason}"),
                         });
                     }
                 }
