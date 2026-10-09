@@ -5589,3 +5589,29 @@ then use the prepared b691 final reconciliation only after confirmed terminal
 state. Preserve the main Rust freeze until that audit completes. Next steps are
 capture audits, original Jobshop outcome reconciliation, the Zip mapping repair
 and remaining Social Golfers gaps; full workspace and task verification follow.
+
+## Resume and complete baseline capture, 2026-10-09
+
+Base-083 resumed with four delegated lanes: ZipQueens generator arguments,
+Social Golfers membership, Social Golfers usage diagnosis, and original Jobshop
+capture review. Integration, runtime checks, commits and task acceptance remain
+ROOT-owned and sequential.
+
+Corpus handle 84137 completed without restarting. The saved-capture reconciliation
+passed: all 124 shards, 496 native/companion child receipts and 6417 original
+roots are accounted for, with no missing or Unobserved rule rows. Both original
+inventory checks cover 189496 files; tool/source/library checks cover 148 files.
+All 5082 compiler streams were checked. Source/type classifications are 2241
+Accepted, 3876 data-only, 276 compiler-nonzero and 24 retained Rejected; Accepted
+still does not establish supplied-instance validity. The stale editor symlink
+reported during discovery remains explicitly recorded.
+
+The b691 thesis capture has 1173 complete resolved roots, of which 437 complete
+all selected analyses; the all-rules capture has 190 such roots. These are
+baseline observations, not acceptance of the pending repairs. The overlapping
+three-process capture took 13321.94 seconds; it is not isolated performance
+evidence. The audit is retained under
+semantic62-b691-final-reconciliation-preparation-v1/root-audit.json.
+The baseline capture is now settled, permitting reviewed repairs to enter main.
+Base-083 and its final corpus, public behavior and performance verification
+remain open.
