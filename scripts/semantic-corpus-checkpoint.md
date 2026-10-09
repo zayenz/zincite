@@ -5345,3 +5345,12 @@ gap, not an invalid-instance exclusion; no production repair is claimed yet.
 Evidence is under semantic62-zip-queens-{instance-compiler,membership-preflight}-
 preparation-v1. Both checks overlap the parallel corpus and make no isolated
 timing claim. Private sources and diagnostic tests remain outside the repository.
+
+One standalone assignment data file has a captured parse error and NotRun rule
+outcomes. A fresh Gecode compile-only check with the existing project model
+rejects that exact data for mixing indexed and non-indexed array entries, matching
+Zincite's refusal. This checks the original file without repairing or inventing
+data; all 1054 input pins and both complete streams were verified, with the child
+reaped and its group empty. Evidence is under
+semantic62-assignment-error-data-compiler-check-v1. The rejection excludes only
+that exact checked input; other unpaired data remains unclassified by this check.
