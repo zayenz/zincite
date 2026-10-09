@@ -10412,6 +10412,10 @@ impl<'a> Producer<'a> {
                     && matches!(&t.kind, TypeKind::Set(element) if element.kind == TypeKind::Int)
             };
             let ty = typed(node).ok_or("parameter collection type unavailable")?;
+            let decision_sets = node.kind() == NodeKind::ArrayComprehension
+                && ty.instantiation == Instantiation::Decision
+                && matches!(&ty.kind, TypeKind::Array { element, .. }
+                    if decision_integer_set(element));
             let element = match (&ty.kind, node.kind()) {
                 (TypeKind::Set(element), NodeKind::SetComprehension) if integer_set(ty) => {
                     element.as_ref()
@@ -10419,12 +10423,14 @@ impl<'a> Producer<'a> {
                 (TypeKind::Array { indices, element }, NodeKind::ArrayComprehension)
                     if present(ty)
                         && (ty.instantiation == Instantiation::Parameter
-                            || matches!(element.kind, TypeKind::Int | TypeKind::Bool))
+                            || matches!(element.kind, TypeKind::Int | TypeKind::Bool)
+                            || decision_sets)
                         && indices.len() == 1
                         && present_parameter(&indices[0])
                         && indices[0].kind == TypeKind::Int
                         && (matches!(element.kind, TypeKind::Int | TypeKind::Bool)
-                            || integer_set(element)) =>
+                            || integer_set(element)
+                            || decision_sets) =>
                 {
                     element.as_ref()
                 }
@@ -10459,7 +10465,9 @@ impl<'a> Producer<'a> {
                 || list.child_nodes().count() == 0
                 || typed(body).is_none_or(|t| {
                     !present(t)
-                        || if node.kind() == NodeKind::GeneratorCallExpression
+                        || if decision_sets {
+                            t != element
+                        } else if node.kind() == NodeKind::GeneratorCallExpression
                             && element.kind == TypeKind::Int
                         {
                             !matches!(t.kind, TypeKind::Int | TypeKind::Bool)
@@ -10470,6 +10478,9 @@ impl<'a> Producer<'a> {
                 })
             {
                 return Err("parameter collection body type is unsupported".into());
+            }
+            if decision_sets && unwrap(body).kind() != NodeKind::ArrayAccessExpression {
+                return Err("decision set collection requires a selected array cell".into());
             }
             // Decision-set generators introduce absent cells; this exact core
             // overload may inspect the sum without proving which cells occur.
@@ -10519,6 +10530,31 @@ impl<'a> Producer<'a> {
                 && unwrap(body).kind() == NodeKind::ConditionalExpression;
             let mut all = generators.to_vec();
             let mut unsupported = None;
+            if decision_sets {
+                for (position, header) in generators.iter().enumerate() {
+                    for value in header.child_nodes() {
+                        let (value, scope) = if value.kind() == NodeKind::WhereFilter {
+                            let conditions: Vec<_> = value.child_nodes().collect();
+                            let [condition] = conditions.as_slice() else {
+                                return Err("collection lexical filter is unsupported".into());
+                            };
+                            (*condition, &generators[..=position])
+                        } else {
+                            (value, &generators[..position])
+                        };
+                        if let DefinitionSafety::Unsupported(reason) = self
+                            .initialized_source_safety(file, value, view, scope, &mut Vec::new())
+                        {
+                            unsupported = Some(reason);
+                        }
+                        if let Some(reason) =
+                            self.closed_integer_source_error(file, value, true, true)
+                        {
+                            unsupported = Some(reason);
+                        }
+                    }
+                }
+            }
             for header in list.child_nodes() {
                 let binders: Vec<_> = self
                     .bindings
@@ -10588,7 +10624,7 @@ impl<'a> Producer<'a> {
                     });
                 if let DefinitionSafety::Unsupported(reason) = source_safety {
                     unsupported = Some(reason);
-                } else if (conditional_relation || optional_sum)
+                } else if (conditional_relation || optional_sum || decision_sets)
                     && let Some(reason) = self.closed_integer_source_error(file, source, true, true)
                 {
                     unsupported = Some(reason);
@@ -10611,7 +10647,7 @@ impl<'a> Producer<'a> {
                         self.initialized_source_safety(file, condition, view, &all, &mut Vec::new())
                     {
                         unsupported = Some(reason);
-                    } else if (conditional_relation || optional_sum)
+                    } else if (conditional_relation || optional_sum || decision_sets)
                         && let Some(reason) =
                             self.closed_integer_source_error(file, condition, true, true)
                     {
@@ -10619,7 +10655,15 @@ impl<'a> Producer<'a> {
                     }
                 }
             }
-            let body_safety = if conditional_relation {
+            let body_safety = if decision_sets {
+                // Exact traversal dependencies do not inspect the written set domain.
+                self.decision_set_source_safety(file, body, view, &all)
+                    .unwrap_or_else(|| {
+                        DefinitionSafety::Unsupported(
+                            "decision set collection body is unsupported".into(),
+                        )
+                    })
+            } else if conditional_relation {
                 self.boolean_relation_safety(file, body, view, &all)
                     .unwrap_or_else(|| {
                         DefinitionSafety::Unsupported(
@@ -10638,7 +10682,7 @@ impl<'a> Producer<'a> {
             };
             if let DefinitionSafety::Unsupported(reason) = body_safety {
                 unsupported = Some(reason);
-            } else if optional_sum
+            } else if (optional_sum || decision_sets)
                 && let Some(reason) = self.closed_integer_source_error(file, body, true, true)
             {
                 unsupported = Some(reason);
@@ -14296,7 +14340,8 @@ impl<'a> Producer<'a> {
                         || t.kind == TypeKind::Bool
                         || matches!(&t.kind, TypeKind::Array { element, .. }
                         if element.kind == TypeKind::Bool
-                            || node.kind() == NodeKind::ArrayComprehension && element.kind == TypeKind::Int)
+                            || node.kind() == NodeKind::ArrayComprehension
+                                && (element.kind == TypeKind::Int || decision_integer_set(element)))
                         || node.kind() == NodeKind::GeneratorCallExpression
                             && self.core(file, node, view, "sum"))
             })

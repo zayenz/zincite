@@ -10385,3 +10385,103 @@ solve satisfy;
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn ordinary_invocations_inspect_decision_set_array_comprehensions_without_output_certificates() {
+    use zincite_lint::CallOutcome;
+    let positive = r#"predicate accept_sets(array[int] of var set of int: cells) = true;
+int: weeks;
+int: groups;
+int: size;
+set of int: Week = 1..weeks;
+set of int: Group = 1..groups;
+set of int: Player = 1..groups*size;
+array[Week, Group] of var set of Player: schedule;
+constraint forall(w in Week)(accept_sets([schedule[w,g] | g in Group]));
+solve satisfy;
+"#;
+    let selector_overflow =
+        positive.replace("schedule[w,g]", "schedule[w,(9223372036854775807 + 1)]");
+    let member_overflow = positive.replace(
+        "Player = 1..groups*size",
+        "Player = 1..(9223372036854775807 + 1)",
+    );
+    for (name, source, error) in [
+        ("ordinary-decision-set-comprehension", positive, None),
+        (
+            "ordinary-decision-set-cell-selector-overflow",
+            selector_overflow.as_str(),
+            Some("overflow"),
+        ),
+        (
+            "ordinary-decision-set-member-domain-overflow",
+            member_overflow.as_str(),
+            Some("overflow"),
+        ),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}function int: '*'(int: left,int: right); \
+                 function int: '+'(int: left,int: right);\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let (bindings, search) = facts(&context);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let result = analyze_model(&context, &selected());
+        if let Some(error) = error {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert!(
+                search
+                    .limitations
+                    .iter()
+                    .any(|limitation| limitation.message.contains(error)),
+                "{name}: {:?}",
+                search.limitations
+            );
+        } else {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert!(search.limitations.is_empty(), "{:?}", search.limitations);
+            assert_eq!(
+                coverage(&bindings, &search, "schedule"),
+                SearchCoverage::Uncovered
+            );
+        }
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let outputs =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        assert!(outputs.definitions.is_empty());
+        assert!(outputs.outputs.is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

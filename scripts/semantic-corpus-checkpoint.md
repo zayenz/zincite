@@ -5710,3 +5710,25 @@ local review found no concrete issue. Actual-main fmt, Clippy and all 230 worksp
 tests pass with unchanged sources. Evidence is under social_prelude-green-v1 and
 main-generic-prelude-gates-v1. Original-body outcome and cost comparisons remain
 pending; this is no claim of Social Golfers or whole-task completion.
+
+The isolated original Social Golfers comparison confirms Infinity typing removes
+eight unused-declaration limitations, adding no diagnostics. Thesis outcomes stay
+12 Completed / 2 Limited: the unresolved fzn_array_set_union helper and ordinary
+array construction remain. Both opt3 native/companion pairs agree on full output,
+selected IDs and returned allocation scopes; ROOT checked 1222 unchanged inputs
+and four streams per arm. The source-only and model/data no-solve compiler proofs
+remain distinct and reusable. Evidence is under
+semantic63-infinity-only-social-usage-replay-preparation-v1/root-comparison.json.
+
+Decision-set array construction is integrated through the existing constructor
+inspector and direct dispatch. It admits only present rank-one integer-axis arrays
+of exact decision integer-set cells selected directly from a checked source.
+Lexical headers, selectors, written domains and closed errors remain inspected;
+success remains Unknown, with no output or search certificate. All three unchanged
+public cases pass, including selector and member-domain overflow negatives.
+ROOT checked 1423 unchanged inputs, two full streams and one reaped empty group;
+independent local review found no concrete issue. Owned formatting then actual-main
+fmt, Clippy and all 231 workspace tests pass with unchanged sources. Evidence is
+under semantic62-social-golfers-constructor-green-preparation-v1 and
+main-decision-set-constructor-gates-v1. Original helper-body and final corpus/task
+acceptance remain pending.
