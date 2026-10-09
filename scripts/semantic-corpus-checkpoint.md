@@ -5327,3 +5327,21 @@ opaque comment bytes and protected spans. All 165 inputs and 60 complete streams
 were checked. Evidence is under
 semantic62-final-public-control-preparation/b691-public-controls. Fresh full-corpus
 and isolated performance checks remain required; base-083 stays open.
+
+The fresh parallel corpus capture has eight completed batches. Independent
+capture review of batches 4–8 checks 320 ordered roots per selection, matching
+drop and completion records, exact fourteen/thesis and twenty-six/all rule
+partitions, and native/companion diagnostic parity. This proves capture integrity,
+not compiler validity or semantic acceptance. The remaining sweep is running.
+
+The exact local ZipQueens model with its existing small data file now compiles
+with MiniZinc 2.10.1 and Gecode without solving. It returns zero with empty
+diagnostic streams and produces 3049 bytes of FlatZinc and 853 bytes of OZN;
+all 1055 runtime input pins remain unchanged. A separate private fact check
+confirms matching named-axis identities for a rank-two enum-valued array and its
+nested decision selector. The selector's dependencies are supported, while the
+outer access lacks an implemented membership proof. This is a confirmed support
+gap, not an invalid-instance exclusion; no production repair is claimed yet.
+Evidence is under semantic62-zip-queens-{instance-compiler,membership-preflight}-
+preparation-v1. Both checks overlap the parallel corpus and make no isolated
+timing claim. Private sources and diagnostic tests remain outside the repository.
