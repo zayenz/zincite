@@ -5743,3 +5743,18 @@ returned allocation scopes. Build streams and both opt3 binaries/22 libraries ar
 audited. Evidence is under social_prelude-original-replay-v1/control-results.
 This functional comparison makes no isolated performance or whole-task claim;
 current-main constructor/body replay and final expanded corpus remain pending.
+
+Current1431 original-model controls are complete: 13 native/companion pairs agree
+on complete resolved roots, selected IDs, full diagnostics and returned allocation
+scopes. ROOT checked 52 streams, 26 reaped empty groups and 1285 unchanged inputs.
+ZipQueens, Knapsack, Nonogram, Lex and Jobshop complete all fourteen thesis rules.
+Social Golfers completes thirteen; its former constructor limitation moves into
+the real fzn_partition_set body (decision-set source form unsupported). TeamMeetings
+reproduces two thesis limitations, including ordinary sum over enum binders.
+These are concrete remaining facts to repair, not missing symbolic input values.
+Extra all-preset limitations remain explicit. TeamMeetings and Knapsack retain
+source/type acceptance with instance validity unobserved; five other originals
+retain their distinct original compile/no-solve proofs. Evidence is under
+semantic63-current1431-original-model-controls-preparation-v1/control-results.
+The four-asset current1431 opt3 build,22 libraries and both public/cost child-free
+validators pass. Final public/cost/corpus execution remains pending after repairs.
