@@ -11095,6 +11095,9 @@ impl<'a> Producer<'a> {
                 .is_ok_and(|value| {
                     value.is_some_and(|value| {
                         crate::domains::index_domain_member(axis, value) == Some(false)
+                            || matches!(crate::domains::bare_index_domain(axis), Domain::Range { lower, .. }
+                                if crate::domains::invariant_integer(lower).is_ok_and(|bound|
+                                    bound.is_some_and(|bound| value < bound)))
                     })
                 }) {
                     return Err("decision set selection is outside its declared index set".into());
@@ -14151,6 +14154,54 @@ impl<'a> Producer<'a> {
             let children: Vec<_> = node.child_nodes().collect();
             let name =
                 operator(self.context, file, node).and_then(crate::bindings::symbolic_operator);
+            if node.kind() == NodeKind::BinaryExpression
+                && name == Some("in")
+                && children.len() == 2
+                && self.core(file, node, view, "in")
+                && crate::definitions::annotations_safe(self.context, file, written)
+                && let (Some(value), Some(choices)) = (ty(children[0]), ty(children[1]))
+                && value.known()
+                && !optional(value)
+                && value.instantiation == Instantiation::Parameter
+                && value.kind == TypeKind::Int
+                && decision_integer_set(choices)
+                && self.operation_fact(self.view(file, node, view), file, node).is_some_and(|call| {
+                    matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                        if parameters.len() == 2 && parameters[0].known() && !optional(&parameters[0])
+                            && parameters[0].instantiation == Instantiation::Decision
+                            && parameters[0].kind == TypeKind::Int && parameters[1] == *choices
+                            && crate::types::coerces(value, &parameters[0])
+                            && Some(return_type) == ty(node))
+                })
+            {
+                let mut sources = children.clone();
+                for generator in generators {
+                    for source in generator.child_nodes() {
+                        let source = if source.kind() == NodeKind::WhereFilter {
+                            let Some(condition) = source.child_nodes().next() else {
+                                return DefinitionSafety::Unsupported(
+                                    "membership iteration filter unavailable".into(),
+                                );
+                            };
+                            condition
+                        } else {
+                            source
+                        };
+                        sources.push(source);
+                    }
+                }
+                if let DefinitionSafety::Unsupported(reason) =
+                    self.initialized_children_safety(file, &sources, view, generators)
+                {
+                    return DefinitionSafety::Unsupported(reason);
+                }
+                for source in sources {
+                    if let Some(reason) = self.closed_integer_source_error(file, source, true, true) {
+                        return DefinitionSafety::Unsupported(reason);
+                    }
+                }
+                return DefinitionSafety::Unknown("integer membership value is unproved".into());
+            }
             if node.kind() == NodeKind::BinaryExpression
                 && name == Some("in")
                 && children.len() == 2

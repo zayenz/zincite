@@ -5670,3 +5670,20 @@ the three checks leave sources unchanged. Evidence is under
 semantic62-zip-queens-generator-actual-repair-preparation-v2/root-results and
 main-zip-generator-gates-v2. Original-model and final task verification remain
 pending alongside the remaining Social Golfers repairs.
+
+The Social Golfers integer-membership repair is integrated. Its exact selected
+core tuple permits parameter-to-decision integer coercion and checked decision
+set source inspection, with membership still Unknown. Both operands and lexical
+header sources are checked. A closed selector below an invariant written range
+lower bound is rejected; symbolic lower bounds supply no exclusion or membership
+proof. Strict dependencies, raw domains and output machinery remain unchanged.
+
+The five-case public group, retained cardinality guards and numeric guard pass.
+ROOT checked six streams, three reaped empty groups and 1558 unchanged inputs;
+independent local review reports no concrete finding. Actual-main fmt, Clippy
+with warnings denied and all 229 workspace tests pass with unchanged sources.
+Evidence is under semantic62-social-golfers-membership-green-preparation-v2 and
+main-social-membership-gates-v1. The earlier selector-bound failure is retained.
+Remaining Social Golfers work includes ordinary decision-set array construction,
+infinity atom typing and generic standard-prelude availability; original replay
+and final task acceptance remain pending.

@@ -10274,3 +10274,114 @@ fn generator_invocations_inspect_one_collection_and_defaults_without_defining_it
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn parameter_integer_membership_inspects_selected_decision_sets_without_output_certificates() {
+    use zincite_lint::CallOutcome;
+    let positive = r#"int: weeks;
+int: groups;
+int: size;
+set of int: Week = 1..weeks;
+set of int: Group = 1..groups;
+set of int: Player = 1..groups*size;
+array[Week, Group] of var set of Player: schedule;
+constraint forall(w in Week)(size in schedule[w,1]);
+solve satisfy;
+"#;
+    let symbolic_axis = positive
+        .replace("int: groups;", "int: groups;\nint: group_lower;")
+        .replace("Group = 1..groups", "Group = group_lower..groups")
+        .replace("schedule[w,1]", "schedule[w,0]");
+    let value_overflow =
+        positive.replace("size in schedule", "(9223372036854775807 + 1) in schedule");
+    let selector_outside = positive.replace("schedule[w,1]", "schedule[w,0]");
+    let member_overflow = positive.replace(
+        "Player = 1..groups*size",
+        "Player = 1..(9223372036854775807 + 1)",
+    );
+    for (name, source, error) in [
+        ("parameter-in-selected-decision-set", positive, None),
+        ("membership-symbolic-axis", symbolic_axis.as_str(), None),
+        (
+            "membership-value-overflow",
+            value_overflow.as_str(),
+            Some("overflow"),
+        ),
+        (
+            "membership-selector-outside",
+            selector_outside.as_str(),
+            Some("outside"),
+        ),
+        (
+            "membership-domain-overflow",
+            member_overflow.as_str(),
+            Some("overflow"),
+        ),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}function int: '*'(int: left,int: right); \
+                 function int: '+'(int: left,int: right); \
+                 function var bool: 'in'(var $$E: value,var set of $$E: choices);\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let (bindings, search) = facts(&context);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let result = analyze_model(&context, &selected());
+        if let Some(error) = error {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert!(
+                search
+                    .limitations
+                    .iter()
+                    .any(|limitation| limitation.message.contains(error)),
+                "{name}: {:?}",
+                search.limitations
+            );
+        } else {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{:?}",
+                search.limitations
+            );
+            assert!(search.limitations.is_empty(), "{:?}", search.limitations);
+            assert_eq!(
+                coverage(&bindings, &search, "schedule"),
+                SearchCoverage::Uncovered
+            );
+        }
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let outputs =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        assert!(outputs.definitions.is_empty());
+        assert!(outputs.outputs.is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
