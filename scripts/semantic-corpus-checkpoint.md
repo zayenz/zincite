@@ -6265,3 +6265,29 @@ by zero reason; the separate rank-two interpreter keeps its combined arithmetic
 reason. Rule limitation and no-output checks remain intact. Final release,
 original-model replay, matched costs, corpus reconciliation and independent
 whole-task verification remain pending; base-083 remains open.
+
+
+Final-source validation at 4fea5c2 now has a fresh normal opt3/no-debug release:
+four executables, 22 libraries, 18 Cargo events and 108 unchanged sources. ROOT
+verified both streams, 1,204 input pins and the empty reaped build group.
+All six original native/companion pairs match full diagnostics and status.
+ATSP, Grouping and Social Golfers each complete all fourteen thesis analyses;
+the all preset retains respectively two, one and one Limited rules. Their
+located limitations remain acceptance work, not invented completion.
+
+The 30 public controls pass, including default omission, shared-root ordering,
+source/token preservation and two-pass stdin formatting. All 700 retained save
+samples pass expected statuses. The missing temporary crossword input was
+restored from the pinned public archive with its exact retained bytes/hash.
+The 908,888-byte original measures about 88 ms p95 and 52 MiB exact-child RSS,
+within its applicable budget; the 1,189,780-byte formatted input measures about
+102 ms p95 and 63.5 MiB RSS, with the over-1-MiB qualification retained.
+
+The instrumented Grouping positive passes with matching 465 operation and 120
+wrapper tuple sequences. Fresh body constructions fall from 120 to 30; summed
+wrapper timers are 139,775 ms before and 36,989 ms after. Other recorded source
+differences prevent an isolated attribution or normal-release ratio claim.
+The final nine-case native/companion cost capture is complete. Its saved-record
+comparison retains null ratios where dependency evidence differs; that evidence
+is being reconciled. Full final corpus capture and whole-task verification are
+still pending. Base-083 remains open.
