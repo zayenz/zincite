@@ -5774,3 +5774,17 @@ TeamMeetings also has an accepted original plus existing yampc.dzn Gecode compil
 proof, with no solve. ROOT checked 1175 unchanged inputs and both streams; retained
 FZN/OZN outputs remain private under semantic63-team-existing-data-compiler-v1.
 This supplies the instance check missing from the earlier original-model record.
+
+Currentde6 diagnostic controls replay four exact originals with the audited opt3
+build. All eight thesis/all native-companion pairs have complete resolved records,
+matching statuses and full diagnostics, and returned allocation scopes. ROOT checked
+1265 unchanged inputs,32 full streams and16 reaped empty groups; no roots are
+unobserved. Parade and ATSP each retain one thesis rule Limited; Grouping retains
+three and TeamMeetings two. The ordinary enum sum repair passes its public check
+but does not complete the original TeamMeetings body. Remaining current refusals
+include indexed search annotations, selected-set sum inspection, computed union
+bounds and enum-set value inspection. Existing source/type-only proofs remain
+distinct from TeamMeetings' accepted existing-data Gecode compile/no-solve proof.
+Evidence is under semantic64-currentde6-four-original-controls-preparation-v2/
+control-results/root-audit.json. This is diagnostic evidence; final public,
+performance, whole-corpus and independent task verification remain pending.
