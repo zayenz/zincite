@@ -5881,3 +5881,17 @@ limitations are direct definitions in Parade, nested indexing and optional sums
 in ATSP, computed bounds/definitions and an optional local in Grouping, and the
 selected installed union body in Social Golfers. These are functional observations;
 final public, performance, full-corpus and independent task acceptance remain open.
+
+Focused remaining-path checks now establish behavioral RED on current source:
+ATSP's nested selector refuses its direct definition, and a separate prefix-first
+capture reaches the present integer binder refusal for both optional sums. The
+same four fixtures and preflights were retained; only final assertion order changed.
+Parade's corrected test reaches the rank-one decision selector refusal after its
+complete/resolved/type/no-output checks. Its first capture failed to compile due
+to a private test API call and proves no behavior. Social's atomic commutative-hint
+case reaches the selected-body annotation refusal. Captures are retained under
+semantic65-atsp-remaining-preparation-v1, semantic65-atsp-prefix-first-preparation-v1,
+semantic65-parade-direct-definition-preparation-v2 and
+semantic65-social-installed-body-preparation-v1. ROOT checked complete streams and
+unchanged inputs; later final assertions or cases remain unobserved where the first
+positive assertion aborts. Repairs and fresh original completion remain pending.
