@@ -12088,6 +12088,121 @@ impl<'a> Producer<'a> {
         .ok()
         .flatten()
     }
+    // Inspect these parameter enum-set sources without granting membership or outputs.
+    fn parameter_enum_set_source_safety(
+        &self,
+        file: FileId,
+        written: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> Option<DefinitionSafety> {
+        let node = unwrap(written);
+        let ty = |value: &SyntaxNode| {
+            self.expression_type(self.view(file, value, view), file, value)
+                .map(|expression| &expression.ty)
+        };
+        let parameter =
+            |t: &TypeInst| t.known() && !optional(t) && t.instantiation == Instantiation::Parameter;
+        let result = ty(node)?;
+        if !parameter(result)
+            || !matches!(&result.kind, TypeKind::Set(element)
+                if parameter(element) && matches!(element.kind, TypeKind::Enum(_)))
+            || !matches!(
+                node.kind(),
+                NodeKind::BinaryExpression | NodeKind::ArrayAccessExpression
+            )
+            || node.kind() == NodeKind::BinaryExpression
+                && operator(self.context, file, node).and_then(crate::bindings::symbolic_operator)
+                    != Some("intersect")
+        {
+            return None;
+        }
+        let children: Vec<_> = node.child_nodes().collect();
+        let checked = (|| -> Result<(), String> {
+            let mut annotated = vec![written];
+            while let Some(source) = annotated.pop() {
+                if source.kind() == NodeKind::NamedArgument
+                    || !self.source_annotations_safe(file, source)
+                {
+                    return Err(
+                        "parameter enum-set source annotation or argument is unsupported".into(),
+                    );
+                }
+                annotated.extend(source.child_nodes());
+            }
+            let [left, right] = children.as_slice() else {
+                return Err("parameter enum-set source arity is unsupported".into());
+            };
+            if node.kind() == NodeKind::BinaryExpression {
+                if !self.core(file, node, view, "intersect")
+                    || ty(left) != Some(result)
+                    || ty(right) != Some(result)
+                    || self.operation_fact(self.view(file, node, view), file, node).is_none_or(|call|
+                        !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                            if parameters.len() == 2 && parameters.iter().all(|formal| formal == result)
+                                && return_type == result))
+                {
+                    return Err("parameter enum-set intersection signature is unsupported".into());
+                }
+            } else {
+                let source = unwrap(left);
+                let selector = *right;
+                if source.kind() != NodeKind::Expression
+                    || !matches!(crate::domains::tokens(&self.context.files[file].parsed, source).as_slice(),
+                        [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+                {
+                    return Err("parameter enum-set array source is not a bare value".into());
+                }
+                let id = self
+                    .reference(file, source)
+                    .ok_or("parameter enum-set array source identity is unavailable")?;
+                let declaration = &self.bindings.declarations[id.0];
+                let array = &self.calls.declarations[id.0].ty;
+                let TypeKind::Array { indices, element } = &array.kind else {
+                    return Err("parameter enum-set array type is unsupported".into());
+                };
+                if declaration.role != DeclarationRole::Value
+                    || !declaration.top_level
+                    || !parameter(array)
+                    || ty(source) != Some(array)
+                    || indices.len() != 1
+                    || !parameter(&indices[0])
+                    || element.as_ref() != result
+                    || ty(selector) != Some(&indices[0])
+                {
+                    return Err("parameter enum-set array or selector type is unsupported".into());
+                }
+                let TypeKind::Enum(enum_id) = indices[0].kind else {
+                    return Err("parameter enum-set array axis identity is unsupported".into());
+                };
+                let Domain::Array { indices, .. } = &self.domains.declarations[id.0].domain else {
+                    return Err("parameter enum-set array domain is unavailable".into());
+                };
+                if indices.len() != 1
+                    || crate::domains::bare_index_domain(&indices[0]) != &Domain::Enum(enum_id)
+                {
+                    return Err("parameter enum-set array axis is not its full enum".into());
+                }
+            }
+            if let DefinitionSafety::Unsupported(reason) =
+                self.initialized_children_safety(file, &children, view, generators)
+            {
+                return Err(reason);
+            }
+            for child in &children {
+                if let Some(reason) = self.closed_integer_source_error(file, child, true, true) {
+                    return Err(reason);
+                }
+            }
+            Ok(())
+        })();
+        Some(match checked {
+            Ok(()) => DefinitionSafety::Unknown(
+                "parameter enum-set source membership or value is unproved".into(),
+            ),
+            Err(reason) => DefinitionSafety::Unsupported(reason),
+        })
+    }
     fn parameter_enum_conversion_safety(
         &self,
         file: FileId,
@@ -13713,6 +13828,9 @@ impl<'a> Producer<'a> {
             Ok(_) => return aggregate.unwrap_or(DefinitionSafety::Supported),
             Err(reason) => reason,
         };
+        if let Some(safety) = self.parameter_enum_set_source_safety(file, node, view, generators) {
+            return safety;
+        }
         if let Some(safety) = self.decision_set_source_safety(file, node, view, generators) {
             return safety;
         }

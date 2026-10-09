@@ -10908,3 +10908,109 @@ solve satisfy;
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn enum_set_intersection_cardinality_inspects_sources_without_output_certificates() {
+    use zincite_lint::CallOutcome;
+    let positive = concat!(
+        "enum Team; enum Person; enum Times;\n",
+        "array[Team] of set of Person: members;\n",
+        "array[Team] of var Times: meetings;\n",
+        "var int: overlaps = sum(t1,t2 in Team where t1 < t2)(\n",
+        "  (meetings[t1] = meetings[t2]) * card(members[t1] intersect members[t2]));\n",
+        "solve minimize overlaps;\n",
+    );
+    let invalid_selector = positive.replace("members[t2]", "members[to_enum(Team,0)]");
+    for (name, source, completed) in [
+        ("enum-set-intersection", positive, true),
+        ("enum-set-selector-zero", invalid_selector.as_str(), false),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}{}",
+                concat!(
+                    "function bool: '<'($T: x,$T: y);\n",
+                    "function var int: '*'(var int: x,var int: y);\n",
+                    "function set of $T: 'intersect'(set of $T: x,set of $T: y);\n",
+                    "function int: card(set of $T: x);\n",
+                    "function $$E: to_enum(set of $$E: values,int: ordinal);\n",
+                )
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        let (bindings, search) = facts(&context);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        assert!(callable.outputs.is_empty());
+        let overlaps = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "overlaps")
+            .unwrap()
+            .id;
+        let definition = definitions
+            .definitions
+            .iter()
+            .find(|d| d.target == overlaps)
+            .unwrap();
+        let result = analyze_model(&context, &selected());
+        if completed {
+            assert!(
+                matches!(definition.safety, DefinitionSafety::Unknown(_)),
+                "{name}: {:?}",
+                definition.safety
+            );
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert_eq!(
+                coverage(&bindings, &search, "meetings"),
+                SearchCoverage::Uncovered
+            );
+        } else {
+            assert!(matches!(
+                result.rules[0].outcome,
+                RuleOutcome::Limited { .. }
+            ));
+            assert!(
+                matches!(&definition.safety, DefinitionSafety::Unsupported(reason) if reason.contains("enum conversion ordinal") && reason.contains("outside")),
+                "{name}: {:?}",
+                definition.safety
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

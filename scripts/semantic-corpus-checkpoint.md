@@ -5814,5 +5814,25 @@ with unknown data and no output or scalar-search certificate, and the closed-err
 variant remains Limited. ROOT checked 150 unchanged inputs, both full streams and
 one reaped empty group, under atsp_selected_set_sum-green-v1. Actual-main fmt,
 Clippy and all 235 workspace tests pass with 108 unchanged source files, under
-main-selected-set-sum-gates-v1. The original weighted
-sum's array-membership refusal and final task acceptance remain unresolved.
+main-selected-set-sum-gates-v1. Fresh original ATSP outcomes and final task
+acceptance remain unobserved.
+
+The weighted version of the same public fixture now completes inspection without
+scalar-search or output coverage. Its closed-error variant remains Limited, but
+the let diagnostic forwards the earlier strict membership refusal instead of the
+division-by-zero reason. That final diagnostic assertion fails; no unsound
+completion is observed. ROOT checked 157 unchanged inputs, both full streams and
+one reaped empty group, under atsp_selected_set_sum-weighted-diagnostic-v1.
+Fresh original ATSP outcomes remain unobserved after this repair.
+
+Parameter enum-set intersections and selections now have a direct source-inspection
+path with exact enum identities and a full-enum array axis. It retains initialized
+operand, selector, annotation, cycle and closed-error checks; success is Unknown
+and creates no membership or output certificate. Both public Team cases pass:
+the symbolic intersection/cardinality sum completes search inspection with
+meetings Uncovered and no callable outputs, while to_enum(Team,0) retains its
+Unsupported ordinal-outside fact and Limited result. ROOT checked 173 unchanged
+inputs, both full streams and one reaped empty group, under team_enum_set_value-
+green-v1. Actual-main fmt, Clippy and all 236 workspace tests pass with 108
+unchanged source files, under main-enum-set-value-gates-v1. Fresh original
+TeamMeetings and final task acceptance remain pending.
