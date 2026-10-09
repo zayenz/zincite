@@ -34,9 +34,10 @@ pub struct CallableInputFact {
     pub callable: DeclarationId,
     pub inputs: Vec<DeclarationId>,
     pub obligation: GuardObligation,
-    /// Only the supported core default can capture ordinary undefinedness;
-    /// a Boolean ancestor or aborting assertion does not supply this contract.
-    pub captured: bool,
+    /// The supported core default captures ordinary undefinedness, or a proved
+    /// empty iteration skips evaluation. A Boolean ancestor or aborting assertion
+    /// does not capture undefinedness.
+    pub captured_or_skipped: bool,
 }
 pub(super) fn obligation_key(o: &GuardObligation) -> Option<InputObligationKey> {
     let requirement = match o.kind {
@@ -157,7 +158,7 @@ pub fn resolve_callable_input_facts(
                         .into(),
                 );
             }
-            let captured = captured_by_default(
+            let captured_or_skipped = captured_by_default(
                 context,
                 bindings,
                 |file, node| operation_fact(context, calls, file, node),
@@ -170,7 +171,7 @@ pub fn resolve_callable_input_facts(
                 callable: callable.id,
                 inputs: inputs.into_iter().map(DeclarationId).collect(),
                 obligation,
-                captured,
+                captured_or_skipped,
             });
         }
     }
@@ -263,7 +264,7 @@ pub(super) fn check_input_preconditions(
                 .suppressions
                 .as_ref()
                 .is_none_or(|s| s[callable.item].contains(&Rule::MissingInputPrecondition))
-            || fact.captured
+            || fact.captured_or_skipped
             || o.context.activation == GuardActivation::Inactive
             || o.outcome == GuardedOutcome::Proven
         {

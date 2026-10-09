@@ -3,7 +3,7 @@ schema_version = 1
 id = "readability-003"
 key = "input-obligation-name"
 area = "readability"
-status = "open"
+status = "done"
 complexity = "routine"
 afk = true
 priority = "normal"
@@ -27,11 +27,20 @@ In crates/zincite-lint/src/input_preconditions.rs, CallableInputFact.captured is
 
 ## Done when
 
-- [ ] CallableInputFact.captured_or_skipped and its producer binding accurately identify the existing two cases, and the documentation distinguishes capture from skipped evaluation.
-- [ ] All in-repository field accesses use the new name; precondition analysis and warnings remain unchanged.
-- [ ] Existing input-precondition and required workspace checks pass; no new tests are added.
+- [x] CallableInputFact.captured_or_skipped and its producer binding accurately identify the existing two cases, and the documentation distinguishes capture from skipped evaluation.
+- [x] All in-repository field accesses use the new name; precondition analysis and warnings remain unchanged.
+- [x] Existing input-precondition and required workspace checks pass; no new tests are added.
 
 ## Validation
 
 - Run existing input-precondition tests before and after the mechanical change; search for remaining old field accesses.
 - Run the workspace validation commands in the readability brief.
+
+## Result
+
+Renamed CallableInputFact.captured and its producer binding to captured_or_skipped, updated both consumers, and documented default capture versus proved empty-iteration skipping. Computation and warning policy are unchanged. Independently verified against W7cc0d6952288829a.
+
+Validation:
+
+- Existing input-precondition tests passed before and after, 3/3; no old field accesses remain.
+- Independent cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, and cargo test --workspace including doctests passed. git diff --check passed; no validation writes.

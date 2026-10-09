@@ -55,7 +55,7 @@ fn model(
 fn warned(b: &BindingFacts, f: &[CallableInputFact]) -> Vec<String> {
     f.iter()
         .filter(|f| {
-            !f.captured
+            !f.captured_or_skipped
                 && f.obligation.context.activation != GuardActivation::Inactive
                 && matches!(
                     f.obligation.outcome,
