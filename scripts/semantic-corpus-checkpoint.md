@@ -5520,3 +5520,30 @@ Unknown. The owning filter is j < last, with last = max(TASK), whose nonemptines
 and value remain unproved. ROOT checked four full streams, 1302 unchanged inputs
 and both reaped empty groups under semantic62-jobshop-enum-next-preflight-preparation-v1.
 No successor membership, totality, output certificate or repair is inferred.
+
+The five-repair private composition adds the bounded atomic-annotation repair to
+the four-repair build. Its normal release build passes, with 1533 unchanged
+inputs. Original Lex controls agree between native and companion captures under
+both presets: all fourteen thesis analyses complete, with four warnings and no
+limitations. The all-rules preset retains one separate vacuous-constraint
+limitation. ROOT checked eight full streams, 1567 unchanged inputs and all four
+reaped empty groups. This supersedes the earlier inference that the isolated
+predicate-body refusal established an original Lex search limitation. Independent
+local annotation review reports no actionable finding. Evidence is under
+semantic62-four-gap-atomic-annotation-functional-controls-preparation-v1.
+Actual-main integration and full-task verification remain pending.
+
+The tests-only Jobshop reduction reaches its positive completion assertion after
+the identity and safety preflight and negative cases pass. The existing array
+cycle guard passes. ROOT checked four full streams, 1300 unchanged inputs and
+both reaped empty groups under semantic62-jobshop-enum-next-test-preparation-v1/root-red.
+A bounded private successor inspection repair is being prepared; no successor
+value, membership or output guarantee is established by the failing test.
+
+The first ZipQueens generator diagnostic fails before its body-feasibility and
+behavior assertions: it incorrectly requires the selected standard declaration
+to belong to an implicit include. This is a diagnostic preflight failure, not a
+confirmed generator behavior failure. The numeric safety guard passes. ROOT
+checked four full streams, 1173 unchanged inputs and both reaped empty groups
+under semantic62-zip-queens-generator-actual-red-preparation-v1/root-results.
+The diagnostic is being corrected before any production repair is authorized.
