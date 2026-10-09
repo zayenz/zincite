@@ -1,0 +1,9 @@
+schema_version = 1
+tag = "readability"
+title = "Readable Rust code"
+objective = "Improve Zincite naming and module responsibilities through verified, behavior-preserving cleanup coordinated with the base implementation loop."
+mode = "trunk"
+lifecycle = "open"
+
+[execution_profiles]
+codex = "readability-high"

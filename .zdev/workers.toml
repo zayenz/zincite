@@ -1,0 +1,21 @@
+schema_version = 1
+
+[profiles.readability-high.codex.routine-implementer]
+model = "gpt-6.1-sol"
+effort = "high"
+
+[profiles.readability-high.codex.implementer]
+model = "gpt-6.1-sol"
+effort = "high"
+
+[profiles.readability-high.codex.verifier]
+model = "gpt-6.1-sol"
+effort = "high"
+
+[profiles.readability-high.codex.advanced-implementer]
+model = "gpt-6.1-sol"
+effort = "high"
+
+[profiles.readability-high.codex.planner]
+model = "gpt-6.1-sol"
+effort = "high"
