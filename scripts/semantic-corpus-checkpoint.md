@@ -5429,3 +5429,12 @@ raw numeric-bound producer records unsupported syntax. Its existing supplied
 instance compile proof remains separate. Evidence is under
 semantic62-knapsack-nonogram-fact-preflight-preparation-v1. No conditional value,
 array membership or whole-task completion is inferred from this diagnostic.
+
+A fixed audit of terminal corpus shards 019–025 covers 350 ordered roots per
+selection. ROOT independently recomputed all fourteen complete companion streams,
+rule partitions and source-state counts and rechecked 148 capture pins: native
+and companion diagnostics agree, with no Unobserved rows. Zincite classifies
+44 roots as complete/resolved, 285 as data and 21 as fragment or rejected source;
+these classifications do not establish compiler validity. Evidence is under
+semantic62-b691-shards019-025-snapshot-audit.json and root-shards019-025-count-audit.json.
+The remaining corpus capture is still running; no whole-corpus acceptance is claimed.
