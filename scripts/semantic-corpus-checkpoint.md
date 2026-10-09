@@ -5453,3 +5453,11 @@ review confirms that fixture placement error; it does not establish an inspector
 bypass. A corrected capacity-constraint negative is pending on unchanged candidate
 production. The existing numeric guard passes. Evidence is under
 semantic62-knapsack-optional-sum-repair-preparation-v1/green-v2/root-results.
+
+The corrected knapsack capacity-constraint negative passes with division by zero
+retained as a located limitation; the positive symbolic optional sum completes.
+The existing numeric guard also passes. ROOT verified all four complete streams,
+1201 unchanged inputs and both reaped empty groups. Independent local production
+review has no unresolved finding. Evidence is under semantic62-knapsack-optional-sum-
+repair-preparation-v1/green-v3. Actual-main gates, original controls and integration
+remain pending; original supplied-instance compiler acceptance remains unobserved.
