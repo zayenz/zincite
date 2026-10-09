@@ -5732,3 +5732,14 @@ fmt, Clippy and all 231 workspace tests pass with unchanged sources. Evidence is
 under semantic62-social-golfers-constructor-green-preparation-v1 and
 main-decision-set-constructor-gates-v1. Original helper-body and final corpus/task
 acceptance remain pending.
+
+The isolated generic-prelude original replay completes unused-declaration on Social
+Golfers: thesis changes from 12 Completed / 2 Limited to 13 Completed / 1 Limited.
+It removes the unresolved fzn_array_set_union diagnostic and adds none; ordinary
+array construction remains the one limitation on this pre-constructor snapshot.
+The actual loaded closure grows from 30 to 186 files, retaining real-body analysis.
+ROOT checked 1497 unchanged inputs, four full streams, native/companion parity and
+returned allocation scopes. Build streams and both opt3 binaries/22 libraries are
+audited. Evidence is under social_prelude-original-replay-v1/control-results.
+This functional comparison makes no isolated performance or whole-task claim;
+current-main constructor/body replay and final expanded corpus remain pending.
