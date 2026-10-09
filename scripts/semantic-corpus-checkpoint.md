@@ -6096,3 +6096,15 @@ and strengthened existing test are integrated. Main validation under
 main-social-included-fzn-gates-v1 passes formatting, Clippy and all 245 tests;
 ROOT checked 108 unchanged sources, six full streams and three empty reaped groups.
 Fresh complete corpus evidence and whole-task verification remain pending.
+
+The prefix v3 positive now passes its completion, Unknown count/coverage and
+retained membership assertions; the earlier-header zero case also passes. Its
+closed body-type overflow still completes both selected rules. Reusing the
+existing closed-integer source checker on written types in v4 makes
+index-set-mismatch Limited, while expensive-comprehension still completes because
+it does not consume the referenced array's unavailable dimension facts. ROOT
+checked all 1,204 unchanged inputs, both full streams and an empty reaped group
+under semantic65-atsp-decision-prefix-source-preparation-v1/green-v4. The overflow
+reason assertions remain unobserved. Neither candidate is integrated; the next
+bridge must retain actual expression dependency identities and ignore unrelated
+declaration limitations.
