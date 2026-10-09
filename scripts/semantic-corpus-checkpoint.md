@@ -6050,3 +6050,24 @@ main-union-reverse-let-sources-gates-v2 passes formatting, Clippy and all 245
 tests. ROOT checked 108 unchanged source files, six full streams and three
 reaped empty groups. Fresh original and complete corpus controls, measurements
 and whole-task independent verification remain pending; base-083 stays open.
+
+Fresh original controls now use committed 6af4a55 and its normal optimized
+release build. The build completed successfully; ROOT checked its unchanged
+inputs, full streams, four executables and 22 libraries. The twelve serial
+controls under semantic65-three-original-post-integration-replay-preparation-v2
+completed without timeouts or remaining processes. ROOT checked all 1,272
+unchanged inputs, 26 full streams and 13 empty process groups; native and
+companion statuses and ordered diagnostics agree for all six selections.
+
+ATSP completes 14/14 thesis rules and 22/26 all rules, with 20/51 warnings and
+0/15 limitation diagnostics respectively. Compared with the preceding ATSP
+capture, both selections remove two limitation diagnostics; search coverage
+now completes. Grouping completes 13/14 thesis rules and 24/26 all rules,
+with 3/6 warnings and 1/2 limitation diagnostics; each selection removes six
+limitation diagnostics. Its remaining paths are guarded callable interpretation
+and the optional local declaration in fzn_increasing_int_opt. Social completes
+13/14 thesis rules and 24/26 all rules, with 0/12 warnings and 2/8 limitation
+diagnostics, unchanged from its preceding capture. All six selections report
+zero errors. These are source-only lint controls, not solver or final corpus
+acceptance. Decision-prefix work, remaining support gaps and whole-task
+verification remain pending.
