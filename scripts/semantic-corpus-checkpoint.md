@@ -5502,3 +5502,21 @@ partial-call refusals pass before that assertion. ROOT checked four full streams
 1284 unchanged inputs and both reaped empty groups under
 semantic62-atomic-standard-annotation-red-preparation-v1/root-results. Production
 is unchanged; the separate original lex_lesseq body limitation remains open.
+
+The private atomic-annotation repair passes that positive case, the existing
+user/partial-call refusals and the numeric safety guard. ROOT checked four full
+streams, 1417 unchanged inputs and both reaped empty groups under
+semantic62-atomic-standard-annotation-production-preparation-v1/root-results.
+Removing the new helper and restoring its four inspection calls reconstructs
+the baseline exactly; the global annotation API is unchanged. Original-model
+controls, actual-main gates and independent task verification remain pending.
+
+The unchanged Jobshop documentation model compiles with its supplied jdata.dzn
+through MiniZinc/Gecode without solving, producing 27734 bytes of FlatZinc and
+395 bytes of OZN. Its actual enum_next tuple preserves the same TASK enum
+identity through the source, generator binder and result. Source inspection
+rejects the successor as an arbitrary value call; its index membership remains
+Unknown. The owning filter is j < last, with last = max(TASK), whose nonemptiness
+and value remain unproved. ROOT checked four full streams, 1302 unchanged inputs
+and both reaped empty groups under semantic62-jobshop-enum-next-preflight-preparation-v1.
+No successor membership, totality, output certificate or repair is inferred.
