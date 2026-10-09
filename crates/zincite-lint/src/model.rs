@@ -226,6 +226,17 @@ pub fn load_model(root: impl AsRef<Path>, options: &ModelOptions) -> ModelContex
                 );
             }
         }
+        let prelude = directory.join("std/solver_redefinitions.mzn");
+        match std::fs::symlink_metadata(&prelude) {
+            Ok(_) => {
+                let _ = loader.load_file(&prelude, false, false, None);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => loader.error(
+                SourceLocation::at_path(&prelude),
+                format!("cannot access '{}': {error}", prelude.display()),
+            ),
+        }
     } else {
         loader.context.limitations.push(SourceDiagnostic {
             location: SourceLocation::at_path(&root),

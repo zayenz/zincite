@@ -9,6 +9,116 @@ fn temporary(name: &str) -> PathBuf {
     path
 }
 
+#[test]
+fn generic_standard_prelude_loads_helpers_and_reports_failures() {
+    let directory = temporary("generic-prelude");
+    let library = directory.join("library");
+    let core = library.join("std/stdlib.mzn");
+    let prelude = library.join("std/solver_redefinitions.mzn");
+    let helper = library.join("std/fzn_array_set_union.mzn");
+    let root = directory.join("root.mzn");
+    let prototype =
+        "predicate fzn_array_set_union(array [int] of var set of int: x, var set of int: z);";
+    let helper_body = "predicate fzn_array_set_union(array [int] of var set of int: x, var set of int: z) = same_sets(x, z);";
+    write(
+        &core,
+        format!(
+            "function set of int: '..'(int: left, int: right); {prototype} predicate same_sets(array [int] of var set of int: x, var set of int: z);"
+        ),
+    );
+    write(
+        &root,
+        "array [1..1] of var set of int: groups; var set of int: combined; constraint fzn_array_set_union(groups, combined); solve satisfy; output [];",
+    );
+    let options = ModelOptions {
+        stdlib_dir: Some(library.clone()),
+        ..ModelOptions::default()
+    };
+    let minimal = load_model(&root, &options);
+    assert!(minimal.errors.is_empty(), "{:?}", minimal.errors);
+    assert_eq!(minimal.files.len(), 2);
+
+    write(&prelude, "include \"fzn_array_set_union.mzn\";");
+    write(&helper, helper_body);
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let core_file = context.implicit_core.unwrap();
+    assert_eq!(
+        context.files[core_file].canonical_path,
+        core.canonicalize().unwrap()
+    );
+    assert!(context.files[core_file].implicit);
+    for path in [&prelude, &helper] {
+        let file = context
+            .files
+            .iter()
+            .find(|file| file.canonical_path == path.canonicalize().unwrap())
+            .expect("generic prelude and real helper body are loaded");
+        assert_eq!(file.kind, SourceKind::StandardLibrary);
+        assert!(!file.implicit && !file.explicit && !file.warnings_enabled());
+    }
+    let helper_file = context
+        .files
+        .iter()
+        .position(|file| file.canonical_path == helper.canonicalize().unwrap())
+        .unwrap();
+    let bindings = zincite_lint::resolve_bindings(&context);
+    let calls = zincite_lint::resolve_callables(&context, &bindings);
+    let call = calls
+        .calls
+        .iter()
+        .find(|call| call.file == context.root_file.unwrap() && call.name == "fzn_array_set_union")
+        .unwrap();
+    let zincite_lint::CallOutcome::Resolved { declaration, .. } = &call.outcome else {
+        panic!(
+            "unique real implementation must win over its prototype: {:?}",
+            call.outcome
+        );
+    };
+    assert_eq!(bindings.declarations[declaration.0].file, helper_file);
+    let selected = LintOptions::from_selection("unused-declaration").unwrap();
+    let analysis = analyze_model(&context, &selected);
+    assert!(
+        analysis.errors.is_empty() && analysis.limitations.is_empty(),
+        "{analysis:?}"
+    );
+    assert!(matches!(analysis.rules[0].outcome, RuleOutcome::Completed));
+
+    write(
+        &helper,
+        "predicate fzn_array_set_union(array [int] of var set of int: x, var set of int: z) = missing_helper(x, z);",
+    );
+    let unsupported = load_model(&root, &options);
+    assert!(unsupported.errors.is_empty(), "{:?}", unsupported.errors);
+    let analysis = analyze_model(&unsupported, &selected);
+    assert!(matches!(
+        analysis.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    assert!(
+        analysis
+            .limitations
+            .iter()
+            .any(|diagnostic| diagnostic.location.path == helper
+                && diagnostic.message.contains("missing_helper")),
+        "{analysis:?}"
+    );
+
+    std::fs::remove_file(&prelude).unwrap();
+    std::fs::create_dir(&prelude).unwrap();
+    let unreadable = load_model(&root, &options);
+    assert!(
+        unreadable
+            .errors
+            .iter()
+            .any(|diagnostic| diagnostic.location.path == prelude
+                && diagnostic.message.contains("cannot read")),
+        "existing non-readable prelude must report an error: {:?}",
+        unreadable.errors
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
 fn write(path: impl AsRef<Path>, source: impl AsRef<[u8]>) {
     let path = path.as_ref();
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();

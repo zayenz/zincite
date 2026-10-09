@@ -5698,3 +5698,15 @@ no concrete issue. Actual-main fmt, Clippy and all 229 workspace tests pass with
 unchanged sources. Evidence is under semantic63-infinity-atom-green-preparation-v1
 and main-infinity-atom-gates-v1. Original Social Golfers usage replay and final
 base-083 acceptance remain pending.
+
+Configured generic standard-prelude loading is integrated after core propagation.
+The loader skips only an absent std/solver_redefinitions.mzn; existing paths and
+other access failures retain ordinary loader errors. Newly loaded implementations
+remain noncore and their real bodies are analyzed. The focused public group checks
+minimal-library compatibility, core flags, prototype/body selection, supported
+and unresolved helper bodies, and unreadable-prelude reporting. It passes with
+1156 unchanged inputs, two checked streams and one reaped empty group. Independent
+local review found no concrete issue. Actual-main fmt, Clippy and all 230 workspace
+tests pass with unchanged sources. Evidence is under social_prelude-green-v1 and
+main-generic-prelude-gates-v1. Original-body outcome and cost comparisons remain
+pending; this is no claim of Social Golfers or whole-task completion.
