@@ -5479,3 +5479,26 @@ four complete streams, 1159 unchanged inputs and both reaped empty groups under
 semantic62-atomic-standard-annotation-preflight-preparation-v1. The predicate-body
 inspection limitation remains a separate observation; no whole-model completion
 or annotation-policy repair is claimed from this preflight.
+
+The four-repair private composition builds with normal release settings. ROOT
+checked all sixteen Cargo events, thirteen optimized artifact events, two frozen
+executables, twenty-two library files and 1291 unchanged inputs. Sixteen original
+model controls then complete with exact native/companion diagnostics and status
+parity: ROOT checked thirty-two full streams, eight root records, 1325 unchanged
+inputs and all reaped empty groups. Knapsack search coverage and nonogram array
+index analysis now complete under both presets; both models complete all fourteen
+thesis analyses. Knapsack retains an uncovered-search warning, not a fabricated
+coverage certificate. ZipQueens remains Limited at its invoked actual type or
+optionality check. Social Golfers loses the cardinality limitation but retains
+separate search and unused-declaration limitations. Evidence is under
+semantic62-named-selector-social-card-knapsack-nonogram-functional-controls-preparation-v1.
+This is private functional evidence; actual-main gates, integration and final
+corpus validation remain pending, with no isolated performance claim.
+
+The tests-only atomic standard annotation reduction passes its exact binding,
+origin, type and zero-parameter preflight, then fails its positive coverage
+assertion with Unknown instead of WholeArray. Existing user annotation and
+partial-call refusals pass before that assertion. ROOT checked four full streams,
+1284 unchanged inputs and both reaped empty groups under
+semantic62-atomic-standard-annotation-red-preparation-v1/root-results. Production
+is unchanged; the separate original lex_lesseq body limitation remains open.
