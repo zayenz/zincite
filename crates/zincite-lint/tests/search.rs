@@ -11014,3 +11014,206 @@ fn enum_set_intersection_cardinality_inspects_sources_without_output_certificate
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn decision_set_union_generators_inspect_sources_and_selected_value_bodies_without_outputs() {
+    use zincite_lint::CallOutcome;
+    let positive = r#"predicate checked_union(array[int] of var set of int: cells, set of int: universe) =
+    universe == array_union(i in index_set(cells))(cells[i]);
+int: weeks;
+int: groups;
+int: size;
+set of int: Week = 1..weeks;
+set of int: Group = 1..groups;
+set of int: Player = 1..groups*size;
+array[Week, Group] of var set of Player: schedule;
+constraint forall(w in Week)(checked_union([schedule[w,g] | g in Group], Player));
+solve satisfy;
+"#;
+    let selector_overflow = positive.replace("cells[i]", "cells[(9223372036854775807 + 1)]");
+    let member_overflow = positive.replace(
+        "Player = 1..groups*size",
+        "Player = 1..(9223372036854775807 + 1)",
+    );
+    let wrapped_abort = positive.replace(
+        "array_union(i in index_set(cells))(cells[i])",
+        "array_union(i in index_set(cells))(cells[i]) intersect array_union(j in index_set(cells))(cells[j])",
+    );
+    let card_abort = positive.replace(
+        "universe == array_union(i in index_set(cells))(cells[i])",
+        "card(array_union(i in index_set(cells))(cells[i])) + 1 = 0",
+    );
+    for (name, source, body, error, selected_body_error) in [
+        ("union-symbolic", positive, "{1}", None, false),
+        (
+            "union-selector-overflow",
+            selector_overflow.as_str(),
+            "{1}",
+            Some("overflow"),
+            false,
+        ),
+        (
+            "union-member-domain-overflow",
+            member_overflow.as_str(),
+            "{1}",
+            Some("overflow"),
+            false,
+        ),
+        (
+            "union-selected-body-abort",
+            positive,
+            "assert(false,\"selected union abort\",{1})",
+            Some("false assertion"),
+            true,
+        ),
+        (
+            "union-selected-body-unsupported",
+            positive,
+            "opaque_sets(x)",
+            Some("unsupported"),
+            true,
+        ),
+        (
+            "union-intersection-body-abort",
+            wrapped_abort.as_str(),
+            "assert(false,\"selected union abort\",{1})",
+            Some("false assertion"),
+            true,
+        ),
+        (
+            "union-card-value-body-abort",
+            card_abort.as_str(),
+            "assert(false,\"selected union abort\",{1})",
+            Some("false assertion"),
+            false,
+        ),
+        (
+            "union-selected-body-recursive-length-card",
+            positive,
+            "{length([card(array_union(i in index_set(x))(x[i]))])}",
+            Some("recursive decision set union"),
+            true,
+        ),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        let extra = match name {
+            "union-intersection-body-abort" => {
+                "function var set of int: 'intersect'(var set of int: left,var set of int: right);\n"
+            }
+            "union-card-value-body-abort" => "function var int: card(var set of int: value);\n",
+            "union-selected-body-recursive-length-card" => {
+                "function var int: card(var set of int: value); function int: length(array[int] of var int: values);\n"
+            }
+            _ => "",
+        };
+        let core = format!(
+            "{CORE}{extra}function int: '*'(int: left,int: right); \
+             function int: '+'(int: left,int: right); \
+             function any $T: assert(bool: condition,string: message,any $T: result); \
+             annotation promise_total; \
+             function var set of int: opaque_sets(array[int] of var set of int: x); \
+             function var set of int: array_union(array[int] of var set of int: x) \
+             :: promise_total = {body};\n"
+        );
+        let body_start = core.rfind(body).unwrap();
+        let library = dir.join("library/std/stdlib.mzn");
+        std::fs::write(&library, &core).unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let (bindings, search) = facts(&context);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let union = calls
+            .calls
+            .iter()
+            .find(|call| call.name == "array_union")
+            .unwrap();
+        let CallOutcome::Resolved { declaration, .. } = &union.outcome else {
+            unreachable!();
+        };
+        let selected_library = &context.files[bindings.declarations[declaration.0].file].path;
+        let result = analyze_model(&context, &selected());
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        assert!(
+            callable.definitions.is_empty(),
+            "{name}: {:?}",
+            callable.definitions
+        );
+        assert!(
+            callable.outputs.is_empty(),
+            "{name}: {:?}",
+            callable.outputs
+        );
+        if let Some(error) = error {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                search.limitations
+            );
+            if !selected_body_error {
+                assert!(
+                    search
+                        .limitations
+                        .iter()
+                        .any(|limitation| limitation.message.contains(error)),
+                    "{name}: {:?}",
+                    search.limitations
+                );
+            }
+            if selected_body_error {
+                assert!(
+                    callable
+                        .unavailable
+                        .iter()
+                        .any(|boundary| boundary.reason.contains(error)
+                            && &boundary.location.path == selected_library
+                            && boundary.location.range.start <= body_start
+                            && body_start < boundary.location.range.end),
+                    "{name}: selected real value body boundary was dropped: {:?}",
+                    callable.unavailable
+                );
+            }
+        } else {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert!(
+                search.limitations.is_empty(),
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert_eq!(
+                coverage(&bindings, &search, "schedule"),
+                SearchCoverage::Uncovered
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

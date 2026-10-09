@@ -1846,6 +1846,7 @@ impl<'a> Producer<'a> {
             let (_, view, _) = inputs;
             let mut nodes = vec![clause.node];
             let mut unsupported = None;
+            let before = unavailable.len();
             while let Some(node) = nodes.pop() {
                 if !crate::definitions::annotations_safe(self.context, clause.file, node) {
                     unsupported = Some("invoked body annotation is unsupported".into());
@@ -1869,6 +1870,25 @@ impl<'a> Producer<'a> {
                         Err(reason) => DefinitionSafety::Unsupported(reason),
                     };
                     if let DefinitionSafety::Unsupported(reason) = checked {
+                        let selected = unwrap(node);
+                        if self
+                            .expression_type(self.view(clause.file, node, view), clause.file, node)
+                            .is_some_and(|e| decision_integer_set(&e.ty))
+                            && (selected.kind() == NodeKind::GeneratorCallExpression
+                                && self.core(clause.file, selected, view, "array_union")
+                                || selected.kind() == NodeKind::BinaryExpression
+                                    && self.core(clause.file, selected, view, "intersect"))
+                            && let Err(boundary) = self.decision_set_union_value_safety(
+                                clause.file,
+                                node,
+                                view,
+                                &clause.generators,
+                                &mut Vec::new(),
+                            )
+                            && !unavailable.contains(&boundary)
+                        {
+                            unavailable.push(boundary);
+                        }
                         unsupported = Some(reason);
                     }
                     continue;
@@ -1889,6 +1909,10 @@ impl<'a> Producer<'a> {
                         reason,
                     });
                 }
+                active.pop();
+                return;
+            }
+            if unavailable.len() != before {
                 active.pop();
                 return;
             }
@@ -5159,6 +5183,285 @@ impl<'a> Producer<'a> {
             Some(reason) => DefinitionSafety::Unsupported(reason),
             None => DefinitionSafety::Unknown("invoked collection extent is unproved".into()),
         }
+    }
+    // Required value-body inspection belongs to source admission, independent
+    // of Boolean forwarding. The local failure also retains its written location.
+    fn decision_set_union_value_safety(
+        &self,
+        file: FileId,
+        node: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+        active: &mut Vec<DeclarationId>,
+    ) -> Result<DefinitionSafety, UnavailableCallableDefinition> {
+        let mut location = self.context.files[file].location(node.range());
+        if !crate::definitions::annotations_safe(self.context, file, node) {
+            return Err(UnavailableCallableDefinition {
+                location,
+                targets: Vec::new(),
+                reason: "decision set source annotation is unsupported".into(),
+            });
+        }
+        let node = unwrap(node);
+        if node.kind() == NodeKind::BinaryExpression && self.core(file, node, view, "intersect") {
+            let failure = |reason: String| UnavailableCallableDefinition {
+                location: location.clone(),
+                targets: Vec::new(),
+                reason,
+            };
+            let result = self
+                .expression_type(self.view(file, node, view), file, node)
+                .map(|value| &value.ty);
+            let children: Vec<_> = node.child_nodes().collect();
+            if result.is_none_or(|t| !decision_integer_set(t)) || children.len() != 2
+                || children.iter().any(|child|
+                    self.expression_type(self.view(file, child, view), file, child)
+                        .map(|value| &value.ty) != result)
+                || self.operation_fact(self.view(file, node, view), file, node).is_none_or(|call|
+                    !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                        if parameters.len() == 2 && parameters.iter().all(|p| Some(p) == result)
+                            && Some(return_type) == result))
+            {
+                return Err(failure("decision set intersection signature is unsupported".into()));
+            }
+            for child in children {
+                if let DefinitionSafety::Unsupported(reason) =
+                    self.initialized_source_safety(file, child, view, generators, active)
+                {
+                    let child = unwrap(child);
+                    if child.kind() == NodeKind::GeneratorCallExpression
+                        && self.core(file, child, view, "array_union")
+                        || child.kind() == NodeKind::BinaryExpression
+                            && self.core(file, child, view, "intersect")
+                    {
+                        self.decision_set_union_value_safety(
+                            file, child, view, generators, active,
+                        )?;
+                    }
+                    return Err(failure(reason));
+                }
+                if let Some(reason) = self.closed_integer_source_error(file, child, true, true) {
+                    return Err(failure(reason));
+                }
+            }
+            return Ok(DefinitionSafety::Unknown(
+                "decision set intersection values are unproved".into(),
+            ));
+        }
+        let mut entered = false;
+        let checked = (|| -> Result<DefinitionSafety, String> {
+            if node.kind() != NodeKind::GeneratorCallExpression
+                || !self.core(file, node, view, "array_union")
+            {
+                return Err("decision set union source identity is unsupported".into());
+            }
+            let construction = self.collection_construction_safety(file, node, view, generators);
+            if let DefinitionSafety::Unsupported(reason) = &construction {
+                return Err(reason.clone());
+            }
+            let call = self
+                .operation_fact(self.view(file, node, view), file, node)
+                .ok_or("decision set union selection is unavailable")?;
+            let CallOutcome::Resolved {
+                declaration: id,
+                parameters,
+                return_type,
+            } = &call.outcome
+            else {
+                return Err("decision set union selection is unsupported".into());
+            };
+            if !decision_integer_set(return_type)
+                || !matches!(parameters.as_slice(), [array]
+                    if array.known() && !optional(array) && array.instantiation == Instantiation::Decision
+                        && matches!(&array.kind, TypeKind::Array { indices, element }
+                            if indices.len() == 1 && indices[0].known() && !optional(&indices[0])
+                                && indices[0].instantiation == Instantiation::Parameter
+                                && indices[0].kind == TypeKind::Int && element.as_ref() == return_type))
+                || call.generator_argument.as_ref().is_none_or(|actual| {
+                    !actual.known()
+                        || optional(actual)
+                        || !crate::types::coerces(actual, &parameters[0])
+                })
+                || self
+                    .expression_type(self.view(file, node, view), file, node)
+                    .is_none_or(|value| value.ty != *return_type)
+            {
+                return Err("decision set union selected value tuple is unsupported".into());
+            }
+            let owner = &self.bindings.declarations[id.0];
+            let written = find_node(
+                self.context.files[owner.file].parsed.tree(),
+                &owner.syntax_range,
+                owner.role,
+            )
+            .ok_or("selected decision set union declaration is unavailable")?;
+            let body = written
+                .child_nodes()
+                .filter(|n| is_expression(n.kind()))
+                .last()
+                .ok_or("selected decision set union value body is unavailable")?;
+            location = self.context.files[owner.file].location(body.range());
+            if owner.role != DeclarationRole::Function
+                || !self.callable_annotations_safe(owner.file, written)
+            {
+                return Err("selected decision set union body or annotation is unsupported".into());
+            }
+            if active.contains(id) {
+                return Err("recursive decision set union value body is unsupported".into());
+            }
+            active.push(*id);
+            entered = true;
+            let formal = formal_parameter(self.context, self.bindings, *id, 0)
+                .ok_or("selected decision set union formal is unavailable")?;
+            let formal_node = find_node(
+                self.context.files[owner.file].parsed.tree(),
+                &self.bindings.declarations[formal.0].syntax_range,
+                DeclarationRole::Parameter,
+            )
+            .ok_or("selected decision set union written formal is unavailable")?;
+            if formal_node.child_nodes().any(|n| is_expression(n.kind())) {
+                return Err("selected decision set union formal default is unsupported".into());
+            }
+            let body_view =
+                instantiated_body(self.context, self.bindings, self.calls, *id, parameters);
+            if body_view.declarations[formal.0].ty != parameters[0] {
+                return Err(
+                    "selected decision set union concrete formal type is unsupported".into(),
+                );
+            }
+            self.type_dependencies(owner.file, written, &body_view, &[])?;
+            self.type_dependencies(owner.file, formal_node, &body_view, &[])?;
+            let mut nodes = vec![formal_node];
+            while let Some(node) = nodes.pop() {
+                if !crate::definitions::annotations_safe(self.context, owner.file, node) {
+                    return Err(
+                        "selected decision set union formal annotation is unsupported".into(),
+                    );
+                }
+                nodes.extend(node.child_nodes());
+            }
+            let written_type = written
+                .child_nodes()
+                .next()
+                .ok_or("selected decision set union return type is unavailable")?;
+            for source in [written_type, formal_node] {
+                if let Some(reason) =
+                    self.closed_integer_source_error(owner.file, source, true, true)
+                {
+                    return Err(reason);
+                }
+            }
+            let value = self
+                .expression_type(&body_view, owner.file, body)
+                .ok_or("decision set union value body type is unavailable")?;
+            if !value.ty.known()
+                || optional(&value.ty)
+                || !crate::types::coerces(&value.ty, return_type)
+            {
+                return Err("decision set union value body type is unsupported".into());
+            }
+            // Ordinary source inspectors may start a fresh active vector. Refuse
+            // this written union recurrence before entering those inspectors.
+            let mut nodes = vec![body];
+            while let Some(node) = nodes.pop() {
+                if let Some(CallOutcome::Resolved { declaration, .. }) = self
+                    .operation_fact(&body_view, owner.file, node)
+                    .map(|call| &call.outcome)
+                    && active.contains(declaration)
+                    && crate::definitions::core_callable(
+                        self.context,
+                        self.bindings,
+                        *declaration,
+                        "array_union",
+                    )
+                {
+                    return Err("recursive decision set union value body is unsupported".into());
+                }
+                nodes.extend(node.child_nodes());
+            }
+            if !self.source_annotations_safe(owner.file, body) {
+                return Err("decision set union value body annotation is unsupported".into());
+            }
+            if let Some(reason) = self.closed_integer_source_error(owner.file, body, true, true) {
+                return Err(reason);
+            }
+            if let Some(arguments) = self.assertion_arguments(owner.file, unwrap(body), &body_view)
+                && arguments.len() == 3
+                && self.assertion_literal(arguments[0].0, arguments[0].1) == Some(TokenKind::False)
+            {
+                let assertion = self
+                    .operation_fact(
+                        self.view(owner.file, unwrap(body), &body_view),
+                        owner.file,
+                        unwrap(body),
+                    )
+                    .ok_or("selected value assertion signature is unavailable")?;
+                let CallOutcome::Resolved {
+                    parameters,
+                    return_type,
+                    ..
+                } = &assertion.outcome
+                else {
+                    return Err("selected value assertion signature is unsupported".into());
+                };
+                if parameters.len() != 3
+                    || *return_type != value.ty
+                    || parameters[2] != *return_type
+                    || parameters
+                        .iter()
+                        .any(|parameter| !parameter.known() || optional(parameter))
+                {
+                    return Err("selected value assertion signature is unsupported".into());
+                }
+                for (position, (file, argument)) in arguments.iter().enumerate() {
+                    let ty = self
+                        .expression_type(self.view(*file, argument, &body_view), *file, argument)
+                        .ok_or("selected value assertion argument type is unavailable")?;
+                    if !ty.ty.known()
+                        || optional(&ty.ty)
+                        || !crate::types::coerces(&ty.ty, &parameters[position])
+                        || match position {
+                            0 => {
+                                ty.ty.instantiation != Instantiation::Parameter
+                                    || ty.ty.kind != TypeKind::Bool
+                            }
+                            1 => {
+                                ty.ty.instantiation != Instantiation::Parameter
+                                    || ty.ty.kind != TypeKind::String
+                            }
+                            _ => !crate::types::coerces(&ty.ty, &value.ty),
+                        }
+                    {
+                        return Err("selected value assertion argument type is unsupported".into());
+                    }
+                    if let DefinitionSafety::Unsupported(reason) =
+                        self.initialized_source_safety(*file, argument, &body_view, &[], active)
+                    {
+                        return Err(reason);
+                    }
+                    if let Some(reason) =
+                        self.closed_integer_source_error(*file, argument, true, true)
+                    {
+                        return Err(reason);
+                    }
+                }
+                return Err("false assertion condition aborts evaluation".into());
+            }
+            if let DefinitionSafety::Unsupported(reason) =
+                self.initialized_source_safety(owner.file, body, &body_view, &[], active)
+            {
+                return Err(reason);
+            }
+            Ok(construction)
+        })();
+        if entered {
+            active.pop();
+        }
+        checked.map_err(|reason| UnavailableCallableDefinition {
+            location,
+            targets: Vec::new(),
+            reason,
+        })
     }
     fn invocation_source<'b, 'c>(
         &self,
@@ -10372,7 +10675,20 @@ impl<'a> Producer<'a> {
         }
         // Check the reference graph first: aggregate inspection can recursively
         // visit a source, so its written cycle must already have been rejected.
-        let checked = if unwrap(node).kind() == NodeKind::MatrixLiteral {
+        let selected = unwrap(node);
+        let strict_set = self
+            .expression_type(self.view(file, selected, view), file, selected)
+            .is_some_and(|value| decision_integer_set(&value.ty))
+            && (selected.kind() == NodeKind::GeneratorCallExpression
+                && self.core(file, selected, view, "array_union")
+                || selected.kind() == NodeKind::BinaryExpression
+                    && self.core(file, selected, view, "intersect"));
+        let checked = if strict_set {
+            self.decision_set_source_safety(file, node, view, generators, active)
+                .unwrap_or_else(|| {
+                    DefinitionSafety::Unsupported("decision set source type is unsupported".into())
+                })
+        } else if unwrap(node).kind() == NodeKind::MatrixLiteral {
             // Preserve the existing literal cell checker after transitive source
             // and annotation inspection, without adding a matrix evaluator.
             crate::expression_safety(self.context, self.bindings, view, file, unwrap(node))
@@ -10416,6 +10732,9 @@ impl<'a> Producer<'a> {
                 && ty.instantiation == Instantiation::Decision
                 && matches!(&ty.kind, TypeKind::Array { element, .. }
                     if decision_integer_set(element));
+            let decision_union = node.kind() == NodeKind::GeneratorCallExpression
+                && self.core(file, node, view, "array_union")
+                && decision_integer_set(ty);
             let element = match (&ty.kind, node.kind()) {
                 (TypeKind::Set(element), NodeKind::SetComprehension) if integer_set(ty) => {
                     element.as_ref()
@@ -10446,6 +10765,7 @@ impl<'a> Producer<'a> {
                 {
                     ty
                 }
+                (TypeKind::Set(_), NodeKind::GeneratorCallExpression) if decision_union => ty,
                 _ => {
                     return Err(
                         "parameter collection shape, type or identity is unsupported".into(),
@@ -10465,7 +10785,7 @@ impl<'a> Producer<'a> {
                 || list.child_nodes().count() == 0
                 || typed(body).is_none_or(|t| {
                     !present(t)
-                        || if decision_sets {
+                        || if decision_sets || decision_union {
                             t != element
                         } else if node.kind() == NodeKind::GeneratorCallExpression
                             && element.kind == TypeKind::Int
@@ -10479,8 +10799,13 @@ impl<'a> Producer<'a> {
             {
                 return Err("parameter collection body type is unsupported".into());
             }
-            if decision_sets && unwrap(body).kind() != NodeKind::ArrayAccessExpression {
+            if (decision_sets || decision_union)
+                && unwrap(body).kind() != NodeKind::ArrayAccessExpression
+            {
                 return Err("decision set collection requires a selected array cell".into());
+            }
+            if decision_union && list.child_nodes().count() != 1 {
+                return Err("decision set union requires one unfiltered integer header".into());
             }
             // Decision-set generators introduce absent cells; this exact core
             // overload may inspect the sum without proving which cells occur.
@@ -10513,6 +10838,8 @@ impl<'a> Producer<'a> {
                                     && indices[0].kind == TypeKind::Int
                                     && (present(formal) || optional_sum)
                                     && formal.kind == element.kind
+                                    && (!decision_union || parameters[0].instantiation == Instantiation::Decision
+                                        && formal.as_ref() == element)
                                     && typed(body).is_some_and(|actual| crate::types::coerces(actual, formal))))
                 })
             {
@@ -10543,7 +10870,7 @@ impl<'a> Producer<'a> {
                 && unwrap(body).kind() == NodeKind::ConditionalExpression;
             let mut all = generators.to_vec();
             let mut unsupported = None;
-            if decision_sets || enum_sum {
+            if decision_sets || decision_union || enum_sum {
                 for (position, header) in generators.iter().enumerate() {
                     for value in header.child_nodes() {
                         let (value, scope) = if value.kind() == NodeKind::WhereFilter {
@@ -10584,6 +10911,7 @@ impl<'a> Producer<'a> {
                     if self.context.files[file].parsed.tokens()[*i].kind == TokenKind::In)
                 }) || binders.is_empty()
                     || optional_sum && binders.len() != 1
+                    || decision_union && (binders.len() != 1 || header.child_nodes().count() != 1)
                     || binders.len()
                         != crate::domains::generator_slots(&self.context.files[file].parsed, header)
                     || binders.iter().any(|d| {
@@ -10652,7 +10980,11 @@ impl<'a> Producer<'a> {
                     });
                 if let DefinitionSafety::Unsupported(reason) = source_safety {
                     unsupported = Some(reason);
-                } else if (conditional_relation || optional_sum || decision_sets || enum_sum)
+                } else if (conditional_relation
+                    || optional_sum
+                    || decision_sets
+                    || decision_union
+                    || enum_sum)
                     && let Some(reason) = self.closed_integer_source_error(file, source, true, true)
                 {
                     unsupported = Some(reason);
@@ -10675,7 +11007,11 @@ impl<'a> Producer<'a> {
                         self.initialized_source_safety(file, condition, view, &all, &mut Vec::new())
                     {
                         unsupported = Some(reason);
-                    } else if (conditional_relation || optional_sum || decision_sets || enum_sum)
+                    } else if (conditional_relation
+                        || optional_sum
+                        || decision_sets
+                        || decision_union
+                        || enum_sum)
                         && let Some(reason) =
                             self.closed_integer_source_error(file, condition, true, true)
                     {
@@ -10683,9 +11019,131 @@ impl<'a> Producer<'a> {
                     }
                 }
             }
-            let body_safety = if decision_sets {
+            let body_safety = if decision_union {
+                let cell = unwrap(body);
+                let cells: Vec<_> = cell.child_nodes().collect();
+                let [subject, selector] = cells.as_slice() else {
+                    return Err("decision set union requires a rank-one selected cell".into());
+                };
+                let subject = unwrap(subject);
+                let id = self.reference(file, subject)
+                    .filter(|_| subject.kind() == NodeKind::Expression
+                        && matches!(crate::domains::tokens(&self.context.files[file].parsed, subject).as_slice(),
+                            [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier)))
+                    .ok_or("decision set union source identity is unavailable")?;
+                let declaration = &self.bindings.declarations[id.0];
+                let source =
+                    typed(subject).ok_or("decision set union source type is unavailable")?;
+                if declaration.role != DeclarationRole::Parameter
+                    || declaration.file != file
+                    || !present(source)
+                    || source != &facts.declarations[id.0].ty
+                    || source.instantiation != Instantiation::Decision
+                    || !matches!(&source.kind, TypeKind::Array { indices, element }
+                        if indices.len() == 1 && present_parameter(&indices[0])
+                            && indices[0].kind == TypeKind::Int && element.as_ref() == ty)
+                    || typed(selector)
+                        .is_none_or(|t| !present_parameter(t) || t.kind != TypeKind::Int)
+                {
+                    return Err(
+                        "decision set union formal source or selector type is unsupported".into(),
+                    );
+                }
+                let owner = self
+                    .bindings
+                    .declarations
+                    .iter()
+                    .find(|owner| {
+                        owner.file == file
+                            && owner.item == declaration.item
+                            && matches!(
+                                owner.role,
+                                DeclarationRole::Function
+                                    | DeclarationRole::Predicate
+                                    | DeclarationRole::Test
+                            )
+                            && owner.syntax_range.start <= node.range().start
+                            && node.range().end <= owner.syntax_range.end
+                    })
+                    .ok_or("decision set union owning callable is unavailable")?;
+                let written = find_node(
+                    self.context.files[file].parsed.tree(),
+                    &owner.syntax_range,
+                    owner.role,
+                )
+                .ok_or("decision set union owning declaration is unavailable")?;
+                if !written
+                    .child_nodes()
+                    .find(|n| n.kind() == NodeKind::ParameterList)
+                    .is_some_and(|list| {
+                        list.child_nodes()
+                            .any(|p| p.range() == declaration.syntax_range)
+                    })
+                    || written
+                        .child_nodes()
+                        .filter(|n| is_expression(n.kind()))
+                        .last()
+                        .is_none_or(|body| {
+                            !(body.range().start <= node.range().start
+                                && node.range().end <= body.range().end)
+                        })
+                {
+                    return Err("decision set union source is not its owning body formal".into());
+                }
+                let formal = find_node(
+                    self.context.files[file].parsed.tree(),
+                    &declaration.syntax_range,
+                    declaration.role,
+                )
+                .ok_or("decision set union written formal is unavailable")?;
+                if !crate::definitions::annotations_safe(self.context, file, formal)
+                    || formal.child_nodes().any(|n| is_expression(n.kind()))
+                {
+                    return Err(
+                        "decision set union formal annotation or default is unsupported".into(),
+                    );
+                }
+                if let Some(reason) = self.closed_integer_source_error(file, formal, true, true) {
+                    return Err(reason);
+                }
+                if let Some(reason) = self.closed_integer_source_error(file, selector, true, true) {
+                    return Err(reason);
+                }
+                let header = list.child_nodes().next().unwrap();
+                let axis = header.child_nodes().next().unwrap();
+                if self.reference(file, unwrap(selector)).is_none_or(|binder| {
+                    let binder = &self.bindings.declarations[binder.0];
+                    binder.file != file || binder.role != DeclarationRole::Generator
+                        || binder.syntax_range != header.range()
+                }) || !self.member_index(file, id, selector, &all, view)
+                    || !self.core(file, axis, view, "index_set")
+                    || axis.child_nodes().count() != 1
+                    || self.operation_fact(facts, file, axis).is_none_or(|call|
+                        !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                            if parameters.as_slice() == [source.clone()]
+                                && typed(axis) == Some(return_type) && present_parameter(return_type)
+                                && matches!(&return_type.kind, TypeKind::Set(element)
+                                    if present_parameter(element) && element.kind == TypeKind::Int)))
+                {
+                    return Err("decision set union selector lacks its same-formal index_set header".into());
+                }
+                let domain =
+                    crate::domains::bare_index_domain(&self.domains.declarations[id.0].domain);
+                let Domain::Array { indices, element } = domain else {
+                    return Err("decision set union formal array domain is unsupported".into());
+                };
+                if indices.len() != 1 {
+                    return Err("decision set union formal array rank is unsupported".into());
+                }
+                indices[0].numeric_minimum().map_err(str::to_owned)?;
+                let Domain::Set(member) = crate::domains::bare_index_domain(element) else {
+                    return Err("decision set union formal member domain is unsupported".into());
+                };
+                member.numeric_minimum().map_err(str::to_owned)?;
+                self.initialized_source_safety(file, body, view, &all, &mut Vec::new())
+            } else if decision_sets {
                 // Exact traversal dependencies do not inspect the written set domain.
-                self.decision_set_source_safety(file, body, view, &all)
+                self.decision_set_source_safety(file, body, view, &all, &mut Vec::new())
                     .unwrap_or_else(|| {
                         DefinitionSafety::Unsupported(
                             "decision set collection body is unsupported".into(),
@@ -10710,7 +11168,7 @@ impl<'a> Producer<'a> {
             };
             if let DefinitionSafety::Unsupported(reason) = body_safety {
                 unsupported = Some(reason);
-            } else if (optional_sum || decision_sets || enum_sum)
+            } else if (optional_sum || decision_sets || decision_union || enum_sum)
                 && let Some(reason) = self.closed_integer_source_error(file, body, true, true)
             {
                 unsupported = Some(reason);
@@ -11053,6 +11511,7 @@ impl<'a> Producer<'a> {
         written: &'a SyntaxNode,
         view: &CallableFacts,
         generators: &[&'a SyntaxNode],
+        active: &mut Vec<DeclarationId>,
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
         let typed = |value: &SyntaxNode| {
@@ -11060,6 +11519,21 @@ impl<'a> Producer<'a> {
                 .map(|e| &e.ty)
         };
         let result = typed(node).filter(|t| decision_integer_set(t))?;
+        if node.kind() == NodeKind::GeneratorCallExpression
+            && self.core(file, node, view, "array_union")
+        {
+            if !crate::definitions::annotations_safe(self.context, file, written) {
+                return Some(DefinitionSafety::Unsupported(
+                    "decision set source annotation is unsupported".into(),
+                ));
+            }
+            return Some(
+                match self.decision_set_union_value_safety(file, node, view, generators, active) {
+                    Ok(safety) => safety,
+                    Err(boundary) => DefinitionSafety::Unsupported(boundary.reason),
+                },
+            );
+        }
         let children: Vec<_> = node.child_nodes().collect();
         let checked = (|| -> Result<(), String> {
             if !crate::definitions::annotations_safe(self.context, file, written) {
@@ -11077,12 +11551,12 @@ impl<'a> Producer<'a> {
                 {
                     return Err("decision set intersection signature is unsupported".into());
                 }
-                if let DefinitionSafety::Unsupported(reason) =
-                    self.initialized_children_safety(file, &children, view, generators)
-                {
-                    return Err(reason);
-                }
                 for child in &children {
+                    if let DefinitionSafety::Unsupported(reason) =
+                        self.initialized_source_safety(file, child, view, generators, active)
+                    {
+                        return Err(reason);
+                    }
                     if let Some(reason) = self.closed_integer_source_error(file, child, true, true)
                     {
                         return Err(reason);
@@ -13831,7 +14305,9 @@ impl<'a> Producer<'a> {
         if let Some(safety) = self.parameter_enum_set_source_safety(file, node, view, generators) {
             return safety;
         }
-        if let Some(safety) = self.decision_set_source_safety(file, node, view, generators) {
+        if let Some(safety) =
+            self.decision_set_source_safety(file, node, view, generators, &mut Vec::new())
+        {
             return safety;
         }
         if let Some(safety) = self.parameter_row_let_safety(file, node, view, generators, &[]) {

@@ -5836,3 +5836,19 @@ inputs, both full streams and one reaped empty group, under team_enum_set_value-
 green-v1. Actual-main fmt, Clippy and all 236 workspace tests pass with 108
 unchanged source files, under main-enum-set-value-gates-v1. Fresh original
 TeamMeetings and final task acceptance remain pending.
+
+Decision-set union generators now require inspection of their selected value
+body as part of source admission. The supported shape retains one exact owning
+formal array, its own index_set header and binder, declared domains and closed
+errors. A local body view supplies typed checks without changing Boolean callable
+selection or supplying output facts. A written recurrence guard precedes helpers
+that restart source traversal. All eight focused public cases pass, including
+selector/member overflow, aborting or opaque selected bodies, intersect/card
+wrappers and the length/card recurrence. ROOT checked 1181 unchanged inputs,
+both full streams and one reaped empty group; independent review of the revised
+patch found no substantive issue. Evidence is under semantic63-social-array-union-
+green-preparation-v6. Actual-main fmt, Clippy and all 237 workspace tests pass
+with 108 unchanged source files, under main-decision-set-union-value-gates-v1.
+The installed Social body still has unsupported annotation
+and conditional/let prerequisites; original completion and final acceptance are
+unclaimed.
