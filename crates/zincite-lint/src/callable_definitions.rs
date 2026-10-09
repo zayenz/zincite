@@ -14731,6 +14731,51 @@ impl<'a> Producer<'a> {
         }
         Ok(())
     }
+    fn floor_sum_source_safety(
+        &self,
+        file: FileId,
+        written: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> Option<DefinitionSafety> {
+        let node = unwrap(written);
+        if node.kind() != NodeKind::CallExpression || !self.core(file, node, view, "floor") {
+            return None;
+        }
+        let checked = crate::domains::symbolic_floor_sum_bound(
+            self.context,
+            self.bindings,
+            self.view(file, node, view),
+            file,
+            node,
+        )?;
+        let checked = checked.and_then(|()| {
+            if !crate::definitions::annotations_safe(self.context, file, written) {
+                return Err("floor sum source annotation is unsupported".into());
+            }
+            let arguments: Vec<_> = node
+                .child_nodes()
+                .filter(|child| child.kind() != NodeKind::Annotation)
+                .collect();
+            let [quotient] = arguments.as_slice() else {
+                return Err("floor sum source quotient is unavailable".into());
+            };
+            let operands: Vec<_> = quotient
+                .child_nodes()
+                .filter(|child| child.kind() != NodeKind::Annotation)
+                .collect();
+            // The shared inspector checks these original Int actuals against
+            // the selected Float formals. Retain initialized-source vetoes.
+            match self.initialized_children_safety(file, &operands, view, generators) {
+                DefinitionSafety::Unsupported(reason) => Err(reason),
+                _ => Ok(()),
+            }
+        });
+        Some(match checked {
+            Ok(()) => DefinitionSafety::Unknown("parameter floor sum value is unproved".into()),
+            Err(reason) => DefinitionSafety::Unsupported(reason),
+        })
+    }
     fn direct_safety(
         &self,
         file: FileId,
@@ -14739,6 +14784,9 @@ impl<'a> Producer<'a> {
         generators: &[&'a SyntaxNode],
     ) -> DefinitionSafety {
         if let Some(safety) = self.integer_array_set_safety(file, node, view, generators) {
+            return safety;
+        }
+        if let Some(safety) = self.floor_sum_source_safety(file, node, view, generators) {
             return safety;
         }
         if let Some(safety) = self.parameter_float_safety(file, node, view, generators) {

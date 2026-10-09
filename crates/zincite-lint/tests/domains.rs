@@ -922,3 +922,130 @@ solve :: seq_search([
     );
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn grouping_floor_sum_bounds_inspect_unknown_inputs_and_closed_divisor_errors() {
+    use zincite_lint::CallOutcome;
+
+    let source = concat!(
+        "array[int] of int: values;\n",
+        "int: denominator = 335;\n",
+        "int: extent = floor(sum(values) / denominator);\n",
+        "set of int: Slots = 1..extent;\n",
+        "set of int: Choices = {0} union Slots;\n",
+        "array[Slots] of var 0..1: slots;\n",
+        "array[Choices] of var Choices: choices;\n",
+        "solve satisfy;\n",
+    );
+    let (directory, _) = model("grouping-floor-sum-bound", "solve satisfy;\n");
+    std::fs::write(
+        directory.join("library/std/stdlib.mzn"),
+        concat!(
+            "function int: '+'(int: left,int: right);\n",
+            "function set of int: '..'(int: left,int: right);\n",
+            "function set of int: 'union'(set of int: left,set of int: right);\n",
+            "annotation promise_commutative;\n",
+            "function int: sum(array[$T] of int: values) :: promise_commutative;\n",
+            "function float: '/'(float: left,float: right);\n",
+            "function int: floor(float: value);\n",
+        ),
+    )
+    .unwrap();
+    let root = directory.join("root.mzn");
+    let options = ModelOptions {
+        stdlib_dir: Some(directory.join("library")),
+        include_dirs: Vec::new(),
+    };
+    let rules = LintOptions {
+        rules: vec![Rule::ArrayIndexStart, Rule::UnboundedVariable],
+        ..LintOptions::default()
+    };
+    for (divisor, error) in [
+        ("335", None),
+        ("0", Some("zero")),
+        ("(9223372036854775807+1)", Some("overflow")),
+    ] {
+        let candidate = source.replace("denominator = 335", &format!("denominator = {divisor}"));
+        std::fs::write(&root, &candidate).unwrap();
+        let context = load_model(&root, &options);
+        assert!(context.errors.is_empty(), "{:?}", context.errors);
+        assert!(context.limitations.is_empty(), "{:?}", context.limitations);
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty()),
+            "{:?}",
+            context.files
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{:?}",
+            calls.calls
+        );
+        let result = analyze_model(&context, &rules);
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.rules.len(), 2);
+        if let Some(error) = error {
+            assert!(
+                result
+                    .rules
+                    .iter()
+                    .all(|rule| matches!(rule.outcome, RuleOutcome::Limited { .. }))
+            );
+            let slots_axis = candidate.find("array[Slots]").unwrap() + "array[".len();
+            let choices = bindings
+                .declarations
+                .iter()
+                .find(|declaration| {
+                    declaration.location.path == root
+                        && declaration.top_level
+                        && declaration.name == "choices"
+                })
+                .unwrap();
+            for (prefix, range) in [
+                ("array-index-start:", slots_axis..slots_axis + "Slots".len()),
+                ("unbounded-variable:", choices.location.range.clone()),
+            ] {
+                assert!(
+                    result.limitations.iter().any(|limit| {
+                        limit.location.path == root
+                            && limit.location.range == range
+                            && limit.message.starts_with(prefix)
+                            && limit.message.contains(error)
+                    }),
+                    "{divisor}: {:?}",
+                    result.limitations
+                );
+            }
+            assert!(result.findings.is_empty(), "{:?}", result.findings);
+        } else {
+            assert!(
+                result
+                    .rules
+                    .iter()
+                    .all(|rule| rule.outcome == RuleOutcome::Completed),
+                "{:?}",
+                result.rules
+            );
+            assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+            // Slots can be empty: its unobserved upper bound cannot prove its minimum.
+            // Choices always contains 0, independently of the unknown array contents.
+            let choices_axis = candidate.find("array[Choices]").unwrap() + "array[".len();
+            assert_eq!(result.findings.len(), 1, "{:?}", result.findings);
+            assert_eq!(result.findings[0].rule, Rule::ArrayIndexStart);
+            assert_eq!(result.findings[0].location.path, root);
+            assert_eq!(
+                result.findings[0].location.range,
+                choices_axis..choices_axis + "Choices".len()
+            );
+            assert!(result.findings[0].message.contains("starts at 0"));
+        }
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

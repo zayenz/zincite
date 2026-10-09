@@ -803,6 +803,272 @@ impl<'a> Walker<'a> {
         };
         Ok(domain)
     }
+    // Inspect this parameter source without evaluating its unknown array cells,
+    // Float quotient or floor value. The closed divisor is checked independently.
+    fn symbolic_floor_sum_bound(
+        &mut self,
+        file: FileId,
+        node: &SyntaxNode,
+    ) -> Option<Result<(), String>> {
+        if node.kind() != NodeKind::CallExpression {
+            return None;
+        }
+        let calls = self.calls?;
+        let fact = crate::callables::operation_fact(self.context, calls, file, node)?;
+        if fact.name != "floor" {
+            return None;
+        }
+        Some((|| {
+            let integer_type = crate::TypeInst::par(crate::TypeKind::Int);
+            let float = crate::TypeInst::par(crate::TypeKind::Float);
+            let integer_array = crate::TypeInst::par(crate::TypeKind::Array {
+                indices: vec![integer_type.clone()],
+                element: Box::new(integer_type.clone()),
+            });
+            let expression_type = |source: &SyntaxNode| {
+                let range = self.context.files[file].location(source.range()).range;
+                calls
+                    .expressions
+                    .iter()
+                    .find(|expression| {
+                        expression.file == file && expression.location.range == range
+                    })
+                    .map(|expression| &expression.ty)
+            };
+            let selected_primitive =
+                |source: &SyntaxNode,
+                 name: &str,
+                 parameters: &[crate::TypeInst],
+                 result: &crate::TypeInst| {
+                    let Some(fact) =
+                        crate::callables::operation_fact(self.context, calls, file, source)
+                    else {
+                        return false;
+                    };
+                    let crate::CallOutcome::Resolved {
+                        declaration,
+                        parameters: selected_parameters,
+                        return_type,
+                    } = &fact.outcome
+                    else {
+                        return false;
+                    };
+                    if fact.generator_argument.is_some()
+                        || !crate::definitions::core_callable(
+                            self.context,
+                            self.bindings,
+                            *declaration,
+                            name,
+                        )
+                        || selected_parameters.as_slice() != parameters
+                        || return_type != result
+                        || expression_type(source) != Some(result)
+                    {
+                        return false;
+                    }
+                    // These exact standard numeric overloads are primitives; a
+                    // source-defined replacement body must not be waived here.
+                    let declaration = &self.bindings.declarations[declaration.0];
+                    crate::callables::find_node(
+                        self.context.files[declaration.file].parsed.tree(),
+                        &declaration.syntax_range,
+                        declaration.role,
+                    )
+                    .is_some_and(|written| {
+                        let mut nodes = vec![written];
+                        while let Some(node) = nodes.pop() {
+                            if node.kind() == NodeKind::Annotation {
+                                let Some(value) = node.child_nodes().next() else {
+                                    return false;
+                                };
+                                if value.kind() != NodeKind::Expression {
+                                    return false;
+                                }
+                                let annotation_tokens =
+                                    tokens(&self.context.files[declaration.file].parsed, value);
+                                if annotation_tokens
+                                    .first()
+                                    .is_some_and(|token| token.kind == TokenKind::StringLiteral)
+                                {
+                                    continue;
+                                }
+                                if annotation_tokens.len() != 1 {
+                                    return false;
+                                }
+                                let Some(id) = self.reference(declaration.file, value) else {
+                                    return false;
+                                };
+                                let hint = &self.bindings.declarations[id.0];
+                                let hint_source = &self.context.files[hint.file];
+                                if hint.role != DeclarationRole::Annotation
+                                    || !matches!(
+                                        hint.name.as_str(),
+                                        "promise_total" | "promise_commutative"
+                                    )
+                                    || hint_source.kind != crate::SourceKind::StandardLibrary
+                                    || !hint_source.implicit
+                                    || (hint.name == "promise_commutative"
+                                        && !crate::callables::find_node(
+                                            hint_source.parsed.tree(),
+                                            &hint.syntax_range,
+                                            hint.role,
+                                        )
+                                        .is_some_and(
+                                            |written| {
+                                                written.kind() == NodeKind::AnnotationDeclaration
+                                                    && written.child_nodes().next().is_none()
+                                            },
+                                        ))
+                                {
+                                    return false;
+                                }
+                                // Standard hints permit inspection only; their validated
+                                // annotation subtree supplies no source or value proof.
+                                continue;
+                            }
+                            if crate::callables::is_expression(node.kind()) {
+                                return false;
+                            }
+                            nodes.extend(node.child_nodes());
+                        }
+                        true
+                    })
+                };
+            if !selected_primitive(node, "floor", std::slice::from_ref(&float), &integer_type)
+                || !crate::definitions::annotations_safe(self.context, file, node)
+            {
+                return Err(
+                    "floor bound operation identity, signature or annotations are unsupported"
+                        .into(),
+                );
+            }
+            let floor_arguments: Vec<_> = node
+                .child_nodes()
+                .filter(|child| child.kind() != NodeKind::Annotation)
+                .collect();
+            let [quotient] = floor_arguments.as_slice() else {
+                return Err("floor bound requires one quotient argument".into());
+            };
+            if quotient.kind() != NodeKind::BinaryExpression
+                || !selected_primitive(quotient, "/", &[float.clone(), float.clone()], &float)
+                || !crate::definitions::annotations_safe(self.context, file, quotient)
+            {
+                return Err(
+                    "floor bound quotient identity, signature or annotations are unsupported"
+                        .into(),
+                );
+            }
+            let operands: Vec<_> = quotient
+                .child_nodes()
+                .filter(|child| child.kind() != NodeKind::Annotation)
+                .collect();
+            let [sum, divisor] = operands.as_slice() else {
+                return Err("floor bound requires two quotient operands".into());
+            };
+            for operand in [sum, divisor] {
+                let actual =
+                    expression_type(operand).ok_or("floor bound operand type is unavailable")?;
+                if actual != &integer_type || !crate::types::coerces(actual, &float) {
+                    return Err(
+                        "floor bound operands require present parameter Int-to-Float coercions"
+                            .into(),
+                    );
+                }
+            }
+            if sum.kind() != NodeKind::CallExpression
+                || !selected_primitive(
+                    sum,
+                    "sum",
+                    std::slice::from_ref(&integer_array),
+                    &integer_type,
+                )
+                || !crate::definitions::annotations_safe(self.context, file, sum)
+            {
+                return Err(
+                    "floor bound sum identity, signature or annotations are unsupported".into(),
+                );
+            }
+            let sum_arguments: Vec<_> = sum
+                .child_nodes()
+                .filter(|child| child.kind() != NodeKind::Annotation)
+                .collect();
+            let [source] = sum_arguments.as_slice() else {
+                return Err("floor bound sum requires one array source".into());
+            };
+            if source.kind() != NodeKind::Expression
+                || source.child_nodes().next().is_some()
+                || !matches!(tokens(&self.context.files[file].parsed, source).as_slice(),
+                    [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+                || expression_type(source) != Some(&integer_array)
+                || !crate::definitions::annotations_safe(self.context, file, source)
+            {
+                return Err(
+                    "floor bound sum requires a bare present parameter Int array source".into(),
+                );
+            }
+            let id = self
+                .reference(file, source)
+                .ok_or("floor bound array source is unresolved")?;
+            let declaration = &self.bindings.declarations[id.0];
+            let source_file = declaration.file;
+            if self.active.contains(&id) {
+                return Err("cyclic floor bound array source".into());
+            }
+            if !declaration.top_level
+                || declaration.role != DeclarationRole::Value
+                || declaration.instantiation != crate::Instantiation::Parameter
+                || !calls
+                    .declarations
+                    .get(id.0)
+                    .is_some_and(|fact| fact.declaration == id && fact.ty == integer_array)
+            {
+                return Err("floor bound array source declaration is unsupported".into());
+            }
+            let written = crate::callables::find_node(
+                self.context.files[source_file].parsed.tree(),
+                &declaration.syntax_range,
+                declaration.role,
+            )
+            .ok_or("floor bound array source declaration is unavailable")?;
+            if !crate::definitions::annotations_safe(self.context, source_file, written)
+                || written
+                    .child_nodes()
+                    .any(|child| crate::callables::is_expression(child.kind()))
+            {
+                return Err(
+                    "floor bound array source initializer or annotations are unsupported".into(),
+                );
+            }
+            let array_type = written
+                .child_nodes()
+                .next()
+                .ok_or("floor bound array source written type is unavailable")?;
+            if array_type.kind() != NodeKind::ArrayType
+                || !crate::definitions::annotations_safe(self.context, source_file, array_type)
+            {
+                return Err("floor bound array source written type is unsupported".into());
+            }
+            let parts: Vec<_> = array_type
+                .child_nodes()
+                .filter(|child| child.kind() != NodeKind::Annotation)
+                .collect();
+            if parts.len() != 2 || parts.iter().any(|part| part.kind() != NodeKind::ScalarType) {
+                return Err(
+                    "floor bound array source requires written Int axis and elements".into(),
+                );
+            }
+            for part in parts {
+                self.union_written_type(source_file, part)?;
+            }
+            // Do not let unknown cells hide a closed divisor failure or a cycle.
+            self.union_integer_source(file, divisor)?;
+            match integer(&self.bound(file, divisor)).map_err(str::to_owned)? {
+                Some(0) => Err("integer arithmetic overflow or division by zero".into()),
+                Some(_) => Ok(()),
+                None => Err("floor bound divisor requires a closed parameter integer".into()),
+            }
+        })())
+    }
     fn union_integer_source(&mut self, file: FileId, node: &SyntaxNode) -> Result<(), String> {
         if !self.union_expression_type(file, node, false)
             || !crate::definitions::annotations_safe(self.context, file, node)
@@ -871,6 +1137,10 @@ impl<'a> Walker<'a> {
                 for child in children {
                     self.union_integer_source(file, child)?;
                 }
+            }
+            NodeKind::CallExpression => {
+                self.symbolic_floor_sum_bound(file, node)
+                    .ok_or("union bound form is unsupported")??;
             }
             _ => return Err("union bound form is unsupported".into()),
         }
@@ -1030,6 +1300,12 @@ impl<'a> Walker<'a> {
                 value.map(Integer).unwrap_or_else(arithmetic_failure)
             }
             NodeKind::CallExpression => {
+                if let Some(inspection) = self.symbolic_floor_sum_bound(file, node) {
+                    return match inspection {
+                        Ok(()) => Unknown,
+                        Err(reason) => Unsupported(reason),
+                    };
+                }
                 if self.calls.is_some_and(|calls| {
                     crate::callable_definitions::parameter_index_extremum(
                         self.context,
@@ -1609,6 +1885,26 @@ pub(super) fn same_members(left: &Domain, right: &Domain) -> Result<Option<bool>
         ),
         _ => Ok(None),
     }
+}
+
+/// Inspect only the exact symbolic parameter source; Ok supplies no numeric value.
+/// Callable consumers use the same guard as the domain producer.
+pub(super) fn symbolic_floor_sum_bound(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    file: FileId,
+    node: &SyntaxNode,
+) -> Option<Result<(), String>> {
+    Walker {
+        context,
+        bindings,
+        calls: Some(calls),
+        initialized_facts: None,
+        inspected_extremum: false,
+        active: Vec::new(),
+    }
+    .symbolic_floor_sum_bound(file, node)
 }
 
 /// Checked closed integer value for this producer's existing arithmetic subset.

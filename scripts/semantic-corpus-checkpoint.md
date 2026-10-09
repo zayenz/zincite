@@ -5989,3 +5989,15 @@ assertions. The separate reverse positive still fails its source-call assertion;
 its following negative is unobserved. ROOT audited 132 unchanged inputs, both
 full streams and the reaped empty group. The domain and direct floor increments
 remain private pending their small permanent projections and main validation.
+
+The Grouping domain producer and direct floor consumer are now integrated
+together. They inspect the exact bodyless floor/division/sum selections, retained
+array source and closed divisor, returning Unknown without a value, bound,
+membership or output proof. Changed written primitive bodies/defaults/domains
+and unsupported metadata remain refused. The direct caller reuses the domain
+guard and preserves initialized-source failures. Permanent coverage retains
+three domain cases and the two floor-chain cases without the private observation
+matrix. Actual-main formatting, Clippy and all 242 tests pass under
+main-grouping-floor-sources-gates-v1; ROOT checked 108 unchanged source files,
+six complete streams and three reaped empty groups. The reverse source and fresh
+original Grouping outcomes remain pending; base-083 is still open.

@@ -11579,3 +11579,143 @@ solve satisfy;
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn grouping_direct_floor_sources_preserve_unknown_and_closed_errors() {
+    let positive = concat!(
+        "array[int] of int: weights; int: L=335; int: U=340;\n",
+        "set of int: N=index_set(weights); int: patterns=floor(sum(weights) / L);\n",
+        "set of int: Patterns=1..patterns; array[N] of var {0} union Patterns: weight_pattern;\n",
+        "array[N] of var bool: weight_is_used=[weight_pattern[i] != 0 | i in N];\n",
+        "array[Patterns] of var {0} union L..U: pattern_weight=[sum(i in N)(weights[i] * (weight_pattern[i] = p)) | p in Patterns];\n",
+        "var int: used_weights=sum(weight_is_used); solve maximize used_weights;\n",
+    );
+    let bad_divisor = positive.replace("L=335", "L=0");
+    for (name, source, completed) in [
+        ("grouping-floor-positive", positive, true),
+        ("grouping-floor-zero", bad_divisor.as_str(), false),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}{}",
+                concat!(
+                    "function int: sum(array[$T] of int: x);\n",
+                    "function int: floor(float: x); function float: '/'(float: x,float: y);\n",
+                    "function var int: '*'(var int: x,var int: y);\n",
+                    "function var bool: '!='(var int: x,var int: y);\n",
+                    "function set of int: 'union'(set of int: x,set of int: y);\n",
+                    "function int: 'div'(int: x,int: y);\n",
+                    "function int: '+'(int: x,int: y); function int: '-'(int: x,int: y);\n",
+                    "function int: length(array[$T] of any $V: x);\n",
+                    "function array[$$E] of $$F: sort(array[$$E] of $$F: xs);\n",
+                    "function array[$$E] of any $T: reverse(array[$$E] of any $T: x) =\n",
+                    "  if length(x) = 0 then [] else let {\n",
+                    "    any: xx = array1d(x); int: l = length(x) + 1;\n",
+                    "  } in array1d(index_set(x), [xx[l-i] | i in index_set(xx)]) endif;\n",
+                )
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        let (bindings, search) = facts(&context);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        let calls = resolve_callables(&context, &bindings);
+        let root = context
+            .files
+            .iter()
+            .position(|file| file.path == dir.join("root.mzn"))
+            .unwrap();
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == root)
+                .all(|call| matches!(call.outcome, zincite_lint::CallOutcome::Resolved { .. }))
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        assert!(
+            callable.outputs.is_empty(),
+            "{name}: {:?}",
+            callable.outputs
+        );
+        let analysis = analyze_model(&context, &selected());
+        for target in ["patterns", "pattern_weight", "used_weights"] {
+            let id = bindings
+                .declarations
+                .iter()
+                .find(|d| d.top_level && d.name == target)
+                .unwrap()
+                .id;
+            let definition = definitions
+                .definitions
+                .iter()
+                .find(|d| d.target == id)
+                .unwrap();
+            assert_eq!(definition.file, root);
+            if target == "patterns" {
+                assert_eq!(
+                    context.files[root].parsed.source()[definition.value.range.clone()].trim(),
+                    "floor(sum(weights) / L)",
+                );
+            }
+            if completed {
+                assert!(
+                    matches!(definition.safety, DefinitionSafety::Unknown(_)),
+                    "{name}: {target}: {:?}",
+                    definition.safety
+                );
+            } else {
+                assert!(
+                    matches!(&definition.safety, DefinitionSafety::Unsupported(reason)
+                    if reason.contains("zero")),
+                    "{name}: {target}: {:?}",
+                    definition.safety
+                );
+            }
+        }
+        if completed {
+            assert_eq!(
+                analysis.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                search.limitations
+            );
+            for target in ["weight_is_used", "pattern_weight", "used_weights"] {
+                assert_eq!(
+                    coverage(&bindings, &search, target),
+                    SearchCoverage::Unknown
+                );
+            }
+            assert_eq!(
+                coverage(&bindings, &search, "weight_pattern"),
+                SearchCoverage::Uncovered
+            );
+        } else {
+            assert!(matches!(
+                analysis.rules[0].outcome,
+                RuleOutcome::Limited { .. }
+            ));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
