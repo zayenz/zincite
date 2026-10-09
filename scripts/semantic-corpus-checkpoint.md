@@ -6071,3 +6071,28 @@ diagnostics, unchanged from its preceding capture. All six selections report
 zero errors. These are source-only lint controls, not solver or final corpus
 acceptance. Decision-prefix work, remaining support gaps and whole-task
 verification remain pending.
+
+The private decision-prefix v2 fixes complete-body token inspection and preceding
+header scope, but its focused positive still fails. A tests-only diagnostic
+preserving all production and fixture bytes narrows the remaining limitation to
+the predecessor prefix's numeric array-membership refusal. The plain prefix has
+no reported limitation in that capture. ROOT checked all 1,181 unchanged inputs,
+both full streams and the empty reaped group under
+semantic65-atsp-decision-prefix-source-preparation-v1/diagnostic-v1. The positive's
+later Unknown assertions and both negative cases remain unobserved; this candidate
+has not been integrated. The next repair is scoped endpoint source inspection,
+without a membership or value proof and without changing raw numeric domains.
+
+The fresh Social dependency graph exposed a separate identity gate: the actual
+fzn_array_set_union standard file is included rather than implicit. Its selected
+predicate now reaches the existing mandatory full-body inspection in either
+case. The production repair removes one local implicit-file requirement; the
+existing three-case regression now loads that predicate from a separate standard
+file. Its positive and both source-error cases pass, and the private original
+Social Search check completes while leaving Sched Uncovered. ROOT checked 1,186
+unchanged inputs, both full streams and an empty reaped group under
+semantic65-social-included-fzn-identity-preparation-v1. Only the production repair
+and strengthened existing test are integrated. Main validation under
+main-social-included-fzn-gates-v1 passes formatting, Clippy and all 245 tests;
+ROOT checked 108 unchanged sources, six full streams and three empty reaped groups.
+Fresh complete corpus evidence and whole-task verification remain pending.

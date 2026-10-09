@@ -5882,7 +5882,6 @@ impl<'a> Producer<'a> {
         declaration.name == "fzn_array_set_union"
             && declaration.role == DeclarationRole::Predicate
             && self.context.files[declaration.file].kind == SourceKind::StandardLibrary
-            && self.context.files[declaration.file].implicit
     }
     // This is typed source inspection of the selected union/FZN written family.
     // Visible IDs are checked owning formals, preceding locals and integer binders;

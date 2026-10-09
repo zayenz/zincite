@@ -11885,8 +11885,9 @@ fn grouping_direct_reverse_sources_preserve_unknown_and_closed_errors() {
 
 #[test]
 fn decision_set_union_real_local_bodies_inspect_sources_without_outputs() {
-    use zincite_lint::CallOutcome;
-    let source = r#"predicate checked_union(array[int] of var set of int: cells, set of int: universe) =
+    use zincite_lint::{CallOutcome, SourceKind};
+    let source = r#"include "fzn_array_set_union.mzn";
+predicate checked_union(array[int] of var set of int: cells, set of int: universe) =
     universe == array_union(i in index_set(cells))(cells[i]);
 int: weeks;
 int: groups;
@@ -11956,7 +11957,6 @@ endif"#;
              function any $T: assert(bool: condition,string: message,any $T: result); \
              annotation promise_total; annotation promise_commutative; \
              annotation is_defined_var; function ann: defines_var(any $T: value); \
-             predicate fzn_array_set_union(array[int] of var set of int: x,var set of int: z) = {helper_body};\n\
              function var set of int: array_union(array[int] of var set of int: x) \
              :: promise_total :: promise_commutative = {body};\n"
         );
@@ -11968,7 +11968,11 @@ endif"#;
         } else {
             core
         };
-        let body_start = core.find(helper_body).unwrap();
+        let helper = format!(
+            "predicate fzn_array_set_union(array[int] of var set of int: x,var set of int: z) = {helper_body};\n"
+        );
+        let body_start = helper.find(helper_body).unwrap();
+        std::fs::write(dir.join("library/std/fzn_array_set_union.mzn"), helper).unwrap();
         std::fs::write(dir.join("library/std/stdlib.mzn"), core).unwrap();
         std::fs::write(dir.join("root.mzn"), source).unwrap();
         let context = load_model(
@@ -12004,7 +12008,10 @@ endif"#;
         let CallOutcome::Resolved { declaration, .. } = &selected_call.outcome else {
             unreachable!();
         };
-        let selected_library = &context.files[bindings.declarations[declaration.0].file].path;
+        let selected_file = &context.files[bindings.declarations[declaration.0].file];
+        assert_eq!(selected_file.kind, SourceKind::StandardLibrary);
+        assert!(!selected_file.implicit);
+        let selected_library = &selected_file.path;
         let result = analyze_model(&context, &selected());
         let instantiations = resolve_instantiations(&context, &bindings, &calls);
         let domains = resolve_domains(&context, &bindings);
