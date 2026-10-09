@@ -3,12 +3,12 @@
 # Tasks: readability
 
 - Total: 3
-- Ready: 3
+- Ready: 2
 - Blocked: 0
-- Done: 0
+- Done: 1
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
-| [readability-001](tasks/001-align-syntax-input-helpers-with-lexer-and-discovery-contract.md) | Align syntax input helpers with lexer and discovery contracts | ready | — |
+| [readability-001](tasks/001-align-syntax-input-helpers-with-lexer-and-discovery-contract.md) | Align syntax input helpers with lexer and discovery contracts | done | — |
 | [readability-002](tasks/002-make-global-use-traversal-responsibilities-visible.md) | Make global-use traversal responsibilities visible | ready | — |
 | [readability-003](tasks/003-name-the-input-fact-for-captured-or-skipped-evaluation.md) | Name the input fact for captured or skipped evaluation | ready | — |

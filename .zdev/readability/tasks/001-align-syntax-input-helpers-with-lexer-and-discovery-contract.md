@@ -3,7 +3,7 @@ schema_version = 1
 id = "readability-001"
 key = "syntax-input-contracts"
 area = "readability"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -27,11 +27,20 @@ The read-only review found two inconsistencies in crates/zincite-syntax/src/lib.
 
 ## Done when
 
-- [ ] A valid literal include containing an escaped apostrophe decodes to the intended path bytes without an evaluation limitation; original source spelling remains retained.
-- [ ] Lowercase, uppercase and mixed-case dzn paths select data mode consistently with directory discovery; other paths retain model mode.
-- [ ] Focused public-behavior regression checks detect both original inconsistencies, and the required workspace checks pass.
+- [x] A valid literal include containing an escaped apostrophe decodes to the intended path bytes without an evaluation limitation; original source spelling remains retained.
+- [x] Lowercase, uppercase and mixed-case dzn paths select data mode consistently with directory discovery; other paths retain model mode.
+- [x] Focused public-behavior regression checks detect both original inconsistencies, and the required workspace checks pass.
 
 ## Validation
 
 - Establish the syntax test baseline before editing. Add only focused regression assertions for the two public helpers and demonstrate that they fail on the original behavior.
 - Run the Rust workspace validation commands in the readability brief. Inspect the source-preserving result and unchanged public signatures; no solver run or broad corpus sweep is required for these helper corrections.
+
+## Result
+
+Decoded escaped apostrophes in literal includes and aligned case-insensitive data-file mode selection with discovery; independently verified both helper contracts.
+
+Validation:
+
+- Both focused regressions failed before correction and pass afterwards.
+- Independent cargo fmt, workspace Clippy with denied warnings, workspace tests and doctests passed; source spelling/ranges and signatures preserved.

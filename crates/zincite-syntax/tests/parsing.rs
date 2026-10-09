@@ -1189,6 +1189,20 @@ fn model_items_expose_paths_output_headers_and_solve_objectives_losslessly() {
 }
 
 #[test]
+fn literal_include_decodes_escaped_apostrophes_without_changing_spelling() {
+    let source = r#"include "owner\'s.mzn";"#;
+    let parsed = parse(source);
+    assert!(parsed.diagnostics().is_empty());
+    let include = items(&parsed)[0];
+    let path = include.child_nodes().next().unwrap();
+    assert_eq!(&source[path.range()], r#""owner\'s.mzn""#);
+    assert_eq!(
+        zincite_syntax::literal_include_path(&parsed, include),
+        Some(b"owner's.mzn".to_vec())
+    );
+}
+
+#[test]
 fn malformed_model_items_diagnose_and_recover_without_losing_source() {
     for bad in [
         "include path;",
@@ -1526,8 +1540,12 @@ fn data_mode_keeps_assignments_lossless_and_recovers_past_model_items() {
     let mut leaves = Vec::new();
     collect_leaves(parsed.tree(), &parsed, &mut leaves);
     assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
-    assert_eq!(FileMode::from_path("data.dzn"), FileMode::Data);
-    assert_eq!(FileMode::from_path("model.mzn"), FileMode::Model);
+    for path in ["data.dzn", "data.DZN", "data.DzN"] {
+        assert_eq!(FileMode::from_path(path), FileMode::Data, "{path}");
+    }
+    for path in ["model.mzn", "model.MZN", "input.other", "input"] {
+        assert_eq!(FileMode::from_path(path), FileMode::Model, "{path}");
+    }
 }
 
 #[test]

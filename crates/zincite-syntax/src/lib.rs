@@ -48,9 +48,14 @@ pub enum FileMode {
 }
 
 impl FileMode {
-    /// `.dzn` selects data syntax; other paths use model syntax.
+    /// `.dzn` selects data syntax case-insensitively; other paths use model syntax.
     pub fn from_path(path: impl AsRef<Path>) -> Self {
-        if path.as_ref().extension().is_some_and(|ext| ext == "dzn") {
+        if path
+            .as_ref()
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("dzn"))
+        {
             Self::Data
         } else {
             Self::Model
@@ -613,7 +618,7 @@ pub fn literal_include_path(parsed: &ParsedFile, item: &SyntaxNode) -> Option<Ve
         decoded.push(match escaped {
             b'n' => b'\n',
             b't' => b'\t',
-            b'"' | b'\\' => escaped,
+            b'"' | b'\'' | b'\\' => escaped,
             b'x' | b'0'..=b'7' => {
                 let radix = if escaped == b'x' { 16 } else { 8 };
                 let mut value = if radix == 8 {
