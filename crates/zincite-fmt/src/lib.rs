@@ -189,7 +189,7 @@ struct Formatter<'a> {
 
 struct MatrixCell {
     text: String,
-    slot: String,
+    alignment_text: String,
     pending_breaks: usize,
     line_comment: bool,
     last_was_comment: bool,
@@ -1389,7 +1389,7 @@ impl<'a> Formatter<'a> {
                         rendered.token_with_space(index, false);
                     }
                 }
-                let slot = rendered.output[prefix_length..].to_owned();
+                let alignment_text = rendered.output[prefix_length..].to_owned();
                 if !is_index {
                     let column = cells.len() - usize::from(indexed);
                     forced_breaks.resize(forced_breaks.len().max(column + 2), false);
@@ -1397,7 +1397,7 @@ impl<'a> Formatter<'a> {
                         forced_breaks[column] = true;
                         forced_breaks[column + 1] = true;
                     }
-                    if slot.contains('\n')
+                    if alignment_text.contains('\n')
                         || rendered.line_comment
                         || rendered.pending_breaks > 1
                         || rendered.last_was_comment && rendered.pending_breaks > 0
@@ -1407,7 +1407,7 @@ impl<'a> Formatter<'a> {
                 }
                 cells.push(MatrixCell {
                     text,
-                    slot,
+                    alignment_text,
                     pending_breaks,
                     line_comment,
                     last_was_comment,
@@ -1435,8 +1435,10 @@ impl<'a> Formatter<'a> {
                     .zip(&rows)
                     .filter_map(|((_, indexed), cells)| cells.get(column + usize::from(*indexed)))
                     .map(|cell| {
-                        self.columns_from(cell.slot.split('\n').next().unwrap_or_default(), start)
-                            - start
+                        self.columns_from(
+                            cell.alignment_text.split('\n').next().unwrap_or_default(),
+                            start,
+                        ) - start
                     })
                     .max()
                     .unwrap_or(0)

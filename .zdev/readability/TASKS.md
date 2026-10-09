@@ -3,14 +3,14 @@
 # Tasks: readability
 
 - Total: 5
-- Ready: 2
+- Ready: 1
 - Blocked: 0
-- Done: 3
+- Done: 4
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
 | [readability-001](tasks/001-align-syntax-input-helpers-with-lexer-and-discovery-contract.md) | Align syntax input helpers with lexer and discovery contracts | done | — |
 | [readability-002](tasks/002-make-global-use-traversal-responsibilities-visible.md) | Make global-use traversal responsibilities visible | done | — |
 | [readability-003](tasks/003-name-the-input-fact-for-captured-or-skipped-evaluation.md) | Name the input fact for captured or skipped evaluation | done | — |
-| [readability-004](tasks/004-name-matrix-cell-alignment-text-by-its-purpose.md) | Name matrix cell alignment text by its purpose | ready | — |
+| [readability-004](tasks/004-name-matrix-cell-alignment-text-by-its-purpose.md) | Name matrix cell alignment text by its purpose | done | — |
 | [readability-005](tasks/005-reuse-the-shared-byte-position-helper-in-formatter-diagnosti.md) | Reuse the shared byte-position helper in formatter diagnostics | ready | — |
