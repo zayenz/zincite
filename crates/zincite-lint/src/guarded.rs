@@ -1,6 +1,6 @@
 //! Guarded truth and operation obligations, independent of lint policy.
 use crate::callables::{
-    call_argument, core_operation, integer_array_concatenation, is_expression, operation_head_start,
+    array_concatenation, call_argument, core_operation, is_expression, operation_head_start,
 };
 use crate::definitions::{
     annotations_safe, core_callable, resolved_call, resolved_reference,
@@ -1181,9 +1181,14 @@ impl<'a> Producer<'a> {
         let Some(operator) = self.operator(file, node) else {
             return self.unsupported(file, node, "operator syntax is unavailable");
         };
-        if integer_array_concatenation(self.context, self.bindings, self.calls, file, node)
-            .is_some()
-        {
+        if array_concatenation(self.context, self.bindings, self.calls, file, node).is_some() {
+            if self.ty(file, node).is_some_and(|ty| {
+                matches!(&ty.kind, TypeKind::Array { element, .. }
+                    if matches!(element.kind, TypeKind::Set(_)))
+            }) {
+                // A checked shape gives no totality proof for initialized sources.
+                result.definedness = conjoin(&result.definedness, &GuardedOutcome::Unknown);
+            }
             result.numeric = None;
             result.truth = None;
             return result;
@@ -1928,7 +1933,7 @@ impl<'a> Producer<'a> {
             source_scope.evaluation = GuardEvaluation::Strict;
             source_scope.enforcement = DefinitionEnforcement::Conditional;
             let source_value = self.walk(file, item, source, source_scope.clone());
-            let inspected_concatenation = integer_array_concatenation(
+            let inspected_concatenation = array_concatenation(
                 self.context,
                 self.bindings,
                 self.calls,

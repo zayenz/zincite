@@ -5233,3 +5233,20 @@ Evidence is under semantic62-is-table-release-controls-preparation-v1. The next
 checks distinguish IS's parameter array-of-set concatenation from table wrapper
 index and conversion calls. These gaps and final corpus, functional and
 performance checks keep base-083 open.
+
+Selected core concatenation of parameter integer-set arrays now permits source
+inspection. The shared shape check retains core identity, rank, type and coercion
+guards. Inspection preserves annotation and closed-error refusals and returns
+Unknown for extent and values. Strict dependency production remains limited to
+its previous integer-array shapes; no new output guarantees are introduced.
+Guarded evaluation also retains Unknown for the new shape.
+
+The existing public control group now checks successful symbolic inspection,
+retained division-by-zero refusal and absence of output definitions. Private
+candidate formatting, Clippy and all 222 workspace tests pass; existing output
+and reshape guards also pass. Evidence is under
+semantic62-is-set-concat-production-preparation-v1. Actual main formatting,
+Clippy with warnings denied and all 222 workspace tests also pass under
+semantic62-is-set-concat-main-integration. Matched normal native controls
+and the separate table-wrapper assertion repair remain pending; this increment
+alone does not establish original IS or final corpus completion.

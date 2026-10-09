@@ -5034,6 +5034,7 @@ fn total_controls_and_filtered_relations_separate_outputs_from_unavailable_bodie
         "predicate pairs(array[int] of var int: xs)=forall(i,j in index_set(xs) where i<j)(xs[i]!=xs[j]);\n",
         "predicate reflected(array[int] of var int: xs,set of int: excluded)=if forall(i in index_set(xs))(has_bounds(xs[i])) then let { set of int: D=dom_array(xs) diff excluded; } in pairs(xs) /\\ sum(set2array(D))>=0 else pairs(xs) endif;\n",
         "predicate parameter_set_values(set of int: values)=sum(set2array(values))>=0;\n",
+        "predicate parameter_set_arrays(array[int] of set of int: values,var bool: result)=index_set(values)=index_set(values);\n",
         "predicate partial_set_values(var int: result)=let { set of int: D={1 div 0}; } in result=sum(set2array(D));\n",
         "predicate unguarded_bounds(array[int] of var int: xs,var int: result)=let { set of int: D=dom_array(xs); } in result=0;\n",
         "predicate filtered_bounds(bool: gate,array[int] of var int: xs,var int: result)=if forall(i in index_set(xs) where gate)(has_bounds(xs[i])) then let { set of int: D=dom_array(xs); } in result=0 else result=0 endif;\n",
@@ -5066,7 +5067,7 @@ fn total_controls_and_filtered_relations_separate_outputs_from_unavailable_bodie
         "solve :: seq_search([int_search(xs,input_order,indomain_min,complete),int_search(scoped_values,input_order,indomain_min,complete),int_search(defined_values,input_order,indomain_min,complete),bool_search(flags,input_order,indomain_min,complete),bool_search([private_left,private_right],input_order,indomain_min,complete)]) satisfy;\n",
     );
     let (dir, _) = model("total-controls", source, included);
-    std::fs::write(dir.join("library/std/stdlib.mzn"), format!("{CORE}\nfunction int: '+'(int: left,int: right); function var bool: '!='(var int: left,var int: right); function bool: '<'(int: left,int: right); function bool: '<='(int: left,int: right); function bool: '>='(int: left,int: right); function bool: 'in'(int: left,set of int: right); function int: 'div'(int: left,int: right); test absent(opt $T: x); test occurs(opt $T: x); function bool: has_bounds(var int: x); function set of int: dom_array(array[int] of var int: xs); function set of int: 'diff'(set of int: left,set of int: right); function array[int] of int: set2array(set of int: values); function bool: forall(array[int] of bool: body); function bool: exists(array[int] of bool: body); function int: sum(array[int] of int: body); function array[int] of int: '++'(array[int] of int: left,array[int] of int: right); function bool: '>'(int: left,int: right); function var bool: assert(bool: b,string: msg,var bool: x); function bool: assert(bool: b,string: msg); function string: '++'(string: left,string: right); function string: show_index_sets(array[int] of var int: xs); function int: length(array[$U] of any $V: xs); annotation promise_total; annotation domain; function int: min(set of int: s); function int: max(set of int: s); function set of int: index_set_1of2(array[int,int] of any $V: values); function array[int,int] of int: array2d(set of int: rows,set of int: columns,array[int] of int: values); function int: min(int: left,int: right); function int: '-'(int: left,int: right); function bool: '/\\'(bool: left,bool: right); function var bool: '<'(var bool: left,var bool: right); function var int: count(array[int] of var bool: body); function var bool: '\\/'(var bool: left,var bool: right); function var bool: '<->'(var bool: left,var bool: right); function var bool: '<='(var int: left,var int: right); function var int: bool2int(var bool: value); function var bool: 'not'(var bool: value); function int: lb(var int: value); function int: ub(var int: value); function int: fix(var int: value); function bool: is_fixed(var int: value); function int: lb_array(array[int] of var int: values); function int: ub_array(array[int] of var int: values); function array[$T] of any $V: arrayXd(array[$T] of any $X: shape,array[$U] of any $V: values); function $$E: arg_min(array[$$E] of $$T: values); function var bool: '>'(var int: left,var int: right); function var bool: '>='(var int: left,var int: right); function var int: '*'(var int: left,var int: right);\n")).unwrap();
+    std::fs::write(dir.join("library/std/stdlib.mzn"), format!("{CORE}\nfunction int: '+'(int: left,int: right); function var bool: '!='(var int: left,var int: right); function bool: '<'(int: left,int: right); function bool: '<='(int: left,int: right); function bool: '>='(int: left,int: right); function bool: 'in'(int: left,set of int: right); function int: 'div'(int: left,int: right); test absent(opt $T: x); test occurs(opt $T: x); function bool: has_bounds(var int: x); function set of int: dom_array(array[int] of var int: xs); function set of int: 'diff'(set of int: left,set of int: right); function array[int] of int: set2array(set of int: values); function bool: forall(array[int] of bool: body); function bool: exists(array[int] of bool: body); function int: sum(array[int] of int: body); function array[int] of int: '++'(array[int] of int: left,array[int] of int: right); function array[int] of set of int: '++'(array[int] of set of int: left,array[int] of set of int: right); function bool: '>'(int: left,int: right); function var bool: assert(bool: b,string: msg,var bool: x); function bool: assert(bool: b,string: msg); function string: '++'(string: left,string: right); function string: show_index_sets(array[int] of var int: xs); function int: length(array[$U] of any $V: xs); annotation promise_total; annotation domain; function int: min(set of int: s); function int: max(set of int: s); function set of int: index_set_1of2(array[int,int] of any $V: values); function array[int,int] of int: array2d(set of int: rows,set of int: columns,array[int] of int: values); function int: min(int: left,int: right); function int: '-'(int: left,int: right); function bool: '/\\'(bool: left,bool: right); function var bool: '<'(var bool: left,var bool: right); function var int: count(array[int] of var bool: body); function var bool: '\\/'(var bool: left,var bool: right); function var bool: '<->'(var bool: left,var bool: right); function var bool: '<='(var int: left,var int: right); function var int: bool2int(var bool: value); function var bool: 'not'(var bool: value); function int: lb(var int: value); function int: ub(var int: value); function int: fix(var int: value); function bool: is_fixed(var int: value); function int: lb_array(array[int] of var int: values); function int: ub_array(array[int] of var int: values); function array[$T] of any $V: arrayXd(array[$T] of any $X: shape,array[$U] of any $V: values); function $$E: arg_min(array[$$E] of $$T: values); function var bool: '>'(var int: left,var int: right); function var bool: '>='(var int: left,var int: right); function var int: '*'(var int: left,var int: right);\n")).unwrap();
     let context = load_model(
         dir.join("root.mzn"),
         &ModelOptions {
@@ -5410,6 +5411,64 @@ fn total_controls_and_filtered_relations_separate_outputs_from_unavailable_bodie
         analyze_model(&context, &selected()).rules[0].outcome,
         RuleOutcome::Completed
     ));
+    // Inspect a parameter constructor without promising its contents or any output.
+    let set_array_source = concat!(
+        "include \"included.mzn\"; int: row_count; set of int: ConcatRows=1..row_count; ",
+        "array[ConcatRows] of set of int: members; array[int] of set of int: joined=members ++ [ConcatRows]; ",
+        "var bool: set_array_result; constraint parameter_set_arrays(joined,set_array_result); ",
+        "solve satisfy;\n",
+    );
+    let partial_set_array_source = set_array_source.replace("++ [ConcatRows]", "++ [{1 div 0}]");
+    for (source, completed) in [
+        (set_array_source, true),
+        (partial_set_array_source.as_str(), false),
+    ] {
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{:?}", context.errors);
+        let (bindings, search) = facts(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let outputs =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let result = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "set_array_result")
+            .unwrap();
+        let helper = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == "parameter_set_arrays")
+            .unwrap();
+        assert!(outputs.definitions.iter().all(|d| d.target != result.id));
+        assert!(outputs.outputs.iter().all(|o| o.callable != helper.id));
+        let outcome = &analyze_model(&context, &selected()).rules[0].outcome;
+        if completed {
+            assert_eq!(*outcome, RuleOutcome::Completed, "{:?}", search.limitations);
+            assert_eq!(
+                coverage(&bindings, &search, "set_array_result"),
+                SearchCoverage::Uncovered
+            );
+        } else {
+            assert!(matches!(outcome, RuleOutcome::Limited { .. }));
+            assert!(
+                outputs
+                    .unavailable
+                    .iter()
+                    .any(|u| u.reason == "integer arithmetic overflow or division by zero"),
+                "{:?}",
+                outputs.unavailable
+            );
+        }
+    }
     // Inspect selected cells without assuming membership or defining their owners.
     let table_source = concat!(
         "include \"included.mzn\"; int: row_count; int: data_count; ",

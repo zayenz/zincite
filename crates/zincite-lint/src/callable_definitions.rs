@@ -2,8 +2,8 @@
 use std::collections::HashMap;
 
 use crate::callables::{
-    call_argument, core_operation, find_node, formal_parameter, instantiated_body,
-    integer_array_concatenation, is_expression, operation_fact,
+    array_concatenation, call_argument, core_operation, find_node, formal_parameter,
+    instantiated_body, is_expression, operation_fact,
 };
 use crate::definitions::complete_array_coverage;
 use crate::domains::expression_domain;
@@ -12934,6 +12934,34 @@ impl<'a> Producer<'a> {
             self.expression_type(self.view(file, node, view), file, node)
                 .map(|e| &e.ty)
         };
+        if ty(node).is_some_and(|t| {
+            matches!(&t.kind, TypeKind::Array { element, .. }
+                if matches!(element.kind, TypeKind::Set(_)))
+        }) && let Some(arguments) = array_concatenation(
+            self.context,
+            self.bindings,
+            self.view(file, node, view),
+            file,
+            node,
+        ) {
+            if !crate::definitions::annotations_safe(self.context, file, written) {
+                return DefinitionSafety::Unsupported(
+                    "set-array concatenation annotation is unsupported".into(),
+                );
+            }
+            let sources = self.initialized_children_safety(file, &arguments, view, generators);
+            for argument in arguments {
+                if let Some(reason) = self.closed_integer_source_error(file, argument, true, true) {
+                    return DefinitionSafety::Unsupported(reason);
+                }
+            }
+            return match sources {
+                unsupported @ DefinitionSafety::Unsupported(_) => unsupported,
+                _ => DefinitionSafety::Unknown(
+                    "parameter set-array concatenation extent and values are unproved".into(),
+                ),
+            };
+        }
         if node.kind() == NodeKind::ArrayLiteral
             && let Some(array) = ty(node)
             && array.known()
@@ -14026,7 +14054,7 @@ impl<'a> Producer<'a> {
                         {
                             return DefinitionSafety::Unsupported(reason);
                         }
-                        let Some(arguments) = integer_array_concatenation(
+                        let Some(arguments) = array_concatenation(
                             self.context,
                             self.bindings,
                             self.view(file, collection, view),
@@ -14632,13 +14660,16 @@ impl<'a> Producer<'a> {
                                 .is_some_and(|e| parameter_integers(&e.ty))
                         });
                     if !strings && !integers {
-                        let Some(arguments) = integer_array_concatenation(
-                            self.context,
-                            self.bindings,
-                            facts,
-                            file,
-                            node,
-                        ) else {
+                        // Keep strict dependencies limited to the existing integer shape.
+                        let Some(arguments) = ty
+                            .filter(|t| {
+                                matches!(&t.kind, TypeKind::Array { element, .. }
+                                if element.kind == TypeKind::Int)
+                            })
+                            .and_then(|_| {
+                                array_concatenation(self.context, self.bindings, facts, file, node)
+                            })
+                        else {
                             return Err("concatenation requires supported parameter strings or integer arrays".into());
                         };
                         for argument in arguments {

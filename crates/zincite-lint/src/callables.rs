@@ -1706,8 +1706,8 @@ pub(super) fn operation_fact<'a>(
         .iter()
         .find(|fact| fact.file == file && fact.location.range.start == start)
 }
-/// Selected rank-one integer-array concatenation shape, not an evaluation proof.
-pub(super) fn integer_array_concatenation<'a>(
+/// Selected integer or parameter integer-set array concat shape, not an evaluation proof.
+pub(super) fn array_concatenation<'a>(
     context: &ModelContext,
     bindings: &BindingFacts,
     calls: &CallableFacts,
@@ -1758,7 +1758,15 @@ pub(super) fn integer_array_concatenation<'a>(
                     && !crate::value_safety::optional(&indices[0])
                     && matches!(indices[0].kind, TypeKind::Int | TypeKind::Enum(_))
                     && element.known() && !crate::value_safety::optional(element)
-                    && element.kind == TypeKind::Int)
+                    && (element.kind == TypeKind::Int
+                        || ty.instantiation == Instantiation::Parameter
+                            && indices[0].kind == TypeKind::Int
+                            && element.instantiation == Instantiation::Parameter
+                            && matches!(&element.kind, TypeKind::Set(member)
+                                if member.known()
+                                    && !crate::value_safety::optional(member)
+                                    && member.instantiation == Instantiation::Parameter
+                                    && member.kind == TypeKind::Int)))
     };
     let ty = |value: &SyntaxNode| {
         let range = context.files[file].location(value.range()).range;
