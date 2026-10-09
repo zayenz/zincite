@@ -5419,9 +5419,23 @@ fn total_controls_and_filtered_relations_separate_outputs_from_unavailable_bodie
         "solve satisfy;\n",
     );
     let partial_set_array_source = set_array_source.replace("++ [ConcatRows]", "++ [{1 div 0}]");
+    let reshaped_set_array_source = set_array_source
+        .replace("ConcatRows=1..row_count;", "ConcatRows=1..row_count+1;")
+        .replace(
+            "array[ConcatRows] of set of int: members",
+            "array[1..row_count] of set of int: members",
+        )
+        .replace(
+            "joined=members ++ [ConcatRows];",
+            "joined=array1d(ConcatRows,members ++ [ConcatRows]);",
+        );
+    let partial_reshaped_set_array_source =
+        reshaped_set_array_source.replace("++ [ConcatRows]", "++ [{1 div 0}]");
     for (source, completed) in [
         (set_array_source, true),
         (partial_set_array_source.as_str(), false),
+        (reshaped_set_array_source.as_str(), true),
+        (partial_reshaped_set_array_source.as_str(), false),
     ] {
         std::fs::write(dir.join("root.mzn"), source).unwrap();
         let context = load_model(

@@ -5289,3 +5289,19 @@ semantic62-table-index-wrapper-release-controls-preparation-v1/
 {release-results/root-build-audit.json,control-results/root-audit.json}.
 The normal release uses the composed source; a final release built from main remains
 pending. The receiver diagnosis, base-083 and final corpus acceptance remain open.
+
+The one-axis core array1d receiver now inspects a checked parameter integer-set
+array concatenation through the existing inline reshape path. Exact selected
+types, annotations, initialized sources and closed-error refusals remain checked;
+cardinality stays Unknown. Strict dependency and output handling are unchanged.
+The existing public group adds symbolic and division-by-zero receiver cases with
+no output guarantees. The positive regression failed on the prior source after
+its selected receiver tuple was checked, then passed with the repair; the negative
+retains its refusal. Private typed preflight checks were removed from the patch.
+
+The focused private check and actual-main formatting, Clippy with warnings denied
+and all 223 workspace tests pass; existing test names are unchanged. Evidence is
+under semantic62-is-set-concat-reshape-{red,production}-preparation-v1 and
+semantic62-is-set-concat-reshape-main-integration. Independent review found no
+local defect in the guard. Matched native receiver controls, final corpus and
+functional/performance checks remain pending; base-083 remains open.

@@ -10992,9 +10992,7 @@ impl<'a> Producer<'a> {
         } else {
             return None;
         };
-        if children.len() != axes + 1
-            || unwrap(children[axes]).kind() != NodeKind::ArrayComprehension
-        {
+        if children.len() != axes + 1 {
             return None;
         }
         let facts = self.view(file, node, view);
@@ -11022,6 +11020,22 @@ impl<'a> Producer<'a> {
                         || axes == 1 && t.instantiation == Instantiation::Parameter
                             && parameter_set(element)))
         };
+        let parameter_set_array = |n: &SyntaxNode| {
+            typed(n).is_some_and(|t| {
+                array(t, 1)
+                    && t.instantiation == Instantiation::Parameter
+                    && matches!(&t.kind, TypeKind::Array { element, .. } if parameter_set(element))
+            })
+        };
+        let source = unwrap(children[axes]);
+        if source.kind() != NodeKind::ArrayComprehension
+            && !(axes == 1
+                && parameter_set_array(children[axes])
+                && parameter_set_array(node)
+                && array_concatenation(self.context, self.bindings, facts, file, source).is_some())
+        {
+            return None;
+        }
         let valid = children.iter().all(|n| n.kind() != NodeKind::NamedArgument)
             && children[..axes]
                 .iter()
@@ -11048,8 +11062,8 @@ impl<'a> Producer<'a> {
                 "inline reshape selected signature or type is unsupported".into(),
             ));
         }
-        // New set-array inspection checks its eager axis independently. The
-        // comprehension's lazy branches keep the existing source inspection.
+        // Set-array inspection checks its eager axis independently. The
+        // source's existing initialized inspection preserves lazy branches.
         if axes == 1
             && typed(node).is_some_and(
                 |t| matches!(&t.kind, TypeKind::Array { element, .. } if parameter_set(element)),
