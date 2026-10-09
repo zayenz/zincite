@@ -34,6 +34,89 @@ fn selected() -> LintOptions {
 }
 
 #[test]
+fn symbolic_local_conditional_axes_retain_source_errors() {
+    let source = concat!(
+        "predicate symbolic_axis(array[int] of int: cons) =\n",
+        "    let {\n",
+        "        int: n = if cons[1] = -1 then 0 else max(index_set(cons)) endif,\n",
+        "        array[1..n+1] of int: values = [1 | i in 1..n+1]\n",
+        "    } in true;\n",
+        "constraint symbolic_axis([0,1]); solve satisfy;\n",
+    );
+    let (directory, _) = model("local-conditional-axis", source);
+    std::fs::write(
+        directory.join("library/std/stdlib.mzn"),
+        concat!(
+            "function int: '+'(int: left,int: right);\n",
+            "function int: '-'(int: value);\n",
+            "function bool: '='(int: left,int: right);\n",
+            "function set of int: '..'(int: left,int: right);\n",
+            "function set of int: index_set(array[int] of int: values);\n",
+            "function int: max(set of int: values);\n",
+        ),
+    )
+    .unwrap();
+    let root = directory.join("root.mzn");
+    let options = ModelOptions {
+        stdlib_dir: Some(directory.join("library")),
+        include_dirs: Vec::new(),
+    };
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let bindings = resolve_bindings(&context);
+    let domains = resolve_domains(&context, &bindings);
+    let axis = domains
+        .array_indices
+        .iter()
+        .find(|axis| {
+            axis.location.path == root && source[axis.location.range.clone()].trim() == "1..n+1"
+        })
+        .unwrap();
+    assert!(axis.domain.numeric_minimum().is_err(), "{:?}", axis);
+    let result = analyze_model(&context, &selected());
+
+    for (before, after) in [
+        ("then 0", "then (9223372036854775807+1)"),
+        ("cons[1]", "cons[9223372036854775807+1]"),
+    ] {
+        assert!(source.contains(before));
+        let hazardous = source.replace(before, after);
+        std::fs::write(&root, &hazardous).unwrap();
+        let context = load_model(&root, &options);
+        let unsafe_result = analyze_model(&context, &selected());
+        assert!(
+            unsafe_result.errors.is_empty(),
+            "{:?}",
+            unsafe_result.errors
+        );
+        assert!(
+            unsafe_result.findings.is_empty(),
+            "{:?}",
+            unsafe_result.findings
+        );
+        assert!(matches!(
+            unsafe_result.rules[0].outcome,
+            RuleOutcome::Limited { .. }
+        ));
+        assert!(
+            unsafe_result.limitations.iter().any(|limit| {
+                limit.location.path == root
+                    && hazardous[limit.location.range.clone()].trim() == "1..n+1"
+            }),
+            "{:?}",
+            unsafe_result.limitations
+        );
+    }
+    std::fs::write(&root, source).unwrap();
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(result.findings.is_empty(), "{:?}", result.findings);
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn index_set_axes_retain_declared_bounds_and_symbolic_uncertainty() {
     let source = r#"include "all_different.mzn";
 predicate written_circuit(array[int] of var int: xs) =

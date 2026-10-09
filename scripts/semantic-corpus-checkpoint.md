@@ -5615,3 +5615,39 @@ semantic62-b691-final-reconciliation-preparation-v1/root-audit.json.
 The baseline capture is now settled, permitting reviewed repairs to enter main.
 Base-083 and its final corpus, public behavior and performance verification
 remain open.
+
+The six prepared repairs are integrated into the main working tree: matching
+rank-two named selectors, decision-set cardinality inspection, optional integer
+sums, symbolic local conditional axes, atomic standard output annotations, and
+parameter enum-successor inspection. All 108 candidate source pins were checked
+against the settled baseline before copying the four changed paths. Actual-main
+formatting, Clippy with warnings denied and all 227 workspace tests pass; sources
+remain unchanged through the three checks. Gate captures are under
+main-six-repair-gates-v1. Final independent task acceptance remains pending.
+
+Original Jobshop captures were independently reconciled against the actual
+b691 root records and diagnostics. All fourteen thesis rules complete, with
+three warnings and no limitations. Search changes from Limited to Completed,
+removes its arbitrary-value-call limitation and adds uncovered `s` advice;
+uncovered `end` and the decision disjunction warning remain. The all-rules
+preset retains three Limited rules and six limitations. All eight streams,
+four receipts, 1991 control pins and 108 candidate files were checked. The
+retained original/data Gecode compilation succeeds without solving. Successor
+values and index membership remain unproved; this establishes no output
+guarantee. Review is under
+semantic62-six-gap-jobshop-functional-controls-preparation-v1/bounded-jobshop-review.json.
+
+The Social Golfers membership reduction reaches a genuine behavior failure at
+the Completed assertion after parsing and selected-call prechecks pass. It
+reports unproved traversal membership for `schedule[w,1]`. The retained decision
+set cardinality and numeric safety groups pass. ROOT checked six full streams,
+three reaped empty groups and 1278 unchanged inputs under
+semantic62-social-golfers-membership-red-preparation-v1/root-results.
+A minimal private integer-membership source-inspection repair is authorized;
+its later output/coverage assertions remain unobserved until the positive passes.
+
+Independent local integration review reports no concrete soundness finding
+across the four changed paths and their strict consumers. The reviewed main
+files match the six-repair candidate. This review does not replace final
+base-083 verification. The report is retained alongside the Jobshop review as
+bounded-six-composition-review.json.

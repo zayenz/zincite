@@ -349,6 +349,52 @@ pub(super) fn initialized_expression_safety<'a>(
     }
     safety
 }
+// A checked parameter conditional supplies an unknown bound, never its value.
+// The caller owns the local declaration and formal-source correspondence.
+pub(super) fn initialized_conditional_bound_safety<'a>(
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    calls: &'a CallableFacts,
+    instantiations: &'a InstantiationFacts,
+    domains: &'a DomainFacts,
+    source: (FileId, &'a SyntaxNode),
+) -> Option<DefinitionSafety> {
+    let (file, node) = source;
+    let producer = Producer {
+        context,
+        bindings,
+        calls,
+        instantiations,
+        domains,
+        lookups: None,
+        instances: Vec::new(),
+        boundaries: Vec::new(),
+        selected_set_source: false,
+        inactive_integer_body: None,
+    };
+    if node.kind() != NodeKind::ConditionalExpression
+        || producer.expression_type(calls, file, node).is_none_or(|e| {
+            !e.ty.known()
+                || optional(&e.ty)
+                || e.ty.instantiation != Instantiation::Parameter
+                || e.ty.kind != TypeKind::Int
+        })
+    {
+        return None;
+    }
+    let safety = producer.initialized_source_safety(file, node, calls, &[], &mut Vec::new());
+    if let unsupported @ DefinitionSafety::Unsupported(_) = safety {
+        return Some(unsupported);
+    }
+    // Inspect both branches and every closed fragment without choosing a branch
+    // or waiving errors in a literal-inactive body.
+    if let Some(reason) = producer.closed_integer_source_error(file, node, false, true) {
+        return Some(DefinitionSafety::Unsupported(reason));
+    }
+    Some(DefinitionSafety::Unknown(
+        "initialized conditional bound is unproved".into(),
+    ))
+}
 // Inspect only a scalar set selected from a present rank-one parameter array.
 // This supplies no membership or extent; all initialized sources remain checked.
 pub(super) fn selected_integer_set_source_safety<'a>(
@@ -9981,6 +10027,67 @@ impl<'a> Producer<'a> {
             _ => DefinitionSafety::Unknown("selected parameter set membership is unproved".into()),
         })
     }
+    fn source_annotations_safe(&self, file: FileId, node: &SyntaxNode) -> bool {
+        node.child_nodes()
+            .filter(|n| n.kind() == NodeKind::Annotation)
+            .all(|annotation| {
+                let Some(value) = annotation.child_nodes().next() else {
+                    return false;
+                };
+                if value.kind() != NodeKind::Expression {
+                    return false;
+                }
+                let tokens = crate::domains::tokens(&self.context.files[file].parsed, value);
+                if tokens
+                    .first()
+                    .is_some_and(|t| t.kind == TokenKind::StringLiteral)
+                {
+                    return true;
+                }
+                if tokens.len() != 1 {
+                    return false;
+                }
+                let Some(id) = self.reference(file, value) else {
+                    return false;
+                };
+                let declaration = &self.bindings.declarations[id.0];
+                let source = &self.context.files[declaration.file];
+                let annotation_type = TypeInst {
+                    instantiation: Instantiation::Parameter,
+                    optional: false,
+                    kind: TypeKind::Annotation,
+                };
+                if declaration.name != "add_to_output"
+                    || declaration.role != DeclarationRole::Annotation
+                    || source.kind != SourceKind::StandardLibrary
+                    || !source.implicit
+                    || self.calls.declarations[id.0].ty != annotation_type
+                {
+                    return false;
+                }
+                let mut signatures = self.calls.signatures.iter().filter(|s| s.declaration == id);
+                let Some(signature) = signatures.next() else {
+                    return false;
+                };
+                if signatures.next().is_some()
+                    || !signature.parameters.is_empty()
+                    || signature.return_type != annotation_type
+                {
+                    return false;
+                }
+                // This checked atomic annotation permits source inspection only;
+                // values, domains and output coverage still need their own proof.
+                find_node(
+                    source.parsed.tree(),
+                    &declaration.syntax_range,
+                    declaration.role,
+                )
+                .is_some_and(|written| {
+                    written.kind() == NodeKind::AnnotationDeclaration
+                        && written.child_nodes().next().is_none()
+                })
+            })
+    }
     // Inspection only: a bare source dependency is not proof that its written
     // initializer, domains and transitive initialized sources are supported.
     fn initialized_source_safety(
@@ -9994,7 +10101,7 @@ impl<'a> Producer<'a> {
         let mut safety = DefinitionSafety::Supported;
         let mut nodes = vec![node];
         while let Some(current) = nodes.pop() {
-            if !crate::definitions::annotations_safe(self.context, file, current) {
+            if !self.source_annotations_safe(file, current) {
                 return DefinitionSafety::Unsupported(
                     "initialized source annotation is unsupported".into(),
                 );
@@ -10072,7 +10179,7 @@ impl<'a> Producer<'a> {
                 types.clear();
                 let mut parts = vec![written];
                 while let Some(part) = parts.pop() {
-                    if !crate::definitions::annotations_safe(self.context, declaration.file, part) {
+                    if !self.source_annotations_safe(declaration.file, part) {
                         unsupported = Some("enum source annotation is unsupported".into());
                     }
                     if part.kind() == NodeKind::EnumConstructor {
@@ -10125,12 +10232,12 @@ impl<'a> Producer<'a> {
                     }
                 }
             }
-            if !crate::definitions::annotations_safe(self.context, declaration.file, written) {
+            if !self.source_annotations_safe(declaration.file, written) {
                 unsupported =
                     Some("initialized source declaration annotation is unsupported".to_owned());
             }
             while let Some(ty) = types.pop() {
-                if !crate::definitions::annotations_safe(self.context, declaration.file, ty) {
+                if !self.source_annotations_safe(declaration.file, ty) {
                     unsupported =
                         Some("initialized source written type annotation is unsupported".into());
                 }
@@ -10172,7 +10279,7 @@ impl<'a> Producer<'a> {
             checked => checked,
         }
     }
-    // Inspect parameter collection construction without turning unproved index
+    // Inspect collection construction without turning unproved index
     // membership, cardinality or filtered iteration into output dependencies.
     fn collection_construction_safety(
         &self,
@@ -10259,14 +10366,36 @@ impl<'a> Producer<'a> {
             {
                 return Err("parameter collection body type is unsupported".into());
             }
+            // Decision-set generators introduce absent cells; this exact core
+            // overload may inspect the sum without proving which cells occur.
+            let optional_sum = node.kind() == NodeKind::GeneratorCallExpression
+                && self.core(file, node, view, "sum")
+                && present(ty) && ty.kind == TypeKind::Int
+                && ty.instantiation == Instantiation::Decision
+                && typed(body).is_some_and(|t| present(t) && t.kind == TypeKind::Int)
+                && self.operation_fact(facts, file, node).is_some_and(|call| {
+                    matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                        if return_type == ty && parameters.len() == 1
+                            && parameters[0].known() && !parameters[0].optional
+                            && parameters[0].instantiation == Instantiation::Decision
+                            && matches!(&parameters[0].kind, TypeKind::Array { indices, element }
+                                if indices.len() == 1 && present_parameter(&indices[0])
+                                    && indices[0].kind == TypeKind::Int && element.known()
+                                    && element.optional && element.instantiation == Instantiation::Decision
+                                    && element.kind == TypeKind::Int))
+                });
+            if optional_sum && list.child_nodes().count() != 1 {
+                return Err("optional sum requires one decision enum set header".into());
+            }
             if node.kind() == NodeKind::GeneratorCallExpression
                 && self.operation_fact(facts, file, node).is_none_or(|call| {
                     !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
                         if parameters.len() == 1 && return_type == ty
-                            && present(&parameters[0])
+                            && (present(&parameters[0]) || optional_sum)
                             && matches!(&parameters[0].kind, TypeKind::Array { indices, element: formal }
                                 if indices.len() == 1 && present_parameter(&indices[0])
-                                    && indices[0].kind == TypeKind::Int && present(formal)
+                                    && indices[0].kind == TypeKind::Int
+                                    && (present(formal) || optional_sum)
                                     && formal.kind == element.kind
                                     && typed(body).is_some_and(|actual| crate::types::coerces(actual, formal))))
                 })
@@ -10300,20 +10429,48 @@ impl<'a> Producer<'a> {
                     matches!(c, SyntaxElement::Token(i)
                     if self.context.files[file].parsed.tokens()[*i].kind == TokenKind::In)
                 }) || binders.is_empty()
+                    || optional_sum && binders.len() != 1
                     || binders.len()
                         != crate::domains::generator_slots(&self.context.files[file].parsed, header)
                     || binders.iter().any(|d| {
                         let t = &facts.declarations[d.id.0].ty;
-                        !present_parameter(t) || t.kind != TypeKind::Int
+                        !present_parameter(t)
+                            || if optional_sum {
+                                !matches!(t.kind, TypeKind::Enum(_))
+                            } else {
+                                t.kind != TypeKind::Int
+                            }
                     })
                 {
-                    return Err("parameter collection requires named integer in binders".into());
+                    return Err(if optional_sum {
+                        "optional sum requires named parameter enum binders".into()
+                    } else {
+                        "parameter collection requires named integer in binders".into()
+                    });
                 }
                 let source = header
                     .child_nodes()
                     .next()
                     .ok_or("parameter collection source unavailable")?;
-                if typed(source).is_none_or(|t| !integer_set(t)) {
+                if optional_sum {
+                    let source_id = self
+                        .reference(file, unwrap(source))
+                        .filter(|id| {
+                            unwrap(source).kind() == NodeKind::Expression
+                                && self.bindings.declarations[id.0].top_level
+                                && self.bindings.declarations[id.0].role == DeclarationRole::Value
+                        })
+                        .ok_or("optional sum requires a bare decision enum set source")?;
+                    if typed(source).is_none_or(|t| !present(t)
+                        || t != &self.calls.declarations[source_id.0].ty
+                        || t.instantiation != Instantiation::Decision
+                        || !matches!(&t.kind, TypeKind::Set(element)
+                            if present_parameter(element) && matches!(element.kind, TypeKind::Enum(_))
+                                && binders.iter().all(|binder| facts.declarations[binder.id.0].ty.kind == element.kind)))
+                    {
+                        return Err("optional sum source and binder enum identities differ".into());
+                    }
+                } else if typed(source).is_none_or(|t| !integer_set(t)) {
                     return Err(
                         "parameter collection requires a present parameter integer set source"
                             .into(),
@@ -10326,7 +10483,7 @@ impl<'a> Producer<'a> {
                     });
                 if let DefinitionSafety::Unsupported(reason) = source_safety {
                     unsupported = Some(reason);
-                } else if conditional_relation
+                } else if (conditional_relation || optional_sum)
                     && let Some(reason) = self.closed_integer_source_error(file, source, true, true)
                 {
                     unsupported = Some(reason);
@@ -10349,7 +10506,7 @@ impl<'a> Producer<'a> {
                         self.initialized_source_safety(file, condition, view, &all, &mut Vec::new())
                     {
                         unsupported = Some(reason);
-                    } else if conditional_relation
+                    } else if (conditional_relation || optional_sum)
                         && let Some(reason) =
                             self.closed_integer_source_error(file, condition, true, true)
                     {
@@ -10375,6 +10532,10 @@ impl<'a> Producer<'a> {
                 self.initialized_source_safety(file, body, view, &all, &mut Vec::new())
             };
             if let DefinitionSafety::Unsupported(reason) = body_safety {
+                unsupported = Some(reason);
+            } else if optional_sum
+                && let Some(reason) = self.closed_integer_source_error(file, body, true, true)
+            {
                 unsupported = Some(reason);
             }
             match unsupported {
@@ -10588,7 +10749,7 @@ impl<'a> Producer<'a> {
         let collection = |t: &TypeInst, actual: bool| {
             t.known()
                 && !optional(t)
-                && (!card || t.instantiation == Instantiation::Parameter)
+                && (!card || t.instantiation == Instantiation::Parameter || decision_integer_set(t))
                 && if card {
                     matches!(&t.kind, TypeKind::Set(element) if element.known() && !optional(element)
                         && element.instantiation == Instantiation::Parameter
@@ -10615,7 +10776,7 @@ impl<'a> Producer<'a> {
             t.known()
                 && !optional(t)
                 && t.kind == TypeKind::Int
-                && (sum || t.instantiation == Instantiation::Parameter)
+                && (sum || card || t.instantiation == Instantiation::Parameter)
         };
         let children: Vec<_> = node.child_nodes().collect();
         // set2array is only a matching view. Inspect the written set and its
@@ -10663,7 +10824,8 @@ impl<'a> Producer<'a> {
                 !matches!(&c.outcome, CallOutcome::Resolved { parameters, return_type, .. }
                     if parameters.len() == 1 && collection(&parameters[0], false)
                         && integer_result(return_type) && Some(return_type) == typed(node)
-                        && (!card || parameters[0] == *typed(children[0]).unwrap())
+                        && (!card || parameters[0] == *typed(children[0]).unwrap()
+                            && return_type.instantiation == parameters[0].instantiation)
                         && (!sum || set_argument || typed(children[0]).is_some_and(|actual|
                             crate::types::coerces(actual, &parameters[0])
                                 // Preserve the existing core sum rank2 Int flattening view.
@@ -10681,6 +10843,17 @@ impl<'a> Producer<'a> {
         }
         let safety =
             self.initialized_source_safety(file, children[0], view, generators, &mut Vec::new());
+        if card
+            && typed(children[0]).is_some_and(decision_integer_set)
+            && !matches!(safety, DefinitionSafety::Unsupported(_))
+        {
+            if let Some(reason) = self.closed_integer_source_error(file, children[0], true, true) {
+                return Some(DefinitionSafety::Unsupported(reason));
+            }
+            return Some(DefinitionSafety::Unknown(
+                "decision set cardinality is unproved".into(),
+            ));
+        }
         let boolean_sum = sum && typed(children[0]).is_some_and(|actual|
             matches!(&actual.kind, TypeKind::Array { element, .. } if element.kind == TypeKind::Bool));
         Some(
@@ -10694,6 +10867,147 @@ impl<'a> Producer<'a> {
                 safety
             },
         )
+    }
+    // Inspect decision sets without proving their values, cardinality or selector
+    // membership. Strict dependencies and output contracts remain independent.
+    fn decision_set_source_safety(
+        &self,
+        file: FileId,
+        written: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> Option<DefinitionSafety> {
+        let node = unwrap(written);
+        let typed = |value: &SyntaxNode| {
+            self.expression_type(self.view(file, value, view), file, value)
+                .map(|e| &e.ty)
+        };
+        let result = typed(node).filter(|t| decision_integer_set(t))?;
+        let children: Vec<_> = node.child_nodes().collect();
+        let checked = (|| -> Result<(), String> {
+            if !crate::definitions::annotations_safe(self.context, file, written) {
+                return Err("decision set source annotation is unsupported".into());
+            }
+            if node.kind() == NodeKind::BinaryExpression && self.core(file, node, view, "intersect")
+            {
+                if children.len() != 2
+                    || children.iter().any(|child| typed(child) != Some(result))
+                    || self.operation_fact(self.view(file, node, view), file, node).is_none_or(|call| {
+                        !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                            if parameters.len() == 2 && parameters.iter().all(|t| t == result)
+                                && return_type == result)
+                    })
+                {
+                    return Err("decision set intersection signature is unsupported".into());
+                }
+                if let DefinitionSafety::Unsupported(reason) =
+                    self.initialized_children_safety(file, &children, view, generators)
+                {
+                    return Err(reason);
+                }
+                for child in &children {
+                    if let Some(reason) = self.closed_integer_source_error(file, child, true, true)
+                    {
+                        return Err(reason);
+                    }
+                }
+                return Ok(());
+            }
+            if node.kind() != NodeKind::ArrayAccessExpression || children.len() != 3 {
+                return Err("decision set source form is unsupported".into());
+            }
+            let subject = unwrap(children[0]);
+            if subject.kind() != NodeKind::Expression
+                || !matches!(crate::domains::tokens(&self.context.files[file].parsed, subject).as_slice(),
+                    [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+            {
+                return Err("decision set source identity is unsupported".into());
+            }
+            let id = self
+                .reference(file, subject)
+                .ok_or("decision set source identity unavailable")?;
+            let declaration = &self.bindings.declarations[id.0];
+            let source = typed(subject).ok_or("decision set source type unavailable")?;
+            if declaration.role != DeclarationRole::Value
+                || !declaration.top_level
+                || !source.known()
+                || optional(source)
+                || source != &self.view(file, subject, view).declarations[id.0].ty
+            {
+                return Err("decision set source scope, type or optionality is unsupported".into());
+            }
+            let integer = |t: &TypeInst| {
+                t.known()
+                    && !optional(t)
+                    && t.instantiation == Instantiation::Parameter
+                    && t.kind == TypeKind::Int
+            };
+            if source.instantiation != Instantiation::Decision
+                || !matches!(&source.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 2 && indices.iter().all(integer) && element.as_ref() == result)
+                || children[1..]
+                    .iter()
+                    .any(|selector| typed(selector).is_none_or(|t| !integer(t)))
+            {
+                return Err("decision set selection shape or selectors are unsupported".into());
+            }
+            if let DefinitionSafety::Unsupported(reason) =
+                self.initialized_children_safety(file, &children, view, generators)
+            {
+                return Err(reason);
+            }
+            let declared = find_node(
+                self.context.files[declaration.file].parsed.tree(),
+                &declaration.syntax_range,
+                declaration.role,
+            )
+            .ok_or("decision set source declaration unavailable")?;
+            // The closed checker follows parameter aliases, but not decision arrays.
+            // Start at the actual written array declaration to retain errors.
+            if let Some(reason) =
+                self.closed_integer_source_error(declaration.file, declared, true, true)
+            {
+                return Err(reason);
+            }
+            let domain = crate::domains::bare_index_domain(&self.domains.declarations[id.0].domain);
+            let Domain::Array { indices, element } = domain else {
+                return Err("decision set array source domain is unsupported".into());
+            };
+            if indices.len() != 2 {
+                return Err("decision set array source rank is unsupported".into());
+            }
+            for (axis, selector) in indices.iter().zip(&children[1..]) {
+                axis.numeric_minimum().map_err(str::to_owned)?;
+                if let Some(reason) = self.closed_integer_source_error(file, selector, true, true) {
+                    return Err(reason);
+                }
+                if crate::domains::invariant_expression_integer(
+                    self.context,
+                    self.bindings,
+                    file,
+                    selector,
+                )
+                .is_ok_and(|value| {
+                    value.is_some_and(|value| {
+                        crate::domains::index_domain_member(axis, value) == Some(false)
+                    })
+                }) {
+                    return Err("decision set selection is outside its declared index set".into());
+                }
+            }
+            let member = crate::domains::bare_index_domain(element);
+            let Domain::Set(member) = member else {
+                return Err("decision set written element domain is unsupported".into());
+            };
+            member.numeric_minimum().map_err(str::to_owned)?;
+            Ok(())
+        })();
+        Some(match checked {
+            Ok(()) => {
+                DefinitionSafety::Unknown("decision set values and membership are unproved".into())
+            }
+            Err(reason) => DefinitionSafety::Unsupported(reason),
+        })
     }
     // Inspect a written full-axis slice without establishing its scalar
     // selectors' membership, total evaluation or output extent.
@@ -11634,6 +11948,140 @@ impl<'a> Producer<'a> {
         Some(match checked {
             Ok(()) => {
                 DefinitionSafety::Unknown("enum conversion membership or value is unproved".into())
+            }
+            Err(reason) => DefinitionSafety::Unsupported(reason),
+        })
+    }
+    // Inspect the bodyless parameter builtin without proving a successor value
+    // or that the value belongs to its enum universe.
+    fn parameter_enum_successor_safety(
+        &self,
+        file: FileId,
+        written: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> Option<DefinitionSafety> {
+        let node = unwrap(written);
+        if node.kind() != NodeKind::CallExpression || !self.core(file, node, view, "enum_next") {
+            return None;
+        }
+        let children: Vec<_> = node.child_nodes().collect();
+        let [set, value] = children.as_slice() else {
+            return None;
+        };
+        let facts = self.view(file, node, view);
+        let ty = |value: &SyntaxNode| {
+            self.expression_type(self.view(file, value, view), file, value)
+                .map(|e| &e.ty)
+        };
+        let parameter =
+            |t: &TypeInst| t.known() && !optional(t) && t.instantiation == Instantiation::Parameter;
+        let result = ty(node).filter(|t| parameter(t) && matches!(t.kind, TypeKind::Enum(_)))?;
+        let checked = (|| -> Result<(), String> {
+            let call = self
+                .operation_fact(facts, file, node)
+                .ok_or("enum successor selected signature unavailable")?;
+            let CallOutcome::Resolved {
+                declaration: id,
+                parameters,
+                return_type,
+            } = &call.outcome
+            else {
+                return Err("enum successor selected signature is unsupported".into());
+            };
+            if children.iter().any(|n| n.kind() == NodeKind::NamedArgument)
+                || !crate::definitions::annotations_safe(self.context, file, written)
+                || ty(set).is_none_or(|t| {
+                    !parameter(t)
+                        || !matches!(&t.kind, TypeKind::Set(element)
+                        if parameter(element) && element.kind == result.kind)
+                })
+                || ty(value) != Some(result)
+                || parameters.len() != 2
+                || return_type != result
+                || parameters[0] != *ty(set).unwrap()
+                || parameters[1] != *result
+            {
+                return Err("enum successor tuple or annotation is unsupported".into());
+            }
+            let signature = self
+                .calls
+                .signatures
+                .iter()
+                .find(|s| s.declaration == *id)
+                .ok_or("enum successor written signature unavailable")?;
+            let generic = &signature.return_type;
+            if signature.parameters.len() != 2
+                || signature.parameters.iter().any(|p| p.has_default)
+                || optional(generic)
+                || generic.instantiation != Instantiation::Parameter
+                || !matches!(
+                    generic.kind,
+                    TypeKind::Variable {
+                        enum_only: true,
+                        any: false,
+                        ..
+                    }
+                )
+                || signature.parameters[1].ty != *generic
+                || optional(&signature.parameters[0].ty)
+                || signature.parameters[0].ty.instantiation != Instantiation::Parameter
+                || !matches!(&signature.parameters[0].ty.kind, TypeKind::Set(element) if **element == *generic)
+            {
+                return Err("enum successor written generic signature is unsupported".into());
+            }
+            let declaration = &self.bindings.declarations[id.0];
+            let source = &self.context.files[declaration.file];
+            let written = find_node(
+                source.parsed.tree(),
+                &declaration.syntax_range,
+                declaration.role,
+            )
+            .ok_or("enum successor declaration unavailable")?;
+            if !source.parsed.diagnostics().is_empty()
+                || written.child_nodes().any(|n| is_expression(n.kind()))
+                || !self.callable_annotations_safe(declaration.file, written)
+            {
+                return Err("enum successor body or annotation is unsupported".into());
+            }
+            for position in 0..2 {
+                let formal_id = formal_parameter(self.context, self.bindings, *id, position)
+                    .ok_or("enum successor formal unavailable")?;
+                let owner = &self.bindings.declarations[formal_id.0];
+                let formal = find_node(
+                    self.context.files[owner.file].parsed.tree(),
+                    &owner.syntax_range,
+                    owner.role,
+                )
+                .ok_or("enum successor written formal unavailable")?;
+                if self.calls.declarations[formal_id.0].ty != signature.parameters[position].ty
+                    || formal.child_nodes().any(|n| is_expression(n.kind()))
+                {
+                    return Err("enum successor formal type or default is unsupported".into());
+                }
+                let mut nodes = vec![formal];
+                while let Some(node) = nodes.pop() {
+                    if !crate::definitions::annotations_safe(self.context, owner.file, node) {
+                        return Err("enum successor formal annotation is unsupported".into());
+                    }
+                    nodes.extend(node.child_nodes());
+                }
+            }
+            if let DefinitionSafety::Unsupported(reason) =
+                self.initialized_children_safety(file, &children, view, generators)
+            {
+                return Err(reason);
+            }
+            for argument in &children {
+                if let Some(reason) = self.closed_integer_source_error(file, argument, true, true) {
+                    return Err(reason);
+                }
+            }
+            Ok(())
+        })();
+        Some(match checked {
+            Ok(()) => {
+                DefinitionSafety::Unknown("enum successor value or definedness is unproved".into())
             }
             Err(reason) => DefinitionSafety::Unsupported(reason),
         })
@@ -13057,6 +13505,9 @@ impl<'a> Producer<'a> {
             Ok(_) => return aggregate.unwrap_or(DefinitionSafety::Supported),
             Err(reason) => reason,
         };
+        if let Some(safety) = self.decision_set_source_safety(file, node, view, generators) {
+            return safety;
+        }
         if let Some(safety) = self.parameter_row_let_safety(file, node, view, generators, &[]) {
             return safety;
         }
@@ -13064,6 +13515,9 @@ impl<'a> Producer<'a> {
             return safety;
         }
         if let Some(safety) = self.parameter_enum_conversion_safety(file, node, view, generators) {
+            return safety;
+        }
+        if let Some(safety) = self.parameter_enum_successor_safety(file, node, view, generators) {
             return safety;
         }
         if let Some(safety) = aggregate {
@@ -13897,6 +14351,86 @@ impl<'a> Producer<'a> {
                         "numeric array index membership is unproved".into(),
                     );
                 }
+                // A checked enum successor is a source inspection, not an
+                // index-membership proof for this array.
+                if indices.iter().zip(&children[1..]).any(|(axis, selector)| {
+                    matches!(axis.kind, TypeKind::Enum(_))
+                        && self
+                            .parameter_enum_successor_safety(file, selector, view, generators)
+                            .is_some()
+                }) {
+                    if !crate::definitions::annotations_safe(self.context, file, written)
+                        || ty(node).is_none_or(|t| {
+                            !t.known()
+                                || optional(t)
+                                || t.kind != TypeKind::Int
+                                || t.instantiation != element.instantiation
+                        })
+                    {
+                        return DefinitionSafety::Unsupported(
+                            "enum successor selection type or annotation is unsupported".into(),
+                        );
+                    }
+                    let array_id = self.reference(file, subject).unwrap();
+                    let owner = &self.bindings.declarations[array_id.0];
+                    if owner.role != DeclarationRole::Value
+                        || !owner.top_level
+                        || self.calls.declarations[array_id.0].ty != *array
+                    {
+                        return DefinitionSafety::Unsupported(
+                            "enum successor array source identity is unsupported".into(),
+                        );
+                    }
+                    let Some(source) = find_node(
+                        self.context.files[owner.file].parsed.tree(),
+                        &owner.syntax_range,
+                        owner.role,
+                    ) else {
+                        return DefinitionSafety::Unsupported(
+                            "enum successor array source unavailable".into(),
+                        );
+                    };
+                    if let unsupported @ DefinitionSafety::Unsupported(_) =
+                        self.initialized_children_safety(file, &children, view, generators)
+                    {
+                        return unsupported;
+                    }
+                    if let Some(reason) =
+                        self.closed_integer_source_error(owner.file, source, true, true)
+                    {
+                        return DefinitionSafety::Unsupported(reason);
+                    }
+                    for selector in &children[1..] {
+                        if let Some(reason) =
+                            self.closed_integer_source_error(file, selector, true, true)
+                        {
+                            return DefinitionSafety::Unsupported(reason);
+                        }
+                    }
+                    if let Domain::Array { indices, .. } =
+                        &self.domains.declarations[array_id.0].domain
+                        && indices.iter().zip(&children[1..]).any(|(axis, selector)| {
+                            crate::domains::invariant_expression_integer(
+                                self.context,
+                                self.bindings,
+                                file,
+                                selector,
+                            )
+                            .is_ok_and(|value| {
+                                value.is_some_and(|value| {
+                                    crate::domains::index_domain_member(axis, value) == Some(false)
+                                })
+                            })
+                        })
+                    {
+                        return DefinitionSafety::Unsupported(
+                            "scalar selection is outside its declared index set".into(),
+                        );
+                    }
+                    return DefinitionSafety::Unknown(
+                        "numeric array index membership is unproved".into(),
+                    );
+                }
                 if let Err(reason) = self.child_dependencies(file, &children, view, generators) {
                     return DefinitionSafety::Unsupported(reason);
                 }
@@ -14393,6 +14927,7 @@ impl<'a> Producer<'a> {
         &self,
         file: FileId,
         array: DeclarationId,
+        axis: usize,
         selector: &SyntaxNode,
         view: &CallableFacts,
     ) -> bool {
@@ -14414,12 +14949,22 @@ impl<'a> Producer<'a> {
             return false;
         }
         let array_type = &view.declarations[array.0].ty;
+        let TypeKind::Array {
+            indices: types,
+            element,
+        } = &array_type.kind
+        else {
+            return false;
+        };
         if !array_type.known()
             || optional(array_type)
-            || !matches!(&array_type.kind, TypeKind::Array { indices, element }
-                if indices.len() == 1 && indices[0].kind == TypeKind::Int
-                    && indices[0].instantiation == Instantiation::Parameter
-                    && element.kind == TypeKind::Int)
+            || !matches!(types.len(), 1 | 2)
+            || !matches!(element.kind, TypeKind::Int | TypeKind::Enum(_))
+            || !types.iter().all(|index| {
+                index.kind == TypeKind::Int
+                    && index.instantiation == Instantiation::Parameter
+                    && !optional(index)
+            })
         {
             return false;
         }
@@ -14427,15 +14972,25 @@ impl<'a> Producer<'a> {
         while let Domain::Named { domain, .. } = outer {
             outer = domain;
         }
-        let Domain::Array { indices, .. } = outer else {
+        let Domain::Array {
+            indices,
+            element: domain_element,
+        } = outer
+        else {
             return false;
         };
-        let [
-            Domain::Named {
-                declaration: expected,
-                ..
-            },
-        ] = indices.as_slice()
+        if indices.len() != types.len()
+            || indices
+                .iter()
+                .chain(std::iter::once(domain_element.as_ref()))
+                .any(|domain| domain.numeric_minimum().is_err())
+        {
+            return false;
+        }
+        let Some(Domain::Named {
+            declaration: expected,
+            ..
+        }) = indices.get(axis)
         else {
             return false;
         };
@@ -14787,16 +15342,28 @@ impl<'a> Producer<'a> {
                     // whole-array coverage. Keep source and selector dependencies.
                     return self.child_dependencies(file, &children, view, generators);
                 }
-                if children.len() == 2
-                    && self.named_selector_membership(file, id, children[1], facts)
+                if matches!(&facts.declarations[id.0].ty.kind,
+                    TypeKind::Array { indices, .. }
+                        if matches!(indices.len(), 1 | 2) && indices.len() + 1 == children.len())
+                    && children[1..].iter().enumerate().all(|(axis, selector)| {
+                        self.named_selector_membership(file, id, axis, selector, facts)
+                    })
                 {
-                    // Membership follows this exact declared domain. Evaluation
-                    // and all forward dependencies of the selector remain required.
+                    // Every selector must match its own exact declared axis.
+                    // Evaluation and all forward selector dependencies remain required.
+                    if children.len() == 3
+                        && let DefinitionSafety::Unsupported(reason) =
+                            self.initialized_children_safety(file, &children, view, generators)
+                    {
+                        return Err(reason);
+                    }
                     let mut ids = vec![id];
-                    extend(
-                        &mut ids,
-                        self.dependencies(file, children[1], view, generators)?,
-                    );
+                    for selector in &children[1..] {
+                        extend(
+                            &mut ids,
+                            self.dependencies(file, selector, view, generators)?,
+                        );
+                    }
                     return Ok(ids);
                 }
                 let supported = children.len() == 2
@@ -15728,6 +16295,14 @@ impl<'a> Producer<'a> {
         }
         Ok(ids)
     }
+}
+fn decision_integer_set(set: &TypeInst) -> bool {
+    set.known()
+        && !optional(set)
+        && set.instantiation == Instantiation::Decision
+        && matches!(&set.kind, TypeKind::Set(element)
+            if element.known() && !optional(element)
+                && element.instantiation == Instantiation::Parameter && element.kind == TypeKind::Int)
 }
 fn parameter_integers(array: &TypeInst) -> bool {
     array.known()

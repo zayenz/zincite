@@ -64,6 +64,169 @@ fn selected() -> LintOptions {
     LintOptions::from_selection("search-coverage").unwrap()
 }
 #[test]
+fn guarded_enum_successor_relations_inspect_sources_without_output_proof() {
+    use zincite_lint::{CallOutcome, Instantiation, SourceKind, TypeInst, TypeKind};
+    let positive = concat!(
+        "enum Job; enum Task;\n",
+        "Task: last = max(Task);\n",
+        "array[Job,Task] of int: duration;\n",
+        "array[Job,Task] of var 0..10: start;\n",
+        "constraint forall(i in Job)(forall(j in Task where j < last)\n",
+        "  (start[i,j] + duration[i,j] <= start[i,enum_next(Task,j)]));\n",
+        "solve satisfy;\n",
+    );
+    let core = format!(
+        "{CORE}{}",
+        concat!(
+            "function bool: '<'($$E: left,$$E: right);\n",
+            "function var bool: '<='(var int: left,var int: right);\n",
+            "function $$E: max(set of $$E: values);\n",
+            "function $$E: enum_next(set of $$E: values,$$E: value);\n",
+            "function $$E: to_enum(set of $$E: values,int: value);\n",
+            "function int: '+'(int: left,int: right);\n",
+        )
+    );
+    let load = |name: &str, source: &str| {
+        let (dir, _) = model(name, source, "");
+        std::fs::write(dir.join("library/std/stdlib.mzn"), &core).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{:?}", context.errors);
+        (dir, context)
+    };
+    let check_tuple = |context: &ModelContext| {
+        let bindings = resolve_bindings(context);
+        let calls = resolve_callables(context, &bindings);
+        let task = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "Task")
+            .unwrap()
+            .id;
+        let scalar = TypeInst {
+            instantiation: Instantiation::Parameter,
+            optional: false,
+            kind: TypeKind::Enum(task),
+        };
+        let set = TypeInst {
+            instantiation: Instantiation::Parameter,
+            optional: false,
+            kind: TypeKind::Set(Box::new(scalar.clone())),
+        };
+        let call = calls
+            .calls
+            .iter()
+            .find(|c| c.file == 0 && c.name == "enum_next")
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &call.outcome
+        else {
+            panic!("actual successor tuple: {:?}", call.outcome);
+        };
+        assert_eq!(parameters.as_slice(), [set, scalar.clone()]);
+        assert_eq!(return_type, &scalar);
+        assert_eq!(
+            context.files[bindings.declarations[declaration.0].file].kind,
+            SourceKind::StandardLibrary
+        );
+        assert!(
+            calls
+                .signatures
+                .iter()
+                .find(|s| s.declaration == *declaration)
+                .unwrap()
+                .parameters
+                .iter()
+                .all(|p| !p.has_default)
+        );
+    };
+    let partial = positive
+        .replace(
+            "Task: last = max(Task);",
+            "Task: last = max(Task); Task: poisoned = to_enum(Task,9223372036854775807 + 1);",
+        )
+        .replace("enum_next(Task,j)", "enum_next(Task,poisoned)");
+    // The closed-error counter reaches the same present enum tuple and array axis.
+    let (dir, context) = load("enum-successor-closed-selector", &partial);
+    check_tuple(&context);
+    let result = analyze_model(&context, &selected());
+    assert!(matches!(
+        result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    assert!(
+        result
+            .limitations
+            .iter()
+            .any(|l| l.message.contains("overflow")),
+        "{:?}",
+        result.limitations
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+    let mismatch = positive
+        .replace("enum Job;", "enum Job; enum Other; Other: foreign_task;")
+        .replace("enum_next(Task,j)", "enum_next(Task,foreign_task)");
+    let (dir, context) = load("enum-successor-other-identity", &mismatch);
+    assert!(matches!(
+        analyze_model(&context, &selected()).rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    std::fs::remove_dir_all(dir).unwrap();
+
+    let (dir, context) = load("enum-successor-symbolic", positive);
+    check_tuple(&context);
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let instantiations = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let definitions = resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+    let callable =
+        resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+    let search = resolve_search_coverage(
+        &context,
+        &bindings,
+        &calls,
+        &instantiations,
+        &domains,
+        &definitions,
+    );
+    let target = bindings
+        .declarations
+        .iter()
+        .find(|d| d.top_level && d.name == "start")
+        .unwrap()
+        .id;
+    assert_eq!(search.root_state, ModelRootState::Complete);
+    assert!(callable.outputs.is_empty());
+    assert!(
+        !definitions
+            .definitions
+            .iter()
+            .chain(&callable.definitions)
+            .any(|d| d.target == target
+                && d.coverage == DefinitionCoverage::WholeArray
+                && d.safety == DefinitionSafety::Supported)
+    );
+    assert!(matches!(
+        search.declarations[target.0].coverage,
+        SearchCoverage::Uncovered | SearchCoverage::Unknown
+    ));
+    // Ordinary missing enum and duration data permits inspection, never a value proof.
+    let result = analyze_model(&context, &selected());
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+#[test]
 fn zero_output_invocations_inspect_all_branches_without_erasing_reachable_aborts() {
     use zincite_lint::{CallOutcome, Instantiation, SourceKind, TypeInst, TypeKind};
     let par = |kind| TypeInst {
@@ -2788,6 +2951,122 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
                 &context.files[0].parsed.source()[finding.location.range.clone()] == "value"
             }));
         }
+    }
+    let rank_two_named_selector = concat!(
+        "enum Color; set of int: Rows; set of int: Cols; set of int: Ids;\n",
+        "array[Rows,Cols] of var Ids: selector; array[Rows,Ids] of Color: table; array[Rows,Cols] of var int: value;\n",
+        "constraint forall(r in Rows,c in Cols)(value[r,c]=enum2int(table[r,selector[r,c]]));\n",
+        "solve :: int_search(array1d(selector),input_order,indomain_min,complete) satisfy;\n"
+    );
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}\nfunction int: 'div'(int: left,int: right); annotation add_to_output;\n"),
+    )
+    .unwrap();
+    for (name, source, expected, limited) in [
+        (
+            "rank-two enum table",
+            rank_two_named_selector.to_owned(),
+            SearchCoverage::WholeArray,
+            false,
+        ),
+        (
+            "rank-two selector unsearched",
+            rank_two_named_selector.replace(
+                "solve :: int_search(array1d(selector),input_order,indomain_min,complete) satisfy;",
+                "solve satisfy;",
+            ),
+            SearchCoverage::Uncovered,
+            false,
+        ),
+        (
+            "rank-two first axis differs",
+            rank_two_named_selector
+                .replace(
+                    "set of int: Rows;",
+                    "set of int: Rows; set of int: OtherRows;",
+                )
+                .replace("array[Rows,Ids]", "array[OtherRows,Ids]"),
+            SearchCoverage::Unknown,
+            true,
+        ),
+        (
+            "rank-two partial selector",
+            rank_two_named_selector.replace("selector[r,c]", "selector[r,c div 0]"),
+            SearchCoverage::Unknown,
+            true,
+        ),
+        (
+            "rank-two closed axis initializer",
+            rank_two_named_selector.replace("set of int: Ids;", "set of int: Ids = 1..(1 div 0);"),
+            SearchCoverage::Unknown,
+            true,
+        ),
+        (
+            "rank-two annotated lookup source",
+            rank_two_named_selector
+                .replace("enum Color;", "enum Color; annotation tag;")
+                .replace("of Color: table;", "of Color: table :: tag;"),
+            SearchCoverage::Unknown,
+            true,
+        ),
+        (
+            "rank-two partial source annotation",
+            rank_two_named_selector
+                .replace(
+                    "enum Color;",
+                    "enum Color; annotation source_hint(int: amount);",
+                )
+                .replace(
+                    "of Color: table;",
+                    "of Color: table :: source_hint(1 div 0);",
+                ),
+            SearchCoverage::Unknown,
+            true,
+        ),
+        (
+            "rank-two standard atomic output source",
+            rank_two_named_selector
+                .replace("of Color: table;", "of Color: table :: add_to_output;"),
+            SearchCoverage::WholeArray,
+            false,
+        ),
+    ] {
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(dir.join("root.mzn"), &options);
+        let (bindings, search) = facts(&context);
+        let result = analyze_model(&context, &selected());
+        if matches!(
+            name,
+            "rank-two closed axis initializer"
+                | "rank-two annotated lookup source"
+                | "rank-two partial source annotation"
+        ) {
+            let calls = resolve_callables(&context, &bindings);
+            let inst = resolve_instantiations(&context, &bindings, &calls);
+            let domains = resolve_domains(&context, &bindings);
+            let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+            assert!(
+                !definitions.definitions.iter().any(|definition| {
+                    bindings.declarations[definition.target.0].name == "value"
+                        && definition.safety == DefinitionSafety::Supported
+                }),
+                "{name}: {:?}",
+                definitions.definitions
+            );
+        }
+        assert_eq!(
+            coverage(&bindings, &search, "value"),
+            expected,
+            "{name}: {:?}",
+            result.limitations
+        );
+        assert_eq!(
+            matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+            limited,
+            "{name}: {:?}",
+            result.limitations
+        );
     }
     let neighbour = concat!(
         "set of int: Rows; set of int: Cols; set of int: Ids;\n",
@@ -9524,6 +9803,306 @@ solve satisfy;
             coverage(&bindings, &search, "xs"),
             SearchCoverage::Uncovered
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn decision_set_cardinality_inspects_rank_two_intersections_without_output_certificates() {
+    use zincite_lint::CallOutcome;
+    let positive = r#"include "globals.mzn";
+
+% Data retain symbolic week, group and player domains during inspection.
+int: weeks;
+int: groups;
+int: size;
+set of int: Week = 1..weeks;
+set of int: Group = 1..groups;
+set of int: Player = 1..groups*size;
+constraint assert(weeks >= 2 /\ groups >= 1 /\ size >= 1,
+    "At least two weeks and positive group sizes are required");
+
+% Each cell is a decision set, rather than a parameter set or scalar value.
+array[Week, Group] of var set of Player: schedule;
+
+% Two groups in different weeks share at most one player.
+constraint :: "Groups share at most one player"
+    forall(i in 1..weeks-1, j in i+1..weeks) (
+        forall(x, y in Group) (
+            card(schedule[i,x] intersect schedule[j,y]) <= 1
+        )
+    );
+solve satisfy;
+"#;
+    let selector_overflow =
+        positive.replace("schedule[j,y]", "schedule[j,(9223372036854775807 + 1)]");
+    let member_overflow = positive.replace(
+        "var set of Player: schedule",
+        "var set of 1..(9223372036854775807 + 1): schedule",
+    );
+    for (name, source, completed) in [
+        ("decision-set-card-positive", positive, true),
+        (
+            "decision-set-card-selector-overflow",
+            selector_overflow.as_str(),
+            false,
+        ),
+        (
+            "decision-set-card-member-overflow",
+            member_overflow.as_str(),
+            false,
+        ),
+    ] {
+        // Establish the fixture directory before loading its globals include.
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(dir.join("library/std/globals.mzn"), "").unwrap();
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}function int: '+'(int: left,int: right); \
+                 function int: '-'(int: left,int: right); \
+                 function int: '*'(int: left,int: right); \
+                 function bool: '/\\'(bool: left,bool: right); \
+                 function bool: '>='(int: left,int: right); \
+                 function var bool: '<='(var int: left,var int: right); \
+                 function bool: assert(bool: condition,string: message); \
+                 function var int: card(var set of int: values); \
+                 function var set of int: 'intersect'(var set of int: left,var set of int: right);\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let (bindings, search) = facts(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let outputs =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let schedule = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "schedule")
+            .unwrap();
+        assert!(outputs.definitions.iter().all(|d| d.target != schedule.id));
+        assert!(outputs.outputs.is_empty());
+        assert!(definitions.definitions.iter().all(|definition| {
+            definition.target != schedule.id
+                || !matches!(
+                    definition.coverage,
+                    DefinitionCoverage::WholeArray | DefinitionCoverage::Scalar
+                )
+        }));
+        assert!(matches!(
+            coverage(&bindings, &search, "schedule"),
+            SearchCoverage::Unknown | SearchCoverage::Uncovered
+        ));
+        let result = analyze_model(&context, &selected());
+        if completed {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{:?}",
+                search.limitations
+            );
+        } else {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert!(
+                search
+                    .limitations
+                    .iter()
+                    .any(|limitation| limitation.message.contains("overflow")),
+                "{name}: {:?}",
+                search.limitations
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn optional_integer_sums_inspect_decision_enum_headers_without_output_certificates() {
+    use zincite_lint::{CallOutcome, DeclarationRole, Instantiation, SourceKind, TypeKind};
+    let positive = r#"include "globals.mzn";
+
+% Input values and enum members remain symbolic during source analysis.
+enum Item;
+int: capacity;
+array[Item] of int: costs;
+array[Item] of int: rewards;
+var set of Item: chosen;
+
+% The selected items must fit the shared capacity.
+constraint :: "Selected items fit capacity"
+    sum(item in chosen)(costs[item]) <= capacity;
+solve maximize sum(item in chosen)(rewards[item]);
+"#;
+    let partial = positive.replace("costs[item]", "costs[item] + (1 div 0)");
+    for (name, source, completed) in [
+        ("optional-sum-decision-enum", positive, true),
+        ("optional-sum-partial-body", partial.as_str(), false),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(dir.join("library/std/globals.mzn"), "").unwrap();
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}{}",
+                concat!(
+                    "function var int: sum(array[int] of var opt int: body);\n",
+                    "function var bool: '<='(var int: left,var int: right);\n",
+                    "function int: 'div'(int: left,int: right);\n"
+                )
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let (bindings, search) = facts(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let item = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "Item")
+            .unwrap()
+            .id;
+        let chosen = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "chosen")
+            .unwrap()
+            .id;
+        let chosen_type = &calls.declarations[chosen.0].ty;
+        assert!(
+            chosen_type.instantiation == Instantiation::Decision
+                && !chosen_type.optional
+                && matches!(&chosen_type.kind, TypeKind::Set(element)
+                if element.instantiation == Instantiation::Parameter && !element.optional
+                    && element.kind == TypeKind::Enum(item)),
+            "{chosen_type:?}"
+        );
+        let binders: Vec<_> = bindings
+            .declarations
+            .iter()
+            .filter(|d| d.file == 0 && d.role == DeclarationRole::Generator && d.name == "item")
+            .collect();
+        assert_eq!(binders.len(), 2);
+        assert!(binders.iter().all(|d| {
+            let ty = &calls.declarations[d.id.0].ty;
+            ty.instantiation == Instantiation::Parameter
+                && !ty.optional
+                && ty.kind == TypeKind::Enum(item)
+        }));
+        assert_eq!(
+            bindings
+                .references
+                .iter()
+                .filter(|reference| reference.file == 0
+                    && reference.name == "chosen"
+                    && reference.resolution == zincite_lint::BindingResolution::Resolved(chosen))
+                .count(),
+            2
+        );
+        let sums: Vec<_> = calls
+            .calls
+            .iter()
+            .filter(|call| call.file == 0 && call.name == "sum")
+            .collect();
+        assert_eq!(sums.len(), 2);
+        for sum in sums {
+            assert!(
+                matches!(&sum.outcome, CallOutcome::Resolved { declaration, parameters, return_type }
+                if bindings.declarations[declaration.0].name == "sum"
+                    && context.files[bindings.declarations[declaration.0].file].kind == SourceKind::StandardLibrary
+                    && context.files[bindings.declarations[declaration.0].file].implicit
+                    && parameters.len() == 1 && parameters[0].instantiation == Instantiation::Decision
+                    && !parameters[0].optional && matches!(&parameters[0].kind, TypeKind::Array { indices, element }
+                        if indices.len() == 1 && indices[0].instantiation == Instantiation::Parameter
+                            && !indices[0].optional && indices[0].kind == TypeKind::Int
+                            && element.instantiation == Instantiation::Decision && element.optional && element.kind == TypeKind::Int)
+                    && return_type.instantiation == Instantiation::Decision && !return_type.optional
+                    && return_type.kind == TypeKind::Int),
+                "{name}: {:?}",
+                sum.outcome
+            );
+        }
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let outputs =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        assert!(outputs.outputs.is_empty());
+        assert!(
+            outputs
+                .definitions
+                .iter()
+                .all(|definition| definition.target != chosen)
+        );
+        assert!(search.searched.is_empty());
+        assert!(matches!(
+            coverage(&bindings, &search, "chosen"),
+            SearchCoverage::Unknown | SearchCoverage::Uncovered
+        ));
+        let result = analyze_model(&context, &selected());
+        if completed {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                search.limitations
+            );
+        } else {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                search.limitations
+            );
+            let start = source.find("sum(item in chosen)(costs").unwrap();
+            assert!(
+                search
+                    .limitations
+                    .iter()
+                    .any(|limitation| limitation.location.range.start <= start
+                        && start < limitation.location.range.end),
+                "{name}: {:?}",
+                search.limitations
+            );
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

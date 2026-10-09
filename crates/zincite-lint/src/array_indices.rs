@@ -50,7 +50,7 @@ pub(super) fn check_array_indices(
     result
 }
 
-// A checked parameter selection can supply a symbolic local axis without a
+// A checked parameter source can supply a symbolic local axis without a
 // numeric minimum, membership guarantee or definition of the owning array.
 fn inspected_local_selection_bound(
     context: &ModelContext,
@@ -62,13 +62,27 @@ fn inspected_local_selection_bound(
 ) -> bool {
     let Domain::Range {
         lower: NumericBound::Integer(1),
-        upper: NumericBound::Defined {
-            declaration: id,
-            value,
-        },
+        upper,
     } = &index.domain
     else {
         return false;
+    };
+    let (id, value, conditional) = match upper {
+        NumericBound::Defined { declaration, value } => (declaration, value, false),
+        NumericBound::Arithmetic {
+            operator: TokenKind::Plus,
+            operands,
+        } => {
+            let [
+                NumericBound::Defined { declaration, value },
+                NumericBound::Integer(1),
+            ] = operands.as_slice()
+            else {
+                return false;
+            };
+            (declaration, value, true)
+        }
+        _ => return false,
     };
     let declaration = &bindings.declarations[id.0];
     let integer = |ty: &crate::TypeInst| {
@@ -126,10 +140,34 @@ fn inspected_local_selection_bound(
     let [lower, upper] = endpoints.as_slice() else {
         return false;
     };
+    let local_reference = if conditional {
+        let operands: Vec<_> = upper.child_nodes().collect();
+        let [local, increment] = operands.as_slice() else {
+            return false;
+        };
+        if upper.kind() != NodeKind::BinaryExpression
+            || typed(upper).is_none_or(|t| !integer(t))
+            || !matches!(crate::domains::tokens(&source.parsed, increment).as_slice(),
+                [token] if token.kind == TokenKind::IntegerLiteral
+                    && &source.parsed.source()[token.range.clone()] == "1")
+            || crate::callables::core_operation(context, bindings, calls, file, upper, "+")
+                != Ok(true)
+            || crate::callables::operation_fact(context, calls, file, upper).is_none_or(|fact| {
+                !matches!(&fact.outcome, crate::CallOutcome::Resolved { parameters, return_type, .. }
+                    if parameters.len() == 2 && parameters.iter().all(integer)
+                        && integer(return_type))
+            })
+        {
+            return false;
+        }
+        *local
+    } else {
+        *upper
+    };
     if !matches!(crate::domains::tokens(&source.parsed, lower).as_slice(),
         [token] if token.kind == TokenKind::IntegerLiteral)
         || &source.parsed.source()[lower.range()] != "1"
-        || reference(upper) != Some(*id)
+        || reference(local_reference) != Some(*id)
         || crate::callables::core_operation(context, bindings, calls, file, node, "..") != Ok(true)
         || crate::callables::operation_fact(context, calls, file, node).is_none_or(|fact| {
             !matches!(&fact.outcome, crate::CallOutcome::Resolved { parameters, return_type, .. }
@@ -173,6 +211,140 @@ fn inspected_local_selection_bound(
     else {
         return false;
     };
+    if conditional {
+        let branches: Vec<_> = value.child_nodes().collect();
+        let [first, otherwise] = branches.as_slice() else {
+            return false;
+        };
+        let first_values: Vec<_> = first.child_nodes().collect();
+        let fallback: Vec<_> = otherwise.child_nodes().collect();
+        let ([guard, _], [extremum]) = (first_values.as_slice(), fallback.as_slice()) else {
+            return false;
+        };
+        if value.kind() != NodeKind::ConditionalExpression
+            || first.kind() != NodeKind::ConditionalBranch
+            || otherwise.kind() != NodeKind::ElseBranch
+            || typed(value).is_none_or(|t| !integer(t))
+            || path.iter().any(|n| {
+                matches!(
+                    n.kind(),
+                    NodeKind::GeneratorCallExpression
+                        | NodeKind::ArrayComprehension
+                        | NodeKind::SetComprehension
+                        | NodeKind::IndexedArrayComprehension
+                )
+            })
+        {
+            return false;
+        }
+        let Some(formal) = crate::callable_definitions::parameter_index_extremum(
+            context, bindings, calls, file, extremum,
+        ) else {
+            return false;
+        };
+        let guard_values: Vec<_> = guard.child_nodes().collect();
+        let [selection, _] = guard_values.as_slice() else {
+            return false;
+        };
+        let selected: Vec<_> = selection.child_nodes().collect();
+        let [subject, _] = selected.as_slice() else {
+            return false;
+        };
+        if selection.kind() != NodeKind::ArrayAccessExpression
+            || reference(subject) != Some(formal)
+            || crate::callables::core_operation(context, bindings, calls, file, guard, "=")
+                != Ok(true)
+        {
+            return false;
+        }
+        let formal_type = &calls.declarations[formal.0].ty;
+        if !formal_type.known()
+            || crate::value_safety::optional(formal_type)
+            || formal_type.instantiation != Instantiation::Parameter
+            || typed(subject) != Some(formal_type)
+            || !matches!(&formal_type.kind, TypeKind::Array { indices, element }
+                if indices.len() == 1 && integer(&indices[0]) && integer(element))
+        {
+            return false;
+        }
+        let Some(owner) = bindings.references.iter().find_map(|r| {
+            (r.file == file
+                && r.kind == crate::ReferenceKind::Value
+                && local_reference.range().start + source.byte_offset <= r.location.range.start
+                && r.location.range.end <= local_reference.range().end + source.byte_offset
+                && r.resolution == crate::BindingResolution::Resolved(*id))
+            .then_some(r.callable)
+            .flatten()
+        }) else {
+            return false;
+        };
+        let Some(signature) = calls.signatures.iter().find(|s| s.declaration == owner) else {
+            return false;
+        };
+        let Some(position) = (0..signature.parameters.len()).find(|&position| {
+            crate::callables::formal_parameter(context, bindings, owner, position) == Some(formal)
+        }) else {
+            return false;
+        };
+        if signature.parameters[position].has_default
+            || signature.parameters[position].ty != *formal_type
+            || bindings.references.iter().any(|r| {
+                r.file == file
+                    && r.kind == crate::ReferenceKind::Value
+                    && value.range().start + source.byte_offset <= r.location.range.start
+                    && r.location.range.end <= value.range().end + source.byte_offset
+                    && matches!(r.resolution, crate::BindingResolution::Resolved(target)
+                        if bindings.declarations[target.0].role == DeclarationRole::Local
+                            || bindings.declarations[target.0].role == DeclarationRole::Generator
+                            || bindings.declarations[target.0].role == DeclarationRole::Parameter
+                                && (target != formal || r.callable != Some(owner)))
+            })
+        {
+            return false;
+        }
+        let Domain::Array { indices, element } =
+            crate::domains::bare_index_domain(&domains.declarations[formal.0].domain)
+        else {
+            return false;
+        };
+        if indices.len() != 1
+            || indices[0].numeric_minimum().is_err()
+            || element.numeric_minimum().is_err()
+        {
+            return false;
+        }
+        let formal_declaration = &bindings.declarations[formal.0];
+        let Some(written) = crate::callables::find_node(
+            source.parsed.tree(),
+            &formal_declaration.syntax_range,
+            formal_declaration.role,
+        ) else {
+            return false;
+        };
+        let mut nodes = vec![written];
+        while let Some(node) = nodes.pop() {
+            if !crate::definitions::annotations_safe(context, file, node)
+                || node.kind() == NodeKind::ScalarType
+                    && !crate::domains::tokens(&source.parsed, node)
+                        .iter()
+                        .any(|token| token.kind == TokenKind::Int)
+            {
+                return false;
+            }
+            nodes.extend(node.child_nodes());
+        }
+        return matches!(
+            crate::callable_definitions::initialized_conditional_bound_safety(
+                context,
+                bindings,
+                calls,
+                instantiations,
+                domains,
+                (file, value),
+            ),
+            Some(DefinitionSafety::Unknown(_))
+        );
+    }
     let children: Vec<_> = value.child_nodes().collect();
     let [subject, row, column] = children.as_slice() else {
         return false;
