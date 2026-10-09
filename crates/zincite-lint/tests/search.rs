@@ -10807,7 +10807,7 @@ array[Items] of set of int: selected =
     [{j | j in Items where limits[j] <= limits[i] /\ labels[j] = labels[i]} | i in Items];
 var 0..10: score;
 constraint forall(i in Items)(
-    let { int: total = sum(j in selected[i])(1); } in score <= total
+    let { int: total = sum(j in selected[i])(weights[j]); } in score <= total
 );
 solve satisfy;
 "#;

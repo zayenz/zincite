@@ -2716,8 +2716,8 @@ impl<'a> Producer<'a> {
                                 private.push(declaration.id);
                             }
                             Ok(ids) => extend(&mut initialization, ids),
-                            Err(reason) => {
-                                if (ty.instantiation == Instantiation::Parameter
+                            Err(mut reason) => {
+                                let safety = if (ty.instantiation == Instantiation::Parameter
                                     || (scoped_integer
                                         && unwrap(initializer.unwrap()).kind()
                                             == NodeKind::ArrayAccessExpression))
@@ -2729,22 +2729,26 @@ impl<'a> Producer<'a> {
                                             &clause.generators,
                                         )
                                         .is_ok()
-                                    && matches!(
-                                        self.direct_safety(
-                                            clause.file,
-                                            initializer.unwrap(),
-                                            view,
-                                            &clause.generators
-                                        ),
-                                        DefinitionSafety::Unknown(_)
-                                    )
                                 {
+                                    Some(self.direct_safety(
+                                        clause.file,
+                                        initializer.unwrap(),
+                                        view,
+                                        &clause.generators,
+                                    ))
+                                } else {
+                                    None
+                                };
+                                if matches!(&safety, Some(DefinitionSafety::Unknown(_))) {
                                     uncertain_initialization = true;
                                     if scoped_integer {
                                         uncertain_locals.push(declaration.id);
                                         private.push(declaration.id);
                                     }
                                 } else {
+                                    if let Some(DefinitionSafety::Unsupported(actual)) = safety {
+                                        reason = actual;
+                                    }
                                     self.unavailable(clause, &format!("local output initializer or domain is unsupported: {reason}"), unavailable);
                                     return;
                                 }

@@ -5852,3 +5852,16 @@ with 108 unchanged source files, under main-decision-set-union-value-gates-v1.
 The installed Social body still has unsupported annotation
 and conditional/let prerequisites; original completion and final acceptance are
 unclaimed.
+
+Let-source fallback failures now retain their actual Unsupported reason instead
+of forwarding the earlier strict-dependency refusal. The eligibility/type guards
+and Unknown admission are unchanged. Both exact weighted public cases pass: the
+symbolic sum completes without scalar-search/output coverage, and the closed
+error remains Limited with its division-by-zero reason. ROOT checked 163 unchanged
+inputs, both full streams and one reaped empty group, under atsp_selected_set_sum-
+diagnostic-green-v1. The existing permanent selected-set fixture now uses weights[j]
+instead of a literal body; no extra regression group is added. Fresh original
+outcomes and final task acceptance remain pending.
+
+Actual-main formatting, clippy and workspace tests pass: 237 tests and 108
+unchanged source files, recorded under main-let-source-diagnostic-gates-v1.
