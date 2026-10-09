@@ -6216,3 +6216,21 @@ all written-source/default/metadata/type checks surround the proposed reuse.
 A local reuse candidate retains the existing constructor when no exact
 nonrecursive resident exists. Full three-case acceptance, final native costs,
 corpus reconciliation and whole-task verification remain pending.
+
+The Grouping resident-view candidate now passes all three real-standard-library
+controls within the unchanged 240-second cap (225.82 seconds including
+compilation). ROOT checked 2,583 unchanged inputs, both streams and an empty
+reaped group. The current-main portable projection compiles, but its positive
+case expects Uncovered where the controlled library returns Unknown. ROOT
+checked 2,716 unchanged inputs and both streams; later assertions and error
+cases remain unobserved. This projection is being checked before integration.
+
+The selected-set iteration candidate passes its positive and initialized-set
+filter-zero assertions. Its header-zero case fails an overly broad expectation
+that both rules must be Limited: expensive-comprehension is Limited, while
+index-set-mismatch is Completed. Independent review confirms that an index
+obligation proven from matching declaration identities does not certify header
+evaluation. The revised test will retain the expensive-comprehension zero error
+and check the index rule's separate outcome. ROOT checked 1,184 unchanged inputs,
+both streams and an empty reaped group. Production changes remain private;
+base-083 and final acceptance remain open.
