@@ -9404,3 +9404,112 @@ solve :: int_search(successor, input_order, indomain_min, complete) satisfy;
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn rank_two_parameter_metadata_and_integer_conversion_inspect_sources_without_outputs() {
+    let included = r#"predicate inspect_columns(array[int] of var int: xs,array[int,int] of int: tuples) =
+    assert(index_set_2of2(tuples) == index_set(xs), "Tuple columns must match the variables");
+predicate inspect_conversion(array[int,int] of int: tuples) = discard_tuple_values(index2int(tuples));
+predicate discard_tuple_values(array[int,int] of int: values) = true;
+predicate inspect_optional(array[int,int] of opt int: tuples) = discard_optional_values(index2int(tuples));
+predicate discard_optional_values(array[int,int] of opt int: values) = true;
+"#;
+    let source = r#"include "included.mzn";
+set of int: Rows;
+set of int: Columns;
+array[Columns] of var 0..1: xs;
+array[Rows,Columns] of int: tuples;
+constraint inspect_columns(xs,tuples);
+constraint inspect_conversion(tuples);
+solve satisfy;
+"#;
+    let partial = source.replace(
+        "array[Rows,Columns] of int: tuples;",
+        "array[1..1,1..1] of int: tuples=[|1 div 0|];",
+    );
+    let opaque = source.replace(
+        "array[Rows,Columns] of int: tuples;",
+        "function array[int,int] of int: opaque_tuples(); array[Rows,Columns] of int: tuples=opaque_tuples();",
+    );
+    let optional = concat!(
+        "include \"included.mzn\"; array[int,int] of opt int: optional_tuples; ",
+        "constraint inspect_optional(optional_tuples); solve satisfy;\n",
+    );
+    for (name, source, completed) in [
+        ("rank-two-partial-initializer", partial.as_str(), false),
+        ("rank-two-optional-operand", optional, false),
+        ("rank-two-opaque-initializer", opaque.as_str(), false),
+        ("rank-two-symbolic-wrapper", source, true),
+    ] {
+        let (dir, _) = model(name, source, included);
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}function bool: assert(bool: condition,string: message); \
+                 function set of $$F: index_set_2of2(array[$$E,$$F] of any $V: values); \
+                 function array[int,int] of any $V: index2int(array[$$E,$$F] of any $V: values); \
+                 function int: 'div'(int: left,int: right);\n"
+            ),
+        )
+        .unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let (bindings, search) = facts(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let outputs =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        assert!(outputs.outputs.iter().all(|output| {
+            ![
+                "inspect_columns",
+                "inspect_conversion",
+                "discard_tuple_values",
+            ]
+            .contains(&bindings.declarations[output.callable.0].name.as_str())
+        }));
+        if let Some(xs) = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "xs")
+        {
+            assert!(outputs.definitions.iter().all(|d| d.target != xs.id));
+        }
+        let result = analyze_model(&context, &selected());
+        if !completed {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {result:?}"
+            );
+            if name == "rank-two-partial-initializer" {
+                assert!(
+                    outputs
+                        .unavailable
+                        .iter()
+                        .any(|u| u.reason == "integer arithmetic overflow or division by zero"),
+                    "{:?}",
+                    outputs.unavailable
+                );
+            }
+            std::fs::remove_dir_all(dir).unwrap();
+            continue;
+        }
+        assert_eq!(
+            result.rules[0].outcome,
+            RuleOutcome::Completed,
+            "{:?}",
+            search.limitations
+        );
+        assert_eq!(
+            coverage(&bindings, &search, "xs"),
+            SearchCoverage::Uncovered
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

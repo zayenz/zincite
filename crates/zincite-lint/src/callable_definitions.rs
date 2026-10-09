@@ -2826,6 +2826,26 @@ impl<'a> Producer<'a> {
                     );
                     return;
                 };
+                // A two-argument assertion has no result whose dependencies
+                // can be exported. Inspecting it does not prove its condition.
+                let inspection_only = args.len() == 2
+                    && crate::definitions::annotations_safe(
+                        self.context,
+                        clause.file,
+                        clause.node,
+                    )
+                    && self
+                        .operation_fact(
+                            self.view(clause.file, clause.node, view),
+                            clause.file,
+                            clause.node,
+                        )
+                        .is_some_and(|call| {
+                            matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                                if parameters.as_slice() == [TypeInst::par(TypeKind::Bool), TypeInst::par(TypeKind::String)]
+                                    && *return_type == TypeInst::par(TypeKind::Bool))
+                        });
+                let mut inspect_arguments = false;
                 let mut dependencies = Vec::new();
                 for (position, (file, argument)) in args.iter().take(2).enumerate() {
                     let range = self.context.files[*file].location(argument.range()).range;
@@ -2854,10 +2874,38 @@ impl<'a> Producer<'a> {
                     }
                     match self.dependencies(*file, argument, view, &clause.generators) {
                         Ok(ids) => extend(&mut dependencies, ids),
+                        Err(_) if inspection_only => inspect_arguments = true,
                         Err(reason) => {
                             self.unavailable(clause, &reason, unavailable);
                             return;
                         }
+                    }
+                }
+                if inspect_arguments {
+                    let mut unsupported = None;
+                    // Inspect both arguments even if one strict dependency
+                    // check passed; a named message can hide an initializer.
+                    for (file, argument) in &args {
+                        if let DefinitionSafety::Unsupported(reason) = self
+                            .initialized_source_safety(
+                                *file,
+                                argument,
+                                view,
+                                &clause.generators,
+                                &mut Vec::new(),
+                            )
+                        {
+                            unsupported = Some(reason);
+                        }
+                        if let Some(reason) =
+                            self.closed_integer_source_error(*file, argument, true, true)
+                        {
+                            unsupported = Some(reason);
+                        }
+                    }
+                    if let Some(reason) = unsupported {
+                        self.unavailable(clause, &reason, unavailable);
+                        return;
                     }
                 }
                 let (condition_file, condition) = if let Some(state) = invocation.as_ref() {
@@ -12848,6 +12896,97 @@ impl<'a> Producer<'a> {
         }
         safety
     }
+    // These two rank-two metadata views may inspect a selected owning formal,
+    // but its default, written type and annotations still evaluate independently.
+    fn rank_two_formal_safety(
+        &self,
+        file: FileId,
+        node: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> Result<(), String> {
+        let node = unwrap(node);
+        let id = self
+            .reference(file, node)
+            .ok_or("rank-two formal source identity is unavailable")?;
+        let declaration = &self.bindings.declarations[id.0];
+        let range = self.context.files[file].location(node.range()).range;
+        let callable = self
+            .bindings
+            .references
+            .iter()
+            .find(|reference| {
+                reference.file == file
+                    && reference.kind == ReferenceKind::Value
+                    && range.start <= reference.location.range.start
+                    && reference.location.range.end <= range.end
+                    && reference.resolution == BindingResolution::Resolved(id)
+            })
+            .and_then(|reference| reference.callable)
+            .ok_or("rank-two formal source owner is unavailable")?;
+        let signature = self
+            .calls
+            .signatures
+            .iter()
+            .find(|signature| signature.declaration == callable)
+            .ok_or("rank-two formal signature is unavailable")?;
+        let position = (0..signature.parameters.len())
+            .find(|position| {
+                formal_parameter(self.context, self.bindings, callable, *position) == Some(id)
+            })
+            .ok_or("rank-two formal correspondence is unavailable")?;
+        let facts = self.view(file, node, view);
+        if declaration.file != file
+            || declaration.role != DeclarationRole::Parameter
+            || signature.parameters[position].has_default
+            || self
+                .expression_type(facts, file, node)
+                .is_none_or(|expression| expression.ty != facts.declarations[id.0].ty)
+        {
+            return Err("rank-two formal type or default is unsupported".into());
+        }
+        let written = find_node(
+            self.context.files[file].parsed.tree(),
+            &declaration.syntax_range,
+            declaration.role,
+        )
+        .ok_or("rank-two formal declaration is unavailable")?;
+        if written
+            .child_nodes()
+            .any(|child| is_expression(child.kind()))
+        {
+            return Err("rank-two formal initializer is unsupported".into());
+        }
+        let mut pending = vec![written];
+        while let Some(node) = pending.pop() {
+            if !crate::definitions::annotations_safe(self.context, file, node) {
+                return Err("rank-two formal annotation is unsupported".into());
+            }
+            if node.kind() == NodeKind::DomainType {
+                for source in node.child_nodes() {
+                    if let DefinitionSafety::Unsupported(reason) = self.initialized_source_safety(
+                        file,
+                        source,
+                        view,
+                        generators,
+                        &mut Vec::new(),
+                    ) {
+                        return Err(reason);
+                    }
+                    if let Some(reason) = self.closed_integer_source_error(file, source, true, true)
+                    {
+                        return Err(reason);
+                    }
+                }
+            }
+            pending.extend(node.child_nodes());
+        }
+        self.type_dependencies(file, written, view, generators)?;
+        if let Some(reason) = self.closed_integer_source_error(file, written, true, false) {
+            return Err(reason);
+        }
+        Ok(())
+    }
     fn direct_safety(
         &self,
         file: FileId,
@@ -13001,7 +13140,9 @@ impl<'a> Producer<'a> {
                 return DefinitionSafety::Unknown("integer array literal value is unproved".into());
             }
         }
-        if node.kind() == NodeKind::CallExpression && self.core(file, node, view, "index_set_1of2")
+        if node.kind() == NodeKind::CallExpression
+            && (self.core(file, node, view, "index_set_1of2")
+                || self.core(file, node, view, "index_set_2of2"))
         {
             let children: Vec<_> = node.child_nodes().collect();
             let integer = |t: &TypeInst| {
@@ -13029,7 +13170,9 @@ impl<'a> Producer<'a> {
                 || subject.is_none_or(|n| n.kind() != NodeKind::Expression)
                 || owner.is_none_or(|id| {
                     let declaration = &self.bindings.declarations[id.0];
-                    declaration.role != DeclarationRole::Value || !declaration.top_level
+                    !(declaration.role == DeclarationRole::Value && declaration.top_level
+                        || self.core(file, node, view, "index_set_2of2")
+                            && declaration.role == DeclarationRole::Parameter)
                 })
                 || !crate::definitions::annotations_safe(self.context, file, written)
                 || ty(children[0]).is_none_or(|t| !array(t))
@@ -13042,6 +13185,13 @@ impl<'a> Producer<'a> {
             {
                 return DefinitionSafety::Unsupported("rank-two integer index-set source is unsupported".into());
             }
+            if owner.is_some_and(|id| {
+                self.bindings.declarations[id.0].role == DeclarationRole::Parameter
+            }) && let Err(reason) =
+                self.rank_two_formal_safety(file, children[0], view, generators)
+            {
+                return DefinitionSafety::Unsupported(reason);
+            }
             return match self.initialized_source_safety(
                 file,
                 children[0],
@@ -13052,6 +13202,56 @@ impl<'a> Producer<'a> {
                 unsupported @ DefinitionSafety::Unsupported(_) => unsupported,
                 _ => DefinitionSafety::Unknown("rank-two index-set membership is unproved".into()),
             };
+        }
+        if node.kind() == NodeKind::CallExpression && self.core(file, node, view, "index2int") {
+            let children: Vec<_> = node.child_nodes().collect();
+            let integer = |t: &TypeInst| {
+                t.known()
+                    && !optional(t)
+                    && t.instantiation == Instantiation::Parameter
+                    && t.kind == TypeKind::Int
+            };
+            let array = |t: &TypeInst| {
+                t.known()
+                    && !optional(t)
+                    && t.instantiation == Instantiation::Parameter
+                    && matches!(&t.kind, TypeKind::Array { indices, element }
+                        if indices.len() == 2 && indices.iter().all(integer) && integer(element))
+            };
+            let subject = children.first().copied().map(unwrap);
+            let owner = subject.and_then(|node| self.reference(file, node));
+            if children.len() == 1
+                && subject.is_some_and(|node| node.kind() == NodeKind::Expression)
+                && owner.is_some_and(|id| {
+                    let declaration = &self.bindings.declarations[id.0];
+                    declaration.role == DeclarationRole::Parameter
+                        || declaration.role == DeclarationRole::Value && declaration.top_level
+                })
+                && crate::definitions::annotations_safe(self.context, file, written)
+                && ty(children[0]).is_some_and(array)
+                && ty(node) == ty(children[0])
+                && self.operation_fact(self.view(file, node, view), file, node).is_some_and(|call|
+                    matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                        if parameters.len() == 1 && Some(&parameters[0]) == ty(children[0])
+                            && Some(return_type) == ty(node)))
+            {
+                if owner.is_some_and(|id| {
+                    self.bindings.declarations[id.0].role == DeclarationRole::Parameter
+                }) && let Err(reason) = self.rank_two_formal_safety(file, children[0], view, generators)
+                {
+                    return DefinitionSafety::Unsupported(reason);
+                }
+                return match self.initialized_source_safety(
+                    file,
+                    children[0],
+                    view,
+                    generators,
+                    &mut Vec::new(),
+                ) {
+                    unsupported @ DefinitionSafety::Unsupported(_) => unsupported,
+                    _ => DefinitionSafety::Unknown("rank-two integer conversion value is unproved".into()),
+                };
+            }
         }
         if let Some(safety) =
             self.parameter_test_safety(file, written, view, generators, &mut Vec::new())

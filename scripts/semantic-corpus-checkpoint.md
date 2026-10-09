@@ -5247,6 +5247,31 @@ candidate formatting, Clippy and all 222 workspace tests pass; existing output
 and reshape guards also pass. Evidence is under
 semantic62-is-set-concat-production-preparation-v1. Actual main formatting,
 Clippy with warnings denied and all 222 workspace tests also pass under
-semantic62-is-set-concat-main-integration. Matched normal native controls
-and the separate table-wrapper assertion repair remain pending; this increment
-alone does not establish original IS or final corpus completion.
+semantic62-is-set-concat-main-integration.
+
+Matched normal native/companion controls retain byte-exact diagnostics and full
+26-rule results on all six models. Written and installed circuit still complete
+all fourteen thesis rules; original IS, the table reduction and the set-array
+reduction with an array1d receiver remain Search Limited. The partial reduction
+retains its division-by-zero warning and limitations. Six before pairs and their
+compiler proofs were reused; twelve after captures agree on outcomes, dependencies
+and drop records. No compiler or solver ran during these captures. Evidence is
+under semantic62-is-set-concat-release-controls-preparation-v1. These observations
+require further receiver inspection and do not establish final corpus completion.
+
+Checked core rank-two parameter integer index views now inspect a selected owning
+formal or initialized top-level source. The already-integer index2int conversion
+returns Unknown after source checks. Defaults, optional elements, opaque
+initializers and closed errors remain refused; these views establish no membership,
+extent or output guarantee. A core two-argument Boolean assertion can inspect
+both initialized arguments when strict dependency collection cannot prove them.
+Existing mapped and literal-false abort checks continue, and three-argument
+assertions retain their strict dependency and output contracts.
+
+One public regression checks symbolic inspection, partial, optional and opaque
+refusals, and absence of output definitions. The composed private candidate and
+actual main pass formatting, Clippy with warnings denied and all 223 workspace
+tests. Evidence is under semantic62-table-index-wrapper-composed-preparation-v1
+and semantic62-table-index-wrapper-main-integration. The accepted Gecode
+compile-only proof was reused. Matched normal wrapper controls and the remaining
+receiver diagnosis are pending; base-083 and final corpus acceptance remain open.
