@@ -1699,16 +1699,29 @@ impl<'a> Producer<'a> {
                 {
                     return true;
                 }
-                // This standard hint permits body inspection; it supplies no proof
-                // of totality and does not bypass any body prerequisite.
+                // These standard hints permit body inspection; they supply no proof
+                // of totality and do not bypass any body prerequisite.
                 tokens.len() == 1
                     && self.reference(file, value).is_some_and(|id| {
                         let declaration = &self.bindings.declarations[id.0];
                         declaration.role == DeclarationRole::Annotation
-                            && declaration.name == "promise_total"
+                            && matches!(
+                                declaration.name.as_str(),
+                                "promise_total" | "promise_commutative"
+                            )
                             && self.context.files[declaration.file].kind
                                 == SourceKind::StandardLibrary
                             && self.context.files[declaration.file].implicit
+                            && (declaration.name == "promise_total"
+                                || find_node(
+                                    self.context.files[declaration.file].parsed.tree(),
+                                    &declaration.syntax_range,
+                                    declaration.role,
+                                )
+                                .is_some_and(|written| {
+                                    written.kind() == NodeKind::AnnotationDeclaration
+                                        && written.child_nodes().next().is_none()
+                                }))
                     })
             })
     }
@@ -14693,10 +14706,10 @@ impl<'a> Producer<'a> {
                                     && !optional(t)
                                     && t.kind == TypeKind::Int
                                     && (t.instantiation == Instantiation::Parameter
-                                        || indices.len() == 2
-                                            && position == 1
-                                            && element.kind == TypeKind::Int
-                                            && t.instantiation == Instantiation::Decision)
+                                        || element.kind == TypeKind::Int
+                                            && t.instantiation == Instantiation::Decision
+                                            && (indices.len() == 1
+                                                || indices.len() == 2 && position == 1))
                             })
                     },
                 )
@@ -14707,9 +14720,10 @@ impl<'a> Producer<'a> {
                     return unsupported;
                 }
                 let inspected_selection = indices.len() == 2
-                    && (matches!(element.kind, TypeKind::Enum(_))
-                        || ty(children[2])
-                            .is_some_and(|t| t.instantiation == Instantiation::Decision));
+                    && matches!(element.kind, TypeKind::Enum(_))
+                    || children[1..].iter().any(|selector| {
+                        ty(selector).is_some_and(|t| t.instantiation == Instantiation::Decision)
+                    });
                 if inspected_selection {
                     if !crate::definitions::annotations_safe(self.context, file, written) {
                         return DefinitionSafety::Unsupported(

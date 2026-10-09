@@ -2911,7 +2911,8 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
                 .replace("set of int: Ids;", "set of int: Ids; set of int: OtherIds;")
                 .replace("of var Ids: selector", "of var OtherIds: selector"),
             SearchCoverage::Unknown,
-            true,
+            // Both sources are inspected; distinct symbolic sets prove no membership.
+            false,
         ),
         (
             "optional selector",
@@ -11110,10 +11111,10 @@ solve satisfy;
             "{CORE}{extra}function int: '*'(int: left,int: right); \
              function int: '+'(int: left,int: right); \
              function any $T: assert(bool: condition,string: message,any $T: result); \
-             annotation promise_total; \
+             annotation promise_total; annotation promise_commutative; \
              function var set of int: opaque_sets(array[int] of var set of int: x); \
              function var set of int: array_union(array[int] of var set of int: x) \
-             :: promise_total = {body};\n"
+             :: promise_total :: promise_commutative = {body};\n"
         );
         let body_start = core.rfind(body).unwrap();
         let library = dir.join("library/std/stdlib.mzn");
@@ -11212,6 +11213,120 @@ solve satisfy;
             assert_eq!(
                 coverage(&bindings, &search, "schedule"),
                 SearchCoverage::Uncovered
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn rank_one_decision_integer_selections_inspect_sources_without_output_proof() {
+    let positive = concat!(
+        "int: n; set of int: I = 1..n;\n",
+        "array[I] of var bool: pre; array[I] of var int: positions;\n",
+        "array[I,I] of var 0..5: blocking;\n",
+        "array[I] of var int: values; array[I] of int: heights;\n",
+        "var 1..n: index; int: delta; var int: selected_value = values[index];\n",
+        "array[I] of var bool: result; array[I] of var bool: inline_result;\n",
+        "constraint result = [pre[s] -> abs(values[index] - heights[s]) > delta | s in I];\n",
+        "constraint inline_result = [(index < positions[s] /\\ blocking[s,index+1] = 0)\n",
+        "  -> abs(values[index] - heights[s]) > delta | s in I];\n",
+        "solve satisfy;\n",
+    );
+    let bad_selector = positive.replace("values[index]", "values[index + (1 div 0)]");
+    let bad_domain = positive.replace("of var int: values", "of var 0..(1 div 0): values");
+    for (name, source, completed) in [
+        ("rank-one-decision-selector", positive, true),
+        ("rank-one-selector-zero", bad_selector.as_str(), false),
+        ("rank-one-domain-zero", bad_domain.as_str(), false),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}{}",
+                concat!(
+                    "function var int: '-'(var int: x,var int: y);\n",
+                    "function var bool: '<'(var int: x,var int: y);\n",
+                    "function var bool: '>'(var int: x,var int: y);\n",
+                    "function var int: abs(var int: x);\n",
+                    "function int: 'div'(int: x,int: y);\n",
+                )
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        let (bindings, search) = facts(&context);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        let calls = resolve_callables(&context, &bindings);
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        assert!(
+            callable.outputs.is_empty(),
+            "{name}: {:?}",
+            callable.outputs
+        );
+        let id = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "selected_value")
+            .unwrap()
+            .id;
+        let definition = definitions
+            .definitions
+            .iter()
+            .find(|d| d.target == id)
+            .unwrap();
+        let analysis = analyze_model(&context, &selected());
+        if completed {
+            assert!(
+                matches!(definition.safety, DefinitionSafety::Unknown(_)),
+                "{name}: {:?}",
+                definition.safety
+            );
+            assert_eq!(
+                analysis.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                search.limitations
+            );
+            for name in ["result", "inline_result", "selected_value"] {
+                assert_eq!(coverage(&bindings, &search, name), SearchCoverage::Unknown);
+            }
+            assert_eq!(
+                coverage(&bindings, &search, "values"),
+                SearchCoverage::Uncovered
+            );
+            assert_eq!(
+                coverage(&bindings, &search, "index"),
+                SearchCoverage::Uncovered
+            );
+        } else {
+            assert!(matches!(
+                analysis.rules[0].outcome,
+                RuleOutcome::Limited { .. }
+            ));
+            assert!(
+                matches!(&definition.safety, DefinitionSafety::Unsupported(reason) if reason.contains("division by zero")),
+                "{name}: {:?}",
+                definition.safety
             );
         }
         std::fs::remove_dir_all(dir).unwrap();

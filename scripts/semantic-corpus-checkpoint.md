@@ -5895,3 +5895,21 @@ semantic65-parade-direct-definition-preparation-v2 and
 semantic65-social-installed-body-preparation-v1. ROOT checked complete streams and
 unchanged inputs; later final assertions or cases remain unobserved where the first
 positive assertion aborts. Repairs and fresh original completion remain pending.
+
+Rank-one decision integer selections now inspect the written source and selector
+while retaining Unknown membership and withholding search/output certificates.
+The focused Parade positive and both closed-error cases pass under
+semantic65-parade-direct-definition-green-v1. Atomic implicit-standard
+promise_commutative annotations now permit the same body inspection as the
+existing totality hint; the selected body still has to pass its prerequisites.
+Social's atomic-hint case passes, while its actual conditional body remains
+Limited under semantic65-social-installed-body-preparation-v2.
+
+The existing distinct-symbolic-domain selector case now expects Completed source
+inspection with Unknown coverage. Declaration identities remain distinct and no
+membership or output proof is supplied; its exact model passes MiniZinc's
+source/type check. The optional-selector refusal remains. Actual-main formatting,
+clippy and all 238 workspace tests pass under
+main-rank-one-selection-and-annotation-gates-v2; ROOT checked 108 unchanged source
+files, six complete streams and three reaped empty groups. Fresh original-model
+outcomes and final task acceptance remain open.
