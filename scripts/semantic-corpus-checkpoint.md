@@ -6190,3 +6190,29 @@ protocol evidence. Only two missing operator cases are being prepared against
 those exact historical assets. This does not create a nine-case comparison or
 attribute those assets to 6af. Final candidate costs, corpus reconciliation and
 whole-task verification remain pending; base-083 stays open.
+
+The unchanged selected-set helper now has direct original-ATSP evidence: all
+three selected cells, with exact resolved owning arrays and preceding generator
+headers, return inspected symbolic Unknown. ROOT checked 1,163 unchanged inputs,
+both full streams and an empty reaped group. This is helper evidence only; the
+iteration consumer repair and its public behavior checks remain pending.
+
+The two missing semantic56 operator baseline cases completed under the existing
+all/repeat2 protocol. ROOT checked 1,235 unchanged inputs, 12 distinct receipts,
+24 full streams and two empty reaped outer groups. Both complete resolved roots
+retain exact 26-ID partitions, native/companion parity and returned allocation
+scopes. Each completes 24 rules and limits two; the 100/1,000-operation inputs
+retain 201/2,001 limitation diagnostics. These complement the seven historical
+cases against the exact retained assets and 90-source map; no final candidate
+comparison or ratio is admitted.
+
+The private Grouping positive-only diagnostic passes all public assertions in
+200.77 seconds including compilation. ROOT checked 2,574 unchanged inputs, both
+full streams and an empty reaped group. Its 120 wrapper reconstructions total
+139,734 ms; analyze_model takes 64,259 ms. This instrumented attribution is not
+a normal-release cost claim. Independent static review found exact immutable
+resident views for most wrapper tuples: their constructor inputs match, and
+all written-source/default/metadata/type checks surround the proposed reuse.
+A local reuse candidate retains the existing constructor when no exact
+nonrecursive resident exists. Full three-case acceptance, final native costs,
+corpus reconciliation and whole-task verification remain pending.
