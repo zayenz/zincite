@@ -5938,3 +5938,15 @@ formatting, clippy and all 239 tests pass under
 main-social-conditional-sources-gates-v1, with 108 unchanged source files, six
 complete streams and three reaped empty groups. Original Social completion and
 final task acceptance remain open.
+
+The selected union helper's singleton branch now inspects only its owning formal's
+bodyless core array1d conversion, exact tuple, source and selector, under the
+same-array nonempty branch guard and selector 1. It returns Unknown and supplies
+no membership or output certificate. The singleton positive and selector-overflow
+negative pass under semantic65-social-installed-body-preparation-v4; the actual
+local body remains Limited at its initialized-source annotation, with later
+original negatives unobserved. The permanent pair extends the existing group.
+Actual-main formatting, clippy and all 239 tests pass under
+main-social-singleton-sources-gates-v1, with 108 unchanged source files, six full
+streams and three reaped empty groups. Original Social and task acceptance
+remain pending.

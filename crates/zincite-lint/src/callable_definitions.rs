@@ -5516,13 +5516,142 @@ impl<'a> Producer<'a> {
                         {
                             return Err(reason);
                         }
-                        self.initialized_source_safety(
-                            owner.file,
-                            branch_body,
-                            &body_view,
-                            &[],
-                            active,
-                        )
+                        let cell = unwrap(branch_body);
+                        let parts: Vec<_> = cell.child_nodes().collect();
+                        if cell.kind() == NodeKind::ArrayAccessExpression
+                            && parts.len() == 2
+                            && self.core(owner.file, unwrap(parts[0]), &body_view, "array1d")
+                        {
+                            let converted = unwrap(parts[0]);
+                            let arguments: Vec<_> = converted.child_nodes().collect();
+                            let [argument] = arguments.as_slice() else {
+                                return Err(
+                                    "decision set singleton conversion arity is unsupported".into(),
+                                );
+                            };
+                            let source = unwrap(argument);
+                            let selector = parts[1];
+                            if converted.kind() != NodeKind::CallExpression
+                                || source.kind() != NodeKind::Expression
+                                || !matches!(crate::domains::tokens(&self.context.files[owner.file].parsed, source).as_slice(),
+                                    [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+                                || self.reference(owner.file, source) != Some(formal)
+                                || typed(argument) != Some(&parameters[0])
+                                || typed(converted) != Some(&parameters[0])
+                                || typed(cell) != Some(return_type)
+                                || typed(selector).is_none_or(|t| {
+                                    !t.known()
+                                        || optional(t)
+                                        || t.instantiation != Instantiation::Parameter
+                                        || t.kind != TypeKind::Int
+                                })
+                            {
+                                return Err(
+                                    "decision set singleton source or selector type is unsupported"
+                                        .into(),
+                                );
+                            }
+                            let conversion = self
+                                .operation_fact(&body_view, owner.file, converted)
+                                .ok_or(
+                                    "decision set singleton conversion selection is unavailable",
+                                )?;
+                            let CallOutcome::Resolved {
+                                declaration: primitive,
+                                parameters: primitive_parameters,
+                                return_type: primitive_result,
+                            } = &conversion.outcome
+                            else {
+                                return Err(
+                                    "decision set singleton conversion selection is unsupported"
+                                        .into(),
+                                );
+                            };
+                            if primitive_parameters.as_slice()
+                                != std::slice::from_ref(&parameters[0])
+                                || primitive_result != &parameters[0]
+                            {
+                                return Err(
+                                    "decision set singleton conversion tuple is unsupported".into(),
+                                );
+                            }
+                            let declaration = &self.bindings.declarations[primitive.0];
+                            let written = find_node(
+                                self.context.files[declaration.file].parsed.tree(),
+                                &declaration.syntax_range,
+                                declaration.role,
+                            )
+                            .ok_or("decision set singleton primitive declaration is unavailable")?;
+                            if declaration.role != DeclarationRole::Function {
+                                return Err(
+                                    "decision set singleton primitive role is unsupported".into()
+                                );
+                            }
+                            // This source path admits only the written bodyless
+                            // primitive. Changed bodies/defaults/domains stay refused.
+                            let mut nodes = vec![written];
+                            while let Some(node) = nodes.pop() {
+                                if is_expression(node.kind())
+                                    || !crate::definitions::annotations_safe(
+                                        self.context,
+                                        declaration.file,
+                                        node,
+                                    )
+                                {
+                                    return Err("decision set singleton primitive body or written source is unsupported".into());
+                                }
+                                nodes.extend(node.child_nodes());
+                            }
+                            let mut nodes = vec![*branch_body];
+                            while let Some(node) = nodes.pop() {
+                                if !self.source_annotations_safe(owner.file, node) {
+                                    return Err(
+                                        "decision set singleton source annotation is unsupported"
+                                            .into(),
+                                    );
+                                }
+                                nodes.extend(node.child_nodes());
+                            }
+                            for source in [*argument, selector] {
+                                if let DefinitionSafety::Unsupported(reason) = self
+                                    .initialized_source_safety(
+                                        owner.file,
+                                        source,
+                                        &body_view,
+                                        &[],
+                                        active,
+                                    )
+                                {
+                                    return Err(reason);
+                                }
+                                if let Some(reason) =
+                                    self.closed_integer_source_error(owner.file, source, true, true)
+                                {
+                                    return Err(reason);
+                                }
+                            }
+                            if !self.array_nonempty_branch(owner.file, cell, formal, &body_view)
+                                || crate::domains::invariant_expression_integer(
+                                    self.context,
+                                    self.bindings,
+                                    owner.file,
+                                    selector,
+                                ) != Ok(Some(1))
+                            {
+                                return Err("decision set singleton lacks its same-array nonempty branch or first selector".into());
+                            }
+                            DefinitionSafety::Unknown(
+                                "decision set singleton value and membership are unproved".into(),
+                            )
+                        } else {
+                            self.initialized_source_safety(
+                                owner.file,
+                                branch_body,
+                                &body_view,
+                                &[],
+                                active,
+                            )
+                        }
                     };
                     if let DefinitionSafety::Unsupported(reason) = inspected {
                         return Err(reason);

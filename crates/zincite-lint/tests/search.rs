@@ -11044,8 +11044,31 @@ solve satisfy;
         "universe == array_union(i in index_set(cells))(cells[i])",
         "card(array_union(i in index_set(cells))(cells[i])) + 1 = 0",
     );
+    let singleton_body = r#"if length(x) = 0 then
+    {}
+elseif length(x) = 1 then
+    array1d(x)[1]
+else
+    {1}
+endif"#;
+    let singleton_selector_overflow =
+        singleton_body.replace("array1d(x)[1]", "array1d(x)[(9223372036854775807 + 1)]");
     for (name, source, body, error, selected_body_error) in [
         ("union-symbolic", positive, "{1}", None, false),
+        (
+            "union-conditional-singleton-source",
+            positive,
+            singleton_body,
+            None,
+            false,
+        ),
+        (
+            "union-conditional-singleton-selector-overflow",
+            positive,
+            singleton_selector_overflow.as_str(),
+            Some("overflow"),
+            true,
+        ),
         (
             "union-conditional-literal-set-sources",
             positive,
@@ -11112,7 +11135,10 @@ solve satisfy;
     ] {
         let (dir, _) = model(name, "solve satisfy;", "");
         let extra = match name {
-            "union-conditional-literal-set-sources" | "union-conditional-literal-set-overflow" => {
+            "union-conditional-literal-set-sources"
+            | "union-conditional-literal-set-overflow"
+            | "union-conditional-singleton-source"
+            | "union-conditional-singleton-selector-overflow" => {
                 "function int: length(array[int] of any $T: values);\n"
             }
             "union-intersection-body-abort" => {
