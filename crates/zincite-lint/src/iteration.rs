@@ -443,6 +443,16 @@ impl Producer<'_> {
             .find(|n| !matches!(n.kind(), NodeKind::Annotation | NodeKind::ParameterList))
         {
             core_arithmetic(self.context, self.bindings, self.calls, d.file, ty)?;
+            if let Some(reason) = crate::callable_definitions::closed_integer_type_source_error(
+                self.context,
+                self.bindings,
+                self.calls,
+                self.instantiations,
+                self.domains,
+                (d.file, ty),
+            ) {
+                return Err(reason);
+            }
         }
         if d.role == DeclarationRole::Local
             && let Some(rhs) = node.child_nodes().find(|n| is_expression(n.kind()))
@@ -611,6 +621,66 @@ impl Producer<'_> {
                     self.domains,
                     (file, node, &[]),
                 )
+            })
+            .or_else(|| {
+                if node.kind() != NodeKind::RangeExpression {
+                    return None;
+                }
+                let mut generators = Vec::new();
+                let mut scope_error = None;
+                for (id, domain) in known {
+                    let declaration = &self.bindings.declarations[*id];
+                    if declaration.file != file
+                        || declaration.role != DeclarationRole::Generator
+                        || declaration.syntax_range.end > node.range().start
+                    {
+                        continue;
+                    }
+                    if let Domain::Unsupported(reason) = domain {
+                        scope_error = Some(reason.clone());
+                    }
+                    let Some(header) = find_node(
+                        self.context.files[file].parsed.tree(),
+                        &declaration.syntax_range,
+                        declaration.role,
+                    ) else {
+                        scope_error = Some("generator source header is unavailable".into());
+                        continue;
+                    };
+                    if !generators
+                        .iter()
+                        .any(|node: &&SyntaxNode| node.range() == header.range())
+                    {
+                        generators.push(header);
+                    }
+                }
+                generators.sort_by_key(|node| node.range().start);
+                let safety = crate::callable_definitions::decision_prefix_source_safety(
+                    self.context,
+                    self.bindings,
+                    self.calls,
+                    self.instantiations,
+                    self.domains,
+                    (file, node, &generators),
+                )?;
+                if let Some(reason) = scope_error {
+                    return Some(Domain::Unsupported(reason));
+                }
+                let Some(evaluated) = self.guarded.expression(file, &self.location(file, node))
+                else {
+                    return Some(Domain::Unsupported(
+                        "decision prefix evaluated source is unavailable".into(),
+                    ));
+                };
+                for outcome in [&evaluated.raw_definedness, &evaluated.definedness] {
+                    if let GuardedOutcome::Unsupported(reason) = outcome {
+                        return Some(Domain::Unsupported(reason.clone()));
+                    }
+                }
+                Some(match safety {
+                    crate::DefinitionSafety::Unsupported(reason) => Domain::Unsupported(reason),
+                    _ => Domain::Unknown,
+                })
             })
             .unwrap_or_else(|| expression_domain(self.context, self.bindings, file, node));
         if node.kind() == NodeKind::Expression {

@@ -6127,3 +6127,22 @@ formal. ROOT checked 2,321 unchanged inputs, both full streams and an empty reap
 group. The later Search assertions remain unobserved. The next tests-only
 correction checks the selected predicate and root array rather than unrelated
 callable outputs; the three accepted source-only compiler receipts are retained.
+
+The current-main prefix repair now passes all four actual-standard-library cases,
+including the inactive bound, and the portable four-case regression passes in one
+test. ROOT checked 1,276 and 1,299 unchanged inputs respectively, both complete
+streams and an empty reaped group for each run. Both closed-fragment and referenced
+source scans now omit the same proven inactive literal branch only during written
+type inspection; existing callers retain their traversal. The primitive metadata
+visitor reuses the existing standard annotation checker. Main formatting, Clippy
+and all 246 tests pass under main-decision-prefix-gates-v2, with 108 unchanged
+sources, six complete streams and three empty reaped groups. The first gate run
+is retained with its needless-reference Clippy failure and unobserved tests.
+
+Grouping v3 reaches the intended behavior checks after narrowing its output
+assertion. The selected-body zero case passes all assertions. The positive still
+rejects the optional local declaration; the source-zero case is Limited but that
+same refusal hides its actual initialized-source error. ROOT checked 2,326
+unchanged inputs, both full streams and an empty reaped group. Its source reader,
+fresh original-model replays, final corpus/cost evidence and whole-task
+verification remain pending; base-083 stays open.

@@ -149,11 +149,35 @@ pub fn resolve_comprehension_structure(
                 placements.push(p);
             }
         }
+        // Only arrays referenced by retained iteration expressions can veto
+        // this candidate; unrelated declarations and limitations stay separate.
+        let source_error = i
+            .expressions
+            .iter()
+            .flat_map(|expression| &expression.dependencies)
+            .find_map(|declaration| {
+                iteration
+                    .arrays
+                    .iter()
+                    .find(|array| array.declaration == *declaration)
+                    .and_then(|array| {
+                        array.dimensions.iter().find_map(|dimension| {
+                            if let crate::Cardinality::Unsupported(reason) = &dimension.cardinality
+                            {
+                                Some(reason.clone())
+                            } else {
+                                None
+                            }
+                        })
+                    })
+            });
         facts.push(ComprehensionStructureFact {
             file: i.file,
             item: g.item,
             location: i.location.clone(),
-            candidates: i.candidates.clone(),
+            candidates: source_error
+                .map(CandidateCount::Unsupported)
+                .unwrap_or_else(|| i.candidates.clone()),
             placements,
         });
     }

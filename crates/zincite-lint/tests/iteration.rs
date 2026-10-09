@@ -469,3 +469,259 @@ fn supplied_expression_order_keeps_first_exact_file_range_kind() {
     assert_eq!(result.location.range, target.location.range);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn decision_prefix_sources_inspect_scope_without_proving_members_or_counts() {
+    // Real range and optional-sum bodies, with their selected primitive dependencies.
+    const PREFIX_LIBRARY: &str = r#"annotation promise_total;
+annotation promise_commutative;
+annotation mzn_internal_representation;
+function var int: '-'(var int: a, var int: b) :: mzn_internal_representation;
+function var bool: '>='(var int: a, var int: b) :: mzn_internal_representation;
+function var bool: '<='(var int: a, int: b) :: mzn_internal_representation;
+function var bool: '<='(int: a, var int: b) :: mzn_internal_representation;
+function var bool: '/\'(var bool: a, var bool: b)
+    :: mzn_internal_representation :: promise_commutative;
+function var bool: '<->'(var bool: a, var bool: b) :: promise_commutative;
+function var bool: 'in'(var int: a, var set of int: b);
+function var bool: forall(array[int] of var bool: x) :: promise_commutative;
+function int: lb(var int: x);
+function int: ub(var int: x);
+function set of int: ub(var set of int: x);
+function set of int: index_set(array[int] of var opt int: x);
+function var int: 'default'(var opt int: x, var int: y);
+function var int: sum(array[int] of var int: x)
+    :: mzn_internal_representation :: promise_commutative;
+function var int: sum(array[int] of var opt int: x) :: promise_commutative =
+    sum(i in index_set(x))(x[i] default 0);
+function var set of int: '..'(var int: a, var int: b) :: promise_total =
+    let {
+        var set of lb(a)..ub(b): s;
+        constraint forall(i in ub(s))(i in s <-> (a <= i /\ i <= b));
+    } in s;
+"#;
+    let positive = r#"int: max_jobs;
+int: num_demands;
+int: num_moulds;
+int: num_colors;
+set of int: Jobs = 1..max_jobs;
+set of int: Demands = 1..num_demands;
+set of int: Moulds = 1..num_moulds;
+set of int: Colors = 1..num_colors;
+array[Demands] of Moulds: demand_mould;
+array[Demands] of Colors: demand_color;
+array[Demands] of var Jobs: demand_end_job;
+array[Jobs,Moulds,Colors] of var 0..1: total_job_moulds;
+constraint forall(d in Demands)(
+  let {
+    int: k = demand_mould[d];
+    int: l = demand_color[d];
+  } in
+  sum(i in 1..demand_end_job[d])(total_job_moulds[i,k,l])
+  >= sum(i in 1..demand_end_job[d]-1)(total_job_moulds[i,k,l])
+);
+solve satisfy;
+"#;
+    let zero = positive.replace("int: num_demands;", "int: num_demands = 1 div 0;");
+    let overflow = positive.replace(
+        "var 0..1: total_job_moulds",
+        "var 0..(9223372036854775807+1): total_job_moulds",
+    );
+    let inactive = positive.replace(
+        "var 0..1: total_job_moulds",
+        "var 0..(if false then 1 div 0 else 1 endif): total_job_moulds",
+    );
+    let directory = std::env::temp_dir().join(format!(
+        "zincite-iteration-decision-prefix-{}",
+        std::process::id()
+    ));
+    let library = directory.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(
+        library.join("std/stdlib.mzn"),
+        format!("{CORE}{PREFIX_LIBRARY}"),
+    )
+    .unwrap();
+    let root = directory.join("root.mzn");
+    let options = ModelOptions {
+        include_dirs: Vec::new(),
+        stdlib_dir: Some(library),
+    };
+    let rules = LintOptions {
+        rules: vec![Rule::ExpensiveComprehension, Rule::IndexSetMismatch],
+        ..LintOptions::default()
+    };
+    for (source, error) in [
+        (positive, None),
+        (zero.as_str(), Some("zero")),
+        (overflow.as_str(), Some("overflow")),
+        (inactive.as_str(), None),
+    ] {
+        std::fs::write(&root, source).unwrap();
+        let context = load_model(&root, &options);
+        assert!(context.errors.is_empty(), "{:?}", context.errors);
+        assert!(context.limitations.is_empty(), "{:?}", context.limitations);
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        assert!(context.implicit_core.is_some());
+        let file = context.root_file.unwrap();
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let user_calls: Vec<_> = calls
+            .calls
+            .iter()
+            .filter(|call| call.file == file)
+            .collect();
+        assert!(!user_calls.is_empty());
+        assert!(
+            user_calls
+                .iter()
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{:?}",
+            user_calls
+        );
+        let result = analyze_model(&context, &rules);
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.rules.len(), 2);
+        if let Some(error) = error {
+            assert!(
+                result
+                    .rules
+                    .iter()
+                    .all(|rule| matches!(rule.outcome, RuleOutcome::Limited { .. })),
+                "{error}: {:?}",
+                result.rules
+            );
+            for prefix in ["expensive-comprehension:", "index-set-mismatch:"] {
+                assert!(
+                    result.limitations.iter().any(|limit| {
+                        limit.location.path == root
+                            && limit.location.range.start < limit.location.range.end
+                            && limit.message.starts_with(prefix)
+                            && limit.message.contains(error)
+                    }),
+                    "{error}: {:?}",
+                    result.limitations
+                );
+            }
+            assert!(result.findings.is_empty(), "{:?}", result.findings);
+            continue;
+        }
+        assert!(
+            result
+                .rules
+                .iter()
+                .all(|rule| rule.outcome == RuleOutcome::Completed),
+            "inspected symbolic prefix sources must complete: {:?}",
+            result.rules
+        );
+        assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+        assert!(result.findings.is_empty(), "{:?}", result.findings);
+
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let numeric = resolve_numeric_facts(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+            &definitions,
+        );
+        let optional = resolve_optional_facts(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+            &numeric,
+            &definitions,
+        );
+        let guarded = resolve_guarded_facts_with_options(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+            &numeric,
+            &optional,
+        );
+        let facts = resolve_iteration_facts(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+            &numeric,
+            &optional,
+            &guarded,
+        );
+        let prefixes: Vec<_> = facts
+            .iterations
+            .iter()
+            .filter(|fact| {
+                fact.file == file
+                    && text(&context, file, &fact.location)
+                        .trim_start()
+                        .starts_with("sum(i in 1..demand_end_job[d]")
+            })
+            .collect();
+        assert_eq!(prefixes.len(), 2);
+        for fact in prefixes {
+            assert!(matches!(fact.candidates, CandidateCount::Unknown));
+            assert!(matches!(fact.selected, CandidateCount::Unknown));
+            assert_eq!(fact.coverage, IterationCoverage::Unknown);
+            assert_eq!(fact.generators.len(), 1);
+            let generator = &fact.generators[0];
+            assert_eq!(generator.source_instantiation, Instantiation::Decision);
+            assert!(matches!(generator.index_set.domain, Domain::Unknown));
+            assert_eq!(generator.index_set.cardinality, Cardinality::Unknown);
+        }
+        let demand = bindings
+            .declarations
+            .iter()
+            .find(|declaration| {
+                declaration.file == file
+                    && declaration.role == DeclarationRole::Generator
+                    && declaration.name == "d"
+            })
+            .unwrap()
+            .id;
+        let body = bindings
+            .declarations
+            .iter()
+            .find(|declaration| {
+                declaration.file == file
+                    && declaration.top_level
+                    && declaration.name == "total_job_moulds"
+            })
+            .unwrap()
+            .id;
+        let memberships: Vec<_> = guarded
+            .obligations
+            .iter()
+            .filter(|obligation| {
+                obligation.file == file
+                    && matches!(&obligation.kind, GuardObligationKind::Index {
+                    array, dimension: 1, ..
+                } if *array == body)
+            })
+            .collect();
+        assert_eq!(memberships.len(), 2);
+        for obligation in memberships {
+            assert_eq!(obligation.outcome, GuardedOutcome::Unknown);
+            assert!(obligation.context.assumptions.iter().any(|assumption| {
+                matches!(&assumption.kind, GuardAssumptionKind::GeneratorMembership {
+                    declaration, ..
+                } if *declaration == demand)
+            }));
+        }
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

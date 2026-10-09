@@ -962,6 +962,19 @@ impl<'a> Producer<'a> {
             NodeKind::UnaryExpression | NodeKind::BinaryExpression => {
                 self.operation(file, item, node, &scope)
             }
+            NodeKind::RangeExpression => {
+                if let Some(result) = self.decision_prefix_predecessor(file, item, node, &scope) {
+                    result
+                } else {
+                    let mut own = scope.clone();
+                    own.enforcement = DefinitionEnforcement::Conditional;
+                    let values: Vec<_> = children
+                        .iter()
+                        .map(|n| self.walk(file, item, n, own.clone()))
+                        .collect();
+                    combine(&values)
+                }
+            }
             NodeKind::CallExpression => self.call(file, item, node, &scope),
             NodeKind::GeneratorCallExpression
             | NodeKind::ArrayComprehension
@@ -2868,8 +2881,124 @@ impl<'a> Producer<'a> {
             })
             .unwrap_or_else(|| expression_domain(self.context, self.bindings, file, node))
     }
+    // These source consumers need the same actual preceding membership headers.
+    fn source_headers(
+        &self,
+        file: FileId,
+        source: &SyntaxNode,
+        scope: &Scope<'a>,
+    ) -> (Vec<&'a SyntaxNode>, Option<String>) {
+        let mut generators: Vec<&SyntaxNode> = Vec::new();
+        let mut scope_error = None;
+        for assumption in scope.assumptions.iter() {
+            if let Assumption::Membership {
+                file: owner,
+                declaration,
+                domain,
+                ..
+            } = assumption
+            {
+                let declared = &self.bindings.declarations[declaration.0];
+                if *owner != file
+                    || declared.file != file
+                    || declared.role != crate::DeclarationRole::Generator
+                    || declared.syntax_range.end > source.range().start
+                {
+                    scope_error = Some("generator source scope is unavailable".into());
+                    continue;
+                }
+                if let Domain::Unsupported(reason) = domain {
+                    scope_error = Some(reason.clone());
+                }
+                let Some(generator) = crate::callables::find_node(
+                    self.context.files[file].parsed.tree(),
+                    &declared.syntax_range,
+                    declared.role,
+                ) else {
+                    scope_error = Some("generator source header is unavailable".into());
+                    continue;
+                };
+                if !generators.iter().any(|g| g.range() == generator.range()) {
+                    generators.push(generator);
+                }
+            }
+        }
+        generators.sort_by_key(|g| g.range().start);
+        (generators, scope_error)
+    }
+    fn decision_prefix_predecessor(
+        &mut self,
+        file: FileId,
+        item: usize,
+        node: &'a SyntaxNode,
+        scope: &Scope<'a>,
+    ) -> Option<Evaluation> {
+        let children: Vec<_> = node.child_nodes().collect();
+        let [lower, upper] = children.as_slice() else {
+            return None;
+        };
+        let mut upper = *upper;
+        let mut wrappers = Vec::new();
+        while upper.kind() == NodeKind::ParenthesizedExpression {
+            let children: Vec<_> = upper.child_nodes().collect();
+            let [child] = children.as_slice() else {
+                return None;
+            };
+            wrappers.push(upper);
+            upper = child;
+        }
+        if upper.kind() != NodeKind::BinaryExpression {
+            return None;
+        }
+        let operands: Vec<_> = upper.child_nodes().collect();
+        let [selected, offset] = operands.as_slice() else {
+            return None;
+        };
+        let (generators, scope_error) = self.source_headers(file, node, scope);
+        let safety = crate::callable_definitions::decision_prefix_source_safety(
+            self.context,
+            self.bindings,
+            self.calls,
+            self.instantiations,
+            self.domains,
+            (file, node, &generators),
+        )?;
+        if scope_error.is_some() || matches!(safety, crate::DefinitionSafety::Unsupported(_)) {
+            return None;
+        }
+        // The selected range/body and exact predecessor primitive were inspected.
+        // Walk its cell and literal normally so membership and source failures
+        // remain attached to their actual guarded obligations.
+        let mut own = scope.clone();
+        own.enforcement = DefinitionEnforcement::Conditional;
+        let lower_value = self.walk(file, item, lower, own.clone());
+        let selected_value = self.walk(file, item, selected, own.clone());
+        let offset_value = self.walk(file, item, offset, own.clone());
+        let mut predecessor = combine(&[selected_value, offset_value]);
+        predecessor.numeric = Some(NumericOutcome::Unknown(
+            "decision prefix predecessor value is unproved".into(),
+        ));
+        for value in std::iter::once(upper).chain(wrappers.into_iter().rev()) {
+            if self.options.is_some() {
+                predecessor.presence = Some(self.scoped_presence(file, value, &own));
+            }
+            self.facts.expressions.push(GuardedExpression {
+                file,
+                item,
+                location: self.location(file, value),
+                truth: predecessor.truth.clone(),
+                raw_definedness: predecessor.definedness.clone(),
+                definedness: predecessor.definedness.clone(),
+                numeric: predecessor.numeric.clone(),
+                invariant_presence: self.intrinsic_presence(file, value),
+                presence: predecessor.presence.clone(),
+                context: self.context(&own),
+            });
+        }
+        Some(combine(&[lower_value, predecessor]))
+    }
     // Named union sources retain their existing initialized-owner context.
-    // A typed selected parameter set uses only its actual preceding headers.
+    // Selected parameter sets and decision prefixes retain actual preceding headers.
     fn generator_domain(
         &self,
         file: FileId,
@@ -2878,51 +3007,31 @@ impl<'a> Producer<'a> {
         evaluated: &Evaluation,
     ) -> Domain {
         let source = unwrap(node);
-        if source.kind() == NodeKind::ArrayAccessExpression {
-            let mut generators: Vec<&SyntaxNode> = Vec::new();
-            let mut scope_error = None;
-            for assumption in scope.assumptions.iter() {
-                if let Assumption::Membership {
-                    file: owner,
-                    declaration,
-                    domain,
-                    ..
-                } = assumption
-                {
-                    let declared = &self.bindings.declarations[declaration.0];
-                    if *owner != file
-                        || declared.file != file
-                        || declared.role != crate::DeclarationRole::Generator
-                        || declared.syntax_range.end > source.range().start
-                    {
-                        scope_error = Some("generator source scope is unavailable".into());
-                        continue;
-                    }
-                    if let Domain::Unsupported(reason) = domain {
-                        scope_error = Some(reason.clone());
-                    }
-                    let Some(generator) = crate::callables::find_node(
-                        self.context.files[file].parsed.tree(),
-                        &declared.syntax_range,
-                        declared.role,
-                    ) else {
-                        scope_error = Some("generator source header is unavailable".into());
-                        continue;
-                    };
-                    if !generators.iter().any(|g| g.range() == generator.range()) {
-                        generators.push(generator);
-                    }
-                }
-            }
-            generators.sort_by_key(|g| g.range().start);
-            if let Some(safety) = crate::callable_definitions::selected_integer_set_source_safety(
-                self.context,
-                self.bindings,
-                (self.calls, self.calls),
-                self.instantiations,
-                self.domains,
-                (file, node, &generators),
-            ) {
+        if matches!(
+            source.kind(),
+            NodeKind::ArrayAccessExpression | NodeKind::RangeExpression
+        ) {
+            let (generators, scope_error) = self.source_headers(file, source, scope);
+            let inspected = if source.kind() == NodeKind::RangeExpression {
+                crate::callable_definitions::decision_prefix_source_safety(
+                    self.context,
+                    self.bindings,
+                    self.calls,
+                    self.instantiations,
+                    self.domains,
+                    (file, node, &generators),
+                )
+            } else {
+                crate::callable_definitions::selected_integer_set_source_safety(
+                    self.context,
+                    self.bindings,
+                    (self.calls, self.calls),
+                    self.instantiations,
+                    self.domains,
+                    (file, node, &generators),
+                )
+            };
+            if let Some(safety) = inspected {
                 if let Some(reason) = scope_error {
                     return Domain::Unsupported(reason);
                 }
@@ -3566,6 +3675,16 @@ impl<'a> Producer<'a> {
             ty,
         )
         .err()
+        .or_else(|| {
+            crate::callable_definitions::closed_integer_type_source_error(
+                self.context,
+                self.bindings,
+                self.calls,
+                self.instantiations,
+                self.domains,
+                (declaration.file, ty),
+            )
+        })
     }
     fn guarded_nonempty(&self, file: FileId, node: &SyntaxNode, scope: &Scope<'a>) -> bool {
         scope.assumptions.iter().any(|a| {
