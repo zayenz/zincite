@@ -6001,3 +6001,18 @@ matrix. Actual-main formatting, Clippy and all 242 tests pass under
 main-grouping-floor-sources-gates-v1; ROOT checked 108 unchanged source files,
 six complete streams and three reaped empty groups. The reverse source and fresh
 original Grouping outcomes remain pending; base-083 is still open.
+
+The fresh Social union v7 check reaches the actual conditional/local standard
+body but remains Limited: initialized arithmetic inspection is unavailable.
+The first five cases pass; the failing sixth leaves four later cases unobserved.
+ROOT checked all 1,237 unchanged inputs, both full streams and the reaped empty
+group. No Social candidate has been integrated or accepted from this capture.
+
+The private ATSP let-equality diagnostic retains the failed candidate's behavior.
+All three array element guards return Ok and the preceding demands source is
+Supported; the next veto is uncertain_equality_header on that source. Its local
+count-only admission does not recognize the ordinary symbolic num_demands bound.
+The operand inspection and later negative assertions remain unobserved. ROOT
+checked 125 unchanged inputs, both full streams and the reaped empty group.
+The temporary trace must not integrate; both repairs and whole-task acceptance
+remain pending.
