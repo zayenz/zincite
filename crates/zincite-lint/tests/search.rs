@@ -10651,3 +10651,144 @@ solve satisfy;
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn symbolic_annotation_array_selection_inspects_all_alternatives_without_coverage() {
+    use zincite_syntax::NodeKind;
+
+    let positive = concat!(
+        "enum SearchChoice = {LeftSearch, RightSearch};\n",
+        "enum OrderChoice = {InputOrder, Smallest};\n",
+        "enum ValueChoice = {Minimum, Maximum};\n",
+        "SearchChoice: selected_search; OrderChoice: selected_order; ValueChoice: selected_value;\n",
+        "array[1..2] of var 0..9: left; array[1..2] of var 0..9: right;\n",
+        "ann: varsel = [input_order, smallest][selected_order];\n",
+        "ann: valsel = [indomain_min, indomain_max][selected_value];\n",
+        "ann: searchx = [int_search(left,varsel,valsel,complete),int_search(right,varsel,valsel,complete)][selected_search];\n",
+        "solve :: searchx satisfy;\n",
+    );
+    let partial = positive.replace(
+        "int_search(right,varsel",
+        "int_search([right[1] + (1 div 0)],varsel",
+    );
+    let opaque = format!(
+        "annotation opaque;\n{}",
+        positive.replace("int_search(right,varsel,valsel,complete)", "opaque")
+    );
+    for (name, source, completed) in [
+        ("symbolic-annotation-choice", positive, true),
+        ("symbolic-annotation-choice-zero", partial.as_str(), false),
+        ("symbolic-annotation-choice-opaque", opaque.as_str(), false),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}{}",
+                concat!(
+                    "annotation smallest; annotation indomain_max;\n",
+                    "function int: 'div'(int: left,int: right);\n",
+                )
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        let (bindings, search) = facts(&context);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .all(|call| matches!(call.outcome, zincite_lint::CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let result = analyze_model(&context, &selected());
+        if completed {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "symbolic indexed annotation selection should complete inspection: {:?}",
+                search.limitations
+            );
+            for candidate in ["left", "right"] {
+                assert_eq!(
+                    coverage(&bindings, &search, candidate),
+                    SearchCoverage::Unknown
+                );
+            }
+            assert!(
+                search
+                    .searched
+                    .iter()
+                    .all(|value| value.coverage == SearchCoverage::Unknown)
+            );
+            let instantiations = resolve_instantiations(&context, &bindings, &calls);
+            let domains = resolve_domains(&context, &bindings);
+            let outputs = resolve_callable_definitions(
+                &context,
+                &bindings,
+                &calls,
+                &instantiations,
+                &domains,
+            );
+            assert!(outputs.definitions.is_empty());
+            assert!(outputs.outputs.is_empty());
+        } else {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                search.limitations
+            );
+            let bad_range = if source.contains("1 div 0") {
+                let mut pending = vec![context.files[0].parsed.tree()];
+                let mut zero = None;
+                while let Some(node) = pending.pop() {
+                    if node.kind() == NodeKind::BinaryExpression
+                        && context.files[0].parsed.source()[node.range()].trim() == "1 div 0"
+                    {
+                        zero = Some(node);
+                        break;
+                    }
+                    pending.extend(node.child_nodes());
+                }
+                assert!(matches!(
+                    zincite_lint::expression_safety(&context, &bindings, &calls, 0, zero.unwrap()),
+                    DefinitionSafety::Unsupported(reason) if reason.contains("zero")
+                ));
+                let written = "[right[1] + (1 div 0)]";
+                let start = source.find(written).unwrap();
+                start..start + written.len()
+            } else {
+                let start = source.rfind("opaque").unwrap();
+                start..start + "opaque".len()
+            };
+            let root_path = context.files[0].location(0..0).path;
+            assert!(
+                search
+                    .limitations
+                    .iter()
+                    .any(|limit| limit.location.path == root_path
+                        && bad_range.start <= limit.location.range.start
+                        && limit.location.range.end <= bad_range.end),
+                "{name}: failing alternative must remain located: {:?}",
+                search.limitations
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

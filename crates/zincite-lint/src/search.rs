@@ -137,6 +137,12 @@ pub(super) fn resolve_search_with_callable(
     producer.facts
 }
 type Argument<'a> = (DeclarationId, FileId, &'a SyntaxNode);
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AnnotationUse {
+    Search,
+    Candidate,
+    Heuristic,
+}
 struct Producer<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
@@ -183,7 +189,7 @@ impl<'a> Producer<'a> {
             .filter(|n| n.kind() == NodeKind::Annotation)
         {
             if let Some(value) = annotation.child_nodes().next() {
-                self.annotation(file, value, &[]);
+                self.annotation(file, value, &[], AnnotationUse::Search);
             }
         }
     }
@@ -236,13 +242,55 @@ impl<'a> Producer<'a> {
             position,
         )
     }
-    fn annotation(&mut self, file: FileId, node: &'a SyntaxNode, mapping: &[Argument<'a>]) {
+    fn annotation(
+        &mut self,
+        file: FileId,
+        node: &'a SyntaxNode,
+        mapping: &[Argument<'a>],
+        usage: AnnotationUse,
+    ) {
+        if usage != AnnotationUse::Search || unwrap(node).kind() == NodeKind::ArrayAccessExpression
+        {
+            let mut source = node;
+            loop {
+                if !crate::definitions::annotations_safe(self.context, file, source) {
+                    self.uncertain(file, source, "candidate annotation source is unsupported");
+                    return;
+                }
+                if !matches!(
+                    source.kind(),
+                    NodeKind::ParenthesizedExpression
+                        | NodeKind::AnnotatedExpression
+                        | NodeKind::NamedArgument
+                ) {
+                    break;
+                }
+                let Some(child) = source.child_nodes().next() else {
+                    break;
+                };
+                source = child;
+            }
+        }
         let node = unwrap(node);
         if node.kind() == NodeKind::ArrayLiteral {
             for child in node.child_nodes() {
-                self.annotation(file, child, mapping);
+                self.annotation(file, child, mapping, usage);
             }
             return;
+        }
+        if usage != AnnotationUse::Search {
+            let range = self.context.files[file].location(node.range()).range;
+            if !self.calls.expressions.iter().any(|e| {
+                e.file == file
+                    && e.location.range == range
+                    && e.ty.known()
+                    && !optional(&e.ty)
+                    && e.ty.instantiation == Instantiation::Parameter
+                    && e.ty.kind == TypeKind::Annotation
+            }) {
+                self.uncertain(file, node, "candidate annotation type is unsupported");
+                return;
+            }
         }
         if node.kind() == NodeKind::Expression {
             if node.children().iter().any(|child| {
@@ -254,10 +302,41 @@ impl<'a> Producer<'a> {
             if let Some(id) = self.reference(file, node) {
                 if let Some((_, file, value)) = mapping.iter().find(|(formal, _, _)| *formal == id)
                 {
-                    self.annotation(*file, value, mapping);
+                    self.annotation(*file, value, mapping, usage);
                     return;
                 }
-                self.alias(file, node, id, None, mapping);
+                if usage == AnnotationUse::Heuristic && self.core(id) {
+                    let d = &self.bindings.declarations[id.0];
+                    let primitive = d.role == DeclarationRole::Annotation
+                        && matches!(
+                            d.name.as_str(),
+                            "input_order"
+                                | "first_fail"
+                                | "smallest"
+                                | "largest"
+                                | "indomain_min"
+                                | "indomain_max"
+                                | "indomain_median"
+                                | "indomain_random"
+                                | "complete"
+                        )
+                        && self.calls.signatures.iter().any(|s| {
+                            s.declaration == id
+                                && s.parameters.is_empty()
+                                && s.return_type == self.calls.declarations[id.0].ty
+                        })
+                        && find_node(
+                            self.context.files[d.file].parsed.tree(),
+                            &d.syntax_range,
+                            d.role,
+                        )
+                        .is_some_and(|written| written.child_nodes().next().is_none());
+                    if !primitive {
+                        self.uncertain(file, node, "search heuristic semantics are unsupported");
+                    }
+                    return;
+                }
+                self.alias(file, node, id, None, mapping, usage);
                 return;
             }
             self.uncertain(
@@ -265,6 +344,10 @@ impl<'a> Producer<'a> {
                 node,
                 "solve annotation identity is unresolved or ambiguous",
             );
+            return;
+        }
+        if node.kind() == NodeKind::ArrayAccessExpression {
+            self.annotation_selection(file, node, mapping, usage);
             return;
         }
         if node.kind() != NodeKind::CallExpression {
@@ -281,6 +364,10 @@ impl<'a> Producer<'a> {
             );
             return;
         };
+        if usage == AnnotationUse::Heuristic {
+            self.uncertain(file, node, "search heuristic callable is unsupported");
+            return;
+        }
         let id = *declaration;
         let d = &self.bindings.declarations[id.0];
         if self.core(id)
@@ -291,7 +378,7 @@ impl<'a> Producer<'a> {
         {
             if d.name == "seq_search" {
                 if let Some((file, value)) = self.argument(file, node, id, 0) {
-                    self.annotation(file, value, mapping);
+                    self.annotation(file, value, mapping, usage);
                 } else {
                     self.uncertain(file, node, "seq_search arguments are unavailable");
                 }
@@ -301,15 +388,203 @@ impl<'a> Producer<'a> {
                 d.name.as_str(),
                 "int_search" | "bool_search" | "float_search" | "set_search"
             ) {
-                if let Some((file, value)) = self.argument(file, node, id, 0) {
-                    self.values(file, value, mapping);
+                if let Some((value_file, value)) = self.argument(file, node, id, 0) {
+                    if usage == AnnotationUse::Candidate {
+                        if !mapping.is_empty() {
+                            self.uncertain(
+                                value_file,
+                                value,
+                                "candidate searched formal source is unsupported",
+                            );
+                            return;
+                        }
+                        if let DefinitionSafety::Unsupported(reason) =
+                            crate::callable_definitions::initialized_expression_safety(
+                                self.context,
+                                self.bindings,
+                                self.calls,
+                                self.instantiations,
+                                self.domains,
+                                (value_file, value, &[], true),
+                                None,
+                            )
+                        {
+                            self.uncertain(value_file, value, &reason);
+                        }
+                        for position in 1..4 {
+                            if let Some((argument_file, argument)) =
+                                self.argument(file, node, id, position)
+                            {
+                                self.annotation(
+                                    argument_file,
+                                    argument,
+                                    mapping,
+                                    AnnotationUse::Heuristic,
+                                );
+                            } else {
+                                self.uncertain(
+                                    file,
+                                    node,
+                                    "search heuristic argument is unavailable",
+                                );
+                            }
+                        }
+                    }
+                    self.values(value_file, value, mapping);
                 } else {
                     self.uncertain(file, node, "typed search values are unavailable");
                 }
                 return;
             }
         }
-        self.alias(file, node, id, Some(node), mapping);
+        self.alias(file, node, id, Some(node), mapping, usage);
+    }
+    fn annotation_selection(
+        &mut self,
+        file: FileId,
+        node: &'a SyntaxNode,
+        mapping: &[Argument<'a>],
+        usage: AnnotationUse,
+    ) {
+        let checked = (|| {
+            let typed = |value: &SyntaxNode| {
+                let range = self.context.files[file].location(value.range()).range;
+                self.calls
+                    .expressions
+                    .iter()
+                    .find(|e| e.file == file && e.location.range == range)
+                    .map(|e| &e.ty)
+            };
+            let present_annotation = |ty: &crate::TypeInst| {
+                ty.known()
+                    && !optional(ty)
+                    && ty.instantiation == Instantiation::Parameter
+                    && ty.kind == TypeKind::Annotation
+            };
+            let children: Vec<_> = node.child_nodes().collect();
+            let [literal, selector] = children.as_slice() else {
+                return Err("annotation selection requires one selector");
+            };
+            let literal = *literal;
+            let selector = *selector;
+            if literal.kind() != NodeKind::ArrayLiteral
+                || selector.kind() != NodeKind::Expression
+                || !crate::definitions::annotations_safe(self.context, file, node)
+                || typed(node).is_none_or(|ty| !present_annotation(ty))
+                || typed(literal).is_none_or(|ty| {
+                    !ty.known()
+                        || optional(ty)
+                        || ty.instantiation != Instantiation::Parameter
+                        || !matches!(&ty.kind, TypeKind::Array { indices, element }
+                            if indices.len() == 1 && indices[0].known()
+                                && !optional(&indices[0])
+                                && indices[0].instantiation == Instantiation::Parameter
+                                && indices[0].kind == TypeKind::Int
+                                && present_annotation(element))
+                })
+            {
+                return Err("annotation selection source or type is unsupported");
+            }
+            let cells: Vec<_> = literal.child_nodes().collect();
+            if cells.iter().any(|cell| {
+                cell.kind() == NodeKind::IndexedArrayEntry
+                    || typed(cell).is_none_or(|ty| !present_annotation(ty))
+            }) {
+                return Err("annotation selection literal cell is unsupported");
+            }
+            let selector_id = self
+                .reference(file, selector)
+                .ok_or("annotation selector identity is unavailable")?;
+            let selector_type = typed(selector).ok_or("annotation selector type is unavailable")?;
+            if !selector_type.known()
+                || optional(selector_type)
+                || selector_type.instantiation != Instantiation::Parameter
+                || *selector_type != self.calls.declarations[selector_id.0].ty
+                || !self.bindings.declarations[selector_id.0].top_level
+            {
+                return Err("annotation selector must be a present parameter enum");
+            }
+            let TypeKind::Enum(enum_id) = selector_type.kind else {
+                return Err("annotation selector must retain its enum identity");
+            };
+            let declaration = &self.bindings.declarations[enum_id.0];
+            if declaration.role != DeclarationRole::Enum {
+                return Err("annotation selector enum declaration is unavailable");
+            }
+            let written = find_node(
+                self.context.files[declaration.file].parsed.tree(),
+                &declaration.syntax_range,
+                declaration.role,
+            )
+            .ok_or("annotation selector enum source is unavailable")?;
+            let definition = written
+                .child_nodes()
+                .find(|part| part.kind() == NodeKind::EnumDefinition)
+                .ok_or("annotation selector enum alternatives are unavailable")?;
+            let parts: Vec<_> = definition.child_nodes().collect();
+            let [cases] = parts.as_slice() else {
+                return Err("annotation selector requires closed enum cases");
+            };
+            if cases.kind() != NodeKind::EnumCases
+                || cases.child_nodes().count() != cells.len()
+                || cases.child_nodes().any(|case| {
+                    case.kind() != NodeKind::EnumCase || case.child_nodes().next().is_some()
+                })
+            {
+                return Err("annotation literal length must match closed enum cases");
+            }
+            Ok((cells, selector))
+        })();
+        let (cells, selector) = match checked {
+            Ok(checked) => checked,
+            Err(reason) => {
+                self.uncertain(file, node, reason);
+                return;
+            }
+        };
+        if let DefinitionSafety::Unsupported(reason) =
+            crate::callable_definitions::initialized_expression_safety(
+                self.context,
+                self.bindings,
+                self.calls,
+                self.instantiations,
+                self.domains,
+                (file, selector, &[], true),
+                None,
+            )
+        {
+            self.uncertain(file, selector, &reason);
+        }
+        let searched = self.facts.searched.len();
+        let coverage: Vec<_> = if usage == AnnotationUse::Heuristic {
+            // Heuristic inspection accepts no search calls and cannot seed values.
+            Vec::new()
+        } else {
+            self.facts
+                .declarations
+                .iter()
+                .map(|declaration| declaration.coverage)
+                .collect()
+        };
+        for cell in cells {
+            self.annotation(
+                file,
+                cell,
+                mapping,
+                if usage == AnnotationUse::Heuristic {
+                    AnnotationUse::Heuristic
+                } else {
+                    AnnotationUse::Candidate
+                },
+            );
+        }
+        // Every possible cell was inspected, but none was selected. Keep source
+        // refusals while restoring any coverage seeded before this selection.
+        self.facts.searched.truncate(searched);
+        for (declaration, coverage) in self.facts.declarations.iter_mut().zip(coverage) {
+            declaration.coverage = coverage;
+        }
+        self.unknown_annotation = true;
     }
     fn alias(
         &mut self,
@@ -318,6 +593,7 @@ impl<'a> Producer<'a> {
         id: DeclarationId,
         call: Option<&'a SyntaxNode>,
         mapping: &[Argument<'a>],
+        usage: AnnotationUse,
     ) {
         if self.active.contains(&id) {
             self.uncertain(file, node, "recursive annotation alias is unsupported");
@@ -354,6 +630,13 @@ impl<'a> Producer<'a> {
             );
             return;
         };
+        if (usage != AnnotationUse::Search
+            || unwrap(value).kind() == NodeKind::ArrayAccessExpression)
+            && !crate::definitions::annotations_safe(self.context, d.file, declaration)
+        {
+            self.uncertain(file, node, "annotation alias source is unsupported");
+            return;
+        }
         if self.calls.declarations[id.0].ty.kind != TypeKind::Annotation
             && !matches!(self.calls.declarations[id.0].ty.kind,TypeKind::Array{ref element,..} if element.kind==TypeKind::Annotation)
         {
@@ -367,6 +650,17 @@ impl<'a> Producer<'a> {
                 .find(|n| n.kind() == NodeKind::ParameterList)
         {
             for (position, parameter) in list.child_nodes().enumerate() {
+                if usage != AnnotationUse::Search
+                    && (!crate::definitions::annotations_safe(self.context, d.file, parameter)
+                        || parameter.child_nodes().any(|n| is_expression(n.kind())))
+                {
+                    self.uncertain(
+                        file,
+                        node,
+                        "candidate annotation formal source is unsupported",
+                    );
+                    return;
+                }
                 let formal = self.bindings.declarations.iter().find(|p| {
                     p.file == d.file
                         && p.role == DeclarationRole::Parameter
@@ -387,7 +681,7 @@ impl<'a> Producer<'a> {
             }
         }
         self.active.push(id);
-        self.annotation(value_file, value, &arguments);
+        self.annotation(value_file, value, &arguments, usage);
         self.active.pop();
     }
     fn assigned_annotation(

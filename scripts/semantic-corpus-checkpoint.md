@@ -5788,3 +5788,18 @@ distinct from TeamMeetings' accepted existing-data Gecode compile/no-solve proof
 Evidence is under semantic64-currentde6-four-original-controls-preparation-v2/
 control-results/root-audit.json. This is diagnostic evidence; final public,
 performance, whole-corpus and independent task verification remain pending.
+
+Indexed annotation literals now inspect every alternative when a present symbolic
+parameter selector retains a closed enum with exactly the literal's length.
+Candidate search values and heuristics retain source, type, alias-cycle and
+closed-error checks. Unchosen alternatives supply no search coverage; earlier
+explicit coverage is preserved. The three focused public cases pass: symbolic
+choices complete inspection, while division by zero and an opaque second
+alternative retain located limitations. ROOT checked 144 unchanged inputs,
+both full streams and one reaped empty group; independent static review found
+no substantive issue. Evidence is under parade_annotation_selection-green-v1.
+The permanent regression drops detailed fixture preflights retained in that
+private evidence. Actual-main fmt, Clippy and all 234 workspace tests pass with
+108 unchanged source files, under main-parade-selection-gates-v1. Original
+Parade direct-definition limitations and final
+public, performance, corpus and whole-task acceptance remain pending.
