@@ -5273,5 +5273,19 @@ refusals, and absence of output definitions. The composed private candidate and
 actual main pass formatting, Clippy with warnings denied and all 223 workspace
 tests. Evidence is under semantic62-table-index-wrapper-composed-preparation-v1
 and semantic62-table-index-wrapper-main-integration. The accepted Gecode
-compile-only proof was reused. Matched normal wrapper controls and the remaining
-receiver diagnosis are pending; base-083 and final corpus acceptance remain open.
+compile-only proof was reused.
+
+Matched normal optimized wrapper controls complete all fourteen thesis rules on the
+table reduction: its two standard table Search limitations disappear, and two
+public uncovered-value warnings appear (warnings 0 to 2; all-rule limitations 9
+to 7). The other five controls retain their entire analyses. Original IS remains
+at 97 warnings, 109 limitations and 13 of 14 thesis rules completed. Both set-array
+reductions remain at 12 of 14; the partial case retains its divisor warning.
+
+The coordinator checked 1752 input pins, 48 complete streams and all 24 retained control
+children, with native/probe parity, all26/thesis14 partitions, source dependencies
+and drop records. Evidence is under
+semantic62-table-index-wrapper-release-controls-preparation-v1/
+{release-results/root-build-audit.json,control-results/root-audit.json}.
+The normal release uses the composed source; a final release built from main remains
+pending. The receiver diagnosis, base-083 and final corpus acceptance remain open.
