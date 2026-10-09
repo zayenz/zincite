@@ -11047,6 +11047,20 @@ solve satisfy;
     for (name, source, body, error, selected_body_error) in [
         ("union-symbolic", positive, "{1}", None, false),
         (
+            "union-conditional-literal-set-sources",
+            positive,
+            "if length(x) = 0 then {} else {1} endif",
+            None,
+            false,
+        ),
+        (
+            "union-conditional-literal-set-overflow",
+            positive,
+            "if length(x) = 0 then {} else {(9223372036854775807 + 1)} endif",
+            Some("overflow"),
+            true,
+        ),
+        (
             "union-selector-overflow",
             selector_overflow.as_str(),
             "{1}",
@@ -11098,6 +11112,9 @@ solve satisfy;
     ] {
         let (dir, _) = model(name, "solve satisfy;", "");
         let extra = match name {
+            "union-conditional-literal-set-sources" | "union-conditional-literal-set-overflow" => {
+                "function int: length(array[int] of any $T: values);\n"
+            }
             "union-intersection-body-abort" => {
                 "function var set of int: 'intersect'(var set of int: left,var set of int: right);\n"
             }

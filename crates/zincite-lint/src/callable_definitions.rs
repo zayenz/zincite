@@ -5399,6 +5399,137 @@ impl<'a> Producer<'a> {
             if !self.source_annotations_safe(owner.file, body) {
                 return Err("decision set union value body annotation is unsupported".into());
             }
+            let conditional = unwrap(body);
+            if conditional.kind() == NodeKind::ConditionalExpression {
+                let typed = |node: &SyntaxNode| {
+                    self.expression_type(&body_view, owner.file, node)
+                        .map(|value| &value.ty)
+                };
+                let branches: Vec<_> = conditional.child_nodes().collect();
+                let mut values = Vec::new();
+                let mut complete = false;
+                let mut inactive = None;
+                for (position, branch) in branches.iter().enumerate() {
+                    if !crate::definitions::annotations_safe(self.context, owner.file, branch) {
+                        return Err(
+                            "decision set union conditional branch annotation is unsupported"
+                                .into(),
+                        );
+                    }
+                    let parts: Vec<_> = branch.child_nodes().collect();
+                    let branch_body = if branch.kind() == NodeKind::ConditionalBranch
+                        && parts.len() == 2
+                    {
+                        let guard = parts[0];
+                        if typed(guard).is_none_or(|t| {
+                            !t.known()
+                                || optional(t)
+                                || t.instantiation != Instantiation::Parameter
+                                || t.kind != TypeKind::Bool
+                        }) {
+                            return Err(
+                                "decision set union conditional guard is unsupported".into()
+                            );
+                        }
+                        if let Some(literal) = self.assertion_literal(owner.file, guard) {
+                            if branches.len() != 2 {
+                                return Err(
+                                    "decision set union literal conditional shape is unsupported"
+                                        .into(),
+                                );
+                            }
+                            inactive = match literal {
+                                TokenKind::False => Some(0),
+                                TokenKind::True => Some(1),
+                                _ => None,
+                            };
+                        }
+                        if let DefinitionSafety::Unsupported(reason) = self
+                            .initialized_source_safety(owner.file, guard, &body_view, &[], active)
+                        {
+                            return Err(reason);
+                        }
+                        // Each eager guard has its own closed-error check; the
+                        // entire conditional remains lazy and has no known value.
+                        if let Some(reason) =
+                            self.closed_integer_source_error(owner.file, guard, true, true)
+                        {
+                            return Err(reason);
+                        }
+                        parts[1]
+                    } else if branch.kind() == NodeKind::ElseBranch
+                        && parts.len() == 1
+                        && position + 1 == branches.len()
+                    {
+                        complete = true;
+                        parts[0]
+                    } else {
+                        return Err("decision set union conditional branch is unsupported".into());
+                    };
+                    let empty = unwrap(branch_body).kind() == NodeKind::SetLiteral
+                        && unwrap(branch_body).child_nodes().next().is_none()
+                        && typed(branch_body).is_some_and(|t| t.known() && !optional(t)
+                            && t.instantiation == Instantiation::Parameter
+                            && matches!(&t.kind, TypeKind::Set(element) if element.known() && !optional(element)
+                                && element.instantiation == Instantiation::Parameter && element.kind == TypeKind::Bottom));
+                    if typed(branch_body).is_none_or(|t| {
+                        !t.known()
+                            || optional(t)
+                            || (t.kind != value.ty.kind && !empty)
+                            || !crate::types::coerces(t, &value.ty)
+                    }) {
+                        return Err(
+                            "decision set union conditional body type is unsupported".into()
+                        );
+                    }
+                    values.push(branch_body);
+                }
+                if !complete || branches.len() < 2 {
+                    return Err("decision set union conditional requires a complete else".into());
+                }
+                for (position, branch_body) in values.iter().enumerate() {
+                    let inspected = if inactive == Some(position) {
+                        // Reuse the existing bounded literal-inactive source
+                        // inspection without evaluating its closed arithmetic.
+                        let producer = Producer {
+                            context: self.context,
+                            bindings: self.bindings,
+                            calls: self.calls,
+                            instantiations: self.instantiations,
+                            domains: self.domains,
+                            lookups: None,
+                            instances: Vec::new(),
+                            boundaries: Vec::new(),
+                            selected_set_source: true,
+                            inactive_integer_body: Some((owner.file, branch_body.range())),
+                        };
+                        producer.initialized_source_safety(
+                            owner.file,
+                            branch_body,
+                            &body_view,
+                            &[],
+                            active,
+                        )
+                    } else {
+                        if let Some(reason) =
+                            self.closed_integer_source_error(owner.file, branch_body, true, true)
+                        {
+                            return Err(reason);
+                        }
+                        self.initialized_source_safety(
+                            owner.file,
+                            branch_body,
+                            &body_view,
+                            &[],
+                            active,
+                        )
+                    };
+                    if let DefinitionSafety::Unsupported(reason) = inspected {
+                        return Err(reason);
+                    }
+                }
+                return Ok(construction);
+            }
             if let Some(reason) = self.closed_integer_source_error(owner.file, body, true, true) {
                 return Err(reason);
             }

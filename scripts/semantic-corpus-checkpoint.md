@@ -5925,3 +5925,16 @@ Actual-main formatting, clippy and all 239 tests pass under
 main-atsp-optional-prefix-gates-v1. ROOT checked 108 unchanged source files, six
 complete streams and three reaped empty groups. Original ATSP completion and
 final task acceptance remain pending.
+
+Selected decision-set union bodies now inspect complete typed conditional branches
+through the existing source checks. Whole-body recurrence and annotation guards
+remain first; the inspection provides no branch value or output certificate.
+The symbolic empty/literal-set positive and possible branch-overflow negative
+pass under semantic65-social-installed-body-preparation-v3. The actual installed
+body remains Limited at its singleton array selection, with later original
+negative assertions unobserved; the focused six-case suite is not wholly green.
+The permanent pair extends the existing union regression group. Actual-main
+formatting, clippy and all 239 tests pass under
+main-social-conditional-sources-gates-v1, with 108 unchanged source files, six
+complete streams and three reaped empty groups. Original Social completion and
+final task acceptance remain open.
