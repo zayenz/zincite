@@ -5758,3 +5758,19 @@ retain their distinct original compile/no-solve proofs. Evidence is under
 semantic63-current1431-original-model-controls-preparation-v1/control-results.
 The four-asset current1431 opt3 build,22 libraries and both public/cost child-free
 validators pass. Final public/cost/corpus execution remains pending after repairs.
+
+Ordinary core integer sums now inspect present parameter enum headers with exact
+source/binder identity. Existing lexical, initializer, filter, body and closed-error
+checks remain; construction stays Unknown and supplies no output certificate.
+The focused public group passes: the symbolic sum completes with meetings Uncovered
+and no outputs; body and filter division by zero retain Unsupported safety facts
+and Limited search results. ROOT checked 136 unchanged inputs, two full streams
+and one reaped empty group. Independent local review found no issue. Actual-main
+fmt, Clippy and all 232 workspace tests pass with 108 unchanged source files.
+Evidence is under team_enum_sum-green-v2 and main-ordinary-enum-sum-gates-v1.
+Original-model replay and final task acceptance remain pending.
+
+TeamMeetings also has an accepted original plus existing yampc.dzn Gecode compile
+proof, with no solve. ROOT checked 1175 unchanged inputs and both streams; retained
+FZN/OZN outputs remain private under semantic63-team-existing-data-compiler-v1.
+This supplies the instance check missing from the earlier original-model record.

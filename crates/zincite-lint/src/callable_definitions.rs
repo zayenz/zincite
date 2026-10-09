@@ -10518,6 +10518,19 @@ impl<'a> Producer<'a> {
             {
                 return Err("collection selected signature is unsupported".into());
             }
+            let enum_sum = !optional_sum
+                && node.kind() == NodeKind::GeneratorCallExpression
+                && self.core(file, node, view, "sum")
+                && list.child_nodes().any(|header| {
+                    header.child_nodes().next().is_some_and(|source| {
+                        typed(source).is_some_and(|t| {
+                            present_parameter(t)
+                                && matches!(&t.kind, TypeKind::Set(element)
+                                    if present_parameter(element)
+                                        && matches!(element.kind, TypeKind::Enum(_)))
+                        })
+                    })
+                });
             let mut nodes = vec![node];
             while let Some(current) = nodes.pop() {
                 if !crate::definitions::annotations_safe(self.context, file, current) {
@@ -10530,7 +10543,7 @@ impl<'a> Producer<'a> {
                 && unwrap(body).kind() == NodeKind::ConditionalExpression;
             let mut all = generators.to_vec();
             let mut unsupported = None;
-            if decision_sets {
+            if decision_sets || enum_sum {
                 for (position, header) in generators.iter().enumerate() {
                     for value in header.child_nodes() {
                         let (value, scope) = if value.kind() == NodeKind::WhereFilter {
@@ -10580,6 +10593,7 @@ impl<'a> Producer<'a> {
                                 !matches!(t.kind, TypeKind::Enum(_))
                             } else {
                                 t.kind != TypeKind::Int
+                                    && !(enum_sum && matches!(t.kind, TypeKind::Enum(_)))
                             }
                     })
                 {
@@ -10611,11 +10625,25 @@ impl<'a> Producer<'a> {
                     {
                         return Err("optional sum source and binder enum identities differ".into());
                     }
-                } else if typed(source).is_none_or(|t| !integer_set(t)) {
-                    return Err(
+                } else if typed(source).is_none_or(|t| {
+                    !(integer_set(t)
+                        && binders
+                            .iter()
+                            .all(|binder| facts.declarations[binder.id.0].ty.kind == TypeKind::Int))
+                        && !(enum_sum
+                            && present_parameter(t)
+                            && matches!(&t.kind, TypeKind::Set(element)
+                                if present_parameter(element)
+                                    && matches!(element.kind, TypeKind::Enum(_))
+                                    && binders.iter().all(|binder|
+                                        &facts.declarations[binder.id.0].ty == element.as_ref())))
+                }) {
+                    return Err(if enum_sum {
+                        "sum requires matching present parameter set sources and binders"
+                    } else {
                         "parameter collection requires a present parameter integer set source"
-                            .into(),
-                    );
+                    }
+                    .into());
                 }
                 let source_safety = self
                     .selected_generator_source_safety(file, header, view, &all)
@@ -10624,7 +10652,7 @@ impl<'a> Producer<'a> {
                     });
                 if let DefinitionSafety::Unsupported(reason) = source_safety {
                     unsupported = Some(reason);
-                } else if (conditional_relation || optional_sum || decision_sets)
+                } else if (conditional_relation || optional_sum || decision_sets || enum_sum)
                     && let Some(reason) = self.closed_integer_source_error(file, source, true, true)
                 {
                     unsupported = Some(reason);
@@ -10647,7 +10675,7 @@ impl<'a> Producer<'a> {
                         self.initialized_source_safety(file, condition, view, &all, &mut Vec::new())
                     {
                         unsupported = Some(reason);
-                    } else if (conditional_relation || optional_sum || decision_sets)
+                    } else if (conditional_relation || optional_sum || decision_sets || enum_sum)
                         && let Some(reason) =
                             self.closed_integer_source_error(file, condition, true, true)
                     {
@@ -10682,7 +10710,7 @@ impl<'a> Producer<'a> {
             };
             if let DefinitionSafety::Unsupported(reason) = body_safety {
                 unsupported = Some(reason);
-            } else if (optional_sum || decision_sets)
+            } else if (optional_sum || decision_sets || enum_sum)
                 && let Some(reason) = self.closed_integer_source_error(file, body, true, true)
             {
                 unsupported = Some(reason);

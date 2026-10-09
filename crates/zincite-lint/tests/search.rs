@@ -10108,6 +10108,172 @@ solve maximize sum(item in chosen)(rewards[item]);
 }
 
 #[test]
+fn ordinary_integer_sums_inspect_parameter_enum_headers_without_output_certificates() {
+    use zincite_lint::{
+        CallOutcome, DeclarationRole, Instantiation, SourceKind, TypeInst, TypeKind,
+    };
+    let positive = concat!(
+        "enum Team;\n",
+        "array[Team] of var 0..10: meetings; array[Team] of int: weights;\n",
+        "var int: overlaps = sum(t1,t2 in Team where t1 < t2)(meetings[t1] + weights[t2]);\n",
+        "solve minimize overlaps;\n",
+    );
+    let partial_body = positive.replace("weights[t2]", "weights[t2] + (1 div 0)");
+    let partial_filter = positive.replace("t1 < t2", "1 div 0 = 0");
+    for (name, source, completed) in [
+        ("ordinary-enum-sum", positive, true),
+        ("ordinary-enum-sum-body-zero", partial_body.as_str(), false),
+        (
+            "ordinary-enum-sum-filter-zero",
+            partial_filter.as_str(),
+            false,
+        ),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}{}",
+                concat!(
+                    "function bool: '<'($T: x,$T: y);\n",
+                    "function int: 'div'(int: x,int: y);\n",
+                )
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let (bindings, search) = facts(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let team = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "Team")
+            .unwrap()
+            .id;
+        let enum_type = TypeInst {
+            instantiation: Instantiation::Parameter,
+            optional: false,
+            kind: TypeKind::Enum(team),
+        };
+        let source_type = &calls.declarations[team.0].ty;
+        assert!(
+            source_type.instantiation == Instantiation::Parameter
+                && !source_type.optional
+                && matches!(&source_type.kind, TypeKind::Set(element) if **element == enum_type)
+        );
+        let binders: Vec<_> = bindings
+            .declarations
+            .iter()
+            .filter(|d| d.file == 0 && d.role == DeclarationRole::Generator)
+            .collect();
+        assert_eq!(binders.len(), 2);
+        assert!(
+            binders
+                .iter()
+                .all(|d| calls.declarations[d.id.0].ty == enum_type)
+        );
+        let sum = calls
+            .calls
+            .iter()
+            .find(|call| call.file == 0 && call.name == "sum")
+            .unwrap();
+        assert!(
+            matches!(&sum.outcome, CallOutcome::Resolved { declaration, parameters, return_type }
+            if context.files[bindings.declarations[declaration.0].file].kind == SourceKind::StandardLibrary
+                && context.files[bindings.declarations[declaration.0].file].implicit
+                && parameters.len() == 1 && !parameters[0].optional
+                && matches!(&parameters[0].kind, TypeKind::Array { element, .. }
+                    if element.instantiation == Instantiation::Decision && !element.optional && element.kind == TypeKind::Int)
+                && return_type.instantiation == Instantiation::Decision && !return_type.optional && return_type.kind == TypeKind::Int),
+            "{name}: {:?}",
+            sum.outcome
+        );
+        if completed {
+            let comparison = calls
+                .calls
+                .iter()
+                .find(|call| call.file == 0 && call.name == "<")
+                .unwrap();
+            assert!(
+                matches!(&comparison.outcome, CallOutcome::Resolved { declaration, parameters, return_type }
+                if context.files[bindings.declarations[declaration.0].file].kind == SourceKind::StandardLibrary
+                    && context.files[bindings.declarations[declaration.0].file].implicit
+                    && parameters.len() == 2 && parameters.iter().all(|ty| ty == &enum_type)
+                    && return_type.instantiation == Instantiation::Parameter && !return_type.optional && return_type.kind == TypeKind::Bool),
+                "{name}: {:?}",
+                comparison.outcome
+            );
+        }
+        let result = analyze_model(&context, &selected());
+        if completed {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "ordinary parameter enum sum inspection remains symbolic: {:?}",
+                search.limitations
+            );
+            assert_eq!(
+                coverage(&bindings, &search, "meetings"),
+                SearchCoverage::Uncovered
+            );
+            let instantiations = resolve_instantiations(&context, &bindings, &calls);
+            let domains = resolve_domains(&context, &bindings);
+            let outputs = resolve_callable_definitions(
+                &context,
+                &bindings,
+                &calls,
+                &instantiations,
+                &domains,
+            );
+            assert!(outputs.outputs.is_empty());
+        } else {
+            assert!(matches!(
+                result.rules[0].outcome,
+                RuleOutcome::Limited { .. }
+            ));
+            let instantiations = resolve_instantiations(&context, &bindings, &calls);
+            let domains = resolve_domains(&context, &bindings);
+            let definitions =
+                resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+            let overlaps = bindings
+                .declarations
+                .iter()
+                .find(|d| d.top_level && d.name == "overlaps")
+                .unwrap()
+                .id;
+            let definition = definitions
+                .definitions
+                .iter()
+                .find(|d| d.target == overlaps)
+                .unwrap();
+            assert!(
+                matches!(&definition.safety, DefinitionSafety::Unsupported(reason)
+                    if reason.contains("zero")),
+                "{name}: {:?}",
+                definition.safety
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
 fn generator_invocations_inspect_one_collection_and_defaults_without_defining_it() {
     use zincite_lint::{CallOutcome, TypeKind};
     for (name, invocation, filter, board_axis, body, completed) in [
