@@ -623,7 +623,10 @@ impl Producer<'_> {
                 )
             })
             .or_else(|| {
-                if node.kind() != NodeKind::RangeExpression {
+                if !matches!(
+                    node.kind(),
+                    NodeKind::RangeExpression | NodeKind::ArrayAccessExpression
+                ) {
                     return None;
                 }
                 let mut generators = Vec::new();
@@ -655,27 +658,50 @@ impl Producer<'_> {
                     }
                 }
                 generators.sort_by_key(|node| node.range().start);
-                let safety = crate::callable_definitions::decision_prefix_source_safety(
-                    self.context,
-                    self.bindings,
-                    self.calls,
-                    self.instantiations,
-                    self.domains,
-                    (file, node, &generators),
-                )?;
+                let safety = if node.kind() == NodeKind::RangeExpression {
+                    crate::callable_definitions::decision_prefix_source_safety(
+                        self.context,
+                        self.bindings,
+                        self.calls,
+                        self.instantiations,
+                        self.domains,
+                        (file, node, &generators),
+                    )
+                } else {
+                    crate::callable_definitions::selected_integer_set_source_safety(
+                        self.context,
+                        self.bindings,
+                        (self.calls, self.calls),
+                        self.instantiations,
+                        self.domains,
+                        (file, node, &generators),
+                    )
+                }?;
                 if let Some(reason) = scope_error {
                     return Some(Domain::Unsupported(reason));
                 }
                 let Some(evaluated) = self.guarded.expression(file, &self.location(file, node))
                 else {
                     return Some(Domain::Unsupported(
-                        "decision prefix evaluated source is unavailable".into(),
+                        if node.kind() == NodeKind::RangeExpression {
+                            "decision prefix evaluated source is unavailable"
+                        } else {
+                            "selected parameter-set evaluated source is unavailable"
+                        }
+                        .into(),
                     ));
                 };
                 for outcome in [&evaluated.raw_definedness, &evaluated.definedness] {
                     if let GuardedOutcome::Unsupported(reason) = outcome {
                         return Some(Domain::Unsupported(reason.clone()));
                     }
+                }
+                if node.kind() == NodeKind::ArrayAccessExpression
+                    && let Some(subject) = node.child_nodes().next()
+                    && let Some(array) = self.resolved_reference(file, unwrap(subject))
+                    && let Err(reason) = self.declaration_math(array)
+                {
+                    return Some(Domain::Unsupported(reason));
                 }
                 Some(match safety {
                     crate::DefinitionSafety::Unsupported(reason) => Domain::Unsupported(reason),

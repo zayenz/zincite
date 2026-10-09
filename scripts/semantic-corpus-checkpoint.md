@@ -6234,3 +6234,15 @@ evaluation. The revised test will retain the expensive-comprehension zero error
 and check the index rule's separate outcome. ROOT checked 1,184 unchanged inputs,
 both streams and an empty reaped group. Production changes remain private;
 base-083 and final acceptance remain open.
+
+The selected-set v2 public regression passes all three cases. ROOT checked
+1,197 unchanged inputs, both full streams and an empty reaped group. Positive
+selected sources remain inspected symbolic Unknown without invented members,
+counts or coverage; both error controls retain the required located failures.
+The production delta dispatches actual parameter-set array selections to the
+existing source reader and preserves the guarded and declaration-source checks.
+It changes no raw domain interpretation or index rule. ROOT integrated the exact
+production and portable-test bytes; final release, original-model replay, cost
+comparison, corpus reconciliation and whole-task verification remain pending.
+Required integrated-main formatting, Clippy and workspace tests pass (247 tests);
+ROOT checked 108 unchanged sources, six streams and three empty reaped groups.

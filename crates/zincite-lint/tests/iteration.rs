@@ -727,3 +727,191 @@ solve satisfy;
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn selected_parameter_sets_inspect_sources_without_proving_members_or_counts() {
+    let positive = r#"int: num_moulds;
+int: num_colors;
+int: num_demands;
+set of int: Moulds = 1..num_moulds;
+set of int: Colors = 1..num_colors;
+set of int: Demands = 1..num_demands;
+array[Demands] of Moulds: demand_mould;
+array[Demands] of int: demand_duedate;
+array[Demands] of int: demand_qty;
+array[Moulds] of set of int: demanded_colors_for_mould =
+    [{c | c in Colors where exists(d in Demands)(demand_mould[d] = m)} | m in Moulds];
+array[Demands] of set of int: compatible_demands =
+    [{d2 | d2 in Demands where demand_duedate[d2] < demand_duedate[d]} | d in Demands];
+constraint forall(m in Moulds, c in demanded_colors_for_mould[m])(c > 0);
+constraint forall(d in Demands)(sum(d2 in compatible_demands[d])(demand_qty[d2]) > 0);
+solve satisfy;
+"#;
+    let initializer_zero = positive.replace(
+        "demand_duedate[d2] < demand_duedate[d]",
+        "1 div 0 < demand_duedate[d]",
+    );
+    let header_zero = positive.replace("int: num_moulds;", "int: num_moulds = 1 div 0;");
+    let rules = LintOptions {
+        rules: vec![Rule::ExpensiveComprehension, Rule::IndexSetMismatch],
+        ..LintOptions::default()
+    };
+    for (name, source, error) in [
+        ("selected-set-positive", positive, None),
+        (
+            "selected-set-initializer-zero",
+            initializer_zero.as_str(),
+            Some(("zero", true)),
+        ),
+        (
+            "selected-set-header-zero",
+            header_zero.as_str(),
+            Some(("zero", false)),
+        ),
+    ] {
+        let (directory, context, bindings, facts) = model(name, source);
+        assert!(context.limitations.is_empty(), "{:?}", context.limitations);
+        assert!(context.implicit_core.is_some());
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let file = context.root_file.unwrap();
+        let calls = resolve_callables(&context, &bindings);
+        let user_calls: Vec<_> = calls
+            .calls
+            .iter()
+            .filter(|call| call.file == file)
+            .collect();
+        assert!(!user_calls.is_empty());
+        assert!(
+            user_calls
+                .iter()
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{user_calls:?}"
+        );
+        for selected in ["demanded_colors_for_mould[m]", "compatible_demands[d]"] {
+            let typed = calls
+                .expressions
+                .iter()
+                .find(|fact| {
+                    fact.file == file && text(&context, file, &fact.location).trim() == selected
+                })
+                .expect("selected parameter-set source type");
+            assert!(
+                typed.ty.instantiation == Instantiation::Parameter
+                    && !typed.ty.optional
+                    && matches!(&typed.ty.kind, TypeKind::Set(element)
+                    if element.instantiation == Instantiation::Parameter && !element.optional && element.kind == TypeKind::Int)
+            );
+        }
+        let result = analyze_model(&context, &rules);
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.rules.len(), 2);
+        if let Some((error, index_limited)) = error {
+            for rule in &result.rules {
+                if rule.rule == Rule::ExpensiveComprehension || index_limited {
+                    assert!(
+                        matches!(rule.outcome, RuleOutcome::Limited { .. }),
+                        "{name}: {:?}",
+                        result.rules
+                    );
+                } else {
+                    // A proved index obligation does not certify header evaluation.
+                    assert_eq!(
+                        rule.outcome,
+                        RuleOutcome::Completed,
+                        "{name}: {:?}",
+                        result.rules
+                    );
+                }
+            }
+            for (prefix, limited) in [
+                ("expensive-comprehension:", true),
+                ("index-set-mismatch:", index_limited),
+            ] {
+                if limited {
+                    assert!(
+                        result.limitations.iter().any(|limit| {
+                            limit.location.path == context.root
+                                && limit.location.range.start < limit.location.range.end
+                                && limit.message.starts_with(prefix)
+                                && limit.message.contains(error)
+                        }),
+                        "{name}: {:?}",
+                        result.limitations
+                    );
+                } else {
+                    assert!(
+                        !result
+                            .limitations
+                            .iter()
+                            .any(|limit| limit.message.starts_with(prefix)),
+                        "{name}: {:?}",
+                        result.limitations
+                    );
+                }
+            }
+            assert!(result.findings.is_empty(), "{name}: {:?}", result.findings);
+            std::fs::remove_dir_all(directory).unwrap();
+            continue;
+        }
+        assert!(
+            result
+                .rules
+                .iter()
+                .all(|rule| rule.outcome == RuleOutcome::Completed),
+            "ATSP_SELECTED_SET_SOURCE_RED: {:?}; {:?}",
+            result.rules,
+            result.limitations
+        );
+        assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+        assert!(result.findings.is_empty(), "{:?}", result.findings);
+        for (selected, ambient) in [
+            ("demanded_colors_for_mould[m]", "m"),
+            ("compatible_demands[d]", "d"),
+        ] {
+            let owner = facts
+                .iterations
+                .iter()
+                .find(|iteration| {
+                    iteration.file == file
+                        && iteration.generators.iter().any(|generator| {
+                            text(&context, file, &generator.source).trim() == selected
+                        })
+                })
+                .expect("iteration over selected source");
+            let generator = owner
+                .generators
+                .iter()
+                .find(|generator| text(&context, file, &generator.source).trim() == selected)
+                .unwrap();
+            assert_eq!(generator.source_instantiation, Instantiation::Parameter);
+            assert!(generator.dependencies.iter().any(|id| {
+                let declaration = &bindings.declarations[id.0];
+                declaration.role == DeclarationRole::Generator
+                    && declaration.name == ambient
+                    && declaration.file == file
+                    && declaration.syntax_range.end <= generator.source.range.start
+            }));
+            assert!(matches!(generator.index_set.domain, Domain::Unknown));
+            assert_eq!(generator.index_set.cardinality, Cardinality::Unknown);
+            assert!(generator.index_set.array_dimension.is_none());
+            assert!(generator.index_set.universe.is_none());
+            assert_eq!(
+                generator.index_set.equal_members(&generator.index_set),
+                GuardedOutcome::Unknown
+            );
+            assert_eq!(
+                generator.index_set.coverage_of(&generator.index_set),
+                IterationCoverage::Unknown
+            );
+            assert!(matches!(owner.candidates, CandidateCount::Unknown));
+            assert!(matches!(owner.selected, CandidateCount::Unknown));
+            assert_eq!(owner.coverage, IterationCoverage::Unknown);
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
