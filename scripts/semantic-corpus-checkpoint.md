@@ -6246,3 +6246,22 @@ production and portable-test bytes; final release, original-model replay, cost
 comparison, corpus reconciliation and whole-task verification remain pending.
 Required integrated-main formatting, Clippy and workspace tests pass (247 tests);
 ROOT checked 108 unchanged sources, six streams and three empty reaped groups.
+
+
+The optional-increasing repair is integrated into main. It inspects the exact
+selected standard recurrence and optional wrappers while retaining symbolic
+Unknown, closed source/body errors, and no invented output or coverage facts.
+The portable written-body regression passes its positive and two zero-error
+cases. A fresh-target counter-test compiles both source versions independently:
+the repaired version passes and the original version fails on unsupported local
+optionality. Earlier shared-target comparisons were inconclusive because Cargo
+could reuse a library from another copied workspace with preserved timestamps.
+
+The actual-standard-library three-case control also passes within the existing
+240-second limit. Required integrated-main formatting, Clippy and workspace tests
+pass; the retained v4 capture records the final test count and ROOT audit.
+One existing set-array error assertion now expects the observed precise division
+by zero reason; the separate rank-two interpreter keeps its combined arithmetic
+reason. Rule limitation and no-output checks remain intact. Final release,
+original-model replay, matched costs, corpus reconciliation and independent
+whole-task verification remain pending; base-083 remains open.

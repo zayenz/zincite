@@ -5757,7 +5757,7 @@ fn total_controls_and_filtered_relations_separate_outputs_from_unavailable_bodie
                 outputs
                     .unavailable
                     .iter()
-                    .any(|u| u.reason == "integer arithmetic overflow or division by zero"),
+                    .any(|u| u.reason == "integer division by zero"),
                 "{:?}",
                 outputs.unavailable
             );
@@ -12167,6 +12167,300 @@ solve satisfy;
                 RuleOutcome::Completed,
                 "{name}: {:?}",
                 search.limitations
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn optional_increasing_written_bodies_preserve_unknown_and_closed_errors() {
+    use zincite_lint::{CallOutcome, Instantiation, SourceKind, TypeKind};
+    let body = r#"predicate fzn_increasing_int_opt(array [int] of var opt int: xs) =
+  let {
+    array [int] of var opt int: xx = array1d(xs);
+    array [1..length(xx)] of var int: y;
+    constraint
+      forall (i in 1..length(xx)) (
+        y[i] = if occurs(xx[i]) then deopt(xx[i]) elseif i = 1 then lb_array(xx) else y[i - 1] endif
+      );
+  } in forall (i in 2..length(y) where occurs(xx[i])) (deopt(xx[i]) >= y[i - 1]);
+"#;
+    // Keep the selected written wrappers and presence recurrence. Lower option
+    // representation remains the existing core optional semantic boundary.
+    let wrappers = r#"annotation promise_total; annotation promise_commutative;
+annotation mzn_internal_representation; annotation is_reverse_map; annotation cache_result;
+function int: '+'(int: x,int: y);
+function int: '-'(int: x,int: y);
+function int: 'div'(int: x,int: y);
+function var bool: '>='(var int: x,var int: y);
+function var bool: '!='(var int: x,var int: y);
+function var bool: '\/'(var bool: x,var bool: y);
+function var bool: '<->'(var bool: x,var bool: y);
+function var bool: 'not'(var bool: x);
+function set of int: 'union'(set of int: x,set of int: y);
+function $$E: lb_array(array [$U] of var opt $$E: x);
+function set of $$E: dom(var opt $$E: x);
+function var opt int: enum2int(var opt $$E: x) :: mzn_internal_representation;
+function array [$X] of var opt int: enum2int(array [$X] of var opt $$E: x) :: mzn_internal_representation;
+function set of $$E: enum_of(var opt $$E: x) :: mzn_internal_representation;
+function var $$E: to_enum_internal(set of $$E: X,var int: x) :: mzn_internal_representation;
+function int: length(array [$U] of any $V: xs);
+function var bool: forall(array [$T] of var bool: x) :: promise_commutative;
+predicate forall(array [int] of var opt bool: x) :: promise_commutative =
+  forall([absent(x[i]) \/ deopt(x[i]) | i in index_set(x)]);
+function var bool: occurs(var opt bool: x) :: promise_total = occurs_bool(x);
+function var bool: deopt(var opt bool: x) :: promise_total = deopt_bool(x);
+predicate absent(var opt bool: x) = not occurs(x);
+function var bool: occurs(var opt $$E: x) :: promise_total = occurs_int(enum2int(x));
+function var $$E: deopt(var opt $$E: x) :: promise_total =
+  to_enum_internal(enum_of(x), deopt_int(enum2int(x)));
+function var bool: occurs_bool(var opt bool: x) :: promise_total =
+  let {
+    any: xx = opt_internal_bool(x);
+    any: b = xx.1;
+    any: dx = xx.2;
+    constraint (x = reverse_map_var_opt(b, dx)) :: is_reverse_map;
+  } in xx.1;
+function var bool: deopt_bool(var opt bool: x) :: promise_total =
+  let {
+    any: xx = opt_internal_bool(x);
+    any: b = xx.1;
+    any: dx = xx.2;
+    constraint (x = reverse_map_var_opt(b, dx)) :: is_reverse_map;
+  } in xx.2;
+function tuple(var bool, var bool): opt_internal_bool(var opt bool: x) :: promise_total =
+  let { var bool: b; var bool: y; } in (b, y);
+function var bool: occurs_int(var opt int: x) :: promise_total =
+  let {
+    any: xx = opt_internal_int(x);
+    any: b = xx.1;
+    any: dx = xx.2;
+    constraint (x = reverse_map_var_opt(b, dx)) :: is_reverse_map;
+  } in xx.1;
+function var int: deopt_int(var opt int: x) :: promise_total =
+  let {
+    any: xx = opt_internal_int(x);
+    any: b = xx.1;
+    any: dx = xx.2;
+    constraint (x = reverse_map_var_opt(b, dx)) :: is_reverse_map;
+  } in xx.2;
+function tuple(var bool, var int): opt_internal_int(var opt int: x) :: promise_total =
+  if dom(x) = {} then (false, 0)
+  else
+    let {
+      var bool: b;
+      var dom(x) union if mzn_check_absent_zero() then {0} else {} endif: y;
+      constraint
+        if mzn_check_absent_zero() then
+          if had_zero(x) then b \/ y = 0 else b <-> y != 0 endif
+        endif;
+    } in (b, y)
+  endif;
+function bool: had_zero(var opt $$E: x) = mzn_had_zero(enum2int(x));
+function bool: mzn_had_zero(var opt int: x) :: cache_result =
+  not mzn_check_absent_zero() \/ (0 in dom(x));
+opt bool: mzn_absent_zero;
+test absent(opt $T: x);
+function $T: deopt(opt $T: x);
+test mzn_check_absent_zero() =
+  if absent(mzn_absent_zero) then true else deopt(mzn_absent_zero) endif;
+function var opt $T: reverse_map_var_opt(var bool: b,var $T: dx);
+function array [$$E] of any $T: reverse(array [$$E] of any $T: x) =
+  if length(x) = 0 then []
+  else let { any: xx = array1d(x); int: l = length(x) + 1; }
+    in array1d(index_set(x), [xx[l - i] | i in index_set(xx)])
+  endif;
+predicate increasing(array [$X] of var opt $$E: xs) =
+  fzn_increasing_int_opt(enum2int(array1d(xs)));
+predicate decreasing(array [$X] of var opt $$E: xs) = increasing(reverse(array1d(xs)));
+predicate symmetry_breaking_constraint(var bool: b);
+"#;
+    for (name, initializer, body_error) in [
+        ("optional-increasing-symbolic", "", false),
+        ("optional-increasing-source-zero", " = [1 div 0]", false),
+        ("optional-increasing-body-zero", "", true),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{}{}",
+                CORE.replace(
+                    "function var bool: forall(array[int] of var opt bool: body);\n",
+                    ""
+                ),
+                wrappers,
+            ),
+        )
+        .unwrap();
+        let symmetry_path = dir.join("library/std/solver_redefinitions.mzn");
+        let symmetry_body = "predicate symmetry_breaking_constraint(var bool: b) = b;\n";
+        std::fs::write(&symmetry_path, symmetry_body).unwrap();
+        let written_body = if body_error {
+            body.replace("  let {", "  let {\n    int: selected_optional_body_error = 1 div 0;\n    constraint selected_optional_body_error = 0;")
+        } else {
+            body.to_owned()
+        };
+        let selected_path = dir.join("library/std/fzn_increasing_int_opt.mzn");
+        std::fs::write(&selected_path, written_body).unwrap();
+        std::fs::write(
+            dir.join("root.mzn"),
+            format!("include \"fzn_increasing_int_opt.mzn\";\narray[int] of var int: xs{initializer};\nconstraint symmetry_breaking_constraint(decreasing(xs));\nsolve satisfy;\n"),
+        ).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let symmetry = calls
+            .calls
+            .iter()
+            .find(|call| call.file == 0 && call.name == "symmetry_breaking_constraint")
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &symmetry.outcome
+        else {
+            panic!(
+                "{name}: symmetry override unresolved: {:?}",
+                symmetry.outcome
+            );
+        };
+        let symmetry_owner = &bindings.declarations[declaration.0];
+        let symmetry_source = &context.files[symmetry_owner.file];
+        assert_eq!(symmetry_source.path, symmetry_path);
+        assert_eq!(symmetry_source.kind, SourceKind::StandardLibrary);
+        assert!(!symmetry_source.implicit);
+        assert_eq!(symmetry_source.source_bytes(), symmetry_body.as_bytes());
+        assert!(matches!(parameters.as_slice(), [parameter]
+            if parameter.kind == TypeKind::Bool
+                && parameter.instantiation == Instantiation::Decision
+                && !parameter.optional));
+        assert_eq!(return_type, &parameters[0]);
+        let decreasing = calls
+            .calls
+            .iter()
+            .find(|call| call.file == 0 && call.name == "decreasing")
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            ..
+        } = &decreasing.outcome
+        else {
+            panic!("{name}: {:?}", decreasing.outcome);
+        };
+        assert_eq!(
+            context.files[bindings.declarations[declaration.0].file].kind,
+            SourceKind::StandardLibrary
+        );
+        assert!(
+            matches!(&parameters[0].kind, TypeKind::Array { indices, element }
+            if indices.len() == 1 && indices[0].kind == TypeKind::Int
+                && element.kind == TypeKind::Int && element.optional
+                && element.instantiation == Instantiation::Decision)
+        );
+        let optional_owner = bindings
+            .declarations
+            .iter()
+            .find(|declaration| {
+                declaration.name == "fzn_increasing_int_opt"
+                    && context.files[declaration.file].path == selected_path
+            })
+            .unwrap();
+        assert_eq!(
+            context.files[optional_owner.file].kind,
+            SourceKind::StandardLibrary
+        );
+        assert!(!context.files[optional_owner.file].implicit);
+        let xs = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "xs")
+            .unwrap()
+            .id;
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        let search =
+            resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        assert!(
+            callable
+                .outputs
+                .iter()
+                .all(|output| output.target != xs && output.callable != optional_owner.id)
+        );
+        assert!(
+            callable
+                .definitions
+                .iter()
+                .all(|definition| definition.target != xs)
+        );
+        assert!(
+            !definitions
+                .definitions
+                .iter()
+                .any(|definition| definition.target == xs
+                    && definition.safety == DefinitionSafety::Supported)
+        );
+        let analysis = analyze_model(&context, &selected());
+        if initializer.is_empty() && !body_error {
+            assert_eq!(
+                coverage(&bindings, &search, "xs"),
+                SearchCoverage::Uncovered,
+                "{name}: callable unavailable {:?}",
+                callable.unavailable
+            );
+            assert!(
+                callable.unavailable.is_empty(),
+                "{name}: {:?}",
+                callable.unavailable
+            );
+            assert_eq!(
+                analysis.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                analysis.limitations
+            );
+            assert!(
+                analysis.limitations.is_empty(),
+                "{name}: {:?}",
+                analysis.limitations
+            );
+        } else {
+            assert!(
+                matches!(analysis.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                analysis.limitations
+            );
+            let error_path = if body_error {
+                selected_path.clone()
+            } else {
+                dir.join("root.mzn")
+            };
+            assert!(
+                callable.unavailable.iter().any(|failure| failure
+                    .reason
+                    .contains("integer division by zero")
+                    && failure.location.path == error_path
+                    && !failure.location.range.is_empty()),
+                "{name}: {:?}",
+                callable.unavailable
             );
         }
         std::fs::remove_dir_all(dir).unwrap();
