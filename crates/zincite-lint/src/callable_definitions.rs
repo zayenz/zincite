@@ -921,6 +921,8 @@ struct InvocationActual<'a, 'b> {
     node: &'a SyntaxNode,
     view: &'b CallableFacts,
     generators: Vec<&'a SyntaxNode>,
+    // The node retains a generator call; its expression type is the call result.
+    collection: bool,
 }
 struct Invocation<'a, 'b> {
     actuals: Vec<InvocationActual<'a, 'b>>,
@@ -1856,13 +1858,7 @@ impl<'a> Producer<'a> {
                 {
                     let source = self.invocation_source(clause.file, node, state);
                     let checked = match source {
-                        Ok(Some(actual)) => self.initialized_source_safety(
-                            actual.file,
-                            actual.node,
-                            actual.view,
-                            &actual.generators,
-                            &mut Vec::new(),
-                        ),
+                        Ok(Some(actual)) => self.invocation_actual_safety(actual),
                         Ok(None) => self.initialized_source_safety(
                             clause.file,
                             node,
@@ -4961,16 +4957,22 @@ impl<'a> Producer<'a> {
                 }
                 nodes.extend(node.child_nodes());
             }
-            let (file, node) = call_argument(
-                self.context,
-                self.bindings,
-                self.view(clause.file, clause.node, view),
-                clause.file,
-                clause.node,
-                instance.id,
-                position,
-            )
-            .ok_or("invoked actual or default unavailable")?;
+            let collection =
+                clause.node.kind() == NodeKind::GeneratorCallExpression && position == 0;
+            let (file, node) = if collection {
+                (clause.file, clause.node)
+            } else {
+                call_argument(
+                    self.context,
+                    self.bindings,
+                    self.view(clause.file, clause.node, view),
+                    clause.file,
+                    clause.node,
+                    instance.id,
+                    position,
+                )
+                .ok_or("invoked actual or default unavailable")?
+            };
             let default = file == owner.file
                 && formal_node.range().start <= node.range().start
                 && node.range().end <= formal_node.range().end;
@@ -4979,14 +4981,18 @@ impl<'a> Producer<'a> {
             } else {
                 self.view(file, node, view)
             };
-            let ty = self
-                .expression_type(facts, file, node)
-                .map(|e| &e.ty)
-                .or_else(|| {
-                    self.reference(file, unwrap(node))
-                        .map(|id| &facts.declarations[id.0].ty)
-                })
-                .ok_or("invoked actual type unavailable")?;
+            let ty = if collection {
+                self.operation_fact(facts, file, node)
+                    .and_then(|call| call.generator_argument.as_ref())
+            } else {
+                self.expression_type(facts, file, node)
+                    .map(|e| &e.ty)
+                    .or_else(|| {
+                        self.reference(file, unwrap(node))
+                            .map(|id| &facts.declarations[id.0].ty)
+                    })
+            }
+            .ok_or("invoked actual type unavailable")?;
             if !parameter.known()
                 || !ty.known()
                 || optional(ty)
@@ -5000,6 +5006,7 @@ impl<'a> Producer<'a> {
                 file,
                 node,
                 view: facts,
+                collection,
                 generators: if file == clause.file
                     && clause.node.range().start <= node.range().start
                     && node.range().end <= clause.node.range().end
@@ -5016,13 +5023,7 @@ impl<'a> Producer<'a> {
                 .invocation_source(actual.file, actual.node, invocation)
                 .and_then(|source| {
                     let source = source.unwrap_or(actual);
-                    match self.initialized_source_safety(
-                        source.file,
-                        source.node,
-                        source.view,
-                        &source.generators,
-                        &mut Vec::new(),
-                    ) {
+                    match self.invocation_actual_safety(source) {
                         DefinitionSafety::Unsupported(reason) => Err(reason),
                         _ => Ok(()),
                     }
@@ -5056,6 +5057,107 @@ impl<'a> Producer<'a> {
         match unsupported {
             Some(reason) => Err(reason),
             None => Ok(()),
+        }
+    }
+    // A generated array is inspected through its written construction, never
+    // through the scalar result type of the retaining call node.
+    fn invocation_actual_safety(&self, actual: &InvocationActual<'a, '_>) -> DefinitionSafety {
+        if !actual.collection {
+            return self.initialized_source_safety(
+                actual.file,
+                actual.node,
+                actual.view,
+                &actual.generators,
+                &mut Vec::new(),
+            );
+        }
+        let file = actual.file;
+        let view = actual.view;
+        let mut nodes = vec![actual.node];
+        while let Some(node) = nodes.pop() {
+            if !crate::definitions::annotations_safe(self.context, file, node) {
+                return DefinitionSafety::Unsupported(
+                    "invoked collection annotation is unsupported".into(),
+                );
+            }
+            nodes.extend(node.child_nodes());
+        }
+        let Some(list) = actual
+            .node
+            .child_nodes()
+            .find(|node| node.kind() == NodeKind::GeneratorList)
+        else {
+            return DefinitionSafety::Unsupported("invoked collection headers unavailable".into());
+        };
+        let mut generators = actual.generators.clone();
+        let mut unsupported = None;
+        for generator in list.child_nodes() {
+            let Some(source) = generator.child_nodes().next() else {
+                return DefinitionSafety::Unsupported(
+                    "invoked collection source unavailable".into(),
+                );
+            };
+            if let DefinitionSafety::Unsupported(reason) =
+                self.initialized_source_safety(file, source, view, &generators, &mut Vec::new())
+            {
+                unsupported = Some(reason);
+            }
+            if let Some(reason) = self.closed_integer_source_error(file, source, true, true) {
+                unsupported = Some(reason);
+            }
+            generators.push(generator);
+            for filter in generator
+                .child_nodes()
+                .filter(|node| node.kind() == NodeKind::WhereFilter)
+            {
+                let Some(condition) = filter.child_nodes().next() else {
+                    return DefinitionSafety::Unsupported(
+                        "invoked collection filter unavailable".into(),
+                    );
+                };
+                if self
+                    .expression_type(view, file, condition)
+                    .is_none_or(|expression| {
+                        !expression.ty.known()
+                            || optional(&expression.ty)
+                            || expression.ty.kind != TypeKind::Bool
+                    })
+                {
+                    unsupported = Some("invoked collection filter type is unsupported".into());
+                }
+                if let DefinitionSafety::Unsupported(reason) = self.initialized_source_safety(
+                    file,
+                    condition,
+                    view,
+                    &generators,
+                    &mut Vec::new(),
+                ) {
+                    unsupported = Some(reason);
+                }
+                if let Some(reason) = self.closed_integer_source_error(file, condition, true, true)
+                {
+                    unsupported = Some(reason);
+                }
+            }
+        }
+        let Some(body) = actual
+            .node
+            .child_nodes()
+            .find(|node| node.kind() != NodeKind::GeneratorList)
+        else {
+            return DefinitionSafety::Unsupported("invoked collection body unavailable".into());
+        };
+        if let DefinitionSafety::Unsupported(reason) =
+            self.initialized_source_safety(file, body, view, &generators, &mut Vec::new())
+        {
+            unsupported = Some(reason);
+        }
+        if let Some(reason) = self.closed_integer_source_error(file, body, true, true) {
+            unsupported = Some(reason);
+        }
+        match unsupported {
+            Some(reason) => DefinitionSafety::Unsupported(reason),
+            None => DefinitionSafety::Unknown("invoked collection extent is unproved".into()),
         }
     }
     fn invocation_source<'b, 'c>(
@@ -5138,6 +5240,9 @@ impl<'a> Producer<'a> {
         active: &mut Vec<DeclarationId>,
     ) -> Result<Option<bool>, String> {
         let actual = self.invocation_source(file, node, invocation)?;
+        if actual.is_some_and(|actual| actual.collection) {
+            return Ok(None);
+        }
         let (file, node, view) = actual.map_or((file, node, view), |actual| {
             (actual.file, actual.node, actual.view)
         });

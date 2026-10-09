@@ -5651,3 +5651,22 @@ across the four changed paths and their strict consumers. The reviewed main
 files match the six-repair candidate. This review does not replace final
 base-083 verification. The report is retained alongside the Jobshop review as
 bounded-six-composition-review.json.
+
+The ZipQueens generator repair is integrated. Generator calls retain one
+independently inferred collection argument and their real later defaults;
+forwarded source inspection checks headers, filters and body while extent stays
+Unknown. Ordinary scalar generator results remain scalar actuals. Virtual
+collections supply no output or search certificate.
+
+The installed standard-body control passes all six cases: bare/generated and
+parameter-filter positives complete, while optional and closed-error cases keep
+limitations. The portable public group and numeric guard pass after correcting
+fixture setup order. Independent local review checked all twelve argument
+consumers and the formatting-only production revision, with no concrete finding.
+ROOT checked 1436 unchanged v1 inputs and six streams, then 1567 unchanged v2
+inputs and four streams. Earlier fixture and formatting failures remain retained.
+Actual-main fmt, Clippy with warnings denied and all 228 workspace tests pass;
+the three checks leave sources unchanged. Evidence is under
+semantic62-zip-queens-generator-actual-repair-preparation-v2/root-results and
+main-zip-generator-gates-v2. Original-model and final task verification remain
+pending alongside the remaining Social Golfers repairs.

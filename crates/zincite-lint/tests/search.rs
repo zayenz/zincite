@@ -10106,3 +10106,171 @@ solve maximize sum(item in chosen)(rewards[item]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn generator_invocations_inspect_one_collection_and_defaults_without_defining_it() {
+    use zincite_lint::{CallOutcome, TypeKind};
+    for (name, invocation, filter, board_axis, body, completed) in [
+        ("bare", "all_different(colours)", "", "Nodes", "", true),
+        (
+            "generated",
+            "all_different(node in Nodes)(board[node,selected[node]])",
+            "",
+            "Nodes",
+            "",
+            true,
+        ),
+        (
+            "parameter-filter",
+            "all_different(node in Nodes where enabled[node])(board[node,selected[node]])",
+            "array[Nodes] of bool: enabled;",
+            "Nodes",
+            "",
+            true,
+        ),
+        (
+            "optional-filter",
+            "all_different(node in Nodes where enabled[node])(board[node,selected[node]])",
+            "array[Nodes] of var bool: enabled;",
+            "Nodes",
+            "",
+            false,
+        ),
+        (
+            "forwarded",
+            "forward_cells(node in Nodes)(board[node,selected[node]])",
+            "",
+            "Nodes",
+            "predicate forward_cells(array[$X] of var $$E: xs) = all_different(xs);",
+            true,
+        ),
+        (
+            "closed-selector",
+            "all_different(node in Nodes)(board[node,selected[node]+(1 div 0)])",
+            "",
+            "Nodes",
+            "",
+            false,
+        ),
+        (
+            "closed-source",
+            "all_different(node in Nodes)(board[node,selected[node]])",
+            "",
+            "1..(9223372036854775807+1)",
+            "",
+            false,
+        ),
+    ] {
+        let source = format!(
+            "include \"globals.mzn\";\nint: size;\nset of int: Nodes=1..size;\nenum Color;\n\
+             array[Nodes,{board_axis}] of Color: board;\narray[Nodes] of var Nodes: selected;\n\
+             array[Nodes] of var Color: colours;\n{filter}\n{body}\n\
+             predicate accept_total(var int: value)=true;\n\
+             constraint accept_total(sum(node in Nodes)(selected[node]));\n\
+             constraint {invocation};\nsolve satisfy;\n"
+        );
+        let (dir, _) = model(&format!("generator-actual-{name}"), "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}{}",
+                concat!(
+                    "function var bool: '!='(var int: left,var int: right);\n",
+                    "function bool: '<'(int: left,int: right);\n",
+                    "function var bool: '\\/'(var bool: left,var bool: right);\n",
+                    "function int: 'div'(int: left,int: right);\n",
+                ),
+            ),
+        )
+        .unwrap();
+        // Retain the generic/defaulted pairwise semantics in a portable fixture.
+        std::fs::write(
+            dir.join("library/std/globals.mzn"),
+            concat!(
+                "predicate all_different(array[$X] of var $$E: xs,set of $$E: except={})=\n",
+                "forall(i,j in index_set(xs) where i<j)\n",
+                "(xs[i]!=xs[j] \\/ (xs[i] in except /\\ xs[j] in except));\n",
+                "predicate all_different(array[$X] of var opt $$E: xs)=true;\n",
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), &source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        // A nested generator's scalar result remains an ordinary actual.
+        let scalar = calls
+            .calls
+            .iter()
+            .find(|call| call.name == "accept_total")
+            .unwrap();
+        assert!(
+            matches!(&scalar.outcome, CallOutcome::Resolved { parameters, .. }
+            if parameters.len() == 1 && parameters[0].kind == TypeKind::Int)
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        assert!(
+            callable.outputs.is_empty(),
+            "{name}: {:?}",
+            callable.outputs
+        );
+        assert!(
+            callable.definitions.is_empty(),
+            "{name}: {:?}",
+            callable.definitions
+        );
+        let (_, search) = facts(&context);
+        assert!(search.searched.is_empty());
+        assert!(matches!(
+            coverage(&bindings, &search, "selected"),
+            SearchCoverage::Uncovered | SearchCoverage::Unknown
+        ));
+        let result = analyze_model(&context, &selected());
+        if completed {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                result.limitations
+            );
+        } else if name.starts_with("closed-") {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}"
+            );
+            let start = source.find(&format!("constraint {invocation}")).unwrap();
+            let end = start + "constraint ".len() + invocation.len();
+            assert!(
+                result
+                    .limitations
+                    .iter()
+                    .any(|limit| limit.location.path == dir.join("root.mzn")
+                        && limit.location.range.start < end
+                        && start < limit.location.range.end),
+                "{name}: {:?}",
+                result.limitations
+            );
+        } else {
+            let generated = calls
+                .calls
+                .iter()
+                .find(|call| call.name == "all_different" && call.generator_argument.is_some())
+                .unwrap();
+            assert!(
+                matches!(&generated.generator_argument.as_ref().unwrap().kind,
+                TypeKind::Array { element, .. } if element.optional)
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

@@ -72,6 +72,9 @@ pub struct CallFact {
     pub location: SourceLocation,
     pub name: String,
     pub outcome: CallOutcome,
+    /// The independently inferred collection actual of a generator invocation.
+    /// Its retained node's expression type is the callable result instead.
+    pub generator_argument: Option<TypeInst>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1227,6 +1230,7 @@ impl<'a> Engine<'a> {
                     location: self.context.files[file].location(range.clone()),
                     name: "unary+".into(),
                     outcome: outcome.clone(),
+                    generator_argument: None,
                 },
             );
             return outcome;
@@ -1234,8 +1238,10 @@ impl<'a> Engine<'a> {
         self.active_calls.push(key);
         let resolution = self.resolution(file, node);
         let mut arguments = Vec::new();
-        if node.kind() == NodeKind::GeneratorCallExpression {
-            arguments.push((None, self.comprehension(file, item, node, true)));
+        let generator_argument = if node.kind() == NodeKind::GeneratorCallExpression {
+            let ty = self.comprehension(file, item, node, true);
+            arguments.push((None, ty.clone()));
+            Some(ty)
         } else {
             for argument in node.child_nodes() {
                 arguments.push((
@@ -1247,7 +1253,8 @@ impl<'a> Engine<'a> {
                     self.infer(file, item, argument),
                 ));
             }
-        }
+            None
+        };
         let outcome = match resolution {
             BindingResolution::Unresolved => CallOutcome::Unresolved {
                 reason: "callable name is unresolved".into(),
@@ -1271,6 +1278,7 @@ impl<'a> Engine<'a> {
                     .map(str::to_owned)
                     .unwrap_or_else(|| identity(written)),
                 outcome: outcome.clone(),
+                generator_argument,
             },
         );
         outcome
@@ -2033,6 +2041,8 @@ pub(super) fn formal_parameter(
         .map(|p| p.id)
 }
 /// Written actual or retained default in its declaration's lexical scope.
+/// A generator's collection actual has no ordinary expression node: position
+/// zero is handled with its separate type and source by invocation inspection.
 pub(super) fn call_argument<'a>(
     context: &'a ModelContext,
     bindings: &BindingFacts,
@@ -2044,8 +2054,14 @@ pub(super) fn call_argument<'a>(
 ) -> Option<(FileId, &'a SyntaxNode)> {
     let signature = facts.signatures.iter().find(|s| s.declaration == id)?;
     let name = signature.parameters.get(position)?.name.as_deref();
+    if call.kind() == NodeKind::GeneratorCallExpression && position == 0 {
+        return None;
+    }
     let mut index = 0;
-    for value in call.child_nodes() {
+    for value in call
+        .child_nodes()
+        .filter(|_| call.kind() != NodeKind::GeneratorCallExpression)
+    {
         if value.kind() == NodeKind::NamedArgument {
             let written = value.children().iter().find_map(|c| {
                 if let SyntaxElement::Token(i) = c {
