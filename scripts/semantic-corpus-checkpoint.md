@@ -5967,3 +5967,25 @@ standard commutative metadata on its min/max stubs. Actual-main formatting,
 clippy and all 240 tests pass under main-atsp-extremum-bounds-gates-v1, with 108
 unchanged source files, six full streams and three reaped empty groups. Fresh
 original ATSP outcomes and final task acceptance remain pending.
+
+Fresh original ATSP controls now use committed dfe629a and an audited normal
+release with four executables and 22 libraries. The build retains 1,175 unchanged
+inputs and complete streams. The thesis/all native-companion pairs under
+semantic65-atsp-original-replay-preparation-v1 retain 1,214 unchanged inputs,
+eight full streams, four reaped empty groups and matching diagnostics/statuses.
+Thesis remains 13/14 Completed with two limitations; all remains 21/26 Completed
+with 17 limitations, down from four and 19 respectively. Rule outcome partitions
+are unchanged. Search still refuses the original line-174 output dependency
+selection and line-169 local constraints/result; the focused source-safety repairs
+do not establish strict output-dependency membership. The outer wrapper failed
+to record its receipt after its child completed because its imports omitted
+platform; the inner captures are intact and independently audited, and the outer
+group is absent. No original control was rerun to conceal that recording failure.
+
+The private Grouping direct floor adapter consumes the independently tested domain
+helper. Under semantic65-grouping-direct-floor-green-preparation-v2, both floor
+cases pass their frozen public source-safety, Search and withheld-certificate
+assertions. The separate reverse positive still fails its source-call assertion;
+its following negative is unobserved. ROOT audited 132 unchanged inputs, both
+full streams and the reaped empty group. The domain and direct floor increments
+remain private pending their small permanent projections and main validation.
