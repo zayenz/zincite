@@ -65,6 +65,7 @@ fn resolved<'a>(
 
 #[test]
 fn public_callable_facts_preserve_types_and_select_standard_identity_before_advice() {
+    use zincite_lint::{IntegerBoundsOutcome, TypeInst, resolve_domains, resolve_integer_bounds};
     let (directory, options) = setup("types");
     let library = options.stdlib_dir.as_ref().unwrap().join("std/stdlib.mzn");
     let mut standard = std::fs::read_to_string(&library).unwrap();
@@ -88,7 +89,7 @@ fn public_callable_facts_preserve_types_and_select_standard_identity_before_advi
         "predicate consume(var int: x, int: count=1) = x>count;\n",
         "predicate fields(record(int: a,var int: b): x)=true; constraint fields((b:iv,a:1));\n",
         "array[int] of int: fixed_values; predicate fixed(int: x)=true; predicate fixed(var int: x)=true; constraint fixed(fixed_values[iv]);\n",
-        "predicate numeric(int: x)=true; constraint numeric(-V1); constraint numeric(V1+V2);\n",
+        "predicate numeric(int: x)=true; constraint numeric(-V1); constraint numeric(V1+V2); constraint numeric(infinity);\n",
         "record(var int: value, int: count): rec; tuple(int,var int): pair;\n",
         "constraint consume(x:identity(rec.value)); constraint consume(pair.2,2);\n",
         "constraint let {var int: value;} in consume(value);\n",
@@ -262,6 +263,41 @@ fn public_callable_facts_preserve_types_and_select_standard_identity_before_advi
             "numeric"
         );
     }
+    let parameter_int = TypeInst {
+        instantiation: Instantiation::Parameter,
+        optional: false,
+        kind: TypeKind::Int,
+    };
+    let infinity_call = outcome(&facts, &root, source, "numeric(infinity)");
+    assert!(
+        matches!(infinity_call, CallOutcome::Resolved { parameters, .. }
+            if parameters.as_slice() == [parameter_int.clone()]),
+        "INFINITY_ATOM_TYPING_RED: {infinity_call:?}"
+    );
+    let start = source.find("infinity").unwrap();
+    let infinity_range = start..start + "infinity".len();
+    let infinity = facts
+        .expressions
+        .iter()
+        .find(|expression| {
+            expression.location.path == root && expression.location.range == infinity_range
+        })
+        .unwrap();
+    assert_eq!(infinity.ty, parameter_int);
+    // Type knowledge must not fabricate a finite integer value.
+    let domains = resolve_domains(&context, &bindings);
+    let bounds = resolve_integer_bounds(&context, &bindings, &facts, &domains);
+    let infinity_bound = bounds
+        .expressions
+        .iter()
+        .find(|expression| {
+            expression.location.path == root && expression.location.range == infinity_range
+        })
+        .unwrap();
+    assert!(!matches!(
+        infinity_bound.outcome,
+        IntegerBoundsOutcome::Known { .. }
+    ));
     let CallOutcome::Resolved { return_type, .. } =
         outcome(&facts, &root, source, "identity(rec.value)")
     else {

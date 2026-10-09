@@ -611,7 +611,9 @@ impl<'a> Engine<'a> {
                 let kind = tokens.first().map(|(kind, _, _)| *kind);
                 match kind {
                     Some(TokenKind::True | TokenKind::False) => TypeInst::par(TypeKind::Bool),
-                    Some(TokenKind::IntegerLiteral) => TypeInst::par(TypeKind::Int),
+                    Some(TokenKind::IntegerLiteral | TokenKind::Infinity) => {
+                        TypeInst::par(TypeKind::Int)
+                    }
                     Some(TokenKind::FloatLiteral) => TypeInst::par(TypeKind::Float),
                     Some(TokenKind::StringLiteral) => TypeInst::par(TypeKind::String),
                     Some(TokenKind::Absent) => TypeInst {

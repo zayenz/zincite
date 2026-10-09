@@ -5687,3 +5687,14 @@ main-social-membership-gates-v1. The earlier selector-bound failure is retained.
 Remaining Social Golfers work includes ordinary decision-set array construction,
 infinity atom typing and generic standard-prelude availability; original replay
 and final task acceptance remain pending.
+
+Infinity atom typing is integrated: the source-preserving literal now has present
+parameter-integer type, matching MiniZinc's parser and AST. Numeric values and
+finite bounds remain unproved. The existing public callable group checks type,
+selected identity and absence of fabricated finite bounds; the numeric partiality
+guard remains unchanged. Both focused checks pass, with 166 unchanged inputs,
+four checked streams and two reaped empty groups. Independent local review found
+no concrete issue. Actual-main fmt, Clippy and all 229 workspace tests pass with
+unchanged sources. Evidence is under semantic63-infinity-atom-green-preparation-v1
+and main-infinity-atom-gates-v1. Original Social Golfers usage replay and final
+base-083 acceptance remain pending.
