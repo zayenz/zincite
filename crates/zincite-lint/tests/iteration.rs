@@ -531,6 +531,7 @@ solve satisfy;
         "var 0..1: total_job_moulds",
         "var 0..(if false then 1 div 0 else 1 endif): total_job_moulds",
     );
+    let parameter_range = positive.replace("forall(d in Demands)", "forall(d in 1..num_demands-1)");
     let directory = std::env::temp_dir().join(format!(
         "zincite-iteration-decision-prefix-{}",
         std::process::id()
@@ -556,6 +557,7 @@ solve satisfy;
         (zero.as_str(), Some("zero")),
         (overflow.as_str(), Some("overflow")),
         (inactive.as_str(), None),
+        (parameter_range.as_str(), None),
     ] {
         std::fs::write(&root, source).unwrap();
         let context = load_model(&root, &options);

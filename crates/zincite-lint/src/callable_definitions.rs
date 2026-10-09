@@ -13327,18 +13327,6 @@ impl<'a> Producer<'a> {
             if !one(offset) {
                 return None;
             }
-            if !self.prefix_primitive(
-                file,
-                upper,
-                self.calls,
-                "-",
-                &[decision.clone(), decision.clone()],
-                &decision,
-            ) {
-                return Some(DefinitionSafety::Unsupported(
-                    "decision prefix predecessor signature or source is unsupported".into(),
-                ));
-            }
             selected = unwrap(source);
         }
         if selected.kind() != NodeKind::ArrayAccessExpression {
@@ -13354,7 +13342,12 @@ impl<'a> Producer<'a> {
                     [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
         };
         let (subject, selector) = (unwrap(subject), unwrap(selector));
-        if !bare(subject) || !bare(selector) {
+        if !bare(subject)
+            || !bare(selector)
+            || self
+                .expression_type(self.calls, file, selected)
+                .is_none_or(|expression| expression.ty != decision)
+        {
             return None;
         }
         Some(
@@ -13412,6 +13405,20 @@ impl<'a> Producer<'a> {
                     || !crate::definitions::annotations_safe(self.context, file, written)
                 {
                     return Err(error());
+                }
+                if upper.kind() == NodeKind::BinaryExpression
+                    && !self.prefix_primitive(
+                        file,
+                        upper,
+                        self.calls,
+                        "-",
+                        &[decision.clone(), decision.clone()],
+                        &decision,
+                    )
+                {
+                    return Err(
+                        "decision prefix predecessor signature or source is unsupported".into(),
+                    );
                 }
                 let call = self
                     .operation_fact(self.calls, file, node)

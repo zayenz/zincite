@@ -6146,3 +6146,19 @@ same refusal hides its actual initialized-source error. ROOT checked 2,326
 unchanged inputs, both full streams and an empty reaped group. Its source reader,
 fresh original-model replays, final corpus/cost evidence and whole-task
 verification remain pending; base-083 stays open.
+
+Fresh normal-release replay at 2757cc9 completes all 14 thesis rules on ATSP and
+Social; Grouping remains at 13/14. The six native/companion pairs agree. ROOT
+checked 1,385 unchanged inputs, 26 complete streams and 13 empty reaped groups.
+That replay also exposed ordinary parameter ranges reaching the decision-prefix
+predecessor check before source eligibility. The dispatch now requires an actual
+decision integer array cell before checking that predecessor; ordinary parameter
+ranges retain their existing interpreter. The portable regression adds this
+positive case while retaining the four existing error and inactive-branch cases.
+ROOT checked its five-case pass against 1,169 unchanged inputs and both full
+streams. Main formatting, Clippy and all 246 tests pass under
+main-parameter-range-dispatch-gates-v1, with 108 unchanged sources, six complete
+streams and three empty reaped groups. Fresh corrected-source model replay remains
+pending. Grouping's candidate passed independent static review; its focused
+runtime acceptance remains pending. Whole-task verification and final corpus/cost
+evidence remain outstanding; base-083 stays open.
