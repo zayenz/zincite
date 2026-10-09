@@ -5305,3 +5305,25 @@ under semantic62-is-set-concat-reshape-{red,production}-preparation-v1 and
 semantic62-is-set-concat-reshape-main-integration. Independent review found no
 local defect in the guard. Matched native receiver controls, final corpus and
 functional/performance checks remain pending; base-083 remains open.
+
+Matched normal controls after the array1d receiver repair complete all fourteen
+thesis rules on original IS: warnings stay at 97 and limitations fall from 109
+to 107. The positive set-array reduction also reaches fourteen, with limitations
+falling from four to one. Circuit and table controls are unchanged. The partial
+set-array control retains its divisor warning and four limitations; two causes
+now identify the closed division error instead of unsupported concatenation.
+
+The normal release was built from actual main and audited across 108 source
+files, four executables, 22 libraries and 18 Cargo events. All 2049 matched-control
+input pins and 48 complete streams were checked, with exact native/companion
+outcomes, dependencies and drop records. Evidence is under
+semantic62-final-actual-main-release-preparation-v2/release-results and
+semantic62-final-six-controls-b691/control-results.
+
+The final public controls pass all 30 captures: exact default/thesis/all selections,
+shared-include native/library parity, multi-root diagnostic order, omitted-default
+equivalence, and source preservation plus two-pass stdin saves for BOM, CRLF,
+opaque comment bytes and protected spans. All 165 inputs and 60 complete streams
+were checked. Evidence is under
+semantic62-final-public-control-preparation/b691-public-controls. Fresh full-corpus
+and isolated performance checks remain required; base-083 stays open.
