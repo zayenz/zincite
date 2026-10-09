@@ -6316,3 +6316,22 @@ interpretation, and Social decision-set/intersection/partition interpretation.
 They are not missing dependencies or proof of invalid models. These remaining
 vacuous-constraint and suspicious-domain gaps prevent an all-26 completion
 claim; the observed fourteen-rule thesis controls remain complete.
+
+While the final corpus capture runs, five private candidates have passed ROOT
+static review: bare full-axis slice binding, ordinary bodyless exists source
+inspection, decision enum-set cardinality body inspection, enum collection
+binders, and uninitialized nominal enum-subset domains. Their preparations are
+under `target/benchmarks/base083/semantic66-full-axis-unused-preparation-v1`,
+`semantic65-latinbool-ordinary-exists-preparation-v1`,
+`semantic65-teams-decision-enum-card-preparation-v1`,
+`semantic66-teams-enum-collection-preparation-v1`, and
+`semantic65-teams-symbolic-enum-domain-preparation-v1`. Each retains its patch,
+public regression and outstanding validation. No candidate is integrated or
+runtime-verified; the capture's source files and release assets stay unchanged.
+
+The optional-Float weak-equality draft remains under review. Its entry guard
+needs to preserve the existing fallback for non-Float selections. After the
+capture is terminal, ROOT must observe required original selected tuples, run
+focused behavioral RED/GREEN checks with separate fresh Cargo targets, then
+integrate passing repairs and run workspace gates. Any Rust repair requires
+new final release and corpus evidence before base-083 can pass verification.
