@@ -5388,3 +5388,16 @@ set containing division by zero, but still emits a Supported whole-array output
 definition. ROOT verified the failing child, both full streams and 229 unchanged
 inputs. The repair is not accepted or integrated; a correction is in preparation.
 Reproduction evidence is under semantic62-zip-queens-axis-error-reproduction-preparation-v1.
+
+The private named-selector domain veto passes the five-case group and existing
+cycle/alias guard. A second focused reproduction nevertheless confirms that an
+annotated lookup-source declaration can still produce a Supported output; restoring
+the existing initialized-source veto remains pending before integration. Both
+reproductions preserve main and retain their complete failing streams.
+
+The Challenge nonogram model with its existing non_fast_4 data also compiles
+with MiniZinc 2.10.1 and Gecode without solving. ROOT verified empty diagnostics,
+231100 bytes of FlatZinc, 320 bytes of OZN and 1039 unchanged input pins, with the
+child reaped and its group empty. Evidence is under
+semantic62-nonogram-instance-compiler-check-v1. Its located conditional-bound
+analysis limitation remains a support gap to investigate, not an invalid-input exclusion.
