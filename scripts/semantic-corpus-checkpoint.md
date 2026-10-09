@@ -5567,3 +5567,25 @@ closed-error cases were not reached. Evidence is under
 semantic62-zip-queens-generator-actual-red-preparation-v3/root-results.
 A private argument-mapping repair is now authorized. Earlier diagnostic failures
 remain retained separately; no production behavior or whole-task pass is claimed.
+
+## User-requested pause, 2026-10-09
+
+Base-083 remains open. Main Rust sources retain the b691 source map; reviewed
+repairs are still private. The user requested a pause to conserve quota. All
+four retained agents have been stopped; interrupted Zip implementation and
+Social Golfers usage diagnosis require a fresh readiness check before reuse.
+
+The six-repair normal release build passed and ROOT audited its sixteen Cargo
+events, two binaries, twenty-two libraries and 1957 unchanged inputs. Original
+Jobshop controls (handle 43377) and the Social Golfers membership observer
+(handle 55632) subsequently returned terminal zero from their wrappers. Their
+full captures still require ROOT audit; no semantic acceptance is inferred.
+Evidence is under semantic62-six-gap-jobshop-functional-controls-preparation-v1
+and semantic62-social-golfers-membership-preflight-preparation-v1.
+
+Corpus handle 84137 was confirmed live at the pause, with 123/124 terminal
+shards. Leave that existing capture intact. On resume, poll the same handle,
+then use the prepared b691 final reconciliation only after confirmed terminal
+state. Preserve the main Rust freeze until that audit completes. Next steps are
+capture audits, original Jobshop outcome reconciliation, the Zip mapping repair
+and remaining Social Golfers gaps; full workspace and task verification follow.
