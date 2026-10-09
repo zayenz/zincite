@@ -5438,3 +5438,18 @@ and companion diagnostics agree, with no Unobserved rows. Zincite classifies
 these classifications do not establish compiler validity. Evidence is under
 semantic62-b691-shards019-025-snapshot-audit.json and root-shards019-025-count-audit.json.
 The remaining corpus capture is still running; no whole-corpus acceptance is claimed.
+
+The tests-only nonogram conditional-axis reduction reaches the expected positive
+completion failure. Closed branch and selector overflow counterguards retain
+Limited outcomes, and the existing domains guard passes. ROOT checked all four
+complete streams, both reaped empty groups and 1287 unchanged runtime pins.
+Evidence is under semantic62-nonogram-conditional-axis-test-preparation-v1/root-red.
+The private consumer repair is in preparation; no raw domain fact is relaxed.
+
+The second private knapsack candidate completes its positive optional-sum case.
+Its negative test placed division by zero only in the solve objective, outside
+this search-coverage consumer's constraint-body inspection. Independent source
+review confirms that fixture placement error; it does not establish an inspector
+bypass. A corrected capacity-constraint negative is pending on unchanged candidate
+production. The existing numeric guard passes. Evidence is under
+semantic62-knapsack-optional-sum-repair-preparation-v1/green-v2/root-results.
