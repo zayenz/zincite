@@ -6162,3 +6162,31 @@ streams and three empty reaped groups. Fresh corrected-source model replay remai
 pending. Grouping's candidate passed independent static review; its focused
 runtime acceptance remains pending. Whole-task verification and final corpus/cost
 evidence remain outstanding; base-083 stays open.
+
+The corrected ee97571 normal release and original-model replay are now checked.
+The build retains 1,202 unchanged inputs, two full streams, an empty reaped group,
+18 normal opt3 Cargo events, four executables and 22 libraries. The six replay
+pairs retain 1,498 unchanged inputs, 26 full streams, 13 empty reaped groups, exact
+14/26 rule selections and native/companion status and diagnostic parity. ATSP
+completes 14/14 thesis and 23/26 all analyses; Social completes 14/14 and 25/26;
+Grouping remains 13/14 and 24/26. The ordinary-range false limits are gone;
+remaining concrete limitations still require investigation.
+
+Grouping's first private optional-body candidate compiled but failed two of three
+cases: source-zero passed; positive used an immediate-token helper for a complete
+body comparison; body-zero retained its failure but lost the precise reason.
+ROOT checked 2,330 unchanged inputs and both streams. The next candidate fixes
+complete token selection and the precise closed zero-divisor reason. Its
+body-zero passes, but positive reaches the unchanged 240-second cap and source-
+zero is unobserved. ROOT checked 2,456 unchanged physical inputs after timeout,
+both streams and an empty reaped group. The runner stops before writing after.json;
+this absence and the timeout remain explicit. No candidate is integrated and no
+deadline is raised. A bounded private positive-path investigation follows.
+
+The cost review found the historical shared common.mzn hash in semantic56's
+before/after maps; the earlier private no-historical-hash claim was too broad.
+Seven retained cost cases have matching source/dependency/configuration and
+protocol evidence. Only two missing operator cases are being prepared against
+those exact historical assets. This does not create a nine-case comparison or
+attribute those assets to 6af. Final candidate costs, corpus reconciliation and
+whole-task verification remain pending; base-083 stays open.
