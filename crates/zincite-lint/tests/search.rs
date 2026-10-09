@@ -5410,6 +5410,74 @@ fn total_controls_and_filtered_relations_separate_outputs_from_unavailable_bodie
         analyze_model(&context, &selected()).rules[0].outcome,
         RuleOutcome::Completed
     ));
+    // Inspect selected cells without assuming membership or defining their owners.
+    let table_source = concat!(
+        "include \"included.mzn\"; int: row_count; int: data_count; ",
+        "set of int: SelectedRows=0..row_count-1; set of int: SelectedData=0..data_count-1; set of int: Removed; ",
+        "array[SelectedRows] of set of int: used; array[SelectedRows] of bool: apply; ",
+        "array[SelectedRows] of var 0..1: row_value; array[SelectedData] of var 0..1: selected; ",
+        "array[1..1,1..2] of int: tuples=[|0,0|]; var bool: table_result; ",
+        "constraint forall(row in SelectedRows diff Removed,item in used[row] where apply[row])",
+        "(table_inspection([row_value[row],selected[item]],tuples,table_result)); solve satisfy;\n",
+    );
+    let bad_table_source = table_source
+        .replace("SelectedData=0..data_count-1", "SelectedData=0..0")
+        .replace("selected[item]", "selected[1]");
+    for (case, source, completed) in [
+        ("unknown membership", table_source, true),
+        ("outside axis", bad_table_source.as_str(), false),
+    ] {
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{case}: {:?}", context.errors);
+        let (bindings, search) = facts(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let outputs =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        for name in ["row_value", "selected", "table_result"] {
+            let owner = bindings
+                .declarations
+                .iter()
+                .find(|d| d.top_level && d.name == name)
+                .unwrap();
+            assert!(
+                outputs.definitions.iter().all(|d| d.target != owner.id),
+                "{case}: {name}"
+            );
+            if completed {
+                assert_eq!(
+                    coverage(&bindings, &search, name),
+                    SearchCoverage::Uncovered,
+                    "{case}: {name}"
+                );
+            }
+        }
+        let outcome = &analyze_model(&context, &selected()).rules[0].outcome;
+        if completed {
+            assert_eq!(*outcome, RuleOutcome::Completed, "{:?}", search.limitations);
+        } else {
+            assert!(
+                matches!(outcome, RuleOutcome::Limited { .. }),
+                "{outcome:?}"
+            );
+            assert!(
+                outputs
+                    .unavailable
+                    .iter()
+                    .any(|u| u.reason == "scalar selection is outside its declared index set"),
+                "{:?}",
+                outputs.unavailable
+            );
+        }
+    }
     std::fs::write(dir.join("root.mzn"), "include \"included.mzn\"; bool: gate; int: input; array[1..1] of var 0..1: first_values; array[1..1] of var 0..1: second_values; array[int] of bool: boolean_parameters; var int: boolean_guard_result; constraint boolean_guard(boolean_parameters,position,boolean_guard_result); var bool: boolean_opaque_result; constraint boolean_opaque_index(flags,position,boolean_opaque_result); var int: private_array_opaque_result; constraint private_array_opaque(input,private_array_opaque_result); var bool: private_opaque_result; constraint private_opaque(private_opaque_result); annotation user_hint; predicate user_promised(var int: result) :: user_hint = result=0; var int: user_promised_result; constraint user_promised(user_promised_result); var int: promised_partial_result; constraint promised_partial(promised_partial_result) :: domain; array[int,int] of int: positions; array[int] of int: parameter_values; set of int: other; var int: subset_wrong_result; constraint subset_wrong(subset_wrong_result); var int: subset_shift_result; constraint subset_shift(subset_shift_result); var int: collected_raw_result; constraint collected_raw(parameter_values,other,collected_raw_result); var int: collected_opaque_result; constraint collected_opaque(other,collected_opaque_result); var int: nested_raw_result; constraint nested_raw(positions,first_values,position,nested_raw_result); var bool: opaque_equivalence_result; constraint opaque_equivalence(opaque_equivalence_result); var int: computed_result; predicate computed_subject(var int: result)=forall(i in 1..1)(result=selected_values(first_values,second_values)[i]); constraint computed_subject(computed_result); array[int] of var bool: flags; array[int] of var bool: other_flags; var bool: compound_bounds_result; constraint compound_bounds(gate,flags,compound_bounds_result); var bool: wrong_bounds_result; constraint wrong_bounds(flags,other_flags,wrong_bounds_result); var bool: raw_min_result; var bool: else_min_result; constraint raw_min(flags,raw_min_result); constraint else_min(flags,else_min_result); var bool: decision_gate; var int: specialized_parameter_result; var int: specialized_decision_result; constraint specialized(gate,input,specialized_parameter_result); constraint specialized(decision_gate,input,specialized_decision_result); var int: decision_result; var int: partial_result; var int: asserted_partial_result; var int: asserted_false_result; var int: named_assert_result; array[int] of int: bounds; int: position; var int: specialized_partial_result; constraint specialized_relation(bounds[position],specialized_partial_result); var int: raw_index_result; var int: raw_range_result; var int: unguarded_result; var int: filtered_bounds_result; array[0..3] of var int: partial_array; constraint partial_indices(partial_array,input); constraint raw_index(bounds,position,raw_index_result); constraint raw_range(bounds,position,raw_range_result); constraint asserted_partial(gate,asserted_partial_result); constraint asserted_false(asserted_false_result); constraint assert(x:named_assert_result=0,msg:\"named\",b:true); constraint unguarded_bounds(partial_array,unguarded_result); constraint filtered_bounds(gate,partial_array,filtered_bounds_result); constraint decision(decision_gate,input,decision_result); constraint partial(gate,input,partial_result); solve :: seq_search([bool_search([decision_gate],input_order,indomain_min,complete),int_search(first_values,input_order,indomain_min,complete)]) satisfy;").unwrap();
     let mut negative_source = std::fs::read_to_string(dir.join("root.mzn")).unwrap();
     negative_source.push_str("var opt bool: pattern_optional_value; var bool: pattern_optional_result; constraint pattern_optional(flags,pattern_optional_value,pattern_optional_result);\n");

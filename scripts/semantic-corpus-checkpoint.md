@@ -5213,3 +5213,23 @@ the audited release's 108 source files match current main. Actual main formattin
 Clippy with warnings denied and all 222 workspace tests pass under
 semantic62-circuit-index-domain-main-integration. IS table inspection and final
 corpus, functional and performance checks keep base-083 open.
+
+Plain rank-one integer array literals can now inspect their original cells when
+strict membership remains unproved. Inspection returns Unknown rather than a
+membership or output guarantee. Closed invalid selectors still refuse inspection.
+The existing public control group covers both paths without adding a new test.
+Actual main formatting, Clippy with warnings denied and all 222 workspace tests
+pass under semantic62-is-table-literal-main-integration.
+
+Matched normal opt3 controls remove the table-literal membership refusal in
+original IS and its public reduction. IS retains 97 warnings and 109 limitations:
+Search remains Limited at a downstream concatenation path. The public reduction
+has no warnings; limitations increase from eight to nine as inspection reaches two
+unsupported calls in the installed table wrapper. Written and installed circuit
+results remain unchanged, with all fourteen thesis rules complete. Native and
+companion agree on full 26-rule outcomes, dependencies and drop records across
+sixteen runs. Six retained Gecode compile-only proofs were reused; no solver ran.
+Evidence is under semantic62-is-table-release-controls-preparation-v1. The next
+checks distinguish IS's parameter array-of-set concatenation from table wrapper
+index and conversion calls. These gaps and final corpus, functional and
+performance checks keep base-083 open.

@@ -12934,6 +12934,45 @@ impl<'a> Producer<'a> {
             self.expression_type(self.view(file, node, view), file, node)
                 .map(|e| &e.ty)
         };
+        if node.kind() == NodeKind::ArrayLiteral
+            && let Some(array) = ty(node)
+            && array.known()
+            && !optional(array)
+            && let TypeKind::Array { indices, element } = &array.kind
+            && indices.len() == 1
+            && indices[0].known()
+            && !optional(&indices[0])
+            && indices[0].instantiation == Instantiation::Parameter
+            && indices[0].kind == TypeKind::Int
+            && element.known()
+            && !optional(element)
+            && element.kind == TypeKind::Int
+            && crate::definitions::annotations_safe(self.context, file, written)
+        {
+            let cells: Vec<_> = node.child_nodes().collect();
+            if cells.iter().all(|cell| {
+                cell.kind() != NodeKind::IndexedArrayEntry
+                    && ty(cell).is_some_and(|t| {
+                        t.known()
+                            && !optional(t)
+                            && t.kind == TypeKind::Int
+                            && crate::types::coerces(t, element)
+                    })
+            }) {
+                if let unsupported @ DefinitionSafety::Unsupported(_) =
+                    self.initialized_children_safety(file, &cells, view, generators)
+                {
+                    return unsupported;
+                }
+                for cell in cells {
+                    if let Some(reason) = self.closed_integer_source_error(file, cell, true, true) {
+                        return DefinitionSafety::Unsupported(reason);
+                    }
+                }
+                // Inspecting each written cell does not prove its dependencies.
+                return DefinitionSafety::Unknown("integer array literal value is unproved".into());
+            }
+        }
         if node.kind() == NodeKind::CallExpression && self.core(file, node, view, "index_set_1of2")
         {
             let children: Vec<_> = node.child_nodes().collect();
