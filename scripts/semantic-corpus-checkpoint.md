@@ -6291,3 +6291,28 @@ The final nine-case native/companion cost capture is complete. Its saved-record
 comparison retains null ratios where dependency evidence differs; that evidence
 is being reconciled. Full final corpus capture and whole-task verification are
 still pending. Base-083 remains open.
+
+
+The first final corpus launch stopped before creating a capture or starting any
+shard: 2,326 temporary archive inputs had disappeared. ROOT restored only the
+missing files from the pinned Challenge-a844 ZIP (2,205 files) and documented
+2026 tar archive (121 files), checking retained bytes, hashes and modes. Separate
+workers confirmed both restored subsets. All 189,496 prior inventory paths are
+present again. The fresh final-corpus-4fea5c2-v2 preflight passed and all three
+shard lanes started; terminal corpus outcomes and acceptance remain pending.
+
+All final cost observations complete: 30 native and 15 companion, with no
+cutoffs; maximum native wall time is 11.11 seconds against the 180-second cap.
+Shared-root CPU is roughly 0.55 seconds per root in the 1/3/10/20 controls, and
+cumulative requested allocation scales with that count. RSS grows to 92.6 MiB;
+its allocator-level cause is not established, despite measured live-allocation
+scopes returning to baseline. Twelve semantic selection pairs load 156 extra
+standard files compared with the retained baseline, so full-work speed ratios
+remain null. Current scaling evidence is separate from historical speed claims.
+
+The original all-preset limitations are reconciled to actual fact-reader gaps:
+ATSP numeric generator/array-access interpretation, Grouping guarded callable
+interpretation, and Social decision-set/intersection/partition interpretation.
+They are not missing dependencies or proof of invalid models. These remaining
+vacuous-constraint and suspicious-domain gaps prevent an all-26 completion
+claim; the observed fourteen-rule thesis controls remain complete.
