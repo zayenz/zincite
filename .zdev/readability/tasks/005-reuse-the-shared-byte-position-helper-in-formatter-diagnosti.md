@@ -3,7 +3,7 @@ schema_version = 1
 id = "readability-005"
 key = "shared-byte-diagnostic-position"
 area = "readability"
-status = "open"
+status = "done"
 complexity = "routine"
 afk = true
 priority = "normal"
@@ -27,10 +27,19 @@ In crates/zincite-fmt/src/main.rs, format_source calls private input_line_column
 
 ## Done when
 
-- [ ] The CLI imports and calls the shared byte_line_column helper, and the private input_line_column duplicate is removed.
-- [ ] The existing CLI byte/encoding/BOM checks and required workspace checks pass; the shared helper precondition holds at the caller.
+- [x] The CLI imports and calls the shared byte_line_column helper, and the private input_line_column duplicate is removed.
+- [x] The existing CLI byte/encoding/BOM checks and required workspace checks pass; the shared helper precondition holds at the caller.
 
 ## Validation
 
 - Establish and rerun cargo test -p zincite-fmt --test cli opaque_comment_bytes_survive_cli_modes_while_errors_preserve_input.
 - Inspect the caller, parser diagnostic ranges and shared boundary contract; compare the removed calculation with the shared implementation and run required workspace commands from the readability brief.
+
+## Result
+
+Formatter encoding-error diagnostics now call zincite_syntax::byte_line_column and the private duplicate is removed. Source offsets, separate BOM restoration, diagnostics and error paths are preserved. Independently verified against W527c2522bb43f8e2.
+
+Validation:
+
+- Existing opaque-comment/encoding/BOM CLI test passed before and after; independent focused CLI test and workspace formatting, Clippy with warnings denied, and tests/doctests passed.
+- Checked identical calculation bodies and parser invalid-byte boundary precondition. git diff --check passed; only main.rs changed and no new tests or validation writes.

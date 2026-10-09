@@ -4,7 +4,7 @@ use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use zincite_syntax::{Diagnostic, FileMode, parse_bytes_with_mode};
+use zincite_syntax::{Diagnostic, FileMode, byte_line_column, parse_bytes_with_mode};
 
 mod config;
 
@@ -250,7 +250,7 @@ fn format_source(
             .expect("UTF-8 input cannot have an encoding error");
         render_diagnostic(
             label,
-            input_line_column(source, diagnostic.range.start),
+            byte_line_column(source, diagnostic.range.start),
             bom_offset,
             &diagnostic,
         )
@@ -311,45 +311,6 @@ fn replace_file(
         let _ = fs::remove_file(&temporary);
     }
     result
-}
-
-fn input_line_column(source: &[u8], byte_offset: usize) -> (usize, usize) {
-    let mut prefix = &source[..byte_offset];
-    let mut line = 1;
-    let mut column = 1;
-    let mut after_cr = false;
-    loop {
-        let (text, invalid_bytes) = match std::str::from_utf8(prefix) {
-            Ok(text) => (text, 0),
-            Err(error) => (
-                std::str::from_utf8(&prefix[..error.valid_up_to()]).unwrap(),
-                error
-                    .error_len()
-                    .unwrap_or(prefix.len() - error.valid_up_to()),
-            ),
-        };
-        for character in text.chars() {
-            match character {
-                '\r' => {
-                    line += 1;
-                    column = 1;
-                }
-                '\n' if after_cr => {}
-                '\n' => {
-                    line += 1;
-                    column = 1;
-                }
-                _ => column += 1,
-            }
-            after_cr = character == '\r';
-        }
-        if invalid_bytes == 0 {
-            return (line, column);
-        }
-        column += invalid_bytes;
-        after_cr = false;
-        prefix = &prefix[text.len() + invalid_bytes..];
-    }
 }
 
 fn render_diagnostic(

@@ -3,9 +3,9 @@
 # Tasks: readability
 
 - Total: 5
-- Ready: 1
+- Ready: 0
 - Blocked: 0
-- Done: 4
+- Done: 5
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -13,4 +13,4 @@
 | [readability-002](tasks/002-make-global-use-traversal-responsibilities-visible.md) | Make global-use traversal responsibilities visible | done | — |
 | [readability-003](tasks/003-name-the-input-fact-for-captured-or-skipped-evaluation.md) | Name the input fact for captured or skipped evaluation | done | — |
 | [readability-004](tasks/004-name-matrix-cell-alignment-text-by-its-purpose.md) | Name matrix cell alignment text by its purpose | done | — |
-| [readability-005](tasks/005-reuse-the-shared-byte-position-helper-in-formatter-diagnosti.md) | Reuse the shared byte-position helper in formatter diagnostics | ready | — |
+| [readability-005](tasks/005-reuse-the-shared-byte-position-helper-in-formatter-diagnosti.md) | Reuse the shared byte-position helper in formatter diagnostics | done | — |
