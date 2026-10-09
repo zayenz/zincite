@@ -5354,3 +5354,12 @@ data; all 1054 input pins and both complete streams were verified, with the chil
 reaped and its group empty. Evidence is under
 semantic62-assignment-error-data-compiler-check-v1. The rejection excludes only
 that exact checked input; other unpaired data remains unclassified by this check.
+
+The normal formatter's exact ZipQueens output also compiles with the same small
+data file and Gecode without solving. The OZN output is byte-identical. Full
+FlatZinc differs in one command-line comment recording the changed file paths;
+every other byte agrees. The library preservation checker passes spelling,
+structure, protected-byte, reparse and idempotence checks on the original.
+ROOT verified all three owned children, six complete streams and 1205 unchanged
+runtime pins. Evidence is under semantic62-zip-queens-format-compile-preparation-v1.
+This validates the checked pair, not all corpus inputs or semantic rule coverage.
