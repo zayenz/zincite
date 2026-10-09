@@ -5363,3 +5363,13 @@ structure, protected-byte, reparse and idempotence checks on the original.
 ROOT verified all three owned children, six complete streams and 1205 unchanged
 runtime pins. Evidence is under semantic62-zip-queens-format-compile-preparation-v1.
 This validates the checked pair, not all corpus inputs or semantic rule coverage.
+
+The private social-golfers cardinality repair now has a genuine behavioral RED
+on unchanged production code and a passing focused GREEN. The public reduction
+completes search analysis while retaining Unknown values and no output or
+whole-array definition certificate; closed selector and member-domain overflow
+remain Limited. The existing numeric partiality guard also passes. ROOT checked
+1188 unchanged inputs, all four complete streams and both reaped empty groups
+for each stage. Evidence is under semantic62-social-golfers-card-repair-
+preparation-v1/v2. This repair is not integrated; actual-main gates and original
+model outcomes remain pending. The parallel corpus continues on unchanged main.
