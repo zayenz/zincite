@@ -5865,3 +5865,19 @@ outcomes and final task acceptance remain pending.
 
 Actual-main formatting, clippy and workspace tests pass: 237 tests and 108
 unchanged source files, recorded under main-let-source-diagnostic-gates-v1.
+
+Fresh original-model checks after 2b58974 use the normal release build under
+semantic64-post-repair-release-preparation-v1. All ten thesis/all native-companion
+pairs finish with complete resolved records, matching diagnostics/status, returned
+allocation scopes and no timeout or leftover. ROOT checked 1,335 unchanged inputs,
+40 full child streams and 20 reaped empty groups under
+semantic64-post-repair-five-original-controls-preparation-v1.
+
+Team Meetings now completes all 14 thesis and all 26 expanded analyses. Parade
+and ATSP remain 13/14 and 21/26; Grouping remains 11/14 and 22/26; Social Golfers
+remains 13/14 and 24/26. Parade's symbolic annotation limitation is removed;
+ATSP's expanded partial-expression analysis now completes. Remaining thesis
+limitations are direct definitions in Parade, nested indexing and optional sums
+in ATSP, computed bounds/definitions and an optional local in Grouping, and the
+selected installed union body in Social Golfers. These are functional observations;
+final public, performance, full-corpus and independent task acceptance remain open.
