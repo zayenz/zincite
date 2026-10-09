@@ -11332,3 +11332,109 @@ fn rank_one_decision_integer_selections_inspect_sources_without_output_proof() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn optional_integer_sums_inspect_decision_ranges_without_output_certificates() {
+    use zincite_lint::CallOutcome;
+    let positive = r#"
+int: count;
+set of int: Jobs = 1..count;
+int: demand_count;
+set of int: Demands = 1..demand_count;
+int: mould_count;
+set of int: Moulds = 1..mould_count;
+int: color_count;
+set of int: Colors = 1..color_count;
+array[Demands] of Moulds: mould;
+array[Demands] of Colors: color;
+array[Demands] of var Jobs: chosen;
+array[Jobs,Moulds,Colors] of var 0..10: totals;
+var int: score;
+constraint forall(d in Demands)(
+    let { int: k = mould[d]; int: l = color[d]; } in
+    sum(i in 1..chosen[d])(totals[i,k,l]) >= score /\
+    sum(i in 1..chosen[d]-1)(totals[i,k,l]) < score
+);
+solve satisfy;
+"#;
+    let partial = positive.replace("1..chosen[d]-1", "1..chosen[d]-(1 div 0)");
+    let core = format!(
+        "{CORE}{}",
+        concat!(
+            "function int: min(array[int] of int: values); function int: max(array[int] of int: values);\n",
+            "function var set of int: '..'(var int: left,var int: right);\n",
+            "function var int: '-'(var int: left,var int: right);\n",
+            "function int: 'div'(int: left,int: right);\n",
+            "function var int: sum(array[int] of var opt int: body);\n",
+            "function var bool: '>='(var int: left,var int: right);\n",
+            "function var bool: '<'(var int: left,var int: right);\n",
+        )
+    );
+    for (name, source, completed) in [
+        ("atsp-optional-prefixes", positive, true),
+        ("atsp-prefix-zero", partial.as_str(), false),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(dir.join("library/std/stdlib.mzn"), &core).unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let (bindings, search) = facts(&context);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|c| c.file == 0)
+                .all(|c| matches!(c.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let outputs =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        assert!(outputs.outputs.is_empty(), "{name}: {:?}", outputs.outputs);
+        for target in ["totals", "chosen", "score"] {
+            assert!(
+                !matches!(
+                    coverage(&bindings, &search, target),
+                    SearchCoverage::Scalar | SearchCoverage::WholeArray
+                ),
+                "{name}: unexpected output certificate for {target}"
+            );
+        }
+        if completed {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                search.limitations
+            );
+        } else {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert!(
+                search
+                    .limitations
+                    .iter()
+                    .any(|l| l.message.contains("zero")),
+                "{name}: the closed header error must remain visible: {:?}",
+                search.limitations
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

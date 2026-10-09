@@ -5913,3 +5913,15 @@ clippy and all 238 workspace tests pass under
 main-rank-one-selection-and-annotation-gates-v2; ROOT checked 108 unchanged source
 files, six complete streams and three reaped empty groups. Fresh original-model
 outcomes and final task acceptance remain open.
+
+Optional integer sums now inspect a selected decision integer range's endpoints
+and present parameter integer binder without computing its extent or membership.
+The existing enum path remains separate. The focused prefix positive and closed
+zero cases pass before the independent nested-selector refusal under
+semantic65-atsp-optional-prefix-green-preparation-v1; that four-case suite is
+not wholly green. A two-case permanent public projection retains completed
+inspection, absent output/search certificates and the located zero refusal.
+Actual-main formatting, clippy and all 239 tests pass under
+main-atsp-optional-prefix-gates-v1. ROOT checked 108 unchanged source files, six
+complete streams and three reaped empty groups. Original ATSP completion and
+final task acceptance remain pending.

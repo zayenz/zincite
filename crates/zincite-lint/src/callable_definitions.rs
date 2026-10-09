@@ -10862,6 +10862,31 @@ impl<'a> Producer<'a> {
             {
                 return Err("collection selected signature is unsupported".into());
             }
+            let optional_range_sum = optional_sum
+                && self.operation_fact(facts, file, node).is_some_and(|call| {
+                    matches!(&call.outcome, CallOutcome::Resolved { parameters, .. }
+                        if call.generator_argument.as_ref() == parameters.first())
+                })
+                && list.child_nodes().all(|header| {
+                    let values: Vec<_> = header.child_nodes().collect();
+                    let [source] = values.as_slice() else { return false; };
+                    let range = unwrap(source);
+                    let bounds: Vec<_> = range.child_nodes().collect();
+                    range.kind() == NodeKind::RangeExpression
+                        && bounds.len() == 2
+                        && self.core(file, range, view, "..")
+                        && typed(range).is_some_and(decision_integer_set)
+                        && self.operation_fact(facts, file, range).is_some_and(|call| {
+                            matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                                if parameters.len() == 2
+                                    && parameters.iter().all(|t| present(t)
+                                        && t.instantiation == Instantiation::Decision && t.kind == TypeKind::Int)
+                                    && typed(range) == Some(return_type)
+                                    && parameters.iter().zip(&bounds).all(|(formal, actual)|
+                                        typed(actual).is_some_and(|t| present(t) && t.kind == TypeKind::Int
+                                            && crate::types::coerces(t, formal))))
+                        })
+                });
             let enum_sum = !optional_sum
                 && node.kind() == NodeKind::GeneratorCallExpression
                 && self.core(file, node, view, "sum")
@@ -10887,7 +10912,7 @@ impl<'a> Producer<'a> {
                 && unwrap(body).kind() == NodeKind::ConditionalExpression;
             let mut all = generators.to_vec();
             let mut unsupported = None;
-            if decision_sets || decision_union || enum_sum {
+            if decision_sets || decision_union || enum_sum || optional_range_sum {
                 for (position, header) in generators.iter().enumerate() {
                     for value in header.child_nodes() {
                         let (value, scope) = if value.kind() == NodeKind::WhereFilter {
@@ -10934,7 +10959,9 @@ impl<'a> Producer<'a> {
                     || binders.iter().any(|d| {
                         let t = &facts.declarations[d.id.0].ty;
                         !present_parameter(t)
-                            || if optional_sum {
+                            || if optional_range_sum {
+                                t.kind != TypeKind::Int
+                            } else if optional_sum {
                                 !matches!(t.kind, TypeKind::Enum(_))
                             } else {
                                 t.kind != TypeKind::Int
@@ -10952,7 +10979,7 @@ impl<'a> Producer<'a> {
                     .child_nodes()
                     .next()
                     .ok_or("parameter collection source unavailable")?;
-                if optional_sum {
+                if optional_sum && !optional_range_sum {
                     let source_id = self
                         .reference(file, unwrap(source))
                         .filter(|id| {
@@ -10970,19 +10997,21 @@ impl<'a> Producer<'a> {
                     {
                         return Err("optional sum source and binder enum identities differ".into());
                     }
-                } else if typed(source).is_none_or(|t| {
-                    !(integer_set(t)
-                        && binders
-                            .iter()
-                            .all(|binder| facts.declarations[binder.id.0].ty.kind == TypeKind::Int))
-                        && !(enum_sum
-                            && present_parameter(t)
-                            && matches!(&t.kind, TypeKind::Set(element)
+                } else if !optional_range_sum
+                    && typed(source).is_none_or(|t| {
+                        !(integer_set(t)
+                            && binders.iter().all(|binder| {
+                                facts.declarations[binder.id.0].ty.kind == TypeKind::Int
+                            }))
+                            && !(enum_sum
+                                && present_parameter(t)
+                                && matches!(&t.kind, TypeKind::Set(element)
                                 if present_parameter(element)
                                     && matches!(element.kind, TypeKind::Enum(_))
                                     && binders.iter().all(|binder|
                                         &facts.declarations[binder.id.0].ty == element.as_ref())))
-                }) {
+                    })
+                {
                     return Err(if enum_sum {
                         "sum requires matching present parameter set sources and binders"
                     } else {
@@ -10990,11 +11019,22 @@ impl<'a> Producer<'a> {
                     }
                     .into());
                 }
-                let source_safety = self
-                    .selected_generator_source_safety(file, header, view, &all)
-                    .unwrap_or_else(|| {
-                        self.initialized_source_safety(file, source, view, &all, &mut Vec::new())
-                    });
+                let source_safety = if optional_range_sum {
+                    // Inspect both endpoints without proving range membership or extent.
+                    let bounds: Vec<_> = unwrap(source).child_nodes().collect();
+                    self.initialized_children_safety(file, &bounds, view, &all)
+                } else {
+                    self.selected_generator_source_safety(file, header, view, &all)
+                        .unwrap_or_else(|| {
+                            self.initialized_source_safety(
+                                file,
+                                source,
+                                view,
+                                &all,
+                                &mut Vec::new(),
+                            )
+                        })
+                };
                 if let DefinitionSafety::Unsupported(reason) = source_safety {
                     unsupported = Some(reason);
                 } else if (conditional_relation
