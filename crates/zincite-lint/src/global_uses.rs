@@ -251,143 +251,18 @@ impl Walker<'_> {
         }
     }
     fn walk(&mut self, file: FileId, item: usize, node: &SyntaxNode, enforced: Option<bool>) {
-        let children: Vec<_> = node.child_nodes().collect();
         if matches!(
             node.kind(),
             NodeKind::CallExpression | NodeKind::GeneratorCallExpression
         ) {
-            if let Some(declaration) = self.global(file, node) {
-                let outcome = if enforced == Some(true) {
-                    GlobalUseOutcome::Enforced
-                } else if enforced.is_none() {
-                    GlobalUseOutcome::Unsupported("Boolean enforcement context is unknown".into())
-                } else {
-                    match self.dependency(file, node) {
-                        Instantiation::Parameter => GlobalUseOutcome::Parameter,
-                        Instantiation::Decision => GlobalUseOutcome::DecisionDependent,
-                        Instantiation::Unknown => GlobalUseOutcome::Unsupported(
-                            "global argument dependency is unknown".into(),
-                        ),
-                    }
-                };
-                self.facts.uses.push(GlobalUse {
-                    file,
-                    item,
-                    declaration: Some(declaration),
-                    location: self.call_location(file, node),
-                    outcome,
-                });
-            }
-            if enforced != Some(true)
-                && let Some(reason) = self.uncertain_selection(file, node)
-            {
-                self.facts.uses.push(GlobalUse {
-                    file,
-                    item,
-                    declaration: None,
-                    location: self.call_location(file, node),
-                    outcome: GlobalUseOutcome::Unsupported(reason),
-                });
-            }
-            let core_forall = self.operation_fact(file, node).is_some_and(|call| {
-                let CallOutcome::Resolved { declaration, .. } = &call.outcome else {
-                    return false;
-                };
-                let declaration = &self.bindings.declarations[declaration.0];
-                let source = &self.context.files[declaration.file];
-                declaration.name == "forall"
-                    && source.kind == SourceKind::StandardLibrary
-                    && source.implicit
-            });
-            if core_forall {
-                let mut argument = children.first().copied();
-                while let Some(wrapper) = argument.filter(|n| {
-                    matches!(
-                        n.kind(),
-                        NodeKind::ParenthesizedExpression | NodeKind::NamedArgument
-                    )
-                }) {
-                    argument = wrapper.child_nodes().next();
-                }
-                let quantified = if node.kind() == NodeKind::GeneratorCallExpression {
-                    Some(node)
-                } else {
-                    argument.filter(|n| n.kind() == NodeKind::ArrayComprehension)
-                };
-                if let Some(quantified) = quantified {
-                    let generators = quantified
-                        .child_nodes()
-                        .find(|n| n.kind() == NodeKind::GeneratorList);
-                    let body_context = match generators.map(|g| self.generator_dependency(file, g))
-                    {
-                        Some(Instantiation::Parameter) => enforced,
-                        Some(Instantiation::Decision) => Some(false),
-                        _ if enforced == Some(false) => Some(false),
-                        _ => None,
-                    };
-                    for child in quantified.child_nodes() {
-                        self.walk(
-                            file,
-                            item,
-                            child,
-                            if child.kind() == NodeKind::GeneratorList {
-                                Some(false)
-                            } else {
-                                body_context
-                            },
-                        );
-                    }
-                    return;
-                }
-                // A literal Boolean array is also an enforced conjunction.
-                if let Some(array) = argument.filter(|n| n.kind() == NodeKind::ArrayLiteral) {
-                    for child in array.child_nodes() {
-                        self.walk(file, item, child, enforced);
-                    }
-                    return;
-                }
-            }
-            for child in children {
-                self.walk(file, item, child, self.value_context(file, child, enforced));
-            }
+            self.walk_call(file, item, node, enforced);
             return;
         }
         if node.kind() == NodeKind::ConditionalExpression {
-            let guards: Vec<_> = children
-                .iter()
-                .filter(|n| n.kind() == NodeKind::ConditionalBranch)
-                .filter_map(|branch| branch.child_nodes().next())
-                .map(|guard| self.instantiation(file, guard))
-                .collect();
-            let branch_context = if matches!(
-                self.expression_kind(file, node),
-                None | Some(TypeKind::Unknown(_) | TypeKind::Variable { .. } | TypeKind::Bottom)
-            ) {
-                None
-            } else if guards.contains(&Instantiation::Decision) {
-                Some(false)
-            } else if guards.contains(&Instantiation::Unknown) && enforced != Some(false) {
-                None
-            } else {
-                enforced
-            };
-            for branch in children {
-                for (index, child) in branch.child_nodes().enumerate() {
-                    let condition = branch.kind() == NodeKind::ConditionalBranch && index == 0;
-                    self.walk(
-                        file,
-                        item,
-                        child,
-                        if condition {
-                            Some(false)
-                        } else {
-                            branch_context
-                        },
-                    );
-                }
-            }
+            self.walk_conditional(file, item, node, enforced);
             return;
         }
+        let children: Vec<_> = node.child_nodes().collect();
         if node.kind() == NodeKind::AnnotatedExpression {
             for (index, child) in children.into_iter().enumerate() {
                 self.walk(
@@ -447,6 +322,144 @@ impl Walker<'_> {
         };
         for child in children {
             self.walk(file, item, child, child_enforced);
+        }
+    }
+    fn walk_call(&mut self, file: FileId, item: usize, node: &SyntaxNode, enforced: Option<bool>) {
+        let children: Vec<_> = node.child_nodes().collect();
+        if let Some(declaration) = self.global(file, node) {
+            let outcome = if enforced == Some(true) {
+                GlobalUseOutcome::Enforced
+            } else if enforced.is_none() {
+                GlobalUseOutcome::Unsupported("Boolean enforcement context is unknown".into())
+            } else {
+                match self.dependency(file, node) {
+                    Instantiation::Parameter => GlobalUseOutcome::Parameter,
+                    Instantiation::Decision => GlobalUseOutcome::DecisionDependent,
+                    Instantiation::Unknown => GlobalUseOutcome::Unsupported(
+                        "global argument dependency is unknown".into(),
+                    ),
+                }
+            };
+            self.facts.uses.push(GlobalUse {
+                file,
+                item,
+                declaration: Some(declaration),
+                location: self.call_location(file, node),
+                outcome,
+            });
+        }
+        if enforced != Some(true)
+            && let Some(reason) = self.uncertain_selection(file, node)
+        {
+            self.facts.uses.push(GlobalUse {
+                file,
+                item,
+                declaration: None,
+                location: self.call_location(file, node),
+                outcome: GlobalUseOutcome::Unsupported(reason),
+            });
+        }
+        let core_forall = self.operation_fact(file, node).is_some_and(|call| {
+            let CallOutcome::Resolved { declaration, .. } = &call.outcome else {
+                return false;
+            };
+            let declaration = &self.bindings.declarations[declaration.0];
+            let source = &self.context.files[declaration.file];
+            declaration.name == "forall"
+                && source.kind == SourceKind::StandardLibrary
+                && source.implicit
+        });
+        if core_forall {
+            let mut argument = children.first().copied();
+            while let Some(wrapper) = argument.filter(|n| {
+                matches!(
+                    n.kind(),
+                    NodeKind::ParenthesizedExpression | NodeKind::NamedArgument
+                )
+            }) {
+                argument = wrapper.child_nodes().next();
+            }
+            let quantified = if node.kind() == NodeKind::GeneratorCallExpression {
+                Some(node)
+            } else {
+                argument.filter(|n| n.kind() == NodeKind::ArrayComprehension)
+            };
+            if let Some(quantified) = quantified {
+                let generators = quantified
+                    .child_nodes()
+                    .find(|n| n.kind() == NodeKind::GeneratorList);
+                let body_context = match generators.map(|g| self.generator_dependency(file, g)) {
+                    Some(Instantiation::Parameter) => enforced,
+                    Some(Instantiation::Decision) => Some(false),
+                    _ if enforced == Some(false) => Some(false),
+                    _ => None,
+                };
+                for child in quantified.child_nodes() {
+                    self.walk(
+                        file,
+                        item,
+                        child,
+                        if child.kind() == NodeKind::GeneratorList {
+                            Some(false)
+                        } else {
+                            body_context
+                        },
+                    );
+                }
+                return;
+            }
+            // A literal Boolean array is also an enforced conjunction.
+            if let Some(array) = argument.filter(|n| n.kind() == NodeKind::ArrayLiteral) {
+                for child in array.child_nodes() {
+                    self.walk(file, item, child, enforced);
+                }
+                return;
+            }
+        }
+        for child in children {
+            self.walk(file, item, child, self.value_context(file, child, enforced));
+        }
+    }
+    fn walk_conditional(
+        &mut self,
+        file: FileId,
+        item: usize,
+        node: &SyntaxNode,
+        enforced: Option<bool>,
+    ) {
+        let children: Vec<_> = node.child_nodes().collect();
+        let guards: Vec<_> = children
+            .iter()
+            .filter(|n| n.kind() == NodeKind::ConditionalBranch)
+            .filter_map(|branch| branch.child_nodes().next())
+            .map(|guard| self.instantiation(file, guard))
+            .collect();
+        let branch_context = if matches!(
+            self.expression_kind(file, node),
+            None | Some(TypeKind::Unknown(_) | TypeKind::Variable { .. } | TypeKind::Bottom)
+        ) {
+            None
+        } else if guards.contains(&Instantiation::Decision) {
+            Some(false)
+        } else if guards.contains(&Instantiation::Unknown) && enforced != Some(false) {
+            None
+        } else {
+            enforced
+        };
+        for branch in children {
+            for (index, child) in branch.child_nodes().enumerate() {
+                let condition = branch.kind() == NodeKind::ConditionalBranch && index == 0;
+                self.walk(
+                    file,
+                    item,
+                    child,
+                    if condition {
+                        Some(false)
+                    } else {
+                        branch_context
+                    },
+                );
+            }
         }
     }
 }

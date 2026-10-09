@@ -3,7 +3,7 @@ schema_version = 1
 id = "readability-002"
 key = "global-use-traversal"
 area = "readability"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -27,11 +27,20 @@ crates/zincite-lint/src/global_uses.rs Walker::walk combines call recording, cor
 
 ## Done when
 
-- [ ] Walker::walk exposes the call and conditional paths through clearly named private methods with their existing inputs and effects.
-- [ ] Existing global-use behavior is unchanged for enforced globals, quantifiers, decision-dependent/unknown branches, annotations and let-local constraints.
-- [ ] The relevant baseline and required workspace validation pass, with no new tests.
+- [x] Walker::walk exposes the call and conditional paths through clearly named private methods with their existing inputs and effects.
+- [x] Existing global-use behavior is unchanged for enforced globals, quantifiers, decision-dependent/unknown branches, annotations and let-local constraints.
+- [x] The relevant baseline and required workspace validation pass, with no new tests.
 
 ## Validation
 
 - Run existing global-use tests before and after the refactor; compare moved code and early returns directly.
 - Run the workspace validation commands in the readability brief. No corpus or performance campaign is required for this behavior-preserving extraction.
+
+## Result
+
+Separated call and conditional traversal into private methods; independently confirmed enforcement, order and early returns remain unchanged.
+
+Validation:
+
+- Existing global-use tests passed before and after; independent comparison found extracted and remaining traversal whitespace-identical to baseline.
+- Independent formatting, workspace Clippy, workspace tests and doctests passed; no new tests or abstractions.
