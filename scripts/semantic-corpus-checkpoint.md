@@ -5405,3 +5405,27 @@ with MiniZinc 2.10.1 and Gecode without solving. ROOT verified empty diagnostics
 child reaped and its group empty. Evidence is under
 semantic62-nonogram-instance-compiler-check-v1. Its located conditional-bound
 analysis limitation remains a support gap to investigate, not an invalid-input exclusion.
+
+The private composition of the named-selector and social-cardinality repairs
+passes both focused public test groups. ROOT independently reconstructed the
+original patch hunks and checked the two changed paths against the unchanged
+main baseline, then verified both complete test streams and reaped empty groups.
+Evidence is under semantic62-named-selector-social-card-owned-composition-preparation-v1.
+Original-model controls, actual-main gates and integration remain pending.
+
+An actual-fact check confirms that knapsack selects the standard sum overload
+with optional decision integer elements; its decision-set enum generator and
+parameter array body retain symbolic Unknown values. A tests-only reduction
+reaches the expected completion assertion but remains Limited because the
+collection signature is unsupported. The existing numeric partiality guard
+passes. ROOT verified all four complete streams, both reaped empty groups and
+1165 unchanged inputs. Evidence is under semantic62-knapsack-optional-sum-repair-preparation-v1/red.
+Only source/type acceptance is retained for the original knapsack model; no
+matching instance data or instance compile acceptance is claimed.
+
+The same actual-fact check locates the nonogram gap in the local conditional
+bound: initialized inspection retains an Unknown conditional value, while the
+raw numeric-bound producer records unsupported syntax. Its existing supplied
+instance compile proof remains separate. Evidence is under
+semantic62-knapsack-nonogram-fact-preflight-preparation-v1. No conditional value,
+array membership or whole-task completion is inferred from this diagnostic.
