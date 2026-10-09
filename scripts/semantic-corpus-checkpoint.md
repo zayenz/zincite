@@ -5373,3 +5373,18 @@ remain Limited. The existing numeric partiality guard also passes. ROOT checked
 for each stage. Evidence is under semantic62-social-golfers-card-repair-
 preparation-v1/v2. This repair is not integrated; actual-main gates and original
 model outcomes remain pending. The parallel corpus continues on unchanged main.
+
+A fixed completed prefix covers 935 roots per selection. ROOT independently
+recomputed the compiler-source matching and rule counts from thirty complete
+companion streams: 562 roots are source-check accepted, complete and dependency
+resolved; 177 complete all fourteen thesis analyses and 385 retain at least one
+Limited thesis outcome. The thesis outcomes agree between thesis and all captures.
+These are source-check results, not supplied-instance compile proofs or whole
+corpus acceptance. Evidence is under semantic62-b691-prefix-compiler-reconciliation-v1.
+
+Review of the private named-selector repair exposed a closed-domain error bypass.
+A focused reproduction retains the Unsupported initializer for a shared index
+set containing division by zero, but still emits a Supported whole-array output
+definition. ROOT verified the failing child, both full streams and 229 unchanged
+inputs. The repair is not accepted or integrated; a correction is in preparation.
+Reproduction evidence is under semantic62-zip-queens-axis-error-reproduction-preparation-v1.
