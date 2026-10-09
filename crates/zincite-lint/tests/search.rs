@@ -10792,3 +10792,119 @@ fn symbolic_annotation_array_selection_inspects_all_alternatives_without_coverag
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn selected_parameter_set_sums_inspect_conjunctive_filters_without_output_certificates() {
+    use zincite_lint::{CallOutcome, IntegerBoundsOutcome, resolve_integer_bounds};
+
+    let positive = r#"
+int: count;
+set of int: Items = 1..count;
+array[Items] of int: limits;
+array[Items] of int: labels;
+array[Items] of int: weights;
+array[Items] of set of int: selected =
+    [{j | j in Items where limits[j] <= limits[i] /\ labels[j] = labels[i]} | i in Items];
+var 0..10: score;
+constraint forall(i in Items)(
+    let { int: total = sum(j in selected[i])(1); } in score <= total
+);
+solve satisfy;
+"#;
+    let partial = positive.replace("labels[j] = labels[i]", "1 div 0 = 0");
+    for (name, source, completed) in [
+        ("selected-set-sum-conjunction", positive, true),
+        ("selected-set-sum-zero-filter", partial.as_str(), false),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}{}",
+                concat!(
+                    "function bool: '/\\'(bool: left,bool: right);\n",
+                    "function bool: '<='(int: left,int: right);\n",
+                    "function var bool: '<='(var int: left,var int: right);\n",
+                    "function int: sum(array[int] of int: body);\n",
+                    "function int: 'div'(int: left,int: right);\n"
+                )
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let (bindings, search) = facts(&context);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == 0)
+                .all(|call| { matches!(call.outcome, CallOutcome::Resolved { .. }) }),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let domains = resolve_domains(&context, &bindings);
+        let bounds = resolve_integer_bounds(&context, &bindings, &calls, &domains);
+        let parsed = &context.files[0].parsed;
+        let count = bounds
+            .expressions
+            .iter()
+            .find(|expression| {
+                expression.file == 0
+                    && &parsed.source()[expression.location.range.clone()] == "count"
+            })
+            .unwrap();
+        assert!(
+            matches!(count.outcome, IntegerBoundsOutcome::Unknown(_)),
+            "{name}: {:?}",
+            count.outcome
+        );
+
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        if completed {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert_ne!(
+                coverage(&bindings, &search, "score"),
+                SearchCoverage::Scalar
+            );
+            let instantiations = resolve_instantiations(&context, &bindings, &calls);
+            let outputs = resolve_callable_definitions(
+                &context,
+                &bindings,
+                &calls,
+                &instantiations,
+                &domains,
+            );
+            assert!(outputs.outputs.is_empty());
+        } else {
+            assert!(matches!(
+                result.rules[0].outcome,
+                RuleOutcome::Limited { .. }
+            ));
+            assert!(
+                search
+                    .limitations
+                    .iter()
+                    .any(|limitation| limitation.message.contains("zero")),
+                "closed filter error must survive symbolic selected-set inspection: {:?}",
+                search.limitations
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

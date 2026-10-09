@@ -11892,6 +11892,33 @@ impl<'a> Producer<'a> {
                     }
                 }
             }
+            let inspected_conjunction = eager_only
+                && producer.selected_set_source
+                && node.kind() == NodeKind::BinaryExpression
+                && producer.core(file, node, producer.calls, "/\\")
+                && {
+                    let facts = producer.view(file, node, producer.calls);
+                    let parameter_bool = |ty: &TypeInst| {
+                        ty.known()
+                            && !optional(ty)
+                            && ty.instantiation == Instantiation::Parameter
+                            && ty.kind == TypeKind::Bool
+                    };
+                    let operands: Vec<_> = node.child_nodes().collect();
+                    operands.len() == 2
+                        && operands.iter().all(|operand| {
+                            producer
+                                .expression_type(facts, file, operand)
+                                .is_some_and(|expression| parameter_bool(&expression.ty))
+                        })
+                        && producer.operation_fact(facts, file, node).is_some_and(|call| {
+                            matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                                if parameters.len() == 2 && parameters.iter().all(parameter_bool)
+                                    && parameter_bool(return_type)
+                                    && producer.expression_type(facts, file, node)
+                                        .is_some_and(|expression| &expression.ty == return_type))
+                        })
+                };
             if eager_only
                 && (node.kind() == NodeKind::ConditionalExpression
                     || node.kind() == NodeKind::BinaryExpression
@@ -11899,7 +11926,8 @@ impl<'a> Producer<'a> {
                             operator(context, file, node)
                                 .and_then(crate::bindings::symbolic_operator),
                             Some("/\\" | "\\/" | "<->" | "->" | "<-" | "default")
-                        ))
+                        )
+                        && !inspected_conjunction)
             {
                 return Err("lazy initialized arithmetic inspection is unavailable".into());
             }
@@ -16145,9 +16173,26 @@ impl<'a> Producer<'a> {
                 {
                     return Err("quantifier requires a supported present Boolean body".into());
                 }
+                let selected_parameter_sum = node.kind() == NodeKind::GeneratorCallExpression
+                    && self.core(file, node, view, "sum")
+                    && self.operation_fact(facts, file, node).is_some_and(|call| {
+                        matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                            if parameters.len() == 1 && parameter_integers(&parameters[0])
+                                && call.generator_argument.as_ref() == Some(&parameters[0])
+                                && return_type.known() && !optional(return_type)
+                                && return_type.instantiation == Instantiation::Parameter
+                                && return_type.kind == TypeKind::Int && ty == Some(return_type))
+                    });
                 let mut ids = self.dependencies(file, body, view, &all)?;
                 for (position, g) in list.child_nodes().enumerate() {
                     let position = generators.len() + position;
+                    // Dependency identity does not inspect a selected set's initializer.
+                    if selected_parameter_sum
+                        && let Some(DefinitionSafety::Unsupported(reason)) =
+                            self.selected_generator_source_safety(file, g, view, &all[..position])
+                    {
+                        return Err(reason);
+                    }
                     extend(
                         &mut ids,
                         self.dependencies(

@@ -5803,3 +5803,16 @@ private evidence. Actual-main fmt, Clippy and all 234 workspace tests pass with
 108 unchanged source files, under main-parade-selection-gates-v1. Original
 Parade direct-definition limitations and final
 public, performance, corpus and whole-task acceptance remain pending.
+
+Strict parameter-integer sum dependencies now inspect a selected set source's
+initializer before accepting its dependency identity. The selected-source closed
+error scan also traverses exact core parameter-Boolean conjunction operands
+without deriving their truth values. This repairs a public counterexample where
+a selected initializer containing division by zero incorrectly completed search
+inspection. Both unchanged private cases pass: the symbolic sum remains Completed
+with unknown data and no output or scalar-search certificate, and the closed-error
+variant remains Limited. ROOT checked 150 unchanged inputs, both full streams and
+one reaped empty group, under atsp_selected_set_sum-green-v1. Actual-main fmt,
+Clippy and all 235 workspace tests pass with 108 unchanged source files, under
+main-selected-set-sum-gates-v1. The original weighted
+sum's array-membership refusal and final task acceptance remain unresolved.
