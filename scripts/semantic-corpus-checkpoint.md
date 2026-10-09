@@ -6108,3 +6108,22 @@ under semantic65-atsp-decision-prefix-source-preparation-v1/green-v4. The overfl
 reason assertions remain unobserved. Neither candidate is integrated; the next
 bridge must retain actual expression dependency identities and ignore unrelated
 declaration limitations.
+
+The private prefix v5 passes all three actual-standard-library controls: symbolic
+completion retains Unknown count, coverage and membership, while the earlier
+header zero and closed body-type overflow produce located Limited outcomes with
+no findings. ROOT checked 1,220 unchanged inputs, both full streams and an empty
+reaped group. Independent review then found that the reused closed-type checker
+also evaluates literal fragments in inactive conditional branches. A fresh
+MiniZinc source-only check accepts the positive with the element bound
+`0..(if false then 1 div 0 else 1 endif)`; ROOT checked its 1,041 unchanged inputs,
+both full streams and empty reaped group. The public inactive-branch control and
+repair remain pending, so v5 is not integrated.
+
+The Grouping v2 harness compiles and reaches all three complete-root and actual
+optional-overload preflights. Each case then fails an overly broad empty-output
+assertion: the installed symmetry wrapper legitimately exposes its scalar Bool
+formal. ROOT checked 2,321 unchanged inputs, both full streams and an empty reaped
+group. The later Search assertions remain unobserved. The next tests-only
+correction checks the selected predicate and root array rather than unrelated
+callable outputs; the three accepted source-only compiler receipts are retained.
