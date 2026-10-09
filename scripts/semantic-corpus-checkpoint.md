@@ -5461,3 +5461,21 @@ The existing numeric guard also passes. ROOT verified all four complete streams,
 review has no unresolved finding. Evidence is under semantic62-knapsack-optional-sum-
 repair-preparation-v1/green-v3. Actual-main gates, original controls and integration
 remain pending; original supplied-instance compiler acceptance remains unobserved.
+
+The private nonogram consumer repair passes its symbolic conditional-axis case,
+closed branch and selector overflow counterguards and the existing domains guard.
+Raw domain facts remain unsupported; checked source inspection supplies no value
+or membership proof. ROOT verified four complete streams, 1303 unchanged runtime
+pins and both reaped empty groups. Independent local review has no unresolved
+finding. Evidence is under semantic62-nonogram-conditional-axis-production-preparation-v1/root-green.
+Original-model controls, actual-main gates and integration remain pending.
+
+The unchanged closed lex_lesseq unit model also compiles with MiniZinc 2.10.1 and
+Gecode without solving, producing 1117 bytes of FlatZinc and 294 bytes of OZN.
+Actual facts resolve both add_to_output references to the implicit standard
+Annotation declaration with present parameter Ann type, zero parameters and no
+body. Initialized-source inspection rejects both annotated arrays. ROOT checked
+four complete streams, 1159 unchanged inputs and both reaped empty groups under
+semantic62-atomic-standard-annotation-preflight-preparation-v1. The predicate-body
+inspection limitation remains a separate observation; no whole-model completion
+or annotation-policy repair is claimed from this preflight.
