@@ -11719,3 +11719,449 @@ fn grouping_direct_floor_sources_preserve_unknown_and_closed_errors() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn grouping_direct_reverse_sources_preserve_unknown_and_closed_errors() {
+    let positive = concat!(
+        "array[int] of int: weights; int: patterns; int: L=335; int: U=340;\n",
+        "set of int: N=index_set(weights); set of int: Patterns=1..patterns;\n",
+        "array[N] of int: sw=reverse(sort(weights));\n",
+        "array[N] of var {0} union Patterns: weight_pattern;\n",
+        "array[N] of var bool: weight_is_used=[weight_pattern[i] != 0 | i in N];\n",
+        "array[Patterns] of var {0} union L..U: pattern_weight=[sum(i in N)(sw[i] * (weight_pattern[i] = p)) | p in Patterns];\n",
+        "var int: used_weights=sum(weight_is_used); solve maximize used_weights;\n",
+    );
+    let bad_source = positive.replace("of int: weights;", "of int: weights=[1 div 0];");
+    for (name, source, targets, completed) in [
+        (
+            "grouping-reverse-positive",
+            positive,
+            &["sw", "pattern_weight", "used_weights"][..],
+            true,
+        ),
+        (
+            "grouping-reverse-source-zero",
+            bad_source.as_str(),
+            &["sw", "pattern_weight"][..],
+            false,
+        ),
+        (
+            "grouping-reverse-body-zero",
+            positive,
+            &["sw", "pattern_weight"][..],
+            false,
+        ),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}{}",
+                concat!(
+                    "function int: sum(array[$T] of int: x);\n",
+                    "function int: floor(float: x); function float: '/'(float: x,float: y);\n",
+                    "function var int: '*'(var int: x,var int: y);\n",
+                    "function var bool: '!='(var int: x,var int: y);\n",
+                    "function set of int: 'union'(set of int: x,set of int: y);\n",
+                    "function int: 'div'(int: x,int: y);\n",
+                    "function int: '+'(int: x,int: y) :: mzn_internal_representation; function int: '-'(int: x,int: y) :: mzn_internal_representation;\n",
+                    "annotation mzn_internal_representation; function int: length(array[$T] of any $V: x);\n",
+                    "function array[$$E] of $$F: sort(array[$$E] of $$F: xs);\n",
+                    "function array[$$E] of any $T: reverse(array[$$E] of any $T: x) =\n",
+                    "  if length(x) = 0 then [] else let {\n",
+                    "    any: xx = array1d(x); int: l = length(x) + 1;\n",
+                    "  } in array1d(index_set(x), [xx[l-i] | i in index_set(xx)]) endif;\n",
+                )
+            ),
+        )
+        .unwrap();
+        if name == "grouping-reverse-body-zero" {
+            let library = dir.join("library/std/stdlib.mzn");
+            let written = std::fs::read_to_string(&library).unwrap();
+            assert!(written.contains("int: l = length(x) + 1;"));
+            std::fs::write(
+                library,
+                written.replace(
+                    "int: l = length(x) + 1;",
+                    "int: l = length(x) + 1 + (1 div 0);",
+                ),
+            )
+            .unwrap();
+        }
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        let (bindings, search) = facts(&context);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        let calls = resolve_callables(&context, &bindings);
+        let root = context
+            .files
+            .iter()
+            .position(|file| file.path == dir.join("root.mzn"))
+            .unwrap();
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == root)
+                .all(|call| matches!(call.outcome, zincite_lint::CallOutcome::Resolved { .. }))
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        assert!(
+            callable.outputs.is_empty(),
+            "{name}: {:?}",
+            callable.outputs
+        );
+        let analysis = analyze_model(&context, &selected());
+        for target in targets {
+            let id = bindings
+                .declarations
+                .iter()
+                .find(|d| d.top_level && d.name == *target)
+                .unwrap()
+                .id;
+            let definition = definitions
+                .definitions
+                .iter()
+                .find(|d| d.target == id)
+                .unwrap();
+            if completed {
+                assert!(
+                    matches!(definition.safety, DefinitionSafety::Unknown(_)),
+                    "{name}: {target}: {:?}",
+                    definition.safety
+                );
+            } else {
+                assert!(
+                    matches!(&definition.safety, DefinitionSafety::Unsupported(reason) if reason.contains("zero")),
+                    "{name}: {target}: {:?}",
+                    definition.safety
+                );
+            }
+        }
+        if completed {
+            assert_eq!(
+                analysis.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                search.limitations
+            );
+            for target in ["weight_is_used", "pattern_weight", "used_weights"] {
+                assert_eq!(
+                    coverage(&bindings, &search, target),
+                    SearchCoverage::Unknown,
+                    "{name}: {target}"
+                );
+            }
+            assert_eq!(
+                coverage(&bindings, &search, "weight_pattern"),
+                SearchCoverage::Uncovered
+            );
+        } else {
+            assert!(matches!(
+                analysis.rules[0].outcome,
+                RuleOutcome::Limited { .. }
+            ));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn decision_set_union_real_local_bodies_inspect_sources_without_outputs() {
+    use zincite_lint::CallOutcome;
+    let source = r#"predicate checked_union(array[int] of var set of int: cells, set of int: universe) =
+    universe == array_union(i in index_set(cells))(cells[i]);
+int: weeks;
+int: groups;
+int: size;
+set of int: Week = 1..weeks;
+set of int: Group = 1..groups;
+set of int: Player = 1..groups*size;
+array[Week, Group] of var set of Player: schedule;
+constraint forall(w in Week)(checked_union([schedule[w,g] | g in Group], Player));
+solve satisfy;
+"#;
+    let union_body = r#"if length(x) = 0 then
+    {}
+elseif length(x) = 1 then
+    array1d(x)[1]
+else
+    let {
+        var set of ub_array(x): y :: is_defined_var;
+        constraint fzn_array_set_union(enum2int(array1d(x)), enum2int(y)) :: defines_var(y);
+    } in y
+endif"#;
+    let predicate_body = r#"if length(x) = 0 then
+    z = {}
+elseif length(x) = 1 then
+    z = x[min(index_set(x))]
+else
+    let {
+        int: l = min(index_set(x));
+        int: u = max(index_set(x));
+        array[l..u - 1] of var set of ub_array(x): y;
+    } in y[l] = x[l] union x[l + 1] /\
+        forall(i in l + 2..u)(y[i - 1] = y[i - 2] union x[i]) /\
+        z = y[u - 1]
+endif"#;
+    for (name, body, helper_body, error) in [
+        (
+            "union-conditional-local-body",
+            union_body,
+            predicate_body,
+            None,
+        ),
+        (
+            "union-selected-operator-body-abort",
+            union_body,
+            predicate_body,
+            Some("primitive body/default/domain"),
+        ),
+        (
+            "union-selected-predicate-empty-local-array",
+            union_body,
+            "if length(x) = 0 then z = {} else let { array[1..0] of var set of ub_array(x): y; } in z = y[1] endif",
+            Some("outside its declared axis"),
+        ),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        let core = format!(
+            "{CORE}function int: '*'(int: left,int: right); \
+             function int: '+'(int: left,int: right); \
+             function int: '-'(int: left,int: right); \
+             function int: length(array[int] of any $T: values); \
+             function int: min(set of int: values); \
+             function int: max(set of int: values); \
+             function var set of int: 'union'(var set of int: left,var set of int: right); \
+             function set of int: ub_array(array[int] of var set of int: values); \
+             function var set of int: enum2int(var set of int: value); \
+             function array[int] of var set of int: enum2int(array[int] of var set of int: values); \
+             function any $T: assert(bool: condition,string: message,any $T: result); \
+             annotation promise_total; annotation promise_commutative; \
+             annotation is_defined_var; function ann: defines_var(any $T: value); \
+             predicate fzn_array_set_union(array[int] of var set of int: x,var set of int: z) = {helper_body};\n\
+             function var set of int: array_union(array[int] of var set of int: x) \
+             :: promise_total :: promise_commutative = {body};\n"
+        );
+        let core = if name == "union-selected-operator-body-abort" {
+            core.replace(
+                "function var set of int: 'union'(var set of int: left,var set of int: right);",
+                "function var set of int: 'union'(var set of int: left,var set of int: right) = assert(false,\"operator abort\",left);",
+            )
+        } else {
+            core
+        };
+        let body_start = core.find(helper_body).unwrap();
+        std::fs::write(dir.join("library/std/stdlib.mzn"), core).unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let (bindings, search) = facts(&context);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let selected_call = calls
+            .calls
+            .iter()
+            .find(|call| call.name == "fzn_array_set_union")
+            .unwrap();
+        let CallOutcome::Resolved { declaration, .. } = &selected_call.outcome else {
+            unreachable!();
+        };
+        let selected_library = &context.files[bindings.declarations[declaration.0].file].path;
+        let result = analyze_model(&context, &selected());
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        assert!(
+            callable.definitions.is_empty(),
+            "{name}: {:?}",
+            callable.definitions
+        );
+        assert!(
+            callable.outputs.is_empty(),
+            "{name}: {:?}",
+            callable.outputs
+        );
+        if let Some(error) = error {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert!(
+                callable
+                    .unavailable
+                    .iter()
+                    .any(|boundary| boundary.reason.contains(error)
+                        && &boundary.location.path == selected_library
+                        && boundary.location.range.start <= body_start
+                        && body_start < boundary.location.range.end),
+                "{name}: selected written body failure was dropped: {:?}",
+                callable.unavailable
+            );
+        } else {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert!(
+                search.limitations.is_empty(),
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert_eq!(
+                coverage(&bindings, &search, "schedule"),
+                SearchCoverage::Uncovered
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn let_integer_equalities_inspect_symbolic_array_extremum_bounds() {
+    let positive = r#"int: max_jobs;
+set of int: jobs = 1..max_jobs;
+int: num_demands;
+set of int: demands = 1..num_demands;
+int: num_programs;
+set of int: programs = 1..num_programs;
+int: num_moulds;
+set of int: moulds = 1..num_moulds;
+int: num_colors;
+set of int: colors = 1..num_colors;
+int: min_cycles_per_job;
+int: max_cycles_per_job;
+int: program_setup_time;
+array[programs] of int: cycle_time_for_program;
+int: max_cycle_time = max(cycle_time_for_program);
+int: min_cycle_time = min(cycle_time_for_program);
+int: lower_bound_end = min_cycle_time*min_cycles_per_job;
+int: upper_bound_end = max_jobs*max_cycles_per_job*max_cycle_time
+                        + max_jobs*program_setup_time;
+array[jobs] of var lower_bound_end..upper_bound_end: job_end;
+array[demands] of var lower_bound_end..upper_bound_end: demand_end;
+array[demands] of var jobs: demand_end_job;
+array[demands] of moulds: demand_mould;
+array[demands] of colors: demand_color;
+constraint forall(d in demands)(
+let {
+   int: k = demand_mould[d];
+   int: l = demand_color[d];
+}
+in
+  demand_end[d] = job_end[demand_end_job[d]]
+);
+solve satisfy;
+"#;
+    let zero = positive.replace(
+        "int: min_cycle_time = min(cycle_time_for_program);",
+        "int: min_cycle_time = min(cycle_time_for_program) + (1 div 0);",
+    );
+    let empty = positive.replace(
+        "array[programs] of int: cycle_time_for_program;",
+        "array[1..0] of int: cycle_time_for_program;",
+    );
+    let core = format!(
+        "{CORE}{}",
+        concat!(
+            "annotation promise_commutative;\n",
+            "function int: min(array[int] of int: values) :: promise_commutative;\n",
+            "function int: max(array[int] of int: values) :: promise_commutative;\n",
+            "function int: '+'(int: left,int: right); function int: '*'(int: left,int: right); function int: 'div'(int: left,int: right);\n",
+        )
+    );
+    for (name, source, error) in [
+        ("atsp-let-minmax-symbolic", positive, None),
+        ("atsp-let-minmax-zero", zero.as_str(), Some("zero")),
+        ("atsp-let-minmax-empty", empty.as_str(), Some("empty")),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(dir.join("library/std/stdlib.mzn"), &core).unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let (bindings, search) = facts(&context);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        let calls = resolve_callables(&context, &bindings);
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let outputs =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        assert!(outputs.outputs.is_empty(), "{name}: {:?}", outputs.outputs);
+        if let Some(error) = error {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                search.limitations
+            );
+            let equality = "demand_end[d] = job_end[demand_end_job[d]]";
+            let start = source.find(equality).unwrap();
+            assert!(
+                search.limitations.iter().any(|limit| {
+                    limit.message.contains(error)
+                        && limit.location.path == dir.join("root.mzn")
+                        && limit.location.range == (start..start + equality.len())
+                }),
+                "{name}: closed extrema source/bound error must survive: {:?}",
+                search.limitations
+            );
+        } else {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                search.limitations
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

@@ -3217,13 +3217,20 @@ impl<'a> Producer<'a> {
                                 out.truncate(before);
                                 return;
                             }
-                            if self.uncertain_integer_equality(clause, view) {
-                                // Checked selection uncertainty inspects the relation,
-                                // but cannot establish either output direction.
-                                out.truncate(before);
-                                return;
+                            match self.uncertain_integer_equality(clause, view) {
+                                Ok(true) => {
+                                    // Checked selection uncertainty inspects the relation,
+                                    // but cannot establish either output direction.
+                                    out.truncate(before);
+                                    return;
+                                }
+                                Err(actual) => {
+                                    out.truncate(before);
+                                    self.unavailable(clause, &actual, unavailable);
+                                    return;
+                                }
+                                Ok(false) => self.unavailable(clause, &reason, unavailable),
                             }
-                            self.unavailable(clause, &reason, unavailable);
                         }
                     }
                 }
@@ -3615,7 +3622,11 @@ impl<'a> Producer<'a> {
             }
         }
     }
-    fn uncertain_integer_equality(&self, clause: &Clause<'a>, view: &CallableFacts) -> bool {
+    fn uncertain_integer_equality(
+        &self,
+        clause: &Clause<'a>,
+        view: &CallableFacts,
+    ) -> Result<bool, String> {
         let file = clause.file;
         let node = clause.node;
         let operands: Vec<_> = node.child_nodes().collect();
@@ -3643,7 +3654,7 @@ impl<'a> Producer<'a> {
                 .relation_iterations(file, &clause.generators, 0, view, false)
                 .is_err()
         {
-            return false;
+            return Ok(false);
         }
         // Only the demonstrated bare selection chain enters this uncertainty
         // path. Arithmetic selectors keep their original strict limitation.
@@ -3657,10 +3668,10 @@ impl<'a> Producer<'a> {
                     if !matches!(tokens.as_slice(), [token] if matches!(token.kind,
                         TokenKind::Identifier | TokenKind::QuotedIdentifier | TokenKind::IntegerLiteral))
                     {
-                        return false;
+                        return Ok(false);
                     }
                     let Some(ty) = typed(value) else {
-                        return false;
+                        return Ok(false);
                     };
                     if integer(ty) {
                         if crate::domains::expression_integer(
@@ -3671,7 +3682,7 @@ impl<'a> Producer<'a> {
                         )
                         .is_err()
                         {
-                            return false;
+                            return Ok(false);
                         }
                         if let Some(id) = self.reference(file, value) {
                             let declaration = &self.bindings.declarations[id.0];
@@ -3681,14 +3692,14 @@ impl<'a> Producer<'a> {
                                     .numeric_minimum()
                                     .is_err()
                                 {
-                                    return false;
+                                    return Ok(false);
                                 }
                                 let Some(written) = find_node(
                                     self.context.files[declaration.file].parsed.tree(),
                                     &declaration.syntax_range,
                                     declaration.role,
                                 ) else {
-                                    return false;
+                                    return Ok(false);
                                 };
                                 if written
                                     .child_nodes()
@@ -3703,16 +3714,16 @@ impl<'a> Producer<'a> {
                                         .is_err()
                                     })
                                 {
-                                    return false;
+                                    return Ok(false);
                                 }
                             } else if declaration.role != DeclarationRole::Generator {
-                                return false;
+                                return Ok(false);
                             }
                         }
                         continue;
                     }
                     let TypeKind::Array { indices, element } = &ty.kind else {
-                        return false;
+                        return Ok(false);
                     };
                     if !ty.known()
                         || optional(ty)
@@ -3722,28 +3733,26 @@ impl<'a> Producer<'a> {
                             !integer(index) || index.instantiation != Instantiation::Parameter
                         })
                     {
-                        return false;
+                        return Ok(false);
                     }
                     let Some(array) = self.reference(file, value) else {
-                        return false;
+                        return Ok(false);
                     };
                     let declaration = &self.bindings.declarations[array.0];
                     if declaration.role != DeclarationRole::Value || !declaration.top_level {
-                        return false;
+                        return Ok(false);
                     }
                     let Domain::Array { element, .. } = &self.domains.declarations[array.0].domain
                     else {
-                        return false;
+                        return Ok(false);
                     };
-                    if element.numeric_minimum().is_err() {
-                        return false;
-                    }
+                    self.check_array_element_domain(array, ty, element)?;
                     let Some(written) = find_node(
                         self.context.files[declaration.file].parsed.tree(),
                         &declaration.syntax_range,
                         declaration.role,
                     ) else {
-                        return false;
+                        return Ok(false);
                     };
                     // A literal source is inspected without treating its written
                     // defaults as values of every instance. The closed evaluator
@@ -3773,17 +3782,17 @@ impl<'a> Producer<'a> {
                                     .is_err()
                             })
                         {
-                            return false;
+                            return Ok(false);
                         }
                     }
                 }
-                _ => return false,
+                _ => return Ok(false),
             }
         }
         let mut unknown = false;
         for (position, generator) in clause.generators.iter().enumerate() {
             let Some(source) = generator.child_nodes().next() else {
-                return false;
+                return Ok(false);
             };
             match self.initialized_source_safety(
                 file,
@@ -3792,12 +3801,12 @@ impl<'a> Producer<'a> {
                 &clause.generators[..position],
                 &mut Vec::new(),
             ) {
-                DefinitionSafety::Unsupported(_) => return false,
+                DefinitionSafety::Unsupported(reason) => return Err(reason),
                 DefinitionSafety::Unknown(_) => unknown = true,
                 DefinitionSafety::Supported => {}
             }
             if !self.uncertain_equality_header(file, source, view) {
-                return false;
+                return Ok(false);
             }
             // Filter arithmetic remains on the strict route in this local
             // selection-only admission.
@@ -3805,18 +3814,18 @@ impl<'a> Producer<'a> {
                 .child_nodes()
                 .any(|child| child.kind() == NodeKind::WhereFilter)
             {
-                return false;
+                return Ok(false);
             }
         }
         match self.initialized_children_safety(file, &operands, view, &clause.generators) {
-            DefinitionSafety::Unknown(_) => true,
-            DefinitionSafety::Unsupported(_) => false,
-            DefinitionSafety::Supported => unknown,
+            DefinitionSafety::Unknown(_) => Ok(true),
+            DefinitionSafety::Unsupported(reason) => Err(reason),
+            DefinitionSafety::Supported => Ok(unknown),
         }
     }
     // A closed domain error must not disappear behind source-safety Unknown.
-    // Admit only the demonstrated symbolic count header when the independent
-    // domain walk cannot interpret length; no count or membership is derived.
+    // Plain integer parameters and checked count views permit header inspection,
+    // without deriving a count or index membership.
     fn uncertain_equality_header(
         &self,
         file: FileId,
@@ -4046,6 +4055,44 @@ impl<'a> Producer<'a> {
             return false;
         }
         let upper = bounds[1];
+        if upper.kind() == NodeKind::Expression
+            && matches!(crate::domains::tokens(&self.context.files[file].parsed, upper).as_slice(),
+                [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+            && let Some(id) = self.reference(file, upper)
+        {
+            let declaration = &self.bindings.declarations[id.0];
+            if declaration.role == DeclarationRole::Value
+                && declaration.top_level
+                && self.calls.declarations[id.0].ty == TypeInst::par(TypeKind::Int)
+                && self
+                    .expression_type(self.view(file, upper, view), file, upper)
+                    .is_some_and(|expression| expression.ty == self.calls.declarations[id.0].ty)
+                && matches!(
+                    self.domains.declarations[id.0].domain,
+                    Domain::UnconstrainedInt
+                )
+                && let Some(written) = find_node(
+                    self.context.files[declaration.file].parsed.tree(),
+                    &declaration.syntax_range,
+                    declaration.role,
+                )
+                && !written
+                    .child_nodes()
+                    .any(|child| is_expression(child.kind()))
+                && self.source_annotations_safe(declaration.file, written)
+                && written.child_nodes().next().is_some_and(|ty| {
+                    ty.kind() == NodeKind::ScalarType
+                        && ty.child_nodes().next().is_none()
+                        && self.source_annotations_safe(declaration.file, ty)
+                        && matches!(
+                            expression_domain(self.context, self.bindings, declaration.file, ty,),
+                            Domain::UnconstrainedInt
+                        )
+                })
+            {
+                return true;
+            }
+        }
         if count(file, upper) {
             return true;
         }
@@ -5643,6 +5690,16 @@ impl<'a> Producer<'a> {
                             DefinitionSafety::Unknown(
                                 "decision set singleton value and membership are unproved".into(),
                             )
+                        } else if cell.kind() == NodeKind::LetExpression {
+                            self.selected_union_body_source_safety(
+                                (owner.file, branch_body, &body_view),
+                                &[formal],
+                                active,
+                                &mut location,
+                            )?;
+                            DefinitionSafety::Unknown(
+                                "decision set local relation value is unproved".into(),
+                            )
                         } else {
                             self.initialized_source_safety(
                                 owner.file,
@@ -5730,6 +5787,1000 @@ impl<'a> Producer<'a> {
                 return Err(reason);
             }
             Ok(construction)
+        })();
+        if entered {
+            active.pop();
+        }
+        checked.map_err(|reason| UnavailableCallableDefinition {
+            location,
+            targets: Vec::new(),
+            reason,
+        })
+    }
+    fn atomic_standard_metadata_safe(
+        &self,
+        file: FileId,
+        annotation: &SyntaxNode,
+        name: &str,
+    ) -> bool {
+        let Some(value) = annotation.child_nodes().next().map(unwrap) else {
+            return false;
+        };
+        let Some(id) = self.reference(file, value) else {
+            return false;
+        };
+        let declaration = &self.bindings.declarations[id.0];
+        let annotation_type = TypeInst {
+            instantiation: Instantiation::Parameter,
+            optional: false,
+            kind: TypeKind::Annotation,
+        };
+        let mut signatures = self.calls.signatures.iter().filter(|s| s.declaration == id);
+        let Some(signature) = signatures.next() else {
+            return false;
+        };
+        value.kind() == NodeKind::Expression
+            && crate::domains::tokens(&self.context.files[file].parsed, value).len() == 1
+            && declaration.role == DeclarationRole::Annotation
+            && declaration.name == name
+            && self.context.files[declaration.file].kind == SourceKind::StandardLibrary
+            && self.context.files[declaration.file].implicit
+            && self.calls.declarations[id.0].ty == annotation_type
+            && signature.parameters.is_empty()
+            && signature.return_type == annotation_type
+            && signatures.next().is_none()
+            && find_node(
+                self.context.files[declaration.file].parsed.tree(),
+                &declaration.syntax_range,
+                declaration.role,
+            )
+            .is_some_and(|written| {
+                written.kind() == NodeKind::AnnotationDeclaration
+                    && written.child_nodes().next().is_none()
+            })
+    }
+    // Only source views and the checked aggregate use this bodyless boundary.
+    // A changed written body/default/domain is never waived by its core name.
+    fn selected_union_primitive_safety(&self, id: DeclarationId) -> Result<(), String> {
+        let declaration = &self.bindings.declarations[id.0];
+        let written = find_node(
+            self.context.files[declaration.file].parsed.tree(),
+            &declaration.syntax_range,
+            declaration.role,
+        )
+        .ok_or("selected union primitive declaration is unavailable")?;
+        if declaration.role != DeclarationRole::Function
+            || self.context.files[declaration.file].kind != SourceKind::StandardLibrary
+            || !self.context.files[declaration.file].implicit
+        {
+            return Err("selected union primitive identity is unsupported".into());
+        }
+        let mut nodes = vec![written];
+        while let Some(node) = nodes.pop() {
+            if node.kind() == NodeKind::Annotation {
+                if ![
+                    "mzn_internal_representation",
+                    "promise_total",
+                    "promise_commutative",
+                ]
+                .iter()
+                .any(|name| self.atomic_standard_metadata_safe(declaration.file, node, name))
+                {
+                    return Err("selected union primitive annotation is unsupported".into());
+                }
+                continue;
+            }
+            if is_expression(node.kind()) {
+                return Err("selected union primitive body/default/domain is unsupported".into());
+            }
+            nodes.extend(node.child_nodes());
+        }
+        Ok(())
+    }
+    fn selected_union_predicate_identity(&self, id: DeclarationId) -> bool {
+        let declaration = &self.bindings.declarations[id.0];
+        declaration.name == "fzn_array_set_union"
+            && declaration.role == DeclarationRole::Predicate
+            && self.context.files[declaration.file].kind == SourceKind::StandardLibrary
+            && self.context.files[declaration.file].implicit
+    }
+    // This is typed source inspection of the selected union/FZN written family.
+    // Visible IDs are checked owning formals, preceding locals and integer binders;
+    // they carry neither a known value nor a definition/output guarantee.
+    fn selected_union_body_source_safety(
+        &self,
+        source: (FileId, &'a SyntaxNode, &CallableFacts),
+        visible: &[DeclarationId],
+        active: &mut Vec<DeclarationId>,
+        location: &mut SourceLocation,
+    ) -> Result<(), String> {
+        let (file, written, view) = source;
+        let node = unwrap(written);
+        let typed = |node: &SyntaxNode| {
+            self.expression_type(view, file, node)
+                .map(|value| &value.ty)
+        };
+        let integer = |t: &TypeInst| {
+            t.known()
+                && !optional(t)
+                && t.instantiation == Instantiation::Parameter
+                && t.kind == TypeKind::Int
+        };
+        let parameter_set = |t: &TypeInst| {
+            t.known()
+                && !optional(t)
+                && t.instantiation == Instantiation::Parameter
+                && matches!(&t.kind, TypeKind::Set(element) if integer(element))
+        };
+        let set_array = |t: &TypeInst| {
+            t.known()
+                && !optional(t)
+                && t.instantiation == Instantiation::Decision
+                && matches!(&t.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 1 && integer(&indices[0])
+                        && decision_integer_set(element))
+        };
+        let bare = |node: &SyntaxNode| {
+            let node = unwrap(node);
+            (node.kind() == NodeKind::Expression
+                && matches!(crate::domains::tokens(&self.context.files[file].parsed, node).as_slice(),
+                    [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier)))
+                .then(|| self.reference(file, node)).flatten()
+        };
+        if node.kind() == NodeKind::AnnotatedExpression {
+            let parts: Vec<_> = node.child_nodes().collect();
+            let [body, annotation] = parts.as_slice() else {
+                return Err("selected union annotated constraint shape is unsupported".into());
+            };
+            let call = annotation
+                .child_nodes()
+                .next()
+                .map(unwrap)
+                .ok_or("selected union constraint metadata is unavailable")?;
+            let arguments: Vec<_> = call.child_nodes().collect();
+            let local = arguments.first().and_then(|argument| bare(argument));
+            if annotation.kind() != NodeKind::Annotation
+                || call.kind() != NodeKind::CallExpression
+                || !self.core(file, call, view, "defines_var")
+                || arguments.len() != 1
+                || local.is_none_or(|id| {
+                    !visible.contains(&id)
+                        || self.bindings.declarations[id.0].role != DeclarationRole::Local
+                        || self.bindings.declarations[id.0].file != file
+                        || !decision_integer_set(&view.declarations[id.0].ty)
+                })
+                || typed(body).is_none_or(|t| !t.known() || optional(t) || t.kind != TypeKind::Bool)
+            {
+                return Err(
+                    "selected union constraint metadata or owning local is unsupported".into(),
+                );
+            }
+            let CallOutcome::Resolved {
+                declaration,
+                parameters,
+                return_type,
+            } = &self
+                .operation_fact(view, file, call)
+                .ok_or("selected union constraint metadata selection is unavailable")?
+                .outcome
+            else {
+                return Err("selected union constraint metadata selection is unsupported".into());
+            };
+            if parameters.len() != 1
+                || !decision_integer_set(&parameters[0])
+                || typed(arguments[0]).is_none_or(|t| t != &parameters[0])
+                || return_type.instantiation != Instantiation::Parameter
+                || return_type.optional
+                || return_type.kind != TypeKind::Annotation
+                || typed(call) != Some(return_type)
+            {
+                return Err("selected union constraint metadata tuple is unsupported".into());
+            }
+            self.selected_union_primitive_safety(*declaration)?;
+            self.selected_union_body_source_safety(
+                (file, arguments[0], view),
+                visible,
+                active,
+                location,
+            )?;
+            return self.selected_union_body_source_safety(
+                (file, body, view),
+                visible,
+                active,
+                location,
+            );
+        }
+        if !self.source_annotations_safe(file, written) {
+            return Err("selected union local source annotation is unsupported".into());
+        }
+        let ty = typed(node).ok_or("selected union local source type is unavailable")?;
+        if !ty.known() || optional(ty) {
+            return Err("selected union local source type or optionality is unsupported".into());
+        }
+        if node.kind() == NodeKind::LetExpression {
+            let parts: Vec<_> = node.child_nodes().collect();
+            let [block, body] = parts.as_slice() else {
+                return Err("selected union let shape is unsupported".into());
+            };
+            if block.kind() != NodeKind::LetBlock
+                || typed(body).is_none_or(|body_type| !crate::types::coerces(body_type, ty))
+            {
+                return Err("selected union let result type is unsupported".into());
+            }
+            let mut locals = visible.to_vec();
+            for item in block.child_nodes() {
+                if item.kind() == NodeKind::Constraint {
+                    let expression = item
+                        .child_nodes()
+                        .next()
+                        .ok_or("selected union local constraint is unavailable")?;
+                    if item.child_nodes().count() != 1 || !self.source_annotations_safe(file, item)
+                    {
+                        return Err("selected union local constraint shape is unsupported".into());
+                    }
+                    self.selected_union_body_source_safety(
+                        (file, expression, view),
+                        &locals,
+                        active,
+                        location,
+                    )?;
+                    continue;
+                }
+                let declaration = self
+                    .bindings
+                    .declarations
+                    .iter()
+                    .find(|declaration| {
+                        declaration.file == file
+                            && declaration.syntax_range == item.range()
+                            && declaration.role == DeclarationRole::Local
+                    })
+                    .filter(|_| item.kind() == NodeKind::Declaration)
+                    .ok_or("selected union local declaration is unavailable")?;
+                let local_type = &view.declarations[declaration.id.0].ty;
+                let initializers: Vec<_> = item
+                    .child_nodes()
+                    .filter(|node| is_expression(node.kind()))
+                    .collect();
+                if locals.contains(&declaration.id)
+                    || !local_type.known()
+                    || optional(local_type)
+                    || !(integer(local_type) && initializers.len() == 1
+                        || (decision_integer_set(local_type) || set_array(local_type))
+                            && initializers.is_empty())
+                {
+                    return Err("selected union local type or initializer is unsupported".into());
+                }
+                for annotation in item
+                    .child_nodes()
+                    .filter(|n| n.kind() == NodeKind::Annotation)
+                {
+                    if !decision_integer_set(local_type)
+                        || !self.atomic_standard_metadata_safe(file, annotation, "is_defined_var")
+                    {
+                        return Err(
+                            "selected union local declaration metadata is unsupported".into()
+                        );
+                    }
+                }
+                let mut types = vec![
+                    item.child_nodes()
+                        .next()
+                        .ok_or("selected union local written type is unavailable")?,
+                ];
+                while let Some(written_type) = types.pop() {
+                    if !self.source_annotations_safe(file, written_type) {
+                        return Err(
+                            "selected union local written type annotation is unsupported".into(),
+                        );
+                    }
+                    if written_type.kind() == NodeKind::DomainType {
+                        for domain in written_type.child_nodes() {
+                            self.selected_union_body_source_safety(
+                                (file, domain, view),
+                                &locals,
+                                active,
+                                location,
+                            )?;
+                        }
+                    } else {
+                        types.extend(written_type.child_nodes());
+                    }
+                }
+                for initializer in initializers {
+                    if typed(initializer).is_none_or(|t| !integer(t)) {
+                        return Err(
+                            "selected union local integer initializer type is unsupported".into(),
+                        );
+                    }
+                    self.selected_union_body_source_safety(
+                        (file, initializer, view),
+                        &locals,
+                        active,
+                        location,
+                    )?;
+                }
+                locals.push(declaration.id);
+            }
+            return self.selected_union_body_source_safety(
+                (file, body, view),
+                &locals,
+                active,
+                location,
+            );
+        }
+        if node.kind() == NodeKind::ConditionalExpression {
+            let branches: Vec<_> = node.child_nodes().collect();
+            let mut complete = false;
+            for (position, branch) in branches.iter().enumerate() {
+                if !self.source_annotations_safe(file, branch) {
+                    return Err("selected union predicate branch annotation is unsupported".into());
+                }
+                let parts: Vec<_> = branch.child_nodes().collect();
+                let body = if branch.kind() == NodeKind::ConditionalBranch && parts.len() == 2 {
+                    if typed(parts[0]).is_none_or(|t| {
+                        !t.known()
+                            || optional(t)
+                            || t.instantiation != Instantiation::Parameter
+                            || t.kind != TypeKind::Bool
+                    }) || self.assertion_literal(file, parts[0]).is_some()
+                    {
+                        return Err("selected union predicate symbolic guard is unsupported".into());
+                    }
+                    self.selected_union_body_source_safety(
+                        (file, parts[0], view),
+                        visible,
+                        active,
+                        location,
+                    )?;
+                    parts[1]
+                } else if branch.kind() == NodeKind::ElseBranch
+                    && parts.len() == 1
+                    && position + 1 == branches.len()
+                {
+                    complete = true;
+                    parts[0]
+                } else {
+                    return Err("selected union predicate conditional shape is unsupported".into());
+                };
+                if typed(body)
+                    .is_none_or(|t| !t.known() || optional(t) || !crate::types::coerces(t, ty))
+                {
+                    return Err(
+                        "selected union predicate conditional body type is unsupported".into(),
+                    );
+                }
+                self.selected_union_body_source_safety(
+                    (file, body, view),
+                    visible,
+                    active,
+                    location,
+                )?;
+            }
+            return if complete && branches.len() >= 2 {
+                Ok(())
+            } else {
+                Err("selected union predicate conditional requires complete else".into())
+            };
+        }
+        let decision_bool = |ty: &TypeInst| {
+            ty.known()
+                && !optional(ty)
+                && ty.instantiation == Instantiation::Decision
+                && ty.kind == TypeKind::Bool
+        };
+        // The checked operator path below inspects the written primitive and
+        // each decision operand before this unit can be admitted.
+        let decision_conjunction = node.kind() == NodeKind::BinaryExpression
+            && self.core(file, node, view, "/\\")
+            && decision_bool(ty)
+            && {
+                let operands: Vec<_> = node.child_nodes().collect();
+                operands.len() == 2
+                    && operands.iter().all(|operand| {
+                        typed(operand).is_some_and(decision_bool)
+                    })
+                    && self.operation_fact(view, file, node).is_some_and(|call| {
+                        matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                            if parameters.len() == 2 && parameters.iter().all(decision_bool)
+                                && return_type == ty)
+                    })
+            };
+        if !decision_conjunction
+            && let Some(reason) = self.closed_integer_source_error(file, node, true, true)
+        {
+            return Err(reason);
+        }
+        if let Some(id) = bare(node) {
+            if !visible.contains(&id)
+                || self.bindings.declarations[id.0].file != file
+                || ty != &view.declarations[id.0].ty
+                || !(integer(ty) || decision_integer_set(ty) || set_array(ty))
+            {
+                return Err("selected union source is not a checked owning formal/local".into());
+            }
+            // These lexical declarations were checked before becoming visible.
+            // Re-entering strict dependency extraction would demand a value proof
+            // for an inspected symbolic local extremum.
+            return Ok(());
+        }
+        if node.kind() == NodeKind::ArrayAccessExpression {
+            let parts: Vec<_> = node.child_nodes().collect();
+            let [array, selector] = parts.as_slice() else {
+                return Err("selected union local array cell shape is unsupported".into());
+            };
+            if typed(array).is_none_or(|t| !set_array(t))
+                || !decision_integer_set(ty)
+                || typed(selector).is_none_or(|t| !integer(t))
+                || bare(array).is_none_or(|id| !visible.contains(&id))
+            {
+                return Err("selected union local array cell type or owner is unsupported".into());
+            }
+            let id = bare(array).ok_or("selected union local array owner is unavailable")?;
+            let Domain::Array { indices, .. } =
+                crate::domains::bare_index_domain(&self.domains.declarations[id.0].domain)
+            else {
+                return Err("selected union local array axis is unavailable".into());
+            };
+            let [axis] = indices.as_slice() else {
+                return Err("selected union local array axis rank is unsupported".into());
+            };
+            // Only a closed exclusion is a veto. Symbolic l/u bounds and min/max
+            // selectors keep their inspected Unknown source result.
+            let empty = crate::domains::index_domain_interval(axis)
+                .is_some_and(|(lower, upper)| lower > upper)
+                || matches!(crate::domains::bare_index_domain(axis), Domain::LiteralSet(values)
+                    if values.is_empty());
+            let outside = crate::domains::invariant_expression_integer(
+                self.context,
+                self.bindings,
+                file,
+                selector,
+            )
+            .is_ok_and(|value| {
+                value.is_some_and(|value| {
+                    crate::domains::index_domain_member(axis, value) == Some(false)
+                })
+            });
+            if empty || outside {
+                return Err("selected union local array cell is outside its declared axis".into());
+            }
+            for child in parts {
+                self.selected_union_body_source_safety(
+                    (file, child, view),
+                    visible,
+                    active,
+                    location,
+                )?;
+            }
+            return Ok(());
+        }
+        if node.kind() == NodeKind::GeneratorCallExpression && self.core(file, node, view, "forall")
+        {
+            let parts: Vec<_> = node.child_nodes().collect();
+            let [list, body] = parts.as_slice() else {
+                return Err("selected union forall shape is unsupported".into());
+            };
+            let headers: Vec<_> = list.child_nodes().collect();
+            let [header] = headers.as_slice() else {
+                return Err("selected union forall requires one integer header".into());
+            };
+            let domains: Vec<_> = header.child_nodes().collect();
+            let tokens = crate::domains::tokens(&self.context.files[file].parsed, header);
+            let binders: Vec<_> = self
+                .bindings
+                .declarations
+                .iter()
+                .filter(|declaration| {
+                    declaration.file == file
+                        && declaration.role == DeclarationRole::Generator
+                        && declaration.syntax_range == header.range()
+                })
+                .collect();
+            if list.kind() != NodeKind::GeneratorList
+                || header.kind() != NodeKind::Generator
+                || domains.len() != 1
+                || binders.len() != 1
+                || tokens.iter().position(|token| token.kind == TokenKind::In) != Some(1)
+                || !matches!(
+                    tokens[0].kind,
+                    TokenKind::Identifier | TokenKind::QuotedIdentifier
+                )
+                || !self.source_annotations_safe(file, list)
+                || !self.source_annotations_safe(file, header)
+                || !integer(&view.declarations[binders[0].id.0].ty)
+                || typed(domains[0]).is_none_or(|t| !parameter_set(t))
+                || typed(body).is_none_or(|t| !t.known() || optional(t) || t.kind != TypeKind::Bool)
+                || ty.kind != TypeKind::Bool
+            {
+                return Err("selected union forall header/body type is unsupported".into());
+            }
+            let CallOutcome::Resolved {
+                declaration,
+                parameters,
+                return_type,
+            } = &self
+                .operation_fact(view, file, node)
+                .ok_or("selected union forall selection is unavailable")?
+                .outcome
+            else {
+                return Err("selected union forall selection is unsupported".into());
+            };
+            if parameters.len() != 1
+                || return_type != ty
+                || node.child_nodes().count() != 2
+                || !parameters[0].known()
+                || parameters[0].optional
+                || !matches!(&parameters[0].kind, TypeKind::Array { indices, element }
+                    if indices.len() == 1 && integer(&indices[0]) && element.known()
+                        && element.kind == TypeKind::Bool)
+                || self
+                    .operation_fact(view, file, node)
+                    .and_then(|call| call.generator_argument.as_ref())
+                    .is_none_or(|actual| {
+                        !actual.known()
+                            || optional(actual)
+                            || !crate::types::coerces(actual, &parameters[0])
+                    })
+            {
+                return Err("selected union forall concrete tuple is unsupported".into());
+            }
+            self.selected_union_primitive_safety(*declaration)?;
+            self.selected_union_body_source_safety(
+                (file, domains[0], view),
+                visible,
+                active,
+                location,
+            )?;
+            let mut scoped = visible.to_vec();
+            scoped.push(binders[0].id);
+            return self.selected_union_body_source_safety(
+                (file, body, view),
+                &scoped,
+                active,
+                location,
+            );
+        }
+        if node.kind() == NodeKind::CallExpression
+            && self.operation_fact(view, file, node).is_some_and(|call| {
+                matches!(&call.outcome, CallOutcome::Resolved { declaration, .. }
+                    if self.selected_union_predicate_identity(*declaration))
+            })
+        {
+            let arguments: Vec<_> = node.child_nodes().collect();
+            if arguments.len() != 2
+                || arguments
+                    .iter()
+                    .any(|argument| argument.kind() == NodeKind::NamedArgument)
+                || ty.kind != TypeKind::Bool
+                || typed(arguments[0]).is_none_or(|t| !set_array(t))
+                || typed(arguments[1]).is_none_or(|t| !decision_integer_set(t))
+            {
+                return Err("selected union nested predicate actual shape is unsupported".into());
+            }
+            for argument in arguments {
+                self.selected_union_body_source_safety(
+                    (file, argument, view),
+                    visible,
+                    active,
+                    location,
+                )?;
+            }
+            if let Err(failure) =
+                self.selected_union_predicate_body_safety(file, node, view, active)
+            {
+                *location = failure.location;
+                return Err(failure.reason);
+            }
+            return Ok(());
+        }
+        if node.kind() == NodeKind::CallExpression {
+            let parts: Vec<_> = node.child_nodes().collect();
+            let name = [
+                "array1d",
+                "enum2int",
+                "ub_array",
+                "length",
+                "index_set",
+                "min",
+                "max",
+            ]
+            .into_iter()
+            .find(|name| self.core(file, node, view, name));
+            if let Some(name) = name {
+                let [argument] = parts.as_slice() else {
+                    return Err("selected union source view arity is unsupported".into());
+                };
+                let argument_type = typed(argument)
+                    .ok_or("selected union source view actual type is unavailable")?;
+                let shape = match name {
+                    "array1d" => set_array(argument_type) && ty == argument_type,
+                    "enum2int" => {
+                        (set_array(argument_type) || decision_integer_set(argument_type))
+                            && ty == argument_type
+                    }
+                    "ub_array" => {
+                        set_array(argument_type)
+                            && parameter_set(ty)
+                            && bare(argument).is_some_and(|id| {
+                                visible.contains(&id)
+                                    && self.bindings.declarations[id.0].role
+                                        == DeclarationRole::Parameter
+                            })
+                    }
+                    "length" => set_array(argument_type) && integer(ty),
+                    "index_set" => set_array(argument_type) && parameter_set(ty),
+                    "min" | "max" => {
+                        parameter_set(argument_type)
+                            && integer(ty)
+                            && unwrap(argument).kind() == NodeKind::CallExpression
+                            && self.core(file, unwrap(argument), view, "index_set")
+                            && unwrap(argument)
+                                .child_nodes()
+                                .next()
+                                .and_then(bare)
+                                .is_some_and(|id| {
+                                    visible.contains(&id)
+                                        && self.bindings.declarations[id.0].role
+                                            == DeclarationRole::Parameter
+                                        && self.array_nonempty_branch(file, node, id, view)
+                                })
+                    }
+                    _ => false,
+                };
+                let CallOutcome::Resolved {
+                    declaration,
+                    parameters,
+                    return_type,
+                } = &self
+                    .operation_fact(view, file, node)
+                    .ok_or("selected union source view selection is unavailable")?
+                    .outcome
+                else {
+                    return Err("selected union source view selection is unsupported".into());
+                };
+                if !shape
+                    || argument.kind() == NodeKind::NamedArgument
+                    || parameters.len() != 1
+                    || return_type != ty
+                    || !parameters[0].known()
+                    || optional(&parameters[0])
+                    || !crate::types::coerces(argument_type, &parameters[0])
+                {
+                    return Err(
+                        "selected union source view tuple or nonempty prerequisite is unsupported"
+                            .into(),
+                    );
+                }
+                self.selected_union_primitive_safety(*declaration)?;
+                return self.selected_union_body_source_safety(
+                    (file, argument, view),
+                    visible,
+                    active,
+                    location,
+                );
+            }
+        }
+        if matches!(
+            node.kind(),
+            NodeKind::BinaryExpression | NodeKind::RangeExpression
+        ) {
+            let parts: Vec<_> = node.child_nodes().collect();
+            let [left, right] = parts.as_slice() else {
+                return Err("selected union source operator arity is unsupported".into());
+            };
+            let name = operator(self.context, file, node)
+                .and_then(crate::bindings::symbolic_operator)
+                .ok_or("selected union source operator is unavailable")?;
+            let operand_types = [typed(left), typed(right)];
+            let shape = match name {
+                "union" => decision_integer_set(ty)
+                    && operand_types.iter().all(|t| *t == Some(ty)),
+                "=" => ty.kind == TypeKind::Bool
+                    && (operand_types.iter().all(|t| t.is_some_and(integer))
+                        || operand_types.iter().all(|t| t.is_some_and(|t|
+                            decision_integer_set(t) || parameter_set(t)
+                                || matches!(&t.kind, TypeKind::Set(element) if element.kind == TypeKind::Bottom)))),
+                "/\\" => ty.kind == TypeKind::Bool
+                    && operand_types.iter().all(|t| t.is_some_and(|t|
+                        t.known() && !optional(t) && t.kind == TypeKind::Bool)),
+                "+" | "-" => integer(ty)
+                    && operand_types.iter().all(|t| t.is_some_and(integer)),
+                ".." => parameter_set(ty)
+                    && operand_types.iter().all(|t| t.is_some_and(integer)),
+                _ => false,
+            };
+            let call = self
+                .operation_fact(view, file, node)
+                .ok_or("selected union source operator selection is unavailable")?;
+            let CallOutcome::Resolved {
+                declaration,
+                parameters,
+                return_type,
+            } = &call.outcome
+            else {
+                return Err("selected union source operator selection is unsupported".into());
+            };
+            if !shape
+                || !self.core(file, node, view, name)
+                || parameters.len() != 2
+                || return_type != ty
+                || !parameters
+                    .iter()
+                    .zip(operand_types)
+                    .all(|(formal, actual)| {
+                        formal.known()
+                            && !optional(formal)
+                            && actual.is_some_and(|actual| crate::types::coerces(actual, formal))
+                    })
+            {
+                return Err("selected union source operator identity/type is unsupported".into());
+            }
+            self.selected_union_primitive_safety(*declaration)?;
+            for child in parts {
+                self.selected_union_body_source_safety(
+                    (file, child, view),
+                    visible,
+                    active,
+                    location,
+                )?;
+            }
+            return Ok(());
+        }
+        if node.kind() == NodeKind::SetLiteral {
+            let empty_type = ty.instantiation == Instantiation::Parameter
+                && matches!(&ty.kind, TypeKind::Set(element)
+                    if element.known() && !optional(element)
+                        && element.instantiation == Instantiation::Parameter
+                        && element.kind == TypeKind::Bottom);
+            let cells: Vec<_> = node.child_nodes().collect();
+            if !parameter_set(ty) && !(empty_type && cells.is_empty())
+                || cells
+                    .iter()
+                    .any(|cell| typed(cell).is_none_or(|t| !integer(t)))
+            {
+                return Err("selected union integer set literal source is unsupported".into());
+            }
+            for cell in cells {
+                self.selected_union_body_source_safety(
+                    (file, cell, view),
+                    visible,
+                    active,
+                    location,
+                )?;
+            }
+            return Ok(());
+        }
+        // Only childless literals reuse ordinary source inspection. A literal
+        // container cannot hide a selected helper or operator's written body.
+        if node.kind() == NodeKind::Expression
+            && node.child_nodes().next().is_none()
+            && self.bindings.references.iter().all(|reference| {
+                reference.file != file
+                    || reference.kind != ReferenceKind::Value
+                    || reference.location.range.start
+                        < self.context.files[file].location(node.range()).range.start
+                    || self.context.files[file].location(node.range()).range.end
+                        < reference.location.range.end
+            })
+        {
+            return match self.initialized_source_safety(file, node, view, &[], active) {
+                DefinitionSafety::Unsupported(reason) => Err(reason),
+                _ => Ok(()),
+            };
+        }
+        Err("selected union local written source form is unsupported".into())
+    }
+    fn selected_union_predicate_body_safety(
+        &self,
+        file: FileId,
+        node: &'a SyntaxNode,
+        view: &CallableFacts,
+        active: &mut Vec<DeclarationId>,
+    ) -> Result<(), UnavailableCallableDefinition> {
+        let mut location = self.context.files[file].location(node.range());
+        let mut entered = false;
+        let checked = (|| -> Result<(), String> {
+            let CallOutcome::Resolved {
+                declaration: id,
+                parameters,
+                return_type,
+            } = &self
+                .operation_fact(view, file, node)
+                .ok_or("selected union predicate selection is unavailable")?
+                .outcome
+            else {
+                return Err("selected union predicate selection is unsupported".into());
+            };
+            let integer = |t: &TypeInst| {
+                t.known()
+                    && !optional(t)
+                    && t.instantiation == Instantiation::Parameter
+                    && t.kind == TypeKind::Int
+            };
+            let arguments: Vec<_> = node.child_nodes().collect();
+            if !self.selected_union_predicate_identity(*id)
+                || parameters.len() != 2
+                || arguments.len() != 2
+                || !matches!(&parameters[0].kind, TypeKind::Array { indices, element }
+                    if parameters[0].known() && !optional(&parameters[0])
+                        && parameters[0].instantiation == Instantiation::Decision
+                        && indices.len() == 1 && integer(&indices[0])
+                        && decision_integer_set(element) && element.as_ref() == &parameters[1])
+                || !decision_integer_set(&parameters[1])
+                || !return_type.known()
+                || optional(return_type)
+                || return_type.instantiation != Instantiation::Decision
+                || return_type.kind != TypeKind::Bool
+                || self
+                    .expression_type(view, file, node)
+                    .is_none_or(|t| t.ty != *return_type)
+                || arguments.iter().zip(parameters).any(|(argument, formal)| {
+                    self.expression_type(view, file, argument).is_none_or(|t| {
+                        !t.ty.known() || optional(&t.ty) || !crate::types::coerces(&t.ty, formal)
+                    })
+                })
+            {
+                return Err("selected union predicate concrete tuple is unsupported".into());
+            }
+            let owner = &self.bindings.declarations[id.0];
+            let written = find_node(
+                self.context.files[owner.file].parsed.tree(),
+                &owner.syntax_range,
+                owner.role,
+            )
+            .ok_or("selected union predicate declaration is unavailable")?;
+            let body = written
+                .child_nodes()
+                .filter(|node| is_expression(node.kind()))
+                .last()
+                .ok_or("selected union predicate real body is unavailable")?;
+            location = self.context.files[owner.file].location(body.range());
+            if owner.role != DeclarationRole::Predicate
+                || !self.callable_annotations_safe(owner.file, written)
+                || active.contains(id)
+            {
+                return Err(
+                    "selected union predicate body/annotation or recurrence is unsupported".into(),
+                );
+            }
+            active.push(*id);
+            entered = true;
+            let body_view =
+                instantiated_body(self.context, self.bindings, self.calls, *id, parameters);
+            let mut formals = Vec::new();
+            let list = written
+                .child_nodes()
+                .find(|node| node.kind() == NodeKind::ParameterList)
+                .ok_or("selected union predicate written parameters are unavailable")?;
+            if list.child_nodes().count() != parameters.len() {
+                return Err(
+                    "selected union predicate written parameter count is unsupported".into(),
+                );
+            }
+            for (position, parameter_type) in parameters.iter().enumerate() {
+                let formal = formal_parameter(self.context, self.bindings, *id, position)
+                    .ok_or("selected union predicate formal is unavailable")?;
+                let written_formal = find_node(
+                    self.context.files[owner.file].parsed.tree(),
+                    &self.bindings.declarations[formal.0].syntax_range,
+                    DeclarationRole::Parameter,
+                )
+                .ok_or("selected union predicate written formal is unavailable")?;
+                if written_formal
+                    .child_nodes()
+                    .any(|node| is_expression(node.kind()))
+                    || body_view.declarations[formal.0].ty != *parameter_type
+                {
+                    return Err("selected union predicate formal/default is unsupported".into());
+                }
+                self.type_dependencies(owner.file, written_formal, &body_view, &[])?;
+                let mut nodes = vec![written_formal];
+                while let Some(node) = nodes.pop() {
+                    if !crate::definitions::annotations_safe(self.context, owner.file, node) {
+                        return Err(
+                            "selected union predicate formal annotation is unsupported".into()
+                        );
+                    }
+                    nodes.extend(node.child_nodes());
+                }
+                if let Some(reason) =
+                    self.closed_integer_source_error(owner.file, written_formal, true, true)
+                {
+                    return Err(reason);
+                }
+                formals.push(formal);
+            }
+            let value = self
+                .expression_type(&body_view, owner.file, body)
+                .ok_or("selected union predicate body type is unavailable")?;
+            if !value.ty.known()
+                || optional(&value.ty)
+                || !crate::types::coerces(&value.ty, return_type)
+            {
+                return Err("selected union predicate body type is unsupported".into());
+            }
+            // This exact selected-body scan precedes inspectors that start fresh
+            // vectors, including written recurrence nested under scalar aggregates.
+            let mut nodes = vec![body];
+            while let Some(node) = nodes.pop() {
+                if let Some(CallOutcome::Resolved { declaration, .. }) = self
+                    .operation_fact(&body_view, owner.file, node)
+                    .map(|call| &call.outcome)
+                    && active.contains(declaration)
+                    && (crate::definitions::core_callable(
+                        self.context,
+                        self.bindings,
+                        *declaration,
+                        "array_union",
+                    ) || self.selected_union_predicate_identity(*declaration))
+                {
+                    return Err("recursive selected union predicate body is unsupported".into());
+                }
+                nodes.extend(node.child_nodes());
+            }
+            if let Some(arguments) = self.assertion_arguments(owner.file, unwrap(body), &body_view)
+                && arguments.len() == 3
+                && self.assertion_literal(arguments[0].0, arguments[0].1) == Some(TokenKind::False)
+            {
+                let CallOutcome::Resolved {
+                    parameters,
+                    return_type,
+                    ..
+                } = &self
+                    .operation_fact(&body_view, owner.file, unwrap(body))
+                    .ok_or("selected union predicate assertion selection is unavailable")?
+                    .outcome
+                else {
+                    return Err(
+                        "selected union predicate assertion selection is unsupported".into(),
+                    );
+                };
+                if parameters.len() != 3
+                    || *return_type != value.ty
+                    || parameters[2] != *return_type
+                    || parameters.iter().any(|t| !t.known() || optional(t))
+                {
+                    return Err("selected union predicate assertion tuple is unsupported".into());
+                }
+                for (position, (file, argument)) in arguments.iter().enumerate() {
+                    let actual = self
+                        .expression_type(&body_view, *file, argument)
+                        .ok_or("selected union predicate assertion actual type is unavailable")?;
+                    if !actual.ty.known()
+                        || optional(&actual.ty)
+                        || !crate::types::coerces(&actual.ty, &parameters[position])
+                        || match position {
+                            0 => {
+                                actual.ty.instantiation != Instantiation::Parameter
+                                    || actual.ty.kind != TypeKind::Bool
+                            }
+                            1 => {
+                                actual.ty.instantiation != Instantiation::Parameter
+                                    || actual.ty.kind != TypeKind::String
+                            }
+                            _ => !crate::types::coerces(&actual.ty, &value.ty),
+                        }
+                    {
+                        return Err(
+                            "selected union predicate assertion actual type is unsupported".into(),
+                        );
+                    }
+                    self.selected_union_body_source_safety(
+                        (*file, argument, &body_view),
+                        &formals,
+                        active,
+                        &mut location,
+                    )?;
+                }
+                return Err("false assertion condition aborts evaluation".into());
+            }
+            self.selected_union_body_source_safety(
+                (owner.file, body, &body_view),
+                &formals,
+                active,
+                &mut location,
+            )
         })();
         if entered {
             active.pop();
@@ -12481,6 +13532,36 @@ impl<'a> Producer<'a> {
             "reflected array bound is unproved".into(),
         ))
     }
+    // Validate a consumer's retained element domain without replacing its facts.
+    // Only exact written integer-array extrema can turn a raw range error Unknown.
+    fn check_array_element_domain(
+        &self,
+        array: DeclarationId,
+        source: &TypeInst,
+        element_domain: &Domain,
+    ) -> Result<(), String> {
+        let Err(reason) = element_domain.numeric_minimum() else {
+            return Ok(());
+        };
+        if !matches!(&source.kind, TypeKind::Array { element, .. }
+            if element.kind == TypeKind::Int)
+            || source != &self.calls.declarations[array.0].ty
+            || self.bindings.declarations[array.0].role != DeclarationRole::Value
+            || !self.bindings.declarations[array.0].top_level
+        {
+            return Err(reason.into());
+        }
+        let Domain::Range { lower, upper } = crate::domains::bare_index_domain(element_domain)
+        else {
+            return Err(reason.into());
+        };
+        let inspected = Domain::Range {
+            lower: self.inspect_array_extremum_bound(lower)?,
+            upper: self.inspect_array_extremum_bound(upper)?,
+        };
+        inspected.numeric_minimum().map_err(str::to_owned)?;
+        Ok(())
+    }
     // A local interpretation only: checked array extrema stay symbolic, while
     // the retained raw bounds and their declaration identities remain unchanged.
     fn inspect_array_extremum_bound(&self, bound: &NumericBound) -> Result<NumericBound, String> {
@@ -14776,6 +15857,513 @@ impl<'a> Producer<'a> {
             Err(reason) => DefinitionSafety::Unsupported(reason),
         })
     }
+    // The array source family uses only these selected standard primitives.
+    // Their full written trees must contain no implementation/default expression.
+    fn parameter_array_primitive(
+        &self,
+        file: FileId,
+        node: &SyntaxNode,
+        view: &CallableFacts,
+        name: &str,
+        parameters: &[TypeInst],
+        result: &TypeInst,
+    ) -> Result<(), String> {
+        let facts = self.view(file, node, view);
+        let fact = self
+            .operation_fact(facts, file, node)
+            .ok_or("parameter array primitive selection is unavailable")?;
+        let CallOutcome::Resolved {
+            declaration,
+            parameters: selected,
+            return_type,
+        } = &fact.outcome
+        else {
+            return Err("parameter array primitive selection is unsupported".into());
+        };
+        if !self.core(file, node, facts, name)
+            || fact.generator_argument.is_some()
+            || selected.as_slice() != parameters
+            || return_type != result
+            || self
+                .expression_type(facts, file, node)
+                .is_none_or(|value| value.ty != *result)
+        {
+            return Err("parameter array primitive identity or signature is unsupported".into());
+        }
+        let owner = &self.bindings.declarations[declaration.0];
+        if owner.role != DeclarationRole::Function {
+            return Err("parameter array primitive declaration is unsupported".into());
+        }
+        let written = find_node(
+            self.context.files[owner.file].parsed.tree(),
+            &owner.syntax_range,
+            owner.role,
+        )
+        .ok_or("parameter array primitive source is unavailable")?;
+        let mut nodes = vec![written];
+        while let Some(node) = nodes.pop() {
+            if node.kind() == NodeKind::Annotation {
+                let value = node
+                    .child_nodes()
+                    .next()
+                    .map(unwrap)
+                    .ok_or("parameter array primitive annotation value is unavailable")?;
+                let string = value.kind() == NodeKind::Expression
+                    && crate::domains::tokens(&self.context.files[owner.file].parsed, value)
+                        .first()
+                        .is_some_and(|token| token.kind == TokenKind::StringLiteral);
+                if !string
+                    && ![
+                        "mzn_internal_representation",
+                        "promise_total",
+                        "promise_commutative",
+                    ]
+                    .iter()
+                    .any(|name| self.atomic_standard_metadata_safe(owner.file, node, name))
+                {
+                    return Err("parameter array primitive annotation is unsupported".into());
+                }
+                continue;
+            }
+            if is_expression(node.kind()) {
+                return Err(
+                    "parameter array primitive body, default or type expression is unsupported"
+                        .into(),
+                );
+            }
+            nodes.extend(node.child_nodes());
+        }
+        Ok(())
+    }
+    fn reverse_parameter_array_body(
+        &self,
+        file: FileId,
+        body: &'a SyntaxNode,
+        formal: DeclarationId,
+        view: &CallableFacts,
+        array: &TypeInst,
+    ) -> Result<(), String> {
+        let integer = TypeInst::par(TypeKind::Int);
+        let boolean = TypeInst::par(TypeKind::Bool);
+        let set = TypeInst::par(TypeKind::Set(Box::new(integer.clone())));
+        let ty = |node: &SyntaxNode| {
+            self.expression_type(view, file, node)
+                .map(|value| &value.ty)
+        };
+        let reference = |node: &SyntaxNode| {
+            (node.kind() == NodeKind::Expression && node.child_nodes().next().is_none())
+                .then(|| self.reference(file, node))
+                .flatten()
+        };
+        let literal = |node: &SyntaxNode, expected| {
+            node.kind() == NodeKind::Expression
+                && node.child_nodes().next().is_none()
+                && matches!(crate::domains::tokens(&self.context.files[file].parsed, node).as_slice(),
+                    [token] if token.kind == TokenKind::IntegerLiteral)
+                && crate::domains::invariant_expression_integer(
+                    self.context,
+                    self.bindings,
+                    file,
+                    node,
+                ) == Ok(Some(expected))
+        };
+        // Check all closed body fragments before an unsupported shape can hide
+        // a selected local initializer failure behind the unknown condition.
+        if let Some(reason) = self.closed_integer_source_error(file, body, false, true) {
+            return Err(reason);
+        }
+        let mut nodes = vec![body];
+        while let Some(node) = nodes.pop() {
+            if !crate::definitions::annotations_safe(self.context, file, node) {
+                return Err("reverse array body annotation is unsupported".into());
+            }
+            nodes.extend(node.child_nodes());
+        }
+        let branches: Vec<_> = body.child_nodes().collect();
+        let [then, otherwise] = branches.as_slice() else {
+            return Err("reverse array body requires its complete conditional".into());
+        };
+        let first: Vec<_> = then.child_nodes().collect();
+        let last: Vec<_> = otherwise.child_nodes().collect();
+        let ([guard, empty], [local]) = (first.as_slice(), last.as_slice()) else {
+            return Err("reverse array conditional branches are unsupported".into());
+        };
+        if body.kind() != NodeKind::ConditionalExpression
+            || ty(body) != Some(array)
+            || then.kind() != NodeKind::ConditionalBranch
+            || otherwise.kind() != NodeKind::ElseBranch
+            || guard.kind() != NodeKind::BinaryExpression
+            || ty(guard) != Some(&boolean)
+            || empty.kind() != NodeKind::ArrayLiteral
+            || empty.child_nodes().next().is_some()
+            || ty(empty).is_none_or(|value| !crate::types::coerces(value, array))
+            || local.kind() != NodeKind::LetExpression
+            || ty(local) != Some(array)
+        {
+            return Err("reverse array conditional types or empty branch are unsupported".into());
+        }
+        let guard_parts: Vec<_> = guard.child_nodes().collect();
+        let [length, zero] = guard_parts.as_slice() else {
+            return Err("reverse array condition operands are unsupported".into());
+        };
+        self.parameter_array_primitive(
+            file,
+            guard,
+            view,
+            "=",
+            &[integer.clone(), integer.clone()],
+            &boolean,
+        )?;
+        self.parameter_array_primitive(
+            file,
+            length,
+            view,
+            "length",
+            std::slice::from_ref(array),
+            &integer,
+        )?;
+        if !literal(zero, 0)
+            || length.child_nodes().count() != 1
+            || length.child_nodes().next().and_then(reference) != Some(formal)
+        {
+            return Err("reverse array condition source identity is unsupported".into());
+        }
+        let let_parts: Vec<_> = local.child_nodes().collect();
+        let [block, reshape] = let_parts.as_slice() else {
+            return Err("reverse array local body is unsupported".into());
+        };
+        let locals: Vec<_> = block.child_nodes().collect();
+        let [cells, upper] = locals.as_slice() else {
+            return Err("reverse array requires its two initialized locals".into());
+        };
+        if block.kind() != NodeKind::LetBlock || reshape.kind() != NodeKind::CallExpression {
+            return Err("reverse array local or reshape shape is unsupported".into());
+        }
+        let local_id = |written: &SyntaxNode| {
+            self.bindings
+                .declarations
+                .iter()
+                .find(|declaration| {
+                    declaration.file == file
+                        && declaration.role == DeclarationRole::Local
+                        && declaration.syntax_range == written.range()
+                })
+                .map(|declaration| declaration.id)
+        };
+        let cells_id = local_id(cells).ok_or("reverse array cell local identity is unavailable")?;
+        let upper_id =
+            local_id(upper).ok_or("reverse array upper local identity is unavailable")?;
+        let mut initializers = Vec::new();
+        for (written, id, expected) in [(*cells, cells_id, array), (*upper, upper_id, &integer)] {
+            let values: Vec<_> = written
+                .child_nodes()
+                .filter(|node| is_expression(node.kind()))
+                .collect();
+            if written.kind() != NodeKind::Declaration
+                || values.len() != 1
+                || view.declarations[id.0].ty != *expected
+                || ty(values[0]) != Some(expected)
+            {
+                return Err("reverse array local type or initializer is unsupported".into());
+            }
+            self.type_dependencies(file, written, view, &[])?;
+            initializers.push(values[0]);
+        }
+        let flatten = initializers[0];
+        let plus = initializers[1];
+        self.parameter_array_primitive(
+            file,
+            flatten,
+            view,
+            "array1d",
+            std::slice::from_ref(array),
+            array,
+        )?;
+        if flatten.child_nodes().count() != 1
+            || flatten.child_nodes().next().and_then(reference) != Some(formal)
+        {
+            return Err("reverse array flattened local source is unsupported".into());
+        }
+        let plus_parts: Vec<_> = plus.child_nodes().collect();
+        let [size, one] = plus_parts.as_slice() else {
+            return Err("reverse array upper initializer shape is unsupported".into());
+        };
+        self.parameter_array_primitive(
+            file,
+            plus,
+            view,
+            "+",
+            &[integer.clone(), integer.clone()],
+            &integer,
+        )?;
+        self.parameter_array_primitive(
+            file,
+            size,
+            view,
+            "length",
+            std::slice::from_ref(array),
+            &integer,
+        )?;
+        if !literal(one, 1)
+            || size.child_nodes().count() != 1
+            || size.child_nodes().next().and_then(reference) != Some(formal)
+        {
+            return Err("reverse array upper source identity is unsupported".into());
+        }
+        let reshape_parts: Vec<_> = reshape.child_nodes().collect();
+        let [axis, comprehension] = reshape_parts.as_slice() else {
+            return Err("reverse array reshape arguments are unsupported".into());
+        };
+        self.parameter_array_primitive(
+            file,
+            reshape,
+            view,
+            "array1d",
+            &[set.clone(), array.clone()],
+            array,
+        )?;
+        self.parameter_array_primitive(
+            file,
+            axis,
+            view,
+            "index_set",
+            std::slice::from_ref(array),
+            &set,
+        )?;
+        if axis.child_nodes().count() != 1
+            || axis.child_nodes().next().and_then(reference) != Some(formal)
+            || comprehension.kind() != NodeKind::ArrayComprehension
+            || ty(comprehension) != Some(array)
+        {
+            return Err("reverse array reshape source identity is unsupported".into());
+        }
+        let comp_parts: Vec<_> = comprehension.child_nodes().collect();
+        let [selection, list] = comp_parts.as_slice() else {
+            return Err("reverse array comprehension shape is unsupported".into());
+        };
+        let headers: Vec<_> = list.child_nodes().collect();
+        let [header] = headers.as_slice() else {
+            return Err("reverse array requires one comprehension header".into());
+        };
+        let sources: Vec<_> = header.child_nodes().collect();
+        let [source] = sources.as_slice() else {
+            return Err("reverse array requires its unfiltered source".into());
+        };
+        let binders: Vec<_> = self
+            .bindings
+            .declarations
+            .iter()
+            .filter(|declaration| {
+                declaration.file == file
+                    && declaration.role == DeclarationRole::Generator
+                    && declaration.syntax_range == header.range()
+            })
+            .collect();
+        let [binder] = binders.as_slice() else {
+            return Err("reverse array binder identity is unsupported".into());
+        };
+        if list.kind() != NodeKind::GeneratorList
+            || header.kind() != NodeKind::Generator
+            || crate::domains::generator_slots(&self.context.files[file].parsed, header) != 1
+            || !header.children().iter().any(|child| {
+                matches!(child, SyntaxElement::Token(index)
+                if self.context.files[file].parsed.tokens()[*index].kind == TokenKind::In)
+            })
+            || view.declarations[binder.id.0].ty != integer
+        {
+            return Err("reverse array binder scope or type is unsupported".into());
+        }
+        self.parameter_array_primitive(
+            file,
+            source,
+            view,
+            "index_set",
+            std::slice::from_ref(array),
+            &set,
+        )?;
+        if source.child_nodes().count() != 1
+            || source.child_nodes().next().and_then(reference) != Some(cells_id)
+        {
+            return Err("reverse array generator source identity is unsupported".into());
+        }
+        let selection_parts: Vec<_> = selection.child_nodes().collect();
+        let [subject, selector] = selection_parts.as_slice() else {
+            return Err("reverse array cell selection shape is unsupported".into());
+        };
+        let selector_parts: Vec<_> = selector.child_nodes().collect();
+        let [upper_value, index] = selector_parts.as_slice() else {
+            return Err("reverse array selector shape is unsupported".into());
+        };
+        if selection.kind() != NodeKind::ArrayAccessExpression
+            || ty(selection) != Some(&integer)
+            || reference(subject) != Some(cells_id)
+            || reference(upper_value) != Some(upper_id)
+            || reference(index) != Some(binder.id)
+        {
+            return Err("reverse array selected local or binder identity is unsupported".into());
+        }
+        self.parameter_array_primitive(
+            file,
+            selector,
+            view,
+            "-",
+            &[integer.clone(), integer.clone()],
+            &integer,
+        )?;
+        let checked = [*guard, flatten, plus, *axis, *source];
+        if let DefinitionSafety::Unsupported(reason) =
+            self.initialized_children_safety(file, &checked, view, &[])
+        {
+            return Err(reason);
+        }
+        if let DefinitionSafety::Unsupported(reason) =
+            self.integer_comprehension_safety(file, comprehension, view, &[])
+        {
+            return Err(reason);
+        }
+        Ok(())
+    }
+    fn parameter_integer_array_value_safety(
+        &self,
+        file: FileId,
+        written: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> Option<DefinitionSafety> {
+        let node = unwrap(written);
+        let name = if self.core(file, node, view, "sort") {
+            "sort"
+        } else if self.core(file, node, view, "reverse") {
+            "reverse"
+        } else {
+            return None;
+        };
+        let integer = TypeInst::par(TypeKind::Int);
+        let array = TypeInst::par(TypeKind::Array {
+            indices: vec![integer.clone()],
+            element: Box::new(integer),
+        });
+        let facts = self.view(file, node, view);
+        let checked = (|| -> Result<(), String> {
+            let fact = self
+                .operation_fact(facts, file, node)
+                .ok_or("parameter array value selection is unavailable")?;
+            let CallOutcome::Resolved {
+                declaration: id,
+                parameters,
+                return_type,
+            } = &fact.outcome
+            else {
+                return Err("parameter array value selection is unsupported".into());
+            };
+            let arguments: Vec<_> = node
+                .child_nodes()
+                .filter(|child| child.kind() != NodeKind::Annotation)
+                .collect();
+            if node.kind() != NodeKind::CallExpression
+                || fact.generator_argument.is_some()
+                || parameters.as_slice() != std::slice::from_ref(&array)
+                || return_type != &array
+                || arguments.len() != 1
+                || arguments[0].kind() == NodeKind::NamedArgument
+                || self
+                    .expression_type(facts, file, node)
+                    .is_none_or(|value| value.ty != array)
+                || self
+                    .expression_type(self.view(file, arguments[0], view), file, arguments[0])
+                    .is_none_or(|value| value.ty != array)
+                || !crate::definitions::annotations_safe(self.context, file, written)
+            {
+                return Err(
+                    "parameter array value tuple or source annotation is unsupported".into(),
+                );
+            }
+            if let DefinitionSafety::Unsupported(reason) =
+                self.initialized_children_safety(file, &arguments, view, generators)
+            {
+                return Err(reason);
+            }
+            if name == "sort" {
+                return self.parameter_array_primitive(
+                    file,
+                    node,
+                    facts,
+                    name,
+                    parameters,
+                    return_type,
+                );
+            }
+            let owner = &self.bindings.declarations[id.0];
+            if owner.role != DeclarationRole::Function {
+                return Err("reverse array declaration is unsupported".into());
+            }
+            let declaration = find_node(
+                self.context.files[owner.file].parsed.tree(),
+                &owner.syntax_range,
+                owner.role,
+            )
+            .ok_or("reverse array written declaration is unavailable")?;
+            let formal = formal_parameter(self.context, self.bindings, *id, 0)
+                .ok_or("reverse array formal identity is unavailable")?;
+            let formal_node = find_node(
+                self.context.files[owner.file].parsed.tree(),
+                &self.bindings.declarations[formal.0].syntax_range,
+                DeclarationRole::Parameter,
+            )
+            .ok_or("reverse array written formal is unavailable")?;
+            let bodies: Vec<_> = declaration
+                .child_nodes()
+                .filter(|child| is_expression(child.kind()))
+                .collect();
+            let [body] = bodies.as_slice() else {
+                return Err("reverse array selected body is unavailable".into());
+            };
+            if !crate::definitions::annotations_safe(self.context, owner.file, declaration)
+                || formal_node
+                    .child_nodes()
+                    .any(|child| is_expression(child.kind()))
+                || declaration
+                    .child_nodes()
+                    .find(|child| child.kind() == NodeKind::ParameterList)
+                    .is_none_or(|list| list.child_nodes().count() != 1)
+            {
+                return Err("reverse array formal default or annotation is unsupported".into());
+            }
+            let body_view =
+                instantiated_body(self.context, self.bindings, self.calls, *id, parameters);
+            if body_view.declarations[formal.0].ty != array {
+                return Err("reverse array concrete formal type is unsupported".into());
+            }
+            for header in [
+                declaration
+                    .child_nodes()
+                    .next()
+                    .ok_or("reverse array return type is unavailable")?,
+                formal_node,
+            ] {
+                let mut nodes = vec![header];
+                while let Some(node) = nodes.pop() {
+                    if !crate::definitions::annotations_safe(self.context, owner.file, node)
+                        || is_expression(node.kind())
+                    {
+                        return Err(
+                            "reverse array written type or annotation is unsupported".into()
+                        );
+                    }
+                    nodes.extend(node.child_nodes());
+                }
+            }
+            self.type_dependencies(owner.file, declaration, &body_view, &[])?;
+            self.type_dependencies(owner.file, formal_node, &body_view, &[])?;
+            self.reverse_parameter_array_body(owner.file, body, formal, &body_view, &array)
+        })();
+        Some(match checked {
+            Ok(()) => {
+                DefinitionSafety::Unknown("parameter array value and extent are unproved".into())
+            }
+            Err(reason) => DefinitionSafety::Unsupported(reason),
+        })
+    }
     fn direct_safety(
         &self,
         file: FileId,
@@ -14787,6 +16375,11 @@ impl<'a> Producer<'a> {
             return safety;
         }
         if let Some(safety) = self.floor_sum_source_safety(file, node, view, generators) {
+            return safety;
+        }
+        if let Some(safety) =
+            self.parameter_integer_array_value_safety(file, node, view, generators)
+        {
             return safety;
         }
         if let Some(safety) = self.parameter_float_safety(file, node, view, generators) {
@@ -15270,31 +16863,10 @@ impl<'a> Producer<'a> {
                             return DefinitionSafety::Unsupported(reason.into());
                         }
                     }
-                    if let Err(reason) = source_element.numeric_minimum() {
-                        let checked = (|| -> Result<(), String> {
-                            if element.kind != TypeKind::Int
-                                || source != &self.calls.declarations[array.0].ty
-                                || self.bindings.declarations[array.0].role
-                                    != DeclarationRole::Value
-                                || !self.bindings.declarations[array.0].top_level
-                            {
-                                return Err(reason.into());
-                            }
-                            let Domain::Range { lower, upper } =
-                                crate::domains::bare_index_domain(source_element)
-                            else {
-                                return Err(reason.into());
-                            };
-                            let inspected = Domain::Range {
-                                lower: self.inspect_array_extremum_bound(lower)?,
-                                upper: self.inspect_array_extremum_bound(upper)?,
-                            };
-                            inspected.numeric_minimum().map_err(str::to_owned)?;
-                            Ok(())
-                        })();
-                        if let Err(reason) = checked {
-                            return DefinitionSafety::Unsupported(reason);
-                        }
+                    if let Err(reason) =
+                        self.check_array_element_domain(array, source, source_element)
+                    {
+                        return DefinitionSafety::Unsupported(reason);
                     }
                     for selector in &children[1..] {
                         if let Some(reason) =

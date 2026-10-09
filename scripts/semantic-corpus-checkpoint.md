@@ -1674,6 +1674,7 @@ in `target/benchmarks/base083/semantic62-draft-workspace-rank2-array2d-final-{fm
 Original-model validation, actual integration and fresh final corpus acceptance
 remain pending.
 
+
 Release eleven builds successfully from the frozen reshape candidate in 11.860
 seconds. Complete Cargo streams, successful terminal receipt, equal maps,
 optimized non-test artifact events, frozen binary/origin equality and current
@@ -6016,3 +6017,36 @@ The operand inspection and later negative assertions remain unobserved. ROOT
 checked 125 unchanged inputs, both full streams and the reaped empty group.
 The temporary trace must not integrate; both repairs and whole-task acceptance
 remain pending.
+
+The selected union/FZN conditional, local and generator body checks now pass
+the ten focused v8 cases under semantic65-social-installed-body-preparation-v8.
+ROOT checked 1,247 unchanged inputs, both full streams and the reaped empty
+group. Main retains three new cases: the real local-body shape, a changed
+selected operator body and a known-empty local array. The body walk produces
+neither definitions nor output guarantees. Ordinary union calls and guarded
+partition-set closure remain separate boundaries pending fresh original controls.
+
+The reverse source reader inspects the selected standard body, initialized
+sources and exact formal/local/binder identities. An installed-library control
+first exposed unsupported primitive metadata; the local guard now reuses the
+union reader's atomic standard annotation check. Under
+semantic65-grouping-reverse-source-green-preparation-v3, the installed-library
+positive and the three focused cases pass. ROOT checked 1,163 unchanged inputs,
+four full streams and two reaped empty groups. Main's three cases retain the
+actual arithmetic metadata and refuse initialized-source and selected-body zero
+errors. Values, extents, membership and output proofs remain unproved.
+
+The ATSP let-equality source guard and bare symbolic count header now preserve
+actual element/header/operand errors instead of replacing them with the earlier
+strict membership limitation. Its private fallback returns Result<bool,String>;
+both successful uncertainty and actual source errors withhold both output
+directions. The positive, zero and empty cases pass under
+semantic65-atsp-remaining-preparation-v1/let-minmax-green-v3, with 131 unchanged
+inputs, both full streams and a reaped empty group. Main retains those three cases.
+
+The three increments are integrated together. The first main Clippy run found
+four redundant closures; those were removed. Main validation under
+main-union-reverse-let-sources-gates-v2 passes formatting, Clippy and all 245
+tests. ROOT checked 108 unchanged source files, six full streams and three
+reaped empty groups. Fresh original and complete corpus controls, measurements
+and whole-task independent verification remain pending; base-083 stays open.
