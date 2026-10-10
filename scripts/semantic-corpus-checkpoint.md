@@ -7273,3 +7273,11 @@ value certificates are published. Its partiality barrier retains Unknown
 definedness. All three focused cases, formatting, Clippy and all 288 workspace
 tests pass. Original and final corpus acceptance remain pending; base-083
 remains open.
+
+The next independently reviewed increment recovers source-inspection headers
+from the Local declaration's unique owning CST path. Comprehension bodies retain
+postfix headers, header sources retain their lexical prefix, and later consumer
+headers do not leak into the initializer. Strict dependency handling remains
+unchanged. Both focused cases, formatting, Clippy and all 289 workspace tests
+pass. Inspection stays Unknown without values or output certificates. Original
+and final corpus acceptance remain pending; base-083 remains open.

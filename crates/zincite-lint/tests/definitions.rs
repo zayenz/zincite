@@ -2368,3 +2368,150 @@ fn native_integer_domain_sources_preserve_unknown_and_errors() {
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
+
+#[test]
+fn local_parameter_sources_retain_owning_postfix_scope() {
+    let library = concat!(
+        "annotation mzn_internal_representation;\n",
+        "function set of int: '..'(int: a,int: b) :: mzn_internal_representation;\n",
+        "function int: min(array[int] of int: values);\n",
+        "function var bool: '<='(var int: a,var int: b) :: mzn_internal_representation;\n",
+        "function int: 'div'(int: a,int: b) :: mzn_internal_representation;\n",
+    );
+    let source = concat!(
+        "array[1..2] of set of int: sets;\n",
+        "array[1..2] of var int: choices = [let {\n",
+        "  int: cap = min([j | j in sets[i]]), var int: p,\n",
+        "  constraint p <= cap } in p | i in 1..2];\n",
+        "solve satisfy;\n",
+    );
+    for (name, source, fails) in [
+        ("local-postfix-scope", source.to_owned(), false),
+        (
+            "local-postfix-header-error",
+            source.replace("i in 1..2", "i in 1..(1 div 0)"),
+            true,
+        ),
+    ] {
+        let (directory, _) = model(name, "solve satisfy;", "");
+        let root = directory.join("root.mzn");
+        write(&directory.join("library/std/stdlib.mzn"), library);
+        write(&root, &source);
+        let context = load_model(
+            &root,
+            &ModelOptions {
+                stdlib_dir: Some(directory.join("library")),
+                include_dirs: Vec::new(),
+            },
+        );
+        assert!(context.errors.is_empty() && context.limitations.is_empty());
+        assert!(context.root_file.is_some() && context.implicit_core.is_some());
+        assert!(context.includes.iter().all(|edge| edge.target.is_some()));
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let file = context.root_file.unwrap();
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == file)
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. }))
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let callable = zincite_lint::resolve_callable_definitions(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+        );
+        let target = bindings
+            .declarations
+            .iter()
+            .find(|declaration| {
+                declaration.file == file && declaration.top_level && declaration.name == "choices"
+            })
+            .unwrap()
+            .id;
+        let local = bindings
+            .declarations
+            .iter()
+            .find(|declaration| {
+                declaration.file == file
+                    && declaration.role == zincite_lint::DeclarationRole::Local
+                    && declaration.name == "p"
+            })
+            .unwrap()
+            .id;
+        let initialized = definitions
+            .definitions
+            .iter()
+            .find(|definition| definition.target == target)
+            .unwrap();
+        assert!(callable.outputs.is_empty() && callable.inspected_locals.is_empty());
+        assert!(
+            !definitions
+                .definitions
+                .iter()
+                .any(|definition| definition.target == local)
+        );
+        assert!(
+            !definitions
+                .bounded_or_defined_targets(&bindings, &domains)
+                .contains(&target)
+        );
+        let analysis = analyze_model(
+            &context,
+            &LintOptions::from_selection("unbounded-variable").unwrap(),
+        );
+        assert!(analysis.errors.is_empty());
+        if fails {
+            let DefinitionSafety::Unsupported(reason) = &initialized.safety else {
+                panic!("{name}: {:?}", initialized.safety);
+            };
+            assert!(!reason.is_empty());
+            assert!(matches!(
+                analysis.rules[0].outcome,
+                RuleOutcome::Limited { .. }
+            ));
+            assert!(
+                analysis
+                    .limitations
+                    .iter()
+                    .any(|limit| limit.location.path == root
+                        && !limit.location.range.is_empty()
+                        && limit.message.contains(reason.as_str())),
+                "{name}: {:?}",
+                analysis.limitations
+            );
+        } else {
+            assert!(
+                matches!(initialized.safety, DefinitionSafety::Unknown(_)),
+                "LOCAL_SOURCE_SCOPE_RED {:?}",
+                initialized.safety
+            );
+            assert_eq!(
+                analysis.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{:?}",
+                analysis.limitations
+            );
+            assert!(
+                !analysis
+                    .findings
+                    .iter()
+                    .any(|finding| finding.message.contains("'choices'"))
+            );
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}

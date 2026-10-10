@@ -24911,6 +24911,7 @@ impl<'a> Producer<'a> {
                 if let Some(id) = self.reference(file, node) {
                     let declaration = &self.bindings.declarations[id.0];
                     if declaration.role == DeclarationRole::Local
+                        && declaration.file == file
                         && declaration.syntax_range.end <= node.range().start
                         && view.declarations[id.0].ty.instantiation == Instantiation::Parameter
                         && let Some(local) = find_node(
@@ -24921,11 +24922,13 @@ impl<'a> Producer<'a> {
                         && crate::definitions::annotations_safe(self.context, file, local)
                         && let Some(value) = local.child_nodes().find(|n| is_expression(n.kind()))
                     {
-                        let lexical: Vec<_> = generators
-                            .iter()
-                            .copied()
-                            .filter(|g| g.range().end <= declaration.syntax_range.start)
-                            .collect();
+                        let Some(lexical) =
+                            local_source_scope(self.context.files[file].parsed.tree(), local)
+                        else {
+                            return DefinitionSafety::Unsupported(
+                                "local initializer owning scope is unavailable".into(),
+                            );
+                        };
                         return self.direct_safety(file, value, view, &lexical);
                     }
                 }
@@ -26988,6 +26991,59 @@ fn same_output(a: &CallableOutput, b: &CallableOutput) -> bool {
         && a.dependencies == b.dependencies
         && a.coverage == b.coverage
         && a.enforced_boolean == b.enforced_boolean
+}
+// Recover the Local declaration's actual lexical headers for source inspection.
+// Later consumers contribute no headers, even when they use this local value.
+fn local_source_scope<'a>(
+    mut node: &'a SyntaxNode,
+    local: &'a SyntaxNode,
+) -> Option<Vec<&'a SyntaxNode>> {
+    let contains = |outer: &SyntaxNode| {
+        outer.range().start <= local.range().start && local.range().end <= outer.range().end
+    };
+    if local.kind() != NodeKind::Declaration || !contains(node) {
+        return None;
+    }
+    let mut scope = Vec::new();
+    while !std::ptr::eq(node, local) {
+        if let Some(list) = node
+            .child_nodes()
+            .find(|child| child.kind() == NodeKind::GeneratorList)
+        {
+            if !matches!(
+                node.kind(),
+                NodeKind::GeneratorCallExpression
+                    | NodeKind::ArrayComprehension
+                    | NodeKind::SetComprehension
+            ) {
+                return None;
+            }
+            if contains(list) {
+                let owners: Vec<_> = list.child_nodes().filter(|child| contains(child)).collect();
+                let [owner] = owners.as_slice() else {
+                    return None;
+                };
+                scope.extend(
+                    list.child_nodes()
+                        .take_while(|child| !std::ptr::eq(*child, *owner)),
+                );
+                if owner
+                    .child_nodes()
+                    .any(|child| child.kind() == NodeKind::WhereFilter && contains(child))
+                {
+                    scope.push(owner);
+                }
+            } else {
+                scope.extend(list.child_nodes());
+            }
+        }
+        let children: Vec<_> = node.child_nodes().filter(|child| contains(child)).collect();
+        let [child] = children.as_slice() else {
+            return None;
+        };
+        node = child;
+    }
+    Some(scope)
 }
 // Recover only the lexical prefix of this actual header inside the retained
 // subtree. An unavailable or ambiguous owning path keeps ordinary strict safety.
