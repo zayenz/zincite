@@ -8,7 +8,7 @@ MiniZinc source tools.
 Commands:
     fmt     Format source, check formatting or write explicit files
     lint    Report modelling advice, inspect rules or apply explicit fixes
-    query   Select source items by kind/name, emit source or count items
+    query   Select source items, count items or explicitly edit data assignments
 
 Use zincite <COMMAND> --help for command options.
 ";

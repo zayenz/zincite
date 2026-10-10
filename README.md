@@ -11,7 +11,7 @@ Zincite provides source tools for MiniZinc model (`.mzn`) and data
 
 - **`zincite fmt`** (or **`zincite-fmt`**) formats source, checks formatting, and writes changes in place.
 - **`zincite lint`** (or **`zincite-lint`**) is a linter for MiniZinc models and data.
-- **`zincite query`** (or **`zincite-query`**) selects items by kind/name and emits original source or a count.
+- **`zincite query`** (or **`zincite-query`**) selects items by kind/name, emits source or counts, and explicitly edits data assignments.
 
 The tools are written in Rust and share a parser that preserves source spelling,
 comments, whitespace and source locations. The commands do not require a MiniZinc
@@ -154,6 +154,12 @@ zincite query 'items | filter(kind("assignment")) | count' data.dzn
 
 # Print the first assignment named capacity from stdin.
 zincite query --stdin-filepath data.dzn 'filter(name("capacity")) | head(1)' < data.dzn
+
+# Preview a changed capacity without writing the data file.
+zincite query --diff 'filter(name("capacity")) | set_value("20")' data.dzn
+
+# Explicitly remove the selected assignment from one data file.
+zincite query --write 'filter(name("unused")) | remove' data.dzn
 ```
 
 Supply one query and at most one file or `-`; omitted input reads stdin.
@@ -166,7 +172,21 @@ Both `count` and `emit` end the pipeline.
 Selections use top-level items in written order and compare identifier identity,
 including quoted names. `filter` and `head` emit fragments containing selected
 items and attached comments; separated section comments stay in document output.
-Queries check syntax without loading includes or evaluating data. Query errors
+
+`set_value("EXPRESSION")` replaces selected assignment right-hand sides;
+`remove` deletes selected assignments and attached comments. These stages require
+`.dzn` data mode and return the entire validated candidate. One edit stage may be
+followed only by `emit_document`, which is also implicit. Comments before and
+after a replaced expression remain; internal expression comments cause a located
+placement error. Separated section comments and untouched bytes remain in the
+candidate. Removal keeps next-item directives with their targets and rejects
+unbalanced formatter regions.
+
+Default editing prints the candidate and leaves files unchanged. `--diff` previews
+it; `--write` replaces the explicit regular file after checking the original bytes
+again and preserving permissions. The modes are mutually exclusive; writes
+reject stdin and symlinks. Edits change instance meaning and establish syntax
+only. Queries check syntax without loading includes or evaluating data. Query errors
 exit 2 with empty stdout. See the [query reference](docs/reference.md#query-library)
 for kind strings, comment rules and limits, or run `zincite query --help`.
 
@@ -210,7 +230,7 @@ The commands have reusable Rust libraries:
 | `zincite-syntax` | Lexer, parser, source locations and a concrete syntax tree |
 | `zincite-fmt` | Formatting a parsed file, with configurable layout |
 | `zincite-lint` | Lint rules, diagnostics and explicit model/include context |
-| `zincite-query` | Syntax-only item selections, native counts and original source emission |
+| `zincite-query` | Syntax-only item selections, native counts and explicit data assignment edits |
 
 See the [syntax and library reference](docs/reference.md) for APIs and detailed
 language coverage. Generate local API documentation with

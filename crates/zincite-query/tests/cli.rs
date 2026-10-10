@@ -64,3 +64,70 @@ fn query_source_and_usage_errors_exit_two_with_empty_stdout() {
     assert!(help.contains("filter") && help.contains("count"));
     assert!(!help.contains("--model") && !help.contains("subtree"));
 }
+
+#[test]
+fn assignment_previews_and_explicit_write_share_complete_validated_bytes() {
+    let source = b"\xef\xbb\xbf% zincite-lint: ignore made-up-rule\r\nx = 1;\r\ny = 2;\r\n";
+    let candidate = b"\xef\xbb\xbf% zincite-lint: ignore made-up-rule\r\nx = 3;\r\ny = 2;\r\n";
+    let path = std::env::temp_dir().join(format!("zincite-query-edit-{}.dzn", std::process::id()));
+    std::fs::write(&path, source).unwrap();
+    let expression = "filter(name(\"x\")) | set_value(\"3\")";
+    let output = run(&[expression, path.to_str().unwrap()], b"");
+    assert!(output.status.success() && output.stderr.is_empty());
+    assert_eq!(output.stdout, candidate);
+    assert_eq!(std::fs::read(&path).unwrap(), source);
+    let output = run(&["--diff", expression, path.to_str().unwrap()], b"");
+    assert!(output.status.success() && output.stderr.is_empty());
+    assert!(output.stdout.starts_with(b"--- a/"));
+    assert!(
+        output
+            .stdout
+            .windows(b"+x = 3;\r\n".len())
+            .any(|bytes| bytes == b"+x = 3;\r\n")
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), source);
+    for invalid in ["set_value(\"[1,\")", "head(1) | set_value(\"3 % comment\")"] {
+        let output = run(&["--write", invalid, path.to_str().unwrap()], b"");
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert_eq!(std::fs::read(&path).unwrap(), source);
+    }
+    let output = run(&["--write", expression, path.to_str().unwrap()], b"");
+    assert!(output.status.success() && output.stderr.is_empty() && output.stdout.is_empty());
+    assert_eq!(std::fs::read(&path).unwrap(), candidate);
+    std::fs::remove_file(path).unwrap();
+
+    let output = run(
+        &["--diff", "--stdin-filepath", "data.dzn", expression],
+        source,
+    );
+    assert!(output.status.success() && output.stderr.is_empty());
+    assert!(output.stdout.starts_with(b"--- a/data.dzn\n"));
+}
+
+#[test]
+fn edit_modes_reject_invalid_usage_and_symlinks_without_partial_output() {
+    for arguments in [
+        vec!["--write", "--stdin-filepath", "data.dzn", "remove"],
+        vec!["--write", "--diff", "remove"],
+        vec!["--diff", "count"],
+    ] {
+        let output = run(&arguments, b"x = 1;\n");
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+    }
+    #[cfg(unix)]
+    {
+        let path =
+            std::env::temp_dir().join(format!("zincite-query-target-{}.dzn", std::process::id()));
+        let alias = path.with_extension("link.dzn");
+        std::fs::write(&path, b"x = 1;\n").unwrap();
+        std::os::unix::fs::symlink(&path, &alias).unwrap();
+        let output = run(&["--write", "remove", alias.to_str().unwrap()], b"");
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert_eq!(std::fs::read(&path).unwrap(), b"x = 1;\n");
+        std::fs::remove_file(alias).unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+}

@@ -18,6 +18,9 @@ pub(crate) enum StageKind {
     Head(usize),
     Count,
     Emit,
+    SetValue(String),
+    Remove,
+    EmitDocument,
 }
 
 #[derive(Debug)]
@@ -49,6 +52,7 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
         nesting_limit: limits.nesting.min(MAX_NESTING),
     };
     let mut stages = Vec::new();
+    let mut editing = false;
     parser.space();
     while parser.position < source.len() {
         let start = parser.position;
@@ -80,6 +84,14 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
             }
             "count" => StageKind::Count,
             "emit" => StageKind::Emit,
+            "set_value" => {
+                parser.punctuation(b'(', "expected '(' after set_value")?;
+                let (value, _) = parser.string()?;
+                parser.punctuation(b')', "expected ')' after replacement expression")?;
+                StageKind::SetValue(value)
+            }
+            "remove" => StageKind::Remove,
+            "emit_document" => StageKind::EmitDocument,
             _ => {
                 return Err(QueryError::query(
                     name_range,
@@ -87,7 +99,23 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
                 ));
             }
         };
-        let terminal = matches!(kind, StageKind::Count | StageKind::Emit);
+        if editing && !matches!(kind, StageKind::EmitDocument) {
+            return Err(QueryError::query(
+                start..parser.position,
+                "only emit_document may follow a transformation stage",
+            ));
+        }
+        if matches!(kind, StageKind::EmitDocument) && !editing {
+            return Err(QueryError::query(
+                start..parser.position,
+                "emit_document requires a transformation stage",
+            ));
+        }
+        editing |= matches!(kind, StageKind::SetValue(_) | StageKind::Remove);
+        let terminal = matches!(
+            kind,
+            StageKind::Count | StageKind::Emit | StageKind::EmitDocument
+        );
         stages.push(Stage {
             kind,
             range: start..parser.position,
@@ -98,7 +126,7 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
         }
         parser.punctuation(b'|', "expected '|' between query stages")?;
         if terminal {
-            return Err(parser.error("no stage may follow count or emit"));
+            return Err(parser.error("no stage may follow an emitter or count"));
         }
         if parser.position == source.len() {
             return Err(parser.error("expected a query stage after '|'"));
@@ -206,7 +234,7 @@ impl<'a> Parser<'a> {
     fn string(&mut self) -> Result<(String, Range<usize>), QueryError> {
         self.space();
         let start = self.position;
-        self.punctuation(b'"', "expected a double-quoted predicate argument")?;
+        self.punctuation(b'"', "expected a double-quoted argument")?;
         let mut value = String::new();
         while let Some(byte) = self.current() {
             match byte {

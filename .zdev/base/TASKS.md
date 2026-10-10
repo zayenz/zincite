@@ -4,8 +4,8 @@
 
 - Total: 96
 - Ready: 5
-- Blocked: 8
-- Done: 83
+- Blocked: 7
+- Done: 84
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -94,8 +94,8 @@
 | [base-083](tasks/083-complete-supported-semantic-facts-and-thesis-execution-cover.md) | Complete supported semantic facts and thesis execution coverage | blocked | base-080, base-082, base-094 |
 | [base-084](tasks/084-add-the-root-zincite-command-with-shared-fmt-and-lint-entry.md) | Add the root zincite command with shared fmt and lint entry points | done | — |
 | [base-085](tasks/085-deliver-source-preserving-item-queries-through-library-and-b.md) | Deliver source-preserving item queries through library and both commands | done | base-084 |
-| [base-086](tasks/086-replace-and-remove-selected-data-assignments-with-source-pre.md) | Replace and remove selected data assignments with source-preserving previews | ready | base-085 |
-| [base-087](tasks/087-inspect-and-filter-structured-literal-data-while-preserving.md) | Inspect and filter structured literal data while preserving keys and records | blocked | base-086 |
+| [base-086](tasks/086-replace-and-remove-selected-data-assignments-with-source-pre.md) | Replace and remove selected data assignments with source-preserving previews | done | base-085 |
+| [base-087](tasks/087-inspect-and-filter-structured-literal-data-while-preserving.md) | Inspect and filter structured literal data while preserving keys and records | ready | base-086 |
 | [base-088](tasks/088-reduce-enum-membership-and-dependent-indexed-records-and-arr.md) | Reduce enum membership and dependent indexed records and array slices | blocked | base-087 |
 | [base-089](tasks/089-prune-removed-enum-members-from-sets-and-repair-supported-gr.md) | Prune removed enum members from sets and repair supported group indices | blocked | base-088 |
 | [base-090](tasks/090-query-nested-expressions-and-emit-structured-source-inspecti.md) | Query nested expressions and emit structured source inspection reports | ready | base-085 |

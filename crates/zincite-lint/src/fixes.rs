@@ -1,5 +1,5 @@
 //! Read-only planning of atomic edits against exact original source bytes.
-//! Callers supply findings from selected, unsuppressed diagnostics.
+//! Lint callers supply findings from selected, unsuppressed diagnostics.
 //! Eligibility and syntax validation do not prove semantic safety. No file IO occurs.
 
 use std::fmt;
@@ -173,58 +173,7 @@ pub fn prepare_edits(
         if let Some(reason) = invalid {
             return Err(EditPlanError::InvalidGroup { group, reason });
         }
-        for (edit, change) in fix.edits.iter().enumerate() {
-            let range = &change.range;
-            let invalid = if range.start > range.end {
-                Some("range is reversed")
-            } else if range.end > source.len() {
-                Some("range is outside the original source")
-            } else if !zincite_syntax::is_utf8_boundary(source, range.start)
-                || !zincite_syntax::is_utf8_boundary(source, range.end)
-            {
-                Some("range splits a UTF-8 character")
-            } else {
-                None
-            };
-            if let Some(reason) = invalid {
-                return Err(EditPlanError::InvalidEdit {
-                    group,
-                    edit,
-                    reason,
-                });
-            }
-            for part in &change.replacement {
-                if let EditPart::Original(copy) = part {
-                    let invalid = if copy.start > copy.end {
-                        Some("copy range is reversed")
-                    } else if copy.start < range.start || copy.end > range.end {
-                        Some("copy range is outside the owning edit")
-                    } else if !zincite_syntax::is_utf8_boundary(source, copy.start)
-                        || !zincite_syntax::is_utf8_boundary(source, copy.end)
-                    {
-                        Some("copy range splits a UTF-8 character")
-                    } else {
-                        None
-                    };
-                    if let Some(reason) = invalid {
-                        return Err(EditPlanError::InvalidEdit {
-                            group,
-                            edit,
-                            reason,
-                        });
-                    }
-                }
-            }
-            for (first, previous) in fix.edits[..edit].iter().enumerate() {
-                if overlaps(&previous.range, range) {
-                    return Err(EditPlanError::OverlappingEdits {
-                        group,
-                        first,
-                        second: edit,
-                    });
-                }
-            }
-        }
+        validate_edits(source, group, &fix.edits)?;
     }
     let mut conflicts = vec![Vec::new(); groups.len()];
     for first in 0..groups.len() {
@@ -247,19 +196,7 @@ pub fn prepare_edits(
         .flat_map(|(fix, _)| &fix.edits)
         .collect();
     edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
-    let mut candidate = Vec::new();
-    let mut cursor = 0;
-    for edit in edits {
-        candidate.extend_from_slice(&source[cursor..edit.range.start]);
-        for part in &edit.replacement {
-            match part {
-                EditPart::Text(text) => candidate.extend_from_slice(text.as_bytes()),
-                EditPart::Original(range) => candidate.extend_from_slice(&source[range.clone()]),
-            }
-        }
-        cursor = edit.range.end;
-    }
-    candidate.extend_from_slice(&source[cursor..]);
+    let candidate = apply_ordered_edits(source, &edits);
     Ok(PreparedEdits {
         candidate,
         conflicts: conflicts
@@ -273,6 +210,121 @@ pub fn prepare_edits(
             .collect(),
     })
 }
+
+/// Apply one atomic batch of original-coordinate edits without lint fix metadata
+/// or eligibility policy. Stale source, invalid ranges/copies and any overlap
+/// reject the whole batch. An empty batch reproduces the original bytes.
+/// The caller must validate the complete candidate before output or replacement.
+pub fn prepare_text_edits(
+    snapshot: &SourceSnapshot,
+    current_source: &[u8],
+    edits: &[TextEdit],
+) -> Result<Vec<u8>, EditPlanError> {
+    let source = snapshot.source_bytes();
+    if current_source != source {
+        return Err(EditPlanError::StaleSource);
+    }
+    for (index, edit) in edits.iter().enumerate() {
+        validate_edit(source, 0, index, edit)?;
+    }
+    let mut ordered: Vec<_> = edits.iter().enumerate().collect();
+    ordered.sort_by_key(|(_, edit)| (edit.range.start, edit.range.end));
+    for pair in ordered.windows(2) {
+        if overlaps(&pair[0].1.range, &pair[1].1.range) {
+            return Err(EditPlanError::OverlappingEdits {
+                group: 0,
+                first: pair[0].0,
+                second: pair[1].0,
+            });
+        }
+    }
+    let edits: Vec<_> = ordered.into_iter().map(|(_, edit)| edit).collect();
+    Ok(apply_ordered_edits(source, &edits))
+}
+
+fn validate_edits(source: &[u8], group: usize, edits: &[TextEdit]) -> Result<(), EditPlanError> {
+    for (edit, change) in edits.iter().enumerate() {
+        validate_edit(source, group, edit, change)?;
+        for (first, previous) in edits[..edit].iter().enumerate() {
+            if overlaps(&previous.range, &change.range) {
+                return Err(EditPlanError::OverlappingEdits {
+                    group,
+                    first,
+                    second: edit,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_edit(
+    source: &[u8],
+    group: usize,
+    edit: usize,
+    change: &TextEdit,
+) -> Result<(), EditPlanError> {
+    let range = &change.range;
+    let invalid = if range.start > range.end {
+        Some("range is reversed")
+    } else if range.end > source.len() {
+        Some("range is outside the original source")
+    } else if !zincite_syntax::is_utf8_boundary(source, range.start)
+        || !zincite_syntax::is_utf8_boundary(source, range.end)
+    {
+        Some("range splits a UTF-8 character")
+    } else {
+        None
+    };
+    if let Some(reason) = invalid {
+        return Err(EditPlanError::InvalidEdit {
+            group,
+            edit,
+            reason,
+        });
+    }
+    for part in &change.replacement {
+        if let EditPart::Original(copy) = part {
+            let invalid = if copy.start > copy.end {
+                Some("copy range is reversed")
+            } else if copy.start < range.start || copy.end > range.end {
+                Some("copy range is outside the owning edit")
+            } else if !zincite_syntax::is_utf8_boundary(source, copy.start)
+                || !zincite_syntax::is_utf8_boundary(source, copy.end)
+            {
+                Some("copy range splits a UTF-8 character")
+            } else {
+                None
+            };
+            if let Some(reason) = invalid {
+                return Err(EditPlanError::InvalidEdit {
+                    group,
+                    edit,
+                    reason,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn apply_ordered_edits(source: &[u8], edits: &[&TextEdit]) -> Vec<u8> {
+    let mut candidate = Vec::new();
+    let mut cursor = 0;
+    for edit in edits {
+        candidate.extend_from_slice(&source[cursor..edit.range.start]);
+        for part in &edit.replacement {
+            match part {
+                EditPart::Text(text) => candidate.extend_from_slice(text.as_bytes()),
+                EditPart::Original(range) => candidate.extend_from_slice(&source[range.clone()]),
+            }
+        }
+        cursor = edit.range.end;
+    }
+    candidate.extend_from_slice(&source[cursor..]);
+    candidate
+}
+
 fn overlaps(a: &Range<usize>, b: &Range<usize>) -> bool {
     if a.is_empty() {
         b.start <= a.start && a.start <= b.end
@@ -384,6 +436,14 @@ pub(crate) fn validate_candidate(
     snapshot: &SourceSnapshot,
     candidate: &[u8],
 ) -> Result<(), FixPreparationError> {
+    validate_source_candidate(snapshot, candidate, true)
+}
+
+pub(crate) fn validate_source_candidate(
+    snapshot: &SourceSnapshot,
+    candidate: &[u8],
+    check_suppressions: bool,
+) -> Result<(), FixPreparationError> {
     let body = candidate.strip_prefix(b"\xef\xbb\xbf").unwrap_or(candidate);
     let offset = candidate.len() - body.len();
     let parsed = zincite_syntax::parse_bytes_with_mode(
@@ -402,7 +462,7 @@ pub(crate) fn validate_candidate(
         }])
     })?;
     let parsed = parsed.analysis_file();
-    let diagnostics = if parsed.diagnostics().is_empty() {
+    let diagnostics = if parsed.diagnostics().is_empty() && check_suppressions {
         let items: Vec<_> = parsed.tree().child_nodes().collect();
         crate::item_suppressions(parsed, &items)
             .err()

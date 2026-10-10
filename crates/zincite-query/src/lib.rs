@@ -1,12 +1,13 @@
 //! Syntax-only queries over top-level MiniZinc items in written order.
 //!
 //! [`Input`] owns original bytes and the CST. [`Query`] parses a fixed pipeline
-//! of `items`, `filter`, `head`, `count` and `emit`; evaluation returns native
-//! selections or a count. Rendering uses original bytes, including opaque
+//! for selecting items or editing data assignments; evaluation returns native
+//! selections, a count or a complete document. Rendering retains original bytes, including opaque
 //! comment bytes. Includes, names and data values are never evaluated.
 
 use std::ops::Range;
 
+use zincite_lint::{EditPart, SourceSnapshot, TextEdit, prepare_text_edits};
 use zincite_syntax::{
     ByteParsedFile, Diagnostic, FileMode, NodeKind, ParsedFile, SyntaxElement, SyntaxNode,
     TokenKind, byte_line_column, parse_bytes_with_mode,
@@ -17,7 +18,7 @@ mod language;
 
 use language::{Predicate, PredicateKind, Stage, StageKind};
 
-/// Bounds checked before adding items or visiting query stages and predicates.
+/// Bounds checked before collecting items, visiting stages or expanding edits.
 /// `nesting` can lower the hard ceiling of 64 nested parentheses/`not` operators.
 #[derive(Clone, Copy, Debug)]
 pub struct Limits {
@@ -80,6 +81,7 @@ pub struct Input {
     bytes: Vec<u8>,
     parsed: ByteParsedFile,
     syntax_offset: usize,
+    mode: FileMode,
 }
 
 impl Input {
@@ -110,6 +112,7 @@ impl Input {
             bytes,
             parsed,
             syntax_offset,
+            mode,
         })
     }
 
@@ -274,14 +277,17 @@ impl<'a> Selection<'a> {
 pub enum QueryResult<'a> {
     Selection(Selection<'a>),
     Count(usize),
+    /// Complete validated candidate from one intentional data transformation.
+    Document(Vec<u8>),
 }
 
 impl QueryResult<'_> {
     /// Render the complete result. Counts use decimal text and one LF; source
-    /// selections reproduce bytes without inserting separators or a final LF.
+    /// selections and documents reproduce bytes without adding separators or LF.
     pub fn render(&self) -> Vec<u8> {
         match self {
             Self::Count(count) => format!("{count}\n").into_bytes(),
+            Self::Document(bytes) => bytes.clone(),
             Self::Selection(selection) if selection.document => selection.input.bytes.clone(),
             Self::Selection(selection) => {
                 let mut bytes = Vec::new();
@@ -306,6 +312,12 @@ impl Query {
         language::parse(expression, limits)
     }
 
+    pub fn is_editing(&self) -> bool {
+        self.stages
+            .iter()
+            .any(|stage| matches!(stage.kind, StageKind::SetValue(_) | StageKind::Remove))
+    }
+
     pub fn evaluate<'a>(
         &self,
         input: &'a Input,
@@ -314,13 +326,14 @@ impl Query {
         let mut work = Work {
             remaining: limits.work,
         };
-        let mut items = collect_items(input, limits.collection, &mut work, &self.range)?;
+        let mut items = collect_items(input, limits.collection, &mut work, &self.range, true)?;
         let mut document = true;
+        let mut candidate = None;
         for stage in &self.stages {
             work.visit(&stage.range)?;
             match &stage.kind {
                 StageKind::Items => {
-                    items = collect_items(input, limits.collection, &mut work, &stage.range)?;
+                    items = collect_items(input, limits.collection, &mut work, &stage.range, true)?;
                     document = true;
                 }
                 StageKind::Filter(predicate) => {
@@ -339,8 +352,20 @@ impl Query {
                     document = false;
                 }
                 StageKind::Count => return Ok(QueryResult::Count(items.len())),
-                StageKind::Emit => {}
+                StageKind::SetValue(_) | StageKind::Remove => {
+                    candidate = Some(transform_assignments(
+                        input,
+                        &items,
+                        stage,
+                        &mut work,
+                        limits.collection,
+                    )?);
+                }
+                StageKind::Emit | StageKind::EmitDocument => {}
             }
+        }
+        if let Some(candidate) = candidate {
+            return Ok(QueryResult::Document(candidate));
         }
         if !document {
             validate_fragment_directives(input, &items)?;
@@ -353,19 +378,299 @@ impl Query {
     }
 }
 
+// Build one original-coordinate batch, validate its complete data candidate,
+// then return bytes. No selection is evaluated against the changed document.
+fn transform_assignments(
+    input: &Input,
+    items: &[SelectedItem<'_>],
+    stage: &Stage,
+    work: &mut Work,
+    collection_limit: usize,
+) -> Result<Vec<u8>, QueryError> {
+    if input.mode != FileMode::Data {
+        return Err(QueryError::query(
+            stage.range.clone(),
+            "assignment transformations require data-file mode (.dzn)",
+        ));
+    }
+    let replacement = match &stage.kind {
+        StageKind::SetValue(value) => {
+            work.spend(value.len(), &stage.range)?;
+            validate_replacement(value, &stage.range)?;
+            Some(value)
+        }
+        StageKind::Remove => None,
+        _ => unreachable!("only transformation stages construct a candidate"),
+    };
+    // Directive attachments can cross a blank-line boundary. Keep the ordinary
+    // comment attachments too, so separated section comments survive removal.
+    let ordinary_items = if replacement.is_none() {
+        collect_items(input, collection_limit, work, &stage.range, false)?
+    } else {
+        Vec::new()
+    };
+    let mut edits = Vec::with_capacity(items.len());
+    for item in items {
+        work.visit(&stage.range)?;
+        if item.kind != ItemKind::Assignment {
+            return Err(QueryError::input(
+                item.range.clone(),
+                "selected item is not an assignment",
+            ));
+        }
+        let edit = if let Some(value) = replacement {
+            work.spend(value.len(), &stage.range)?;
+            let rhs = assignment_rhs(item.node).ok_or_else(|| {
+                QueryError::input(
+                    item.range.clone(),
+                    "assignment has no single right-hand side",
+                )
+            })?;
+            let range = input.original_range(rhs.range());
+            let first = input
+                .syntax()
+                .tokens()
+                .partition_point(|token| token.range.end + input.syntax_offset <= range.start);
+            for (index, token) in input.syntax().tokens().iter().enumerate().skip(first) {
+                if token.range.start + input.syntax_offset >= range.end {
+                    break;
+                }
+                work.visit(&stage.range)?;
+                if matches!(token.kind, TokenKind::LineComment | TokenKind::BlockComment) {
+                    return Err(QueryError::input(
+                        input.token_range(index),
+                        "cannot replace a right-hand side with internal comments without choosing their new placement",
+                    ));
+                }
+            }
+            TextEdit {
+                range,
+                replacement: vec![EditPart::Text(value.clone())],
+            }
+        } else {
+            let ordinary = ordinary_items
+                .binary_search_by_key(&item.range.start, |item| item.range.start)
+                .unwrap();
+            removal_edit(
+                input,
+                item,
+                &ordinary_items[ordinary].source_range,
+                work,
+                &stage.range,
+            )?
+        };
+        edits.push(edit);
+    }
+    let removed = if replacement.is_none() { items } else { &[] };
+    validate_document_directives(input, removed, work, &stage.range)?;
+    let snapshot = SourceSnapshot::new("<query>.dzn", input.source_bytes());
+    let candidate = prepare_text_edits(&snapshot, input.source_bytes(), &edits)
+        .map_err(|error| QueryError::query(stage.range.clone(), error.to_string()))?;
+    let candidate_input = Input::parse(candidate.clone(), FileMode::Data).map_err(|error| {
+        QueryError::query(
+            stage.range.clone(),
+            format!(
+                "invalid data edit candidate: {}",
+                error.diagnostics[0].message
+            ),
+        )
+    })?;
+    validate_document_directives(&candidate_input, &[], work, &stage.range).map_err(|error| {
+        QueryError::query(
+            stage.range.clone(),
+            format!("invalid data edit candidate: {}", error.message),
+        )
+    })?;
+    Ok(candidate)
+}
+
+fn removal_edit(
+    input: &Input,
+    item: &SelectedItem<'_>,
+    ordinary_range: &Range<usize>,
+    work: &mut Work,
+    query_range: &Range<usize>,
+) -> Result<TextEdit, QueryError> {
+    let range = item.source_range.clone();
+    let mut deleted = Vec::new();
+    let tokens = input.syntax().tokens();
+    let first =
+        tokens.partition_point(|token| token.range.end + input.syntax_offset <= range.start);
+    for (index, token) in tokens.iter().enumerate().skip(first) {
+        if token.range.start + input.syntax_offset >= range.end {
+            break;
+        }
+        work.visit(query_range)?;
+        if !matches!(token.kind, TokenKind::LineComment | TokenKind::BlockComment)
+            || directive(input.token_bytes(index)).is_none()
+        {
+            continue;
+        }
+        let marker = input.token_range(index);
+        let start = line_indent_start(&input.bytes, marker.start, range.start);
+        let end = tokens
+            .get(index + 1)
+            .filter(|token| token.kind == TokenKind::Whitespace)
+            .map_or(marker.end, |token| token.range.end + input.syntax_offset)
+            .min(range.end);
+        deleted.push(start..end);
+    }
+    deleted.push(ordinary_range.start.max(range.start)..ordinary_range.end.min(range.end));
+    deleted.sort_by_key(|range| (range.start, range.end));
+    let mut replacement = Vec::new();
+    let mut cursor = range.start;
+    for deleted in deleted {
+        if cursor < deleted.start {
+            replacement.push(EditPart::Original(cursor..deleted.start));
+        }
+        cursor = cursor.max(deleted.end);
+    }
+    if cursor < range.end {
+        replacement.push(EditPart::Original(cursor..range.end));
+    }
+    Ok(TextEdit { range, replacement })
+}
+
+fn assignment_rhs(node: &SyntaxNode) -> Option<&SyntaxNode> {
+    let mut children = node.child_nodes();
+    let rhs = children.next()?;
+    children.next().is_none().then_some(rhs)
+}
+
+fn validate_replacement(value: &str, range: &Range<usize>) -> Result<(), QueryError> {
+    let source = format!("zincite_value = {value};");
+    let input = Input::parse(source.into_bytes(), FileMode::Data).map_err(|error| {
+        QueryError::query(
+            range.clone(),
+            format!(
+                "invalid replacement expression: {}",
+                error.diagnostics[0].message
+            ),
+        )
+    })?;
+    // A final item may omit its semicolon. Require our separator to survive
+    // tokenization so a trailing line comment cannot consume original source.
+    if !input
+        .syntax()
+        .tokens()
+        .last()
+        .is_some_and(|token| token.kind == TokenKind::Semicolon)
+    {
+        return Err(QueryError::query(
+            range.clone(),
+            "invalid replacement expression: trailing comment would hide the assignment separator",
+        ));
+    }
+    let mut items = input.syntax().tree().child_nodes();
+    if !items
+        .next()
+        .is_some_and(|item| assignment_rhs(item).is_some())
+        || items.next().is_some()
+    {
+        return Err(QueryError::query(
+            range.clone(),
+            "replacement must contain exactly one expression",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_document_directives(
+    input: &Input,
+    removed: &[SelectedItem<'_>],
+    work: &mut Work,
+    query_range: &Range<usize>,
+) -> Result<(), QueryError> {
+    let mut open = None;
+    let mut removal = 0;
+    let mut root_items = input.syntax().tree().child_nodes().peekable();
+    for (index, token) in input.syntax().tokens().iter().enumerate() {
+        work.visit(query_range)?;
+        if !matches!(token.kind, TokenKind::LineComment | TokenKind::BlockComment) {
+            continue;
+        }
+        let range = input.token_range(index);
+        while removed
+            .get(removal)
+            .is_some_and(|item| item.source_range.end <= range.start)
+        {
+            removal += 1;
+        }
+        let deleted = removed.get(removal).is_some_and(|item| {
+            item.source_range.start <= range.start && range.end <= item.source_range.end
+        });
+        while root_items
+            .peek()
+            .is_some_and(|node| node.range().end + input.syntax_offset <= range.start)
+        {
+            root_items.next();
+        }
+        let marker = directive(input.token_bytes(index));
+        let between_items = root_items
+            .peek()
+            .is_none_or(|node| node.range().start + input.syntax_offset >= range.end);
+        let standalone = standalone(&input.bytes, range.start, input.syntax_offset);
+        if matches!(marker, Some(Directive::Next))
+            && standalone
+            && between_items
+            && let Some(target) = root_items.peek()
+        {
+            let target = target.range().start + input.syntax_offset;
+            let target_deleted = removed
+                .binary_search_by_key(&target, |item| item.range.start)
+                .is_ok();
+            if deleted != target_deleted {
+                return Err(QueryError::input(
+                    range,
+                    "transformation would separate a next-item directive from its target",
+                ));
+            }
+        }
+        if deleted {
+            continue;
+        }
+        if matches!(marker, Some(Directive::Off | Directive::On)) {
+            if !standalone || !between_items {
+                return Err(QueryError::input(
+                    range,
+                    "paired formatter directives must be standalone comments between complete items",
+                ));
+            }
+            match marker {
+                Some(Directive::Off) if open.is_none() => open = Some(range),
+                Some(Directive::On) if open.is_some() => open = None,
+                _ => {
+                    return Err(QueryError::input(
+                        range,
+                        "transformation would unbalance paired formatter directives",
+                    ));
+                }
+            }
+        }
+    }
+    if let Some(range) = open {
+        return Err(QueryError::input(
+            range,
+            "transformation would unbalance paired formatter directives",
+        ));
+    }
+    Ok(())
+}
+
 struct Work {
     remaining: usize,
 }
 
 impl Work {
     fn visit(&mut self, range: &Range<usize>) -> Result<(), QueryError> {
-        if self.remaining == 0 {
-            return Err(QueryError::query(
-                range.clone(),
-                "query work limit exceeded",
-            ));
-        }
-        self.remaining -= 1;
+        self.spend(1, range)
+    }
+
+    fn spend(&mut self, amount: usize, range: &Range<usize>) -> Result<(), QueryError> {
+        self.remaining = self
+            .remaining
+            .checked_sub(amount)
+            .ok_or_else(|| QueryError::query(range.clone(), "query work limit exceeded"))?;
         Ok(())
     }
 }
@@ -410,6 +715,7 @@ fn collect_items<'a>(
     collection_limit: usize,
     work: &mut Work,
     range: &Range<usize>,
+    include_directives: bool,
 ) -> Result<Vec<SelectedItem<'a>>, QueryError> {
     let mut items = Vec::new();
     for node in input.syntax().tree().child_nodes() {
@@ -443,11 +749,11 @@ fn collect_items<'a>(
             range,
         });
     }
-    attach_comments(input, &mut items);
+    attach_comments(input, &mut items, include_directives);
     Ok(items)
 }
 
-fn attach_comments(input: &Input, items: &mut [SelectedItem<'_>]) {
+fn attach_comments(input: &Input, items: &mut [SelectedItem<'_>], include_directives: bool) {
     let tokens = input.syntax().tokens();
     for next in 0..=items.len() {
         let gap_start = if next == 0 {
@@ -504,6 +810,9 @@ fn attach_comments(input: &Input, items: &mut [SelectedItem<'_>]) {
                 }
             }
             items[next].source_range.start = start.max(boundary);
+        }
+        if !include_directives {
+            continue;
         }
         // Next-item markers stay with their target even across blank lines.
         // The closing formatter marker belongs to the last item in its region.

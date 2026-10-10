@@ -21,12 +21,12 @@ pub use element::{ElementRewrite, resolve_element_rewrites};
 mod expensive_comprehension;
 mod fix_files;
 mod semantic_fixes;
-pub use fix_files::{FileFixError, replace_fixed_file, write_fix_diff};
+pub use fix_files::{FileFixError, replace_fixed_file, replace_source_file, write_fix_diff};
 mod fixes;
 pub use fixes::{
     EditPart, EditPlanError, Fix, FixConflict, FixOptions, FixPreparationError, FixSafety,
     OmittedFix, PreparedEdits, PreparedFixes, SourceSnapshot, TextEdit, prepare_edits,
-    prepare_fixes,
+    prepare_fixes, prepare_text_edits,
 };
 mod global_patterns;
 mod global_uses;

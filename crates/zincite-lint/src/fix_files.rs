@@ -1,9 +1,9 @@
-//! Explicit file replacement and read-only preview for caller-supplied fixes.
+//! Explicit single-file replacement and read-only source previews.
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
 
-use crate::fixes::validate_candidate;
+use crate::fixes::{validate_candidate, validate_source_candidate};
 use crate::{FixPreparationError, SourceSnapshot};
 
 #[derive(Debug)]
@@ -48,6 +48,21 @@ fn check_original(snapshot: &SourceSnapshot) -> Result<fs::Metadata, FileFixErro
 /// dependencies or perform another fix pass. Callers decide eligibility first.
 pub fn replace_fixed_file(snapshot: &SourceSnapshot, candidate: &[u8]) -> Result<(), FileFixError> {
     validate_candidate(snapshot, candidate).map_err(FileFixError::Candidate)?;
+    replace_validated_file(snapshot, candidate)
+}
+
+/// Replace the explicit regular file after checking model/data syntax only.
+/// This uses the same byte, type, permission and temporary-file checks as
+/// `replace_fixed_file`, without interpreting lint suppression comments.
+pub fn replace_source_file(
+    snapshot: &SourceSnapshot,
+    candidate: &[u8],
+) -> Result<(), FileFixError> {
+    validate_source_candidate(snapshot, candidate, false).map_err(FileFixError::Candidate)?;
+    replace_validated_file(snapshot, candidate)
+}
+
+fn replace_validated_file(snapshot: &SourceSnapshot, candidate: &[u8]) -> Result<(), FileFixError> {
     let metadata = check_original(snapshot)?;
     if candidate == snapshot.source_bytes() {
         return Ok(());

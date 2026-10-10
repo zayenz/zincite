@@ -217,9 +217,30 @@ fn stale_and_invalid_atomic_groups_reject_without_a_candidate() {
     let mut internal_overlap = valid.clone();
     internal_overlap.edits.push(edit(one..one + 1, "2"));
     assert!(matches!(
-        prepare_edits(&snapshot, source.as_bytes(), &[internal_overlap]),
+        prepare_edits(
+            &snapshot,
+            source.as_bytes(),
+            std::slice::from_ref(&internal_overlap)
+        ),
         Err(EditPlanError::OverlappingEdits { group: 0, .. })
     ));
+    use zincite_lint::prepare_text_edits;
+    assert_eq!(
+        prepare_text_edits(&snapshot, b"stale", &valid.edits),
+        Err(EditPlanError::StaleSource)
+    );
+    assert!(matches!(
+        prepare_text_edits(&snapshot, source.as_bytes(), &internal_overlap.edits),
+        Err(EditPlanError::OverlappingEdits { .. })
+    ));
+    assert_eq!(
+        prepare_text_edits(&snapshot, source.as_bytes(), &[]).unwrap(),
+        source.as_bytes()
+    );
+    assert_eq!(
+        prepare_text_edits(&snapshot, source.as_bytes(), &valid.edits).unwrap(),
+        source.replace("=1", "=0x1").as_bytes()
+    );
     let empty = fix(&snapshot, "No edits", vec![]);
     assert!(matches!(
         prepare_edits(&snapshot, source.as_bytes(), &[empty]),

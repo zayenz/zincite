@@ -6,4 +6,5 @@ license.workspace = true
 description = "Source-preserving MiniZinc item queries"
 
 [dependencies]
+zincite-lint = { path = "../zincite-lint" }
 zincite-syntax = { path = "../zincite-syntax" }

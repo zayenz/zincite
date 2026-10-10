@@ -119,6 +119,32 @@ fn query_selects_data_and_reports_errors_without_partial_stdout() {
     let output = run(&["query", "items | head(1) | count", "-"], source);
     assert!(output.status.success() && output.stderr.is_empty());
     assert_eq!(output.stdout, b"1\n");
+    let output = run(
+        &[
+            "query",
+            "--stdin-filepath",
+            "data.dzn",
+            "filter(name(\"capacity\")) | set_value(\"4\")",
+        ],
+        source,
+    );
+    assert!(output.status.success() && output.stderr.is_empty());
+    assert_eq!(
+        output.stdout,
+        b"% attached\r\n'capacity' = 4; % tail\r\na = 1;\r\n"
+    );
+    let output = run(
+        &[
+            "query",
+            "--diff",
+            "--stdin-filepath",
+            "data.dzn",
+            "head(1) | remove",
+        ],
+        source,
+    );
+    assert!(output.status.success() && output.stderr.is_empty());
+    assert!(output.stdout.starts_with(b"--- a/data.dzn\n"));
     let output = run(&["query", "count | emit"], source);
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());

@@ -229,3 +229,114 @@ fn fragments_keep_next_item_directives_and_reject_unbalanced_formatter_pairs() {
     assert!(error.message.contains("unbalance"));
     assert_eq!(query(&input, "head(1) | count").render(), b"1\n");
 }
+
+#[test]
+fn assignment_edits_emit_complete_documents_and_preserve_surviving_bytes() {
+    let source = b"\xef\xbb\xbf% Section\r\n\r\n% attached \xff\r\n'capacity' = /* before \xff */ [1, 2] /* after */; % tail\r\n\r\n% zincite-lint: ignore made-up-rule\r\n\r\nused = 1;\r\n";
+    let input = Input::parse(source.to_vec(), FileMode::Data).unwrap();
+    let expression = "filter(name(\"capacity\")) | set_value(\"[3, 4]\")";
+    let expected = b"\xef\xbb\xbf% Section\r\n\r\n% attached \xff\r\n'capacity' = /* before \xff */ [3, 4] /* after */; % tail\r\n\r\n% zincite-lint: ignore made-up-rule\r\n\r\nused = 1;\r\n";
+    for expression in [
+        expression.to_owned(),
+        format!("{expression} | emit_document"),
+    ] {
+        let result = query(&input, &expression);
+        assert!(matches!(result, QueryResult::Document(_)));
+        assert_eq!(result.render(), expected);
+    }
+    assert_eq!(
+        query(&input, "filter(name(\"used\")) | remove").render(),
+        b"\xef\xbb\xbf% Section\r\n\r\n% attached \xff\r\n'capacity' = /* before \xff */ [1, 2] /* after */; % tail\r\n\r\n"
+    );
+    assert_eq!(
+        query(&input, "filter(name(\"capacity\")) | remove").render(),
+        b"\xef\xbb\xbf% Section\r\n\r\n\r\n% zincite-lint: ignore made-up-rule\r\n\r\nused = 1;\r\n"
+    );
+    assert_eq!(query(&input, "head(0) | remove").render(), source);
+    assert_eq!(input.source_bytes(), source);
+}
+
+#[test]
+fn removals_keep_next_item_targets_and_require_balanced_formatter_regions() {
+    let source = b"% zincite-fmt: skip\n\nx = 1;\ny = 2;\n";
+    let input = Input::parse(source.to_vec(), FileMode::Data).unwrap();
+    assert_eq!(query(&input, "head(1) | remove").render(), b"y = 2;\n");
+    let section = Input::parse(
+        b"% zincite-fmt: skip\n\n% Section\n\nx = 1;\ny = 2;\n".to_vec(),
+        FileMode::Data,
+    )
+    .unwrap();
+    assert_eq!(
+        query(&section, "head(1) | remove").render(),
+        b"% Section\n\ny = 2;\n"
+    );
+    let source = b"% zincite-fmt: off\nx = 1;\ny = 2;\n% zincite-fmt: on\nz = 3;\n";
+    let input = Input::parse(source.to_vec(), FileMode::Data).unwrap();
+    assert_eq!(query(&input, "head(2) | remove").render(), b"z = 3;\n");
+    let error = Query::parse("head(1) | remove", Limits::default())
+        .unwrap()
+        .evaluate(&input, Limits::default())
+        .unwrap_err();
+    assert_eq!(error.location, ErrorLocation::Input);
+    assert!(error.message.contains("unbalance"));
+    assert_eq!(&input.source_bytes()[error.range], b"% zincite-fmt: on");
+}
+
+#[test]
+fn edits_refuse_invalid_replacements_internal_comments_and_stale_stage_evaluation() {
+    for expression in [
+        "remove | count",
+        "remove | filter(name(\"x\"))",
+        "set_value(\"1\") | remove",
+        "set_value(\"1\") | emit",
+        "emit_document",
+    ] {
+        assert!(Query::parse(expression, Limits::default()).is_err());
+    }
+    let input = Input::parse(b"x = 1; y = 2;".to_vec(), FileMode::Data).unwrap();
+    for value in ["", "[1,", "1; injected = 2"] {
+        let expression = format!("head(0) | set_value(\"{value}\")");
+        let error = Query::parse(&expression, Limits::default())
+            .unwrap()
+            .evaluate(&input, Limits::default())
+            .unwrap_err();
+        assert_eq!(error.location, ErrorLocation::Query);
+        assert!(error.message.contains("replacement"));
+    }
+    // A final item can parse without a separator; replacement text must still
+    // leave the original separator and same-line surviving assignment visible.
+    let error = Query::parse("head(1) | set_value(\"3 % comment\")", Limits::default())
+        .unwrap()
+        .evaluate(&input, Limits::default())
+        .unwrap_err();
+    assert_eq!(error.location, ErrorLocation::Query);
+    assert!(error.message.contains("assignment separator"));
+    let model = Input::parse(b"x = 1;".to_vec(), FileMode::Model).unwrap();
+    assert!(
+        Query::parse("remove", Limits::default())
+            .unwrap()
+            .evaluate(&model, Limits::default())
+            .unwrap_err()
+            .message
+            .contains("data-file mode")
+    );
+    let comments = Input::parse(b"x = [1, % internal\n2];".to_vec(), FileMode::Data).unwrap();
+    let error = Query::parse("set_value(\"[3]\")", Limits::default())
+        .unwrap()
+        .evaluate(&comments, Limits::default())
+        .unwrap_err();
+    assert_eq!(error.location, ErrorLocation::Input);
+    assert_eq!(&comments.source_bytes()[error.range], b"% internal");
+    assert!(error.message.contains("placement"));
+    let error = Query::parse("set_value(\"1234567890\")", Limits::default())
+        .unwrap()
+        .evaluate(
+            &input,
+            Limits {
+                work: 20,
+                ..Limits::default()
+            },
+        )
+        .unwrap_err();
+    assert!(error.message.contains("work limit"));
+}

@@ -169,6 +169,7 @@ dependencies = [
 name = "zincite-query"
 version = "0.1.0"
 dependencies = [
+ "zincite-lint",
  "zincite-syntax",
 ]
 

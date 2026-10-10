@@ -222,7 +222,8 @@ by the objective expression. Each node retains its precise source range.
 ## Query library
 
 `zincite-query` selects top-level items from one model or assignment-only data
-file. Its reusable library and both commands use the same fixed pipeline:
+file and explicitly edits selected data assignments. Its reusable library and
+both commands use the same fixed pipeline:
 
 | Stage | Result |
 | --- | --- |
@@ -231,11 +232,16 @@ file. Its reusable library and both commands use the same fixed pipeline:
 | `head(n)` | Keep the first `n` items of the computed selection |
 | `count` | Return a native count; render as decimal text followed by LF |
 | `emit` | Render the selected original source bytes |
+| `set_value("EXPRESSION")` | Replace selected assignment right-hand sides in data mode |
+| `remove` | Remove selected data assignments and their attached comments/directives |
+| `emit_document` | Render the complete validated edit candidate |
 
 Stages are separated by `|`. The initial selection is `items`, including for an
 empty query. Source emission is implicit. `count` and `emit` are terminal;
-following stages are errors. `head` does not avoid parsing or evaluating the
-earlier selection. No input items produces an empty selection or count 0;
+following stages are errors. A pipeline may contain one transformation stage,
+followed only by its optional `emit_document`; document emission is implicit for
+edits. `emit_document` requires a transformation. `head` does not avoid parsing
+or evaluating the earlier selection. No input items produces an empty selection or count 0;
 the untouched selection of a comment-only document still emits its original bytes.
 
 Predicates are `kind("assignment")` and `name("capacity")`, combined with
@@ -280,6 +286,24 @@ opaque non-UTF-8 comment bytes; code and literals must be UTF-8. Input parsing
 rejects malformed/unsupported syntax and non-assignment data items. It establishes
 syntax only, not compiler acceptance or semantic validity of data expressions.
 
+Assignment edits require data-file mode, even when a model-mode input contains
+only assignments. `set_value` checks that its argument contains one valid
+expression, including when no assignment is selected. It replaces only the RHS
+node range, preserving identifier spelling, surrounding comments and whitespace.
+Comments inside that range cause a located error because their replacement
+position is unspecified. `remove` deletes attached comments with each assignment,
+keeps separated section comments, and removes next-item directives with their
+original targets. Surviving paired formatter directives must remain balanced and
+standalone between complete items. Query edits preserve opaque lint directive
+comments without interpreting rule names.
+
+Edits use original byte coordinates, validate ranges/copies and reject overlaps
+as one atomic batch. The complete candidate is reparsed as data before output;
+no later query stage uses the original CST against the changed bytes. An empty
+edit selection returns the complete original document. These operations change
+instance meaning: parsing does not establish compiler type validity, semantic
+equivalence or satisfiability.
+
 Use the library independently:
 
 ```rust,ignore
@@ -298,8 +322,9 @@ if let QueryResult::Selection(selection) = &result {
 let original_fragment = result.render();
 ```
 
-`QueryResult` keeps a `Selection` or `Count` native until `render`. A selection
-borrows its `Input`, its item CST nodes and identifier identities. `Input` exposes
+`QueryResult` keeps a `Selection`, `Count` or owned `Document(Vec<u8>)` native
+until `render`. `Document` contains a complete validated edit candidate. A
+selection borrows its `Input`, its item CST nodes and identifier identities. `Input` exposes
 original bytes, token bytes/ranges and source locations. `SelectedItem::range`
 and `source_range`, `Input::token_range` and all input diagnostics use original
 byte coordinates. The analysis CST from `Input::syntax` excludes a leading BOM;
@@ -310,8 +335,9 @@ Queries have a hard limit of 1,048,576 UTF-8 bytes and 64 nested parentheses/`no
 operators. Flat `and`/`or` chains do not consume nesting depth. `Limits::nesting`
 can lower that ceiling. Default evaluation limits are 100,000 collected items
 and 1,000,000 visits: each initial/reset item, stage, filtered item and visited
-predicate costs one visit. Boolean evaluation short circuits. Checks occur
-before collection additions and visits; exceeding a bound returns a located
+predicate costs one visit. Edit traversal costs one visit per inspected token;
+replacement validation and each expansion charge the replacement byte length.
+Boolean evaluation short circuits. Checks occur before collection additions and visits; exceeding a bound returns a located
 error without truncating the result. Library callers can change work/collection
 limits. Nesting is checked during query parsing; work/collection during evaluation.
 
@@ -323,6 +349,23 @@ such as `--model`, `-I` and `--stdlib-dir` are rejected. Query diagnostics ident
 path and original source byte ranges. Both command forms buffer a complete result
 before writing stdout, exit 0 on success and 2 on query/input/usage/I/O errors.
 Query and input failures leave stdout empty.
+
+Editing prints the complete candidate by default and never writes implicitly.
+`--diff` and `--write` require an editing pipeline and are mutually exclusive.
+Diff accepts stdin and buffers a whole-file unified preview. Write requires the
+explicit regular file, rejects stdin and symlinks, checks exact original bytes
+again before rename, and preserves file permissions through a completed sibling
+temporary. Successful writes emit no source. Invalid or stale candidates leave
+the original unchanged. Includes and model files are never implicit write targets.
+
+The shared edit API `zincite_lint::prepare_text_edits(snapshot, current_source,
+edits)` applies one atomic `TextEdit` batch without fix metadata or lint eligibility.
+It accepts an empty batch, retains original copy bytes and rejects stale source,
+invalid ranges/copies and overlaps. The caller validates the complete candidate.
+`replace_source_file(snapshot, candidate)` checks syntax and uses the existing
+single-file replacement operation. Lint's `prepare_edits`, `prepare_fixes` and
+`replace_fixed_file` retain their fix metadata, eligibility, conflict omission
+and suppression checks.
 
 ## Formatter library
 
