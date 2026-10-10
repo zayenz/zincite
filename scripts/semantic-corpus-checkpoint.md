@@ -6601,6 +6601,32 @@ Peak RSS is 4,502 MiB versus 4,620 MiB in this single pair. ROOT checked 793
 unchanged pins, four terminal receipts, eight full streams and the binary under
 `target/benchmarks/base083/semantic69-project17-duplicate-record-comparison-preparation-v1`.
 This candidate adds a transient table proportional to distinct retained rows;
-fresh allocation measurements are required before integration. Native RSS alone
-does not quantify its added storage. No performance admission or final corpus
-acceptance is claimed for the pending candidate.
+fresh matched allocation measurements are now complete. Analysis adds eighteen
+allocation calls and 59,768,748 cumulative requested bytes (about 57 MiB).
+Retained bytes and measured phase peak remain unchanged, as do all load/render
+allocation fields; both drop checks return live bytes to their starting value.
+The table is not free: its transient storage may be below a later phase peak,
+and cumulative requested bytes do not measure its exact live capacity. It borrows
+paths, preserves duplicate upgrade/removal order, and drops with the producer.
+ROOT and an independent reader checked both 895-input maps, four receipts,
+eight full streams, binaries and diagnostic parity under
+`target/benchmarks/base083/semantic69-project17-duplicate-record-allocation-preparation-v1`.
+Concurrent companions provide allocation evidence only; their RSS observations
+(4,537 and 4,471 MiB) establish no stable memory improvement or timing ratio.
+The measured CPU benefit and bounded table growth justify this increment.
+Integrated formatting, Clippy and workspace tests pass under
+`target/benchmarks/base083/semantic69-duplicate-record-main-gates-v1`.
+Final corpus acceptance remains open.
+
+The current Workforce original preflight resolves the selected enum-array
+`regular` wrapper and its integer-array/string `fzn_regular` native call exactly.
+Both invocation-source checks pass; the original schedule slice remains Unknown
+for full-axis evaluation or scalar membership, and the literal string is source-
+safe. The inner enum conversion retains the actual slice correspondence. The
+bodyless native still has no discovered instance, so its limitation is preserved;
+source-only acceptance does not establish regex evaluation validity. The original
+also retains local-axis, initialized integer-set, direct-definition and other
+source prerequisites. ROOT checked 1,173 unchanged pins and the successful
+receipt/full streams under
+`target/benchmarks/base083/semantic68-workforce-regular-source-preflight-preparation-v2`.
+No adapter, membership, output or whole-original completion is inferred.

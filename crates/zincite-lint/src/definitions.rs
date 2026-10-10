@@ -8,6 +8,8 @@ use crate::{
     SourceKind, SourceLocation, TypeKind,
 };
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
+use std::path::Path;
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -168,6 +170,7 @@ pub fn resolve_definitions(
         instantiations,
         domains,
         definitions: Vec::new(),
+        definition_keys: HashSet::new(),
         active_forwarding: Vec::new(),
     };
     for declaration in &bindings.declarations {
@@ -278,6 +281,7 @@ struct Producer<'a> {
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     definitions: Vec<Definition>,
+    definition_keys: HashSet<(usize, &'a Path, Range<usize>, Range<usize>)>,
     active_forwarding: Vec<(FileId, usize)>,
 }
 impl<'context> Producer<'context> {
@@ -589,12 +593,20 @@ impl<'context> Producer<'context> {
         let (target, coverage) = candidate;
         let location = self.context.files[file].location(node.range());
         let value_location = self.context.files[file].location(value.range());
-        if let Some(index) = self.definitions.iter().position(|d| {
-            d.target == target
-                && d.location.path == location.path
-                && d.location.range == location.range
-                && d.value.range == value_location.range
-        }) {
+        let key = (
+            target.0,
+            self.context.files[file].path.as_path(),
+            location.range.clone(),
+            value_location.range.clone(),
+        );
+        if !self.definition_keys.insert(key)
+            && let Some(index) = self.definitions.iter().position(|d| {
+                d.target == target
+                    && d.location.path == location.path
+                    && d.location.range == location.range
+                    && d.value.range == value_location.range
+            })
+        {
             // A default expression can first be seen as a declaration value,
             // then as the actual forwarded argument of an enforced call.
             if self.definitions[index].enforcement == DefinitionEnforcement::Enforced
