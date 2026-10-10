@@ -2792,7 +2792,7 @@ impl<'a> Producer<'a> {
         if let Some(state) = invocation.as_ref()
             && (!matches!(clause.kind, ClauseKind::Local)
                 || self
-                    .inspect_uncertain_index_let(clause, inputs.1, None, &[])
+                    .inspect_uncertain_index_let(clause, inputs.1, None, &[], invocation.as_deref())
                     .is_none())
         {
             let (_, view, _) = inputs;
@@ -3373,7 +3373,9 @@ impl<'a> Producer<'a> {
                     );
                     return;
                 }
-                if let Some(result) = self.inspect_uncertain_index_let(clause, view, None, &[]) {
+                if let Some(result) =
+                    self.inspect_uncertain_index_let(clause, view, None, &[], invocation.as_deref())
+                {
                     if let Err(reason) = result {
                         self.unavailable(clause, &reason, unavailable);
                     }
@@ -8307,6 +8309,7 @@ impl<'a> Producer<'a> {
                     self.view(file, array, view),
                     invocation,
                     &mut Vec::new(),
+                    false,
                 );
             }
         }
@@ -8319,6 +8322,7 @@ impl<'a> Producer<'a> {
         view: &'b CallableFacts,
         invocation: &Invocation<'a, 'b>,
         active: &mut Vec<DeclarationId>,
+        inspect_adapter: bool,
     ) -> Result<Option<bool>, String> {
         let actual = self.invocation_source(file, node, invocation)?;
         if actual.is_some_and(|actual| actual.collection) {
@@ -8452,9 +8456,40 @@ impl<'a> Producer<'a> {
                     self.view(owner.file, value, view),
                     invocation,
                     active,
+                    inspect_adapter,
                 );
                 active.pop();
                 result
+            }
+            NodeKind::CallExpression if inspect_adapter => {
+                let Some(argument) = self.array_conversion_argument(file, node, view) else {
+                    return Ok(None);
+                };
+                let call = self
+                    .operation_fact(view, file, node)
+                    .ok_or("invoked array adapter selection unavailable")?;
+                let CallOutcome::Resolved {
+                    declaration,
+                    parameters,
+                    return_type,
+                } = &call.outcome
+                else {
+                    return Err("invoked array adapter selection unsupported".into());
+                };
+                let name = &self.bindings.declarations[declaration.0].name;
+                if !self.prefix_primitive(file, node, view, name, parameters, return_type) {
+                    return Err("invoked array adapter written declaration is unsupported".into());
+                }
+                if let DefinitionSafety::Unsupported(reason) = self.initialized_source_safety(
+                    file,
+                    node,
+                    view,
+                    actual_generators,
+                    &mut Vec::new(),
+                ) {
+                    return Err(reason);
+                }
+                self.invocation_array_empty(file, argument, view, invocation, active, true)
             }
             _ => Ok(None),
         }
@@ -11818,7 +11853,7 @@ impl<'a> Producer<'a> {
                 generators: clause.generators.clone(),
                 kind: ClauseKind::Local,
             };
-            self.inspect_uncertain_index_let(&local, view, Some(&private), &relations)
+            self.inspect_uncertain_index_let(&local, view, Some(&private), &relations, None)
                 .ok_or("private index local scope is unsupported")??;
             let incoming = invocation.as_ref().and_then(|state| state.reachable);
             let reachable = match invocation.as_ref() {
@@ -11867,12 +11902,13 @@ impl<'a> Producer<'a> {
             Ok(())
         })())
     }
-    fn inspect_uncertain_index_let(
-        &self,
+    fn inspect_uncertain_index_let<'b>(
+        &'b self,
         clause: &Clause<'a>,
-        view: &CallableFacts,
+        view: &'b CallableFacts,
         private: Option<&[DeclarationId; 5]>,
         relations: &[&'a SyntaxNode],
+        invocation: Option<&Invocation<'a, 'b>>,
     ) -> Option<Result<(), String>> {
         // This branch inspects a selected callable body only. It cannot certify
         // model-root locals through the stricter whole-item acceptance gates.
@@ -11940,6 +11976,12 @@ impl<'a> Producer<'a> {
                 })
                 .map(|d| d.id)
                 .collect();
+            let private_integer_arrays = private.is_none() && local_ids.iter().any(|id| {
+                let ty = &view.declarations[id.0].ty;
+                ty.instantiation == Instantiation::Decision
+                    && matches!(&ty.kind, TypeKind::Array { indices, element }
+                        if indices.len() == 1 && indices[0].kind == TypeKind::Int && element.kind == TypeKind::Int)
+            });
             let mut checked_locals = Vec::new();
             let no_forward_reference = |value: &SyntaxNode| {
                 let range = self.context.files[clause.file]
@@ -11952,7 +11994,7 @@ impl<'a> Producer<'a> {
                                 && self.bindings.declarations[id.0].syntax_range.end
                                     + self.context.files[clause.file].byte_offset > r.location.range.start))
             };
-            for local in locals {
+            for local in &locals {
                 if !crate::definitions::annotations_safe(self.context, clause.file, local) {
                     return Err("uncertain-bound local annotation is unsupported".into());
                 }
@@ -11993,6 +12035,14 @@ impl<'a> Producer<'a> {
                         if indices.len() == 2 && indices.iter().all(|index| index.known() && !optional(index)
                             && index.instantiation == Instantiation::Parameter && index.kind == TypeKind::Int)
                             && element.known() && !optional(element) && element.instantiation == Instantiation::Parameter && element.kind == TypeKind::Int);
+                let private_integer_array = private.is_none()
+                    && ty.instantiation == Instantiation::Decision
+                    && initializer.is_none()
+                    && matches!(&ty.kind, TypeKind::Array { indices, element }
+                        if indices.len() == 1 && indices[0].known() && !optional(&indices[0])
+                            && indices[0].instantiation == Instantiation::Parameter && indices[0].kind == TypeKind::Int
+                            && element.known() && !optional(element) && element.instantiation == Instantiation::Decision
+                            && element.kind == TypeKind::Int);
                 let private_integer = ty.instantiation == Instantiation::Decision
                     && ty.kind == TypeKind::Int
                     && initializer.is_none();
@@ -12007,7 +12057,7 @@ impl<'a> Producer<'a> {
                     || private_integer
                     || (ty.instantiation == Instantiation::Decision
                         && initializer.is_none()
-                        && (ty.kind == TypeKind::Bool || boolean_array)))
+                        && (ty.kind == TypeKind::Bool || boolean_array || private_integer_array)))
                 {
                     return Err("uncertain-bound local declaration shape is unsupported".into());
                 }
@@ -12027,7 +12077,7 @@ impl<'a> Producer<'a> {
                         "uncertain-bound private integer requires a written parameter range".into(),
                     );
                 }
-                if boolean_array
+                if (boolean_array || private_integer_array)
                     && written.child_nodes().next().is_none_or(|index| {
                         index.kind() != NodeKind::DomainType
                             || index.child_nodes().next().is_none_or(|value| {
@@ -12035,10 +12085,12 @@ impl<'a> Producer<'a> {
                             })
                     })
                 {
-                    return Err(
+                    return Err(if private_integer_array {
+                        "uncertain-bound private integer array requires a written integer range"
+                    } else {
                         "uncertain-bound private Boolean array requires a written integer range"
-                            .into(),
-                    );
+                    }
+                    .into());
                 }
                 let mut types = vec![written];
                 while let Some(node) = types.pop() {
@@ -12047,6 +12099,16 @@ impl<'a> Producer<'a> {
                     }
                     if node.kind() == NodeKind::DomainType {
                         for value in node.child_nodes() {
+                            if private_integer_arrays
+                                && let Some(reason) = self.closed_integer_source_error(
+                                    clause.file,
+                                    value,
+                                    false,
+                                    false,
+                                )
+                            {
+                                return Err(reason);
+                            }
                             if !no_forward_reference(value) {
                                 return Err("uncertain-bound domain has a forward or cyclic local dependency".into());
                             }
@@ -12064,6 +12126,12 @@ impl<'a> Producer<'a> {
                     }
                 }
                 if let Some(value) = initializer {
+                    if private_integer_arrays
+                        && let Some(reason) =
+                            self.closed_integer_source_error(clause.file, value, false, false)
+                    {
+                        return Err(reason);
+                    }
                     if !no_forward_reference(value) {
                         return Err(
                             "uncertain-bound initializer has a forward or cyclic local dependency"
@@ -12095,6 +12163,9 @@ impl<'a> Producer<'a> {
                     }
                 }
                 checked_locals.push(d.id);
+            }
+            if private_integer_arrays {
+                self.inspect_uncertain_array_extrema(clause.file, &locals, view, invocation)?;
             }
             let bodies: Vec<_> = clause
                 .node
@@ -12130,6 +12201,81 @@ impl<'a> Producer<'a> {
             }
             Ok(())
         })())
+    }
+    fn inspect_uncertain_array_extrema<'b>(
+        &'b self,
+        file: FileId,
+        locals: &[&'a SyntaxNode],
+        view: &'b CallableFacts,
+        invocation: Option<&Invocation<'a, 'b>>,
+    ) -> Result<(), String> {
+        let mut values: Vec<_> = locals
+            .iter()
+            .flat_map(|local| local.child_nodes())
+            .collect();
+        while let Some(value) = values.pop() {
+            if parameter_index_extremum(
+                self.context,
+                self.bindings,
+                self.view(file, value, view),
+                file,
+                value,
+            )
+            .is_some()
+            {
+                let set = unwrap(value)
+                    .child_nodes()
+                    .next()
+                    .ok_or("uncertain-bound index extremum set unavailable")?;
+                let subject = unwrap(set)
+                    .child_nodes()
+                    .next()
+                    .ok_or("uncertain-bound index extremum subject unavailable")?;
+                for selected in [unwrap(value), unwrap(set)] {
+                    let selected_view = self.view(file, selected, view);
+                    let call = self
+                        .operation_fact(selected_view, file, selected)
+                        .ok_or("uncertain-bound index extremum selection unavailable")?;
+                    let CallOutcome::Resolved {
+                        declaration,
+                        parameters,
+                        return_type,
+                    } = &call.outcome
+                    else {
+                        return Err("uncertain-bound index extremum selection unsupported".into());
+                    };
+                    if !self.prefix_primitive(
+                        file,
+                        selected,
+                        selected_view,
+                        &self.bindings.declarations[declaration.0].name,
+                        parameters,
+                        return_type,
+                    ) {
+                        return Err(
+                            "uncertain-bound index extremum written declaration is unsupported"
+                                .into(),
+                        );
+                    }
+                }
+                if let Some(state) = invocation
+                    && self.invocation_array_empty(
+                        file,
+                        subject,
+                        view,
+                        state,
+                        &mut Vec::new(),
+                        true,
+                    )? == Some(true)
+                {
+                    return Err(
+                        "uncertain-bound index extremum has a known empty actual array".into(),
+                    );
+                }
+            }
+            values.extend(value.child_nodes());
+        }
+        Ok(())
     }
     fn inspect_cartesian_parameter_array(
         &self,
@@ -12286,14 +12432,28 @@ impl<'a> Producer<'a> {
             return Err("uncertain-bound expression type or optionality is unsupported".into());
         }
         let children: Vec<_> = node.child_nodes().collect();
-        if let Some(ids) = private {
+        let private_integer_array = private.is_none() && checked_locals.iter().any(|id| {
+            let ty = &view.declarations[id.0].ty;
+            ty.instantiation == Instantiation::Decision
+                && matches!(&ty.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 1 && indices[0].kind == TypeKind::Int && element.kind == TypeKind::Int)
+        });
+        if private_integer_array
+            && let Some(reason) = self.closed_integer_source_error(file, node, false, false)
+        {
+            return Err(reason);
+        }
+        if private.is_some() || private_integer_array {
             let integer = |t: &TypeInst| t.known() && !optional(t) && t.kind == TypeKind::Int;
             let parameter_integer =
                 |t: &TypeInst| integer(t) && t.instantiation == Instantiation::Parameter;
             if node.kind() == NodeKind::Expression {
                 if let Some(id) = self.reference(file, node)
                     && checked_locals.contains(&id)
-                    && [ids[1], ids[2], ids[3]].contains(&id)
+                    && (private.is_some_and(|ids| [ids[1], ids[2], ids[3]].contains(&id))
+                        || private_integer_array
+                            && ty.instantiation == Instantiation::Parameter
+                            && integer(ty))
                 {
                     return if ty == &view.declarations[id.0].ty {
                         Ok(())
@@ -12316,7 +12476,9 @@ impl<'a> Producer<'a> {
             }
             if node.kind() == NodeKind::CallExpression && children.len() == 1 {
                 if self.core(file, node, view, "index_set")
-                    && self.reference(file, unwrap(children[0])) == Some(ids[0])
+                    && private.is_some_and(|ids| {
+                        self.reference(file, unwrap(children[0])) == Some(ids[0])
+                    })
                     && ty.instantiation == Instantiation::Parameter
                     && matches!(&ty.kind, TypeKind::Set(element) if parameter_integer(element))
                 {
@@ -12332,8 +12494,10 @@ impl<'a> Producer<'a> {
                     };
                 }
                 if parameter_integer(ty)
-                    && self.reference(file, unwrap(children[0])) == Some(ids[1])
-                    && checked_locals.contains(&ids[1])
+                    && private.is_some_and(|ids| {
+                        self.reference(file, unwrap(children[0])) == Some(ids[1])
+                            && checked_locals.contains(&ids[1])
+                    })
                 {
                     if self.core(file, node, view, "min") {
                         return match self
@@ -12357,13 +12521,37 @@ impl<'a> Producer<'a> {
             {
                 let subject = unwrap(children[0]);
                 let array = self.reference(file, subject);
-                if !matches!(array, Some(id) if id == ids[0] || id == ids[4] && checked_locals.contains(&id))
+                if !array.is_some_and(|id| private.is_some_and(|ids| id == ids[0] || id == ids[4] && checked_locals.contains(&id))
+                    || private_integer_array && (checked_locals.contains(&id)
+                        || self.bindings.declarations[id.0].file == file
+                            && self.bindings.declarations[id.0].role == DeclarationRole::Parameter
+                            && checked_locals.iter().any(|local| self.bindings.declarations[local.0].item == self.bindings.declarations[id.0].item)))
                     || typed(subject).is_none_or(|t| !t.known() || optional(t)
                         || !matches!(&t.kind, TypeKind::Array { indices, element }
                             if indices.len() == 1 && parameter_integer(&indices[0]) && integer(element)
                                 && element.instantiation == Instantiation::Decision))
                     || typed(children[1]).is_none_or(|t| !integer(t)) {
                     return Err("private integer selection type or scope is unsupported".into());
+                }
+                if private_integer_array && array.is_some_and(|id| !checked_locals.contains(&id)) {
+                    let selector = unwrap(children[1]);
+                    let binder = self.reference(file, selector);
+                    if selector.kind() != NodeKind::Expression
+                        || !matches!(crate::domains::tokens(&self.context.files[file].parsed, selector).as_slice(),
+                            [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+                        || typed(selector).is_none_or(|ty| !parameter_integer(ty))
+                        || binder.is_none_or(|id| {
+                            let declaration = &self.bindings.declarations[id.0];
+                            declaration.file != file
+                                || declaration.role != DeclarationRole::Generator
+                                || typed(selector) != Some(&view.declarations[id.0].ty)
+                                || !generators
+                                    .iter()
+                                    .any(|header| header.range() == declaration.syntax_range)
+                        })
+                    {
+                        return Err("uncertain-bound formal integer selection requires an owning parameter integer binder".into());
+                    }
                 }
                 self.inspect_uncertain_index_expression(
                     file,
@@ -12391,6 +12579,9 @@ impl<'a> Producer<'a> {
                     .is_ok_and(|value| {
                         value.is_some_and(|value| {
                             crate::domains::index_domain_member(&indices[0], value) == Some(false)
+                                || private_integer_array && matches!(crate::domains::bare_index_domain(&indices[0]), Domain::Range { lower, upper }
+                                    if crate::domains::invariant_integer(lower).is_ok_and(|bound| bound.is_some_and(|bound| value < bound))
+                                        || crate::domains::invariant_integer(upper).is_ok_and(|bound| bound.is_some_and(|bound| value > bound)))
                         })
                     })
                 {
@@ -12400,7 +12591,7 @@ impl<'a> Producer<'a> {
                 // This is neither a membership nor an output dependency proof.
                 return Ok(());
             }
-            if node.kind() == NodeKind::ConditionalExpression && integer(ty) {
+            if private.is_some() && node.kind() == NodeKind::ConditionalExpression && integer(ty) {
                 let mut complete = false;
                 for (position, branch) in children.iter().enumerate() {
                     if !crate::definitions::annotations_safe(self.context, file, branch) {
@@ -12458,6 +12649,11 @@ impl<'a> Producer<'a> {
                         matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
                             if parameters.len() == 2 && return_type == ty && parameters.iter().zip(&children)
                                 .all(|(formal, actual)| integer(formal) && typed(actual).is_some_and(|t| crate::types::coerces(t, formal))))) {
+                    if private_integer_array && self.operation_fact(self.view(file, node, view), file, node).is_none_or(|call|
+                        !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                            if self.prefix_primitive(file, node, self.view(file, node, view), name.unwrap(), parameters, return_type))) {
+                        return Err("uncertain-bound integer operator written declaration is unsupported".into());
+                    }
                     for child in &children {
                         self.inspect_uncertain_index_expression(file, child, view, generators, checked_locals, private)?;
                     }
@@ -12466,6 +12662,9 @@ impl<'a> Producer<'a> {
                 }
             }
             if integer(ty) {
+                if private_integer_array && node.kind() != NodeKind::Expression {
+                    return Err("uncertain-bound integer source form is unsupported".into());
+                }
                 return match self.initialized_source_safety(
                     file,
                     node,
@@ -12492,7 +12691,12 @@ impl<'a> Producer<'a> {
                 })
             })
         {
-            if private.is_some() {
+            if private_integer_array && self.operation_fact(self.view(file, node, view), file, node).is_none_or(|call|
+                !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                    if self.prefix_primitive(file, node, self.view(file, node, view), "..", parameters, return_type))) {
+                return Err("uncertain-bound range written declaration is unsupported".into());
+            }
+            if private.is_some() || private_integer_array {
                 for child in &children {
                     self.inspect_uncertain_index_expression(
                         file,
@@ -12596,9 +12800,10 @@ impl<'a> Producer<'a> {
         if ty.kind != TypeKind::Bool {
             return Err("uncertain-bound body requires a present Boolean".into());
         }
-        if self
-            .boolean_relation_dependencies(file, node, view, generators)
-            .is_ok()
+        if !private_integer_array
+            && self
+                .boolean_relation_dependencies(file, node, view, generators)
+                .is_ok()
         {
             return Ok(());
         }
@@ -12620,6 +12825,11 @@ impl<'a> Producer<'a> {
         }
         if node.kind() == NodeKind::GeneratorCallExpression && self.core(file, node, view, "forall")
         {
+            if private_integer_array && self.operation_fact(self.view(file, node, view), file, node).is_none_or(|call|
+                !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                    if self.prefix_primitive(file, node, self.view(file, node, view), "forall", parameters, return_type))) {
+                return Err("uncertain-bound forall written declaration is unsupported".into());
+            }
             let list = children
                 .iter()
                 .find(|n| n.kind() == NodeKind::GeneratorList)
@@ -12697,6 +12907,11 @@ impl<'a> Producer<'a> {
         if !supported || !self.core(file, node, view, name.unwrap()) {
             return Err("uncertain-bound Boolean operation identity is unsupported".into());
         }
+        if private_integer_array && self.operation_fact(self.view(file, node, view), file, node).is_none_or(|call|
+            !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                if self.prefix_primitive(file, node, self.view(file, node, view), name.unwrap(), parameters, return_type))) {
+            return Err("uncertain-bound Boolean operator written declaration is unsupported".into());
+        }
         if node.kind() == NodeKind::BinaryExpression
             && matches!(name, Some("=" | "!=" | "<" | "<=" | ">" | ">="))
             && children.iter().all(|child| {
@@ -12708,6 +12923,7 @@ impl<'a> Producer<'a> {
             for child in children {
                 let value = unwrap(child);
                 if private.is_some()
+                    || private_integer_array
                     || (value.kind() == NodeKind::ArrayAccessExpression
                         && value.child_nodes().count() == 3
                         && value

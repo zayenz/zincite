@@ -6748,3 +6748,41 @@ unchanged source/library pins before and after; its production source is byte-ex
 the final candidate, and only subsequent test-expectation changes differ. It does
 not claim a complete loaded manifest or prechecked configuration absence. Retained
 compiler056 is source-only; instance and final corpus acceptance remain open.
+
+The existing uncertain-bound let reader now inspects the demonstrated private
+rank-one decision-Int array recurrence. It checks declaration order, written
+ranges, annotations, exact selected primitive bodies and tuple types, initialized
+sources and closed errors; a once-per-let extremum check follows exact actual
+correspondence through the checked rank-one standard adapter and vetoes known
+empty arrays. Formal selections require a retained exact parameter-Int generator
+binder; local selectors retain arithmetic inspection and known-outside vetoes.
+These checks infer no members, extent, outputs or search coverage. The existing
+five-ID circuit route remains separate.
+
+The five-case public group reproduces the old local-shape refusal and passes
+with symbolic recurrence, outside-axis, closed endpoint, formal-selector and
+empty-adapter controls. The initial generic fixture preflight and initial
+circuit-path regression are retained as failed evidence, followed by the concrete
+fixture and scope-guard corrections. All final workspace fmt/Clippy/tests pass
+under `target/benchmarks/base083/semantic70-sliding-sum-private-int-array-main-checks-v1`.
+ROOT checked the composed source and retained earlier tests.
+
+Five explicit synthetic model/data controls (`n=4; window=2`) were compiled to
+FlatZinc with Gecode without solving under
+`target/benchmarks/base083/semantic70-sliding-sum-compiler-controls-v1`. The positive
+compiles cleanly; closed division fails. Outside-axis, formal-index-zero and
+empty-adapter cases compile with undefined-result/inconsistency warnings, rather
+than being mislabeled parse failures. All 1,051 compiler/library/control pins
+remain unchanged. This is synthetic-instance evidence, without a formatter
+comparison or original-instance acceptance claim.
+
+The current original workforce native replay preserves its one warning and
+reduces eleven limitations to six: the sliding body and both owning/scoped-local
+refusals disappear. ROOT audited full streams and 1,133 unchanged pins under
+`target/benchmarks/base083/semantic70-workforce-sliding-native-prerequisite-v1`.
+The remaining matrix callable, generic optional body, regular/cardinality and
+local-transition gaps remain explicit. The owning-result investigation confirms
+the prior wrappers propagated the selected sliding-body boundary; a separate
+exact initialized-source check of the scoped Boolean concatenation is still
+needed before claiming the complete actual-source chain inspected. Compiler056
+remains original source-only, and base-083 and final corpus acceptance stay open.

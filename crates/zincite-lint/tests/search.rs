@@ -14537,3 +14537,161 @@ fn decision_enum_array_sources_inspect_initialized_comprehensions_without_output
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn uncertain_private_integer_arrays_inspect_sources_without_output_proof() {
+    let source = concat!(
+        "include \"included.mzn\"; int: n; int: window;\n",
+        "array[1..n] of var 0..10: xs;\n",
+        "constraint sliding(0,10,window,xs); solve satisfy;\n",
+    );
+    let included = r#"predicate sliding(int: low,int: up,int: window_size,array[int] of var int: xs) =
+    inspect_sliding(low,up,window_size,index2int(xs));
+predicate inspect_sliding(int: low,int: up,int: window_size,array[int] of var int: xs) =
+    let {
+        int: lx = min(index_set(xs));
+        int: ux = max(index_set(xs));
+        array[lx - 1..ux] of var int: S;
+    } in S[lx - 1] = 0 /\
+        forall(i in lx..ux)(S[i] = xs[i] + S[i - 1]) /\
+        forall(i in lx - 1..ux - window_size)
+            (S[i] <= S[i + window_size] - low /\ S[i + window_size] <= S[i] + up);
+"#;
+    let outside = included
+        .replace("array[lx - 1..ux]", "array[1..0]")
+        .replace("S[lx - 1] = 0", "S[1] = 0");
+    let closed = included.replace("array[lx - 1..ux]", "array[lx - (1 div 0)..ux]");
+    let formal_selector = included.replace("xs[i]", "xs[0]");
+    let empty = source.replace("array[1..n]", "array[1..0]");
+    for (name, source, included, reason) in [
+        ("private-int-array-symbolic", source, included, None),
+        (
+            "private-int-array-outside",
+            source,
+            outside.as_str(),
+            Some("outside its declared axis"),
+        ),
+        (
+            "private-int-array-closed-endpoint",
+            source,
+            closed.as_str(),
+            Some("division by zero"),
+        ),
+        (
+            "private-int-array-formal-selector",
+            source,
+            formal_selector.as_str(),
+            Some("owning parameter integer binder"),
+        ),
+        (
+            "private-int-array-empty-adapter",
+            empty.as_str(),
+            included,
+            Some("known empty actual array"),
+        ),
+    ] {
+        let (dir, _) = model(name, source, included);
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!("{CORE}{}", concat!(
+                "function int: min(set of int: x); function int: max(set of int: x);\n",
+                "function int: '+'(int: x,int: y); function int: '-'(int: x,int: y);\n",
+                "function var int: '-'(var int: x,var int: y); function int: 'div'(int: x,int: y);\n",
+                "function var bool: '<='(var int: x,var int: y);\n",
+                "function var bool: forall(array[int] of var bool: x);\n",
+            )),
+        ).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .all(|call| matches!(call.outcome, zincite_lint::CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        let private = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == "S" && d.role == zincite_lint::DeclarationRole::Local)
+            .unwrap()
+            .id;
+        assert!(
+            callable.outputs.is_empty(),
+            "{name}: {:?}",
+            callable.outputs
+        );
+        assert!(
+            callable
+                .definitions
+                .iter()
+                .all(|definition| definition.target != private)
+        );
+        assert!(!callable.inspected_locals.contains(&private));
+        let (_, search) = facts(&context);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        assert_ne!(
+            search.declarations[private.0].coverage,
+            SearchCoverage::WholeArray
+        );
+        assert_ne!(
+            search.declarations[private.0].coverage,
+            SearchCoverage::Scalar
+        );
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        if let Some(reason) = reason {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                result.limitations
+            );
+            assert!(
+                callable
+                    .unavailable
+                    .iter()
+                    .any(|failure| failure.location.path == dir.join("included.mzn")
+                        && failure.reason.contains(reason)),
+                "{name}: {:?}",
+                callable.unavailable
+            );
+        } else {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                result.limitations
+            );
+            assert!(
+                callable.unavailable.is_empty(),
+                "{:?}",
+                callable.unavailable
+            );
+            assert_eq!(
+                coverage(&bindings, &search, "xs"),
+                SearchCoverage::Uncovered
+            );
+            assert!(
+                result
+                    .findings
+                    .iter()
+                    .any(|finding| finding.rule == zincite_lint::Rule::SearchCoverage
+                        && finding.location.path == context.root
+                        && finding.message.contains("xs"))
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
