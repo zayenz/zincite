@@ -1878,3 +1878,292 @@ fn sliding_sum_relations_inspect_sources_without_proving_windows_or_totality() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn bound_gcc_relations_inspect_count_bodies_without_totality_proof() {
+    use zincite_lint::{CallOutcome, DeclarationRole, Instantiation, SourceKind, TypeKind};
+    let positive = concat!(
+        "include \"global_cardinality.mzn\";\n",
+        "enum Day = {First, Last}; enum Shift = {Work, Rest};\n",
+        "int: workers; set of int: Workers = 1..workers;\n",
+        "array[Day,Workers] of var Shift: schedule; array[Shift] of int: requirements;\n",
+        "constraint forall(worker in Workers)(global_cardinality(schedule[..,worker],Shift,requirements,requirements));\n",
+        "solve satisfy;\n",
+    );
+    let gcc = r#"include "fzn_global_cardinality_low_up.mzn";
+predicate global_cardinality(
+  array [$X] of var $$E: xs,
+  array [$Y] of $$E: cover,
+  array [$Y] of int: lower_bound,
+  array [$Y] of int: upper_bound,
+) =
+  assert(
+    index_sets_agree(cover, lower_bound) /\ index_sets_agree(cover, upper_bound),
+    "global_cardinality: " ++
+      "cover has index sets " ++
+      show_index_sets(cover) ++
+      ", lower_bound has index sets " ++
+      show_index_sets(lower_bound) ++
+      ", and upper_bound has index sets " ++
+      show_index_sets(lower_bound) ++
+      ", but they must have identical index sets",
+    if length(xs) == 0 then
+      assert(
+        forall (l in array1d(lower_bound)) (l <= 0) /\ forall (u in array1d(upper_bound)) (u >= 0) \/
+          length(cover) == 0,
+        "global_cardinality_low_up: " ++
+          "lower_bound and upper_bound must allow a count of 0 when xs is empty, or also be empty",
+        true,
+      )
+    else
+      fzn_global_cardinality_low_up(
+        enum2int(array1d(xs)),
+        enum2int(array1d(cover)),
+        array1d(lower_bound),
+        array1d(upper_bound),
+      )
+    endif,
+  );
+"#;
+    let native = r#"predicate fzn_global_cardinality_low_up(
+  array [int] of var int: xs,
+  array [int] of int: cover,
+  array [int] of int: lower_bound,
+  array [int] of int: upper_bound,
+) =
+  forall (i in index_set(cover)) (
+    if upper_bound[i] >= length(xs) then
+      count (xi in xs) (xi = cover[i]) >= lower_bound[i]
+    elseif lower_bound[i] <= 0 then
+      count (xi in xs) (xi = cover[i]) <= upper_bound[i]
+    else
+      count (xi in xs) (xi = cover[i]) in lower_bound[i]..upper_bound[i]
+    endif
+  );
+"#;
+    let count = r#"function var int: count(array [$T] of var bool: xs :: promise_ctx_monotone) :: promise_commutative =
+  let {
+    array [int] of var bool: xx :: promise_ctx_monotone = array1d(xs);
+  } in sum([bool2int(y) | y in xx]);
+"#;
+    let core = CORE
+        .replace("array[int] of var opt bool: a", "array[int] of var bool: a")
+        .replace(
+            "function int: length(array[$I] of $T: a);",
+            "function int: length(array[$I] of any $T: a);",
+        )
+        .replace(
+            "function $T: assert(bool: condition,string: message,$T: value);",
+            "function any $T: assert(bool: condition,string: message,any $T: value);",
+        );
+    let core = format!(
+        "{core}\n{}",
+        concat!(
+            "annotation promise_ctx_monotone; annotation promise_commutative;\n",
+            "function bool: '/\\'(bool:a,bool:b); function bool: '\\/'(bool:a,bool:b);\n",
+            "function bool: forall(array[int] of bool:a);\n",
+            "function string: '++'(string:a,string:b);\n",
+            "test index_sets_agree(array[$T] of any $U:x,array[$T] of any $W:y);\n",
+            "function string: show_index_sets(array[$T] of any $U:x);\n",
+            "function array[int] of any $V: array1d(array[$U] of any $V:x);\n",
+            "function array[$X] of int: enum2int(array[$X] of $$E:x);\n",
+            "function array[$X] of var int: enum2int(array[$X] of var $$E:x);\n",
+        )
+    );
+    let integer_positive = positive
+        .replace("enum Day =", "enum Days =")
+        .replace("array[Day,Workers]", "array[Days,Workers]")
+        .replace("array[Shift] of int: requirements", "array[Days,Shift] of int: requirements")
+        .replace(
+            "forall(worker in Workers)(global_cardinality(schedule[..,worker],Shift,requirements,requirements))",
+            "forall(day in Days)(global_cardinality(schedule[day,..],Shift,requirements[day,..],requirements[day,..]))",
+        );
+    assert_ne!(integer_positive, positive);
+    let closed = positive.replace("schedule[..,worker]", "schedule[..,(worker div 0)]");
+    let changed_count = count.replace(
+        "sum([bool2int(y) | y in xx])",
+        "sum([bool2int(y) | y in xx]) + 1",
+    );
+    assert_ne!(closed, positive);
+    assert_ne!(changed_count, count);
+    for (name, source, count, failure, enum_axis) in [
+        ("enum-axis", positive, count, None, true),
+        (
+            "integer-axis",
+            integer_positive.as_str(),
+            count,
+            None,
+            false,
+        ),
+        (
+            "closed-selector",
+            closed.as_str(),
+            count,
+            Some("division by zero"),
+            true,
+        ),
+        (
+            "changed-count",
+            positive,
+            changed_count.as_str(),
+            Some("complete written body"),
+            true,
+        ),
+    ] {
+        let dir = std::env::temp_dir().join(format!(
+            "zincite-bound-gcc-guarded-{name}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(dir.join("library/std")).unwrap();
+        let core = format!("{core}\n{count}");
+        for (file, source) in [
+            ("stdlib.mzn", core.as_str()),
+            ("global_cardinality.mzn", gcc),
+            ("fzn_global_cardinality_low_up.mzn", native),
+        ] {
+            std::fs::write(dir.join("library/std").join(file), source).unwrap();
+        }
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(context.includes.iter().all(|edge| edge.target.is_some()));
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let file = context.root_file.unwrap();
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == file)
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let root = calls
+            .calls
+            .iter()
+            .find(|call| call.file == file && call.name == "global_cardinality")
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &root.outcome
+        else {
+            unreachable!()
+        };
+        let owner = &bindings.declarations[declaration.0];
+        assert_eq!(owner.role, DeclarationRole::Predicate);
+        assert_eq!(context.files[owner.file].kind, SourceKind::StandardLibrary);
+        assert!(!context.files[owner.file].implicit);
+        let symbol = bindings
+            .declarations
+            .iter()
+            .find(|owner| owner.top_level && owner.name == "Shift")
+            .unwrap()
+            .id;
+        let day = bindings
+            .declarations
+            .iter()
+            .find(|owner| owner.top_level && matches!(owner.name.as_str(), "Day" | "Days"))
+            .unwrap()
+            .id;
+        let axis = if enum_axis {
+            TypeKind::Enum(day)
+        } else {
+            TypeKind::Int
+        };
+        assert!(
+            matches!(parameters.as_slice(), [xs, cover, lower, upper]
+            if !xs.optional && xs.instantiation == Instantiation::Decision
+                && matches!(&xs.kind, TypeKind::Array { indices, element } if indices.len() == 1 && indices[0].kind == axis
+                    && indices[0].instantiation == Instantiation::Parameter && !indices[0].optional
+                    && element.kind == TypeKind::Enum(symbol) && element.instantiation == Instantiation::Decision && !element.optional)
+                && !cover.optional && cover.instantiation == Instantiation::Parameter
+                && matches!(&cover.kind, TypeKind::Array { indices, element } if indices.len() == 1 && indices[0].kind == TypeKind::Int && element.kind == TypeKind::Enum(symbol) && element.instantiation == Instantiation::Parameter && !element.optional)
+                && lower == upper && !lower.optional && lower.instantiation == Instantiation::Parameter
+                && matches!(&lower.kind, TypeKind::Array { indices, element } if indices.len() == 1 && indices[0].kind == TypeKind::Int && element.kind == TypeKind::Int && element.instantiation == Instantiation::Parameter && !element.optional)),
+            "GCC_SELECTED_TUPLE {name}: {parameters:?}; root={root:?}; symbol={symbol:?}"
+        );
+        assert_eq!(return_type.kind, TypeKind::Bool);
+        assert_eq!(return_type.instantiation, Instantiation::Decision);
+        assert!(!return_type.optional);
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let numeric =
+            resolve_numeric_facts(&context, &bindings, &calls, &inst, &domains, &definitions);
+        let optional = resolve_optional_facts(
+            &context,
+            &bindings,
+            &calls,
+            &inst,
+            &domains,
+            &numeric,
+            &definitions,
+        );
+        let facts = resolve_guarded_facts_with_options(
+            &context, &bindings, &calls, &inst, &domains, &numeric, &optional,
+        );
+        let start = source.find("global_cardinality(").unwrap();
+        let value = facts
+            .expressions
+            .iter()
+            .find(|value| {
+                value.file == file
+                    && value.location.range.start == start
+                    && text(&context, file, &value.location).starts_with("global_cardinality(")
+            })
+            .unwrap();
+        if let Some(reason) = failure {
+            assert!(
+                matches!(
+                    value.raw_definedness,
+                    GuardedOutcome::Unsupported(_) | GuardedOutcome::Refuted
+                ),
+                "{name}: {value:?}"
+            );
+            assert_eq!(value.definedness, value.raw_definedness);
+            assert!(
+                facts.limitations.iter().any(|limit| limit.file == file
+                    && limit.location.range == value.location.range
+                    && limit.reason.contains(reason)),
+                "{name}: {:?}",
+                facts.limitations
+            );
+        } else {
+            assert_eq!(
+                value.raw_definedness,
+                GuardedOutcome::Unknown,
+                "GCC_SOURCE_RED {name}: {value:?}"
+            );
+            assert_eq!(value.definedness, GuardedOutcome::Unknown);
+            assert_eq!(value.truth, Some(GuardedOutcome::Unknown));
+            assert!(!facts.limitations.iter().any(|limit| limit.file == file && limit.location.range == value.location.range));
+        }
+        assert_eq!(value.numeric, None);
+        let callable = zincite_lint::resolve_callable_definitions(
+            &context, &bindings, &calls, &inst, &domains,
+        );
+        assert!(callable.outputs.is_empty());
+        assert!(callable.inspected_locals.is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

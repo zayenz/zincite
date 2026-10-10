@@ -7357,3 +7357,25 @@ A separate MiniZinc 2.10.1 Gecode compile-only control accepts the enum-indexed
 bound-cardinality fixture. Its first-axis refusal is therefore a supported gap;
 a narrow repair is pending. No solve was run. Original-model replay and final
 expanded-corpus evidence remain pending; base-083 is open.
+
+### Checked bound-cardinality relation sources
+
+The bound-cardinality increment inspects complete selected outer, native and
+count bodies, including exact owning scopes, conversions, leaf operations and
+metadata. The outer sequence admits a known present parameter integer or enum
+axis; checked array1d normalizes only that axis, preserving element identity
+and instantiation. Native/count tuples retain their integer-axis guards.
+Checked symbolic sources retain Unknown and the partiality barrier, with no
+count, extent, index agreement, totality, output or search certificate.
+
+MiniZinc 2.10.1 Gecode accepts the original enum-axis public fixture in a
+compile-only control. Earlier tuple-preflight failures are diagnostic evidence,
+not behavioral baseline failures. With the corrected exact axis expectation,
+the fresh baseline fails at the intended source assertion and the candidate
+passes both enum-axis and integer-axis positives plus the unchanged selector
+error and changed-count-body refusals. Independent review found no unresolved
+increment issue. Main formatting, Clippy and all 294 workspace tests passed;
+full streams and the integrated 108-source map were rechecked.
+
+Original-model replay and final expanded-corpus evidence remain pending.
+Base-083 remains open with every completion box unchecked.
