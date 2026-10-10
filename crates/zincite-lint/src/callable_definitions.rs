@@ -313,6 +313,84 @@ pub(super) fn direct_expression_safety<'a>(
     }
     .direct_safety(source.0, source.1, calls, generators)
 }
+// Inspect only the selected standard regular/4 relation and its nested bodies.
+// Discovery supplies concrete views, never outputs or model-wide certificates.
+pub(super) fn regular_four_source_safety<'a>(
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    calls: &'a CallableFacts,
+    instantiations: &'a InstantiationFacts,
+    domains: &'a DomainFacts,
+    source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
+) -> Option<DefinitionSafety> {
+    let (file, node, generators) = source;
+    let mut producer = Producer {
+        context,
+        bindings,
+        calls,
+        instantiations,
+        domains,
+        lookups: None,
+        instances: Vec::new(),
+        boundaries: Vec::new(),
+        selected_set_source: false,
+        inactive_integer_body: None,
+    };
+    if node.kind() != NodeKind::CallExpression {
+        return None;
+    }
+    let fact = producer.operation_fact(calls, file, node)?;
+    let CallOutcome::Resolved {
+        declaration,
+        parameters,
+        return_type,
+    } = &fact.outcome
+    else {
+        return None;
+    };
+    let owner = &bindings.declarations[declaration.0];
+    if owner.name != "regular"
+        || owner.role != DeclarationRole::Predicate
+        || context.files[owner.file].kind != SourceKind::StandardLibrary
+        || !producer.regular_four_tuple(parameters)
+        || *return_type != TypeInst::par(TypeKind::Bool).with_inst(Instantiation::Decision)
+        || producer
+            .expression_type(calls, file, node)
+            .is_none_or(|actual| actual.ty != *return_type)
+    {
+        return None;
+    }
+    let id = *declaration;
+    let parameters = parameters.clone();
+    let clause = Clause {
+        file,
+        item: fact.item,
+        node,
+        generators: generators.to_vec(),
+        kind: ClauseKind::Call,
+    };
+    producer.discover(&clause, calls, &[]);
+    let mut cursor = 0;
+    while cursor < producer.instances.len() {
+        let instance = &producer.instances[cursor];
+        let mut ancestry = instance.ancestry.clone();
+        ancestry.push(instance.id);
+        let clauses = instance.clauses.clone();
+        let view = instance.view.clone();
+        for clause in &clauses {
+            producer.discover(clause, &view, &ancestry);
+        }
+        cursor += 1;
+    }
+    Some(
+        match producer.inspect_regular_four(&clause, calls, id, &parameters, None)? {
+            Ok(()) => DefinitionSafety::Unknown(
+                "regular4 relation values, partiality and membership are unproved".into(),
+            ),
+            Err(reason) => DefinitionSafety::Unsupported(reason),
+        },
+    )
+}
 // Inspect only an optional matrix's whole owning lexical initializer.
 // This shares constructor checks with model lets and supplies no value proof.
 pub(super) fn optional_parameter_matrix_initializer_safety<'a>(

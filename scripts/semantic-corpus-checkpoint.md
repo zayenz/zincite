@@ -7265,3 +7265,11 @@ Unknown without reflected members, nonemptiness, bounds or output certificates.
 All three focused cases pass. Formatting, Clippy and all 287 workspace tests
 pass on the integrated checkout. Original and final corpus acceptance remain
 pending; base-083 remains open.
+
+The next independently reviewed increment connects guarded analysis to the
+existing complete regular/4 source reader and both reachable FlatZinc bodies.
+An isolated selected-call discovery supplies concrete views; no output or
+value certificates are published. Its partiality barrier retains Unknown
+definedness. All three focused cases, formatting, Clippy and all 288 workspace
+tests pass. Original and final corpus acceptance remain pending; base-083
+remains open.
