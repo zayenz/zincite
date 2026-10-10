@@ -1,5 +1,5 @@
 //! Direct search interpretation, independent of missing-coverage advice.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::callables::{core_operation, find_node, is_expression, operation_fact};
 use crate::definitions::complete_array_coverage;
@@ -1688,6 +1688,41 @@ impl<'a> Producer<'a> {
                 (self.bindings.references[row].location.range.start, row)
             });
         }
+        let local_items: HashSet<_> = self
+            .bindings
+            .declarations
+            .iter()
+            .filter(|local| {
+                local.role == DeclarationRole::Local
+                    && self.calls.declarations[local.id.0].ty.instantiation
+                        == Instantiation::Decision
+            })
+            .map(|local| (local.file, local.item))
+            .collect();
+        let mut fresh_value_locals = Vec::new();
+        for owner in self.bindings.declarations.iter().filter(|owner| {
+            owner.top_level
+                && owner.role == DeclarationRole::Value
+                && local_items.contains(&(owner.file, owner.item))
+        }) {
+            if let Some(Ok(inspected)) =
+                crate::callable_definitions::indexed_model_value_fresh_locals(
+                    self.context,
+                    self.bindings,
+                    self.calls,
+                    self.instantiations,
+                    self.domains,
+                    owner.id,
+                    crate::callable_definitions::DirectSafetyLookups {
+                        expressions: &expression_indices,
+                        calls: &call_indices,
+                        value_references: &value_reference_indices,
+                    },
+                )
+            {
+                fresh_value_locals.extend(inspected);
+            }
+        }
         let mut admitted = Vec::new();
         for (d, callable_record) in definitions
             .definitions
@@ -1833,6 +1868,7 @@ impl<'a> Producer<'a> {
                 || self.calls.declarations[d.id.0].ty.instantiation != Instantiation::Decision
                 || callable.iter().any(|definition| definition.target == d.id)
                 || inspected_locals.contains(&d.id)
+                || fresh_value_locals.contains(&d.id)
                 || covered(self.facts.declarations[d.id.0].coverage)
             {
                 continue;

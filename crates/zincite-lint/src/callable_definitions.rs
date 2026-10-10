@@ -1324,6 +1324,30 @@ pub(super) fn indexed_expression_safety<'a>(
     }
     .direct_safety(source.0, source.1, calls, source.2)
 }
+// Ephemeral Search prerequisite accounting, separate from callable facts.
+pub(super) fn indexed_model_value_fresh_locals<'a>(
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    calls: &'a CallableFacts,
+    instantiations: &'a InstantiationFacts,
+    domains: &'a DomainFacts,
+    owner: DeclarationId,
+    lookups: DirectSafetyLookups<'a>,
+) -> Option<Result<Vec<DeclarationId>, String>> {
+    Producer {
+        context,
+        bindings,
+        calls,
+        instantiations,
+        domains,
+        lookups: Some(lookups),
+        instances: Vec::new(),
+        boundaries: Vec::new(),
+        selected_set_source: false,
+        inactive_integer_body: None,
+    }
+    .model_value_fresh_locals(owner)
+}
 // Admit only this checked reshape to the raw-definition inspection fallback.
 pub(super) fn indexed_set_axis_integer_reshape<'a>(
     context: &'a ModelContext,
@@ -21726,6 +21750,22 @@ impl<'a> Producer<'a> {
         generators: &[&'a SyntaxNode],
         invocation: Option<&Invocation<'a, '_>>,
     ) -> Option<DefinitionSafety> {
+        self.inspect_fresh_integer_let(file, written, view, generators, invocation)
+            .map(|checked| match checked {
+                Ok(_) => DefinitionSafety::Unknown(
+                    "fresh local integer value and domain nonemptiness are unproved".into(),
+                ),
+                Err(reason) => DefinitionSafety::Unsupported(reason),
+            })
+    }
+    fn inspect_fresh_integer_let(
+        &self,
+        file: FileId,
+        written: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+        invocation: Option<&Invocation<'a, '_>>,
+    ) -> Option<Result<DeclarationId, String>> {
         let node = unwrap(written);
         let integer = TypeInst::par(TypeKind::Int);
         let decision = integer.clone().with_inst(Instantiation::Decision);
@@ -21832,7 +21872,7 @@ impl<'a> Producer<'a> {
             }
             _ => return None,
         };
-        let checked = (|| -> Result<(), String> {
+        let checked = (|| -> Result<DeclarationId, String> {
             // Include written wrappers and every attached annotation, rather
             // than inspecting only the returned local reference.
             let mut nodes = vec![written];
@@ -22002,14 +22042,111 @@ impl<'a> Producer<'a> {
                     return Err(reason);
                 }
             }
-            Ok(())
+            Ok(owner.id)
         })();
-        Some(match checked {
-            Ok(()) => DefinitionSafety::Unknown(
-                "fresh local integer value and domain nonemptiness are unproved".into(),
-            ),
-            Err(reason) => DefinitionSafety::Unsupported(reason),
-        })
+        Some(checked)
+    }
+    // Search can account for these model locals only after the whole owning
+    // Value source succeeds. This supplies no definition or coverage fact.
+    fn model_value_fresh_locals(
+        &self,
+        id: DeclarationId,
+    ) -> Option<Result<Vec<DeclarationId>, String>> {
+        let owner = &self.bindings.declarations[id.0];
+        let file = owner.file;
+        let ty = &self.calls.declarations[id.0].ty;
+        if !owner.top_level
+            || owner.role != DeclarationRole::Value
+            || self.context.files[file].kind != SourceKind::User
+            || !ty.known()
+            || optional(ty)
+        {
+            return None;
+        }
+        let written = find_node(
+            self.context.files[file].parsed.tree(),
+            &owner.syntax_range,
+            owner.role,
+        )?;
+        let initializers: Vec<_> = written
+            .child_nodes()
+            .filter(|part| is_expression(part.kind()))
+            .collect();
+        let [initializer] = initializers.as_slice() else {
+            return None;
+        };
+        let mut lets = Vec::new();
+        let mut nodes = vec![*initializer];
+        while let Some(node) = nodes.pop() {
+            if node.kind() == NodeKind::LetExpression
+                && let Some(block) = node
+                    .child_nodes()
+                    .find(|part| part.kind() == NodeKind::LetBlock)
+                && let Some(local) = block.child_nodes().find(|part| {
+                    part.kind() == NodeKind::Declaration
+                        && self.bindings.declarations.iter().any(|declaration| {
+                            declaration.file == file
+                                && declaration.item == owner.item
+                                && declaration.role == DeclarationRole::Local
+                                && declaration.syntax_range == part.range()
+                                && self.calls.declarations[declaration.id.0].ty.instantiation
+                                    == Instantiation::Decision
+                        })
+                })
+            {
+                lets.push((node, local));
+            }
+            nodes.extend(node.child_nodes());
+        }
+        if lets.is_empty() {
+            return None;
+        }
+        let checked = (|| -> Result<Vec<DeclarationId>, String> {
+            let mut nodes = vec![written];
+            while let Some(node) = nodes.pop() {
+                if node.kind() == NodeKind::Error || !self.source_annotations_safe(file, node) {
+                    return Err("model value fresh let source or annotation is unsupported".into());
+                }
+                nodes.extend(node.child_nodes());
+            }
+            let mut sources = vec![*initializer];
+            let mut types: Vec<_> = written.child_nodes().take(1).collect();
+            while let Some(ty) = types.pop() {
+                if ty.kind() == NodeKind::DomainType {
+                    sources.extend(ty.child_nodes());
+                } else {
+                    types.extend(ty.child_nodes());
+                }
+            }
+            for source in sources {
+                if let DefinitionSafety::Unsupported(reason) =
+                    self.initialized_source_safety(file, source, self.calls, &[], &mut vec![id])
+                {
+                    return Err(reason);
+                }
+            }
+            let mut inspected = Vec::new();
+            for (node, local) in lets {
+                let scope = local_source_scope(initializer, local)
+                    .ok_or("model value fresh let lexical scope is unavailable")?;
+                let local_id = self
+                    .inspect_fresh_integer_let(file, node, self.calls, &scope, None)
+                    .ok_or("model value fresh let source family is unsupported")??;
+                let declaration = &self.bindings.declarations[local_id.0];
+                if declaration.file != file
+                    || declaration.item != owner.item
+                    || declaration.role != DeclarationRole::Local
+                    || declaration.syntax_range != local.range()
+                {
+                    return Err("model value fresh let owner identity is unsupported".into());
+                }
+                if !inspected.contains(&local_id) {
+                    inspected.push(local_id);
+                }
+            }
+            Ok(inspected)
+        })();
+        Some(checked)
     }
     fn parameter_set_let_safety(
         &self,

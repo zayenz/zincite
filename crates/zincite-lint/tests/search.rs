@@ -1883,7 +1883,7 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
             "{name}: {:?}",
             result.findings
         );
-        if expected == SearchCoverage::Unknown {
+        if expected == SearchCoverage::Unknown && name != "local-decision" {
             assert!(
                 matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
                 "{name}"
@@ -1895,6 +1895,9 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
                 "{name}: {:?}",
                 result.limitations
             );
+            if name == "local-decision" {
+                assert!(result.limitations.is_empty(), "{name}");
+            }
         }
         if name == "callable-output" {
             assert_eq!(
@@ -16091,5 +16094,192 @@ fn conditional_search_annotations_inspect_sources_without_branch_coverage() {
             );
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn model_value_fresh_integer_lets_complete_without_search_certificates() {
+    use zincite_lint::{CallOutcome, DeclarationRole};
+    let source = concat!(
+        "int: limit; bool: enabled;\n",
+        "array[1..2] of var int: choices = [\n",
+        "  if enabled then let { int: cap = limit + i, var 0..cap: p,\n",
+        "    constraint p <= cap } in p\n",
+        "  else let { var int: q, constraint q >= 0 } in q endif | i in 1..2];\n",
+        "solve satisfy;\n",
+    );
+    let core = format!(
+        "{CORE}{}",
+        concat!(
+            "function int: '+'(int: left,int: right);\n",
+            "function var bool: '<='(var int: left,var int: right);\n",
+            "function var bool: '>='(var int: left,var int: right);\n",
+            "function int: 'div'(int: left,int: right);\n",
+        )
+    );
+    for (label, source, fails) in [
+        ("value-fresh-symbolic", source.to_owned(), false),
+        (
+            "value-fresh-sibling-zero",
+            source.replace("q >= 0", "q >= (1 div 0)"),
+            true,
+        ),
+    ] {
+        let (directory, _) = model(label, "solve satisfy;", "");
+        std::fs::write(directory.join("library/std/stdlib.mzn"), &core).unwrap();
+        std::fs::write(directory.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            directory.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(directory.join("library")),
+                include_dirs: Vec::new(),
+            },
+        );
+        assert!(
+            context.errors.is_empty() && context.limitations.is_empty(),
+            "{label}"
+        );
+        assert!(
+            context.implicit_core.is_some()
+                && context.includes.iter().all(|edge| edge.target.is_some())
+                && context
+                    .files
+                    .iter()
+                    .all(|file| file.parsed.diagnostics().is_empty()),
+            "{label}"
+        );
+        let file = context.root_file.unwrap();
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == file)
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{label}"
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let search = resolve_search_coverage(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+            &definitions,
+        );
+        assert_eq!(search.root_state, ModelRootState::Complete, "{label}");
+        let choices = bindings
+            .declarations
+            .iter()
+            .find(|d| d.file == file && d.top_level && d.name == "choices")
+            .unwrap()
+            .id;
+        let locals: Vec<_> = bindings
+            .declarations
+            .iter()
+            .filter(|d| {
+                d.file == file
+                    && d.role == DeclarationRole::Local
+                    && matches!(d.name.as_str(), "p" | "q")
+            })
+            .map(|d| d.id)
+            .collect();
+        assert_eq!(locals.len(), 2, "{label}");
+        for id in locals.iter().copied().chain(std::iter::once(choices)) {
+            assert_eq!(
+                search.declarations[id.0].coverage,
+                SearchCoverage::Unknown,
+                "{label}"
+            );
+            assert!(
+                search
+                    .searched
+                    .iter()
+                    .all(|value| value.declaration != Some(id)),
+                "{label}"
+            );
+            assert!(
+                callable.outputs.iter().all(|output| output.target != id)
+                    && callable
+                        .definitions
+                        .iter()
+                        .all(|definition| definition.target != id),
+                "{label}"
+            );
+        }
+        for local in &locals {
+            assert!(
+                !callable.inspected_locals.contains(local)
+                    && definitions
+                        .definitions
+                        .iter()
+                        .all(|definition| definition.target != *local),
+                "{label}"
+            );
+        }
+        let initialized = definitions
+            .definitions
+            .iter()
+            .find(|definition| definition.target == choices)
+            .unwrap();
+        let analysis = analyze_model(&context, &selected());
+        let execution = analysis
+            .rules
+            .iter()
+            .find(|row| row.rule.id() == "search-coverage")
+            .unwrap();
+        assert!(analysis.errors.is_empty(), "{label}: {:?}", analysis.errors);
+        if fails {
+            assert!(
+                matches!(execution.outcome, RuleOutcome::Limited { .. }),
+                "{label}: {:?}",
+                execution.outcome
+            );
+            assert!(
+                matches!(&initialized.safety, DefinitionSafety::Unsupported(reason)
+                if reason.contains("integer division by zero")),
+                "{label}: {:?}",
+                initialized.safety
+            );
+            // A checked sibling does not exempt p when the whole owner fails.
+            assert!(
+                locals.iter().all(
+                    |local| search
+                        .limitations
+                        .iter()
+                        .any(|limitation| limitation.location
+                            == bindings.declarations[local.0].location
+                            && limitation
+                                .message
+                                .contains("model-level local decision coverage is unsupported"))
+                ),
+                "{label}: {:?}",
+                search.limitations
+            );
+        } else {
+            assert!(
+                matches!(&initialized.safety, DefinitionSafety::Unknown(_)),
+                "{label}: {:?}",
+                initialized.safety
+            );
+            assert!(
+                matches!(execution.outcome, RuleOutcome::Completed),
+                "VALUE_LOCAL_SOURCE_RED {label}: {:?}; {:?}",
+                execution.outcome,
+                search.limitations
+            );
+            assert!(
+                search.limitations.is_empty(),
+                "{label}: {:?}",
+                search.limitations
+            );
+        }
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

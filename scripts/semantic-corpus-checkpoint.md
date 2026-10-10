@@ -7447,3 +7447,25 @@ Expanded original replay and final corpus acceptance remain pending.
 Base-083 remains open.
 The integrated lookup increment passes main formatting, Clippy and all 295
 workspace tests. Full gate streams and the 108-source map were rechecked.
+
+### Checked model-value fresh-local prerequisites
+
+Search now accounts for fresh scalar integer locals only after checking the
+complete owning model-value initializer, its domains and metadata, and each
+local's exact source identity and scope. A source error admits no sibling
+locals. This completes source prerequisites while retaining Unknown coverage;
+it exports no searched values, definitions, outputs or domain certificates.
+The pure callable safety adapter retains its previous Unknown result.
+
+The focused baseline fails at the intended assertion; both the symbolic
+positive and sibling division-by-zero refusal pass with the repair. An earlier
+fixture method typo failed compilation before behavioral execution and is not
+counted as baseline proof. Full testing identified one old blanket expectation
+that equated Unknown coverage with Limited execution. Only the newly inspected
+local-decision case now expects Completed, preserving Unknown coverage and zero
+findings; all other unsupported cases remain Limited.
+
+Main formatting, Clippy and all 296 workspace tests pass, with complete streams
+and 108 source pins checked. Original Connect replay after the semantic repairs
+and final expanded-corpus acceptance remain pending. Constraint-body locals
+still require their own supported owning-source prerequisites. Base-083 is open.
