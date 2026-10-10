@@ -502,13 +502,39 @@ impl<'a> Walker<'a> {
             return None;
         }
         let crate::CallOutcome::Resolved {
+            declaration,
             parameters,
             return_type,
-            ..
         } = &fact.outcome
         else {
             return None;
         };
+        let owner = &self.bindings.declarations[declaration.0];
+        if owner.role != DeclarationRole::Function
+            || calls
+                .signatures
+                .iter()
+                .find(|signature| signature.declaration == *declaration)
+                .is_none_or(|signature| {
+                    signature.parameters.len() != 1 || signature.parameters[0].has_default
+                })
+        {
+            return None;
+        }
+        let native = crate::callables::find_node(
+            self.context.files[owner.file].parsed.tree(),
+            &owner.syntax_range,
+            owner.role,
+        )?;
+        let mut header = vec![native];
+        while let Some(written) = header.pop() {
+            if written.kind() == NodeKind::Annotation
+                || crate::callables::is_expression(written.kind())
+            {
+                return None;
+            }
+            header.extend(written.child_nodes());
+        }
         let integer = |ty: &crate::TypeInst| {
             ty.known()
                 && !crate::value_safety::optional(ty)
@@ -518,9 +544,8 @@ impl<'a> Walker<'a> {
         let array = |ty: &crate::TypeInst| {
             ty.known()
                 && !crate::value_safety::optional(ty)
-                && matches!(&ty.kind, crate::TypeKind::Array { indices, element }
-                    if indices.len() == 1 && integer(&indices[0])
-                        && element.kind == crate::TypeKind::Int)
+                && matches!(&ty.kind, crate::TypeKind::Array { indices, .. }
+                    if indices.len() == 1 && integer(&indices[0]))
         };
         let typed = |value: &SyntaxNode| {
             let range = self.context.files[file].location(value.range()).range;
@@ -553,7 +578,9 @@ impl<'a> Walker<'a> {
         }
         // Include the owning initialized set and the array's written type.
         // Array values are deliberately outside this declared-domain query.
-        for id in self.active.iter().copied().chain(std::iter::once(id)) {
+        let integer_element = matches!(&actual.kind, crate::TypeKind::Array { element, .. }
+            if element.kind == crate::TypeKind::Int);
+        for id in self.active.clone().into_iter().chain(std::iter::once(id)) {
             let declaration = &self.bindings.declarations[id.0];
             let declaration_node = crate::callables::find_node(
                 self.context.files[declaration.file].parsed.tree(),
@@ -567,10 +594,48 @@ impl<'a> Walker<'a> {
             ) {
                 return None;
             }
+            let element = if !integer_element && declaration.id == source.id {
+                let array_type = declaration_node.child_nodes().next()?;
+                if !matches!(array_type.kind(), NodeKind::ArrayType | NodeKind::ListType) {
+                    return None;
+                }
+                Some(array_type.child_nodes().last()?)
+            } else {
+                None
+            };
             let mut types: Vec<_> = declaration_node.child_nodes().take(1).collect();
             while let Some(ty) = types.pop() {
                 if !crate::definitions::annotations_safe(self.context, declaration.file, ty) {
                     return None;
+                }
+                if ty.kind() == NodeKind::DomainType {
+                    // New element kinds need the written alias source inspected,
+                    // including metadata; a concrete type alone does not supply it.
+                    if !integer_element
+                        && ty.child_nodes().next().is_some_and(|value| {
+                            self.reference(declaration.file, value).is_some_and(|id| {
+                                self.bindings.declarations[id.0].role == DeclarationRole::TypeAlias
+                            })
+                        })
+                    {
+                        return None;
+                    }
+                    // Inspect only the new actual element. Re-reading an active
+                    // owning axis can re-enter this same declared-axis query.
+                    if element.is_some_and(|element| {
+                        element.range().start <= ty.range().start
+                            && ty.range().end <= element.range().end
+                    }) {
+                        if self.active.contains(&declaration.id) {
+                            return Some(Domain::Unsupported("cyclic domain alias".into()));
+                        }
+                        self.active.push(declaration.id);
+                        let domain = self.domain(declaration.file, ty);
+                        self.active.pop();
+                        if let Err(reason) = domain.numeric_minimum() {
+                            return Some(Domain::Unsupported(reason.into()));
+                        }
+                    }
                 }
                 types.extend(ty.child_nodes());
             }

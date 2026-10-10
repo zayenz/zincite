@@ -217,6 +217,161 @@ solve :: int_search(successor, input_order, indomain_min, complete) satisfy;
 }
 
 #[test]
+fn index_set_declared_axes_inspect_known_element_types_without_extent_proof() {
+    const NATIVE: &str = concat!(
+        "function set of $$E: index_set(array[$$E] of any $U: x);\n",
+        "function set of int: '..'(int: left, int: right);\n",
+        "function int: 'div'(int: left, int: right);\n",
+    );
+    let symbolic = concat!(
+        "array[int] of string: input = [0: \"one\", 1: \"two\"];\n",
+        "set of int: Axis = index_set(input);\n",
+        "array[Axis] of var int: copy; solve satisfy;\n",
+    );
+    let composite = symbolic.replace(
+        "array[int] of string: input = [0: \"one\", 1: \"two\"]",
+        "array[0..3] of tuple(0..5, string): input",
+    );
+    let closed_error = composite.replace("tuple(0..5,", "tuple(0..(1 div 0),");
+    let changed_body = NATIVE.replace("of any $U: x);", "of any $U: x) = 0..3;");
+    let user = format!("function set of int: index_set(array[int] of string: x);\n{symbolic}");
+    let alias = symbolic.replace("of string: input", "of Contents: input");
+    let alias = format!("type Contents = string;\n{alias}");
+    let unknown = concat!(
+        "function bool: generic_axis(array[int] of any $U: input) =\n",
+        "  let { set of int: Axis = index_set(input);\n",
+        "        array[Axis] of int: copy; } in true; solve satisfy;\n",
+    );
+    let (directory, _) = model("index-set-element-types", "solve satisfy;");
+    let root = directory.join("root.mzn");
+    let options = ModelOptions {
+        stdlib_dir: Some(directory.join("library")),
+        include_dirs: Vec::new(),
+    };
+    for (name, source, library, completed, expected_minimum) in [
+        ("symbolic-string", symbolic, NATIVE, true, None),
+        ("written-tuple", composite.as_str(), NATIVE, true, Some(0)),
+        (
+            "closed-element-error",
+            closed_error.as_str(),
+            NATIVE,
+            false,
+            None,
+        ),
+        (
+            "changed-native-body",
+            symbolic,
+            changed_body.as_str(),
+            false,
+            None,
+        ),
+        ("user-overload", user.as_str(), NATIVE, false, None),
+        (
+            "uninspected-type-alias",
+            alias.as_str(),
+            NATIVE,
+            false,
+            None,
+        ),
+        ("unknown-element", unknown, NATIVE, false, None),
+    ] {
+        std::fs::write(directory.join("library/std/stdlib.mzn"), library).unwrap();
+        std::fs::write(&root, source).unwrap();
+        let context = load_model(&root, &options);
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let call = calls
+            .calls
+            .iter()
+            .find(|call| Some(call.file) == context.root_file && call.name == "index_set")
+            .unwrap();
+        if name == "unknown-element" {
+            assert!(
+                matches!(call.outcome, zincite_lint::CallOutcome::Unsupported { .. }),
+                "{name}: {:?}",
+                call.outcome
+            );
+        } else {
+            assert!(
+                matches!(&call.outcome, zincite_lint::CallOutcome::Resolved {
+                parameters, return_type, ..
+            } if parameters.len() == 1
+                && return_type.instantiation == zincite_lint::Instantiation::Parameter
+                && matches!(&return_type.kind, zincite_lint::TypeKind::Set(element)
+                    if element.kind == zincite_lint::TypeKind::Int)),
+                "{name}: {:?}",
+                call.outcome
+            );
+        }
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        if completed {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "INDEX_SET_ELEMENT_RED {name}: {:?}",
+                result.limitations
+            );
+            assert!(
+                result.limitations.is_empty(),
+                "{name}: {:?}",
+                result.limitations
+            );
+            let axis_findings: Vec<_> = result
+                .findings
+                .iter()
+                .filter(|finding| {
+                    finding.location.path == root
+                        && &source[finding.location.range.clone()] == "Axis"
+                })
+                .collect();
+            if let Some(minimum) = expected_minimum {
+                assert_eq!(axis_findings.len(), 1, "{name}: {:?}", result.findings);
+                assert!(
+                    axis_findings[0]
+                        .message
+                        .contains(&format!("starts at {minimum}"))
+                );
+            } else {
+                assert!(result.findings.is_empty(), "{name}: {:?}", result.findings);
+            }
+        } else {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                result
+            );
+            assert!(
+                result.limitations.iter().any(|limit| {
+                    limit.location.path == root
+                        && &source[limit.location.range.clone()] == "Axis"
+                        && (name != "closed-element-error"
+                            || limit.message.contains("division by zero"))
+                }),
+                "{name}: {:?}",
+                result.limitations
+            );
+            assert!(
+                !result.findings.iter().any(|finding| {
+                    finding.location.path == root
+                        && &source[finding.location.range.clone()] == "Axis"
+                }),
+                "{name}: {:?}",
+                result.findings
+            );
+        }
+        assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn named_domains_and_symbolic_bounds_retain_identity_and_precise_advice() {
     let source = concat!(
         "\u{feff}% é\r\n",
