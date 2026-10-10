@@ -1973,3 +1973,209 @@ fn plain_fresh_integer_sources_preserve_unknown_and_errors() {
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
+
+#[test]
+fn rank_three_flat_parameter_integer_sources_preserve_unknown_and_errors() {
+    let library = concat!(
+        "annotation mzn_internal_representation;\n",
+        "function array[$$E,$$F,$$G] of any $V: array3d(\n",
+        "  set of $$E: S1, set of $$F: S2, set of $$G: S3, array[$U] of any $V: x);\n",
+        "function set of $$E: '..'($$E: a, $$E: b) :: mzn_internal_representation;\n",
+        "function bool: '>'(int: a, int: b) :: mzn_internal_representation;\n",
+        "function int: 'div'(int: a, int: b) :: mzn_internal_representation;\n",
+    );
+    let source = concat!(
+        "int: n; set of int: Axis = 1..n;\n",
+        "array[int] of int: flat = [n];\n",
+        "array[int,int,int] of int: matrix = array3d(Axis, Axis, Axis, flat);\n",
+        "var 1..2: pick;\n",
+        "array[int] of var int: result = [matrix[i,pick,1] | i in Axis where i > 0];\n",
+        "solve satisfy;\n",
+    );
+    let backing_zero = source.replace("flat = [n]", "flat = [1 div 0]");
+    let outside_axis = source
+        .replace("Axis = 1..n", "Axis = 1..2")
+        .replace("flat = [n]", "flat = [1,2,3,4,5,6,7,8]")
+        .replace(
+            "array[int,int,int] of int: matrix",
+            "array[Axis,Axis,Axis] of int: matrix",
+        )
+        .replace("matrix[i,pick,1]", "matrix[i,pick,0]");
+    let written_body = library.replace(
+        "array[$U] of any $V: x);",
+        "array[$U] of any $V: x) = array3d(S1,S2,S3,x);",
+    );
+    for (name, source, library, reason) in [
+        ("symbolic", source, library, None),
+        (
+            "backing-zero",
+            backing_zero.as_str(),
+            library,
+            Some("division by zero"),
+        ),
+        (
+            "outside-axis",
+            outside_axis.as_str(),
+            library,
+            Some("outside its declared index set"),
+        ),
+        (
+            "written-body",
+            source,
+            written_body.as_str(),
+            Some("parameter array primitive body"),
+        ),
+    ] {
+        let (directory, _) = model(
+            &format!("rank-three-flat-source-{name}"),
+            "solve satisfy;",
+            "",
+        );
+        let standard = directory.join("library/std/stdlib.mzn");
+        write(&standard, library);
+        let root = directory.join("root.mzn");
+        write(&root, source);
+        let context = load_model(
+            &root,
+            &ModelOptions {
+                stdlib_dir: Some(directory.join("library")),
+                include_dirs: Vec::new(),
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(context.includes.iter().all(|edge| edge.target.is_some()));
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let file = context.root_file.unwrap();
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let selected = calls
+            .calls
+            .iter()
+            .find(|call| call.file == file && call.name == "array3d")
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &selected.outcome
+        else {
+            panic!(
+                "{name}: exact array3d selection required: {:?}",
+                selected.outcome
+            );
+        };
+        let owner = &bindings.declarations[declaration.0];
+        assert_eq!(context.files[owner.file].path, standard);
+        assert_eq!(context.files[owner.file].kind, SourceKind::StandardLibrary);
+        assert!(context.files[owner.file].implicit);
+        let parameter = |kind| TypeInst {
+            instantiation: Instantiation::Parameter,
+            optional: false,
+            kind,
+        };
+        let integer = parameter(TypeKind::Int);
+        let set = parameter(TypeKind::Set(Box::new(integer.clone())));
+        assert_eq!(parameters.len(), 4);
+        assert!(parameters[..3].iter().all(|formal| formal == &set));
+        assert_eq!(
+            parameters[3],
+            parameter(TypeKind::Array {
+                indices: vec![integer.clone()],
+                element: Box::new(integer.clone()),
+            })
+        );
+        assert_eq!(
+            *return_type,
+            parameter(TypeKind::Array {
+                indices: vec![integer.clone(); 3],
+                element: Box::new(integer),
+            })
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let target = bindings
+            .declarations
+            .iter()
+            .find(|d| d.file == file && d.name == "result")
+            .unwrap()
+            .id;
+        let definition = definitions
+            .definitions
+            .iter()
+            .find(|d| d.target == target)
+            .unwrap();
+        let callable = zincite_lint::resolve_callable_definitions(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+        );
+        assert!(
+            callable
+                .outputs
+                .iter()
+                .all(|output| output.callable != *declaration)
+        );
+        assert!(
+            !definitions
+                .bounded_or_defined_targets(&bindings, &domains)
+                .contains(&target)
+        );
+        let result = analyze_model(
+            &context,
+            &LintOptions::from_selection("unbounded-variable").unwrap(),
+        );
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        assert!(result.findings.is_empty(), "{name}: {:?}", result.findings);
+        match reason {
+            None => {
+                assert!(
+                    matches!(definition.safety, DefinitionSafety::Unknown(_)),
+                    "RANK_THREE_FLAT_SOURCE_RED: {:?}",
+                    definition.safety
+                );
+                assert_eq!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Completed,
+                    "{name}: {:?}",
+                    result.limitations
+                );
+            }
+            Some(reason) => {
+                assert!(
+                    matches!(&definition.safety, DefinitionSafety::Unsupported(actual) if actual.contains(reason)),
+                    "{name}: {:?}",
+                    definition.safety
+                );
+                assert!(matches!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Limited { .. }
+                ));
+                assert!(
+                    result
+                        .limitations
+                        .iter()
+                        .any(|limit| limit.location.path == root
+                            && !limit.location.range.is_empty()
+                            && limit.message.contains(reason)),
+                    "{name}: {:?}",
+                    result.limitations
+                );
+            }
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}

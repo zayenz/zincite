@@ -7249,3 +7249,12 @@ Unknown without bounds or definition/output certificates. Both focused cases
 pass. Formatting, Clippy and all 285 workspace tests pass on the integrated
 checkout. Original source closure and final corpus acceptance remain pending;
 base-083 remains open.
+
+The next independently reviewed increment shares native flat integer backing
+and cell inspection across rank three and rank four. Rank-three applicability
+requires an actual native initializer, preserving the established symbolic
+selector route. All four focused cases, existing rank-four controls and the
+unchanged search regression pass. Formatting, Clippy and all 286 workspace
+tests pass on the integrated checkout. Inspection remains Unknown without
+membership, extent or output proofs. Original and final corpus acceptance
+remain pending; base-083 remains open.
