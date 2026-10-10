@@ -6,14 +6,15 @@
   <img alt="Zincite — orange crystal Z logo" src="assets/zincite-logo-dark.svg" width="420">
 </picture>
 
-Zincite provides a formatter and linter for MiniZinc model (`.mzn`) and data
+Zincite provides source tools for MiniZinc model (`.mzn`) and data
 (`.dzn`) files:
 
 - **`zincite fmt`** (or **`zincite-fmt`**) formats source, checks formatting, and writes changes in place.
 - **`zincite lint`** (or **`zincite-lint`**) is a linter for MiniZinc models and data.
+- **`zincite query`** (or **`zincite-query`**) selects items by kind/name and emits original source or a count.
 
-Both tools are written in Rust and share a parser that preserves source spelling,
-comments, whitespace and source locations. Neither command requires a MiniZinc
+The tools are written in Rust and share a parser that preserves source spelling,
+comments, whitespace and source locations. The commands do not require a MiniZinc
 compiler or solver.
 
 Zincite is under development, targeting MiniZinc 2.10.1. Some valid syntax remains
@@ -30,12 +31,13 @@ cd zincite
 cargo install --locked --path .
 ```
 
-The root command provides `zincite fmt` and `zincite lint`. To install the
+The root command provides `zincite fmt`, `zincite lint` and `zincite query`. To install the
 standalone commands instead, use:
 
 ```sh
 cargo install --locked --path crates/zincite-fmt
 cargo install --locked --path crates/zincite-lint
+cargo install --locked --path crates/zincite-query
 ```
 
 Both invocation forms use the same options, defaults and exit codes. Run
@@ -141,6 +143,33 @@ Use `--diff` to preview eligible fixes or `--fix` to apply them. See the
 It accepts files, directories or stdin, with the same directory discovery and
 `.dzn` selection as the formatter. Run `zincite lint --help` (or `zincite-lint --help`) for details.
 
+## Querying items
+
+```sh
+# Print constraints in written order, with their attached comments.
+zincite query 'filter(kind("constraint"))' model.mzn
+
+# Count assignments in a data file.
+zincite query 'items | filter(kind("assignment")) | count' data.dzn
+
+# Print the first assignment named capacity from stdin.
+zincite query --stdin-filepath data.dzn 'filter(name("capacity")) | head(1)' < data.dzn
+```
+
+Supply one query and at most one file or `-`; omitted input reads stdin.
+An empty query or `items` emits the exact document. `filter` supports `kind`
+and `name` predicates, parentheses and Boolean `not`, `and`, `or` in that
+precedence order. `head(n)` keeps the first `n` selected items. `count` emits a
+decimal count; `emit` emits original source, and source emission is implicit.
+Both `count` and `emit` end the pipeline.
+
+Selections use top-level items in written order and compare identifier identity,
+including quoted names. `filter` and `head` emit fragments containing selected
+items and attached comments; separated section comments stay in document output.
+Queries check syntax without loading includes or evaluating data. Query errors
+exit 2 with empty stdout. See the [query reference](docs/reference.md#query-library)
+for kind strings, comment rules and limits, or run `zincite query --help`.
+
 ## Exit codes
 
 | Code | `zincite fmt` / `zincite-fmt` | `zincite lint` / `zincite-lint` |
@@ -148,6 +177,10 @@ It accepts files, directories or stdin, with the same directory discovery and
 | `0` | Formatting succeeded; in check mode, no changes needed | No warnings |
 | `1` | Check mode found formatting changes | Unsuppressed warnings |
 | `2` | Input, syntax, configuration, directive or usage error | Input, syntax, directive, usage or dependency error |
+
+`zincite query` / `zincite-query` exits 0 on success and 2 on query, input,
+usage or I/O errors. An empty fragment selection succeeds and emits no source;
+its count is 0.
 
 Errors take precedence when checking multiple files. Diagnostics include a file
 path and source location where applicable.
@@ -177,6 +210,7 @@ The commands have reusable Rust libraries:
 | `zincite-syntax` | Lexer, parser, source locations and a concrete syntax tree |
 | `zincite-fmt` | Formatting a parsed file, with configurable layout |
 | `zincite-lint` | Lint rules, diagnostics and explicit model/include context |
+| `zincite-query` | Syntax-only item selections, native counts and original source emission |
 
 See the [syntax and library reference](docs/reference.md) for APIs and detailed
 language coverage. Generate local API documentation with

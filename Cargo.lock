@@ -145,6 +145,7 @@ version = "0.1.0"
 dependencies = [
  "zincite-fmt",
  "zincite-lint",
+ "zincite-query",
 ]
 
 [[package]]
@@ -161,6 +162,13 @@ name = "zincite-lint"
 version = "0.1.0"
 dependencies = [
  "toml",
+ "zincite-syntax",
+]
+
+[[package]]
+name = "zincite-query"
+version = "0.1.0"
+dependencies = [
  "zincite-syntax",
 ]
 

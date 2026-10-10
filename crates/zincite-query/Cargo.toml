@@ -1,0 +1,9 @@
+[package]
+name = "zincite-query"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Source-preserving MiniZinc item queries"
+
+[dependencies]
+zincite-syntax = { path = "../zincite-syntax" }

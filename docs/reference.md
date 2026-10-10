@@ -219,6 +219,111 @@ Include nodes expose their path literal as a child. Output nodes expose an optio
 item; `SolveMinimize` and `SolveMaximize` expose direct solve annotations followed
 by the objective expression. Each node retains its precise source range.
 
+## Query library
+
+`zincite-query` selects top-level items from one model or assignment-only data
+file. Its reusable library and both commands use the same fixed pipeline:
+
+| Stage | Result |
+| --- | --- |
+| `items` | Reset to all top-level items in written order |
+| `filter(predicate)` | Keep matching items in their existing order |
+| `head(n)` | Keep the first `n` items of the computed selection |
+| `count` | Return a native count; render as decimal text followed by LF |
+| `emit` | Render the selected original source bytes |
+
+Stages are separated by `|`. The initial selection is `items`, including for an
+empty query. Source emission is implicit. `count` and `emit` are terminal;
+following stages are errors. `head` does not avoid parsing or evaluating the
+earlier selection. No input items produces an empty selection or count 0;
+the untouched selection of a comment-only document still emits its original bytes.
+
+Predicates are `kind("assignment")` and `name("capacity")`, combined with
+parentheses and `not`, `and`, `or` in that precedence order. Query strings are
+double quoted and accept `\"`, `\\`, `\n`, `\r` and `\t` escapes. Other escapes
+and literal control characters are errors; Unicode characters may be written
+directly. Whitespace between query tokens is ignored. Query comments, program
+files, bindings and other stages are not implemented.
+
+The accepted kind strings are `assignment`, `declaration`, `enum`, `type_alias`,
+`function`, `predicate`, `test`, `annotation`, `constraint`, `include`, `output`
+and `solve`. All three solve modes have kind `solve`. Unknown kinds are query
+errors. `name` compares the direct declared/assigned identifier, ignoring single
+quote delimiters on source names and on the predicate argument. For example,
+`name("capacity")` and `name("'capacity'")` both select `'capacity' = 2;`.
+Comparison is case sensitive and does not normalize Unicode. Constraints,
+includes, output and solve items have no item name; names used inside expressions
+are not item names. Syntax queries never load includes, resolve bindings,
+evaluate data or require an installed standard library.
+
+The untouched initial selection and any final reset with `items` emit the exact
+document, including a leading UTF-8 BOM, section comments and all whitespace.
+`filter` and `head` produce fragment selections, even if every item survives.
+Fragments emit original item bytes and attached comments in written order:
+
+- A comment after an item on the same line belongs to that item, including a
+  block comment that starts on that line. The following first line ending and
+  surrounding same-line whitespace are retained.
+- A standalone preceding comment block attaches to the following item when
+  no blank line separates them. Its indentation and line endings are retained.
+  Separated section comments stay out of fragments. Fragments omit the BOM.
+- Standalone `% zincite-fmt: skip` and `% zincite-lint: ignore ...` markers
+  attach to their next item, including intervening whitespace.
+  `% zincite-fmt: off` attaches to the first following item and `% zincite-fmt: on` to the last
+  preceding item. Their retained spans include the intervening trivia.
+  Fragment selections fail with a source diagnostic if marker attachments
+  overlap, split a next-item marker from its target or leave paired formatter
+  markers unbalanced. A count does not emit fragments and needs no such check.
+
+Source rendering inserts no separators and changes no line endings. It preserves
+opaque non-UTF-8 comment bytes; code and literals must be UTF-8. Input parsing
+rejects malformed/unsupported syntax and non-assignment data items. It establishes
+syntax only, not compiler acceptance or semantic validity of data expressions.
+
+Use the library independently:
+
+```rust,ignore
+use zincite_query::{Input, Limits, Query, QueryResult};
+use zincite_syntax::FileMode;
+
+let input = Input::parse(b"'capacity' = 2;\nused = 1;\n".to_vec(), FileMode::Data)?;
+let limits = Limits::default();
+let query = Query::parse("filter(name(\"capacity\"))", limits)?;
+let result = query.evaluate(&input, limits)?;
+if let QueryResult::Selection(selection) = &result {
+    // SelectedItem exposes kind, name, original item/source ranges and the CST node.
+    let item = &selection.items()[0];
+    assert_eq!(&input.source_bytes()[item.range.clone()], b"'capacity' = 2;");
+}
+let original_fragment = result.render();
+```
+
+`QueryResult` keeps a `Selection` or `Count` native until `render`. A selection
+borrows its `Input`, its item CST nodes and identifier identities. `Input` exposes
+original bytes, token bytes/ranges and source locations. `SelectedItem::range`
+and `source_range`, `Input::token_range` and all input diagnostics use original
+byte coordinates. The analysis CST from `Input::syntax` excludes a leading BOM;
+add `Input::syntax_offset` to its ranges. Opaque comment bytes appear as markers
+in its UTF-8 analysis text, so use original byte accessors for source spelling.
+
+Queries have a hard limit of 1,048,576 UTF-8 bytes and 64 nested parentheses/`not`
+operators. Flat `and`/`or` chains do not consume nesting depth. `Limits::nesting`
+can lower that ceiling. Default evaluation limits are 100,000 collected items
+and 1,000,000 visits: each initial/reset item, stage, filtered item and visited
+predicate costs one visit. Boolean evaluation short circuits. Checks occur
+before collection additions and visits; exceeding a bound returns a located
+error without truncating the result. Library callers can change work/collection
+limits. Nesting is checked during query parsing; work/collection during evaluation.
+
+The commands take one query argument and one optional file or `-`.
+`--stdin-filepath PATH` selects stdin's language mode and diagnostic label;
+without it stdin uses model mode. Extra files, directories and semantic options
+such as `--model`, `-I` and `--stdlib-dir` are rejected. Query diagnostics identify
+`<query>` line/column and query byte ranges; input diagnostics identify the input
+path and original source byte ranges. Both command forms buffer a complete result
+before writing stdout, exit 0 on success and 2 on query/input/usage/I/O errors.
+Query and input failures leave stdout empty.
+
 ## Formatter library
 
 Use the libraries independently of the command:

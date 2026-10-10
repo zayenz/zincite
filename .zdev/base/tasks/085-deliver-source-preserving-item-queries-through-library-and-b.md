@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-085"
 key = "item-queries"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -26,13 +26,23 @@ Read [the query expansion](../brief.md#query-and-data-transformation-expansion),
 
 ## Done when
 
-- [ ] items, filter(kind/name with parenthesized not/and/or), head, count and source emit execute from the reusable library and identically through zincite-query and zincite query.
-- [ ] The agreed initial/default selection, ordering, identifier identity, selected comments and implicit source emission are documented and observable for .mzn and assignment-only .dzn.
-- [ ] Query/input errors have useful located diagnostics and status 2 without partial stdout; syntax-only operation remains independent of semantic context.
-- [ ] Nested predicates and evaluation expansion obey explicit documented bounds, and exceeded limits fail without silent truncation.
-- [ ] Help and local installation examples advertise only implemented query stages.
+- [x] items, filter(kind/name with parenthesized not/and/or), head, count and source emit execute from the reusable library and identically through zincite-query and zincite query.
+- [x] The agreed initial/default selection, ordering, identifier identity, selected comments and implicit source emission are documented and observable for .mzn and assignment-only .dzn.
+- [x] Query/input errors have useful located diagnostics and status 2 without partial stdout; syntax-only operation remains independent of semantic context.
+- [x] Nested predicates and evaluation expansion obey explicit documented bounds, and exceeded limits fail without silent truncation.
+- [x] Help and local installation examples advertise only implemented query stages.
 
 ## Validation
 
 - Use a few public model/data queries covering retained comments/quoted names, order, empty selections, Boolean precedence and malformed/over-nested queries. Check source/token preservation through the public result, not merely saved input equality.
 - Run cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, and cargo test --workspace; use the brief's focused testing level.
+
+## Result
+
+Added reusable bounded source-preserving item queries through zincite-query and zincite query, with native selections/counts and located errors.
+
+Validation:
+
+- Independent review confirms source/token ranges, quoted names, predicate precedence, comment/directive behavior, BOM/opaque bytes and assignment-only data.
+- Both command forms match in targeted public comparisons; malformed and limit errors produce no partial stdout.
+- cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, and cargo test --workspace pass.

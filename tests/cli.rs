@@ -77,10 +77,9 @@ fn help_uses_the_invocation_and_usage_errors_exit_two() {
         assert!(output.status.success() && output.stderr.is_empty());
         let help = String::from_utf8(output.stdout).unwrap();
         assert!(help.starts_with("Usage: zincite <COMMAND>"));
-        assert!(help.contains("fmt") && help.contains("lint"));
-        assert!(!help.contains("query"));
+        assert!(help.contains("fmt") && help.contains("lint") && help.contains("query"));
     }
-    for command in ["fmt", "lint"] {
+    for command in ["fmt", "lint", "query"] {
         let output = run(&[command, "--help"], "");
         assert!(output.status.success() && output.stderr.is_empty());
         let help = String::from_utf8(output.stdout).unwrap();
@@ -93,12 +92,39 @@ fn help_uses_the_invocation_and_usage_errors_exit_two() {
         assert_eq!(invalid.status.code(), Some(2));
         assert!(invalid.stdout.is_empty() && !invalid.stderr.is_empty());
     }
-    let unknown = run(&["query"], "");
+    let unknown = run(&["unknown"], "");
     assert_eq!(unknown.status.code(), Some(2));
     assert!(unknown.stdout.is_empty());
     assert!(
         String::from_utf8(unknown.stderr)
             .unwrap()
-            .contains("unknown command 'query'")
+            .contains("unknown command 'unknown'")
+    );
+}
+
+#[test]
+fn query_selects_data_and_reports_errors_without_partial_stdout() {
+    let source = "% attached\r\n'capacity' = 2; % tail\r\na = 1;\r\n";
+    let output = run(
+        &[
+            "query",
+            "--stdin-filepath",
+            "data.dzn",
+            "filter(name(\"capacity\"))",
+        ],
+        source,
+    );
+    assert!(output.status.success() && output.stderr.is_empty());
+    assert_eq!(output.stdout, b"% attached\r\n'capacity' = 2; % tail\r\n");
+    let output = run(&["query", "items | head(1) | count", "-"], source);
+    assert!(output.status.success() && output.stderr.is_empty());
+    assert_eq!(output.stdout, b"1\n");
+    let output = run(&["query", "count | emit"], source);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("<query>:1:")
     );
 }
