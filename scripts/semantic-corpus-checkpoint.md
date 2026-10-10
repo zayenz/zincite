@@ -6872,3 +6872,27 @@ The sample identifies this cost in its observation window; it supplies neither
 whole-phase proportions nor an allocation-growth explanation. A narrow reuse of
 identical immutable declaration-domain checks is being prepared privately.
 Base-083 performance and complete corpus acceptance remain open.
+
+Invocation actual matching now retains the callable matcher's parameter
+set-to-array correspondence: a present parameter Int/nominal Enum set may match
+a present rank-one Int-axis parameter array with the identical element type.
+The written set remains the actual source; no values, extents, index-set equality,
+outputs or coverage certificates are supplied. All existing actual-source,
+formal/default, header and selected written-body checks remain required.
+
+The focused public group reproduces the prior enum-set invocation refusal and
+passes after the repair for symbolic enum/integer sets, closed source division,
+aborting written body and nominal mismatch. The nominal control retains NoMatch
+and a located callable refusal; existing parameter-only search coverage completes
+independently. An initially incorrect test expectation is retained in the failed
+v1 GREEN capture rather than changing production policy. Final workspace fmt,
+Clippy and tests pass under
+`target/benchmarks/base083/semantic71-invocation-set-array-main-checks-v2`.
+
+The original Workforce native replay now retains one warning and two limitations:
+only the cardinality actual-type refusal disappears. Regexp native prerequisites
+and optional local transition inspection remain explicit. Full streams and 1,133
+unchanged pins across that replay are retained under
+`target/benchmarks/base083/semantic71-workforce-cardinality-native-prerequisite-v1`.
+This increment establishes no complete original-root or final corpus acceptance;
+base-083 remains open with every Done condition unchecked.

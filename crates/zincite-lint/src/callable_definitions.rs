@@ -6573,10 +6573,21 @@ impl<'a> Producer<'a> {
                     })
             }
             .ok_or("invoked actual type unavailable")?;
+            // Match the selected set2array view without replacing the written
+            // set or proving its values, extent or index-set correspondence.
+            let set_array_view = ty.instantiation == Instantiation::Parameter
+                && parameter.instantiation == Instantiation::Parameter
+                && !optional(parameter)
+                && matches!((&ty.kind, &parameter.kind),
+                    (TypeKind::Set(element), TypeKind::Array { indices, element: selected })
+                        if indices.as_slice() == [TypeInst::par(TypeKind::Int)]
+                            && element.instantiation == Instantiation::Parameter
+                            && matches!(element.kind, TypeKind::Int | TypeKind::Enum(_))
+                            && element == selected);
             if !parameter.known()
                 || !ty.known()
                 || optional(ty)
-                || !crate::types::coerces(ty, parameter)
+                || !(crate::types::coerces(ty, parameter) || set_array_view)
                 || instance.view.declarations[formal.0].ty != *parameter
             {
                 return Err("invoked actual type or optionality is unsupported".into());

@@ -14847,3 +14847,222 @@ fn scoped_boolean_call_actuals_inspect_sources_without_output_proof() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn invoked_parameter_set_matching_views_inspect_sources_without_output_proof() {
+    use zincite_lint::{CallOutcome, Instantiation, TypeInst, TypeKind};
+    let par = |kind| TypeInst {
+        instantiation: Instantiation::Parameter,
+        optional: false,
+        kind,
+    };
+    for (name, member, declaration, condition, failure) in [
+        ("enum", "Choice", "set of Choice: cover;", "true", None),
+        ("int", "int", "set of int: cover;", "true", None),
+        (
+            "source-zero",
+            "int",
+            "set of int: cover = {1 div 0};",
+            "true",
+            Some("division by zero"),
+        ),
+        (
+            "body-abort",
+            "Choice",
+            "set of Choice: cover;",
+            "false",
+            Some("false assertion condition aborts evaluation"),
+        ),
+        (
+            "nominal-mismatch",
+            "Choice",
+            "set of Other: cover;",
+            "true",
+            Some("nominal-mismatch"),
+        ),
+    ] {
+        let source = format!(
+            "enum Choice; enum Other;\n{declaration}\nvar bool: auxiliary;\n\
+             predicate inspect_cover(array[int] of {member}: values) =\n\
+               assert({condition},\"checked written body\",true);\n\
+             constraint inspect_cover(cover);\nsolve satisfy;\n"
+        );
+        let (dir, _) = model(&format!("invoked-set-array-{name}"), &source, "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}{}",
+                concat!(
+                    "function any $T: assert(bool: condition,string: message,any $T: result);\n",
+                    "function int: 'div'(int: left,int: right);\n",
+                )
+            ),
+        )
+        .unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let call = calls
+            .calls
+            .iter()
+            .find(|call| call.location.path == dir.join("root.mzn") && call.name == "inspect_cover")
+            .expect("written selected invocation");
+        if name == "nominal-mismatch" {
+            assert!(
+                matches!(&call.outcome, CallOutcome::NoMatch { .. }),
+                "{:?}",
+                call.outcome
+            );
+        } else {
+            let kind = if member == "int" {
+                TypeKind::Int
+            } else {
+                TypeKind::Enum(
+                    bindings
+                        .declarations
+                        .iter()
+                        .find(|d| d.top_level && d.name == "Choice")
+                        .unwrap()
+                        .id,
+                )
+            };
+            let element = par(kind);
+            let selected = par(TypeKind::Array {
+                indices: vec![par(TypeKind::Int)],
+                element: Box::new(element.clone()),
+            });
+            let cover = bindings
+                .declarations
+                .iter()
+                .find(|d| d.top_level && d.name == "cover")
+                .unwrap();
+            assert_eq!(
+                calls.declarations[cover.id.0].ty,
+                par(TypeKind::Set(Box::new(element))),
+                "{name}: retain the written set type"
+            );
+            assert!(
+                matches!(&call.outcome, CallOutcome::Resolved { declaration, parameters, .. }
+                if bindings.declarations[declaration.0].name == "inspect_cover"
+                    && bindings.declarations[declaration.0].location.path == dir.join("root.mzn")
+                    && parameters.as_slice() == [selected]),
+                "{name}: {:?}",
+                call.outcome
+            );
+        }
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        assert!(
+            callable.outputs.is_empty(),
+            "{name}: {:?}",
+            callable.outputs
+        );
+        assert!(
+            callable.definitions.is_empty(),
+            "{name}: {:?}",
+            callable.definitions
+        );
+        assert!(callable.inspected_locals.is_empty(), "{name}");
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let search =
+            resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+        assert_eq!(search.root_state, ModelRootState::Complete, "{name}");
+        assert!(
+            matches!(
+                coverage(&bindings, &search, "auxiliary"),
+                SearchCoverage::Uncovered | SearchCoverage::Unknown
+            ),
+            "{name}: no coverage certificate"
+        );
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        match failure {
+            None => {
+                assert!(
+                    callable.unavailable.is_empty(),
+                    "{name}: {:?}",
+                    callable.unavailable
+                );
+                assert_eq!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Completed,
+                    "{name}: {:?}",
+                    result.limitations
+                );
+                assert!(
+                    result.limitations.is_empty(),
+                    "{name}: {:?}",
+                    result.limitations
+                );
+            }
+            Some("nominal-mismatch") => {
+                assert!(
+                    callable.unavailable.iter().any(|row| {
+                        row.reason == "callable selection is unresolved, ambiguous or unsupported"
+                            && row.location.path == dir.join("root.mzn")
+                            && row.location.range.start < row.location.range.end
+                            && row.location.range.start <= call.location.range.start
+                            && call.location.range.end <= row.location.range.end
+                            && !row.targets.is_empty()
+                            && row.targets.iter().all(|id| {
+                                calls.declarations[id.0].ty.instantiation
+                                    == Instantiation::Parameter
+                            })
+                    }),
+                    "{name}: the unmatched body remains unavailable: {:?}",
+                    callable.unavailable
+                );
+                // Known parameters are covered independently of callable outputs.
+                assert_eq!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Completed,
+                    "{name}: {:?}",
+                    result.limitations
+                );
+                assert!(
+                    result.limitations.is_empty(),
+                    "{name}: {:?}",
+                    result.limitations
+                );
+            }
+            Some(reason) => {
+                assert!(
+                    matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                    "{name}: {:?}",
+                    result.rules
+                );
+                if name != "nominal-mismatch" {
+                    assert!(
+                        callable
+                            .unavailable
+                            .iter()
+                            .any(|row| row.reason.contains(reason)
+                                && row.location.range.start < row.location.range.end),
+                        "{name}: {:?}",
+                        callable.unavailable
+                    );
+                }
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
