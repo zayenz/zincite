@@ -995,3 +995,172 @@ fn boolean_array_concatenation_keeps_operand_and_written_primitive_refusals() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn optional_parameter_matrix_initializers_inspect_sources_without_proving_values() {
+    use zincite_lint::{CallOutcome, DeclarationRole, Instantiation, SourceKind, TypeKind};
+    let primitive = "function array[$$E,$$F] of any $V: array2d(set of $$E:S1,set of $$F:S2,array[$U] of any $V:x);\n";
+    let changed_body = primitive.replace(
+        " any $V:x);",
+        " any $V:x) = [(i,j):x[1] | i in S1,j in S2];",
+    );
+    assert_ne!(changed_body, primitive);
+    for (name, cell, standard, failure) in [
+        ("symbolic", "value - 1", primitive, None),
+        (
+            "closed-cell",
+            "(1 div 0)",
+            primitive,
+            Some("division by zero"),
+        ),
+        (
+            "written-body",
+            "value - 1",
+            changed_body.as_str(),
+            Some("body, default or type expression"),
+        ),
+    ] {
+        let input = if name == "written-body" {
+            format!("[1,<>,<>,{cell}]")
+        } else {
+            format!("[|1, <>|<>, {cell}|]")
+        };
+        let initializer = format!("array2d(States, Axis, {input})");
+        let source = format!(
+            "int:limit; int:value; enum Axis = {{A,B}};\n\
+             constraint let {{set of int:States=1..limit;\n\
+             array[States,Axis] of opt States:transitions={initializer};}} in true;\n\
+             solve satisfy;\n"
+        );
+        let dir = std::env::temp_dir().join(format!(
+            "zincite-optional-matrix-guarded-{name}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(dir.join("library/std")).unwrap();
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!("{CORE}{standard}"),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), &source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(context.includes.iter().all(|edge| edge.target.is_some()));
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let constructor = calls
+            .calls
+            .iter()
+            .find(|call| context.files[call.file].path == context.root && call.name == "array2d")
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &constructor.outcome
+        else {
+            panic!("{name}: {:?}", constructor.outcome);
+        };
+        let owner = &bindings.declarations[declaration.0];
+        assert_eq!(owner.role, DeclarationRole::Function);
+        assert_eq!(context.files[owner.file].kind, SourceKind::StandardLibrary);
+        assert!(context.files[owner.file].implicit);
+        assert_eq!(parameters.len(), 3);
+        assert!(
+            matches!(&parameters[2].kind, TypeKind::Array { indices, element }
+            if indices.len() == 1 && element.optional && element.kind == TypeKind::Int)
+        );
+        assert!(
+            matches!(&return_type.kind, TypeKind::Array { indices, element }
+            if indices.len() == 2 && element.optional && element.kind == TypeKind::Int)
+        );
+        assert_eq!(return_type.instantiation, Instantiation::Parameter);
+        assert!(!return_type.optional);
+        let local = bindings
+            .declarations
+            .iter()
+            .find(|owner| owner.role == DeclarationRole::Local && owner.name == "transitions")
+            .unwrap()
+            .id;
+        assert_eq!(calls.declarations[local.0].ty, *return_type);
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let numeric =
+            resolve_numeric_facts(&context, &bindings, &calls, &inst, &domains, &definitions);
+        let optional = resolve_optional_facts(
+            &context,
+            &bindings,
+            &calls,
+            &inst,
+            &domains,
+            &numeric,
+            &definitions,
+        );
+        let facts = resolve_guarded_facts_with_options(
+            &context, &bindings, &calls, &inst, &domains, &numeric, &optional,
+        );
+        let value = expression(&context, &facts, &initializer);
+        if let Some(reason) = failure {
+            assert!(
+                facts.limitations.iter().any(|limit| {
+                    limit.file == value.file
+                        && limit.location.range == value.location.range
+                        && limit.reason.contains(reason)
+                }),
+                "{name}: {:?}",
+                facts.limitations
+            );
+            if name == "closed-cell" {
+                assert_eq!(value.raw_definedness, GuardedOutcome::Refuted);
+                assert_eq!(value.definedness, GuardedOutcome::Refuted);
+            } else {
+                assert!(
+                    matches!(&value.raw_definedness, GuardedOutcome::Unsupported(message)
+                    if message.contains(reason)),
+                    "{name}: {value:?}"
+                );
+                assert_eq!(value.definedness, value.raw_definedness);
+            }
+        } else {
+            assert_eq!(
+                value.raw_definedness,
+                GuardedOutcome::Unknown,
+                "OPTIONAL_MATRIX_SOURCE_RED {name}: {value:?}"
+            );
+            assert_eq!(value.definedness, GuardedOutcome::Unknown);
+            assert!(
+                !facts
+                    .limitations
+                    .iter()
+                    .any(|limit| limit.file == value.file
+                        && limit.location.range == value.location.range)
+            );
+        }
+        assert_eq!(value.truth, None);
+        assert_eq!(value.numeric, None);
+        let callable = zincite_lint::resolve_callable_definitions(
+            &context, &bindings, &calls, &inst, &domains,
+        );
+        assert!(callable.outputs.is_empty());
+        assert!(!callable.inspected_locals.contains(&local));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

@@ -313,6 +313,112 @@ pub(super) fn direct_expression_safety<'a>(
     }
     .direct_safety(source.0, source.1, calls, generators)
 }
+// Inspect only an optional matrix's whole owning lexical initializer.
+// This shares constructor checks with model lets and supplies no value proof.
+pub(super) fn optional_parameter_matrix_initializer_safety<'a>(
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    calls: &'a CallableFacts,
+    instantiations: &'a InstantiationFacts,
+    domains: &'a DomainFacts,
+    source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
+) -> Option<DefinitionSafety> {
+    let (file, node, generators) = source;
+    let producer = Producer {
+        context,
+        bindings,
+        calls,
+        instantiations,
+        domains,
+        lookups: None,
+        instances: Vec::new(),
+        boundaries: Vec::new(),
+        selected_set_source: false,
+        inactive_integer_body: None,
+    };
+    let ty = &producer.expression_type(calls, file, node)?.ty;
+    if node.kind() != NodeKind::CallExpression
+        || !ty.known()
+        || ty.optional
+        || ty.instantiation != Instantiation::Parameter
+        || !matches!(&ty.kind, TypeKind::Array { indices, element }
+            if indices.len() == 2 && element.optional
+                && element.instantiation == Instantiation::Parameter
+                && element.kind == TypeKind::Int)
+        || producer.operation_fact(calls, file, node)?.name != "array2d"
+    {
+        return None;
+    }
+    let mut pending = vec![context.files[file].parsed.tree()];
+    let local = 'owner: loop {
+        let parent = pending.pop()?;
+        if parent.kind() == NodeKind::LetExpression {
+            for block in parent
+                .child_nodes()
+                .filter(|part| part.kind() == NodeKind::LetBlock)
+            {
+                for local in block
+                    .child_nodes()
+                    .filter(|part| part.kind() == NodeKind::Declaration)
+                {
+                    if local
+                        .child_nodes()
+                        .find(|part| is_expression(part.kind()))
+                        .is_some_and(|initializer| std::ptr::eq(unwrap(initializer), node))
+                    {
+                        break 'owner local;
+                    }
+                }
+            }
+        }
+        pending.extend(parent.child_nodes().filter(|part| {
+            part.range().start <= node.range().start && node.range().end <= part.range().end
+        }));
+    };
+    let owner = bindings.declarations.iter().find(|owner| {
+        owner.file == file
+            && owner.role == DeclarationRole::Local
+            && owner.syntax_range == local.range()
+    })?;
+    if !crate::definitions::annotations_safe(context, file, local) {
+        return Some(DefinitionSafety::Unsupported(
+            "optional parameter matrix owning Local annotation is unsupported".into(),
+        ));
+    }
+    for (position, generator) in generators.iter().enumerate() {
+        if generator.kind() != NodeKind::Generator
+            || generator.range().end > local.range().start
+            || position > 0 && generators[position - 1].range().end > generator.range().start
+        {
+            return Some(DefinitionSafety::Unsupported(
+                "optional parameter matrix preceding header order is unsupported".into(),
+            ));
+        }
+        for source in generator.child_nodes() {
+            let filter = source.kind() == NodeKind::WhereFilter;
+            let value = if filter {
+                let Some(value) = source.child_nodes().next() else {
+                    return Some(DefinitionSafety::Unsupported(
+                        "optional parameter matrix preceding filter is unavailable".into(),
+                    ));
+                };
+                value
+            } else {
+                source
+            };
+            let visible = position + usize::from(filter);
+            if let Err(reason) = producer.optional_matrix_source_safety(
+                (file, value, value.range().start),
+                calls,
+                &generators[..visible],
+                &mut vec![owner.id],
+            ) {
+                return Some(DefinitionSafety::Unsupported(reason));
+            }
+        }
+    }
+    producer.optional_parameter_matrix_safety(file, local, owner.id, calls, generators)
+}
 // Numeric inspection must check initialized references, not only dependencies.
 pub(super) fn initialized_expression_safety<'a>(
     context: &'a ModelContext,
@@ -1992,14 +2098,9 @@ impl<'a> Producer<'a> {
                     if !owning_scope {
                         return Err("regular4 transition matrix has no owning lexical scope".into());
                     }
-                    let actual = Clause {
-                        file,
-                        item: declaration.item,
-                        node,
-                        generators: headers.to_vec(),
-                        kind: ClauseKind::Call,
-                    };
-                    match self.optional_parameter_matrix_safety(&actual, written, source, facts) {
+                    match self
+                        .optional_parameter_matrix_safety(file, written, source, facts, headers)
+                    {
                         Some(DefinitionSafety::Unknown(_)) => {}
                         Some(DefinitionSafety::Unsupported(reason)) => return Err(reason),
                         _ => {
@@ -4330,10 +4431,11 @@ impl<'a> Producer<'a> {
                         };
                         let ty = &view.declarations[declaration.id.0].ty;
                         if let Some(safety) = self.optional_parameter_matrix_safety(
-                            clause,
+                            clause.file,
                             local,
                             declaration.id,
                             view,
+                            &clause.generators,
                         ) {
                             if let DefinitionSafety::Unsupported(reason) = safety {
                                 self.unavailable(clause, &reason, unavailable);
@@ -22088,10 +22190,11 @@ impl<'a> Producer<'a> {
     // presence, extent or local output. Its present sources remain strict.
     fn optional_parameter_matrix_safety(
         &self,
-        clause: &Clause<'a>,
+        file: FileId,
         local: &'a SyntaxNode,
         id: DeclarationId,
         view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         let ty = &view.declarations[id.0].ty;
         let parameter = |ty: &TypeInst| {
@@ -22120,17 +22223,12 @@ impl<'a> Producer<'a> {
         );
         if initializer.kind() != NodeKind::CallExpression
             || self
-                .operation_fact(
-                    self.view(clause.file, initializer, view),
-                    clause.file,
-                    initializer,
-                )
+                .operation_fact(self.view(file, initializer, view), file, initializer)
                 .is_none_or(|call| call.name != "array2d")
         {
             return None;
         }
         let checked = (|| {
-            let file = clause.file;
             let typed = |node: &SyntaxNode| {
                 self.expression_type(self.view(file, node, view), file, node)
                     .map(|value| &value.ty)
@@ -22217,7 +22315,7 @@ impl<'a> Producer<'a> {
                 self.optional_matrix_source_safety(
                     (file, argument, local.range().start),
                     view,
-                    &clause.generators,
+                    generators,
                     &mut active,
                 )?;
             }
@@ -22228,7 +22326,7 @@ impl<'a> Producer<'a> {
             self.optional_matrix_source_safety(
                 (file, member, local.range().start),
                 view,
-                &clause.generators,
+                generators,
                 &mut active,
             )?;
             let input_type =
@@ -22352,7 +22450,7 @@ impl<'a> Producer<'a> {
                 self.optional_matrix_source_safety(
                     (file, written_cell, local.range().start),
                     view,
-                    &clause.generators,
+                    generators,
                     &mut active,
                 )?;
                 if let Some(value) = crate::domains::invariant_expression_integer(

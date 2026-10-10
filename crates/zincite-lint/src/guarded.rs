@@ -2014,6 +2014,40 @@ impl<'a> Producer<'a> {
         if self.index_domain(file, node).is_some() {
             return result;
         }
+        if self.ty(file, node).is_some_and(|ty| {
+            ty.known()
+                && !ty.optional
+                && ty.instantiation == Instantiation::Parameter
+                && matches!(&ty.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 2 && element.optional && element.kind == TypeKind::Int
+                        && element.instantiation == Instantiation::Parameter)
+        }) {
+            let (generators, scope_error) = self.source_headers(file, node, scope);
+            if let Some(safety) =
+                crate::callable_definitions::optional_parameter_matrix_initializer_safety(
+                    self.context,
+                    self.bindings,
+                    self.calls,
+                    self.instantiations,
+                    self.domains,
+                    (file, node, &generators),
+                )
+            {
+                let inspected = match scope_error {
+                    Some(reason) => self.unsupported(file, node, reason).definedness,
+                    None => match safety {
+                        crate::DefinitionSafety::Unsupported(reason) => {
+                            self.unsupported(file, node, reason).definedness
+                        }
+                        _ => GuardedOutcome::Unknown,
+                    },
+                };
+                result.definedness = conjoin(&result.definedness, &inspected);
+                result.truth = None;
+                result.numeric = None;
+                return result;
+            }
+        }
         self.unsupported(
             file,
             node,

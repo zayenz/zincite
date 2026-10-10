@@ -7233,3 +7233,11 @@ definitions. All three focused cases pass, including closed body errors and
 recursive-body refusals. Formatting, Clippy and all 283 workspace tests pass
 on the integrated checkout. The original filtered caller path and final corpus
 acceptance remain unobserved; base-083 remains open.
+
+The next independently reviewed increment connects guarded analysis to the
+existing optional parameter matrix initializer checker. It retains the owning
+Local, nominal axes, selected primitive and source/error checks; successful
+inspection remains Unknown while child refusals are preserved. All three
+focused cases pass. Formatting, Clippy and all 284 workspace tests pass on
+the integrated checkout. Original and final corpus acceptance remain pending;
+base-083 remains open.
