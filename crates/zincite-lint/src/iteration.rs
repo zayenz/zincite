@@ -301,7 +301,8 @@ pub fn resolve_iteration_facts(
     guarded: &GuardedFacts,
 ) -> IterationFacts {
     let mut expression_kinds = BTreeMap::new();
-    for expression in &calls.expressions {
+    let mut expression_indices = HashMap::with_capacity(calls.expressions.len());
+    for (row, expression) in calls.expressions.iter().enumerate() {
         expression_kinds
             .entry((
                 expression.file,
@@ -309,12 +310,32 @@ pub fn resolve_iteration_facts(
                 expression.location.range.end,
             ))
             .or_insert(&expression.ty.kind);
+        expression_indices
+            .entry((
+                expression.file,
+                expression.location.range.start,
+                expression.location.range.end,
+            ))
+            .or_insert(row);
+    }
+    let mut call_indices = HashMap::with_capacity(calls.calls.len());
+    for (row, call) in calls.calls.iter().enumerate() {
+        call_indices
+            .entry((call.file, call.location.range.start))
+            .or_insert(row);
     }
     let mut reference_indices = HashMap::with_capacity(bindings.references.len());
+    let mut value_reference_indices = vec![Vec::new(); context.files.len()];
     for (index, reference) in bindings.references.iter().enumerate() {
         reference_indices
             .entry((reference.file, reference.location.range.start))
             .or_insert(index);
+        if reference.kind == crate::ReferenceKind::Value {
+            value_reference_indices[reference.file].push(index);
+        }
+    }
+    for indices in &mut value_reference_indices {
+        indices.sort_unstable_by_key(|&row| (bindings.references[row].location.range.start, row));
     }
     let mut p = Producer {
         context,
@@ -326,7 +347,10 @@ pub fn resolve_iteration_facts(
         optional,
         guarded,
         expression_kinds,
+        expression_indices,
+        call_indices,
         reference_indices,
+        value_reference_indices,
         facts: IterationFacts::default(),
     };
     for declaration in &bindings.declarations {
@@ -392,7 +416,10 @@ struct Producer<'a> {
     optional: &'a OptionalFacts,
     guarded: &'a GuardedFacts,
     expression_kinds: BTreeMap<(FileId, usize, usize), &'a TypeKind>,
+    expression_indices: HashMap<(FileId, usize, usize), usize>,
+    call_indices: HashMap<(FileId, usize), usize>,
     reference_indices: HashMap<(FileId, usize), usize>,
+    value_reference_indices: Vec<Vec<usize>>,
     facts: IterationFacts,
 }
 impl Producer<'_> {
@@ -675,6 +702,11 @@ impl Producer<'_> {
                         self.instantiations,
                         self.domains,
                         (file, node, &generators),
+                        Some(crate::callable_definitions::DirectSafetyLookups {
+                            expressions: &self.expression_indices,
+                            calls: &self.call_indices,
+                            value_references: &self.value_reference_indices,
+                        }),
                     )
                 }?;
                 if let Some(reason) = scope_error {

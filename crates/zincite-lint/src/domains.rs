@@ -1395,6 +1395,7 @@ impl<'a> Walker<'a> {
                             instantiations,
                             domains,
                             (file, retained, generators),
+                            None,
                         )
                 {
                     self.inspected_extremum = true;
@@ -3082,6 +3083,11 @@ impl<'a> Bounds<'a> {
                             instantiations,
                             self.domains,
                             (file, retained, &[]),
+                            Some(crate::callable_definitions::DirectSafetyLookups {
+                                expressions: &self.expression_indices,
+                                calls: &self.call_indices,
+                                value_references: &self.value_reference_indices,
+                            }),
                         )
                 {
                     return match safety {

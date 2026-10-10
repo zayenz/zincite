@@ -3283,6 +3283,7 @@ impl<'a> Producer<'a> {
                     self.instantiations,
                     self.domains,
                     (file, node, &generators),
+                    None,
                 )
             };
             if let Some(safety) = inspected {

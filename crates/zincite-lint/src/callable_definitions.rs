@@ -1022,6 +1022,7 @@ pub(super) fn selected_integer_set_source_safety<'a>(
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
+    lookups: Option<DirectSafetyLookups<'a>>,
 ) -> Option<DefinitionSafety> {
     let (file, written, generators) = source;
     let (calls, view) = callables;
@@ -1031,7 +1032,7 @@ pub(super) fn selected_integer_set_source_safety<'a>(
         calls,
         instantiations,
         domains,
-        lookups: None,
+        lookups,
         instances: Vec::new(),
         boundaries: Vec::new(),
         selected_set_source: true,
@@ -1177,6 +1178,7 @@ pub(super) fn initialized_parameter_set_extremum_safety<'a>(
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
+    lookups: Option<DirectSafetyLookups<'a>>,
 ) -> Option<DefinitionSafety> {
     let (file, node, generators) = source;
     let written = unwrap(node);
@@ -1190,7 +1192,7 @@ pub(super) fn initialized_parameter_set_extremum_safety<'a>(
         calls,
         instantiations,
         domains,
-        lookups: None,
+        lookups,
         instances: Vec::new(),
         boundaries: Vec::new(),
         selected_set_source: false,
@@ -16715,6 +16717,7 @@ impl<'a> Producer<'a> {
             self.instantiations,
             self.domains,
             (file, header.child_nodes().next()?, generators),
+            None,
         )
         .map(|checked| match checked {
             unsupported @ DefinitionSafety::Unsupported(_) => unsupported,

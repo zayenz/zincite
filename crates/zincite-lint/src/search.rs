@@ -1,4 +1,6 @@
 //! Direct search interpretation, independent of missing-coverage advice.
+use std::collections::HashMap;
+
 use crate::callables::{core_operation, find_node, is_expression, operation_fact};
 use crate::definitions::complete_array_coverage;
 use crate::value_safety::{expression_safety, optional, traversal_expression_safety};
@@ -1659,6 +1661,33 @@ impl<'a> Producer<'a> {
                     };
             }
         }
+        let mut expression_indices = HashMap::with_capacity(self.calls.expressions.len());
+        for (row, expression) in self.calls.expressions.iter().enumerate() {
+            expression_indices
+                .entry((
+                    expression.file,
+                    expression.location.range.start,
+                    expression.location.range.end,
+                ))
+                .or_insert(row);
+        }
+        let mut call_indices = HashMap::with_capacity(self.calls.calls.len());
+        for (row, call) in self.calls.calls.iter().enumerate() {
+            call_indices
+                .entry((call.file, call.location.range.start))
+                .or_insert(row);
+        }
+        let mut value_reference_indices = vec![Vec::new(); self.context.files.len()];
+        for (row, reference) in self.bindings.references.iter().enumerate() {
+            if reference.kind == crate::ReferenceKind::Value {
+                value_reference_indices[reference.file].push(row);
+            }
+        }
+        for indices in &mut value_reference_indices {
+            indices.sort_unstable_by_key(|&row| {
+                (self.bindings.references[row].location.range.start, row)
+            });
+        }
         let mut admitted = Vec::new();
         for (d, callable_record) in definitions
             .definitions
@@ -1687,7 +1716,15 @@ impl<'a> Producer<'a> {
             let safety = if d.safety == DefinitionSafety::Supported {
                 d.safety.clone()
             } else {
-                self.rhs_safety(d).unwrap_or_else(|| d.safety.clone())
+                self.rhs_safety(
+                    d,
+                    crate::callable_definitions::DirectSafetyLookups {
+                        expressions: &expression_indices,
+                        calls: &call_indices,
+                        value_references: &value_reference_indices,
+                    },
+                )
+                .unwrap_or_else(|| d.safety.clone())
             };
             if d.enforcement != DefinitionEnforcement::Enforced
                 || safety != DefinitionSafety::Supported
@@ -1846,7 +1883,11 @@ impl<'a> Producer<'a> {
         node.child_nodes()
             .all(|child| self.conjunctions_enforced(file, child, range))
     }
-    fn rhs_safety(&self, d: &crate::Definition) -> Option<DefinitionSafety> {
+    fn rhs_safety(
+        &self,
+        d: &crate::Definition,
+        lookups: crate::callable_definitions::DirectSafetyLookups<'_>,
+    ) -> Option<DefinitionSafety> {
         let source = &self.context.files[d.file];
         let value = locate(
             source.parsed.tree(),
@@ -1855,14 +1896,14 @@ impl<'a> Producer<'a> {
         let mut generators = Vec::new();
         collect_generators(source.parsed.tree(), &value.range(), &mut generators);
         generators.retain(|g| g.range().end <= value.range().start);
-        let direct = crate::callable_definitions::direct_expression_safety(
+        let direct = crate::callable_definitions::indexed_expression_safety(
             self.context,
             self.bindings,
             self.calls,
             self.instantiations,
             self.domains,
-            (d.file, value),
-            &generators,
+            (d.file, value, &generators),
+            lookups,
         );
         if !matches!(direct, DefinitionSafety::Unsupported(_)) {
             return Some(direct);

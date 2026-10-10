@@ -7412,3 +7412,38 @@ review found no unresolved defect. Original replay and final corpus acceptance
 remain pending; base-083 remains open.
 Main formatting, Clippy and all 295 workspace tests passed; the integrated
 108-source map and complete gate streams were rechecked.
+
+### Repaired original Workforce replay
+
+An unchanged original Workforce replay from commit 2c2fded now completes all
+fourteen thesis and all twenty-six expanded analyses without limitations.
+Warning counts remain two and nine respectively. The prior expanded replay
+had one GCC mixed-comparison limitation. Native and companion diagnostics match
+byte-for-byte; rule order, shared fourteen records, resolved dependencies,
+terminal receipts, source pins and return-to-baseline drop records were checked.
+This is source-only compiler-qualified evidence; no solve or matching-data
+instance claim is made.
+
+### Reused source lookup indexes
+
+Set-extremum, search-value and selected-set iteration source inspection now
+reuse direct expression, call and per-file value-reference indexes. First-row
+and source-order behavior, selected scopes, substituted-view fallback, source
+errors and Unknown results remain unchanged. No semantic result cache is added.
+
+Gecode compile-only controls at 1,000 and 10,000 written references were
+accepted without solving. Both versions produced identical native/companion
+diagnostics and all twenty-six rule records. The 10,000-reference native
+observation fell from 2.04 to 1.11 seconds, with RSS increasing from 75.3 to
+77.3 MiB. Requested allocations increase slightly; retained and peak allocation
+deltas remain equal. These are single diagnostic observations, and each control
+still has thirteen limitations; they do not prove complete semantic support.
+
+The unchanged Connect thesis native diagnostics also match exactly across
+lookup versions. Its observed time fell from 888 to 109 seconds after search
+lookup reuse; the earlier process was sampled, so this is qualified cost
+evidence. The latest iteration lookup version retains those thesis diagnostics.
+Expanded original replay and final corpus acceptance remain pending.
+Base-083 remains open.
+The integrated lookup increment passes main formatting, Clippy and all 295
+workspace tests. Full gate streams and the 108-source map were rechecked.
