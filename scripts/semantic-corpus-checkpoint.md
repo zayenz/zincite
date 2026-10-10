@@ -6329,9 +6329,30 @@ under `target/benchmarks/base083/semantic66-full-axis-unused-preparation-v1`,
 public regression and outstanding validation. No candidate is integrated or
 runtime-verified; the capture's source files and release assets stay unchanged.
 
-The optional-Float weak-equality draft remains under review. Its entry guard
-needs to preserve the existing fallback for non-Float selections. After the
-capture is terminal, ROOT must observe required original selected tuples, run
+The optional-Float weak-equality candidate has passed static review. Its entry
+guard preserves the existing fallback for non-Float selections. ROOT must
+observe required original selected tuples, run
 focused behavioral RED/GREEN checks with separate fresh Cargo targets, then
 integrate passing repairs and run workspace gates. Any Rust repair requires
 new final release and corpus evidence before base-083 can pass verification.
+
+The final-corpus-4fea5c2-v2 capture is terminal with all 124 shard receipts and
+6,417 original inputs. Its outer process exited 1. Shard 54 reached the
+1,800-second child limit for both native and companion thesis/all selections
+on a 9.3 MB generated BNN planner model. Shard 59's native selections finished
+in about 1,548 and 1,744 seconds; its thesis companion matched, but its all
+companion reached the same limit during analysis. No deadline was extended or
+root omitted. These cutoffs remain performance and coverage work.
+
+ROOT ran the prepared saved-capture reconciliation after terminal admission.
+The audit independently rehashed all 189,496 original inventory files before
+and after, and all 150 source/tool/binary/library pins; none changed. It retains
+three Unobserved selection/root results from shards 54 and 59. All other shards
+pass its capture checks. Capture integrity therefore remains false, and
+semantic acceptance remains undecided. Compiler source/type classifications
+account for 2,241 Accepted, 3,876 data-only inputs, 276 CompilerNonzero and 24
+retained Rejected labels; these do not establish complete instance validity.
+The saved result is under
+`target/benchmarks/base083/semantic65-final-corpus-reconciliation-preparation-v2/root-audit.json`.
+Private repair validation and a separate timeout investigation are now active;
+base-083 remains open.
