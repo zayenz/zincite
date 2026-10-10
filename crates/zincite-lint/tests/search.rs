@@ -15370,3 +15370,266 @@ fn optional_parameter_matrices_inspect_sources_without_output_proof() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn literal_enum_regexp_sources_keep_unknown_and_reject_unchecked_patterns() {
+    use zincite_lint::{
+        CallOutcome, DeclarationRole, Instantiation, NumericOutcome, SourceKind, TypeKind,
+        resolve_numeric_facts,
+    };
+    let positive = concat!(
+        "include \"globals.mzn\";\n",
+        "enum Day = {First, Last}; enum Shift = {Work, Rest}; enum Other = {Foreign};\n",
+        "int: workers; set of int: Workers = 1..workers;\n",
+        "array[Day,Workers] of var Shift: schedule;\n",
+        "constraint forall(worker in Workers)(regular(schedule[..,worker], \".*\\tRest Rest\\n.*\"));\n",
+        "solve satisfy;\n",
+    );
+    let core = format!(
+        "{}\nfunction int: 'div'(int: left,int: right);\n",
+        CORE.replace(
+            "array[int] of var opt bool: body",
+            "array[int] of var bool: body"
+        ),
+    );
+    let regular = concat!(
+        "include \"fzn_regular_regexp.mzn\";\n",
+        "predicate regular(array[int] of var $$E: xs,string: regexp) = fzn_regular(enum2int(xs),regexp);\n",
+    );
+    let written_body = concat!(
+        "include \"globals.mzn\";\n",
+        "array[1..1] of var int: input;\n",
+        "constraint fzn_regular(input,\".\"); solve satisfy;\n",
+    );
+    let six_argument = concat!(
+        "include \"globals.mzn\";\n",
+        "array[1..1] of var int: input; array[1..1,1..1] of int: transitions;\n",
+        "constraint fzn_regular(input,1,1,transitions,1,{1}); solve satisfy;\n",
+    );
+    for (name, source, failure) in [
+        ("regexp-written-body", written_body.to_owned(), None),
+        ("regexp-six-argument", six_argument.to_owned(), None),
+        ("regexp-symbolic", positive.to_owned(), None),
+        (
+            "regexp-malformed",
+            positive.replace(r".*\tRest Rest\n.*", "["),
+            Some(""),
+        ),
+        (
+            "regexp-unknown-member",
+            positive.replace(r".*\tRest Rest\n.*", ".* Missing .*"),
+            Some(""),
+        ),
+        (
+            "regexp-wrong-enum",
+            positive.replace(r".*\tRest Rest\n.*", ".* Foreign .*"),
+            Some(""),
+        ),
+        (
+            "regexp-source-zero",
+            positive.replace("schedule[..,worker]", "schedule[..,(worker div 0)]"),
+            Some("zero"),
+        ),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(dir.join("library/std/stdlib.mzn"), &core).unwrap();
+        std::fs::write(
+            dir.join("library/std/globals.mzn"),
+            "include \"regular_regexp.mzn\";\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("library/std/regular_regexp.mzn"), regular).unwrap();
+        let native_source = match name {
+            "regexp-written-body" => {
+                "predicate fzn_regular(array[int] of var int: xs,string: regexp) = true;\n"
+            }
+            "regexp-six-argument" => concat!(
+                "predicate fzn_regular(array[int] of var int: xs,string: regexp);\n",
+                "predicate fzn_regular(array[int] of var int: xs,int: Q,int: S,array[int,int] of int: d,int: q0,set of int: F) = true;\n",
+            ),
+            _ => "predicate fzn_regular(array[int] of var int: xs,string: regexp);\n",
+        };
+        std::fs::write(
+            dir.join("library/std/fzn_regular_regexp.mzn"),
+            native_source,
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), &source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|f| f.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|c| c.file == 0)
+                .all(|c| matches!(c.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let regular_call = calls
+            .calls
+            .iter()
+            .find(|c| {
+                c.file == 0
+                    && c.name
+                        == if matches!(name, "regexp-six-argument" | "regexp-written-body") {
+                            "fzn_regular"
+                        } else {
+                            "regular"
+                        }
+            })
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &regular_call.outcome
+        else {
+            unreachable!()
+        };
+        assert_eq!(
+            context.files[bindings.declarations[declaration.0].file].kind,
+            SourceKind::StandardLibrary
+        );
+        assert!(!context.files[bindings.declarations[declaration.0].file].implicit);
+        if name == "regexp-six-argument" {
+            assert_eq!(parameters.len(), 6);
+        } else if name == "regexp-written-body" {
+            assert!(matches!(parameters.as_slice(), [array, pattern]
+                if matches!(&array.kind, TypeKind::Array { element, .. } if element.kind == TypeKind::Int)
+                    && array.instantiation == Instantiation::Decision && !array.optional
+                    && pattern.kind == TypeKind::String && pattern.instantiation == Instantiation::Parameter && !pattern.optional));
+        } else {
+            let shift = bindings
+                .declarations
+                .iter()
+                .find(|d| d.name == "Shift" && d.role == DeclarationRole::Enum)
+                .unwrap()
+                .id;
+            assert!(matches!(parameters.as_slice(), [array, pattern]
+            if array.instantiation == Instantiation::Decision && !array.optional
+                && matches!(&array.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 1 && indices[0].kind == TypeKind::Int
+                        && indices[0].instantiation == Instantiation::Parameter && !indices[0].optional
+                        && element.kind == TypeKind::Enum(shift) && element.instantiation == Instantiation::Decision && !element.optional)
+                && pattern.kind == TypeKind::String && pattern.instantiation == Instantiation::Parameter && !pattern.optional));
+        }
+        assert_eq!(return_type.kind, TypeKind::Bool);
+        assert_eq!(return_type.instantiation, Instantiation::Decision);
+        assert!(!return_type.optional);
+        let native = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == "fzn_regular" && d.role == DeclarationRole::Predicate)
+            .unwrap();
+        assert_eq!(context.files[native.file].kind, SourceKind::StandardLibrary);
+        assert!(!context.files[native.file].implicit);
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        let search =
+            resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        assert!(search.searched.is_empty());
+        assert!(
+            callable.outputs.is_empty(),
+            "{name}: {:?}",
+            callable.outputs
+        );
+        assert!(
+            callable.definitions.is_empty(),
+            "{name}: {:?}",
+            callable.definitions
+        );
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        if let Some(reason) = failure {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                search.limitations
+            );
+            let root_call = source.find("regular(").unwrap();
+            let native_call = regular.find("fzn_regular(").unwrap();
+            assert!(
+                search.limitations.iter().any(|limit| {
+                    limit.message.contains(reason)
+                        && if limit.location.path == context.root {
+                            limit.location.range.start <= root_call
+                                && root_call < limit.location.range.end
+                        } else {
+                            limit.location.path == dir.join("library/std/regular_regexp.mzn")
+                                && limit.location.range.start <= native_call
+                                && native_call < limit.location.range.end
+                        }
+                }),
+                "{name}: located source failure: {:?}",
+                search.limitations
+            );
+        } else {
+            if let Some(worker_count) = bindings
+                .declarations
+                .iter()
+                .find(|d| d.name == "workers" && d.top_level)
+                .map(|d| d.id)
+            {
+                let numeric = resolve_numeric_facts(
+                    &context,
+                    &bindings,
+                    &calls,
+                    &inst,
+                    &domains,
+                    &definitions,
+                );
+                assert!(matches!(
+                    numeric
+                        .declarations
+                        .iter()
+                        .find(|d| d.declaration == worker_count)
+                        .unwrap()
+                        .value,
+                    NumericOutcome::Unknown(_) | NumericOutcome::Symbolic { .. }
+                ));
+            }
+            assert_eq!(
+                coverage(
+                    &bindings,
+                    &search,
+                    if matches!(name, "regexp-six-argument" | "regexp-written-body") {
+                        "input"
+                    } else {
+                        "schedule"
+                    }
+                ),
+                SearchCoverage::Uncovered
+            );
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "LITERAL_ENUM_REGEXP_RED: {name}: {:?}",
+                search.limitations
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

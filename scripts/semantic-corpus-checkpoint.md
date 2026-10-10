@@ -6959,3 +6959,27 @@ failed control is retained, not waived. ROOT checked all twelve full stream hash
 terminal cleanup, unchanged pins and six complete companion/drop records under
 `target/benchmarks/base083/semantic72-guarded-memo-growth-runner-preparation-v2`.
 No repeated build or BNN baseline run was needed. Base-083 remains open.
+
+
+The bodyless standard two-argument `fzn_regular` source path now inspects a bounded
+literal enum regexp subset and its written array, conversion, invocation and
+header sources. Exact nominal enum/member identities and selected native tuple
+are required. Unsupported patterns and closed source errors stay explicit;
+written bodies and other arities retain ordinary interpretation. This establishes
+neither a match result, totality nor output/search dependencies.
+
+Seven public controls reproduce the prior limitation in a fresh Cargo target and
+pass in a separate fresh target after the repair. Workspace fmt, Clippy and tests
+pass under `target/benchmarks/base083/semantic72-literal-regexp-main-checks-v1`.
+Two synthetic MiniZinc source-only checks pass with unchanged compiler/library
+pins under `semantic72-literal-regexp-compiler-controls-root-v1`; the malformed
+pattern is deliberately not executed. The retained original/data Gecode compile
+supports only that specific instance, not general regexp validity.
+
+The original Workforce replay removes the regexp prerequisite limitation and now
+reports the uncovered schedule explicitly: two warnings and two limitations remain.
+The four-argument `regular` initializer and enclosing local result are still
+unsupported. Full streams, terminal cleanup and 1,133 unchanged pins are retained
+under `target/benchmarks/base083/semantic72-workforce-literal-regexp-native-prerequisite-v1`.
+This increment does not complete original-root support or final corpus acceptance;
+base-083 remains open with every Done condition unchecked.
