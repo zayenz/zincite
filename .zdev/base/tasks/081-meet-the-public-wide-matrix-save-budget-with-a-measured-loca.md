@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-081"
 key = "wide-save-budget"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -27,13 +27,23 @@ Read brief Performance and format-on-save, scripts/save-performance.md and the b
 
 ## Done when
 
-- [ ] Matched before/after release measurements retain byte-identical complete output and status on the public wide shape and existing matrix/table controls.
-- [ ] At least 50 fresh saves per default/nested configuration meet 100 ms p95 and 64 MiB on the public wide input; existing small/dense representative cases retain their per-case budgets and hard cases are not omitted.
-- [ ] Separate profiler/allocation/native-RSS evidence identifies the local change and its limits; material first-use observations remain separate with measured attribution or explicit external limitation.
-- [ ] Public wide and established small/large table fidelity, protected-byte and exact scope-drop controls pass; formatting leaves ParsedFile usable. Any remaining actual miss stays an acceptance blocker with a bounded follow-up.
+- [x] Matched before/after release measurements retain byte-identical complete output and status on the public wide shape and existing matrix/table controls.
+- [x] At least 50 fresh saves per default/nested configuration meet 100 ms p95 and 64 MiB on the public wide input; existing small/dense representative cases retain their per-case budgets and hard cases are not omitted.
+- [x] Separate profiler/allocation/native-RSS evidence identifies the local change and its limits; material first-use observations remain separate with measured attribution or explicit external limitation.
+- [x] Public wide and established small/large table fidelity, protected-byte and exact scope-drop controls pass; formatting leaves ParsedFile usable. Any remaining actual miss stays an acceptance blocker with a bounded follow-up.
 
 ## Validation
 
 - Reuse the existing 50-sample stdin command protocol with complete stdout/stderr/status, unchanged input/configuration pins and fresh processes; native own-child RSS runs separately.
 - Run matched native checks and adequate finite clean parse/reparse, token/tree coverage, spelling/structure/protected-byte and idempotence controls. Recheck the full no-rules corpus after layout changes.
 - Run required workspace fmt/clippy/tests for Rust changes; use existing behavior checks and no timing/layout-size tests. Keep every failed/noisy/censored attempt and external original unchanged.
+
+## Result
+
+Confirmed existing implementation meets public wide-matrix save budgets and documented matched current measurements and limitations.
+
+Validation:
+
+- Independent audit of 1400 fresh saves: wide p95 89.184/89.121 ms and native RSS 51.406250/51.375000 MiB; all applicable representative budgets pass.
+- Six historical complete outputs byte-identical; four focused fidelity controls and twelve exact scope-drop checks pass.
+- Independent cargo fmt, clippy with warnings denied, and workspace tests pass (298 tests).

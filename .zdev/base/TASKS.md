@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 96
-- Ready: 5
+- Ready: 4
 - Blocked: 11
-- Done: 80
+- Done: 81
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -89,7 +89,7 @@
 | [base-078](tasks/078-avoid-repeated-source-prefix-scans-for-lint-locations.md) | Avoid repeated source-prefix scans for lint locations | done | — |
 | [base-079](tasks/079-avoid-repeated-row-classification-while-measuring-matrix-wid.md) | Avoid repeated row classification while measuring matrix widths | done | — |
 | [base-080](tasks/080-resolve-and-classify-the-remaining-corpus-processing-gaps.md) | Resolve and classify the remaining corpus processing gaps | done | — |
-| [base-081](tasks/081-meet-the-public-wide-matrix-save-budget-with-a-measured-loca.md) | Meet the public wide-matrix save budget with a measured local repair | ready | base-080 |
+| [base-081](tasks/081-meet-the-public-wide-matrix-save-budget-with-a-measured-loca.md) | Meet the public wide-matrix save budget with a measured local repair | done | base-080 |
 | [base-082](tasks/082-attribute-the-remaining-full-batch-rss-and-expanded-lint-cut.md) | Attribute the remaining full-batch RSS and expanded-lint cutoffs | done | base-080 |
 | [base-083](tasks/083-complete-supported-semantic-facts-and-thesis-execution-cover.md) | Complete supported semantic facts and thesis execution coverage | blocked | base-080, base-082, base-094 |
 | [base-084](tasks/084-add-the-root-zincite-command-with-shared-fmt-and-lint-entry.md) | Add the root zincite command with shared fmt and lint entry points | ready | — |

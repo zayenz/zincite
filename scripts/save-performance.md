@@ -1,8 +1,9 @@
 # Save command acceptance checkpoint
 
-The base-048 case set below is historical. The base-079 wide-matrix recheck at
-the end adds a representative shape that fails the unchanged save budget.
-Final save acceptance therefore remains blocked despite the earlier passing set.
+The base-048 and base-079 results below are historical. The current base-081
+recheck at the end passes the unchanged save budgets on every retained
+representative case. Current full-corpus validation remains deferred; the
+older full-corpus report does not pin the current formatter source.
 
 The existing one-shot release command meets the unchanged repeated-save budgets
 on the user's M1 Max. No Rust, CLI configuration or benchmark-driver change was
@@ -409,3 +410,127 @@ Raw selected evidence is under `save-selected`, `help-selected`, `after8-control
 `after8-matched`, `wide-compile`, `cargo-selected` and `full-corpus-selected`, with
 frozen source/binary pins and complete terminal child receipts. Save acceptance
 remains open because the wall-time gates are unmet.
+
+
+## Base-081: current save recheck, 2026-10-10
+
+The existing renderer and syntax storage meet the unchanged save budgets on the
+retained public wide input and all established representative cases in this
+recheck. No further source change was needed. This is current save evidence;
+it does not complete the outstanding current full-corpus validation.
+
+The checkout began at `9fa76a84a3cbb78a3623a6b9be0dcf9ae4276deb`.
+The measured build is pinned at `596a170c7c89e3cf32d30529dc9627e5b5691967`,
+which added only task records and the generated task index. Formatter and parser
+source stayed unchanged during this work. The release formatter SHA256 is
+`2d276437aa58bb798808489b8aabe789a12f0ea331bb02947309d42d0b4d88f3`.
+The host is the user's M1 Max with 64 GiB, macOS 26.6.2 arm64, Rust 1.98.1 and
+Python 3.14.6. Host load and warm filesystem caches remain uncontrolled.
+The sandbox denied the supplementary hardware `sysctl` query; the hardware
+identity comes from the retained host record.
+
+The clean campaign uses the unchanged `scripts/bench-save.py` case generator,
+settings, 50 fresh processes per case/configuration and nearest-rank p95. A
+private wrapper captures every complete stdout and raw stderr, status and child
+CPU. Builds, tests and profiling ran outside this campaign. The earlier `before`
+campaign accidentally overlapped the baseline formatter test at its start; all
+of its samples remain recorded as a noisy attempt, and none substitutes for the
+clean campaign below. The two campaigns have identical complete outputs and
+statuses. No sample was removed or pooled.
+
+Separate native stdin saves retain complete streams and exact-child Darwin
+`wait4` RSS, with a 30-second watchdog and reaped children. They receive the same
+input bytes and default/nested settings, with the actual destination suffix.
+Their output bytes and statuses match all 1,400 formal samples. The driver's
+28 denied `/usr/bin/time -l` attempts remain in the receipts; the table uses
+available separate `wait4` observations. D and N both resolve to four spaces,
+tab width four, LF, a final newline, trimming, UTF-8 and width 120.
+
+| Case / input bytes | D p95 ms | N p95 ms | D RSS MiB | N RSS MiB |
+| --- | ---: | ---: | ---: | ---: |
+| ordinary-changed / 1,163 | 5.009 | 5.103 | 1.968750 | 2.015625 |
+| ordinary-formatted / 1,324 | 5.092 | 5.379 | 2.000000 | 2.062500 |
+| invalid-edited / 33 | 5.088 | 5.133 | 1.781250 | 1.796875 |
+| matrix / 676 | 4.971 | 4.972 | 1.828125 | 1.843750 |
+| nested / 1,133 | 6.010 | 5.989 | 2.203125 | 2.218750 |
+| matrix-grown / 6,971 | 5.577 | 5.548 | 2.296875 | 2.312500 |
+| nested-grown / 4,493 | 27.398 | 27.694 | 3.718750 | 3.453125 |
+| dense-10000 / 9,669 | 5.945 | 5.919 | 2.375000 | 2.390625 |
+| dense-100000 / 96,669 | 13.307 | 13.406 | 6.625000 | 6.656250 |
+| dense-1000000 / 966,669 | 87.134 | 87.118 | 47.796875 | 47.812500 |
+| dense-2000000 / 1,933,338 | 167.650 | 167.321 | 91.984375 | 91.984375 |
+| external-0-atsp.mzn / 6,899 | 6.296 | 6.230 | 2.312500 | 2.328125 |
+| external-1-trip_7_4.mzn / 85,229 | 14.142 | 14.324 | 5.484375 | 5.484375 |
+| external-2-u7g2pref1.dzn / 885,733 | 89.184 | 89.121 | 51.406250 | 51.375000 |
+
+Every case up to 100 KiB passes 50 ms / 32 MiB; both larger representative
+cases within 1 MiB pass 100 ms / 64 MiB. Wide p50 is 87.512/87.506 ms and its
+min–max is 86.448–89.799/86.539–90.175 ms. Dense 966,669-byte p50 is
+84.639/84.335 ms, with min–max 83.228–87.405/83.251–89.016 ms.
+The nested-grown maximum of 73.201 ms remains visible although its 27.694 ms
+p95 passes. Per-case p50, spread, all samples and child CPU remain in the raw
+report. Wide child CPU p95 is 80.816/80.855 ms; it does not replace wall time.
+The 1,933,338-byte dense case remains supported and outside the interactive
+size range; its roughly doubled latency/RSS shows no unexplained superlinear
+increase for this size pair.
+
+### Current local attribution and behavior
+
+Two current native wide `--check` runs take 76.495/76.131 ms child CPU and
+51.000000/51.921875 MiB RSS. All six retained matrix/table controls produce
+complete output byte-identical to the historical pre-repair output. All checks
+exit 1 with empty streams; output runs exit 0 with empty stderr. The public wide
+output remains 1,506,703 bytes. These file-backed checks are separate from stdin
+save measurements.
+
+The existing phase probe records 384 formatting allocation calls, 10,075,651
+requested bytes and 2,474,444 peak bytes above the retained CST on the wide
+input, matching the earlier scalar-cell repair's counters. The retained
+pre-repair result had 6,250,148 calls, 198,862,238 requested bytes and a
+15,857,904-byte peak. Current parsed retention is 46,646,349 tracked bytes,
+with a 46,652,845-byte construction peak. This checkout also contains later
+syntax storage changes; the current native memory improvement cannot be
+attributed solely to the formatter repair. Tracked bytes and native high-water
+RSS remain separate measurements.
+
+A separate three-second sample of the owned format-only probe retains 2,186
+stacks: 1,043 pass through item rendering and 811 through layout's lexer path.
+The six-second probe completes 155 uncached format iterations over one retained
+CST. This identifies remaining matrix traversal and lexical layout work; it is
+not an end-to-end save benchmark or a whole-process CPU percentage. The first
+sandboxed sampler attempt exits 255 because it cannot examine the child; that
+attempt and its completed/reaped probe remain recorded. A scoped retry examining
+only its own child succeeds. Passing current gates gives no reason to add another
+renderer optimization.
+
+Current public wide, 30,000-column synthetic, 619,533-byte table and
+27,775,980-byte table checks pass clean parse/reparse, token/tree coverage,
+spelling, structure, protected bytes and idempotence. Three exact scope-drop
+iterations per input return to their baseline allocations and leave `ParsedFile`
+usable before drop. The large table fidelity and drop runs remain separate
+multi-parse controls, not save-memory measurements. All external control inputs
+are rehashed unchanged. Native/checker/drop children have finite 120/300-second
+caps, complete streams and terminal reaped receipts.
+
+### First use and remaining validation
+
+The clean campaign's first ordinary invocation is retained separately:
+5.943 ms wall / 3.761 ms child CPU. A new identical help executable copy takes
+4.674 ms wall / 3.168 ms CPU, then 4.016/2.660 ms. A new identical save copy
+takes 5.069/3.509 ms, then 4.294/2.916 ms. These bounded observations show no
+material startup delay here. They neither control cold caches nor explain the
+historical host launch delays; that earlier external limitation remains.
+
+No corpus sweep ran, as explicitly requested by the user. Fresh full no-rules
+corpus validation is deferred. The retained selected corpus report pins different
+formatter/parser sources and cannot establish current full-corpus fidelity.
+The current focused controls above establish only their named inputs. No new
+layout, parser, CST or public API change was introduced in this recheck.
+
+Current workspace formatting, Clippy with warnings denied and all 298 workspace
+tests pass. No new test was added for this measurement and documentation update.
+All raw attempts, distributions, physical capture comparisons, native resources,
+allocation/drop output, profiler stacks, first-use controls, source/binary pins
+and command wrappers remain ignored under `target/benchmarks/base081-current`.
+Repeat the clean driver protocol with a new output path and retain complete
+captures; run native/profiler controls and tests outside that timed campaign.

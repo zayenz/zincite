@@ -78,25 +78,22 @@ error-buffer preservation and separate native child RSS checks. The original
 base-048 representative cases passed their budgets; the later public wide matrix
 prevented an overall acceptance claim.
 
-The selected base-081 repair reduces matrix formatting allocation and stores
-private CST node data behind a box while preserving the public syntax APIs and
-complete output. Separate native saves of the 885,733-byte public wide input
-measure 60.859375/60.562500 MiB for default/nested settings, below the unchanged
-64 MiB limit. The latest 50-sample saves still measure
-3,916.040/4,045.999 ms p95, above the unchanged 100 ms limit. Every size-gated
-case misses its wall-time budget in this campaign. Child CPU is recorded
-separately and does not replace wall time. The dense 966,669-byte input now
-measures 53.875 MiB for both settings. The checkpoint preserves the earlier
-formatter-only memory misses and unsuccessful reservation experiments.
+The current base-081 recheck uses the existing scalar-matrix renderer and syntax
+storage with no additional source change. Fifty fresh saves per configuration
+measure 89.184/89.121 ms p95 for the 885,733-byte public wide input. Separate
+native stdin saves measure 51.406250/51.375000 MiB for default/nested settings,
+passing the unchanged 100 ms / 64 MiB gate. Every retained representative case
+within 1 MiB passes its own latency/RSS budget. The dense 966,669-byte control
+measures 87.134/87.118 ms p95 and 47.796875/47.812500 MiB. Complete output and
+status match the retained baseline; focused matrix/table fidelity and scope-drop
+checks pass.
 
-A separate 50-launch `--help` diagnostic measures 201.446 ms wall / 5.612 ms
-child CPU at p95. Help returns before configuration lookup, parsing and
-formatting; this demonstrates a material delay outside those paths without
-identifying its precise cause or relaxing the save budgets.
-Historical base-048 fresh-copy
-`--help` controls showed that a material first-use delay can occur before
-formatting work. The host startup cause remains unresolved; these observations
-do not establish controlled cold-cache performance. Large inputs remain
-supported, but the interactive budgets cover only inputs up to 1 MiB. The
-checkpoint keeps larger-case measurements and corpus and batch-memory limits
-separate from save-command acceptance.
+The checkpoint preserves the earlier failed campaigns, unsuccessful experiments,
+separate CPU/allocation evidence and first-use observations. Current first-use
+controls show no material launch delay, but do not explain the historical host
+startup cause or establish controlled cold-cache performance. Large inputs remain
+supported; interactive budgets cover inputs up to 1 MiB. Fresh full no-rules
+corpus validation remains deferred under the user's explicit sweep restriction.
+The older corpus report has different source pins and cannot prove current
+full-corpus behavior. These save results do not resolve corpus or batch-memory
+limits.
