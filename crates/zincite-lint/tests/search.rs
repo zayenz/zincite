@@ -14367,3 +14367,173 @@ fn standard_identity_wrappers_inspect_private_channels_without_coverage() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn decision_enum_array_sources_inspect_initialized_comprehensions_without_outputs() {
+    use zincite_lint::{CallOutcome, DeclarationRole, Instantiation, TypeKind};
+    let positive = concat!(
+        "enum Days = {First,Last}; enum Shift = {On,Off};\n",
+        "int: employees; set of int: Employees = 1..employees;\n",
+        "array[Days,Employees] of var Shift: schedule;\n",
+        "array[int] of var Shift: repeated =\n",
+        "  [schedule[day,employee] | employee in Employees,day in Days] ++ schedule[..,1];\n",
+        "constraint let { array[int] of var bool: local = [slot = Off | slot in repeated];\n",
+        "} in forall(local); solve satisfy;\n",
+    );
+    let closed = positive.replace("1..employees", "1..(employees + (1 div 0))");
+    let concat = "function array[int] of any $T: '++'(array[$$X] of any $T: x,array[$$Y] of any $T: y) :: mzn_internal_representation";
+    for (name, source, written_body, failure) in [
+        ("decision-enum-array-source", positive, false, None),
+        (
+            "decision-enum-array-source-zero",
+            closed.as_str(),
+            false,
+            Some("zero"),
+        ),
+        (
+            "decision-enum-array-written-body",
+            positive,
+            true,
+            Some("written primitive"),
+        ),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        let core = CORE.replace(
+            "function array[int] of var int: '++'(array[int] of var int: left,array[int] of var int: right);",
+            &format!("{concat}{}", if written_body { " = [];" } else { ";" }),
+        );
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!("{core}annotation mzn_internal_representation;\nfunction int: '+'(int: x,int: y);\nfunction int: 'div'(int: x,int: y);\nfunction var bool: forall(array[int] of var bool: values);\n"),
+        ).unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        assert!(context.includes.iter().all(|edge| edge.target.is_some()));
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let id = |name: &str, role| {
+            bindings
+                .declarations
+                .iter()
+                .find(|d| d.name == name && d.role == role)
+                .unwrap()
+                .id
+        };
+        let shift = id("Shift", DeclarationRole::Enum);
+        let repeated = id("repeated", DeclarationRole::Value);
+        let schedule = id("schedule", DeclarationRole::Value);
+        let local = id("local", DeclarationRole::Local);
+        let slot = id("slot", DeclarationRole::Generator);
+        assert!(
+            matches!(&calls.declarations[repeated.0].ty.kind, TypeKind::Array { indices, element }
+            if indices.len() == 1 && indices[0].kind == TypeKind::Int
+                && indices[0].instantiation == Instantiation::Parameter
+                && element.kind == TypeKind::Enum(shift) && !element.optional
+                && element.instantiation == Instantiation::Decision
+                && &calls.declarations[slot.0].ty == element.as_ref())
+        );
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        let search =
+            resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        assert!(search.searched.is_empty());
+        assert!(callable.outputs.is_empty());
+        assert!(
+            callable
+                .definitions
+                .iter()
+                .all(|d| ![schedule, repeated, local].contains(&d.target))
+        );
+        assert!(
+            definitions
+                .definitions
+                .iter()
+                .all(|d| d.target != repeated || d.safety != DefinitionSafety::Supported)
+        );
+        assert_eq!(
+            coverage(&bindings, &search, "schedule"),
+            SearchCoverage::Uncovered
+        );
+        assert_eq!(
+            coverage(&bindings, &search, "repeated"),
+            SearchCoverage::Unknown
+        );
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        if let Some(reason) = failure {
+            assert!(matches!(
+                result.rules[0].outcome,
+                RuleOutcome::Limited { .. }
+            ));
+            assert!(!callable.inspected_locals.contains(&local));
+            assert!(
+                callable
+                    .unavailable
+                    .iter()
+                    .any(|u| u.location.path == context.root
+                        && u.location.range.start
+                            <= bindings.declarations[local.0].syntax_range.start
+                        && bindings.declarations[local.0].syntax_range.end <= u.location.range.end
+                        && u.reason.contains(reason)),
+                "{name}: {:?}",
+                callable.unavailable
+            );
+        } else {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                result.limitations
+            );
+            assert!(
+                result.limitations.is_empty(),
+                "{name}: {:?}",
+                result.limitations
+            );
+            assert!(
+                callable.inspected_locals.contains(&local),
+                "{name}: {:?}",
+                callable.unavailable
+            );
+            assert!(
+                callable.unavailable.is_empty(),
+                "{name}: {:?}",
+                callable.unavailable
+            );
+            assert_eq!(
+                search.declarations[local.0].coverage,
+                SearchCoverage::Unknown
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

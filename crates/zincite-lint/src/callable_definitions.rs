@@ -13599,6 +13599,14 @@ impl<'a> Producer<'a> {
                     && matches!(&t.kind, TypeKind::Set(element) if element.kind == TypeKind::Int)
             };
             let ty = typed(node).ok_or("parameter collection type unavailable")?;
+            let enum_values = node.kind() == NodeKind::ArrayComprehension
+                && present(ty)
+                && ty.instantiation == Instantiation::Decision
+                && matches!(&ty.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 1 && present_parameter(&indices[0])
+                        && indices[0].kind == TypeKind::Int && present(element)
+                        && element.instantiation == Instantiation::Decision
+                        && matches!(element.kind, TypeKind::Enum(_)));
             let decision_sets = node.kind() == NodeKind::ArrayComprehension
                 && ty.instantiation == Instantiation::Decision
                 && matches!(&ty.kind, TypeKind::Array { element, .. }
@@ -13614,13 +13622,15 @@ impl<'a> Producer<'a> {
                     if present(ty)
                         && (ty.instantiation == Instantiation::Parameter
                             || matches!(element.kind, TypeKind::Int | TypeKind::Bool)
-                            || decision_sets)
+                            || decision_sets
+                            || enum_values)
                         && indices.len() == 1
                         && present_parameter(&indices[0])
                         && indices[0].kind == TypeKind::Int
                         && (matches!(element.kind, TypeKind::Int | TypeKind::Bool)
                             || integer_set(element)
-                            || decision_sets) =>
+                            || decision_sets
+                            || enum_values) =>
                 {
                     element.as_ref()
                 }
@@ -13656,7 +13666,7 @@ impl<'a> Producer<'a> {
                 || list.child_nodes().count() == 0
                 || typed(body).is_none_or(|t| {
                     !present(t)
-                        || if decision_sets || decision_union {
+                        || if decision_sets || decision_union || enum_values {
                             t != element
                         } else if node.kind() == NodeKind::GeneratorCallExpression
                             && element.kind == TypeKind::Int
@@ -13670,10 +13680,15 @@ impl<'a> Producer<'a> {
             {
                 return Err("parameter collection body type is unsupported".into());
             }
-            if (decision_sets || decision_union)
+            if (decision_sets || decision_union || enum_values)
                 && unwrap(body).kind() != NodeKind::ArrayAccessExpression
             {
-                return Err("decision set collection requires a selected array cell".into());
+                return Err(if enum_values {
+                    "enum value collection requires a selected array cell"
+                } else {
+                    "decision set collection requires a selected array cell"
+                }
+                .into());
             }
             if decision_union && list.child_nodes().count() != 1 {
                 return Err("decision set union requires one unfiltered integer header".into());
@@ -13766,12 +13781,28 @@ impl<'a> Producer<'a> {
                         })
                     })
                 });
+            let enum_array_collection = node.kind() == NodeKind::ArrayComprehension
+                && element.kind == TypeKind::Bool
+                && list.child_nodes().count() == 1
+                && list.child_nodes().any(|header| {
+                    header.child_nodes().next().is_some_and(|source| {
+                        typed(source).is_some_and(|t| {
+                            present(t)
+                                && t.instantiation == Instantiation::Decision
+                                && matches!(&t.kind, TypeKind::Array { indices, element }
+                            if indices.len() == 1 && present_parameter(&indices[0])
+                                && indices[0].kind == TypeKind::Int && present(element)
+                                && element.instantiation == Instantiation::Decision
+                                && matches!(element.kind, TypeKind::Enum(_)))
+                        })
+                    })
+                });
             let mut nodes = vec![node];
             while let Some(current) = nodes.pop() {
                 if !crate::definitions::annotations_safe(self.context, file, current) {
                     return Err("parameter collection annotation is unsupported".into());
                 }
-                if enum_collection
+                if (enum_collection || enum_array_collection)
                     && current.kind() == NodeKind::BinaryExpression
                     && let Some(name) = operator(self.context, file, current)
                         .and_then(crate::bindings::symbolic_operator)
@@ -13790,6 +13821,13 @@ impl<'a> Producer<'a> {
                     };
                     let operands: Vec<_> = current.child_nodes().collect();
                     if parameters.len() != 2
+                        || enum_array_collection
+                            && (operands.len() != 2
+                                || typed(operands[0]).is_none_or(|left| {
+                                    !matches!(left.kind, TypeKind::Enum(_))
+                                        || typed(operands[1])
+                                            .is_none_or(|right| right.kind != left.kind)
+                                }))
                         || !present(return_type)
                         || return_type.kind != TypeKind::Bool
                         || parameters.iter().zip(&operands).any(|(formal, actual)| {
@@ -13816,7 +13854,13 @@ impl<'a> Producer<'a> {
                 && unwrap(body).kind() == NodeKind::ConditionalExpression;
             let mut all = generators.to_vec();
             let mut unsupported = None;
-            if decision_sets || decision_union || enum_sum || optional_range_sum || enum_collection
+            if decision_sets
+                || decision_union
+                || enum_sum
+                || optional_range_sum
+                || enum_collection
+                || enum_array_collection
+                || enum_values
             {
                 for (position, header) in generators.iter().enumerate() {
                     for value in header.child_nodes() {
@@ -13855,6 +13899,31 @@ impl<'a> Producer<'a> {
                     .collect();
                 let enum_header =
                     enum_collection && self.enum_collection_header(file, header, facts, &all);
+                let source = header
+                    .child_nodes()
+                    .next()
+                    .ok_or("parameter collection source unavailable")?;
+                let enum_array_header = enum_array_collection
+                    && binders.len() == 1
+                    && header.child_nodes().count() == 1
+                    && unwrap(source).kind() == NodeKind::Expression
+                    && matches!(crate::domains::tokens(&self.context.files[file].parsed, unwrap(source)).as_slice(),
+                        [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+                    && self.reference(file, unwrap(source)).is_some_and(|id| {
+                        let declaration = &self.bindings.declarations[id.0];
+                        declaration.file == file
+                            && declaration.top_level
+                            && declaration.role == DeclarationRole::Value
+                            && typed(source).is_some_and(|t| {
+                                t == &facts.declarations[id.0].ty
+                                    && matches!(&t.kind, TypeKind::Array { element, .. }
+                                    if &facts.declarations[binders[0].id.0].ty == element.as_ref())
+                            })
+                    });
+                let enum_value_header = enum_values && typed(source).is_some_and(|t|
+                    present_parameter(t) && matches!(&t.kind, TypeKind::Set(element)
+                        if present_parameter(element) && matches!(element.kind, TypeKind::Int | TypeKind::Enum(_))
+                            && binders.iter().all(|binder| &facts.declarations[binder.id.0].ty == element.as_ref())));
                 if !header.children().iter().any(|c| {
                     matches!(c, SyntaxElement::Token(i)
                     if self.context.files[file].parsed.tokens()[*i].kind == TokenKind::In)
@@ -13864,6 +13933,8 @@ impl<'a> Producer<'a> {
                     || binders.len()
                         != crate::domains::generator_slots(&self.context.files[file].parsed, header)
                     || !enum_header
+                        && !enum_array_header
+                        && !enum_value_header
                         && binders.iter().any(|d| {
                             let t = &facts.declarations[d.id.0].ty;
                             !present_parameter(t)
@@ -13883,10 +13954,6 @@ impl<'a> Producer<'a> {
                         "parameter collection requires named integer in binders".into()
                     });
                 }
-                let source = header
-                    .child_nodes()
-                    .next()
-                    .ok_or("parameter collection source unavailable")?;
                 if optional_sum && !optional_range_sum {
                     let source_id = self
                         .reference(file, unwrap(source))
@@ -13907,6 +13974,8 @@ impl<'a> Producer<'a> {
                     }
                 } else if !optional_range_sum
                     && !enum_header
+                    && !enum_array_header
+                    && !enum_value_header
                     && typed(source).is_none_or(|t| {
                         !(integer_set(t)
                             && binders.iter().all(|binder| {
@@ -13951,7 +14020,9 @@ impl<'a> Producer<'a> {
                     || decision_sets
                     || decision_union
                     || enum_sum
-                    || enum_collection)
+                    || enum_collection
+                    || enum_array_collection
+                    || enum_values)
                     && let Some(reason) = self.closed_integer_source_error(file, source, true, true)
                 {
                     unsupported = Some(reason);
@@ -13979,7 +14050,9 @@ impl<'a> Producer<'a> {
                         || decision_sets
                         || decision_union
                         || enum_sum
-                        || enum_collection)
+                        || enum_collection
+                        || enum_array_collection
+                        || enum_values)
                         && let Some(reason) =
                             self.closed_integer_source_error(file, condition, true, true)
                     {
@@ -14140,7 +14213,9 @@ impl<'a> Producer<'a> {
                 || decision_sets
                 || decision_union
                 || enum_sum
-                || enum_collection)
+                || enum_collection
+                || enum_array_collection
+                || enum_values)
                 && let Some(reason) = self.closed_integer_source_error(file, body, true, true)
             {
                 unsupported = Some(reason);
@@ -19913,6 +19988,56 @@ impl<'a> Producer<'a> {
                 ),
             };
         }
+        if node.kind() == NodeKind::BinaryExpression
+            && operator(self.context, file, node).and_then(crate::bindings::symbolic_operator)
+                == Some("++")
+            && let Some(result) = ty(node)
+            && result.known()
+            && !optional(result)
+            && result.instantiation == Instantiation::Decision
+            && let TypeKind::Array { indices, element } = &result.kind
+            && indices.len() == 1
+            && indices[0].known()
+            && !optional(&indices[0])
+            && indices[0].instantiation == Instantiation::Parameter
+            && indices[0].kind == TypeKind::Int
+            && element.known()
+            && !optional(element)
+            && element.instantiation == Instantiation::Decision
+            && matches!(element.kind, TypeKind::Enum(_))
+        {
+            let arguments: Vec<_> = node.child_nodes().collect();
+            let checked = self.operation_fact(self.view(file, node, view), file, node).is_some_and(|call|
+                matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                    if parameters.len() == 2 && return_type == result && arguments.len() == 2
+                        && parameters.iter().chain(arguments.iter().filter_map(|argument| ty(argument))).all(|t|
+                            t.known() && !optional(t) && t.instantiation == Instantiation::Decision
+                                && matches!(&t.kind, TypeKind::Array { indices, element: actual }
+                                    if indices.len() == 1 && indices[0].known() && !optional(&indices[0])
+                                        && indices[0].instantiation == Instantiation::Parameter
+                                        && matches!(indices[0].kind, TypeKind::Int | TypeKind::Enum(_))
+                                        && actual == element))
+                        && arguments.iter().all(|argument| ty(argument).is_some())
+                        && self.prefix_primitive(file, node, self.view(file, node, view), "++", parameters, result)));
+            if !checked || !crate::definitions::annotations_safe(self.context, file, written) {
+                return DefinitionSafety::Unsupported(
+                    "enum array concatenation written primitive or tuple is unsupported".into(),
+                );
+            }
+            if let unsupported @ DefinitionSafety::Unsupported(_) =
+                self.initialized_children_safety(file, &arguments, view, generators)
+            {
+                return unsupported;
+            }
+            for argument in arguments {
+                if let Some(reason) = self.closed_integer_source_error(file, argument, true, true) {
+                    return DefinitionSafety::Unsupported(reason);
+                }
+            }
+            return DefinitionSafety::Unknown(
+                "enum array concatenation extent and values are unproved".into(),
+            );
+        }
         if node.kind() == NodeKind::ArrayLiteral
             && let Some(array) = ty(node)
             && array.known()
@@ -20224,12 +20349,24 @@ impl<'a> Producer<'a> {
                     |(position, (axis, selector))| {
                         axis.known()
                             && !optional(axis)
-                            && axis.kind == TypeKind::Int
+                            && (axis.kind == TypeKind::Int
+                                || matches!(axis.kind, TypeKind::Enum(_))
+                                    && matches!(element.kind, TypeKind::Enum(_))
+                                    && source.instantiation == Instantiation::Decision
+                                    && element.instantiation == Instantiation::Decision
+                                    && source == &self.calls.declarations[array.0].ty
+                                    && self.bindings.declarations[array.0].top_level
+                                    && self.bindings.declarations[array.0].role
+                                        == DeclarationRole::Value
+                                    && matches!(crate::domains::bare_index_domain(&self.domains.declarations[array.0].domain),
+                                        Domain::Array { indices, .. } if indices.get(position).is_some_and(|domain|
+                                            matches!(crate::domains::bare_index_domain(domain), Domain::Enum(id)
+                                                if axis.kind == TypeKind::Enum(*id)))))
                             && axis.instantiation == Instantiation::Parameter
                             && ty(selector).is_some_and(|t| {
                                 t.known()
                                     && !optional(t)
-                                    && t.kind == TypeKind::Int
+                                    && t.kind == axis.kind
                                     && (t.instantiation == Instantiation::Parameter
                                         || element.kind == TypeKind::Int
                                             && t.instantiation == Instantiation::Decision
@@ -20244,7 +20381,10 @@ impl<'a> Producer<'a> {
                 {
                     return unsupported;
                 }
-                let inspected_selection = indices.len() == 2
+                let inspected_selection = (indices.len() == 2
+                    || indices
+                        .iter()
+                        .any(|axis| matches!(axis.kind, TypeKind::Enum(_))))
                     && matches!(element.kind, TypeKind::Enum(_))
                     || children[1..].iter().any(|selector| {
                         ty(selector).is_some_and(|t| t.instantiation == Instantiation::Decision)
@@ -20539,7 +20679,8 @@ impl<'a> Producer<'a> {
                         || matches!(&t.kind, TypeKind::Array { element, .. }
                         if element.kind == TypeKind::Bool
                             || node.kind() == NodeKind::ArrayComprehension
-                                && (element.kind == TypeKind::Int || decision_integer_set(element)))
+                                && (element.kind == TypeKind::Int || decision_integer_set(element)
+                                    || element.instantiation == Instantiation::Decision && matches!(element.kind, TypeKind::Enum(_))))
                         || node.kind() == NodeKind::GeneratorCallExpression
                             && self.core(file, node, view, "sum"))
             })

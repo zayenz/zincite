@@ -6721,3 +6721,30 @@ complete native/probe receipts and streams under
 `target/benchmarks/base083/semantic69-queens-symmetry-native-prerequisite-v1`.
 Retained compiler087 is source-only; actual instance and final whole-corpus
 acceptance remain unclaimed, and base-083 stays open.
+
+The existing collection/source consumers now inspect the demonstrated present
+decision-enum array chain: exact bare Bool-comprehension headers, nominal
+enum array comprehensions, selected bodyless standard concatenation and full
+declared enum-axis scalar sources. Initializers, preceding scopes, nominal types,
+selected written primitives/defaults/annotations, cycles and closed source errors
+remain checked. Inspection returns Unknown; it creates no outputs, extent,
+members or search coverage. Search's existing RHS fallback can therefore replace
+a raw unsupported definition safety result with inspected symbolic Unknown,
+while retaining Unknown coverage.
+
+The three-case public group reproduces the old named-integer binder refusal and
+passes after the repair, including closed-domain zero and changed-standard-body
+refusals. Its positive requires Completed while explicitly retaining Unknown
+coverage and no output definitions. Formatting, Clippy and all workspace tests
+pass under `target/benchmarks/base083/semantic69-workforce-enum-array-source-main-checks-v1`.
+ROOT checked the six complete validation receipts and twelve streams.
+
+The original workforce native replay under
+`target/benchmarks/base083/semantic69-workforce-enum-native-prerequisite-v1`
+retains one warning and eleven limitations, down from twelve. The enum initializer
+refusal disappears; the off-days header refusal advances to its separate owning-let
+result refusal. The other diagnostics are unchanged. The replay checks 1,133
+unchanged source/library pins before and after; its production source is byte-exact
+the final candidate, and only subsequent test-expectation changes differ. It does
+not claim a complete loaded manifest or prechecked configuration absence. Retained
+compiler056 is source-only; instance and final corpus acceptance remain open.
