@@ -7290,3 +7290,15 @@ the portable positive case to FlatZinc with Gecode without solving. Formatting,
 Clippy and all 290 workspace tests pass, including the existing set-extremum,
 dom, Local-scope and regular/4 controls. Original and final corpus acceptance
 remain pending; base-083 remains open.
+
+The current original replay uses the audited release from b2555d0. Both roots
+are complete and resolved, with identical ordered native/companion diagnostics
+and shared thesis rule records; all 1,204 input pins are unchanged. Connect
+completes 12 thesis rules and retains search-coverage (70 limitations) and
+unbounded-variable (21) support gaps; its all preset completes 17 rules and
+retains nine Limited rules. Workforce completes all 14 thesis rules and 25 of
+26 all-preset rules; four vacuous-constraint limitations remain across bound
+global-cardinality, regular/2 and two sliding-sum calls. Connect retains its
+Gecode no-solve instance acceptance; Workforce retains source-only acceptance,
+with no matching-data instance claim. These two original replays are diagnostic
+evidence, not final corpus or base-083 acceptance.
