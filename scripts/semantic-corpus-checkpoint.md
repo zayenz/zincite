@@ -6983,3 +6983,21 @@ unsupported. Full streams, terminal cleanup and 1,133 unchanged pins are retaine
 under `target/benchmarks/base083/semantic72-workforce-literal-regexp-native-prerequisite-v1`.
 This increment does not complete original-root support or final corpus acceptance;
 base-083 remains open with every Done condition unchecked.
+
+
+The memo's deliberate error control is now checked directly through the public
+guarded-facts API against the same existing before/after release libraries. Both
+probes pass for all five written accesses: raw and whole definedness plus invariant
+and scoped index obligations retain the exact division-by-zero or overflow refusal,
+array identity and dimension. Every root guarded fact is byte-identical between
+variants (106,617 bytes); all four compile/probe children finish and 1,063 input
+pins remain unchanged. Full captures and the reconciled growth report are retained
+under `target/benchmarks/base083/semantic72-guarded-memo-growth-runner-preparation-v3`.
+
+The twelve measured native/allocator observations are reused unchanged. V2's failed
+diagnostic-message assertions and failure status remain retained; the public fact
+control adds the missing soundness evidence without changing thesis reporting,
+rebuilding measured binaries or repeating timings. The public prerequisite route
+uses the exported domain resolver; native callable-aware domain processing and
+per-rule outcomes retain their separate measured evidence. This closes the bounded
+memo error-control question, not final corpus or whole-task acceptance.
