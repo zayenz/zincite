@@ -15633,3 +15633,268 @@ fn literal_enum_regexp_sources_keep_unknown_and_reject_unchecked_patterns() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn regular_four_optional_sources_inspect_both_bodies_without_output_proof() {
+    use zincite_lint::{
+        CallOutcome, DeclarationRole, Instantiation, SourceKind, TypeInst, TypeKind,
+    };
+    let positive = concat!(
+        "include \"regular.mzn\";\n",
+        "enum Symbol = {A, B}; int: count; int: state_count;\n",
+        "array[1..count] of var Symbol: schedule;\n",
+        "constraint let {\n",
+        "  set of int: States = 1..state_count; int: initial = 1;\n",
+        "  array[States,Symbol] of opt States: transitions =\n",
+        "    array2d(States,Symbol,[|1,<>|<>,2|]);\n",
+        "} in regular(schedule,transitions,initial,States);\n",
+        "solve satisfy;\n",
+    );
+    let regular = concat!(
+        "include \"fzn_regular.mzn\"; include \"fzn_regular_set.mzn\";\n",
+        "predicate regular(\n",
+        "  array [$$X] of var $$Val: xs,\n",
+        "  array [$$State, $$Val] of opt $$State: d,\n",
+        "  $$State: q0, set of $$State: F,\n",
+        ") = let {\n",
+        "  any: State = enum2int(index_set_1of2(d));\n",
+        "  any: Val = enum2int(index_set_2of2(d));\n",
+        "  any: q_off = enum2int(min(State)) - 1;\n",
+        "  any: dd = array2d(State,Val,\n",
+        "    [if occurs(d_sv) then enum2int(deopt(d_sv))-q_off else 0 endif | d_sv in d],\n",
+        "  );\n",
+        "  any: qq0 = enum2int(q0)-q_off;\n",
+        "  any: FF = {enum2int(i)-q_off | i in F};\n",
+        "} in if min(Val)=1 then\n",
+        "  fzn_regular(index2int(enum2int(xs)),card(State),max(Val),dd,qq0,FF)\n",
+        "else fzn_regular_set(index2int(enum2int(xs)),card(State),Val,dd,qq0,FF) endif;\n",
+    );
+    let integer_body = concat!(
+        "predicate fzn_regular(\n",
+        " array[int] of var int: xs, int: Q, int: S,\n",
+        " array[int,int] of int: d, int: q0, set of int: F,\n",
+        ") = if length(xs)=0 then q0 in F else let {\n",
+        " int: m=min(index_set(xs)); int: n=max(index_set(xs))+1;\n",
+        " array[m..n] of var 1..Q: a;\n",
+        "} in a[m]=q0 /\\ forall(i in index_set(xs),)(\n",
+        " xs[i] in 1..S /\\ a[i+1]=d[a[i],xs[i]]\n",
+        ") /\\ a[n] in F endif;\n",
+    );
+    let set_body = concat!(
+        "predicate fzn_regular_set(\n",
+        " array[int] of var int: xs, int: Q, set of int: S,\n",
+        " array[int,int] of int: d, int: q0, set of int: F,\n",
+        ") = let {\n",
+        " int: m=min(index_set(xs)); int: n=max(index_set(xs))+1;\n",
+        " array[m..n] of var 1..Q: a;\n",
+        "} in a[m]=q0 /\\ forall(i in index_set(xs),)(\n",
+        " xs[i] in S /\\ a[i+1]=d[a[i],xs[i]]\n",
+        ") /\\ a[n] in F;\n",
+    );
+    // These controlled implicit primitives keep the real generic qualifiers.
+    // The regular and both FZN recurrences above retain their required bodies.
+    let core = format!(
+        "{}{}",
+        CORE.replace(
+            "function var bool: forall(array[int] of var opt bool: body);",
+            "function var bool: forall(array[int] of var bool: body);"
+        ),
+        concat!(
+            "function int: '+'(int: left,int: right); function int: '-'(int: left,int: right);\n",
+            "function int: 'div'(int: left,int: right); function bool: 'in'(int: value,set of int: choices);\n",
+            "function int: enum2int($$E: value); function set of int: enum2int(set of $$E: values);\n",
+            "function $$E: min(set of $$E: values); function $$E: max(set of $$E: values);\n",
+            "function int: card(set of $$E: values); function int: length(array[$$X] of any $V: values);\n",
+            "function set of $$E: index_set_1of2(array[$$E,$$F] of any $V: values);\n",
+            "function set of $$F: index_set_2of2(array[$$E,$$F] of any $V: values);\n",
+            "function array[$$E,$$F] of any $V: array2d(set of $$E: S1,set of $$F: S2,array[$U] of any $V: x);\n",
+            "test occurs(opt $T: x); function $$T: deopt(opt $$T: x);\n",
+        )
+    );
+    let source_zero = positive.replace("<>,2|]", "<>,(1 div 0)|]");
+    // The filter references an initialized source that does not occur in any
+    // regular actual. Its evaluation must not disappear with zero outputs.
+    let filter_zero = positive
+        .replace("constraint let {", "int: filter_source = 1 div 0;\nconstraint forall(k in 1..2 where k = filter_source)(let {")
+        .replace("initial,States);", "initial,States));");
+    // This is the second result branch; checking only the first FZN body fails
+    // to observe its source error even when its branch condition is unproved.
+    let body_zero = set_body.replace("max(index_set(xs))+1", "max(index_set(xs))+(1 div 0)");
+    for (name, source, set_source, failure) in [
+        ("regular4-symbolic", positive, set_body, false),
+        ("regular4-source-zero", source_zero.as_str(), set_body, true),
+        ("regular4-filter-zero", filter_zero.as_str(), set_body, true),
+        (
+            "regular4-second-body-zero",
+            positive,
+            body_zero.as_str(),
+            true,
+        ),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        for (file, contents) in [
+            ("stdlib.mzn", core.as_str()),
+            ("regular.mzn", regular),
+            ("fzn_regular.mzn", integer_body),
+            ("fzn_regular_set.mzn", set_source),
+        ] {
+            std::fs::write(dir.join("library/std").join(file), contents).unwrap();
+        }
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(context.includes.iter().all(|edge| edge.target.is_some()));
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let root_call = calls
+            .calls
+            .iter()
+            .find(|call| context.files[call.file].path == context.root && call.name == "regular")
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &root_call.outcome
+        else {
+            panic!("{name}: regular4 selection {:?}", root_call.outcome);
+        };
+        let owner = &bindings.declarations[declaration.0];
+        assert_eq!(owner.role, DeclarationRole::Predicate);
+        assert_eq!(context.files[owner.file].kind, SourceKind::StandardLibrary);
+        assert!(!context.files[owner.file].implicit);
+        assert_eq!(
+            context.files[owner.file].path,
+            dir.join("library/std/regular.mzn")
+        );
+        let symbol = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "Symbol")
+            .unwrap()
+            .id;
+        let par = |kind| TypeInst {
+            instantiation: Instantiation::Parameter,
+            optional: false,
+            kind,
+        };
+        let decision = |kind| TypeInst {
+            instantiation: Instantiation::Decision,
+            optional: false,
+            kind,
+        };
+        let integer = par(TypeKind::Int);
+        assert_eq!(parameters.len(), 4);
+        assert_eq!(
+            parameters[0],
+            TypeInst {
+                instantiation: Instantiation::Decision,
+                optional: false,
+                kind: TypeKind::Array {
+                    indices: vec![integer.clone()],
+                    element: Box::new(decision(TypeKind::Enum(symbol)))
+                }
+            }
+        );
+        assert_eq!(
+            parameters[1],
+            par(TypeKind::Array {
+                indices: vec![integer.clone(), par(TypeKind::Enum(symbol))],
+                element: Box::new(TypeInst {
+                    optional: true,
+                    ..integer.clone()
+                })
+            })
+        );
+        assert_eq!(parameters[2], integer);
+        assert_eq!(parameters[3], par(TypeKind::Set(Box::new(integer))));
+        assert_eq!(*return_type, decision(TypeKind::Bool));
+        let sequence = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "schedule")
+            .unwrap()
+            .id;
+        let transitions = bindings
+            .declarations
+            .iter()
+            .find(|d| d.role == DeclarationRole::Local && d.name == "transitions")
+            .unwrap()
+            .id;
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        let search =
+            resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        assert!(search.searched.is_empty());
+        assert!(
+            callable
+                .outputs
+                .iter()
+                .all(|output| output.callable != *declaration
+                    && !matches!(
+                        bindings.declarations[output.callable.0].name.as_str(),
+                        "fzn_regular" | "fzn_regular_set"
+                    )
+                    && output.target != sequence
+                    && output.target != transitions),
+            "{name}: {:?}",
+            callable.outputs
+        );
+        assert!(callable.definitions.iter().all(|definition| definition.target != sequence && definition.target != transitions));
+        assert!(!callable.inspected_locals.contains(&transitions));
+        assert!(matches!(
+            coverage(&bindings, &search, "schedule"),
+            SearchCoverage::Uncovered | SearchCoverage::Unknown
+        ));
+        let result = analyze_model(&context, &selected());
+        if failure {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                result.rules[0]
+            );
+            assert!(
+                callable.unavailable.iter().any(|unavailable| unavailable
+                    .reason
+                    .contains("integer division by zero")
+                    && !unavailable.location.range.is_empty()),
+                "{name}: {:?}",
+                callable.unavailable
+            );
+        } else {
+            assert!(
+                callable.unavailable.is_empty(),
+                "REGULAR4_SOURCE_RED {name}: {:?}",
+                callable.unavailable
+            );
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "REGULAR4_SOURCE_RED {name}: {:?}",
+                search.limitations
+            );
+            assert!(search.limitations.is_empty());
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

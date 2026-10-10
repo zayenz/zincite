@@ -7042,3 +7042,34 @@ unchanged pins are retained under `semantic73-product-repaired-native-v1`.
 The earlier actual Gecode compile remains valid for unchanged original/compiler
 inputs. Resolving the calls does not complete the decision product's source/body
 consumers, the original model, or base-083 final corpus acceptance.
+
+
+The four-argument standard `regular` route now inspects its owning body and both
+written FlatZinc helper bodies. Its earlier optional transition matrix Local is
+checked through the existing constructor/source reader; ambient and forwarded
+generator sources and filters remain explicit checks. Full written declarations,
+concrete operation tuples, primitive metadata and physical local/binder identities
+are retained. Success supplies only Unknown, with no output, local, presence,
+extent, membership or search certificate.
+
+Four public cases cover symbolic input, a closed transition-cell error, a closed
+error in the second FlatZinc body, and an earlier initialized filter error. The
+first candidate passed these cases but the original replay still refused the
+installed mixed decision/parameter integer equality. A diagnostic-only private
+replay confirmed its exact tuple and standard identity. The fixture now keeps the
+installed equality qualifier; a new context-free body-tuple assertion was
+withdrawn after failing before the behavior check. Both failed captures remain
+retained. The corrected fixture reproduces the mixed-tuple behavior failure on
+v1 and passes with the four-line tuple correction, using separate fresh targets.
+Workspace formatting, Clippy and tests pass after the final change.
+
+The original workforce model now has all fourteen thesis rules Completed, two
+advisory warnings and zero limitations. The full preset has 25 Completed rules
+and one Limited rule, `vacuous-constraint`, with five located opaque-call
+limitations; these have not been suppressed. Native and public per-rule captures,
+full streams and unchanged input pins are retained under
+`target/benchmarks/base083/semantic74-regular4-original-native-v3` and
+`semantic74-regular4-original-outcomes-v3`. The earlier actual Gecode compile and
+formatted FlatZinc comparison remain qualified by their unchanged external
+inputs. This closes the original thesis prerequisite, not base-083's final corpus
+or whole-task acceptance.
