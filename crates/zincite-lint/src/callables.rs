@@ -1368,7 +1368,7 @@ impl<'a> Engine<'a> {
                     *actual = default.as_ref();
                 }
             }
-            // Pinned standard searches, array reshapes, integer sum and present
+            // Pinned standard searches, array reshapes, integer aggregates and present
             // Boolean forall use row-major one-dimensional matching views.
             // Keep this limited to retained standard identities.
             let d = &self.bindings.declarations[id.0];
@@ -1424,8 +1424,8 @@ impl<'a> Engine<'a> {
                                 if indices.len() > 1 && indices.iter().all(|index|
                                     index.instantiation == Instantiation::Parameter && !index.optional
                                         && matches!(index.kind, TypeKind::Int | TypeKind::Enum(_))));
-                        let integer_sum_view = standard
-                            && d.name == "sum"
+                        let integer_aggregate_view = standard
+                            && matches!(d.name.as_str(), "sum" | "product")
                             && signature.parameters.len() == 1
                             && signature.return_type.kind == TypeKind::Int
                             && !crate::value_safety::optional(&signature.return_type)
@@ -1435,7 +1435,29 @@ impl<'a> Engine<'a> {
                                 if indices.len() == 2 && element.kind == TypeKind::Int)
                             && matches!(&formal.ty.kind, TypeKind::Array { indices, element }
                                 if indices.len() == 1 && element.known() && element.kind == TypeKind::Int
-                                    && !crate::value_safety::optional(&formal.ty));
+                                    && !crate::value_safety::optional(&formal.ty))
+                            && (d.name == "sum"
+                                || (d.role == DeclarationRole::Function
+                                    && !formal.has_default
+                                    && matches!(formal.ty.instantiation, Instantiation::Parameter | Instantiation::Decision)
+                                    && signature.return_type.instantiation == formal.ty.instantiation
+                                    && matches!(&formal.ty.kind, TypeKind::Array { indices, element }
+                                        if indices[0].instantiation == Instantiation::Parameter
+                                            && !indices[0].optional
+                                            && matches!(indices[0].kind, TypeKind::Variable { enum_only: false, any: false, .. })
+                                            && element.instantiation == formal.ty.instantiation)
+                                    && matches!(actual.instantiation, Instantiation::Parameter | Instantiation::Decision)
+                                    && matches!(&actual.kind, TypeKind::Array { indices, element }
+                                        if indices.iter().all(|index| index.known() && !index.optional
+                                            && index.instantiation == Instantiation::Parameter
+                                            && matches!(index.kind, TypeKind::Int | TypeKind::Enum(_)))
+                                            && element.instantiation == actual.instantiation)
+                                    && self.nodes[id.0].is_some_and(|node| {
+                                        let has_body = node.child_nodes().any(|child| is_expression(child.kind()));
+                                        // Matching the decision overload retains its real body;
+                                        // this view supplies no body-safety or output proof.
+                                        has_body == (formal.ty.instantiation == Instantiation::Decision)
+                                    })));
                         let boolean_forall_view = standard
                             && d.name == "forall"
                             && d.role == DeclarationRole::Function
@@ -1485,7 +1507,7 @@ impl<'a> Engine<'a> {
                                 element: element.clone(),
                             };
                         }
-                        if (standard_view || array2d_input_view || integer_sum_view || boolean_forall_view)
+                        if (standard_view || array2d_input_view || integer_aggregate_view || boolean_forall_view)
                             && let (
                                 TypeKind::Array { indices, .. },
                                 TypeKind::Array {

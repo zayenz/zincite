@@ -1102,3 +1102,131 @@ fn standard_array2d_matrix_matching_preserves_optional_elements_and_nominal_axes
     ));
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn standard_integer_product_preserves_raw_matrix_types_when_matching() {
+    use zincite_lint::SourceKind;
+    let (directory, options) = setup("matrix-product");
+    let root = directory.join("root.mzn");
+    let library = options.stdlib_dir.as_ref().unwrap().join("std/stdlib.mzn");
+    let standard = concat!(
+        "annotation promise_commutative;\n",
+        "function int: product(array[$T] of int: x) :: promise_commutative;\n",
+        "function var int: product(array[$T] of var int: x) :: promise_commutative = product_rec(array1d(x));\n",
+        "function array[int] of any $V: array1d(array[$U] of any $V: x);\n",
+        "function var int: product_rec(array[int] of var int: x);\n",
+    );
+    let source = concat!(
+        "enum Axis = {a,b};\n",
+        "int: fixed = product([|2,2|2,2|]);\n",
+        "array[Axis,1..2] of var 1..2: matrix; var int: decision = product(matrix);\n",
+        "array[Axis,1..2] of var opt int: partial; var int: optional = product(partial);\n",
+        "int: vector = product([2,2]); solve satisfy;\n",
+    );
+    write(&library, standard);
+    write(&root, source);
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    assert!(context.limitations.is_empty(), "{:?}", context.limitations);
+    assert!(
+        context
+            .files
+            .iter()
+            .all(|file| file.parsed.diagnostics().is_empty())
+    );
+    let bindings = resolve_bindings(&context);
+    let facts = resolve_callables(&context, &bindings);
+    for (marker, instantiation) in [
+        ("product([|", Instantiation::Parameter),
+        ("product(matrix)", Instantiation::Decision),
+    ] {
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = outcome(&facts, &root, source, marker)
+        else {
+            panic!("{marker}: {:?}", outcome(&facts, &root, source, marker));
+        };
+        let owner = &bindings.declarations[declaration.0];
+        assert_eq!(owner.role, DeclarationRole::Function);
+        assert_eq!(context.files[owner.file].kind, SourceKind::StandardLibrary);
+        assert!(context.files[owner.file].implicit);
+        assert_eq!(
+            context.files[owner.file].canonical_path,
+            library.canonicalize().unwrap()
+        );
+        assert_eq!(return_type.kind, TypeKind::Int);
+        assert_eq!(return_type.instantiation, instantiation);
+        assert!(!return_type.optional);
+        assert!(matches!(parameters.as_slice(), [parameter]
+            if parameter.instantiation == instantiation && !parameter.optional
+                && matches!(&parameter.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 1 && indices[0].kind == TypeKind::Int
+                        && element.kind == TypeKind::Int && !element.optional
+                        && element.instantiation == instantiation)));
+    }
+    let axis = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "Axis")
+        .unwrap()
+        .id;
+    let matrix = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "matrix")
+        .unwrap()
+        .id;
+    assert!(matches!(&facts.declarations[matrix.0].ty.kind,
+        TypeKind::Array { indices, element }
+            if indices.len() == 2 && indices[0].kind == TypeKind::Enum(axis)
+                && indices[1].kind == TypeKind::Int && !element.optional
+                && element.kind == TypeKind::Int && element.instantiation == Instantiation::Decision));
+    let literal = source.find("[|2,2|2,2|]").unwrap();
+    assert!(facts.expressions.iter().any(|expression| expression.file
+        == context.root_file.unwrap()
+        && expression.location.range.start == literal
+        && matches!(&expression.ty.kind, TypeKind::Array { indices, element }
+            if indices.len() == 2 && element.kind == TypeKind::Int
+                && element.instantiation == Instantiation::Parameter && !element.optional)));
+    assert!(matches!(
+        outcome(&facts, &root, source, "product(partial)"),
+        CallOutcome::NoMatch { .. }
+    ));
+    // A written parameter overload keeps ordinary rank matching. Omit the
+    // decision alternative here so normal parameter-to-decision coercion cannot
+    // select it instead of the changed parameter overload.
+    write(&library, &standard.replace(
+        "function int: product(array[$T] of int: x) :: promise_commutative;",
+        "function int: product(array[$T] of int: x) :: promise_commutative = 1;",
+    ).replace(
+        "function var int: product(array[$T] of var int: x) :: promise_commutative = product_rec(array1d(x));\n",
+        "",
+    ));
+    let context = load_model(&root, &options);
+    let bindings = resolve_bindings(&context);
+    let facts = resolve_callables(&context, &bindings);
+    assert!(matches!(
+        outcome(&facts, &root, source, "product([|"),
+        CallOutcome::NoMatch { .. }
+    ));
+    assert!(matches!(
+        outcome(&facts, &root, source, "product([2,2])"),
+        CallOutcome::Resolved { .. }
+    ));
+    // The same signatures in user source do not acquire the standard view.
+    write(&library, "");
+    let user_source = format!("{standard}{source}");
+    write(&root, &user_source);
+    let context = load_model(&root, &options);
+    let bindings = resolve_bindings(&context);
+    let facts = resolve_callables(&context, &bindings);
+    for marker in ["product([|", "product(matrix)"] {
+        assert!(matches!(
+            outcome(&facts, &root, &user_source, marker),
+            CallOutcome::NoMatch { .. }
+        ));
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

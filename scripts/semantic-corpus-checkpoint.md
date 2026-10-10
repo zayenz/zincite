@@ -7018,3 +7018,27 @@ generic optional-body and output dependency prerequisites; original completion i
 not established. Full captures, two located product refusals, compiler output and
 1,134 unchanged pins are retained under
 `target/benchmarks/base083/semantic73-product-original-precheck-v1`.
+
+
+Integer `product` now uses the existing restricted standard aggregate matching
+view for both parameter and decision rank-two Int actuals. The original matrix
+and nominal axis types remain unchanged; only the candidate's matching type is
+rank one. Normal ranking, sum eligibility and global coercion are preserved.
+Parameter native declarations must be bodyless; decision overloads retain their
+written bodies and receive no body-safety or output certificate from matching.
+
+The focused public group reproduces the parameter matrix NoMatch before the
+repair and passes for both overloads plus optional/User/changed-native controls.
+Separate fresh targets retain RED/GREEN; workspace fmt, Clippy and tests pass
+under `target/benchmarks/base083/semantic73-product-matching-main-checks-v1`.
+A read-only original probe independently selects the two installed standard
+Int overloads and retains both raw rank-two actual types, with 1,144 unchanged
+pins under `semantic73-product-original-tuples-v1`.
+
+The repaired original replay removes both product NoMatch limitations and the
+now-unreachable generic optional-body refusals. One search warning and two
+written-value/output-dependency limitations remain; every raw stream and 1,134
+unchanged pins are retained under `semantic73-product-repaired-native-v1`.
+The earlier actual Gecode compile remains valid for unchanged original/compiler
+inputs. Resolving the calls does not complete the decision product's source/body
+consumers, the original model, or base-083 final corpus acceptance.
