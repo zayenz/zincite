@@ -20053,17 +20053,30 @@ impl<'a> Producer<'a> {
         let [domain] = types.as_slice() else {
             return None;
         };
-        let values: Vec<_> = domain.child_nodes().collect();
-        let [range] = values.as_slice() else {
-            return None;
-        };
-        let range = unwrap(range);
-        if domain.kind() != NodeKind::DomainType || range.kind() != NodeKind::RangeExpression {
-            return None;
-        }
-        let bounds: Vec<_> = range.child_nodes().collect();
-        let [lower, upper] = bounds.as_slice() else {
-            return None;
+        let range = match domain.kind() {
+            NodeKind::ScalarType
+                if domain.child_nodes().next().is_none()
+                    && matches!(crate::domains::tokens(&self.context.files[file].parsed, domain).as_slice(),
+                        [var, int] if var.kind == TokenKind::Var && int.kind == TokenKind::Int) =>
+            {
+                None
+            }
+            NodeKind::DomainType => {
+                let values: Vec<_> = domain.child_nodes().collect();
+                let [range] = values.as_slice() else {
+                    return None;
+                };
+                let range = unwrap(range);
+                let bounds: Vec<_> = range.child_nodes().collect();
+                let [lower, upper] = bounds.as_slice() else {
+                    return None;
+                };
+                if range.kind() != NodeKind::RangeExpression {
+                    return None;
+                }
+                Some((range, *lower, *upper))
+            }
+            _ => return None,
         };
         let checked = (|| -> Result<(), String> {
             // Include written wrappers and every attached annotation, rather
@@ -20127,17 +20140,18 @@ impl<'a> Producer<'a> {
                     }
                 }
             }
-            if typed(range) != Some(&set)
-                || typed(lower) != Some(&integer)
-                || typed(upper) != Some(&integer)
-                || !self.prefix_primitive(
-                    file,
-                    range,
-                    self.view(file, range, view),
-                    "..",
-                    &[integer.clone(), integer.clone()],
-                    &set,
-                )
+            if let Some((range, lower, upper)) = range
+                && (typed(range) != Some(&set)
+                    || typed(lower) != Some(&integer)
+                    || typed(upper) != Some(&integer)
+                    || !self.prefix_primitive(
+                        file,
+                        range,
+                        self.view(file, range, view),
+                        "..",
+                        &[integer.clone(), integer.clone()],
+                        &set,
+                    ))
             {
                 return Err("fresh integer let requires a checked parameter integer range".into());
             }
@@ -20146,7 +20160,9 @@ impl<'a> Producer<'a> {
             {
                 return Err(reason);
             }
-            let mut sources = bounds.clone();
+            let mut sources = range
+                .map(|(_, lower, upper)| vec![lower, upper])
+                .unwrap_or_default();
             for (parameter, initializer) in parameters {
                 let mut types: Vec<_> = parameter
                     .child_nodes()

@@ -7241,3 +7241,11 @@ inspection remains Unknown while child refusals are preserved. All three
 focused cases pass. Formatting, Clippy and all 284 workspace tests pass on
 the integrated checkout. Original and final corpus acceptance remain pending;
 base-083 remains open.
+
+The next independently reviewed increment inspects exact plain `var int`
+fresh-let choices through the existing source checker. It preserves ordered
+parameter locals, constraints, source errors and invocation checks, returning
+Unknown without bounds or definition/output certificates. Both focused cases
+pass. Formatting, Clippy and all 285 workspace tests pass on the integrated
+checkout. Original source closure and final corpus acceptance remain pending;
+base-083 remains open.
