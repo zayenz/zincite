@@ -249,7 +249,11 @@ impl<'a> Producer<'a> {
         mapping: &[Argument<'a>],
         usage: AnnotationUse,
     ) {
-        if usage != AnnotationUse::Search || unwrap(node).kind() == NodeKind::ArrayAccessExpression
+        if usage != AnnotationUse::Search
+            || matches!(
+                unwrap(node).kind(),
+                NodeKind::ArrayAccessExpression | NodeKind::ConditionalExpression
+            )
         {
             let mut source = node;
             loop {
@@ -271,6 +275,7 @@ impl<'a> Producer<'a> {
                 source = child;
             }
         }
+        let written = node;
         let node = unwrap(node);
         if node.kind() == NodeKind::ArrayLiteral {
             for child in node.child_nodes() {
@@ -350,6 +355,10 @@ impl<'a> Producer<'a> {
             self.annotation_selection(file, node, mapping, usage);
             return;
         }
+        if node.kind() == NodeKind::ConditionalExpression {
+            self.conditional_annotation(file, node, mapping, usage);
+            return;
+        }
         if node.kind() != NodeKind::CallExpression {
             self.uncertain(file, node, "solve annotation form is unsupported");
             return;
@@ -370,6 +379,12 @@ impl<'a> Producer<'a> {
         }
         let id = *declaration;
         let d = &self.bindings.declarations[id.0];
+        if self.core(id) && matches!(d.name.as_str(), "warm_start" | "constraint_name") {
+            if let Err(reason) = self.non_search_annotation(file, written, id, mapping) {
+                self.uncertain(file, node, &reason);
+            }
+            return;
+        }
         if self.core(id)
             && matches!(
                 d.role,
@@ -438,6 +453,293 @@ impl<'a> Producer<'a> {
             }
         }
         self.alias(file, node, id, Some(node), mapping, usage);
+    }
+    fn conditional_annotation(
+        &mut self,
+        file: FileId,
+        node: &'a SyntaxNode,
+        mapping: &[Argument<'a>],
+        usage: AnnotationUse,
+    ) {
+        if usage == AnnotationUse::Heuristic {
+            self.uncertain(file, node, "conditional search heuristic is unsupported");
+            return;
+        }
+        let checked = (|| {
+            let typed = |value: &SyntaxNode, kind: TypeKind| {
+                let range = self.context.files[file].location(value.range()).range;
+                self.calls.expressions.iter().any(|e| {
+                    e.file == file
+                        && e.location.range == range
+                        && e.ty.known()
+                        && !optional(&e.ty)
+                        && e.ty.instantiation == Instantiation::Parameter
+                        && e.ty.kind == kind
+                })
+            };
+            let branches: Vec<_> = node.child_nodes().collect();
+            let mut guards = Vec::new();
+            let mut bodies = Vec::new();
+            let mut complete = false;
+            for (position, branch) in branches.iter().enumerate() {
+                let parts: Vec<_> = branch.child_nodes().collect();
+                let body = if branch.kind() == NodeKind::ConditionalBranch && parts.len() == 2 {
+                    if !typed(parts[0], TypeKind::Bool) {
+                        return Err("conditional annotation guard type is unsupported");
+                    }
+                    guards.push(parts[0]);
+                    parts[1]
+                } else if branch.kind() == NodeKind::ElseBranch
+                    && parts.len() == 1
+                    && position + 1 == branches.len()
+                {
+                    complete = true;
+                    parts[0]
+                } else {
+                    return Err("conditional annotation branch is unsupported");
+                };
+                if !typed(body, TypeKind::Annotation) {
+                    return Err("conditional annotation branch type is unsupported");
+                }
+                bodies.push(body);
+            }
+            if !complete || guards.is_empty() || !typed(node, TypeKind::Annotation) {
+                return Err("conditional annotation requires a present complete else");
+            }
+            Ok((guards, bodies))
+        })();
+        let (guards, bodies) = match checked {
+            Ok(parts) => parts,
+            Err(reason) => {
+                self.uncertain(file, node, reason);
+                return;
+            }
+        };
+        for guard in guards {
+            if let DefinitionSafety::Unsupported(reason) =
+                self.reindex_safety(file, guard, mapping, Some(&[]))
+            {
+                self.uncertain(file, guard, &reason);
+            }
+        }
+        let searched = self.facts.searched.len();
+        let coverage: Vec<_> = self
+            .facts
+            .declarations
+            .iter()
+            .map(|declaration| declaration.coverage)
+            .collect();
+        let mut all_non_search = true;
+        for body in bodies {
+            let selected =
+                operation_fact(self.context, self.calls, file, unwrap(body)).and_then(|call| {
+                    match &call.outcome {
+                        CallOutcome::Resolved { declaration, .. }
+                            if self.core(*declaration)
+                                && matches!(
+                                    self.bindings.declarations[declaration.0].name.as_str(),
+                                    "warm_start" | "constraint_name"
+                                ) =>
+                        {
+                            Some(*declaration)
+                        }
+                        _ => None,
+                    }
+                });
+            if let Some(id) = selected {
+                match self.non_search_annotation(file, body, id, mapping) {
+                    Ok(()) => continue,
+                    Err(reason) => self.uncertain(file, body, &reason),
+                }
+            } else {
+                self.annotation(
+                    file,
+                    body,
+                    mapping,
+                    if usage == AnnotationUse::Search {
+                        AnnotationUse::Candidate
+                    } else {
+                        usage
+                    },
+                );
+            }
+            all_non_search = false;
+        }
+        // Inspect every alternative without choosing a branch or seeding its values.
+        self.facts.searched.truncate(searched);
+        for (declaration, coverage) in self.facts.declarations.iter_mut().zip(coverage) {
+            declaration.coverage = coverage;
+        }
+        if !all_non_search {
+            self.unknown_annotation = true;
+        }
+    }
+    fn non_search_annotation(
+        &self,
+        file: FileId,
+        node: &'a SyntaxNode,
+        id: DeclarationId,
+        mapping: &[Argument<'a>],
+    ) -> Result<(), String> {
+        let error = || "non-search annotation selected source or tuple is unsupported".to_owned();
+        let mut source = node;
+        loop {
+            if !crate::definitions::annotations_safe(self.context, file, source) {
+                return Err(error());
+            }
+            if !matches!(
+                source.kind(),
+                NodeKind::ParenthesizedExpression | NodeKind::AnnotatedExpression
+            ) {
+                break;
+            }
+            source = source.child_nodes().next().ok_or_else(error)?;
+        }
+        let node = unwrap(node);
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &operation_fact(self.context, self.calls, file, node)
+            .ok_or_else(error)?
+            .outcome
+        else {
+            return Err(error());
+        };
+        let typed = |value: &SyntaxNode| {
+            let range = self.context.files[file].location(value.range()).range;
+            self.calls
+                .expressions
+                .iter()
+                .find(|e| e.file == file && e.location.range == range)
+                .map(|e| &e.ty)
+        };
+        let present = |ty: &crate::TypeInst| ty.known() && !optional(ty);
+        let parameter = |ty: &crate::TypeInst, kind: TypeKind| {
+            present(ty) && ty.instantiation == Instantiation::Parameter && ty.kind == kind
+        };
+        let owner = &self.bindings.declarations[id.0];
+        let arguments: Vec<_> = node.child_nodes().collect();
+        if *declaration != id
+            || !mapping.is_empty()
+            || !parameter(return_type, TypeKind::Annotation)
+            || typed(node) != Some(return_type)
+            || arguments.len() != parameters.len()
+            || arguments.iter().zip(parameters).any(|(actual, formal)| {
+                actual.kind() == NodeKind::NamedArgument
+                    || !present(formal)
+                    || typed(actual).is_none_or(|ty| !present(ty) || ty != formal)
+            })
+        {
+            return Err(error());
+        }
+        let shape = match (owner.name.as_str(), parameters.as_slice()) {
+            ("constraint_name", [name]) => {
+                owner.role == DeclarationRole::Annotation && parameter(name, TypeKind::String)
+            }
+            ("warm_start", [variables, values]) => {
+                owner.role == DeclarationRole::Function
+                    && variables.instantiation == Instantiation::Decision
+                    && values.instantiation == Instantiation::Parameter
+                    && matches!((&variables.kind, &values.kind),
+                    (TypeKind::Array { indices: left, element: variable },
+                     TypeKind::Array { indices: right, element: value })
+                    if left == right && left.len() == 1
+                        && present(&left[0]) && left[0].instantiation == Instantiation::Parameter
+                        && matches!(left[0].kind, TypeKind::Int | TypeKind::Enum(_))
+                        && variable.instantiation == Instantiation::Decision
+                        && value.instantiation == Instantiation::Parameter
+                        && variable.kind == value.kind
+                        && matches!(&value.kind, TypeKind::Int | TypeKind::Enum(_) | TypeKind::Bool | TypeKind::Float
+                            | TypeKind::Set(_) )
+                        && match &value.kind {
+                            TypeKind::Set(member) => parameter(member, TypeKind::Int)
+                                || present(member) && member.instantiation == Instantiation::Parameter
+                                    && matches!(member.kind, TypeKind::Enum(_)),
+                            _ => true,
+                        })
+            }
+            _ => false,
+        };
+        if !shape || !self.core(id) {
+            return Err(error());
+        }
+        let written = find_node(
+            self.context.files[owner.file].parsed.tree(),
+            &owner.syntax_range,
+            owner.role,
+        )
+        .ok_or_else(error)?;
+        let lists: Vec<_> = written
+            .child_nodes()
+            .filter(|n| n.kind() == NodeKind::ParameterList)
+            .collect();
+        if !matches!(lists.as_slice(), [list] if list.child_nodes().count() == parameters.len())
+            || self
+                .calls
+                .signatures
+                .iter()
+                .find(|s| s.declaration == id)
+                .is_none_or(|s| {
+                    s.parameters.len() != parameters.len()
+                        || s.parameters.iter().any(|p| p.has_default)
+                        || s.return_type != *return_type
+                })
+        {
+            return Err(error());
+        }
+        let mut parts = vec![written];
+        while let Some(part) = parts.pop() {
+            if !crate::definitions::annotations_safe(self.context, owner.file, part) {
+                return Err(error());
+            }
+            if part.kind() == NodeKind::Annotation {
+                continue;
+            }
+            if is_expression(part.kind()) || part.kind() == NodeKind::Error {
+                return Err(error());
+            }
+            parts.extend(part.child_nodes());
+        }
+        for actual in &arguments {
+            if let DefinitionSafety::Unsupported(reason) =
+                crate::callable_definitions::initialized_expression_safety(
+                    self.context,
+                    self.bindings,
+                    self.calls,
+                    self.instantiations,
+                    self.domains,
+                    (file, actual, &[], true),
+                    None,
+                )
+            {
+                return Err(reason);
+            }
+        }
+        if owner.name == "warm_start" {
+            let axis = |actual: &SyntaxNode| {
+                let actual = unwrap(actual);
+                (actual.kind() == NodeKind::Expression)
+                    .then(|| self.reference(file, actual))
+                    .flatten()
+                    .and_then(|id| {
+                        match crate::domains::bare_index_domain(
+                            &self.domains.declarations[id.0].domain,
+                        ) {
+                            crate::Domain::Array { indices, .. } if indices.len() == 1 => {
+                                indices.first()
+                            }
+                            _ => None,
+                        }
+                    })
+            };
+            if let (Some(left), Some(right)) = (axis(arguments[0]), axis(arguments[1]))
+                && crate::domains::same_members(left, right)? == Some(false)
+            {
+                return Err("warm_start arrays have incompatible index sets".into());
+            }
+        }
+        Ok(())
     }
     fn annotation_selection(
         &mut self,

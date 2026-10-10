@@ -15898,3 +15898,198 @@ fn regular_four_optional_sources_inspect_both_bodies_without_output_proof() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn conditional_search_annotations_inspect_sources_without_branch_coverage() {
+    use zincite_lint::{CallOutcome, SourceKind};
+    let source = concat!(
+        "int: n; bool: choose;\n",
+        "array[1..n] of var 0..10: xs; array[1..n] of int: guesses;\n",
+        "var 0..10: outside;\n",
+        "solve :: seq_search([int_search([outside],input_order,indomain_min,complete),\n",
+        "  if length(guesses) > 0 then warm_start(xs,guesses) else constraint_name(\"dummy\") endif,\n",
+        "  if choose then int_search(xs,input_order,indomain_min,complete)\n",
+        "    elseif length(guesses) > 0 then warm_start(xs,guesses) else constraint_name(\"dummy\") endif\n",
+        "]) satisfy;\n",
+    );
+    let direct = concat!(
+        "int: n; array[1..n] of var 0..10: xs; array[1..n] of int: guesses;\n",
+        "var 0..10: outside;\n",
+        "solve :: seq_search([warm_start(xs,guesses),constraint_name(\"direct\"),\n",
+        "  int_search([outside],input_order,indomain_min,complete)]) satisfy;\n",
+    );
+    let hints_only = direct.replace(
+        "warm_start(xs,guesses),constraint_name(\"direct\")",
+        "if length(guesses) > 0 then warm_start(xs,guesses) else constraint_name(\"dummy\") endif",
+    );
+    let index_mismatch = direct
+        .replace(
+            "array[1..n] of int: guesses;",
+            "array[2..n] of int: guesses;",
+        )
+        .replace("int: n;", "int: n = 3;");
+    let primitive = "function ann: warm_start(array[int] of var int: x,array[int] of int: v);\n";
+    let written = concat!(
+        "function ann: warm_start(array[int] of var int: x,array[int] of int: v) =\n",
+        "  let { int: bad = 1 div 0; } in constraint_name(\"changed\");\n",
+    );
+    let guard_zero = source.replace("bool: choose;", "bool: choose = (1 div 0 = 0);");
+    let source_zero = source.replace("of int: guesses;", "of int: guesses = [1 div 0];");
+    for (name, source, warm_start, failure) in [
+        ("conditional-search-symbolic", source, primitive, None),
+        ("direct-search-hints", direct, primitive, None),
+        (
+            "conditional-search-hints",
+            hints_only.as_str(),
+            primitive,
+            None,
+        ),
+        (
+            "warm-start-index-mismatch",
+            index_mismatch.as_str(),
+            primitive,
+            Some("incompatible index sets"),
+        ),
+        (
+            "conditional-search-guard-zero",
+            guard_zero.as_str(),
+            primitive,
+            Some("zero"),
+        ),
+        (
+            "conditional-search-source-zero",
+            source_zero.as_str(),
+            primitive,
+            Some("zero"),
+        ),
+        (
+            "conditional-search-written-body",
+            source,
+            written,
+            Some("selected source"),
+        ),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!("{CORE}function int: length(array[int] of int: x);\nfunction bool: '>'(int: a,int: b);\nfunction int: 'div'(int: a,int: b);\nannotation constraint_name(string: label);\n{warm_start}"),
+        ).unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|f| f.parsed.diagnostics().is_empty())
+        );
+        assert!(context.includes.iter().all(|i| i.target.is_some()));
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|c| c.file == 0)
+                .all(|c| matches!(c.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        for call in calls
+            .calls
+            .iter()
+            .filter(|c| c.file == 0 && matches!(c.name.as_str(), "warm_start" | "constraint_name"))
+        {
+            let CallOutcome::Resolved { declaration, .. } = &call.outcome else {
+                unreachable!()
+            };
+            let owner = &bindings.declarations[declaration.0];
+            assert_eq!(context.files[owner.file].kind, SourceKind::StandardLibrary);
+            assert!(context.files[owner.file].implicit);
+        }
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        let search =
+            resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        let xs = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "xs")
+            .unwrap()
+            .id;
+        assert!(callable.outputs.iter().all(|o| o.target != xs));
+        assert!(callable.definitions.iter().all(|d| d.target != xs));
+        assert!(
+            search.searched.iter().all(|s| s.declaration != Some(xs)),
+            "{name}: {:?}",
+            search.searched
+        );
+        assert_eq!(
+            coverage(&bindings, &search, "xs"),
+            if matches!(name, "direct-search-hints" | "conditional-search-hints") {
+                SearchCoverage::Uncovered
+            } else {
+                SearchCoverage::Unknown
+            }
+        );
+        assert_eq!(
+            coverage(&bindings, &search, "outside"),
+            SearchCoverage::Scalar
+        );
+        let analysis = analyze_model(&context, &selected());
+        assert!(analysis.errors.is_empty(), "{name}: {:?}", analysis.errors);
+        if let Some(reason) = failure {
+            assert!(
+                matches!(analysis.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                analysis.limitations
+            );
+            assert!(
+                search
+                    .limitations
+                    .iter()
+                    .any(|l| l.location.path == context.root
+                        && !l.location.range.is_empty()
+                        && l.message.contains(reason)),
+                "{name}: {:?}",
+                search.limitations
+            );
+        } else {
+            assert!(
+                search.limitations.is_empty(),
+                "CONDITIONAL_SEARCH_RED: {:?}",
+                search.limitations
+            );
+            assert_eq!(
+                analysis.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                analysis.limitations
+            );
+            assert_eq!(
+                analysis
+                    .findings
+                    .iter()
+                    .any(|f| f.location == bindings.declarations[xs.0].location),
+                matches!(name, "direct-search-hints" | "conditional-search-hints"),
+                "{name}: {:?}",
+                analysis.findings
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
