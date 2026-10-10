@@ -14119,7 +14119,9 @@ fn initialized_local_boolean_comprehension_inspects_sources_without_output_proof
 
 #[test]
 fn standard_identity_wrappers_inspect_private_channels_without_coverage() {
-    use zincite_lint::{CallOutcome, DeclarationRole, Instantiation, SourceKind, TypeKind};
+    use zincite_lint::{
+        CallOutcome, DeclarationRole, Instantiation, SourceKind, TypeInst, TypeKind,
+    };
     let source = concat!(
         "int: n;\n",
         "array[1..n] of var 1..n: q;\n",
@@ -14129,17 +14131,53 @@ fn standard_identity_wrappers_inspect_private_channels_without_coverage() {
         ");\n",
         "solve :: int_search(q,input_order,indomain_min,complete) satisfy;\n",
     );
+    let reversed = source.replace(
+        "forall(i,j in 1..n)(qb[i,j] <-> (q[i]=j))",
+        "forall(i,j in 1..n)(qb[i,j] <-> (q[i]=j)) /\\ checked_view([qb[j,i] | i in 1..n,j in reverse(1..i) where j=1])",
+    );
+    let source_zero = reversed.replace("reverse(1..i)", "reverse(1..(i div 0))");
+    let reverse_library = concat!(
+        "function int: '+'(int: x,int: y) :: mzn_internal_representation;\n",
+        "function int: '-'(int: x,int: y) :: mzn_internal_representation;\n",
+        "annotation mzn_internal_representation; function int: length(array[$T] of any $V: x);\n",
+        "function array[$$E] of any $T: reverse(array[$$E] of any $T: x) =\n",
+        "  if length(x) = 0 then [] else let {\n",
+        "    any: xx = array1d(x); int: l = length(x) + 1;\n",
+        "  } in array1d(index_set(x), [xx[l-i] | i in index_set(xx)]) endif;\n",
+        // This carrier discards its actual; it proves no lex relation or output.
+        "predicate checked_view(array[int] of var bool: xs) = true;\n",
+    );
     // The loader retains solver redefinitions as nonimplicit Std sources.
-    for (name, written, changed_body) in [
+    for (name, written, case_source, limited) in [
         (
             "standard-wrapper-closed-body",
             "predicate symmetry_breaking_constraint(var bool: b) = b /\\ (1 div 0 = 0);\n",
+            source,
             true,
         ),
         (
             "standard-wrapper-identity",
             "predicate symmetry_breaking_constraint(var bool: b) = b;\n",
+            source,
             false,
+        ),
+        (
+            "standard-wrapper-reverse-header",
+            "predicate symmetry_breaking_constraint(var bool: b) = b;\n",
+            reversed.as_str(),
+            false,
+        ),
+        (
+            "standard-wrapper-reverse-source-zero",
+            "predicate symmetry_breaking_constraint(var bool: b) = b;\n",
+            source_zero.as_str(),
+            true,
+        ),
+        (
+            "standard-wrapper-reverse-body-zero",
+            "predicate symmetry_breaking_constraint(var bool: b) = b;\n",
+            reversed.as_str(),
+            true,
         ),
     ] {
         let (dir, _) = model(name, "solve satisfy;", "");
@@ -14149,7 +14187,16 @@ fn standard_identity_wrappers_inspect_private_channels_without_coverage() {
         )
         .unwrap();
         std::fs::write(dir.join("library/std/solver_redefinitions.mzn"), written).unwrap();
-        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let library = dir.join("library/std/stdlib.mzn");
+        let reverse_written = if name == "standard-wrapper-reverse-body-zero" {
+            reverse_library.replace("length(x) + 1;", "length(x) + 1 + (1 div 0);")
+        } else {
+            reverse_library.to_owned()
+        };
+        let mut stdlib = std::fs::read_to_string(&library).unwrap();
+        stdlib.push_str(&reverse_written);
+        std::fs::write(&library, stdlib).unwrap();
+        std::fs::write(dir.join("root.mzn"), case_source).unwrap();
         let context = load_model(
             dir.join("root.mzn"),
             &ModelOptions {
@@ -14160,6 +14207,64 @@ fn standard_identity_wrappers_inspect_private_channels_without_coverage() {
         assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
         let bindings = resolve_bindings(&context);
         let calls = resolve_callables(&context, &bindings);
+        if name.starts_with("standard-wrapper-reverse") {
+            let reverse = calls
+                .calls
+                .iter()
+                .find(|call| {
+                    call.name == "reverse" && context.files[call.file].kind == SourceKind::User
+                })
+                .unwrap();
+            let CallOutcome::Resolved {
+                declaration,
+                parameters,
+                return_type,
+            } = &reverse.outcome
+            else {
+                panic!("{name}: {:?}", reverse.outcome);
+            };
+            let integer = TypeInst {
+                instantiation: Instantiation::Parameter,
+                optional: false,
+                kind: TypeKind::Int,
+            };
+            let array = TypeInst {
+                kind: TypeKind::Array {
+                    indices: vec![integer.clone()],
+                    element: Box::new(integer.clone()),
+                },
+                ..integer.clone()
+            };
+            assert_eq!(parameters.as_slice(), std::slice::from_ref(&array));
+            assert_eq!(return_type, &array);
+            assert_eq!(
+                context.files[bindings.declarations[declaration.0].file].kind,
+                SourceKind::StandardLibrary
+            );
+            let mut nodes = vec![context.files[reverse.file].parsed.tree()];
+            let actual = loop {
+                let node = nodes.pop().expect("written reverse call");
+                if node.kind() == zincite_syntax::NodeKind::CallExpression
+                    && node.range().start == reverse.location.range.start
+                {
+                    break node.child_nodes().next().unwrap();
+                }
+                nodes.extend(node.child_nodes());
+            };
+            assert_eq!(
+                calls
+                    .expressions
+                    .iter()
+                    .find(|value| value.file == reverse.file
+                        && value.location.range == actual.range())
+                    .unwrap()
+                    .ty,
+                TypeInst {
+                    kind: TypeKind::Set(Box::new(integer.clone())),
+                    ..integer
+                }
+            );
+        }
         let wrapper = calls
             .calls
             .iter()
@@ -14224,12 +14329,22 @@ fn standard_identity_wrappers_inspect_private_channels_without_coverage() {
         );
         let result = analyze_model(&context, &selected());
         assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
-        if changed_body {
+        if limited {
             assert!(matches!(
                 result.rules[0].outcome,
                 RuleOutcome::Limited { .. }
             ));
             assert!(!callable.inspected_locals.contains(&qb));
+            if name.starts_with("standard-wrapper-reverse") {
+                assert!(
+                    callable
+                        .unavailable
+                        .iter()
+                        .any(|value| value.reason.contains("division by zero")),
+                    "{name}: {:?}",
+                    callable.unavailable
+                );
+            }
             assert!(
                 result
                     .limitations

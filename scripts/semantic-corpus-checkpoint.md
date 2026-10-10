@@ -6666,3 +6666,38 @@ cases and the workspace checks pass under
 `target/benchmarks/base083/semantic69-inferred-int-local-axis-main-checks-v1`.
 The Workforce decision-enum array binder remains a separate unsupported
 prerequisite, so this axis repair does not establish original-model completion.
+
+A fresh Workforce native thesis run after the two axis repairs retains one
+warning and twelve located limitations. Both old axis refusals are absent:
+`off_days` now reaches the decision-enum binder guard, and `free_weekend` reaches
+the selected sliding-sum body. Its private integer array is still unsupported,
+alongside the existing regular, overload and other prerequisites. ROOT checked
+1,133 unchanged source/original/standard pins and both full streams against the
+terminal warning-exit receipt under
+`target/benchmarks/base083/semantic69-workforce-native-prerequisite-v1`.
+Configuration/include absence was checked after capture only. Retained compiler
+receipt056 establishes source-only acceptance, with no actual instance proof.
+
+The ignored owning-wrapper prepass now inspects selected standard `reverse`
+generator sources using the existing written-body inspector. Only this caller
+may accept the matcher's parameter integer-set to integer-array conversion;
+ordinary value safety and strict dependency, iteration and membership readers
+remain unchanged. Exact binder identities, preceding scopes, filters, types,
+annotations, source errors and selected-body errors remain checked. Local IDs
+are published only after the complete owning let succeeds; no reverse members,
+extent or outputs are invented. The existing identity-wrapper public group
+adds a dependent reverse/filter case and closed source/body error controls.
+It fails before the repair and passes afterward; formatting, Clippy and all
+workspace tests pass under
+`target/benchmarks/base083/semantic69-ignored-reverse-header-main-checks-v1`.
+
+The current original queens native replay preserves its complete fifteen-warning
+stream and removes both prior search limitations. A private standalone probe
+linked to the current public library confirms a Complete root, resolved user
+calls and all fourteen thesis IDs Completed, with zero errors or limitations.
+ROOT checked 1,133 unchanged pins, twelve absent configuration/include paths,
+two receipts, four complete streams and the library/probe artifacts under
+`target/benchmarks/base083/semantic69-queens-reverse-native-prerequisite-v1`.
+This is focused source-model evidence; retained compiler087 is source-only and
+no actual instance or final whole-corpus acceptance is claimed. Other valid
+model gaps remain, and base-083 stays open.

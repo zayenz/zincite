@@ -5347,7 +5347,16 @@ impl<'a> Producer<'a> {
                                 .ok_or("ignored constraint generator scope is unavailable")?;
                             let preceding = scope.len();
                             scope.push(node);
-                            self.relation_iterations(file, &scope, preceding, facts, false)?;
+                            if let Some(checked) = self.ignored_reverse_header_safety(
+                                file,
+                                node,
+                                facts,
+                                &scope[..preceding],
+                            ) {
+                                checked?;
+                            } else {
+                                self.relation_iterations(file, &scope, preceding, facts, false)?;
+                            }
                         }
                         if matches!(
                             node.kind(),
@@ -19551,12 +19560,83 @@ impl<'a> Producer<'a> {
         }
         Ok(())
     }
+    // This owning ignored scope needs source inspection, never reverse membership.
+    fn ignored_reverse_header_safety(
+        &self,
+        file: FileId,
+        header: &'a SyntaxNode,
+        view: &CallableFacts,
+        preceding: &[&'a SyntaxNode],
+    ) -> Option<Result<(), String>> {
+        let source = header.child_nodes().next()?;
+        if !self.core(file, unwrap(source), view, "reverse") {
+            return None;
+        }
+        Some((|| {
+            let integer = TypeInst::par(TypeKind::Int);
+            let binders: Vec<_> = self
+                .bindings
+                .declarations
+                .iter()
+                .filter(|declaration| {
+                    declaration.file == file
+                        && declaration.role == DeclarationRole::Generator
+                        && declaration.syntax_range == header.range()
+                })
+                .collect();
+            if header.kind() != NodeKind::Generator
+                || !header.children().iter().any(|child| {
+                    matches!(child,
+                    SyntaxElement::Token(index)
+                        if self.context.files[file].parsed.tokens()[*index].kind == TokenKind::In)
+                })
+                || binders.is_empty()
+                || binders.len()
+                    != crate::domains::generator_slots(&self.context.files[file].parsed, header)
+                || binders
+                    .iter()
+                    .any(|binder| view.declarations[binder.id.0].ty != integer)
+            {
+                return Err("ignored reverse header binder or scope is unsupported".into());
+            }
+            match self.parameter_integer_array_value_safety(file, source, view, preceding, true) {
+                Some(DefinitionSafety::Supported | DefinitionSafety::Unknown(_)) => {}
+                Some(DefinitionSafety::Unsupported(reason)) => return Err(reason),
+                None => return Err("ignored reverse header source is unsupported".into()),
+            }
+            let mut scope = preceding.to_vec();
+            scope.push(header);
+            for filter in header
+                .child_nodes()
+                .filter(|node| node.kind() == NodeKind::WhereFilter)
+            {
+                let condition = filter
+                    .child_nodes()
+                    .next()
+                    .ok_or("iteration filter unavailable")?;
+                if self
+                    .expression_type(self.view(file, condition, view), file, condition)
+                    .is_none_or(|value| value.ty != TypeInst::par(TypeKind::Bool))
+                {
+                    return Err("iteration filter is not a total parameter Boolean".into());
+                }
+                if let DefinitionSafety::Unsupported(reason) =
+                    self.initialized_source_safety(file, condition, view, &scope, &mut Vec::new())
+                {
+                    return Err(reason);
+                }
+                self.dependencies(file, condition, view, &scope)?;
+            }
+            Ok(())
+        })())
+    }
     fn parameter_integer_array_value_safety(
         &self,
         file: FileId,
         written: &'a SyntaxNode,
         view: &CallableFacts,
         generators: &[&'a SyntaxNode],
+        matching_set: bool,
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
         let name = if self.core(file, node, view, "sort") {
@@ -19599,7 +19679,15 @@ impl<'a> Producer<'a> {
                     .is_none_or(|value| value.ty != array)
                 || self
                     .expression_type(self.view(file, arguments[0], view), file, arguments[0])
-                    .is_none_or(|value| value.ty != array)
+                    .is_none_or(|value| {
+                        value.ty != array
+                            && !(matching_set
+                                && name == "reverse"
+                                && value.ty
+                                    == TypeInst::par(TypeKind::Set(Box::new(TypeInst::par(
+                                        TypeKind::Int,
+                                    )))))
+                    })
                 || !crate::definitions::annotations_safe(self.context, file, written)
             {
                 return Err(
@@ -19706,7 +19794,7 @@ impl<'a> Producer<'a> {
             return safety;
         }
         if let Some(safety) =
-            self.parameter_integer_array_value_safety(file, node, view, generators)
+            self.parameter_integer_array_value_safety(file, node, view, generators, false)
         {
             return safety;
         }
