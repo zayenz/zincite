@@ -611,6 +611,37 @@ impl<'a> Builder<'a> {
                     }
                 }
             }
+            ArrayAccessExpression => {
+                for (position, child) in node.child_nodes().enumerate() {
+                    if position > 0
+                        && child.kind() == RangeExpression
+                        && child.child_nodes().next().is_none()
+                    {
+                        let parsed = &self.context.files[file].parsed;
+                        let mut tokens = child.children().iter().filter_map(|element| {
+                            let SyntaxElement::Token(index) = element else {
+                                return None;
+                            };
+                            let kind = parsed.tokens()[*index].kind;
+                            (!matches!(
+                                kind,
+                                TokenKind::Whitespace
+                                    | TokenKind::LineComment
+                                    | TokenKind::BlockComment
+                            ))
+                            .then_some(kind)
+                        });
+                        // A bare '..' selector denotes the full axis, not a call.
+                        if matches!(
+                            (tokens.next(), tokens.next()),
+                            (Some(TokenKind::RangeInclusive), None)
+                        ) {
+                            continue;
+                        }
+                    }
+                    self.walk(file, item, child, scopes, callable);
+                }
+            }
             Expression | CallExpression | Assignment => {
                 let kind = if node.kind() == CallExpression {
                     ReferenceKind::Callable

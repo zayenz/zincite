@@ -335,3 +335,82 @@ fn selected_generic_bodies_keep_concrete_optional_dependencies_and_raw_unknowns(
     ));
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn full_axis_slices_preserve_usage_without_callable_demands() {
+    let source = concat!(
+        "enum Rows; enum Cols; array[Rows,Cols] of var bool: offer;\n",
+        "Rows: chosen_row; Cols: chosen_col; int: upper=2; set of int: span=1..upper;\n",
+        "function Rows: row(Rows: value)=value; function Cols: col(Cols: value)=value;\n",
+        "int: unused_value=99; solve satisfy;\n",
+        "output [show(offer[row(chosen_row), ..]), show(offer[.., col(chosen_col)]), show(span)];\n"
+    );
+    let (dir, context) = model("full-axis-slices", source, "");
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    assert!(
+        calls
+            .calls
+            .iter()
+            .filter(|call| Some(call.file) == context.root_file)
+            .all(|call| { matches!(call.outcome, zincite_lint::CallOutcome::Resolved { .. }) }),
+        "{:?}",
+        calls.calls
+    );
+    let usage = resolve_unused_declarations(&context, &bindings, &calls);
+    assert_eq!(usage.root_state, ModelRootState::Complete);
+    assert!(
+        usage.limitations.is_empty(),
+        "FULL_AXIS_UNUSED_RED: {:?}",
+        usage.limitations
+    );
+    for name in [
+        "Rows",
+        "Cols",
+        "offer",
+        "chosen_row",
+        "chosen_col",
+        "row",
+        "col",
+        "upper",
+        "span",
+    ] {
+        assert_eq!(
+            outcome(&bindings, &usage, name),
+            UsageOutcome::Reachable,
+            "{name}"
+        );
+    }
+    assert_eq!(
+        outcome(&bindings, &usage, "unused_value"),
+        UsageOutcome::Unreachable
+    );
+    assert_eq!(warnings(&context), ["unused_value"]);
+    assert!(matches!(
+        analyze_model(&context, &selected()).rules[0].outcome,
+        RuleOutcome::Completed
+    ));
+    std::fs::remove_dir_all(dir).unwrap();
+
+    let unresolved = source.replace("col(chosen_col)", "missing(chosen_col)");
+    let (dir, context) = model("full-axis-unresolved-selector", &unresolved, "");
+    let (bindings, usage) = facts(&context);
+    assert_eq!(outcome(&bindings, &usage, "offer"), UsageOutcome::Reachable);
+    assert_eq!(
+        outcome(&bindings, &usage, "chosen_col"),
+        UsageOutcome::Reachable
+    );
+    assert!(
+        usage.limitations.iter().any(|diagnostic| {
+            diagnostic.location.path == context.root
+                && unresolved[diagnostic.location.range.clone()].contains("missing")
+        }),
+        "{:?}",
+        usage.limitations
+    );
+    assert!(matches!(
+        analyze_model(&context, &selected()).rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    std::fs::remove_dir_all(dir).unwrap();
+}

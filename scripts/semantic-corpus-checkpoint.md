@@ -704,6 +704,18 @@ Matched Project17 allocation and native measurements remain pending. This
 checkpoint establishes no measured performance benefit or task acceptance;
 base-083 remains open.
 
+The full-axis slice binding repair is integrated. Bare `..` array selectors no
+longer create callable demands; subjects, other selectors and bounded ranges
+retain their normal binding traversal. The focused regression fails on the
+original source and passes with the repair, including reachable dependencies,
+one genuinely unused declaration and a located unresolved-selector refusal.
+Both private builds used separate fresh Cargo targets. Source-only MiniZinc
+controls pass. The original AssignmentOffers comparison removes its
+unused-declaration limitations while preserving separate search/domain gaps.
+Integrated-main formatting, Clippy and workspace tests pass in
+`target/benchmarks/base083/semantic67-full-axis-main-gates-v1`.
+This Rust change requires fresh final evidence; base-083 remains open.
+
 The fresh semantic60 Project17 allocation baseline reached its unchanged
 1,800-second cap and was reaped with status -9. Its complete retained stdout
 contains a manifest and analysis-start event, with no root, drop or completion
