@@ -1,10 +1,11 @@
 //! Source inspection and explicit data edits over the retained MiniZinc CST.
 //!
 //! [`Input`] owns original bytes and the CST. [`Query`] parses a fixed pipeline
-//! for navigating nodes, projecting names/text or editing data assignments.
+//! for navigating nodes, inspecting literals or editing data collections/assignments.
 //! Results stay native until source or JSON rendering. Source rendering retains
 //! original bytes, including opaque
-//! comment bytes. Includes, names and data values are never evaluated.
+//! comment bytes. Literal comparisons are bounded; computed expressions and
+//! includes are never evaluated.
 
 use std::collections::BTreeMap;
 use std::ops::Range;
@@ -18,12 +19,18 @@ use zincite_syntax::{
 pub mod cli;
 mod inspection;
 mod language;
+mod structured;
 pub use inspection::{JsonResult, NodeSelection, SelectedNode};
+pub use structured::{
+    ArrayIndexing, LiteralEntry, LiteralField, LiteralKind, LiteralLabel, LiteralRow,
+    LiteralSelection, LiteralValue,
+};
 
 use language::{Predicate, PredicateKind, Stage, StageKind};
 
 /// Bounds checked before collecting items, visiting stages or expanding edits.
-/// `nesting` can lower the hard ceiling of 64 nested parentheses/`not` operators.
+/// `nesting` lowers the ceiling of 64 query parentheses/`not` operators and
+/// recursive literal levels.
 #[derive(Clone, Copy, Debug)]
 pub struct Limits {
     pub nesting: usize,
@@ -298,6 +305,7 @@ pub enum QueryResult<'a> {
     Count(usize),
     Nodes(NodeSelection<'a>),
     Strings(Vec<String>),
+    Literals(LiteralSelection<'a>),
     Tally(BTreeMap<String, usize>),
     Json(JsonResult<'a>),
     /// Complete validated candidate from one intentional data transformation.
@@ -313,6 +321,12 @@ impl QueryResult<'_> {
                 .nodes()
                 .iter()
                 .flat_map(|node| &selection.input().bytes[node.range.clone()])
+                .copied()
+                .collect(),
+            Self::Literals(selection) => selection
+                .values()
+                .iter()
+                .flat_map(|value| value.spelling)
                 .copied()
                 .collect(),
             Self::Strings(values) => values
@@ -352,9 +366,12 @@ impl Query {
     }
 
     pub fn is_editing(&self) -> bool {
-        self.stages
-            .iter()
-            .any(|stage| matches!(stage.kind, StageKind::SetValue(_) | StageKind::Remove))
+        self.stages.iter().any(|stage| {
+            matches!(
+                stage.kind,
+                StageKind::SetValue(_) | StageKind::Remove | StageKind::FilterElements(_)
+            )
+        })
     }
 
     pub fn evaluate<'a>(
@@ -420,6 +437,10 @@ impl Query {
                         selection.truncate(*count);
                         QueryResult::Nodes(selection)
                     }
+                    QueryResult::Literals(mut selection) => {
+                        selection.truncate(*count);
+                        QueryResult::Literals(selection)
+                    }
                     QueryResult::Strings(mut strings) => {
                         strings.truncate(*count);
                         QueryResult::Strings(strings)
@@ -427,7 +448,7 @@ impl Query {
                     _ => {
                         return Err(inspection::type_error(
                             &stage.range,
-                            "head requires a node or string stream",
+                            "head requires a node, literal or string stream",
                         ));
                     }
                 },
@@ -435,13 +456,28 @@ impl Query {
                     QueryResult::Selection(selection) => selection.items.len(),
                     QueryResult::Nodes(selection) => selection.nodes().len(),
                     QueryResult::Strings(strings) => strings.len(),
+                    QueryResult::Literals(selection) => selection.values().len(),
                     _ => {
                         return Err(inspection::type_error(
                             &stage.range,
-                            "count requires a node or string stream",
+                            "count requires a node, literal or string stream",
                         ));
                     }
                 }),
+                StageKind::Values => structured::values(result, stage, &mut work, limits)?,
+                StageKind::Fields | StageKind::Elements | StageKind::Keys => {
+                    structured::project(result, stage, &mut work, limits)?
+                }
+                StageKind::FilterElements(comparison) => {
+                    QueryResult::Document(structured::transform_elements(
+                        input,
+                        result,
+                        comparison,
+                        &stage.range,
+                        &mut work,
+                        limits,
+                    )?)
+                }
                 StageKind::SetValue(_) | StageKind::Remove => {
                     let QueryResult::Selection(selection) = result else {
                         return Err(inspection::type_error(
@@ -464,10 +500,11 @@ impl Query {
                             | QueryResult::Nodes(_)
                             | QueryResult::Strings(_)
                             | QueryResult::Tally(_)
+                            | QueryResult::Literals(_)
                     ) {
                         return Err(inspection::type_error(
                             &stage.range,
-                            "emit requires a node or string stream or tally",
+                            "emit requires a node, literal or string stream or tally",
                         ));
                     }
                     result
@@ -494,6 +531,11 @@ impl Query {
             && !selection.document
         {
             validate_fragment_directives(input, &selection.items)?;
+        }
+        if let QueryResult::Literals(selection) = &result {
+            for value in selection.values() {
+                work.spend(value.range.len(), &self.range)?;
+            }
         }
         if let QueryResult::Nodes(selection) = &result {
             for node in selection.nodes() {
@@ -588,26 +630,36 @@ fn transform_assignments(
         edits.push(edit);
     }
     let removed = if replacement.is_none() { items } else { &[] };
-    validate_document_directives(input, removed, work, &stage.range)?;
+    finish_candidate(input, &edits, removed, work, &stage.range).map(|candidate| candidate.bytes)
+}
+
+fn finish_candidate(
+    input: &Input,
+    edits: &[TextEdit],
+    removed: &[SelectedItem<'_>],
+    work: &mut Work,
+    range: &Range<usize>,
+) -> Result<Input, QueryError> {
+    validate_document_directives(input, removed, work, range)?;
     let snapshot = SourceSnapshot::new("<query>.dzn", input.source_bytes());
-    let candidate = prepare_text_edits(&snapshot, input.source_bytes(), &edits)
-        .map_err(|error| QueryError::query(stage.range.clone(), error.to_string()))?;
-    let candidate_input = Input::parse(candidate.clone(), FileMode::Data).map_err(|error| {
+    let candidate = prepare_text_edits(&snapshot, input.source_bytes(), edits)
+        .map_err(|error| QueryError::query(range.clone(), error.to_string()))?;
+    let candidate_input = Input::parse(candidate, FileMode::Data).map_err(|error| {
         QueryError::query(
-            stage.range.clone(),
+            range.clone(),
             format!(
                 "invalid data edit candidate: {}",
                 error.diagnostics[0].message
             ),
         )
     })?;
-    validate_document_directives(&candidate_input, &[], work, &stage.range).map_err(|error| {
+    validate_document_directives(&candidate_input, &[], work, range).map_err(|error| {
         QueryError::query(
-            stage.range.clone(),
+            range.clone(),
             format!("invalid data edit candidate: {}", error.message),
         )
     })?;
-    Ok(candidate)
+    Ok(candidate_input)
 }
 
 fn removal_edit(

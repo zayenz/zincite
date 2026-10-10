@@ -160,3 +160,48 @@ fn json_uses_stdin_identity_and_errors_leave_stdout_empty() {
         assert!(output.stdout.is_empty());
     }
 }
+
+#[test]
+fn collection_filters_inspect_preview_and_write_only_complete_candidates() {
+    let source = b"x = [A: 1, B: -1, C: 2];\n";
+    let candidate = b"x = [A: 1,  C: 2];\n";
+    let path = std::env::temp_dir().join(format!(
+        "zincite-query-collection-{}.dzn",
+        std::process::id()
+    ));
+    std::fs::write(&path, source).unwrap();
+    let expression = "filter_elements(gt(0))";
+    let output = run(&[expression, path.to_str().unwrap()], b"");
+    assert!(output.status.success() && output.stderr.is_empty());
+    assert_eq!(output.stdout, candidate);
+    assert_eq!(std::fs::read(&path).unwrap(), source);
+    let output = run(&["--diff", expression, path.to_str().unwrap()], b"");
+    assert!(output.status.success() && output.stderr.is_empty());
+    assert!(
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .contains("+x = [A: 1,  C: 2];")
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), source);
+    let output = run(&["keys | names | json", path.to_str().unwrap()], b"");
+    assert_eq!(output.stdout, b"[\"A\",\"B\",\"C\"]\n");
+    let output = run(&["--write", expression, path.to_str().unwrap()], b"");
+    assert!(output.status.success() && output.stderr.is_empty() && output.stdout.is_empty());
+    assert_eq!(std::fs::read(&path).unwrap(), candidate);
+    for source in [
+        b"x = [1]; y = [f(2)];\n".as_slice(),
+        b"x = [| 1, -1 | -1, 1 |];\n".as_slice(),
+    ] {
+        std::fs::write(&path, source).unwrap();
+        let output = run(&["--write", expression, path.to_str().unwrap()], b"");
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(
+            String::from_utf8(output.stderr)
+                .unwrap()
+                .contains(path.to_str().unwrap())
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), source);
+    }
+    std::fs::remove_file(path).unwrap();
+}

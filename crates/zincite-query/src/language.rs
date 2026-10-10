@@ -1,6 +1,7 @@
 use std::ops::Range;
 
 use crate::inspection::known_kind;
+use crate::structured::{Comparison, ComparisonKind, Scalar, parse_number};
 use crate::{Limits, Query, QueryError};
 
 const MAX_QUERY_BYTES: usize = 1_048_576;
@@ -27,6 +28,11 @@ pub(crate) enum StageKind {
     CallNames,
     AnnotationNames,
     Text,
+    Values,
+    Fields,
+    Elements,
+    Keys,
+    FilterElements(Comparison),
     Unique,
     Tally,
     Json,
@@ -112,6 +118,16 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
             "call_names" => StageKind::CallNames,
             "annotation_names" => StageKind::AnnotationNames,
             "text" => StageKind::Text,
+            "values" => StageKind::Values,
+            "fields" => StageKind::Fields,
+            "elements" => StageKind::Elements,
+            "keys" => StageKind::Keys,
+            "filter_elements" => {
+                parser.punctuation(b'(', "expected '(' after filter_elements")?;
+                let comparison = parser.comparison()?;
+                parser.punctuation(b')', "expected ')' after element comparison")?;
+                StageKind::FilterElements(comparison)
+            }
             "unique" => StageKind::Unique,
             "tally" => StageKind::Tally,
             "json" => StageKind::Json,
@@ -154,7 +170,10 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
                 "emit_document requires a transformation stage",
             ));
         }
-        editing |= matches!(kind, StageKind::SetValue(_) | StageKind::Remove);
+        editing |= matches!(
+            kind,
+            StageKind::SetValue(_) | StageKind::Remove | StageKind::FilterElements(_)
+        );
         let terminal = matches!(
             kind,
             StageKind::Json | StageKind::Emit | StageKind::EmitDocument
@@ -190,6 +209,57 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    fn comparison(&mut self) -> Result<Comparison, QueryError> {
+        let (name, range) = self.word("expected eq, lt, le, gt or ge comparison")?;
+        let kind = match name {
+            "eq" => ComparisonKind::Eq,
+            "lt" => ComparisonKind::Lt,
+            "le" => ComparisonKind::Le,
+            "gt" => ComparisonKind::Gt,
+            "ge" => ComparisonKind::Ge,
+            _ => return Err(QueryError::query(range, "unknown element comparison")),
+        };
+        self.punctuation(b'(', "expected '(' after comparison")?;
+        self.space();
+        let start = self.position;
+        let value = if self.current() == Some(b'"') {
+            Scalar::String(self.string()?.0)
+        } else if self.take_word("member") {
+            self.punctuation(b'(', "expected '(' after member")?;
+            let name = self.string()?.0;
+            let name = crate::identifier_identity(&name).to_owned();
+            if name.is_empty() {
+                return Err(QueryError::query(
+                    start..self.position,
+                    "member identity must not be empty",
+                ));
+            }
+            self.punctuation(b')', "expected ')' after member identity")?;
+            Scalar::Member(name)
+        } else if self.take_word("true") {
+            Scalar::Boolean(true)
+        } else if self.take_word("false") {
+            Scalar::Boolean(false)
+        } else {
+            while self
+                .current()
+                .is_some_and(|byte| !byte.is_ascii_whitespace() && byte != b')')
+            {
+                self.position += 1;
+            }
+            parse_number(&self.source[start..self.position])
+                .map_err(|message| QueryError::query(start..self.position, message))?
+        };
+        if kind != ComparisonKind::Eq && !matches!(value, Scalar::Integer(_) | Scalar::Float(_)) {
+            return Err(QueryError::query(
+                start..self.position,
+                "numeric comparison requires a numeric operand",
+            ));
+        }
+        self.punctuation(b')', "expected ')' after comparison operand")?;
+        Ok(Comparison { kind, value })
+    }
+
     fn predicate(&mut self, depth: usize) -> Result<Predicate, QueryError> {
         self.boolean_chain(depth, false)
     }

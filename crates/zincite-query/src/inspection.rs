@@ -18,8 +18,8 @@ pub struct SelectedNode<'a> {
 
 #[derive(Debug)]
 pub struct NodeSelection<'a> {
-    input: &'a Input,
-    nodes: Vec<SelectedNode<'a>>,
+    pub(crate) input: &'a Input,
+    pub(crate) nodes: Vec<SelectedNode<'a>>,
 }
 
 impl<'a> NodeSelection<'a> {
@@ -68,7 +68,7 @@ pub(crate) fn require_nodes(
     }
 }
 
-fn into_nodes<'a>(
+pub(crate) fn into_nodes<'a>(
     result: QueryResult<'a>,
     range: &Range<usize>,
 ) -> Result<NodeSelection<'a>, QueryError> {
@@ -152,7 +152,11 @@ pub(crate) fn navigate<'a>(
     Ok(QueryResult::Nodes(NodeSelection { input, nodes }))
 }
 
-fn check_collection(length: usize, limit: usize, range: &Range<usize>) -> Result<(), QueryError> {
+pub(crate) fn check_collection(
+    length: usize,
+    limit: usize,
+    range: &Range<usize>,
+) -> Result<(), QueryError> {
     if length >= limit {
         Err(type_error(range, "query collection limit exceeded"))
     } else {
@@ -265,7 +269,10 @@ fn annotation_name<'a>(input: &'a Input, node: &SyntaxNode) -> Option<&'a str> {
     })
 }
 
-fn original_text<'a>(input: &'a Input, range: &Range<usize>) -> Result<&'a str, QueryError> {
+pub(crate) fn original_text<'a>(
+    input: &'a Input,
+    range: &Range<usize>,
+) -> Result<&'a str, QueryError> {
     std::str::from_utf8(&input.bytes[range.clone()]).map_err(|_| QueryError::input(range.clone(), "text and JSON inspection require UTF-8 source text; source emission preserves opaque comment bytes"))
 }
 
@@ -356,6 +363,9 @@ pub(crate) fn json<'a>(
                 work.spend(value.len().max(1), range)?;
             }
         }
+        QueryResult::Literals(selection) => {
+            crate::structured::validate_json(selection, work, range)?
+        }
         QueryResult::Count(_) => {}
         _ => return Err(type_error(range, "json requires an inspection result")),
     }
@@ -405,6 +415,7 @@ fn json_value(result: &QueryResult<'_>) -> Result<Value, QueryError> {
             .map(|node| node_json(selection.input, node.node, &node.range))
             .collect::<Result<Vec<_>, _>>()
             .map(Value::Array),
+        QueryResult::Literals(selection) => crate::structured::json_value(selection),
         QueryResult::Strings(values) => Ok(json!(values)),
         QueryResult::Count(count) => Ok(json!(count)),
         QueryResult::Tally(values) => Ok(json!(values)),

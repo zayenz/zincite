@@ -500,3 +500,310 @@ fn inspection_errors_and_expansion_limits_are_located() {
         assert!(error.message.contains("UTF-8"));
     }
 }
+
+#[test]
+fn literal_views_keep_key_field_and_nested_value_identity() {
+    use zincite_query::{ArrayIndexing, LiteralKind};
+    let source =
+        b"\xef\xbb\xbfr = ['A': ('label': \"A\", member: A, nested: ([1, 2], {A, B}))];\r\n";
+    let input = Input::parse_named(source.to_vec(), FileMode::Data, "records.dzn").unwrap();
+    let QueryResult::Literals(selection) = query(&input, "values") else {
+        panic!()
+    };
+    let value = &selection.values()[0];
+    assert_eq!(value.file, "records.dzn");
+    assert_eq!(value.spelling, &source[value.range.clone()]);
+    let LiteralKind::Array { indexing, entries } = &value.kind else {
+        panic!()
+    };
+    assert_eq!(*indexing, ArrayIndexing::Explicit);
+    let key = entries[0].key.as_ref().unwrap();
+    assert!(matches!(key.kind, LiteralKind::Member("A")));
+    assert_eq!(key.spelling, b"'A'");
+    let LiteralKind::Record(fields) = &entries[0].value.kind else {
+        panic!()
+    };
+    assert_eq!(fields[0].label.name, "label");
+    assert_eq!(fields[0].label.spelling, b"'label'");
+    assert_eq!(&source[fields[0].label.range.clone()], b"'label'");
+    assert!(matches!(fields[0].value.kind, LiteralKind::String));
+    assert!(matches!(fields[1].value.kind, LiteralKind::Member("A")));
+    let LiteralKind::Tuple(nested) = &fields[2].value.kind else {
+        panic!()
+    };
+    assert!(matches!(nested[0].kind, LiteralKind::Array { .. }));
+    assert!(matches!(nested[1].kind, LiteralKind::Set(_)));
+    let json: serde_json::Value =
+        serde_json::from_slice(&query(&input, "values | json").render()).unwrap();
+    assert_eq!(json[0]["entries"][0]["key"]["name"], "A");
+    assert_eq!(
+        json[0]["entries"][0]["value"]["fields"][0]["label"]["name"],
+        "label"
+    );
+    for (expression, expected) in [
+        ("keys | names | json", b"[\"A\"]\n".as_slice()),
+        (
+            "elements | fields | names | json",
+            b"[\"label\",\"member\",\"nested\"]\n".as_slice(),
+        ),
+        (
+            "elements | fields | head(1) | values | json",
+            b"".as_slice(),
+        ),
+    ] {
+        let result = query(&input, expression);
+        if expected.is_empty() {
+            let json: serde_json::Value = serde_json::from_slice(&result.render()).unwrap();
+            assert_eq!(json[0]["kind"], "string");
+            assert_eq!(json[0]["text"], "\"A\"");
+        } else {
+            assert_eq!(result.render(), expected);
+        }
+    }
+    assert_eq!(query(&input, "values | count | json").render(), b"1\n");
+    assert!(query(&input, "values | head(0) | emit").render().is_empty());
+}
+
+#[test]
+fn explicit_element_filters_preserve_scalar_order_and_checked_numbers() {
+    let input = Input::parse(
+        b"x = [0, -2, +0x10, (3), 0o2]; keep = true;".to_vec(),
+        FileMode::Data,
+    )
+    .unwrap();
+    assert_eq!(
+        query(&input, "head(1) | filter_elements(gt(0))").render(),
+        b"x = [  +0x10, (3), 0o2]; keep = true;"
+    );
+    assert_eq!(
+        query(&input, "head(1) | filter_elements(eq(2))").render(),
+        b"x = [    0o2]; keep = true;"
+    );
+    let input = Input::parse(
+        b"x = [-9223372036854775808, 9223372036854775807];".to_vec(),
+        FileMode::Data,
+    )
+    .unwrap();
+    assert_eq!(
+        query(&input, "filter_elements(eq(-9223372036854775808))").render(),
+        b"x = [-9223372036854775808 ];"
+    );
+    assert_eq!(
+        query(&input, "filter_elements(eq(9223372036854775807))").render(),
+        b"x = [ 9223372036854775807];"
+    );
+    for source in ["x = [1, 2];", "x = {1, 2};", "x = [];", "x = {};"] {
+        let input = Input::parse(source.as_bytes().to_vec(), FileMode::Data).unwrap();
+        let candidate = query(&input, "filter_elements(lt(0))").render();
+        let candidate = Input::parse(candidate, FileMode::Data).unwrap();
+        assert_eq!(query(&candidate, "elements | count").render(), b"0\n");
+    }
+    for (source, expression, expected) in [
+        (
+            "x = [true, false, true];",
+            "filter_elements(eq(true))",
+            "x = [true,  true];",
+        ),
+        (
+            "x = [\"a\\n\", \"b\"];",
+            "filter_elements(eq(\"a\\n\"))",
+            "x = [\"a\\n\" ];",
+        ),
+        (
+            "x = [A, 'B', A];",
+            "filter_elements(eq(member(\"A\")))",
+            "x = [A,  A];",
+        ),
+        (
+            "x = [-9223372036854775808];",
+            "filter_elements(eq(-9.223372036854776e18))",
+            "x = [-9223372036854775808];",
+        ),
+    ] {
+        let input = Input::parse(source.as_bytes().to_vec(), FileMode::Data).unwrap();
+        assert_eq!(query(&input, expression).render(), expected.as_bytes());
+    }
+}
+
+#[test]
+fn collection_edits_keep_written_keys_comments_sections_and_rectangular_axes() {
+    let source = b"\xef\xbb\xbfx = [\r\n    % keep A \xff\r\n    'A': 1, % tail A\r\n    % remove B\r\n    B: -1, % tail B\r\n\r\n    % Section\r\n\r\n    C: 2 % tail C\r\n];\r\ny = 4;\r\n";
+    let input = Input::parse(source.to_vec(), FileMode::Data).unwrap();
+    let expected = b"\xef\xbb\xbfx = [\r\n    % keep A \xff\r\n    'A': 1, % tail A\r\n\r\n    % Section\r\n\r\n    C: 2 % tail C\r\n];\r\ny = 4;\r\n";
+    assert_eq!(
+        query(&input, "head(1) | filter_elements(gt(0))").render(),
+        expected
+    );
+    assert_eq!(input.source_bytes(), source);
+    let matrix = Input::parse(
+        b"m = [| A: B: C: | R: 1, -1, 2 | S: 3, -2, 4 |];".to_vec(),
+        FileMode::Data,
+    )
+    .unwrap();
+    assert_eq!(
+        query(&matrix, "filter_elements(gt(0))").render(),
+        b"m = [| A:  C: | R: 1,  2 | S: 3,  4 |];"
+    );
+    assert_eq!(
+        query(&matrix, "keys | names | json").render(),
+        b"[\"A\",\"B\",\"C\",\"R\",\"S\"]\n"
+    );
+    assert_eq!(query(&matrix, "elements | count").render(), b"6\n");
+    let comments = Input::parse(
+        b"m = [| A: B: | R:\n% removed cell\n-1, 2 | S: -2, 3 |];".to_vec(),
+        FileMode::Data,
+    )
+    .unwrap();
+    assert_eq!(
+        query(&comments, "filter_elements(gt(0))").render(),
+        b"m = [|  B: | R:\n 2 | S:  3 |];"
+    );
+    for (source, message) in [
+        ("x = [A: 1, -1, 2];", "starting-key"),
+        (
+            "x = [(A, C): 1, (A, D): -1, (B, C): 2, (B, D): 3];",
+            "rectangular",
+        ),
+        ("x = [| 1, -1 | -1, 1 |];", "same surviving columns"),
+        ("x = [| 1, 2 | 3 |];", "rectangular"),
+        ("x = [A: 1, A: 2];", "duplicate"),
+        ("x = [1.0: 1, 2];", "keys require integer"),
+    ] {
+        let input = Input::parse(source.as_bytes().to_vec(), FileMode::Data).unwrap();
+        let error = Query::parse("filter_elements(gt(0))", Limits::default())
+            .unwrap()
+            .evaluate(&input, Limits::default())
+            .unwrap_err();
+        assert_eq!(error.location, ErrorLocation::Input);
+        assert!(error.message.contains(message), "{}", error.message);
+    }
+    let nested = Input::parse(b"x = [[1, -1], [2]];".to_vec(), FileMode::Data).unwrap();
+    let filter_nested = "elements | head(1) | filter_elements(gt(0))";
+    assert_eq!(query(&nested, filter_nested).render(), b"x = [[1 ], [2]];");
+    for source in ["x = [A: [1, -1], A: [2]];", "x = [| [1, -1], [2] | [3] |];"] {
+        let input = Input::parse(source.as_bytes().to_vec(), FileMode::Data).unwrap();
+        let error = Query::parse(filter_nested, Limits::default())
+            .unwrap()
+            .evaluate(&input, Limits::default())
+            .unwrap_err();
+        assert_eq!(error.location, ErrorLocation::Input);
+        assert!(error.message.contains("duplicate") || error.message.contains("rectangular"));
+    }
+    let input = Input::parse(
+        b"x = [(A, C): 1, (A, D): -1, (B, C): 2, (B, D): -2];".to_vec(),
+        FileMode::Data,
+    )
+    .unwrap();
+    assert_eq!(
+        query(&input, "filter_elements(gt(0))").render(),
+        b"x = [(A, C): 1,  (B, C): 2 ];"
+    );
+}
+
+#[test]
+fn literal_failures_are_located_and_never_return_partial_candidates() {
+    for (source, expression, message) in [
+        ("x = [1]; y = [1+2];", "filter_elements(gt(0))", "computed"),
+        ("x = [A];", "filter_elements(eq(\"A\"))", "incompatible"),
+        (
+            "x = [\"A\"];",
+            "filter_elements(eq(member(\"A\")))",
+            "incompatible",
+        ),
+        (
+            "x = [9223372036854775808];",
+            "filter_elements(gt(0))",
+            "signed 64-bit",
+        ),
+        (
+            "x = [9223372036854775807];",
+            "filter_elements(gt(0.0))",
+            "lose integer precision",
+        ),
+        ("x = [1e999];", "filter_elements(gt(0))", "overflows"),
+        ("x = [1e-999];", "filter_elements(gt(0))", "underflows"),
+        (
+            "x = [0x1p0];",
+            "filter_elements(gt(0))",
+            "hexadecimal-float",
+        ),
+        ("x = f(1);", "values", "computed"),
+    ] {
+        let input = Input::parse(source.as_bytes().to_vec(), FileMode::Data).unwrap();
+        let error = Query::parse(expression, Limits::default())
+            .unwrap()
+            .evaluate(&input, Limits::default())
+            .unwrap_err();
+        assert_eq!(error.location, ErrorLocation::Input);
+        assert!(!error.range.is_empty());
+        assert!(error.range.end <= source.len());
+        assert!(error.message.contains(message), "{}", error.message);
+        assert_eq!(input.source_bytes(), source.as_bytes());
+    }
+    for expression in [
+        "head(0) | filter_elements(gt(9223372036854775808))",
+        "filter_elements(gt(true))",
+        "filter_elements(eq(1e999))",
+        "filter_elements(eq(1e-999))",
+        "filter_elements(gt(0)) | values",
+        "filter_elements(eq(1.))",
+        "filter_elements(eq(.1))",
+    ] {
+        assert_eq!(
+            Query::parse(expression, Limits::default())
+                .unwrap_err()
+                .location,
+            ErrorLocation::Query
+        );
+    }
+    let input = Input::parse(b"x = [[1], [2]];".to_vec(), FileMode::Data).unwrap();
+    for (expression, limits) in [
+        (
+            "values",
+            Limits {
+                collection: 2,
+                ..Limits::default()
+            },
+        ),
+        (
+            "values",
+            Limits {
+                nesting: 1,
+                ..Limits::default()
+            },
+        ),
+        (
+            "values",
+            Limits {
+                work: 4,
+                ..Limits::default()
+            },
+        ),
+        ("values | elements", Limits::default()),
+        ("names | filter_elements(gt(0))", Limits::default()),
+    ] {
+        let error = Query::parse(expression, Limits::default())
+            .unwrap()
+            .evaluate(&input, limits)
+            .unwrap_err();
+        assert_eq!(error.location, ErrorLocation::Query);
+    }
+    let numeric = Input::parse(b"x = [1, -1];".to_vec(), FileMode::Data).unwrap();
+    let duplicate = "subtree | subtree | filter(kind(\"array_literal\")) | filter_elements(gt(0))";
+    assert!(
+        Query::parse(duplicate, Limits::default())
+            .unwrap()
+            .evaluate(&numeric, Limits::default())
+            .unwrap_err()
+            .message
+            .contains("overlap")
+    );
+    assert_eq!(
+        query(
+            &numeric,
+            &duplicate.replace("| filter_elements", "| unique | filter_elements")
+        )
+        .render(),
+        b"x = [1 ];"
+    );
+}

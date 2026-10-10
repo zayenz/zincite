@@ -241,9 +241,14 @@ both commands use the same fixed pipeline:
 | `text` | Project exact original node text as UTF-8 strings |
 | `unique` | Keep the first occurrence of each node or string |
 | `tally` | Return a native string-to-count histogram |
-| `json` | Render nodes, strings, a count or histogram as JSON |
+| `values` | Inspect recursive literal values with original spelling and ranges |
+| `fields` | Select record field nodes, keeping labels separate from values |
+| `elements` | Select written collection values, excluding array keys |
+| `keys` | Select written array keys and matrix axis keys |
+| `json` | Render nodes, literals, strings, a count or histogram as JSON |
 | `emit` | Render the selected original source bytes |
 | `set_value("EXPRESSION")` | Replace selected assignment right-hand sides in data mode |
+| `filter_elements(comparison)` | Explicitly filter literal set, array or matrix elements in data mode |
 | `remove` | Remove selected data assignments and their attached comments/directives |
 | `emit_document` | Render the complete validated edit candidate |
 
@@ -304,11 +309,12 @@ Item filters keep the kind aliases above. Navigated node filters and JSON use
 original CST kinds in snake_case, such as `call_expression`,
 `annotation_declaration`, `annotation`, `solve_minimize` and `solve_maximize`.
 `name` on navigated nodes compares the first direct identifier identity.
-`head`, `count` and `unique` accept node or string streams. Navigation,
+`head` and `count` accept node, literal or string streams. `unique` accepts node or string streams. Navigation,
 filtering and projections require nodes; `tally` requires projected strings.
 `items` resets a node selection. Invalid stage types produce located query
-errors even for empty streams. Transformations require an item selection;
-inspection streams cannot become editing targets.
+errors even for empty streams. Assignment transformations require an item selection.
+`filter_elements` also accepts original collection nodes; literal and string streams
+cannot become editing targets.
 
 `json` emits node streams as arrays of objects with `kind`, `names`,
 `call_names`, `annotation_names`, `file`, `range: {start,end}` and `text` fields.
@@ -366,6 +372,90 @@ edit selection returns the complete original document. These operations change
 instance meaning: parsing does not establish compiler type validity, semantic
 equivalence or satisfiability.
 
+`values`, `fields`, `elements` and `keys` resolve selected assignments to their
+single RHS and resolve a record field node to its value. Parentheses may wrap
+literals; numeric signs may wrap numbers. `values` rejects calls, operators,
+ranges, comprehensions, interpolation and other computed forms at their source
+ranges. Node projections require a matching literal container and can expose its
+computed child nodes for syntax inspection. Bare and quoted identifiers are inspected as member references without
+resolving declarations. Inspection preserves numeric and string spelling even
+when the comparison routines do not support that spelling.
+
+`fields` selects `RecordLiteralField` nodes. `elements` selects direct set,
+tuple or array values; matrix cells follow row order. Indexed array keys are
+excluded from `elements`. `keys` selects only written keys: positional arrays
+produce an empty stream; a starting-key array exposes its one written key.
+Matrix column keys precede row keys. These stages return ordinary node streams,
+so existing navigation, name/text projections and JSON remain available. They do
+not expand nested collections implicitly.
+
+`values` returns `QueryResult::Literals(LiteralSelection)` with recursive
+`LiteralValue` entries. Each value exposes its file, original byte range,
+original spelling bytes and `LiteralKind`. Records expose separate labels
+(identity, range and spelling) and values. Arrays expose key/value entries and
+`ArrayIndexing::{Positional, Explicit, StartingKey}`. Matrices expose column
+keys, row keys and cells separately. Sets and tuples retain ordered elements.
+`values` accepts `head`, `count`, `json` and `emit`; implicit/explicit source
+emission concatenates the original value spans. Node navigation and editing
+require original node streams rather than these inspection values.
+
+Literal JSON uses the same `file`, `range: {start,end}` and exact UTF-8 `text`
+fields as node JSON, plus a literal `kind`. Kinds are `integer`, `float`,
+`boolean`, `string`, `member`, `set`, `tuple`, `record`, `array` and `matrix`.
+Booleans include `value`; members include `name`. Sets/tuples include recursive
+`elements`; records include `fields: [{label: {name,range,text}, value}]`.
+Arrays include `indexing` (`positional`, `explicit` or `starting_key`) and
+`entries: [{key, value}]`, with `null` for an unwritten key. Matrices include
+`column_keys` and `rows: [{key, cells}]`. Numeric and string literal text remains
+source spelling, rather than a normalized JSON value. Literal JSON is recursive
+inspection data and also rejects opaque invalid UTF-8 comment bytes.
+
+For example, inspect a keyed record's nested data with:
+
+```sh
+zincite query 'values | json' records.dzn
+zincite query 'elements | fields | names | json' records.dzn
+zincite query 'keys | names | json' records.dzn
+zincite query 'filter(name("weights")) | filter_elements(gt(0))' instance.dzn
+```
+
+`filter_elements` compares direct scalar elements with `eq(VALUE)`, `lt(NUMBER)`,
+`le(NUMBER)`, `gt(NUMBER)` or `ge(NUMBER)`. Equality accepts numbers, Booleans,
+double-quoted strings and explicit member identity, for example
+`eq(member("A"))`. A member, a record label and a string stay distinct. Invalid
+operand syntax/types fail while parsing the query, including for an empty
+selection. Collections and records cannot be comparison operands; incompatible
+input element types fail at their input ranges rather than comparing unequal.
+
+Integer comparisons support signed 64-bit decimal, hexadecimal and octal
+literals, including `-9223372036854775808`. Decimal float comparisons require
+finite binary64 values; overflow and a nonzero literal rounded to zero fail.
+Mixed integer/float comparisons require an exactly representable integer and
+refuse loss of precision. Hexadecimal floats are inspection-only. String
+comparison decodes only escaped quote, backslash, `n`, `r` and `t`; other source
+escapes remain inspection-only. Query strings retain their existing escape rules.
+
+Filtering emits a complete candidate through the same output/diff/write path as
+assignment edits. Lists and sets may become empty. Positional list indices compact
+only under this explicit transformation. Fully written integer/member keys retain
+their spelling and identity; key types and arity must be compatible, keys must be
+unique, integer axes must remain contiguous, and tuple keys must cover rectangular
+axes. Changed starting-key arrays with bare tails fail because syntax alone cannot
+establish the surviving identities. Tuples and records are inspection forms, not
+variable-length filtering targets. Nested values are filtered only when selected
+explicitly. Ordinary nested lists can have different lengths.
+
+Matrix filtering compares cells and requires the same retained column mask in
+every row. It preserves row keys and filters column keys with that mask. Ragged
+rows, incompatible keys and empty surviving column axes fail. Filtering a nested
+collection also checks its enclosing matrix/keyed-array shape. Entry comments
+follow the same preceding-block and same-line attachment rules as item comments:
+removed-entry comments disappear, retained comments and separated section comments
+keep their exact bytes, and separators precede trailing line comments. Other
+layout bytes remain untouched, so filtering can leave extra spaces or blank lines.
+Duplicate or overlapping targets fail as one atomic batch; use `unique` when an
+inspection pipeline selects the same collection more than once.
+
 Use the library independently:
 
 ```rust,ignore
@@ -384,7 +474,7 @@ if let QueryResult::Selection(selection) = &result {
 let original_fragment = result.render();
 ```
 
-`QueryResult` keeps item/node selections, strings, counts, histograms or an owned `Document(Vec<u8>)` native
+`QueryResult` keeps item/node/literal selections, strings, counts, histograms or an owned `Document(Vec<u8>)` native
 until `render`. `JsonResult::result` exposes the native result behind a JSON emitter.
 `NodeSelection` exposes original CST nodes, file identities and byte ranges.
 `Document` contains a complete validated edit candidate. A
@@ -406,10 +496,14 @@ inspected slots and copied string bytes; text conversion and annotation-head
 inspection charge their source-span byte lengths before scanning. Node fragment
 emission charges the expanded source byte length. JSON charges selected text/string bytes
 and repeated file-label bytes before rendering. Every expanded stream, including
-overlapping duplicates, respects the collection limit.
+overlapping duplicates, respects the collection limit. Recursive literal views charge
+visited child slots and expanded values/keys/rows, and use the nesting ceiling.
+Comparison decoding charges inspected spelling bytes. Literal JSON charges every
+recursive text/file span before rendering.
 Boolean evaluation short circuits. Checks occur before collection additions and visits; exceeding a bound returns a located
 error without truncating the result. Library callers can change work/collection
-limits. Nesting is checked during query parsing; work/collection during evaluation.
+limits. Query nesting is checked during parsing; literal nesting and work/collection
+limits are checked during evaluation.
 
 The commands take one query argument and one optional file or `-`.
 `--stdin-filepath PATH` selects stdin's language mode and diagnostic label;

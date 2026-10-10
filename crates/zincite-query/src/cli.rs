@@ -19,7 +19,7 @@ QUERY is one fixed pipeline separated by '|'; an empty query selects all items.
 Stages:
     items                   Select all top-level items (initial selection)
     filter(PREDICATE)       Keep matching items; not > and > or, with parentheses
-    head(N)                 Keep the first N nodes or projected strings
+    head(N)                 Keep the first N nodes, literal values or strings
     count                   Return a count; only json may follow
     emit                    Emit original selected source; terminal stage
     expressions             Select expression nodes in each selected subtree
@@ -32,8 +32,13 @@ Stages:
     text                    Project original node text (requires UTF-8)
     unique                  Keep first occurrences of nodes or strings
     tally                   Count projected strings; only json may follow
+    values                  Inspect recursive literal values with original ranges
+    fields                  Select record field nodes
+    elements                Select collection values; matrix cells in row order
+    keys                    Select written array and matrix axis keys
     json                    Emit inspection JSON; terminal stage
     set_value(\"EXPRESSION\") Replace selected data assignment right-hand sides
+    filter_elements(CMP)    Filter literal set/array/matrix elements in data mode
     remove                  Remove selected data assignments and attached comments
     emit_document           Emit the complete validated edit candidate
 Source/string emission is implicit; edits implicitly emit_document.
@@ -44,6 +49,11 @@ Node navigation preserves per-root written order and overlapping duplicates.
 Counts describe written occurrences, not execution frequency.
 Only emit_document may follow one transformation stage. Edits require data mode.
 Comments inside a replaced expression cause a located placement error.
+Element comparisons: eq(VALUE), lt(NUMBER), le(NUMBER), gt(NUMBER), ge(NUMBER).
+Equality accepts numbers, Booleans, strings and explicit member(\"A\") identities.
+Filtering preserves written keys and retained comments; positional lists compact.
+Matrices require a common column mask; starting-key bare tails cannot be changed.
+values accepts head/count/json/emit; other projections continue as node streams.
 Predicates: kind(\"assignment\"), name(\"capacity\"); names compare identifier identity.
 Item kinds: assignment, declaration, enum, type_alias, function, predicate, test,
        annotation, constraint, include, output, solve.
