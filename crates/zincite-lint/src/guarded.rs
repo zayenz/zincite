@@ -15,6 +15,7 @@ use crate::{
     DefinitionEnforcement, Domain, DomainFacts, FileId, Instantiation, InstantiationFacts,
     ModelContext, NumericFacts, NumericOutcome, OptionalFacts, Presence, SourceLocation, TypeKind,
 };
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
@@ -273,6 +274,7 @@ pub(crate) fn evaluate_iteration_prefix(
         numeric_indices: None,
         optional_expression_indices: None,
         call_indices: None,
+        declaration_domain_errors: RefCell::new(HashMap::new()),
         facts: GuardedFacts::default(),
     };
     producer.walk(
@@ -364,6 +366,7 @@ pub(crate) fn prospective_index_membership(
         numeric_indices: None,
         optional_expression_indices: None,
         call_indices: None,
+        declaration_domain_errors: RefCell::new(HashMap::new()),
         facts: GuardedFacts::default(),
     };
     let mut domain = &domains.declarations[array.0].domain;
@@ -467,6 +470,7 @@ fn interpret<'a>(
         numeric_indices: Some(numeric_indices),
         optional_expression_indices,
         call_indices: Some(call_indices),
+        declaration_domain_errors: RefCell::new(HashMap::new()),
         facts: GuardedFacts::default(),
     };
     let mut global = Vec::new();
@@ -559,6 +563,7 @@ struct Producer<'a> {
     numeric_indices: Option<HashMap<(FileId, usize, usize), usize>>,
     optional_expression_indices: Option<HashMap<(FileId, usize, usize), usize>>,
     call_indices: Option<HashMap<(FileId, usize), usize>>,
+    declaration_domain_errors: RefCell<HashMap<usize, Option<String>>>,
     facts: GuardedFacts,
 }
 impl<'a> Producer<'a> {
@@ -3658,6 +3663,19 @@ impl<'a> Producer<'a> {
         }
     }
     fn declaration_domain_error(&self, id: DeclarationId) -> Option<String> {
+        // Written sources depend on immutable facts, never this use's scope.
+        // Retain checked None results as well as errors.
+        let cached = self.declaration_domain_errors.borrow().get(&id.0).cloned();
+        if let Some(error) = cached {
+            return error;
+        }
+        let error = self.written_declaration_domain_error(id);
+        self.declaration_domain_errors
+            .borrow_mut()
+            .insert(id.0, error.clone());
+        error
+    }
+    fn written_declaration_domain_error(&self, id: DeclarationId) -> Option<String> {
         let declaration = &self.bindings.declarations[id.0];
         let node = crate::callables::find_node(
             self.context.files[declaration.file].parsed.tree(),

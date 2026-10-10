@@ -6896,3 +6896,24 @@ unchanged pins across that replay are retained under
 `target/benchmarks/base083/semantic71-workforce-cardinality-native-prerequisite-v1`.
 This increment establishes no complete original-root or final corpus acceptance;
 base-083 remains open with every Done condition unchecked.
+
+Guarded analysis now retains the exact written declaration-domain error result,
+including no error, within its existing immutable-input Producer. Each use keeps
+its own located obligations and scoped outcomes. The original miss inspection
+body is unchanged, and the entry is reused only by that declaration's index.
+No scope, option-presence, numeric or coverage facts are cached. Existing guarded
+and prefix source-error controls and required workspace fmt/Clippy/tests pass
+under `target/benchmarks/base083/semantic71-bnn-domain-memo-main-checks-v1`.
+
+The private frozen-96f7b3d candidate with identical elapsed markers completes the
+same BNN thesis command in 205.464 seconds, within the unchanged 1,800-second
+limit. Its guarded phase completes in 38.063 seconds. All 62 markers form 31
+completed pairs; full diagnostics contain 5,160 warnings and no analysis
+limitations. ROOT checked the three complete captures, terminal group cleanup,
+1,191 unchanged pins, and exact measured/integrated guarded source bytes under
+`target/benchmarks/base083/semantic71-bnn-declaration-domain-memo-diagnostic-v1`.
+Some Rust validation ran concurrently; no timing ratio is claimed. The censored
+baseline supplies no complete diagnostic parity result. Native peak child RSS is
+11,494.703 MiB; this completed observation cannot establish a memory improvement
+against the censored baseline. Final allocation/growth checks, complete final
+corpus/native acceptance and base-083 completion remain open.
