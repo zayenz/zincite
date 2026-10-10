@@ -6532,3 +6532,16 @@ RSS; the native RSS difference remains unexplained. Allocation evidence is under
 `target/benchmarks/base083/semantic69-project17-allocation-companions-preparation-v1`.
 Integrated formatting, Clippy and workspace tests pass under
 `target/benchmarks/base083/semantic69-type-index-main-gates-v1`. Base-083 remains open.
+
+Declaration lookup now skips syntax subtrees whose source range cannot contain
+the requested declaration. Source-ordered selection, exact range matching and
+empty boundaries are retained. The matched native run falls from 870 to 590
+seconds wall and 863 to 589 seconds CPU with byte-identical diagnostics and the
+same 31 completed stage pairs. Numeric analysis falls from 314 to 52 seconds;
+direct definitions and guarded analysis are approximately unchanged. Peak RSS
+is 4,620 MiB versus 4,610 MiB in this single pair. Evidence is under
+`target/benchmarks/base083/semantic69-project17-find-node-comparison-preparation-v1`.
+Existing definition/range regressions pass, and integrated formatting, Clippy
+and workspace tests pass under
+`target/benchmarks/base083/semantic69-find-node-main-gates-v1`. This bounded
+comparison does not establish final corpus acceptance or memory growth limits.

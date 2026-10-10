@@ -207,6 +207,10 @@ pub(super) fn find_node<'a>(
 ) -> Option<&'a SyntaxNode> {
     use DeclarationRole as R;
     use NodeKind as N;
+    let node_range = node.range();
+    if node_range.start > range.start || node_range.end < range.end {
+        return None;
+    }
     let kind = match role {
         R::Value | R::Local => N::Declaration,
         R::Function => N::FunctionDeclaration,
@@ -221,7 +225,7 @@ pub(super) fn find_node<'a>(
         R::Generator => N::Generator,
         R::Index => N::ArrayIndexBinding,
     };
-    if node.range() == *range && node.kind() == kind {
+    if node_range == *range && node.kind() == kind {
         return Some(node);
     }
     node.child_nodes()
