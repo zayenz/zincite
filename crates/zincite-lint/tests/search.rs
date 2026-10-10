@@ -12724,3 +12724,221 @@ fn decision_enum_cardinality_inspects_selected_body_without_output_proof() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn optional_float_weak_equality_inspects_selected_bodies_without_outputs() {
+    use zincite_lint::{
+        CallOutcome, Presence, SourceKind, resolve_numeric_facts, resolve_optional_facts,
+    };
+    let positive =
+        "var float: value;\nopt float: input;\nconstraint value ~= input;\nsolve satisfy;\n";
+    let library = r#"
+annotation promise_total;
+annotation promise_commutative;
+annotation mzn_internal_representation;
+annotation is_reverse_map;
+annotation output_only;
+function var bool: '~='(var opt float: x, var opt float: y)
+    :: promise_total :: promise_commutative = absent(x) \/ absent(y) \/ deopt(x) = deopt(y);
+function var bool: absent(var opt float: x) :: promise_total = not occurs(x);
+function var bool: occurs(var opt float: x) :: promise_total = occurs_float(x);
+function var bool: occurs_float(var opt float: x) :: promise_total =
+    let {
+        any: xx = opt_internal_float(x);
+        any: b = xx.1;
+        any: dx = xx.2;
+        constraint (x = reverse_map_var_opt(b, dx)) :: is_reverse_map;
+    } in xx.1;
+function var float: deopt(var opt float: x) :: promise_total = deopt_float(x);
+function var float: deopt_float(var opt float: x) :: promise_total =
+    let {
+        any: xx = opt_internal_float(x);
+        any: b = xx.1;
+        any: dx = xx.2;
+        constraint (x = reverse_map_var_opt(b, dx)) :: is_reverse_map;
+    } in xx.2;
+function tuple(var bool, var float): opt_internal_float(var opt float: x) :: promise_total =
+    let { var bool: b; var lb(x)..ub(x): y; } in (b, y);
+function var opt $T: reverse_map_var_opt(var bool: b, var $T: dx) :: output_only;
+function float: lb(var opt float: x);
+function float: ub(var opt float: x);
+function set of float: '..'(float: a, float: b) :: mzn_internal_representation;
+function var bool: 'not'(var bool: x);
+function var bool: '\/'(var bool: x, var bool: y) :: mzn_internal_representation :: promise_commutative;
+function int: 'div'(int: x, int: y);
+function float: int2float(int: x);
+function any $T: assert(bool: condition, string: message, any $T: result);
+"#;
+    let closed_source = positive.replace(
+        "opt float: input;",
+        "opt float: input = int2float(1 div 0);",
+    );
+    let body_error = library.replace(
+        "in (b, y);",
+        "in assert(false, \"selected Float body abort\", (b, y));",
+    );
+    for (name, source, standard, error, selected_error) in [
+        (
+            "optional-float-weak-symbolic",
+            positive,
+            library,
+            None,
+            false,
+        ),
+        (
+            "optional-float-weak-closed-source",
+            closed_source.as_str(),
+            library,
+            Some("division by zero"),
+            false,
+        ),
+        (
+            "optional-float-weak-selected-body",
+            positive,
+            body_error.as_str(),
+            Some("operation identity or tuple"),
+            true,
+        ),
+    ] {
+        let (dir, _) = model(name, source, "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!("{CORE}{standard}"),
+        )
+        .unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(context.includes.iter().all(|edge| edge.target.is_some()));
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let (bindings, search) = facts(&context);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let value = bindings
+            .declarations
+            .iter()
+            .find(|declaration| declaration.top_level && declaration.name == "value")
+            .unwrap()
+            .id;
+        assert!(
+            definitions
+                .definitions
+                .iter()
+                .all(|definition| definition.target != value),
+            "{name}: {:?}",
+            definitions.definitions
+        );
+        assert!(
+            callable.definitions.is_empty(),
+            "{name}: {:?}",
+            callable.definitions
+        );
+        assert!(
+            callable.outputs.is_empty(),
+            "{name}: {:?}",
+            callable.outputs
+        );
+        assert!(
+            callable.inspected_locals.is_empty(),
+            "{name}: {:?}",
+            callable.inspected_locals
+        );
+        let result = analyze_model(&context, &selected());
+        if let Some(error) = error {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert!(
+                callable
+                    .unavailable
+                    .iter()
+                    .any(|boundary| boundary.reason.contains(error)
+                        && boundary.targets.is_empty()
+                        && (!selected_error
+                            || context.files.iter().any(|file| file.kind
+                                == SourceKind::StandardLibrary
+                                && file.implicit
+                                && file.path == boundary.location.path
+                                && file.parsed.source()[boundary.location.range.clone()]
+                                    .contains("assert(false")))),
+                "{name}: selected source/body error was lost: {:?}",
+                callable.unavailable
+            );
+        } else {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert!(
+                search.limitations.is_empty(),
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert_eq!(
+                coverage(&bindings, &search, "value"),
+                SearchCoverage::Uncovered
+            );
+            let numeric = resolve_numeric_facts(
+                &context,
+                &bindings,
+                &calls,
+                &instantiations,
+                &domains,
+                &definitions,
+            );
+            let options = resolve_optional_facts(
+                &context,
+                &bindings,
+                &calls,
+                &instantiations,
+                &domains,
+                &numeric,
+                &definitions,
+            );
+            let input = bindings
+                .declarations
+                .iter()
+                .find(|d| d.top_level && d.name == "input")
+                .unwrap()
+                .id;
+            assert_eq!(
+                options.declaration(input).unwrap().presence,
+                Presence::Unknown
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

@@ -2895,6 +2895,13 @@ impl<'a> Producer<'a> {
         let (clause, view, known) = inputs;
         match clause.kind {
             ClauseKind::Unsupported => {
+                if let Some(checked) = self.optional_float_weak_equality_safety(clause, view) {
+                    if let Err(boundary) = checked {
+                        unavailable.push(boundary);
+                    }
+                    // Inspection of this relation supplies no definition or output.
+                    return;
+                }
                 if clause.node.kind() == NodeKind::GeneratorCallExpression
                     && self.core(clause.file, clause.node, view, "forall")
                 {
@@ -17573,6 +17580,625 @@ impl<'a> Producer<'a> {
                 DefinitionSafety::Unknown("Float let initialization or value is unproved".into())
             }
         })
+    }
+    // This demanded relation is inspected without optional-value extraction or outputs.
+    fn optional_float_weak_equality_safety(
+        &self,
+        clause: &Clause<'a>,
+        view: &CallableFacts,
+    ) -> Option<Result<(), UnavailableCallableDefinition>> {
+        let node = unwrap(clause.node);
+        if node.kind() != NodeKind::BinaryExpression
+            || operator(self.context, clause.file, node) != Some(TokenKind::WeakEqual)
+            || !self.core(clause.file, node, view, "~=")
+        {
+            return None;
+        }
+        let facts = self.view(clause.file, node, view);
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &self.operation_fact(facts, clause.file, node)?.outcome
+        else {
+            return None;
+        };
+        let owner = &self.bindings.declarations[declaration.0];
+        let operands: Vec<_> = node.child_nodes().collect();
+        if owner.role != DeclarationRole::Function
+            || owner.name != "~="
+            || self.context.files[owner.file].kind != SourceKind::StandardLibrary
+            || !self.context.files[owner.file].implicit
+            || parameters.len() != 2
+            || operands.len() != 2
+            || parameters.iter().any(|ty| {
+                !ty.known()
+                    || ty.kind != TypeKind::Float
+                    || !ty.optional
+                    || ty.instantiation != Instantiation::Decision
+            })
+            || !return_type.known()
+            || return_type.kind != TypeKind::Bool
+            || return_type.optional
+            || return_type.instantiation != Instantiation::Decision
+            || self
+                .expression_type(facts, clause.file, node)
+                .is_none_or(|value| value.ty != *return_type)
+            || operands.iter().zip(parameters).any(|(operand, parameter)| {
+                self.expression_type(facts, clause.file, operand)
+                    .is_none_or(|value| {
+                        !value.ty.known()
+                            || value.ty.kind != TypeKind::Float
+                            || !crate::types::coerces(&value.ty, parameter)
+                    })
+            })
+        {
+            return None;
+        }
+        let mut location = self.context.files[clause.file].location(node.range());
+        let checked = if !clause.generators.is_empty() {
+            Err("optional Float weak equality ambient traversal is unsupported".into())
+        } else {
+            self.optional_float_body_source_safety(
+                (clause.file, clause.node, self.view(clause.file, node, view)),
+                &[],
+                &mut Vec::new(),
+                &mut location,
+            )
+        };
+        Some(checked.map_err(|reason| UnavailableCallableDefinition {
+            location,
+            targets: Vec::new(),
+            reason,
+        }))
+    }
+    // Visible IDs carry lexical source identity, never presence, values or definitions.
+    // No ordinary expression fallback may lose this selected-body active stack.
+    fn optional_float_body_source_safety(
+        &self,
+        source: (FileId, &'a SyntaxNode, &CallableFacts),
+        visible: &[DeclarationId],
+        active: &mut Vec<DeclarationId>,
+        location: &mut SourceLocation,
+    ) -> Result<(), String> {
+        let (file, written, view) = source;
+        *location = self.context.files[file].location(written.range());
+        if written.kind() == NodeKind::ParenthesizedExpression {
+            let parts: Vec<_> = written.child_nodes().collect();
+            if parts.len() != 1 || !self.source_annotations_safe(file, written) {
+                return Err("optional Float parenthesized source is unsupported".into());
+            }
+            return self.optional_float_body_source_safety(
+                (file, parts[0], view),
+                visible,
+                active,
+                location,
+            );
+        }
+        let node = unwrap(written);
+        let typed = |node: &SyntaxNode| {
+            self.expression_type(view, file, node)
+                .map(|value| &value.ty)
+        };
+        let scalar = |t: &TypeInst, kind, optional, instantiation| {
+            t.known()
+                && t.kind == kind
+                && t.optional == optional
+                && t.instantiation == instantiation
+        };
+        let boolean = |t: &TypeInst| scalar(t, TypeKind::Bool, false, Instantiation::Decision);
+        let float = |t: &TypeInst| scalar(t, TypeKind::Float, false, Instantiation::Decision);
+        let option = |t: &TypeInst| scalar(t, TypeKind::Float, true, Instantiation::Decision);
+        let parameter_float =
+            |t: &TypeInst| scalar(t, TypeKind::Float, false, Instantiation::Parameter);
+        let tuple = |t: &TypeInst| {
+            t.known()
+                && !optional(t)
+                && t.instantiation == Instantiation::Decision
+                && matches!(&t.kind, TypeKind::Tuple(fields)
+                if fields.len() == 2 && boolean(&fields[0]) && float(&fields[1]))
+        };
+        let bare = |node: &SyntaxNode| {
+            let node = unwrap(node);
+            (node.kind() == NodeKind::Expression
+                && matches!(crate::domains::tokens(&self.context.files[file].parsed, node).as_slice(),
+                    [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier)))
+                .then(|| self.reference(file, node)).flatten()
+        };
+        if written.kind() == NodeKind::AnnotatedExpression {
+            let parts: Vec<_> = written.child_nodes().collect();
+            if parts.len() != 2
+                || parts[1].kind() != NodeKind::Annotation
+                || !self.atomic_standard_metadata_safe(file, parts[1], "is_reverse_map")
+                || typed(parts[0]).is_none_or(|t| !boolean(t))
+            {
+                return Err("optional Float representation annotation is unsupported".into());
+            }
+            // This metadata permits inspection only; the equality is never exported.
+            return self.optional_float_body_source_safety(
+                (file, parts[0], view),
+                visible,
+                active,
+                location,
+            );
+        }
+        if !self.source_annotations_safe(file, written) {
+            return Err("optional Float written source annotation is unsupported".into());
+        }
+        if node.kind() == NodeKind::Declaration {
+            let declaration = self
+                .bindings
+                .declarations
+                .iter()
+                .find(|d| {
+                    d.file == file
+                        && d.syntax_range == node.range()
+                        && matches!(d.role, DeclarationRole::Value | DeclarationRole::Local)
+                })
+                .ok_or("optional Float source declaration is unavailable")?;
+            let ty = &view.declarations[declaration.id.0].ty;
+            let local = declaration.role == DeclarationRole::Local;
+            let initializers: Vec<_> = node
+                .child_nodes()
+                .filter(|n| is_expression(n.kind()))
+                .collect();
+            if !ty.known()
+                || initializers.len() > 1
+                || !(local && (boolean(ty) || float(ty) || tuple(ty))
+                    || !local
+                        && ty.kind == TypeKind::Float
+                        && (!ty.optional || ty.instantiation == Instantiation::Parameter))
+                || tuple(ty) && initializers.is_empty()
+                || local && visible.contains(&declaration.id)
+                || active.contains(&declaration.id)
+            {
+                return Err(
+                    "optional Float declaration type, initializer or cycle is unsupported".into(),
+                );
+            }
+            active.push(declaration.id);
+            let checked = (|| -> Result<(), String> {
+                if let Some(reason) = self.closed_integer_source_error(file, node, false, true) {
+                    return Err(reason);
+                }
+                let mut types = vec![
+                    node.child_nodes()
+                        .next()
+                        .ok_or("optional Float written type is unavailable")?,
+                ];
+                while let Some(ty_node) = types.pop() {
+                    if !self.source_annotations_safe(file, ty_node) {
+                        return Err("optional Float written type annotation is unsupported".into());
+                    }
+                    if ty_node.kind() == NodeKind::DomainType {
+                        for domain in ty_node.child_nodes() {
+                            let domain = unwrap(domain);
+                            let bounds: Vec<_> = domain.child_nodes().map(unwrap).collect();
+                            let reflected = local
+                                && float(ty)
+                                && bounds.len() == 2
+                                && domain.kind() == NodeKind::RangeExpression
+                                && self.core(file, bounds[0], view, "lb")
+                                && self.core(file, bounds[1], view, "ub")
+                                && bounds.iter().all(|bound| bound.child_nodes().count() == 1)
+                                && bounds[0].child_nodes().next().and_then(bare).is_some_and(
+                                    |id| {
+                                        visible.contains(&id)
+                                            && self.bindings.declarations[id.0].role
+                                                == DeclarationRole::Parameter
+                                            && self.bindings.declarations[id.0].file == file
+                                            && option(&view.declarations[id.0].ty)
+                                            && bounds[1].child_nodes().next().and_then(bare)
+                                                == Some(id)
+                                    },
+                                );
+                            let literal = !local && domain.kind() == NodeKind::RangeExpression
+                                && bounds.len() == 2 && bounds.iter().all(|bound| {
+                                    bound.kind() == NodeKind::Expression
+                                        && matches!(crate::domains::tokens(&self.context.files[file].parsed, bound).as_slice(),
+                                            [token] if token.kind == TokenKind::FloatLiteral)
+                                });
+                            if !reflected && !literal {
+                                return Err(
+                                    "optional Float computed written domain is unsupported".into(),
+                                );
+                            }
+                            self.optional_float_body_source_safety(
+                                (file, domain, view),
+                                visible,
+                                active,
+                                location,
+                            )?;
+                        }
+                    } else {
+                        types.extend(ty_node.child_nodes());
+                    }
+                }
+                for initializer in initializers {
+                    if typed(initializer).is_none_or(|value| !crate::types::coerces(value, ty)) {
+                        return Err("optional Float initializer coercion is unsupported".into());
+                    }
+                    self.optional_float_body_source_safety(
+                        (file, initializer, view),
+                        visible,
+                        active,
+                        location,
+                    )?;
+                }
+                Ok(())
+            })();
+            active.pop();
+            return checked;
+        }
+        let ty = typed(node).ok_or("optional Float source type is unavailable")?;
+        if !ty.known()
+            || !(ty.kind == TypeKind::Bool && !ty.optional
+                || ty.kind == TypeKind::Float
+                || tuple(ty)
+                || ty.instantiation == Instantiation::Parameter
+                    && !optional(ty)
+                    && matches!(&ty.kind, TypeKind::Set(element) if parameter_float(element)))
+        {
+            return Err("optional Float source type is unsupported".into());
+        }
+        if node.kind() == NodeKind::Expression {
+            if let Some(id) = bare(node) {
+                if visible.contains(&id) && view.declarations[id.0].ty == *ty {
+                    return Ok(());
+                }
+                let d = &self.bindings.declarations[id.0];
+                if d.top_level && d.role == DeclarationRole::Value && ty.kind == TypeKind::Float {
+                    let declaration = find_node(
+                        self.context.files[d.file].parsed.tree(),
+                        &d.syntax_range,
+                        d.role,
+                    )
+                    .ok_or("optional Float written actual source is unavailable")?;
+                    return self.optional_float_body_source_safety(
+                        (d.file, declaration, view),
+                        &[],
+                        active,
+                        location,
+                    );
+                }
+                return Err("optional Float reference has no checked owning scope".into());
+            }
+            if node.child_nodes().next().is_none()
+                && matches!(crate::domains::tokens(&self.context.files[file].parsed, node).as_slice(),
+                    [token] if token.kind == TokenKind::FloatLiteral && parameter_float(ty)
+                        || matches!(token.kind, TokenKind::True | TokenKind::False)
+                            && scalar(ty, TypeKind::Bool, false, Instantiation::Parameter))
+            {
+                return Ok(());
+            }
+        }
+        if node.kind() == NodeKind::TupleLiteral && tuple(ty) {
+            let fields: Vec<_> = node.child_nodes().collect();
+            if fields.len() != 2
+                || typed(fields[0]).is_none_or(|t| !boolean(t))
+                || typed(fields[1]).is_none_or(|t| !float(t))
+            {
+                return Err("optional Float representation tuple is unsupported".into());
+            }
+            for field in fields {
+                self.optional_float_body_source_safety(
+                    (file, field, view),
+                    visible,
+                    active,
+                    location,
+                )?;
+            }
+            return Ok(());
+        }
+        if node.kind() == NodeKind::FieldAccessExpression {
+            let fields: Vec<_> = node.child_nodes().collect();
+            let field = crate::domains::tokens(&self.context.files[file].parsed, node)
+                .iter()
+                .find(|token| token.kind == TokenKind::IntegerLiteral)
+                .and_then(|token| {
+                    self.context.files[file].parsed.source()[token.range.clone()]
+                        .parse::<usize>()
+                        .ok()
+                });
+            if fields.len() != 1
+                || bare(fields[0]).is_none_or(|id| !visible.contains(&id))
+                || typed(fields[0]).is_none_or(|t| !tuple(t))
+                || !(field == Some(1) && boolean(ty) || field == Some(2) && float(ty))
+            {
+                return Err("optional Float owning tuple projection is unsupported".into());
+            }
+            return self.optional_float_body_source_safety(
+                (file, fields[0], view),
+                visible,
+                active,
+                location,
+            );
+        }
+        if node.kind() == NodeKind::LetExpression {
+            let parts: Vec<_> = node.child_nodes().collect();
+            if parts.len() != 2
+                || parts[0].kind() != NodeKind::LetBlock
+                || typed(parts[1]) != Some(ty)
+            {
+                return Err("optional Float let result or shape is unsupported".into());
+            }
+            let mut locals = visible.to_vec();
+            for item in parts[0].child_nodes() {
+                if item.kind() == NodeKind::Constraint {
+                    let expressions: Vec<_> = item.child_nodes().collect();
+                    if expressions.len() != 1
+                        || !self.source_annotations_safe(file, item)
+                        || typed(expressions[0]).is_none_or(|t| !boolean(t))
+                    {
+                        return Err("optional Float local constraint is unsupported".into());
+                    }
+                    self.optional_float_body_source_safety(
+                        (file, expressions[0], view),
+                        &locals,
+                        active,
+                        location,
+                    )?;
+                } else if item.kind() == NodeKind::Declaration {
+                    self.optional_float_body_source_safety(
+                        (file, item, view),
+                        &locals,
+                        active,
+                        location,
+                    )?;
+                    let id = self
+                        .bindings
+                        .declarations
+                        .iter()
+                        .find(|d| {
+                            d.file == file
+                                && d.syntax_range == item.range()
+                                && d.role == DeclarationRole::Local
+                        })
+                        .ok_or("optional Float local identity is unavailable")?
+                        .id;
+                    locals.push(id);
+                } else {
+                    return Err("optional Float let item is unsupported".into());
+                }
+            }
+            return self.optional_float_body_source_safety(
+                (file, parts[1], view),
+                &locals,
+                active,
+                location,
+            );
+        }
+        if !matches!(
+            node.kind(),
+            NodeKind::CallExpression
+                | NodeKind::BinaryExpression
+                | NodeKind::UnaryExpression
+                | NodeKind::RangeExpression
+        ) {
+            return Err("optional Float selected body source form is unsupported".into());
+        }
+        let fact = self
+            .operation_fact(view, file, node)
+            .ok_or("optional Float selected operation is unavailable")?;
+        let CallOutcome::Resolved {
+            declaration: id,
+            parameters,
+            return_type,
+        } = &fact.outcome
+        else {
+            return Err("optional Float selected operation is unsupported".into());
+        };
+        let owner = &self.bindings.declarations[id.0];
+        let children: Vec<_> = node.child_nodes().collect();
+        let expected = match owner.name.as_str() {
+            "~=" => parameters.len() == 2 && parameters.iter().all(option) && boolean(return_type),
+            "occurs" | "absent" | "occurs_float" => {
+                parameters.len() == 1 && option(&parameters[0]) && boolean(return_type)
+            }
+            "deopt" | "deopt_float" => {
+                parameters.len() == 1 && option(&parameters[0]) && float(return_type)
+            }
+            "opt_internal_float" => {
+                parameters.len() == 1 && option(&parameters[0]) && tuple(return_type)
+            }
+            "reverse_map_var_opt" => {
+                parameters.len() == 2
+                    && boolean(&parameters[0])
+                    && float(&parameters[1])
+                    && option(return_type)
+            }
+            "lb" | "ub" => {
+                parameters.len() == 1 && option(&parameters[0]) && parameter_float(return_type)
+            }
+            "not" => parameters.len() == 1 && boolean(&parameters[0]) && boolean(return_type),
+            "\\/" => {
+                parameters.len() == 2 && parameters.iter().all(boolean) && boolean(return_type)
+            }
+            "=" => {
+                parameters.len() == 2
+                    && parameters[0] == parameters[1]
+                    && (float(&parameters[0]) || option(&parameters[0]))
+                    && boolean(return_type)
+            }
+            ".." => {
+                parameters.len() == 2
+                    && parameters.iter().all(parameter_float)
+                    && return_type.instantiation == Instantiation::Parameter
+                    && !optional(return_type)
+                    && matches!(&return_type.kind, TypeKind::Set(element) if parameter_float(element))
+            }
+            _ => false,
+        };
+        if !expected
+            || fact.generator_argument.is_some()
+            || return_type != ty
+            || owner.role != DeclarationRole::Function
+            || self.context.files[owner.file].kind != SourceKind::StandardLibrary
+            || !self.context.files[owner.file].implicit
+            || children.len() != parameters.len()
+        {
+            return Err("optional Float operation identity or tuple is unsupported".into());
+        }
+        for (position, parameter) in parameters.iter().enumerate() {
+            let (actual_file, actual) =
+                call_argument(self.context, self.bindings, view, file, node, *id, position)
+                    .ok_or("optional Float actual or default is unavailable")?;
+            if actual_file != file
+                || typed(actual).is_none_or(|t| !crate::types::coerces(t, parameter))
+            {
+                return Err("optional Float actual coercion is unsupported".into());
+            }
+            self.optional_float_body_source_safety(
+                (file, actual, view),
+                visible,
+                active,
+                location,
+            )?;
+        }
+        let declaration = find_node(
+            self.context.files[owner.file].parsed.tree(),
+            &owner.syntax_range,
+            owner.role,
+        )
+        .ok_or("optional Float selected declaration is unavailable")?;
+        let bodies: Vec<_> = declaration
+            .child_nodes()
+            .filter(|n| is_expression(n.kind()))
+            .collect();
+        *location = self.context.files[owner.file].location(
+            bodies
+                .first()
+                .map_or(declaration.range(), |body| body.range()),
+        );
+        let mut signatures = self
+            .calls
+            .signatures
+            .iter()
+            .filter(|signature| signature.declaration == *id);
+        let signature = signatures
+            .next()
+            .ok_or("optional Float selected signature is unavailable")?;
+        if signatures.next().is_some()
+            || signature.parameters.len() != parameters.len()
+            || signature
+                .parameters
+                .iter()
+                .any(|parameter| parameter.has_default)
+            || declaration
+                .child_nodes()
+                .find(|n| n.kind() == NodeKind::ParameterList)
+                .is_none_or(|list| list.child_nodes().count() != parameters.len())
+        {
+            return Err("optional Float selected signature or defaults are unsupported".into());
+        }
+        if bodies.is_empty() {
+            if owner.name != "reverse_map_var_opt" {
+                if !matches!(
+                    owner.name.as_str(),
+                    "lb" | "ub" | "=" | "not" | "\\/" | ".."
+                ) {
+                    return Err("optional Float required selected body is unavailable".into());
+                }
+                return self.selected_union_primitive_safety(*id);
+            }
+            let mut nodes = vec![declaration];
+            while let Some(part) = nodes.pop() {
+                if part.kind() == NodeKind::Annotation {
+                    if !self.atomic_standard_metadata_safe(owner.file, part, "output_only") {
+                        return Err("optional Float reverse-map metadata is unsupported".into());
+                    }
+                    continue;
+                }
+                if is_expression(part.kind()) {
+                    return Err(
+                        "optional Float reverse-map body/default/domain is unsupported".into(),
+                    );
+                }
+                nodes.extend(part.child_nodes());
+            }
+            return Ok(());
+        }
+        if bodies.len() != 1
+            || !matches!(
+                owner.name.as_str(),
+                "~=" | "occurs"
+                    | "absent"
+                    | "occurs_float"
+                    | "deopt"
+                    | "deopt_float"
+                    | "opt_internal_float"
+            )
+            || !self.callable_annotations_safe(owner.file, declaration)
+            || declaration
+                .child_nodes()
+                .filter(|n| n.kind() == NodeKind::Annotation)
+                .any(|annotation| {
+                    !self.atomic_standard_metadata_safe(owner.file, annotation, "promise_total")
+                        && !self.atomic_standard_metadata_safe(
+                            owner.file,
+                            annotation,
+                            "promise_commutative",
+                        )
+                })
+            || active.contains(id)
+        {
+            return Err(
+                "optional Float selected body, annotation or recursion is unsupported".into(),
+            );
+        }
+        let body_view = instantiated_body(self.context, self.bindings, self.calls, *id, parameters);
+        let mut formals = Vec::new();
+        let mut types = vec![
+            declaration
+                .child_nodes()
+                .next()
+                .ok_or("optional Float selected return type is unavailable")?,
+        ];
+        for (position, parameter) in parameters.iter().enumerate() {
+            let formal = formal_parameter(self.context, self.bindings, *id, position)
+                .ok_or("optional Float selected formal is unavailable")?;
+            let written_formal = find_node(
+                self.context.files[owner.file].parsed.tree(),
+                &self.bindings.declarations[formal.0].syntax_range,
+                DeclarationRole::Parameter,
+            )
+            .ok_or("optional Float written formal is unavailable")?;
+            if body_view.declarations[formal.0].ty != *parameter
+                || written_formal
+                    .child_nodes()
+                    .any(|n| is_expression(n.kind()))
+                || !self.source_annotations_safe(owner.file, written_formal)
+            {
+                return Err(
+                    "optional Float concrete formal or written default is unsupported".into(),
+                );
+            }
+            types.extend(written_formal.child_nodes().take(1));
+            formals.push(formal);
+        }
+        while let Some(part) = types.pop() {
+            if !self.source_annotations_safe(owner.file, part)
+                || part.kind() == NodeKind::DomainType && part.child_nodes().next().is_some()
+            {
+                return Err("optional Float selected written type is unsupported".into());
+            }
+            types.extend(part.child_nodes());
+        }
+        if self
+            .expression_type(&body_view, owner.file, bodies[0])
+            .is_none_or(|value| value.ty != *return_type)
+        {
+            return Err("optional Float selected body result type is unsupported".into());
+        }
+        active.push(*id);
+        let checked = self.optional_float_body_source_safety(
+            (owner.file, bodies[0], &body_view),
+            &formals,
+            active,
+            location,
+        );
+        active.pop();
+        checked
     }
     fn decision_scalar_bound_safety(
         &self,

@@ -6401,3 +6401,14 @@ private original Teams comparison removes the aggregate limitation and retains
 its unrelated search gaps. Integrated workspace gates are recorded under
 `target/benchmarks/base083/semantic67-enum-card-main-gates-v1`. Fresh final corpus
 evidence and whole-task verification remain pending.
+
+The optional Float weak-equality repair is integrated. Its restricted source
+visitor inspects the selected standard optional representation bodies, lexical
+locals, reflected Float bounds and closed source failures. It exports no output
+definitions, presence facts or values. The three focused public cases have
+genuine RED/GREEN evidence, and the original Loan search analysis completes
+with no limitations while R remains Uncovered. The original and two portable
+MiniZinc source-only checks pass; none proves data-instance validity. Integrated
+workspace gates are recorded under
+`target/benchmarks/base083/semantic67-optional-float-main-gates-v1`. Final corpus
+evidence and whole-task verification remain pending.
