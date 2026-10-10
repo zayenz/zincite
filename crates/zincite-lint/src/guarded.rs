@@ -1170,6 +1170,34 @@ impl<'a> Producer<'a> {
         }
         result
     }
+    fn boolean_array_concatenation(&self, file: FileId, node: &SyntaxNode) -> bool {
+        if node.kind() != NodeKind::BinaryExpression
+            || self.operator(file, node) != Some(TokenKind::Concat)
+            || self.core_operator(file, node).is_err()
+        {
+            return false;
+        }
+        let Some(ty) = self.ty(file, node) else {
+            return false;
+        };
+        let children: Vec<_> = node.child_nodes().collect();
+        children.len() == 2
+            && ty.known()
+            && !ty.optional
+            && ty.instantiation == Instantiation::Decision
+            && matches!(&ty.kind, TypeKind::Array { indices, element }
+                if indices.as_slice() == [crate::TypeInst::par(TypeKind::Int)]
+                    && **element == crate::TypeInst::par(TypeKind::Bool)
+                        .with_inst(Instantiation::Decision))
+            && children
+                .iter()
+                .all(|child| self.ty(file, child) == Some(ty))
+            && self.operation_fact(file, node).is_some_and(|call| {
+                matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                    if parameters.len() == 2 && parameters.iter().all(|formal| formal == ty)
+                        && return_type == ty)
+            })
+    }
     fn operation(
         &mut self,
         file: FileId,
@@ -1207,6 +1235,70 @@ impl<'a> Producer<'a> {
                 // A checked shape gives no totality proof for initialized sources.
                 result.definedness = conjoin(&result.definedness, &GuardedOutcome::Unknown);
             }
+            result.numeric = None;
+            result.truth = None;
+            return result;
+        }
+        if self.boolean_array_concatenation(file, node) {
+            for value in &values {
+                if let GuardedOutcome::Unsupported(reason) = &value.definedness {
+                    return self.unsupported(file, node, reason.clone());
+                }
+            }
+            let mut generators: Vec<&'a SyntaxNode> = Vec::new();
+            for assumption in scope.assumptions.iter() {
+                let Assumption::Membership {
+                    file: source_file,
+                    declaration,
+                    ..
+                } = assumption
+                else {
+                    continue;
+                };
+                let binding = &self.bindings.declarations[declaration.0];
+                let Some(header) = (*source_file == file && binding.file == file)
+                    .then(|| {
+                        crate::callables::find_node(
+                            self.context.files[file].parsed.tree(),
+                            &binding.syntax_range,
+                            crate::DeclarationRole::Generator,
+                        )
+                    })
+                    .flatten()
+                else {
+                    return self.unsupported(
+                        file,
+                        node,
+                        "Boolean concatenation generator source is unavailable",
+                    );
+                };
+                if header.range().start <= node.range().start
+                    && node.range().end <= header.range().end
+                {
+                    return self.unsupported(
+                        file,
+                        node,
+                        "Boolean concatenation inside a generator filter requires its actual prefix",
+                    );
+                }
+                if !generators.iter().any(|old| std::ptr::eq(*old, header)) {
+                    generators.push(header);
+                }
+            }
+            let safety = crate::callable_definitions::initialized_expression_safety(
+                self.context,
+                self.bindings,
+                self.calls,
+                self.instantiations,
+                self.domains,
+                (file, node, &generators, true),
+                None,
+            );
+            if let crate::DefinitionSafety::Unsupported(reason) = safety {
+                return self.unsupported(file, node, reason);
+            }
+            // Checked sources give no values, extent or whole-array totality.
+            result.definedness = conjoin(&result.definedness, &GuardedOutcome::Unknown);
             result.numeric = None;
             result.truth = None;
             return result;
@@ -1855,9 +1947,16 @@ impl<'a> Producer<'a> {
                     "aggregate arity is outside supported interpretation",
                 );
             }
-            let nonempty = self
-                .collection_nonempty(file, children[0], name)
-                .unwrap_or_else(|| self.nonempty(file, children[0]));
+            let nonempty = if matches!(name, "forall" | "exists")
+                && self.boolean_array_concatenation(file, unwrap(children[0]))
+                && values[0].definedness == GuardedOutcome::Unknown
+            {
+                // The walked source was inspected; its extent is still unproved.
+                GuardedOutcome::Unknown
+            } else {
+                self.collection_nonempty(file, children[0], name)
+                    .unwrap_or_else(|| self.nonempty(file, children[0]))
+            };
             if matches!(name, "min" | "max") {
                 let scoped = if nonempty == GuardedOutcome::Unknown
                     && (self.options.is_none()

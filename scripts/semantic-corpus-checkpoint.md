@@ -7215,3 +7215,12 @@ It returns Unknown without converted values or output proofs. All six focused
 cases pass, and the integrated checkout passes formatting, Clippy and all 280
 workspace tests. Fresh original and whole-corpus acceptance remain pending;
 base-083 remains open.
+
+The next independently reviewed increment inspects decision Boolean array
+concatenation with actual lexical generator sources and filters. Its
+`forall`/`exists` consumer retains Unknown extent rather than rejecting that
+checked source. It proves no values, truth or whole-array totality and keeps
+primitive, optionality, cycle and closed-error refusals. Both focused tests
+pass; formatting, Clippy and all 282 workspace tests pass on the integrated
+checkout. Fresh original and whole-corpus acceptance remain pending; base-083
+remains open.

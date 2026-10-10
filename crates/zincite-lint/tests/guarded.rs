@@ -820,3 +820,178 @@ fn scalar_bool2int_retains_boolean_and_raw_partiality_boundaries() {
     ));
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+const BOOLEAN_CONCAT: &str = concat!(
+    "annotation mzn_internal_representation;\n",
+    "function array[int] of any $T: '++'(array[$$X] of any $T:x,array[$$Y] of any $T:y)",
+    " :: mzn_internal_representation;\n",
+);
+
+fn boolean_concat_model(
+    name: &str,
+    source: &str,
+    primitive: &str,
+    options: bool,
+) -> (PathBuf, ModelContext, GuardedFacts) {
+    let dir =
+        std::env::temp_dir().join(format!("zincite-bool-concat-{name}-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}{primitive}"),
+    )
+    .unwrap();
+    std::fs::write(dir.join("root.mzn"), source).unwrap();
+    let context = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            include_dirs: Vec::new(),
+        },
+    );
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let inst = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+    let numeric = resolve_numeric_facts(&context, &bindings, &calls, &inst, &domains, &definitions);
+    let facts = if options {
+        let optional = resolve_optional_facts(
+            &context,
+            &bindings,
+            &calls,
+            &inst,
+            &domains,
+            &numeric,
+            &definitions,
+        );
+        resolve_guarded_facts_with_options(
+            &context, &bindings, &calls, &inst, &domains, &numeric, &optional,
+        )
+    } else {
+        resolve_guarded_facts(&context, &bindings, &calls, &inst, &domains, &numeric)
+    };
+    (dir, context, facts)
+}
+
+#[test]
+fn boolean_array_concatenation_inspects_scoped_sources_without_proving_values() {
+    let source = concat!(
+        "int:N; var bool:x;\n",
+        "constraint forall(i in 1..N,j in 1..2 where j>0)(\n",
+        "let {array[int] of var bool:b=[x | k in 1..i];} in forall(b ++ b));\n",
+        "solve satisfy;\n",
+    );
+    for options in [false, true] {
+        let (dir, context, facts) = boolean_concat_model(
+            if options { "scoped-options" } else { "scoped" },
+            source,
+            BOOLEAN_CONCAT,
+            options,
+        );
+        let value = expression(&context, &facts, "b ++ b");
+        assert_eq!(
+            value.raw_definedness,
+            GuardedOutcome::Unknown,
+            "BOOLEAN_CONCAT_SOURCE_RED"
+        );
+        assert_eq!(value.definedness, GuardedOutcome::Unknown);
+        assert_eq!(value.truth, None);
+        assert_eq!(value.numeric, None);
+        let bindings = resolve_bindings(&context);
+        let names: Vec<_> = value
+            .context
+            .assumptions
+            .iter()
+            .filter_map(|assumption| match &assumption.kind {
+                zincite_lint::GuardAssumptionKind::GeneratorMembership { declaration, .. } => {
+                    Some(bindings.declarations[declaration.0].name.as_str())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(names, ["i", "j"]);
+        assert!(value.context.assumptions.iter().any(|assumption| {
+            matches!(
+                assumption.kind,
+                zincite_lint::GuardAssumptionKind::Condition { expected: true }
+            ) && text(&context, assumption.file, &assumption.location) == "j>0"
+        }));
+        let result = zincite_lint::analyze_model(
+            &context,
+            &zincite_lint::LintOptions::from_selection("vacuous-constraint").unwrap(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+        assert!(result.findings.is_empty(), "{:?}", result.findings);
+        assert_eq!(
+            result.rules[0].outcome,
+            zincite_lint::RuleOutcome::Completed
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn boolean_array_concatenation_keeps_operand_and_written_primitive_refusals() {
+    let source = "array[1..2] of var bool:a; constraint forall(a ++ a); solve satisfy;";
+    for (name, source, primitive, concatenation) in [
+        (
+            "opaque",
+            "array[1..2] of var bool:a; function array[int] of var bool:opaque(); constraint forall(opaque() ++ a); solve satisfy;",
+            BOOLEAN_CONCAT.to_owned(),
+            "opaque() ++ a",
+        ),
+        (
+            "cycle",
+            "array[int] of var bool:a=a; constraint forall(a ++ a); solve satisfy;",
+            BOOLEAN_CONCAT.to_owned(),
+            "a ++ a",
+        ),
+        (
+            "optional",
+            "array[1..2] of var opt bool:a; constraint forall(a ++ a); solve satisfy;",
+            BOOLEAN_CONCAT.to_owned(),
+            "a ++ a",
+        ),
+        (
+            "type-source",
+            "array[1..1 div 0] of var bool:a; constraint forall(a ++ a); solve satisfy;",
+            BOOLEAN_CONCAT.to_owned(),
+            "a ++ a",
+        ),
+        (
+            "body",
+            source,
+            BOOLEAN_CONCAT.replace(" :: mzn_internal_representation;", "=x;"),
+            "a ++ a",
+        ),
+        (
+            "default",
+            source,
+            BOOLEAN_CONCAT.replace("any $T:x,", "any $T:x=[],"),
+            "a ++ a",
+        ),
+        (
+            "metadata",
+            source,
+            format!(
+                "annotation unsupported_hint;\n{}",
+                BOOLEAN_CONCAT.replace(" :: mzn_internal_representation;", ":: unsupported_hint;")
+            ),
+            "a ++ a",
+        ),
+    ] {
+        let (dir, context, facts) = boolean_concat_model(name, source, &primitive, true);
+        assert!(
+            matches!(
+                expression(&context, &facts, concatenation).definedness,
+                GuardedOutcome::Unsupported(_)
+            ),
+            "{name}: {:?}",
+            expression(&context, &facts, concatenation)
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
