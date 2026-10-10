@@ -13289,3 +13289,195 @@ fn rank_two_private_boolean_channel_requires_checked_full_traversal() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn ordinary_multidimensional_forall_inspects_sources_without_output_proof() {
+    use zincite_lint::{CallOutcome, DeclarationRole, Instantiation, SourceKind, TypeKind};
+    let positive = concat!(
+        "int: n; bool: b :: add_to_output = forall([|true,true|true,false|]);\n",
+        "array[1..2,1..2,1..n] of var bool: bs :: add_to_output;\n",
+        "constraint forall(bs); solve satisfy;\n",
+    );
+    let closed_axis = positive.replace("1..n", "1..(1 div 0)");
+    let body_source = positive
+        .replace(
+            "bool: b :: add_to_output = forall([|true,true|true,false|]);",
+            "bool: b :: add_to_output = true;",
+        )
+        .replace("array[1..2,1..2,1..n]", "array[1..n]");
+    let primitives = concat!(
+        "annotation promise_commutative; annotation add_to_output;\n",
+        "function bool: forall(array[$T] of bool: x) :: promise_commutative;\n",
+        "function var bool: forall(array[$T] of var bool: x) :: promise_commutative;\n",
+    );
+    let written_body = primitives.replace(
+        ":: promise_commutative;",
+        ":: promise_commutative = let { int: bad = 1 div 0; } in true;",
+    );
+    for (name, source, standard, completed) in [
+        (
+            "multidimensional-forall-symbolic",
+            positive,
+            primitives,
+            true,
+        ),
+        (
+            "multidimensional-forall-axis-zero",
+            closed_axis.as_str(),
+            primitives,
+            false,
+        ),
+        (
+            "multidimensional-forall-written-zero",
+            body_source.as_str(),
+            written_body.as_str(),
+            false,
+        ),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        let selected_path = dir.join("library/std/stdlib_logic.mzn");
+        std::fs::write(&selected_path, standard).unwrap();
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!("{CORE}include \"stdlib_logic.mzn\"; function int: 'div'(int: x,int: y);\n",),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(context.includes.iter().all(|edge| edge.target.is_some()));
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let start = source.find("forall(bs)").unwrap();
+        let call = calls
+            .calls
+            .iter()
+            .find(|call| {
+                call.file == context.root_file.unwrap() && call.location.range.start == start
+            })
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &call.outcome
+        else {
+            panic!("{name}: selected forall {:?}", call.outcome);
+        };
+        let owner = &bindings.declarations[declaration.0];
+        assert_eq!(owner.role, DeclarationRole::Function);
+        assert_eq!(context.files[owner.file].path, selected_path);
+        assert_eq!(context.files[owner.file].kind, SourceKind::StandardLibrary);
+        assert!(context.files[owner.file].implicit);
+        assert!(matches!(parameters.as_slice(), [array]
+            if array.instantiation == Instantiation::Decision && !array.optional
+                && matches!(&array.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 1 && indices[0].kind == TypeKind::Int
+                        && indices[0].instantiation == Instantiation::Parameter && !indices[0].optional
+                        && element.kind == TypeKind::Bool && !element.optional
+                        && element.instantiation == Instantiation::Decision)));
+        assert_eq!(return_type.kind, TypeKind::Bool);
+        assert_eq!(return_type.instantiation, Instantiation::Decision);
+        assert!(!return_type.optional);
+        let bs = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "bs")
+            .unwrap()
+            .id;
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        assert!(
+            callable
+                .outputs
+                .iter()
+                .all(|o| o.target != bs && o.callable != *declaration)
+        );
+        assert!(callable.definitions.iter().all(|d| d.target != bs));
+        assert!(
+            definitions
+                .definitions
+                .iter()
+                .all(|d| d.target != bs || d.safety != DefinitionSafety::Supported)
+        );
+        let search =
+            resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        assert!(search.searched.is_empty());
+        let analysis = analyze_model(&context, &selected());
+        if completed {
+            assert_eq!(
+                coverage(&bindings, &search, "bs"),
+                SearchCoverage::Uncovered
+            );
+            assert!(
+                callable.unavailable.is_empty(),
+                "{name}: {:?}",
+                callable.unavailable
+            );
+            assert!(
+                search.limitations.is_empty(),
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert_eq!(
+                analysis.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                analysis.limitations
+            );
+            assert!(analysis.limitations.is_empty());
+            assert!(
+                analysis
+                    .findings
+                    .iter()
+                    .any(|finding| finding.rule == zincite_lint::Rule::SearchCoverage
+                        && finding.location.path == dir.join("root.mzn")
+                        && finding.message.contains("bs")),
+                "uncovered original array warning was lost: {:?}",
+                analysis.findings
+            );
+        } else {
+            assert!(
+                matches!(analysis.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                analysis.limitations
+            );
+            let expected_path = if name == "multidimensional-forall-written-zero" {
+                selected_path
+            } else {
+                dir.join("root.mzn")
+            };
+            assert!(
+                callable
+                    .unavailable
+                    .iter()
+                    .any(|unavailable| unavailable.location.path == expected_path
+                        && !unavailable.location.range.is_empty()
+                        && unavailable.reason.contains("division by zero")),
+                "{name}: {:?}",
+                callable.unavailable
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

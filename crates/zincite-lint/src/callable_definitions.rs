@@ -1580,7 +1580,8 @@ impl<'a> Producer<'a> {
                         .filter(|n| n.kind() == NodeKind::ArrayComprehension)
                 };
                 let Some(q) = quantified else {
-                    out.push(add(ClauseKind::Unsupported));
+                    // Ordinary array actuals need the selected call's source/body inspector.
+                    out.push(add(ClauseKind::Call));
                     return;
                 };
                 let Some(list) = q
@@ -4322,7 +4323,9 @@ impl<'a> Producer<'a> {
                     // The wrapper may be ignored: never forward outputs or locals.
                     return;
                 }
-                if let Some(checked) = self.inspect_bodyless_exists(clause, view, id, &parameters) {
+                if let Some(checked) =
+                    self.inspect_bodyless_boolean_aggregate(clause, view, id, &parameters)
+                {
                     if let Err(reason) = checked {
                         self.unavailable(clause, &reason, unavailable);
                     }
@@ -5324,8 +5327,8 @@ impl<'a> Producer<'a> {
             }
         })())
     }
-    // Inspect the existential source without enforcing any particular member.
-    fn inspect_bodyless_exists(
+    // Inspect the aggregate source without enforcing members or forwarding outputs.
+    fn inspect_bodyless_boolean_aggregate(
         &self,
         clause: &Clause<'a>,
         view: &CallableFacts,
@@ -5342,8 +5345,14 @@ impl<'a> Producer<'a> {
                         && element.known() && !optional(element) && element.kind == TypeKind::Bool
                         && element.instantiation == ty.instantiation)
         };
+        let name = if self.core(clause.file, clause.node, view, "exists") {
+            "exists"
+        } else if self.core(clause.file, clause.node, view, "forall") {
+            "forall"
+        } else {
+            return None;
+        };
         if clause.node.kind() != NodeKind::CallExpression
-            || !self.core(clause.file, clause.node, view, "exists")
             || parameters.len() != 1
             || !array(&parameters[0])
         {
@@ -5391,10 +5400,25 @@ impl<'a> Producer<'a> {
             id,
             0,
         )?;
-        if self
-            .expression_type(self.view(file, actual, view), file, actual)
-            .is_none_or(|value| value.ty != parameters[0])
-        {
+        let actual_type = &self
+            .expression_type(self.view(file, actual, view), file, actual)?
+            .ty;
+        // Only forall has the multidimensional matching view. Inspect the raw
+        // source and retain its nominal axes instead of relaxing type coercions.
+        let multidimensional_forall = name == "forall"
+            && actual_type.known()
+            && !optional(actual_type)
+            && (actual_type.instantiation == parameters[0].instantiation
+                || actual_type.instantiation == Instantiation::Parameter
+                    && parameters[0].instantiation == Instantiation::Decision)
+            && matches!(&actual_type.kind, TypeKind::Array { indices, element }
+                if indices.len() > 1
+                    && indices.iter().all(|index| index.known() && !optional(index)
+                        && index.instantiation == Instantiation::Parameter
+                        && matches!(index.kind, TypeKind::Int | TypeKind::Enum(_)))
+                    && element.known() && !optional(element) && element.kind == TypeKind::Bool
+                    && element.instantiation == actual_type.instantiation);
+        if actual_type != &parameters[0] && !multidimensional_forall {
             return None;
         }
         Some((|| {
@@ -5402,12 +5426,16 @@ impl<'a> Producer<'a> {
                 clause.file,
                 clause.node,
                 view,
-                "exists",
+                name,
                 selected,
                 return_type,
             )?;
             if !crate::definitions::annotations_safe(self.context, clause.file, clause.node) {
-                return Err("existential call annotation is unsupported".into());
+                return Err(if name == "exists" {
+                    "existential call annotation is unsupported".into()
+                } else {
+                    "universal call annotation is unsupported".into()
+                });
             }
             if let Some(reason) = self.closed_integer_source_error(file, actual, false, true) {
                 return Err(reason);

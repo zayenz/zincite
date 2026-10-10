@@ -861,3 +861,116 @@ fn mixed_boolean_enum_conditionals_use_a_numeric_common_type() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn standard_present_boolean_forall_accepts_multidimensional_matching_views() {
+    use zincite_lint::SourceKind;
+    let (directory, options) = setup("multidimensional-forall");
+    let root = directory.join("root.mzn");
+    let library = options.stdlib_dir.as_ref().unwrap().join("std/stdlib.mzn");
+    let standard = concat!(
+        "annotation promise_commutative;\n",
+        "function bool: forall(array[$T] of bool: x) :: promise_commutative;\n",
+        "function var bool: forall(array[$T] of var bool: x) :: promise_commutative;\n",
+        "predicate forall(array[int] of var opt bool: x) = true;\n",
+    );
+    let source = concat!(
+        "enum Axis = {a,b};\n",
+        "bool: matrix = forall([|true,true|true,false|]);\n",
+        "array[Axis,1..2,Axis] of var bool: cube; constraint forall(cube);\n",
+        "array[1..2,1..2] of var opt bool: options; constraint forall(options);\n",
+        "array[1..2,1..2] of int: integers; constraint forall(integers);\n",
+        "function var bool: user_forall(array[$T] of var bool: x) = true;\n",
+        "constraint user_forall(cube); solve satisfy;\n",
+    );
+    write(&library, standard);
+    write(&root, source);
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    assert!(context.limitations.is_empty(), "{:?}", context.limitations);
+    assert!(
+        context
+            .files
+            .iter()
+            .all(|file| file.parsed.diagnostics().is_empty())
+    );
+    let bindings = resolve_bindings(&context);
+    let facts = resolve_callables(&context, &bindings);
+    for (marker, instantiation) in [
+        ("forall([|", Instantiation::Parameter),
+        ("forall(cube)", Instantiation::Decision),
+    ] {
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = outcome(&facts, &root, source, marker)
+        else {
+            panic!("{marker}: {:?}", outcome(&facts, &root, source, marker));
+        };
+        let owner = &bindings.declarations[declaration.0];
+        assert_eq!(owner.role, DeclarationRole::Function);
+        assert_eq!(context.files[owner.file].kind, SourceKind::StandardLibrary);
+        assert!(context.files[owner.file].implicit);
+        assert_eq!(
+            context.files[owner.file].canonical_path,
+            library.canonicalize().unwrap()
+        );
+        assert_eq!(return_type.kind, TypeKind::Bool);
+        assert_eq!(return_type.instantiation, instantiation);
+        assert!(!return_type.optional);
+        assert!(matches!(parameters.as_slice(), [parameter]
+            if parameter.instantiation == instantiation && !parameter.optional
+                && matches!(&parameter.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 1 && indices[0].kind == TypeKind::Int
+                        && element.kind == TypeKind::Bool && !element.optional
+                        && element.instantiation == instantiation)));
+    }
+    let axis = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "Axis")
+        .unwrap()
+        .id;
+    let cube = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "cube")
+        .unwrap()
+        .id;
+    assert!(matches!(&facts.declarations[cube.0].ty.kind,
+        TypeKind::Array { indices, element }
+            if indices.len() == 3 && indices[0].kind == TypeKind::Enum(axis)
+                && indices[2].kind == TypeKind::Enum(axis)
+                && element.kind == TypeKind::Bool
+                && element.instantiation == Instantiation::Decision));
+    for marker in ["forall(options)", "forall(integers)", "user_forall(cube)"] {
+        assert!(
+            matches!(
+                outcome(&facts, &root, source, marker),
+                CallOutcome::NoMatch { .. }
+            ),
+            "{marker}: {:?}",
+            outcome(&facts, &root, source, marker)
+        );
+    }
+    // The matching view supplies no permission to flatten a written callable body.
+    write(
+        &library,
+        &standard.replace(":: promise_commutative;", ":: promise_commutative = true;"),
+    );
+    let context = load_model(&root, &options);
+    let bindings = resolve_bindings(&context);
+    let facts = resolve_callables(&context, &bindings);
+    for marker in ["forall([|", "forall(cube)"] {
+        assert!(
+            matches!(
+                outcome(&facts, &root, source, marker),
+                CallOutcome::NoMatch { .. }
+            ),
+            "{marker}: {:?}",
+            outcome(&facts, &root, source, marker)
+        );
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

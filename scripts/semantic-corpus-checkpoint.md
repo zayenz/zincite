@@ -6458,3 +6458,18 @@ ROOT checked four terminal receipts, eight complete streams and 1,261 original,
 source, tool and binary pins. This is a supported channel increment, not proof
 that the original model or base-083 is complete. The wrapper's ability to ignore
 its argument must be retained when assessing the remaining limitation.
+
+The ordinary multidimensional Boolean `forall` repair now selects the retained
+standard matching view and inspects actual sources through the existing aggregate
+reader. The ordinary-call dispatch reaches that reader while generator and
+comprehension handling remains unchanged. Public RED/GREEN checks preserve an
+uncovered array, closed axis failures and selected written-body failures; the
+existing `exists` regression passes. The original `md_forall.mzn` replay completes
+unused-declaration and search-coverage with no limitations and retains the warning
+that `bs` is uncovered. ROOT checked 1,694 unchanged pins and five terminal
+receipts with ten complete streams under
+`target/benchmarks/base083/semantic68-multidimensional-forall-preparation-v3`.
+The retained compiler checks are source-only; this is not actual-data FlatZinc
+acceptance or completion of base-083.
+Integrated formatting, Clippy and workspace tests pass under
+`target/benchmarks/base083/semantic68-forall-main-gates-v1`.

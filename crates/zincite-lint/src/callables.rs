@@ -1364,9 +1364,9 @@ impl<'a> Engine<'a> {
                     *actual = default.as_ref();
                 }
             }
-            // Pinned standard searches, array1d and integer sum coerce multidimensional
-            // arrays to row-major one-dimensional inputs. Keep this limited
-            // to retained standard identities.
+            // Pinned standard searches, array1d, integer sum and present Boolean
+            // forall coerce multidimensional arrays to row-major one-dimensional
+            // inputs. Keep this limited to retained standard identities.
             let d = &self.bindings.declarations[id.0];
             let standard = self.context.files[d.file].kind == crate::SourceKind::StandardLibrary
                 && self.context.files[d.file].implicit;
@@ -1392,6 +1392,36 @@ impl<'a> Engine<'a> {
                             && matches!(&formal.ty.kind, TypeKind::Array { indices, element }
                                 if indices.len() == 1 && element.known() && element.kind == TypeKind::Int
                                     && !crate::value_safety::optional(&formal.ty));
+                        let boolean_forall_view = standard
+                            && d.name == "forall"
+                            && d.role == DeclarationRole::Function
+                            && signature.parameters.len() == 1
+                            && !signature.parameters[0].has_default
+                            && signature.return_type.known()
+                            && !crate::value_safety::optional(&signature.return_type)
+                            && signature.return_type.kind == TypeKind::Bool
+                            && signature.return_type.instantiation == formal.ty.instantiation
+                            && !crate::value_safety::optional(&formal.ty)
+                            && matches!(&formal.ty.kind, TypeKind::Array { indices, element }
+                                if indices.len() == 1
+                                    && indices[0].instantiation == Instantiation::Parameter
+                                    && !indices[0].optional
+                                    && matches!(indices[0].kind, TypeKind::Variable { enum_only: false, any: false, .. })
+                                    && element.known()
+                                    && element.kind == TypeKind::Bool
+                                    && element.instantiation == formal.ty.instantiation)
+                            && actual.known()
+                            && !crate::value_safety::optional(actual)
+                            && matches!(actual.instantiation, Instantiation::Parameter | Instantiation::Decision)
+                            && matches!(&actual.kind, TypeKind::Array { indices, element }
+                                if indices.len() > 1
+                                    && indices.iter().all(|index| index.known() && !index.optional
+                                        && index.instantiation == Instantiation::Parameter
+                                        && matches!(index.kind, TypeKind::Int | TypeKind::Enum(_)))
+                                    && element.kind == TypeKind::Bool
+                                    && element.instantiation == actual.instantiation)
+                            && self.nodes[id.0].is_some_and(|node|
+                                !node.child_nodes().any(|child| is_expression(child.kind())));
                         let mut actual = actual.clone();
                         // MiniZinc inserts set2array for present parameter Int/Enum
                         // sets supplied to rank-one array formals. This matching
@@ -1411,7 +1441,7 @@ impl<'a> Engine<'a> {
                                 element: element.clone(),
                             };
                         }
-                        if (standard_view || integer_sum_view)
+                        if (standard_view || integer_sum_view || boolean_forall_view)
                             && let (
                                 TypeKind::Array { indices, .. },
                                 TypeKind::Array {
