@@ -1605,3 +1605,276 @@ fn literal_regular_relations_inspect_sources_without_totality_proof() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn sliding_sum_relations_inspect_sources_without_proving_windows_or_totality() {
+    use zincite_lint::{CallOutcome, DeclarationRole, Instantiation, SourceKind, TypeKind};
+    let core = concat!(
+        "annotation mzn_internal_representation;\n",
+        "function var bool: '='(any $T:left,any $T:right);\n",
+        "function int: '+'(int:left,int:right); function var int: '+'(var int:left,var int:right);\n",
+        "function int: '-'(int:left,int:right); function var int: '-'(var int:left,var int:right);\n",
+        "function int: 'div'(int:left,int:right); function set of int: '..'(int:left,int:right);\n",
+        "function var bool: '<='(var int:left,var int:right); function var bool: '/\\'(var bool:left,var bool:right);\n",
+        "function var bool: forall(array[int] of var bool:body);\n",
+        "function $$E: min(set of $$E:values); function $$E: max(set of $$E:values);\n",
+        "function set of $$E: index_set(array[$$E] of any $V:values);\n",
+        "function array[int] of any $V: index2int(array[$$E] of any $V:values) :: mzn_internal_representation;\n",
+        "function array[int] of any $T: '++'(array[$$X] of any $T:x,array[$$Y] of any $T:y) :: mzn_internal_representation;\n",
+    );
+    let wrapper = concat!(
+        "include \"fzn_sliding_sum.mzn\";\n",
+        "predicate sliding_sum(int:low,int:up,int:window_size,array[$$E] of var int:xs)=\n",
+        " fzn_sliding_sum(low,up,window_size,index2int(xs));\n",
+    );
+    let body = concat!(
+        "predicate fzn_sliding_sum(int:low,int:up,int:window_size,array[int] of var int:xs)=\n",
+        " let { int:lx=min(index_set(xs)); int:ux=max(index_set(xs));\n",
+        " array[lx-1..ux] of var int:S; } in\n",
+        " S[lx-1]=0 /\\ forall(i in lx..ux)(S[i]=xs[i]+S[i-1]) /\\\n",
+        " forall(i in lx-1..ux-window_size)(S[i]<=S[i+window_size]-low /\\ S[i+window_size]<=S[i]+up);\n",
+    );
+    let plain = concat!(
+        "include \"sliding_sum.mzn\"; int:N; var bool:x;\n",
+        "constraint forall(k in 1..N)(let { array[int] of var bool:b=[x | j in 1..k]; }\n",
+        " in sliding_sum(1,6,6,b)); solve satisfy;\n",
+    );
+    let concatenated = plain.replace("sliding_sum(1,6,6,b)", "sliding_sum(1,6,6,b ++ b)");
+    let source_zero = plain.replace("j in 1..k", "j in 1..(k+(1 div 0))");
+    let body_zero = body.replace("max(index_set(xs))", "max(index_set(xs))+(1 div 0)");
+    let written_native = core.replace(
+        "index2int(array[$$E] of any $V:values) :: mzn_internal_representation;",
+        "index2int(array[$$E] of any $V:values)=values;",
+    );
+    let empty = "include \"sliding_sum.mzn\"; array[1..0] of var bool:b; constraint sliding_sum(1,6,6,b); solve satisfy;";
+    assert_ne!(concatenated, plain);
+    assert_ne!(source_zero, plain);
+    assert_ne!(body_zero, body);
+    assert_ne!(written_native, core);
+    for (name, source, selected_body, primitives, failure) in [
+        ("plain", plain, body, core, None),
+        ("concat", concatenated.as_str(), body, core, None),
+        (
+            "source-zero",
+            source_zero.as_str(),
+            body,
+            core,
+            Some("integer division by zero"),
+        ),
+        (
+            "body-zero",
+            plain,
+            body_zero.as_str(),
+            core,
+            Some("integer division by zero"),
+        ),
+        (
+            "known-empty",
+            empty,
+            body,
+            core,
+            Some("known empty actual array"),
+        ),
+        (
+            "written-native",
+            plain,
+            body,
+            written_native.as_str(),
+            Some("written primitive"),
+        ),
+    ] {
+        let dir = std::env::temp_dir().join(format!(
+            "zincite-sliding-source-{name}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(dir.join("library/std")).unwrap();
+        for (file, source) in [
+            ("stdlib.mzn", primitives),
+            ("sliding_sum.mzn", wrapper),
+            ("fzn_sliding_sum.mzn", selected_body),
+        ] {
+            std::fs::write(dir.join("library/std").join(file), source).unwrap();
+        }
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(context.includes.iter().all(|edge| edge.target.is_some()));
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let call = calls
+            .calls
+            .iter()
+            .find(|call| {
+                context.files[call.file].path == context.root && call.name == "sliding_sum"
+            })
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &call.outcome
+        else {
+            panic!("{name}: {:?}", call.outcome);
+        };
+        let owner = &bindings.declarations[declaration.0];
+        assert_eq!(owner.role, DeclarationRole::Predicate);
+        assert_eq!(context.files[owner.file].kind, SourceKind::StandardLibrary);
+        assert_eq!(
+            context.files[owner.file].path,
+            dir.join("library/std/sliding_sum.mzn")
+        );
+        assert!(!context.files[owner.file].implicit);
+        assert_eq!(parameters.len(), 4);
+        assert!(
+            matches!(&parameters[3].kind, TypeKind::Array { indices, element }
+            if parameters[3].instantiation == Instantiation::Decision && !parameters[3].optional
+                && indices.len() == 1 && indices[0].kind == TypeKind::Int
+                && element.kind == TypeKind::Int && element.instantiation == Instantiation::Decision && !element.optional)
+        );
+        assert_eq!(return_type.kind, TypeKind::Bool);
+        assert_eq!(return_type.instantiation, Instantiation::Decision);
+        assert!(!return_type.optional);
+        let source_array = bindings
+            .declarations
+            .iter()
+            .find(|declaration| {
+                declaration.name == "b" && context.files[declaration.file].path == context.root
+            })
+            .unwrap()
+            .id;
+        assert!(
+            matches!(&calls.declarations[source_array.0].ty.kind, TypeKind::Array { element, .. } if element.kind == TypeKind::Bool)
+        );
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let numeric =
+            resolve_numeric_facts(&context, &bindings, &calls, &inst, &domains, &definitions);
+        let optional = resolve_optional_facts(
+            &context,
+            &bindings,
+            &calls,
+            &inst,
+            &domains,
+            &numeric,
+            &definitions,
+        );
+        let facts = resolve_guarded_facts_with_options(
+            &context, &bindings, &calls, &inst, &domains, &numeric, &optional,
+        );
+        let selected = if name == "concat" {
+            "sliding_sum(1,6,6,b ++ b)"
+        } else {
+            "sliding_sum(1,6,6,b)"
+        };
+        let value = expression(&context, &facts, selected);
+        if let Some(reason) = failure {
+            assert!(
+                matches!(
+                    &value.raw_definedness,
+                    GuardedOutcome::Unsupported(_) | GuardedOutcome::Refuted
+                ),
+                "{name}: {value:?}"
+            );
+            assert!(
+                facts
+                    .limitations
+                    .iter()
+                    .any(|limit| limit.file == value.file
+                        && limit.location.range == value.location.range
+                        && limit.reason.contains(reason)),
+                "{name}: {:?}",
+                facts.limitations
+            );
+        } else {
+            assert_eq!(
+                value.raw_definedness,
+                GuardedOutcome::Unknown,
+                "SLIDING_SUM_SOURCE_RED {name}: {value:?}"
+            );
+            assert_eq!(
+                value.definedness,
+                GuardedOutcome::Unknown,
+                "{name}: {value:?}"
+            );
+            assert_eq!(
+                value.truth,
+                Some(GuardedOutcome::Unknown),
+                "{name}: {value:?}"
+            );
+            assert!(
+                !facts
+                    .limitations
+                    .iter()
+                    .any(|limit| limit.file == value.file
+                        && limit.location.range == value.location.range),
+                "{name}: {:?}",
+                facts.limitations
+            );
+        }
+        assert_eq!(value.numeric, None, "{name}: {value:?}");
+        let callable = zincite_lint::resolve_callable_definitions(
+            &context, &bindings, &calls, &inst, &domains,
+        );
+        assert!(
+            !callable
+                .outputs
+                .iter()
+                .any(|output| output.target == source_array),
+            "{name}: source array gained a callable output"
+        );
+        assert!(
+            !callable
+                .definitions
+                .iter()
+                .any(|definition| definition.target == source_array),
+            "{name}: source array gained a callable definition"
+        );
+        let result = zincite_lint::analyze_model(
+            &context,
+            &zincite_lint::LintOptions::from_selection("vacuous-constraint").unwrap(),
+        );
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        if failure.is_some() {
+            assert!(
+                matches!(
+                    result.rules[0].outcome,
+                    zincite_lint::RuleOutcome::Limited { .. }
+                ),
+                "{name}: {:?}",
+                result.rules
+            );
+        } else {
+            assert_eq!(
+                result.rules[0].outcome,
+                zincite_lint::RuleOutcome::Completed,
+                "{name}: {:?}",
+                result.limitations
+            );
+            assert!(
+                result.limitations.is_empty(),
+                "{name}: {:?}",
+                result.limitations
+            );
+            assert!(result.findings.is_empty(), "{name}: {:?}", result.findings);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

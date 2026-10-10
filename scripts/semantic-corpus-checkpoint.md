@@ -7337,3 +7337,23 @@ found no unresolved increment issue. Main formatting, Clippy and all 292
 workspace tests passed, preserving the earlier regular/2 and regular/4 checks.
 Full streams and the integrated 108-source map were rechecked. Original-model
 replay and final corpus acceptance remain pending; base-083 is still open.
+
+### Checked sliding-sum relation sources
+
+The sliding-sum increment reads the complete selected standard wrapper and
+native prefix/window body, preserving owning scopes, exact types, primitives
+and source errors. Symbolic sources retain Unknown and the partiality barrier;
+they provide no window, membership, totality, output or search certificate.
+Existing checked local identities remain source-inspection facts.
+
+The focused baseline failed at the intended source assertion and the candidate
+passed all six public cases. The corrected expectation permits existing local
+inspection while retaining every no-output, no-definition and error check.
+Independent review found no unresolved increment issue. Main formatting, Clippy
+and all 293 workspace tests passed; full streams and the integrated 108-source
+map were rechecked. Earlier regexp and arithmetic repairs are preserved.
+
+A separate MiniZinc 2.10.1 Gecode compile-only control accepts the enum-indexed
+bound-cardinality fixture. Its first-axis refusal is therefore a supported gap;
+a narrow repair is pending. No solve was run. Original-model replay and final
+expanded-corpus evidence remain pending; base-083 is open.
