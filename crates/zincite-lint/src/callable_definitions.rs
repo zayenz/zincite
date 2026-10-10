@@ -4366,11 +4366,27 @@ impl<'a> Producer<'a> {
                         self.unavailable(clause, &reason, unavailable);
                         return;
                     }
-                    if let Some(mut outputs) = self.literal_call_outputs(clause, view, instance) {
-                        for output in &mut outputs {
-                            extend(&mut output.dependencies, computed_dependencies.clone());
+                    if let Some(checked) = self.literal_call_outputs(clause, view, instance) {
+                        match checked {
+                            Ok(mut outputs) => {
+                                if outputs.is_empty() {
+                                    self.map_boundaries(
+                                        clause,
+                                        view,
+                                        &self.boundaries,
+                                        unavailable,
+                                    );
+                                }
+                                for output in &mut outputs {
+                                    extend(&mut output.dependencies, computed_dependencies.clone());
+                                }
+                                out.extend(outputs);
+                            }
+                            Err(reason) => {
+                                self.map_boundaries(clause, view, &self.boundaries, unavailable);
+                                self.unavailable(clause, &reason, unavailable);
+                            }
                         }
-                        out.extend(outputs);
                         return;
                     }
                 }
@@ -5742,7 +5758,7 @@ impl<'a> Producer<'a> {
         clause: &Clause<'a>,
         caller: &CallableFacts,
         instance: &Instance<'a>,
-    ) -> Option<Vec<Output>> {
+    ) -> Option<Result<Vec<Output>, String>> {
         if instance.recursive {
             return None;
         }
@@ -5821,8 +5837,17 @@ impl<'a> Producer<'a> {
                     .find(|n| n.kind() != NodeKind::GeneratorList)?,
             );
         }
+        let equality = self.operation_fact(self.view(file, body, view), file, body)?;
+        let CallOutcome::Resolved {
+            declaration: equality_id,
+            parameters,
+            return_type,
+        } = &equality.outcome
+        else {
+            return None;
+        };
         if body.kind() != NodeKind::BinaryExpression
-            || !self.core(file, body, view, "=")
+            || !crate::definitions::core_callable(self.context, self.bindings, *equality_id, "=")
             || !boolean(body)
         {
             return None;
@@ -6070,6 +6095,107 @@ impl<'a> Producer<'a> {
                 }
             }
         }
+        // A checked literal result constrains the selected cell but cannot be
+        // inverted into a definition of the selector or any array element.
+        let output_actual = unwrap(output_actual);
+        if selector.is_some()
+            && kind == TypeKind::Int
+            && output_actual.kind() == NodeKind::Expression
+            && matches!(crate::domains::tokens(&self.context.files[output_file].parsed, output_actual).as_slice(),
+                [token] if token.kind == TokenKind::IntegerLiteral)
+        {
+            let selector = selector?;
+            let integer = TypeInst {
+                instantiation: Instantiation::Parameter,
+                optional: false,
+                kind: TypeKind::Int,
+            };
+            let decision = integer.clone().with_inst(Instantiation::Decision);
+            let source = &self.context.files[file];
+            if declaration.name != "element"
+                || declaration.role != DeclarationRole::Predicate
+                || source.kind != SourceKind::StandardLibrary
+                || self.context.standard_element.as_ref() != Some(&source.canonical_path)
+                || formals.as_slice() != [selector, input, output]
+                || reference(sides[0]) != Some(output)
+                || array_access(sides[1]) != Some((input, selector))
+                || view.declarations[selector.0].ty != decision
+                || view.declarations[output.0].ty != integer
+                || view.declarations[input.0].ty.instantiation != Instantiation::Decision
+                || indices[0] != integer
+                || **element != decision
+                || type_of(output_file, output_actual, caller)? != integer
+            {
+                return None;
+            }
+            match crate::domains::invariant_expression_integer(
+                self.context,
+                self.bindings,
+                output_file,
+                output_actual,
+            ) {
+                Ok(Some(_)) => {}
+                Ok(None) => return None,
+                Err(reason) => return Some(Err(reason)),
+            }
+            // The canonical body was checked by identity above. Refuse changed
+            // defaults/domains, and validate metadata throughout its written tree.
+            let mut nodes = vec![written];
+            while let Some(node) = nodes.pop() {
+                if node.kind() == NodeKind::Annotation {
+                    let value = node.child_nodes().next()?;
+                    let string = matches!(crate::domains::tokens(&source.parsed, value).as_slice(),
+                        [token] if token.kind == TokenKind::StringLiteral);
+                    if !string
+                        && !["promise_total", "promise_commutative"]
+                            .iter()
+                            .any(|name| self.atomic_standard_metadata_safe(file, node, name))
+                    {
+                        return Some(Err(
+                            "literal result element annotation is unsupported".into()
+                        ));
+                    }
+                    continue;
+                }
+                if node.kind() == NodeKind::DomainType
+                    || is_expression(node.kind())
+                        && !(body.range().start <= node.range().start
+                            && node.range().end <= body.range().end)
+                {
+                    return Some(Err(
+                        "literal result element default or domain is unsupported".into(),
+                    ));
+                }
+                nodes.extend(node.child_nodes());
+            }
+            if parameters.len() != 2
+                || parameters
+                    .iter()
+                    .any(|ty| !ty.known() || optional(ty) || ty.kind != TypeKind::Int)
+                || !return_type.known()
+                || optional(return_type)
+                || return_type.instantiation != Instantiation::Decision
+                || return_type.kind != TypeKind::Bool
+            {
+                return None;
+            }
+            if let Err(reason) = self.selected_union_primitive_safety(*equality_id) {
+                return Some(Err(reason));
+            }
+            for formal in &formals {
+                let (actual_file, value) = actual(*formal)?;
+                if let DefinitionSafety::Unsupported(reason) = self.initialized_source_safety(
+                    actual_file,
+                    value,
+                    caller,
+                    lexical(actual_file, value),
+                    &mut Vec::new(),
+                ) {
+                    return Some(Err(reason));
+                }
+            }
+            return Some(Ok(Vec::new()));
+        }
         let mut outputs = Vec::new();
         for node in targets {
             if node.kind() != NodeKind::Expression
@@ -6107,7 +6233,7 @@ impl<'a> Producer<'a> {
                 scoped_local: false,
             });
         }
-        Some(outputs)
+        Some(Ok(outputs))
     }
     // Bind written actuals once per selected invocation. Captures retain their
     // defining file; only an exact formal reference follows these bindings.

@@ -6473,3 +6473,20 @@ The retained compiler checks are source-only; this is not actual-data FlatZinc
 acceptance or completion of base-083.
 Integrated formatting, Clippy and workspace tests pass under
 `target/benchmarks/base083/semantic68-forall-main-gates-v1`.
+
+The checked integer-literal result of the retained standard `element` body can
+now be inspected without an inverse output definition. Existing literal-array,
+selector-membership, formal and source checks remain; checked failures keep their
+located reason, and empty success retains selected-body limitations. The public
+positive passes without outputs or search coverage; an unproved selector and
+closed source error remain Limited. The original Java-routing call's selected
+standard tuple and initialized sources pass the private inspector with an empty
+success. This is not a whole-original rule replay or support for every inversion
+limitation. ROOT checked 1,310 unchanged pins, two new terminal receipts and four
+streams, reusing the genuine RED and three accepted source-only compiler controls.
+Evidence is under
+`target/benchmarks/base083/semantic68-literal-result-element-green-preparation-v1`.
+The first integrated gate identified public-test layout only; Rust formatting
+corrected it without changing fixtures or assertions. Formatting, Clippy and
+workspace tests then pass under
+`target/benchmarks/base083/semantic68-literal-element-main-gates-v2`.

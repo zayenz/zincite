@@ -13481,3 +13481,254 @@ fn ordinary_multidimensional_forall_inspects_sources_without_output_proof() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn literal_result_element_inspects_without_inverse_outputs() {
+    use zincite_lint::{
+        CallOutcome, DeclarationRole, Instantiation, SourceKind, TypeInst, TypeKind,
+    };
+    let positive = concat!(
+        "include \"element.mzn\";\n",
+        "var 1..2: selected_index; var 6..17: cell;\n",
+        "constraint element(selected_index,[6,cell],6);\n",
+        "solve satisfy;\n",
+    );
+    let unproved = positive.replace("var 1..2: selected_index", "var 0..2: selected_index");
+    let source_zero = positive.replace("var 6..17: cell;", "var 6..17: cell = 1 div 0;");
+    let element =
+        "predicate element(var $$E: i, array [$$E] of var $$T: x, var $$T: y) = y = x[i];\n";
+    for (name, source, completed) in [
+        ("literal-result-symbolic", positive, true),
+        ("literal-result-unproved-selector", unproved.as_str(), false),
+        ("literal-result-source-zero", source_zero.as_str(), false),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!("{CORE}function int: 'div'(int: x,int: y);\n"),
+        )
+        .unwrap();
+        let selected_path = dir.join("library/std/element.mzn");
+        std::fs::write(&selected_path, element).unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(context.includes.iter().all(|edge| edge.target.is_some()));
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let file = context.root_file.unwrap();
+        for call in calls
+            .calls
+            .iter()
+            .filter(|call| context.files[call.file].kind == SourceKind::User)
+        {
+            assert!(
+                matches!(
+                    &call.outcome,
+                    CallOutcome::Resolved { .. } | CallOutcome::Intrinsic { .. }
+                ),
+                "{name}: {call:?}"
+            );
+        }
+        let call = calls
+            .calls
+            .iter()
+            .find(|call| call.file == file && call.name == "element")
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &call.outcome
+        else {
+            panic!("{name}: selected element {:?}", call.outcome);
+        };
+        let owner = &bindings.declarations[declaration.0];
+        assert_eq!(owner.role, DeclarationRole::Predicate);
+        assert_eq!(context.files[owner.file].kind, SourceKind::StandardLibrary);
+        assert_eq!(context.files[owner.file].path, selected_path);
+        let integer = TypeInst {
+            instantiation: Instantiation::Parameter,
+            optional: false,
+            kind: TypeKind::Int,
+        };
+        let decision_integer = TypeInst {
+            instantiation: Instantiation::Decision,
+            ..integer.clone()
+        };
+        let array = TypeInst {
+            instantiation: Instantiation::Decision,
+            optional: false,
+            kind: TypeKind::Array {
+                indices: vec![integer.clone()],
+                element: Box::new(decision_integer.clone()),
+            },
+        };
+        assert_eq!(
+            parameters,
+            &vec![
+                decision_integer.clone(),
+                array.clone(),
+                decision_integer.clone()
+            ]
+        );
+        assert_eq!(
+            return_type,
+            &TypeInst {
+                instantiation: Instantiation::Decision,
+                optional: false,
+                kind: TypeKind::Bool
+            }
+        );
+        let call_source = "element(selected_index,[6,cell],6)";
+        let call_start = source.find(call_source).unwrap();
+        let call_range = call_start..call_start + call_source.len();
+        assert_eq!(
+            call.location.range,
+            call_start..call_start + "element".len()
+        );
+        let mut nodes = vec![context.files[file].parsed.tree()];
+        let call_node = loop {
+            let node = nodes.pop().expect("selected element call node");
+            if node.kind() == zincite_syntax::NodeKind::CallExpression && node.range() == call_range
+            {
+                break node;
+            }
+            nodes.extend(node.child_nodes());
+        };
+        let actuals: Vec<_> = call_node.child_nodes().collect();
+        assert_eq!(actuals.len(), 3);
+        for (actual, expected) in actuals.iter().zip([decision_integer, array, integer]) {
+            let fact = calls
+                .expressions
+                .iter()
+                .find(|fact| fact.file == file && fact.location.range == actual.range())
+                .unwrap();
+            assert_eq!(fact.ty, expected);
+        }
+        assert_eq!(
+            context.files[file].parsed.source()[actuals[2].range()].trim(),
+            "6"
+        );
+        let ids: Vec<_> = ["selected_index", "cell"]
+            .iter()
+            .map(|name| {
+                bindings
+                    .declarations
+                    .iter()
+                    .find(|declaration| declaration.top_level && declaration.name == *name)
+                    .unwrap()
+                    .id
+            })
+            .collect();
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        assert!(
+            callable
+                .outputs
+                .iter()
+                .all(|output| !ids.contains(&output.target))
+        );
+        assert!(
+            callable
+                .definitions
+                .iter()
+                .all(|definition| !ids.contains(&definition.target))
+        );
+        assert!(
+            definitions
+                .definitions
+                .iter()
+                .all(|definition| !ids.contains(&definition.target)
+                    || definition.safety != DefinitionSafety::Supported)
+        );
+        let search =
+            resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        assert!(search.searched.is_empty());
+        let analysis = analyze_model(&context, &selected());
+        if completed {
+            assert_eq!(
+                analysis.rules[0].outcome,
+                RuleOutcome::Completed,
+                "LITERAL_RESULT_ELEMENT_RED: {name}: {:?}",
+                analysis.limitations
+            );
+            assert!(
+                callable.unavailable.is_empty(),
+                "{name}: {:?}",
+                callable.unavailable
+            );
+            assert!(search.limitations.is_empty());
+            assert_eq!(
+                coverage(&bindings, &search, "selected_index"),
+                SearchCoverage::Uncovered
+            );
+            assert_eq!(
+                coverage(&bindings, &search, "cell"),
+                SearchCoverage::Uncovered
+            );
+        } else {
+            assert!(
+                matches!(analysis.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                analysis.limitations
+            );
+            assert!(
+                callable
+                    .unavailable
+                    .iter()
+                    .any(
+                        |unavailable| unavailable.location.path == dir.join("root.mzn")
+                            && unavailable.location.range == call_node.range()
+                    ),
+                "{name}: {:?}",
+                callable.unavailable
+            );
+            if name == "literal-result-source-zero" {
+                let mut nodes = vec![context.files[file].parsed.tree()];
+                let zero = loop {
+                    let node = nodes.pop().expect("closed source division");
+                    if node.kind() == zincite_syntax::NodeKind::BinaryExpression
+                        && context.files[file].parsed.source()[node.range()].trim() == "1 div 0"
+                    {
+                        break node;
+                    }
+                    nodes.extend(node.child_nodes());
+                };
+                let safety =
+                    zincite_lint::expression_safety(&context, &bindings, &calls, file, zero);
+                assert!(
+                    matches!(&safety, DefinitionSafety::Unsupported(reason) if reason.contains("division by zero")),
+                    "{name}: {safety:?}"
+                );
+                assert!(
+                    callable
+                        .unavailable
+                        .iter()
+                        .any(
+                            |unavailable| unavailable.location.path == dir.join("root.mzn")
+                                && unavailable.location.range == call_node.range()
+                                && unavailable.reason.contains("division by zero")
+                        ),
+                    "{name}: {:?}",
+                    callable.unavailable
+                );
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
