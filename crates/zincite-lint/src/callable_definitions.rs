@@ -349,6 +349,46 @@ pub(super) fn initialized_expression_safety<'a>(
     }
     safety
 }
+// Check selected native source operations without certifying their values.
+// The caller separately inspects initialized sources and owns result eligibility.
+pub(super) fn native_operation_source_safe<'a>(
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    calls: &'a CallableFacts,
+    instantiations: &'a InstantiationFacts,
+    domains: &'a DomainFacts,
+    source: (FileId, &'a SyntaxNode),
+) -> bool {
+    let (file, node) = source;
+    let producer = Producer {
+        context,
+        bindings,
+        calls,
+        instantiations,
+        domains,
+        lookups: None,
+        instances: Vec::new(),
+        boundaries: Vec::new(),
+        selected_set_source: false,
+        inactive_integer_body: None,
+    };
+    let Some(call) = producer.operation_fact(calls, file, node) else {
+        return false;
+    };
+    let CallOutcome::Resolved {
+        declaration,
+        parameters,
+        return_type,
+    } = &call.outcome
+    else {
+        return false;
+    };
+    bindings.declarations[declaration.0].role == DeclarationRole::Function
+        && parameters.iter().all(|ty| ty.known() && !optional(ty))
+        && return_type.known()
+        && !optional(return_type)
+        && producer.prefix_primitive(file, node, calls, &call.name, parameters, return_type)
+}
 // A checked parameter conditional supplies an unknown bound, never its value.
 // The caller owns the local declaration and formal-source correspondence.
 pub(super) fn initialized_conditional_bound_safety<'a>(

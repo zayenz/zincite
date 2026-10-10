@@ -7174,3 +7174,19 @@ data files. Four contain declarations rejected by the data-file policy, and two
 contain syntax errors. Their historical compiler classification is unchecked
 data, so no model-instance acceptance is inferred. The six complete roots with
 unresolved dependencies retain separate include-context checks.
+
+The next reviewed increment inspects initialized array-axis comprehensions and
+length quotients with closed nonzero divisors, including named divisors. It keeps
+the existing source and selected native-operation checks, declines unproved
+index-start advice and exports no minimum or membership facts. All ten focused
+cases pass, including arithmetic and changed-native-body refusals. The integrated
+checkout passes formatting, Clippy and all 277 workspace tests.
+
+Fresh compiler source checks confirm the Spanish jobshop3 include-context
+difference: its top-level model exits 0 after processing the installed standard
+`disjunctive.mzn`; directly checking the adjacent local copy exits 1 because
+`cumulative_es.mzn` is unavailable. Zincite's specified parent-first loader
+selects that local copy. This is a dependency-context difference, not evidence
+that the top-level source is invalid. The checks neither compile an instance to
+FlatZinc nor solve it. Captures remain private under
+`semantic77-jobshop3-compiler-closure-v1`.

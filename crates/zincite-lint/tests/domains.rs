@@ -1204,3 +1204,173 @@ fn grouping_floor_sum_bounds_inspect_unknown_inputs_and_closed_divisor_errors() 
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn initialized_array_axes_inspect_sources_without_minimum_proof() {
+    use zincite_lint::CallOutcome;
+
+    let library = concat!(
+        "annotation mzn_internal_representation;\n",
+        "function set of int: '..'(int: left,int: right) :: mzn_internal_representation;\n",
+        "function int: length(array[$T] of any $U: values);\n",
+        "function int: 'div'(int: left,int: right);\n",
+        "function int: '+'(int: left,int: right);\n",
+        "function bool: '>'(int: left,int: right);\n",
+        "function set of $$E: index_set(array[$$E] of any $U: values);\n",
+    );
+    let range = "1..(length(inputs) div 2)";
+    let comprehension = "{inputs[i]+1 | i in index_set(inputs) where i > 0}";
+    let input = "array[int] of int: inputs;";
+    let changed_division = library.replace(
+        "function int: 'div'(int: left,int: right);",
+        "function int: 'div'(int: left,int: right) = left;",
+    );
+    let changed_index_set = library.replace(
+        "function set of $$E: index_set(array[$$E] of any $U: values);",
+        "function set of int: index_set(array[int] of int: values) = {1};",
+    );
+    let changed_addition = library.replace(
+        "function int: '+'(int: left,int: right);",
+        "function int: '+'(int: left,int: right) = left;",
+    );
+    let (directory, _) = model("initialized-axis-source", "solve satisfy;\n");
+    let root = directory.join("root.mzn");
+    let options = ModelOptions {
+        stdlib_dir: Some(directory.join("library")),
+        include_dirs: Vec::new(),
+    };
+    for (name, axis, input, library, limited) in [
+        ("length-literal-divisor", range, input, library, false),
+        (
+            "length-computed-divisor",
+            "1..(length(inputs) div (1+1))",
+            input,
+            library,
+            false,
+        ),
+        (
+            "length-named-divisor",
+            "1..(length(inputs) div divisor)",
+            "array[int] of int: inputs; int: divisor = 1+1;",
+            library,
+            false,
+        ),
+        (
+            "filtered-computed-cells",
+            comprehension,
+            input,
+            library,
+            false,
+        ),
+        (
+            "zero-divisor",
+            "1..(length(inputs) div 0)",
+            input,
+            library,
+            true,
+        ),
+        (
+            "overflow-divisor",
+            "1..(length(inputs) div (9223372036854775807+1))",
+            input,
+            library,
+            true,
+        ),
+        (
+            "closed-cell-error",
+            comprehension,
+            "array[int] of int: inputs = [1 div 0];",
+            library,
+            true,
+        ),
+        (
+            "changed-native-div",
+            range,
+            input,
+            changed_division.as_str(),
+            true,
+        ),
+        (
+            "changed-native-named-divisor-source",
+            "1..(length(inputs) div divisor)",
+            "array[int] of int: inputs; int: divisor = 1+1;",
+            changed_addition.as_str(),
+            true,
+        ),
+        (
+            "changed-native-index-set",
+            comprehension,
+            input,
+            changed_index_set.as_str(),
+            true,
+        ),
+    ] {
+        let source = format!(
+            "{input}\nset of int: Axis = {axis};\narray[Axis] of var 0..1000000: values;\nsolve satisfy;\n"
+        );
+        std::fs::write(&root, &source).unwrap();
+        std::fs::write(directory.join("library/std/stdlib.mzn"), library).unwrap();
+        let context = load_model(&root, &options);
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let root_file = context.root_file.unwrap();
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == root_file)
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        assert!(result.findings.is_empty(), "{name}: {:?}", result.findings);
+        assert_eq!(result.rules.len(), 1);
+        if limited {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                result
+            );
+            let start = source.find("array[Axis]").unwrap() + "array[".len();
+            assert!(
+                result
+                    .limitations
+                    .iter()
+                    .any(|limit| limit.location.path == root
+                        && limit.location.range == (start..start + "Axis".len())
+                        && limit.message.starts_with("array-index-start:")),
+                "{name}: {:?}",
+                result.limitations
+            );
+        } else {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "ARRAY_AXIS_SOURCE_RED {name}: {:?}",
+                result.limitations
+            );
+            assert!(
+                result.limitations.is_empty(),
+                "{name}: {:?}",
+                result.limitations
+            );
+            // Initialized source inspection proves neither the symbolic minimum
+            // nor membership or cardinality, so it supplies no index-start advice.
+        }
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

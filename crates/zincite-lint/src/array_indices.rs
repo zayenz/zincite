@@ -38,7 +38,7 @@ pub(super) fn check_array_indices(
                 message: format!("numeric array index set starts at {lower}; consider starting at 1 for simpler indexing"),
             }),
             Err(_) if inspected_count_bound(context, bindings, calls, instantiations, facts, definitions, &index.domain)
-                || inspected_length_quotient_bound(context, bindings, calls, instantiations, facts, definitions, &index.domain)
+                || inspected_initialized_axis_source(context, bindings, calls, instantiations, facts, definitions, &index.domain)
                 || inspected_local_selection_bound(context, bindings, calls, instantiations, facts, index) => {},
             Err(reason) => result.limitations.push(SourceDiagnostic {
                 location: index.location.clone(),
@@ -712,9 +712,9 @@ fn inspected_count_expression(
     }
 }
 
-// Inspect this written symbolic range without evaluating its minimum or
-// exporting stronger domain/definition facts.
-fn inspected_length_quotient_bound(
+// Inspect these initialized symbolic axes without evaluating their minimum
+// or exporting stronger domain/definition facts.
+fn inspected_initialized_axis_source(
     context: &ModelContext,
     bindings: &BindingFacts,
     calls: &CallableFacts,
@@ -819,6 +819,17 @@ fn inspected_length_quotient_bound(
             domain = target;
             continue;
         }
+        if value.kind() == NodeKind::SetComprehension {
+            return initialized_native_integer_set_source_safe(
+                context,
+                bindings,
+                calls,
+                instantiations,
+                domains,
+                file,
+                value,
+            );
+        }
         if !matches!(
             target.as_ref(),
             Domain::Range {
@@ -863,7 +874,22 @@ fn inspected_length_quotient_bound(
                     if parameters.len() == 2 && parameters.iter().all(integer) && integer(return_type)))
         { return false;
         }
+        let closed_divisor =
+            crate::domains::expression_integer(context, bindings, file, operands[1])
+                .is_ok_and(|value| value.is_some_and(|value| value != 0));
         for (row, length) in operands.iter().enumerate() {
+            if row == 1 && closed_divisor {
+                let range = source.location(length.range()).range;
+                if calls
+                    .expressions
+                    .iter()
+                    .find(|e| e.file == file && e.location.range == range)
+                    .is_none_or(|expression| !integer(&expression.ty))
+                {
+                    return false;
+                }
+                continue;
+            }
             let Some(argument) = crate::callable_definitions::length_argument(
                 context, bindings, calls, file, length,
             ) else {
@@ -884,6 +910,17 @@ fn inspected_length_quotient_bound(
                 return false;
             }
         }
+        if closed_divisor {
+            return initialized_native_integer_set_source_safe(
+                context,
+                bindings,
+                calls,
+                instantiations,
+                domains,
+                file,
+                value,
+            );
+        }
         let safety = crate::callable_definitions::initialized_expression_safety(
             context,
             bindings,
@@ -899,4 +936,79 @@ fn inspected_length_quotient_bound(
         );
     }
     false
+}
+
+// Existing source inspection owns types, lexical scopes, errors and cycles.
+// Check selected native declarations throughout the same source graph as well.
+fn initialized_native_integer_set_source_safe<'a>(
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    calls: &'a CallableFacts,
+    instantiations: &'a InstantiationFacts,
+    domains: &'a DomainFacts,
+    file: crate::FileId,
+    node: &'a SyntaxNode,
+) -> bool {
+    if matches!(
+        crate::callable_definitions::initialized_integer_set_source_safety(
+            context,
+            bindings,
+            (calls, calls),
+            instantiations,
+            domains,
+            (file, node, &[]),
+        ),
+        DefinitionSafety::Unsupported(_)
+    ) {
+        return false;
+    }
+    let mut nodes = vec![(file, node)];
+    let mut inspected = Vec::new();
+    while let Some((file, node)) = nodes.pop() {
+        if matches!(
+            node.kind(),
+            NodeKind::CallExpression
+                | NodeKind::GeneratorCallExpression
+                | NodeKind::UnaryExpression
+                | NodeKind::BinaryExpression
+                | NodeKind::RangeExpression
+        ) && !crate::callable_definitions::native_operation_source_safe(
+            context,
+            bindings,
+            calls,
+            instantiations,
+            domains,
+            (file, node),
+        ) {
+            return false;
+        }
+        if node.kind() == NodeKind::Expression
+            && let Some(id) = crate::definitions::resolved_reference(context, bindings, file, node)
+        {
+            let declaration = &bindings.declarations[id.0];
+            // Type references are not followed by the initialized value reader.
+            if declaration.role == DeclarationRole::TypeAlias {
+                return false;
+            }
+            if declaration.top_level
+                && matches!(
+                    declaration.role,
+                    DeclarationRole::Value | DeclarationRole::Enum
+                )
+                && !inspected.contains(&id)
+            {
+                let Some(written) = crate::callables::find_node(
+                    context.files[declaration.file].parsed.tree(),
+                    &declaration.syntax_range,
+                    declaration.role,
+                ) else {
+                    return false;
+                };
+                inspected.push(id);
+                nodes.push((declaration.file, written));
+            }
+        }
+        nodes.extend(node.child_nodes().map(|child| (file, child)));
+    }
+    true
 }
