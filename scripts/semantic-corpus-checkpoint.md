@@ -7486,3 +7486,36 @@ Independent review checked all input pins, terminal receipts, complete streams,
 resolved dependencies, shared rule records and return-to-baseline drop records.
 There are no unfinished or Unobserved roots in either comparison capture.
 The combined semantic repair replay and final corpus acceptance remain pending.
+
+### Combined original semantic replay
+
+The combined repairs through 7482f51 now have complete original native and
+companion captures. Connect retains the same warnings while limitation sites
+fall from 88 to 77 for thesis and from 399 to 388 for all. Eleven sites disappear
+and eight existing reasons change. Seven removed sites concern search coverage
+and four concern unbounded variables. Workforce completes all fourteen thesis
+and twenty-six expanded analyses without limitations.
+
+Independent review checked unchanged sources, full ordered diagnostics, selected
+rules, resolved dependencies, terminal receipts and return-to-baseline records.
+These two-original captures have no unfinished or Unobserved roots. Connect
+still has nineteen model-local prerequisite limitations: sixteen Constraint
+locals and three model-value locals. Further source repairs and fresh full
+corpus evidence remain necessary; base-083 remains open.
+
+### Parameter integer-array conditional source inspection
+
+Present parameter rank-one integer-array conditionals now reuse the existing
+complete branch, Boolean guard, type, annotation and source-error checks.
+Successful inspection stays Unknown and supplies no value, extent, output or
+search coverage proof. Decision-controlled arrays remain outside this repair.
+
+The focused baseline fails at the intended assertion; the repair passes the
+symbolic conditional, backing error, guard error and decision-guard refusal.
+The first fixture reached a separate unsupported min(racks) prerequisite and
+failed with the candidate too. The revised fixture checks both initialized
+conditional sources directly; the original extrema prerequisite remains open.
+
+Main formatting, Clippy and all 297 workspace tests pass for this increment.
+Complete gate streams and all 108 integrated source pins were checked. Final
+original and full-corpus acceptance remain pending; base-083 is open.

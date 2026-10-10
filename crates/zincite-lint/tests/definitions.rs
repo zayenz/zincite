@@ -3136,3 +3136,186 @@ fn rank_three_decision_integer_backings_inspect_without_output_proof() {
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
+
+#[test]
+fn parameter_integer_array_conditionals_inspect_sources_without_proof() {
+    let library = concat!(
+        "annotation mzn_internal_representation; annotation promise_commutative;\n",
+        "function bool: '='($T: a,$T: b) :: mzn_internal_representation :: promise_commutative;\n",
+        "function set of int: '..'(int: a,int: b) :: mzn_internal_representation;\n",
+        "function int: 'div'(int: a,int: b) :: mzn_internal_representation;\n",
+    );
+    let source = concat!(
+        "bool: guard; array[1..2] of int: input;\n",
+        "array[1..2] of int: racks = if guard then [1,2]\n",
+        "  else [input[i] | i in 1..2] endif;\n",
+        "array[1..2] of var int: result = if guard then [0,0] else racks endif;\n",
+        "solve satisfy;\n",
+    );
+    let source_zero = source.replace("of int: input;", "of int: input = [1 div 0,2];");
+    let guard_zero = source.replace("bool: guard;", "bool: guard = (1 div 0 == 0);");
+    let decision_guard = concat!(
+        "var bool: guard;\n",
+        "array[1..2] of var int: result = if guard then [1,2] else [3,4] endif;\n",
+        "solve satisfy;\n",
+    );
+    for (name, source, reason) in [
+        ("symbolic-parameter-guard", source, None),
+        (
+            "initialized-source-zero",
+            source_zero.as_str(),
+            Some("integer division by zero"),
+        ),
+        (
+            "guard-zero",
+            guard_zero.as_str(),
+            Some("integer division by zero"),
+        ),
+        (
+            "decision-guard",
+            decision_guard,
+            Some("value conditional requires a present parameter integer result"),
+        ),
+    ] {
+        let (directory, _) = model(
+            &format!("parameter-array-conditional-{name}"),
+            "solve satisfy;",
+            "",
+        );
+        let root = directory.join("root.mzn");
+        write(&directory.join("library/std/stdlib.mzn"), library);
+        write(&root, source);
+        let context = load_model(
+            &root,
+            &ModelOptions {
+                stdlib_dir: Some(directory.join("library")),
+                include_dirs: Vec::new(),
+            },
+        );
+        assert!(
+            context.errors.is_empty() && context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.errors
+        );
+        assert!(context.root_file.is_some() && context.implicit_core.is_some());
+        assert!(context.includes.iter().all(|edge| edge.target.is_some()));
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let file = context.root_file.unwrap();
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == file)
+                .all(|call| matches!(&call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let target = bindings
+            .declarations
+            .iter()
+            .find(|d| d.file == file && d.top_level && d.name == "result")
+            .unwrap()
+            .id;
+        let definition = definitions
+            .definitions
+            .iter()
+            .find(|d| d.target == target)
+            .unwrap();
+        let callable = zincite_lint::resolve_callable_definitions(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+        );
+        assert!(
+            callable.outputs.is_empty() && callable.inspected_locals.is_empty(),
+            "{name}: {callable:?}"
+        );
+        assert!(
+            !definitions
+                .bounded_or_defined_targets(&bindings, &domains)
+                .contains(&target),
+            "{name}"
+        );
+        let search = zincite_lint::resolve_search_coverage(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+            &definitions,
+        );
+        assert_eq!(
+            search.declarations[target.0].coverage,
+            zincite_lint::SearchCoverage::Unknown,
+            "{name}"
+        );
+        let analysis = analyze_model(
+            &context,
+            &LintOptions::from_selection("search-coverage").unwrap(),
+        );
+        assert!(analysis.errors.is_empty(), "{name}: {:?}", analysis.errors);
+        match reason {
+            None => {
+                assert!(
+                    matches!(&definition.safety, DefinitionSafety::Unknown(reason) if reason == "conditional value is unproved"),
+                    "PARAMETER_ARRAY_CONDITIONAL_SOURCE_RED {name}: {:?}",
+                    definition.safety
+                );
+                assert_eq!(
+                    analysis.rules[0].outcome,
+                    RuleOutcome::Completed,
+                    "{name}: {:?}",
+                    analysis.limitations
+                );
+                assert!(
+                    analysis.limitations.is_empty(),
+                    "{name}: {:?}",
+                    analysis.limitations
+                );
+            }
+            Some(reason) => {
+                assert!(
+                    matches!(&definition.safety, DefinitionSafety::Unsupported(actual) if actual.contains(reason)),
+                    "{name}: {:?}",
+                    definition.safety
+                );
+                assert!(
+                    matches!(&analysis.rules[0].outcome, RuleOutcome::Limited { .. }),
+                    "{name}"
+                );
+                assert!(
+                    analysis
+                        .limitations
+                        .iter()
+                        .any(|limit| limit.location.path == root
+                            && !limit.location.range.is_empty()
+                            && limit.message.contains(reason)),
+                    "{name}: {:?}",
+                    analysis.limitations
+                );
+            }
+        }
+        assert!(
+            !analysis
+                .findings
+                .iter()
+                .any(|finding| finding.message.contains("'result'")),
+            "{name}: {:?}",
+            analysis.findings
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}

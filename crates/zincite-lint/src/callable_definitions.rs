@@ -26030,7 +26030,15 @@ impl<'a> Producer<'a> {
                             && matches!(&t.kind, TypeKind::Set(element)
                             if element.known() && !optional(element)
                                 && element.instantiation == Instantiation::Parameter
-                                && element.kind == TypeKind::Int))
+                                && element.kind == TypeKind::Int)
+                        || t.instantiation == Instantiation::Parameter
+                            && matches!(&t.kind, TypeKind::Array { indices, element }
+                                if indices.len() == 1 && indices[0].known() && !optional(&indices[0])
+                                    && indices[0].instantiation == Instantiation::Parameter
+                                    && indices[0].kind == TypeKind::Int
+                                    && element.known() && !optional(element)
+                                    && element.instantiation == Instantiation::Parameter
+                                    && element.kind == TypeKind::Int))
             })
         {
             let result = ty(node).unwrap();
