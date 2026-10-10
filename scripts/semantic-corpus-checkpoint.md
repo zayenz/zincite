@@ -7102,3 +7102,37 @@ Workspace formatting, Clippy and tests pass. Complete stream hashes, terminal
 process receipts and unchanged source/dependency pins were checked. This is a
 useful repair increment; base-083 remains open pending final corpus evidence and
 independent whole-task verification.
+
+## Current workforce limitations and compiler context
+
+The current workforce observer confirms fourteen thesis rules Completed, with
+two warnings and no limitations. The expanded preset retains 25 Completed rules
+and `vacuous-constraint` Limited at five constraint ranges. All eight inspected
+call heads resolve. The public guarded route still refuses the selected global
+cardinality, regular, sliding-sum and array constructor calls; Boolean array
+concatenation is also excluded by the existing concatenation helper. These are
+concrete support gaps, distinct from ordinary unknown parameter values.
+
+The observer's public domain route differs from the analyzer's private
+callable-aware route. Its child facts therefore do not establish the analyzer's
+private child facts. No predicate truth, outputs, bounds or search coverage have
+been inferred. Full captures and the qualified classification are retained under
+`target/benchmarks/base083/semantic76-workforce-guarded-observer-v1`.
+
+The compiler classification audit retains 2,241 source-only accepted roots,
+3,876 unchecked standalone data files, 276 compiler-nonzero roots and 24 earlier
+rejections. A source-only check does not establish instance compilation. Missing
+include errors also do not establish intrinsic invalidity: one test explicitly
+declares an MPC configuration that its bare check omitted.
+
+That test, `param_file_resolution.mzn`, compiles with its declared nested MPC,
+installed MiniZinc 2.10.1 and Gecode configuration: exit 0 in 0.246 seconds,
+780-byte FlatZinc, empty stdout/stderr, no solving. Original, configuration,
+data, compiler and installed-library inputs remain unchanged. The historical
+bare-context failure remains recorded; this is separate configured-instance
+evidence under `semantic76-compiler-classification-audit-v1/configured-precheck`.
+
+The fresh 6,417-root corpus is running against the unchanged 108-source
+`72007a2` map and rebuilt release assets. Thirty current public controls pass.
+Full corpus reconciliation and independent whole-task verification remain
+pending; base-083 is open.
