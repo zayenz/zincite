@@ -11,7 +11,7 @@ Zincite provides source tools for MiniZinc model (`.mzn`) and data
 
 - **`zincite fmt`** (or **`zincite-fmt`**) formats source, checks formatting, and writes changes in place.
 - **`zincite lint`** (or **`zincite-lint`**) is a linter for MiniZinc models and data.
-- **`zincite query`** (or **`zincite-query`**) selects items by kind/name, emits source or counts, and explicitly edits data assignments.
+- **`zincite query`** (or **`zincite-query`**) inspects items, expressions, calls and annotations, emits JSON/count reports, and explicitly edits data assignments.
 
 The tools are written in Rust and share a parser that preserves source spelling,
 comments, whitespace and source locations. The commands do not require a MiniZinc
@@ -162,12 +162,20 @@ zincite query --diff 'filter(name("capacity")) | set_value("20")' data.dzn
 zincite query --write 'filter(name("unused")) | remove' data.dzn
 ```
 
+Inspect nested calls and solve annotations without loading a MiniZinc library:
+
+```sh
+zincite query 'filter(kind("constraint")) | expressions | call_names | tally | json' model.mzn
+zincite query 'filter(kind("solve")) | subtree | annotation_names | unique | json' model.mzn
+zincite query 'expressions | range(20,80) | json' model.mzn
+```
+
 Supply one query and at most one file or `-`; omitted input reads stdin.
 An empty query or `items` emits the exact document. `filter` supports `kind`
 and `name` predicates, parentheses and Boolean `not`, `and`, `or` in that
 precedence order. `head(n)` keeps the first `n` selected items. `count` emits a
 decimal count; `emit` emits original source, and source emission is implicit.
-Both `count` and `emit` end the pipeline.
+`emit` ends the pipeline; `count` may be followed by `json`.
 
 Selections use top-level items in written order and compare identifier identity,
 including quoted names. `filter` and `head` emit fragments containing selected
@@ -230,7 +238,7 @@ The commands have reusable Rust libraries:
 | `zincite-syntax` | Lexer, parser, source locations and a concrete syntax tree |
 | `zincite-fmt` | Formatting a parsed file, with configurable layout |
 | `zincite-lint` | Lint rules, diagnostics and explicit model/include context |
-| `zincite-query` | Syntax-only item selections, native counts and explicit data assignment edits |
+| `zincite-query` | Source inspection, JSON/count reports and explicit data assignment edits |
 
 See the [syntax and library reference](docs/reference.md) for APIs and detailed
 language coverage. Generate local API documentation with

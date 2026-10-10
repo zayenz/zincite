@@ -11,7 +11,7 @@ use crate::{ErrorLocation, Input, Limits, Query, QueryError};
 
 const HELP: &str = "Usage: zincite-query [--stdin-filepath PATH] [--diff|--write] QUERY [FILE|-]
 
-Select MiniZinc items or change selected data assignments.
+Inspect MiniZinc source or change selected data assignments.
 No input or '-' reads stdin; .dzn paths select assignment-only data syntax.
 Syntax queries do not load includes or require a MiniZinc library or solver.
 QUERY is one fixed pipeline separated by '|'; an empty query selects all items.
@@ -19,18 +19,35 @@ QUERY is one fixed pipeline separated by '|'; an empty query selects all items.
 Stages:
     items                   Select all top-level items (initial selection)
     filter(PREDICATE)       Keep matching items; not > and > or, with parentheses
-    head(N)                 Keep the first N items of the computed selection
-    count                   Emit a decimal count and LF; terminal stage
+    head(N)                 Keep the first N nodes or projected strings
+    count                   Return a count; only json may follow
     emit                    Emit original selected source; terminal stage
+    expressions             Select expression nodes in each selected subtree
+    children                Select immediate CST child nodes
+    subtree                 Select each node and its descendants, with duplicates
+    range(START,END)         Keep nodes contained in an original-input byte range
+    names                   Project direct identifier identities
+    call_names              Project selected call heads
+    annotation_names        Project selected annotation heads
+    text                    Project original node text (requires UTF-8)
+    unique                  Keep first occurrences of nodes or strings
+    tally                   Count projected strings; only json may follow
+    json                    Emit inspection JSON; terminal stage
     set_value(\"EXPRESSION\") Replace selected data assignment right-hand sides
     remove                  Remove selected data assignments and attached comments
     emit_document           Emit the complete validated edit candidate
-Source emission is implicit; edits implicitly emit_document.
+Source/string emission is implicit; edits implicitly emit_document.
+Projections inspect selected nodes; use subtree to include descendants.
+Range bounds are half-open original byte coordinates, including a BOM.
+JSON includes node kind, names, file, range and exact UTF-8 text.
+Node navigation preserves per-root written order and overlapping duplicates.
+Counts describe written occurrences, not execution frequency.
 Only emit_document may follow one transformation stage. Edits require data mode.
 Comments inside a replaced expression cause a located placement error.
 Predicates: kind(\"assignment\"), name(\"capacity\"); names compare identifier identity.
-Kinds: assignment, declaration, enum, type_alias, function, predicate, test,
+Item kinds: assignment, declaration, enum, type_alias, function, predicate, test,
        annotation, constraint, include, output, solve.
+Navigated node kinds use CST names in snake_case, such as call_expression.
 Untouched items emit the whole document; filter/head emit item fragments with
 attached comments. Separated section comments and a BOM stay in document output.
 Fragment selections that unbalance paired formatter markers fail.
@@ -43,7 +60,7 @@ Options:
     -h, --help              Show this help
 
 Limits: 1048576 query bytes, 64 nested parentheses/not operators,
-        100000 collected items and 1000000 evaluation visits.
+        100000 collected entries and 1000000 evaluation work units.
 Exit codes: 0 success, 2 query/input/usage/I/O errors.
 Query, input and usage errors leave stdout empty.
 ";
@@ -125,7 +142,7 @@ fn execute(arguments: Vec<OsString>, invocation: &str) -> Result<(), String> {
             .map_err(|error| format!("{label}: {error}"))?;
         bytes
     };
-    let input = Input::parse(bytes.clone(), mode).map_err(|error| {
+    let input = Input::parse_named(bytes.clone(), mode, label.clone()).map_err(|error| {
         error
             .diagnostics
             .iter()

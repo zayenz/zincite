@@ -154,3 +154,16 @@ fn query_selects_data_and_reports_errors_without_partial_stdout() {
             .contains("<query>:1:")
     );
 }
+
+#[test]
+fn query_inspection_reports_and_errors_share_root_command_behavior() {
+    let output = run(
+        &["query", "expressions | call_names | tally | json"],
+        "constraint f(g(1), g(2));",
+    );
+    assert!(output.status.success() && output.stderr.is_empty());
+    assert_eq!(output.stdout, b"{\"f\":1,\"g\":2}\n");
+    let output = run(&["query", "names | children"], "constraint true;");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+}

@@ -340,3 +340,163 @@ fn edits_refuse_invalid_replacements_internal_comments_and_stale_stage_evaluatio
         .unwrap_err();
     assert!(error.message.contains("work limit"));
 }
+
+#[test]
+fn nested_constraint_and_solve_inspection_keep_occurrences_and_original_ranges() {
+    let source = b"\xef\xbb\xbfconstraint f(g(1), g(2));\nsolve :: int_search([x], input_order, indomain_min) satisfy;\n";
+    let input = Input::parse_named(source.to_vec(), FileMode::Model, "nested.mzn").unwrap();
+    let calls = query(
+        &input,
+        "filter(kind(\"constraint\")) | expressions | call_names",
+    );
+    let QueryResult::Strings(names) = calls else {
+        panic!()
+    };
+    assert_eq!(names, ["f", "g", "g"]);
+    assert_eq!(
+        query(&input, "expressions | call_names | tally | json").render(),
+        b"{\"f\":1,\"g\":2,\"int_search\":1}\n"
+    );
+    assert_eq!(
+        query(
+            &input,
+            "filter(kind(\"solve\")) | subtree | annotation_names | json"
+        )
+        .render(),
+        b"[\"int_search\"]\n"
+    );
+    let roots = "filter(kind(\"constraint\")) | expressions | filter(kind(\"call_expression\"))";
+    let QueryResult::Nodes(nodes) = query(&input, roots) else {
+        panic!()
+    };
+    assert_eq!(nodes.nodes().len(), 3);
+    assert!(nodes.nodes().iter().all(|node| node.file == "nested.mzn"));
+    for node in nodes.nodes() {
+        assert!(node.range.start >= 3);
+        assert_eq!(node.range.start, node.node.range().start + 3);
+    }
+    let overlapping = format!("{roots} | subtree");
+    assert_eq!(
+        query(&input, &format!("{overlapping} | call_names | tally")).render(),
+        b"{\"f\":1,\"g\":4}\n"
+    );
+    assert_eq!(
+        query(
+            &input,
+            &format!("{overlapping} | unique | call_names | tally")
+        )
+        .render(),
+        b"{\"f\":1,\"g\":2}\n"
+    );
+    assert_eq!(
+        query(
+            &input,
+            "filter(kind(\"constraint\")) | children | count | json"
+        )
+        .render(),
+        b"1\n"
+    );
+    let selected = &nodes.nodes()[1];
+    let range_query = format!(
+        "{roots} | range({},{}) | text | json",
+        selected.range.start, selected.range.end
+    );
+    assert_eq!(query(&input, &range_query).render(), b"[\"g(1)\"]\n");
+    assert_eq!(
+        query(&input, "expressions | range(0,0) | json").render(),
+        b"[]\n"
+    );
+    assert_eq!(
+        query(&input, "expressions | call_names | unique | json").render(),
+        b"[\"f\",\"g\",\"int_search\"]\n"
+    );
+}
+
+#[test]
+fn json_inspects_exact_text_names_and_file_identity() {
+    let source = "'capacity' = \"quote: \\\" and slash: \\\\\";\r\n";
+    let input =
+        Input::parse_named(source.as_bytes().to_vec(), FileMode::Data, "a\"\\b.dzn").unwrap();
+    let result = query(&input, "json");
+    let QueryResult::Json(json_result) = &result else {
+        panic!()
+    };
+    assert!(matches!(json_result.result(), QueryResult::Selection(_)));
+    let value: serde_json::Value = serde_json::from_slice(&result.render()).unwrap();
+    assert_eq!(value[0]["kind"], "assignment");
+    assert_eq!(value[0]["names"], serde_json::json!(["capacity"]));
+    assert_eq!(value[0]["file"], "a\"\\b.dzn");
+    let start = value[0]["range"]["start"].as_u64().unwrap() as usize;
+    let end = value[0]["range"]["end"].as_u64().unwrap() as usize;
+    assert_eq!(value[0]["text"], &source[start..end]);
+    assert_eq!(query(&input, "names | json").render(), b"[\"capacity\"]\n");
+    assert_eq!(
+        query(&input, "head(0) | names | tally | json").render(),
+        b"{}\n"
+    );
+}
+
+#[test]
+fn inspection_errors_and_expansion_limits_are_located() {
+    let input = Input::parse(
+        "constraint f('é', g(1));".as_bytes().to_vec(),
+        FileMode::Model,
+    )
+    .unwrap();
+    for expression in [
+        "range(4,2)",
+        "range(-1,2)",
+        "range(0,99999999999999999999999999)",
+        "count | subtree",
+        "remove | json",
+    ] {
+        assert!(
+            Query::parse(expression, Limits::default()).is_err(),
+            "{expression}"
+        );
+    }
+    for expression in [
+        "range(0,999)",
+        "expressions | range(15,16)",
+        "names | children",
+        "names | filter(name(\"f\"))",
+        "tally",
+        "expressions | remove",
+    ] {
+        let error = Query::parse(expression, Limits::default())
+            .unwrap()
+            .evaluate(&input, Limits::default())
+            .unwrap_err();
+        assert_eq!(error.location, ErrorLocation::Query, "{expression}");
+        assert!(error.range.end <= expression.len());
+    }
+    let expansion = Query::parse("subtree | subtree", Limits::default()).unwrap();
+    for limits in [
+        Limits {
+            work: 5,
+            ..Limits::default()
+        },
+        Limits {
+            collection: 3,
+            ..Limits::default()
+        },
+    ] {
+        assert!(
+            expansion
+                .evaluate(&input, limits)
+                .unwrap_err()
+                .message
+                .contains("limit")
+        );
+    }
+    let opaque = Input::parse(b"x = [1, /* \xff */ 2];".to_vec(), FileMode::Data).unwrap();
+    assert_eq!(query(&opaque, "emit").render(), opaque.source_bytes());
+    for expression in ["text", "json"] {
+        let error = Query::parse(expression, Limits::default())
+            .unwrap()
+            .evaluate(&opaque, Limits::default())
+            .unwrap_err();
+        assert_eq!(error.location, ErrorLocation::Input);
+        assert!(error.message.contains("UTF-8"));
+    }
+}

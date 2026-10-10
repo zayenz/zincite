@@ -1,10 +1,12 @@
-//! Syntax-only queries over top-level MiniZinc items in written order.
+//! Source inspection and explicit data edits over the retained MiniZinc CST.
 //!
 //! [`Input`] owns original bytes and the CST. [`Query`] parses a fixed pipeline
-//! for selecting items or editing data assignments; evaluation returns native
-//! selections, a count or a complete document. Rendering retains original bytes, including opaque
+//! for navigating nodes, projecting names/text or editing data assignments.
+//! Results stay native until source or JSON rendering. Source rendering retains
+//! original bytes, including opaque
 //! comment bytes. Includes, names and data values are never evaluated.
 
+use std::collections::BTreeMap;
 use std::ops::Range;
 
 use zincite_lint::{EditPart, SourceSnapshot, TextEdit, prepare_text_edits};
@@ -14,7 +16,9 @@ use zincite_syntax::{
 };
 
 pub mod cli;
+mod inspection;
 mod language;
+pub use inspection::{JsonResult, NodeSelection, SelectedNode};
 
 use language::{Predicate, PredicateKind, Stage, StageKind};
 
@@ -82,10 +86,20 @@ pub struct Input {
     parsed: ByteParsedFile,
     syntax_offset: usize,
     mode: FileMode,
+    file: String,
 }
 
 impl Input {
     pub fn parse(bytes: Vec<u8>, mode: FileMode) -> Result<Self, InputError> {
+        Self::parse_named(bytes, mode, "<input>")
+    }
+
+    /// Parse original bytes with the file identity used by inspection output.
+    pub fn parse_named(
+        bytes: Vec<u8>,
+        mode: FileMode,
+        file: impl Into<String>,
+    ) -> Result<Self, InputError> {
         let syntax_offset = if bytes.starts_with(b"\xef\xbb\xbf") {
             3
         } else {
@@ -113,7 +127,12 @@ impl Input {
             parsed,
             syntax_offset,
             mode,
+            file: file.into(),
         })
+    }
+
+    pub fn file(&self) -> &str {
+        &self.file
     }
 
     pub fn source_bytes(&self) -> &[u8] {
@@ -277,6 +296,10 @@ impl<'a> Selection<'a> {
 pub enum QueryResult<'a> {
     Selection(Selection<'a>),
     Count(usize),
+    Nodes(NodeSelection<'a>),
+    Strings(Vec<String>),
+    Tally(BTreeMap<String, usize>),
+    Json(JsonResult<'a>),
     /// Complete validated candidate from one intentional data transformation.
     Document(Vec<u8>),
 }
@@ -286,6 +309,22 @@ impl QueryResult<'_> {
     /// selections and documents reproduce bytes without adding separators or LF.
     pub fn render(&self) -> Vec<u8> {
         match self {
+            Self::Nodes(selection) => selection
+                .nodes()
+                .iter()
+                .flat_map(|node| &selection.input().bytes[node.range.clone()])
+                .copied()
+                .collect(),
+            Self::Strings(values) => values
+                .iter()
+                .flat_map(|value| value.bytes().chain(std::iter::once(b'\n')))
+                .collect(),
+            Self::Tally(values) => {
+                let mut bytes = serde_json::to_vec(values).expect("string-key counts serialize");
+                bytes.push(b'\n');
+                bytes
+            }
+            Self::Json(result) => result.render(),
             Self::Count(count) => format!("{count}\n").into_bytes(),
             Self::Document(bytes) => bytes.clone(),
             Self::Selection(selection) if selection.document => selection.input.bytes.clone(),
@@ -326,55 +365,142 @@ impl Query {
         let mut work = Work {
             remaining: limits.work,
         };
-        let mut items = collect_items(input, limits.collection, &mut work, &self.range, true)?;
-        let mut document = true;
-        let mut candidate = None;
+        let mut result = QueryResult::Selection(Selection {
+            input,
+            items: collect_items(input, limits.collection, &mut work, &self.range, true)?,
+            document: true,
+        });
         for stage in &self.stages {
             work.visit(&stage.range)?;
-            match &stage.kind {
+            result = match &stage.kind {
                 StageKind::Items => {
-                    items = collect_items(input, limits.collection, &mut work, &stage.range, true)?;
-                    document = true;
-                }
-                StageKind::Filter(predicate) => {
-                    let mut retained = Vec::new();
-                    for item in items {
-                        work.visit(&stage.range)?;
-                        if predicate.matches(&item, &mut work)? {
-                            retained.push(item);
-                        }
-                    }
-                    items = retained;
-                    document = false;
-                }
-                StageKind::Head(count) => {
-                    items.truncate(*count);
-                    document = false;
-                }
-                StageKind::Count => return Ok(QueryResult::Count(items.len())),
-                StageKind::SetValue(_) | StageKind::Remove => {
-                    candidate = Some(transform_assignments(
+                    inspection::require_nodes(&result, &stage.range)?;
+                    QueryResult::Selection(Selection {
                         input,
-                        &items,
+                        items: collect_items(
+                            input,
+                            limits.collection,
+                            &mut work,
+                            &stage.range,
+                            true,
+                        )?,
+                        document: true,
+                    })
+                }
+                StageKind::Filter(predicate) => match result {
+                    QueryResult::Selection(mut selection) => {
+                        let mut retained = Vec::new();
+                        for item in selection.items {
+                            work.visit(&stage.range)?;
+                            if predicate.matches(&item, &mut work)? {
+                                retained.push(item);
+                            }
+                        }
+                        selection.items = retained;
+                        selection.document = false;
+                        QueryResult::Selection(selection)
+                    }
+                    QueryResult::Nodes(selection) => {
+                        inspection::filter(selection, predicate, &mut work, &stage.range)?
+                    }
+                    _ => {
+                        return Err(inspection::type_error(
+                            &stage.range,
+                            "filter requires selected nodes",
+                        ));
+                    }
+                },
+                StageKind::Head(count) => match result {
+                    QueryResult::Selection(mut selection) => {
+                        selection.items.truncate(*count);
+                        selection.document = false;
+                        QueryResult::Selection(selection)
+                    }
+                    QueryResult::Nodes(mut selection) => {
+                        selection.truncate(*count);
+                        QueryResult::Nodes(selection)
+                    }
+                    QueryResult::Strings(mut strings) => {
+                        strings.truncate(*count);
+                        QueryResult::Strings(strings)
+                    }
+                    _ => {
+                        return Err(inspection::type_error(
+                            &stage.range,
+                            "head requires a node or string stream",
+                        ));
+                    }
+                },
+                StageKind::Count => QueryResult::Count(match &result {
+                    QueryResult::Selection(selection) => selection.items.len(),
+                    QueryResult::Nodes(selection) => selection.nodes().len(),
+                    QueryResult::Strings(strings) => strings.len(),
+                    _ => {
+                        return Err(inspection::type_error(
+                            &stage.range,
+                            "count requires a node or string stream",
+                        ));
+                    }
+                }),
+                StageKind::SetValue(_) | StageKind::Remove => {
+                    let QueryResult::Selection(selection) = result else {
+                        return Err(inspection::type_error(
+                            &stage.range,
+                            "transformations require an item selection",
+                        ));
+                    };
+                    QueryResult::Document(transform_assignments(
+                        input,
+                        &selection.items,
                         stage,
                         &mut work,
                         limits.collection,
-                    )?);
+                    )?)
                 }
-                StageKind::Emit | StageKind::EmitDocument => {}
+                StageKind::Emit => {
+                    if !matches!(
+                        result,
+                        QueryResult::Selection(_)
+                            | QueryResult::Nodes(_)
+                            | QueryResult::Strings(_)
+                            | QueryResult::Tally(_)
+                    ) {
+                        return Err(inspection::type_error(
+                            &stage.range,
+                            "emit requires a node or string stream or tally",
+                        ));
+                    }
+                    result
+                }
+                StageKind::EmitDocument => result,
+                StageKind::Expressions
+                | StageKind::Children
+                | StageKind::Subtree
+                | StageKind::Range(_) => {
+                    inspection::navigate(result, stage, &mut work, limits.collection)?
+                }
+                StageKind::Names
+                | StageKind::CallNames
+                | StageKind::AnnotationNames
+                | StageKind::Text => {
+                    inspection::project(result, stage, &mut work, limits.collection)?
+                }
+                StageKind::Unique => inspection::unique(result, &mut work, &stage.range)?,
+                StageKind::Tally => inspection::tally(result, &mut work, &stage.range)?,
+                StageKind::Json => inspection::json(result, &mut work, &stage.range)?,
+            };
+        }
+        if let QueryResult::Selection(selection) = &result
+            && !selection.document
+        {
+            validate_fragment_directives(input, &selection.items)?;
+        }
+        if let QueryResult::Nodes(selection) = &result {
+            for node in selection.nodes() {
+                work.spend(node.range.len(), &self.range)?;
             }
         }
-        if let Some(candidate) = candidate {
-            return Ok(QueryResult::Document(candidate));
-        }
-        if !document {
-            validate_fragment_directives(input, &items)?;
-        }
-        Ok(QueryResult::Selection(Selection {
-            input,
-            items,
-            document,
-        }))
+        Ok(result)
     }
 }
 
@@ -677,15 +803,24 @@ impl Work {
 
 impl Predicate {
     fn matches(&self, item: &SelectedItem<'_>, work: &mut Work) -> Result<bool, QueryError> {
+        self.matches_values(item.kind.as_str(), item.name, work)
+    }
+
+    fn matches_values(
+        &self,
+        kind: &str,
+        name: Option<&str>,
+        work: &mut Work,
+    ) -> Result<bool, QueryError> {
         work.visit(&self.range)?;
         match &self.kind {
-            PredicateKind::Kind(kind) => Ok(item.kind == *kind),
-            PredicateKind::Name(name) => Ok(item.name == Some(identifier_identity(name))),
-            PredicateKind::Not(predicate) => Ok(!predicate.matches(item, work)?),
-            PredicateKind::Group(predicate) => predicate.matches(item, work),
+            PredicateKind::Kind(expected) => Ok(kind == expected),
+            PredicateKind::Name(expected) => Ok(name == Some(identifier_identity(expected))),
+            PredicateKind::Not(predicate) => Ok(!predicate.matches_values(kind, name, work)?),
+            PredicateKind::Group(predicate) => predicate.matches_values(kind, name, work),
             PredicateKind::And(predicates) => {
                 for predicate in predicates {
-                    if !predicate.matches(item, work)? {
+                    if !predicate.matches_values(kind, name, work)? {
                         return Ok(false);
                     }
                 }
@@ -693,7 +828,7 @@ impl Predicate {
             }
             PredicateKind::Or(predicates) => {
                 for predicate in predicates {
-                    if predicate.matches(item, work)? {
+                    if predicate.matches_values(kind, name, work)? {
                         return Ok(true);
                     }
                 }

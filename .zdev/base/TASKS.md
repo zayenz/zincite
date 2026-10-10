@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 96
-- Ready: 5
+- Ready: 4
 - Blocked: 7
-- Done: 84
+- Done: 85
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -98,7 +98,7 @@
 | [base-087](tasks/087-inspect-and-filter-structured-literal-data-while-preserving.md) | Inspect and filter structured literal data while preserving keys and records | ready | base-086 |
 | [base-088](tasks/088-reduce-enum-membership-and-dependent-indexed-records-and-arr.md) | Reduce enum membership and dependent indexed records and array slices | blocked | base-087 |
 | [base-089](tasks/089-prune-removed-enum-members-from-sets-and-repair-supported-gr.md) | Prune removed enum members from sets and repair supported group indices | blocked | base-088 |
-| [base-090](tasks/090-query-nested-expressions-and-emit-structured-source-inspecti.md) | Query nested expressions and emit structured source inspection reports | ready | base-085 |
+| [base-090](tasks/090-query-nested-expressions-and-emit-structured-source-inspecti.md) | Query nested expressions and emit structured source inspection reports | done | base-085 |
 | [base-091](tasks/091-expose-existing-declaration-references-and-semantic-facts-to.md) | Expose existing declaration references and semantic facts to model queries | blocked | base-090, base-089 |
 | [base-092](tasks/092-validate-both-query-commands-and-wedding-instance-reduction.md) | Validate both query commands and wedding-instance reduction on representative data | blocked | base-089, base-091 |
 | [base-093](tasks/093-refactor-callable-definitions-into-readable-internal-modules.md) | Refactor callable definitions into readable internal modules | ready | — |

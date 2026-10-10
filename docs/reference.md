@@ -231,14 +231,25 @@ both commands use the same fixed pipeline:
 | `filter(predicate)` | Keep matching items in their existing order |
 | `head(n)` | Keep the first `n` items of the computed selection |
 | `count` | Return a native count; render as decimal text followed by LF |
+| `expressions` | Select expression nodes in each selected subtree |
+| `children` | Replace nodes with immediate CST child nodes |
+| `subtree` | Expand each node to itself and all descendants |
+| `range(start,end)` | Keep selected nodes fully contained in the half-open input byte range |
+| `names` | Project directly retained identifier identities |
+| `call_names` | Project call and generator-call heads on selected nodes |
+| `annotation_names` | Project heads of selected annotation nodes |
+| `text` | Project exact original node text as UTF-8 strings |
+| `unique` | Keep the first occurrence of each node or string |
+| `tally` | Return a native string-to-count histogram |
+| `json` | Render nodes, strings, a count or histogram as JSON |
 | `emit` | Render the selected original source bytes |
 | `set_value("EXPRESSION")` | Replace selected assignment right-hand sides in data mode |
 | `remove` | Remove selected data assignments and their attached comments/directives |
 | `emit_document` | Render the complete validated edit candidate |
 
 Stages are separated by `|`. The initial selection is `items`, including for an
-empty query. Source emission is implicit. `count` and `emit` are terminal;
-following stages are errors. A pipeline may contain one transformation stage,
+empty query. Source or projected-string emission is implicit. `emit` and `json` are terminal.
+Only `json` may follow `count` or `tally`. A pipeline may contain one transformation stage,
 followed only by its optional `emit_document`; document emission is implicit for
 edits. `emit_document` requires a transformation. `head` does not avoid parsing
 or evaluating the earlier selection. No input items produces an empty selection or count 0;
@@ -249,7 +260,7 @@ parentheses and `not`, `and`, `or` in that precedence order. Query strings are
 double quoted and accept `\"`, `\\`, `\n`, `\r` and `\t` escapes. Other escapes
 and literal control characters are errors; Unicode characters may be written
 directly. Whitespace between query tokens is ignored. Query comments, program
-files, bindings and other stages are not implemented.
+files and bindings are not implemented.
 
 The accepted kind strings are `assignment`, `declaration`, `enum`, `type_alias`,
 `function`, `predicate`, `test`, `annotation`, `constraint`, `include`, `output`
@@ -261,6 +272,57 @@ Comparison is case sensitive and does not normalize Unicode. Constraints,
 includes, output and solve items have no item name; names used inside expressions
 are not item names. Syntax queries never load includes, resolve bindings,
 evaluate data or require an installed standard library.
+
+Navigation operates on the current selection. `expressions` includes literal and
+identifier atoms, calls, operator/access/annotated expressions, conditionals,
+let expressions, interpolated strings, tuple/record/set/array/matrix literals
+and comprehensions. Structural wrappers such as annotations, generators and
+branches remain available through `children` and `subtree`. Navigation expands
+each selected root independently in written preorder; overlapping subtrees keep
+duplicates. `unique` removes duplicate CST nodes by identity and equal projected
+strings, retaining the first occurrence. These are counts of written source
+constructs, not execution frequency or flattened constraints.
+
+`range(start,end)` filters the current node stream by full containment. Bounds
+use original input bytes, including a leading BOM; reversed, overflowing,
+out-of-input or split UTF-8 bounds fail. A valid empty range or unmatched
+selection succeeds with an empty stream. Expression fragments need not form a
+standalone MiniZinc model.
+
+Node projections inspect selected nodes, without an implicit subtree expansion.
+`names` emits direct identifier tokens in written order, ignoring quote
+delimiters; this includes declarations, references and field/binding labels.
+`call_names` includes ordinary and generator calls, anonymous `_` constructors
+and retained inverse-constructor heads. `annotation_names` takes the head of an
+Annotation node, including bare reserved `output`. Projections skip nodes with
+no applicable name and preserve duplicates. Use `subtree` before a projection
+to include nested occurrences. String streams emit one value and LF per entry.
+`tally` counts equal strings and emits a JSON object with lexical key order;
+an empty string stream yields `{}`.
+
+Item filters keep the kind aliases above. Navigated node filters and JSON use
+original CST kinds in snake_case, such as `call_expression`,
+`annotation_declaration`, `annotation`, `solve_minimize` and `solve_maximize`.
+`name` on navigated nodes compares the first direct identifier identity.
+`head`, `count` and `unique` accept node or string streams. Navigation,
+filtering and projections require nodes; `tally` requires projected strings.
+`items` resets a node selection. Invalid stage types produce located query
+errors even for empty streams. Transformations require an item selection;
+inspection streams cannot become editing targets.
+
+`json` emits node streams as arrays of objects with `kind`, `names`,
+`call_names`, `annotation_names`, `file`, `range: {start,end}` and `text` fields.
+Text covers the exact node range, excluding separately attached item comments.
+Strings emit JSON arrays, counts emit numbers and histograms emit objects.
+JSON output ends in LF. This is an inspection format, not round-trippable
+MiniZinc data. CLI file identity uses the supplied file path or
+`--stdin-filepath`, defaulting to `<stdin>`. Library callers use
+`Input::parse_named`; `Input::parse` defaults to `<input>`.
+
+`text` and node JSON reject selected spans containing opaque invalid UTF-8
+comment bytes with an input diagnostic. Ordinary source emission continues to
+preserve those bytes exactly. Inspection JSON does not load includes or resolve
+names.
 
 The untouched initial selection and any final reset with `items` emit the exact
 document, including a leading UTF-8 BOM, section comments and all whitespace.
@@ -322,8 +384,10 @@ if let QueryResult::Selection(selection) = &result {
 let original_fragment = result.render();
 ```
 
-`QueryResult` keeps a `Selection`, `Count` or owned `Document(Vec<u8>)` native
-until `render`. `Document` contains a complete validated edit candidate. A
+`QueryResult` keeps item/node selections, strings, counts, histograms or an owned `Document(Vec<u8>)` native
+until `render`. `JsonResult::result` exposes the native result behind a JSON emitter.
+`NodeSelection` exposes original CST nodes, file identities and byte ranges.
+`Document` contains a complete validated edit candidate. A
 selection borrows its `Input`, its item CST nodes and identifier identities. `Input` exposes
 original bytes, token bytes/ranges and source locations. `SelectedItem::range`
 and `source_range`, `Input::token_range` and all input diagnostics use original
@@ -333,10 +397,16 @@ in its UTF-8 analysis text, so use original byte accessors for source spelling.
 
 Queries have a hard limit of 1,048,576 UTF-8 bytes and 64 nested parentheses/`not`
 operators. Flat `and`/`or` chains do not consume nesting depth. `Limits::nesting`
-can lower that ceiling. Default evaluation limits are 100,000 collected items
+can lower that ceiling. Default evaluation limits are 100,000 collected entries
 and 1,000,000 visits: each initial/reset item, stage, filtered item and visited
 predicate costs one visit. Edit traversal costs one visit per inspected token;
 replacement validation and each expansion charge the replacement byte length.
+Navigation charges node visits and child slots before scanning; projections charge
+inspected slots and copied string bytes; text conversion and annotation-head
+inspection charge their source-span byte lengths before scanning. Node fragment
+emission charges the expanded source byte length. JSON charges selected text/string bytes
+and repeated file-label bytes before rendering. Every expanded stream, including
+overlapping duplicates, respects the collection limit.
 Boolean evaluation short circuits. Checks occur before collection additions and visits; exceeding a bound returns a located
 error without truncating the result. Library callers can change work/collection
 limits. Nesting is checked during query parsing; work/collection during evaluation.

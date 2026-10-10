@@ -3,8 +3,9 @@ name = "zincite-query"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Source-preserving MiniZinc item queries"
+description = "Source-preserving MiniZinc inspection and data queries"
 
 [dependencies]
 zincite-lint = { path = "../zincite-lint" }
 zincite-syntax = { path = "../zincite-syntax" }
+serde_json = "1"

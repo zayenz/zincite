@@ -1,6 +1,7 @@
 use std::ops::Range;
 
-use crate::{ItemKind, Limits, Query, QueryError};
+use crate::inspection::known_kind;
+use crate::{Limits, Query, QueryError};
 
 const MAX_QUERY_BYTES: usize = 1_048_576;
 const MAX_NESTING: usize = 64;
@@ -18,6 +19,17 @@ pub(crate) enum StageKind {
     Head(usize),
     Count,
     Emit,
+    Expressions,
+    Children,
+    Subtree,
+    Range(std::ops::Range<usize>),
+    Names,
+    CallNames,
+    AnnotationNames,
+    Text,
+    Unique,
+    Tally,
+    Json,
     SetValue(String),
     Remove,
     EmitDocument,
@@ -31,7 +43,7 @@ pub(crate) struct Predicate {
 
 #[derive(Debug)]
 pub(crate) enum PredicateKind {
-    Kind(ItemKind),
+    Kind(String),
     Name(String),
     Not(Box<Predicate>),
     Group(Box<Predicate>),
@@ -82,6 +94,27 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
                 parser.punctuation(b')', "expected ')' after head count")?;
                 StageKind::Head(count)
             }
+            "expressions" => StageKind::Expressions,
+            "children" => StageKind::Children,
+            "subtree" => StageKind::Subtree,
+            "range" => {
+                parser.punctuation(b'(', "expected '(' after range")?;
+                let start = parser.integer()?;
+                parser.punctuation(b',', "expected ',' between range bounds")?;
+                let end = parser.integer()?;
+                parser.punctuation(b')', "expected ')' after range bounds")?;
+                if start > end {
+                    return Err(QueryError::query(name_range, "range start exceeds end"));
+                }
+                StageKind::Range(start..end)
+            }
+            "names" => StageKind::Names,
+            "call_names" => StageKind::CallNames,
+            "annotation_names" => StageKind::AnnotationNames,
+            "text" => StageKind::Text,
+            "unique" => StageKind::Unique,
+            "tally" => StageKind::Tally,
+            "json" => StageKind::Json,
             "count" => StageKind::Count,
             "emit" => StageKind::Emit,
             "set_value" => {
@@ -99,6 +132,16 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
                 ));
             }
         };
+        if stages
+            .last()
+            .is_some_and(|stage: &Stage| matches!(stage.kind, StageKind::Count | StageKind::Tally))
+            && !matches!(kind, StageKind::Json)
+        {
+            return Err(QueryError::query(
+                start..parser.position,
+                "only json may follow count or tally",
+            ));
+        }
         if editing && !matches!(kind, StageKind::EmitDocument) {
             return Err(QueryError::query(
                 start..parser.position,
@@ -114,7 +157,7 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
         editing |= matches!(kind, StageKind::SetValue(_) | StageKind::Remove);
         let terminal = matches!(
             kind,
-            StageKind::Count | StageKind::Emit | StageKind::EmitDocument
+            StageKind::Json | StageKind::Emit | StageKind::EmitDocument
         );
         stages.push(Stage {
             kind,
@@ -126,7 +169,7 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
         }
         parser.punctuation(b'|', "expected '|' between query stages")?;
         if terminal {
-            return Err(parser.error("no stage may follow an emitter or count"));
+            return Err(parser.error("no stage may follow an emitter"));
         }
         if parser.position == source.len() {
             return Err(parser.error("expected a query stage after '|'"));
@@ -208,15 +251,33 @@ impl<'a> Parser<'a> {
         let (value, value_range) = self.string()?;
         self.punctuation(b')', "expected ')' after predicate argument")?;
         let kind = if name == "kind" {
-            PredicateKind::Kind(ItemKind::parse(&value).ok_or_else(|| {
-                QueryError::query(value_range, format!("unknown item kind '{value}'"))
-            })?)
+            if !known_kind(&value) {
+                return Err(QueryError::query(
+                    value_range,
+                    format!("unknown node kind '{value}'"),
+                ));
+            }
+            PredicateKind::Kind(value)
         } else {
             PredicateKind::Name(value)
         };
         Ok(Predicate {
             kind,
             range: start..self.position,
+        })
+    }
+
+    fn integer(&mut self) -> Result<usize, QueryError> {
+        self.space();
+        let start = self.position;
+        while self.current().is_some_and(|byte| byte.is_ascii_digit()) {
+            self.position += 1;
+        }
+        self.source[start..self.position].parse().map_err(|_| {
+            QueryError::query(
+                start..self.position,
+                "range bounds require non-negative integers fitting usize",
+            )
         })
     }
 

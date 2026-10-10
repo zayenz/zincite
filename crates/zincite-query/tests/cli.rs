@@ -62,7 +62,7 @@ fn query_source_and_usage_errors_exit_two_with_empty_stdout() {
     let help = String::from_utf8(output.stdout).unwrap();
     assert!(help.starts_with("Usage: zincite-query "));
     assert!(help.contains("filter") && help.contains("count"));
-    assert!(!help.contains("--model") && !help.contains("subtree"));
+    assert!(!help.contains("--model") && help.contains("subtree"));
 }
 
 #[test]
@@ -129,5 +129,34 @@ fn edit_modes_reject_invalid_usage_and_symlinks_without_partial_output() {
         assert_eq!(std::fs::read(&path).unwrap(), b"x = 1;\n");
         std::fs::remove_file(alias).unwrap();
         std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[test]
+fn json_uses_stdin_identity_and_errors_leave_stdout_empty() {
+    let output = run(
+        &[
+            "--stdin-filepath",
+            "model.mzn",
+            "expressions | call_names | tally | json",
+        ],
+        b"constraint f(g(1), g(2));",
+    );
+    assert!(output.status.success() && output.stderr.is_empty());
+    assert_eq!(output.stdout, b"{\"f\":1,\"g\":2}\n");
+    let output = run(
+        &["--stdin-filepath", "model.mzn", "json"],
+        b"constraint true;",
+    );
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value[0]["file"], "model.mzn");
+    for expression in [
+        "expressions | range(0,999)",
+        "names | children",
+        "count | subtree",
+    ] {
+        let output = run(&[expression], b"constraint true;");
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
     }
 }
