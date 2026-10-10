@@ -848,3 +848,182 @@ fn selected_integer_product_inspects_written_sources_without_output_proof() {
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
+
+#[test]
+fn fresh_integer_let_inspects_sources_without_defining_private_choices() {
+    let library = concat!(
+        "annotation mzn_internal_representation;\n",
+        "function $$E: min(set of $$E: s);\n",
+        "function $$E: max(set of $$E: s);\n",
+        "function set of $$E: '..'($$E: a, $$E: b) :: mzn_internal_representation;\n",
+        "function int: 'div'(int: a, int: b) :: mzn_internal_representation;\n",
+    );
+    let source = concat!(
+        "int: limit; array[1..2] of set of int: domains;\n",
+        "array[1..2] of var int: choices = ",
+        "[let {var (min(domains[c]))..max(domains[c]): p} in p | c in 1..2];\n",
+        "var int: direct = let {var 1..limit: d} in d; solve satisfy;\n",
+    );
+    for (name, source, library, reason) in [
+        (
+            "fresh-choice-symbolic",
+            source.to_owned(),
+            library.to_owned(),
+            None,
+        ),
+        (
+            "fresh-choice-source-zero",
+            source.replace("domains;", "domains = [{1 div 0}, {1}];"),
+            library.to_owned(),
+            Some("zero"),
+        ),
+        (
+            "fresh-choice-written-body",
+            source.to_owned(),
+            library.replace("min(set of $$E: s);", "min(set of $$E: s) = 0;"),
+            Some("written primitive"),
+        ),
+    ] {
+        let (directory, _) = model(name, "solve satisfy;", "");
+        let root = directory.join("root.mzn");
+        write(&directory.join("library/std/stdlib.mzn"), &library);
+        write(&root, &source);
+        let context = load_model(
+            &root,
+            &ModelOptions {
+                stdlib_dir: Some(directory.join("library")),
+                include_dirs: Vec::new(),
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        assert!(context.limitations.is_empty());
+        assert!(context.root_file.is_some() && context.implicit_core.is_some());
+        assert!(context.includes.iter().all(|edge| edge.target.is_some()));
+        let file = context
+            .files
+            .iter()
+            .position(|file| file.path == root)
+            .unwrap();
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        for call in calls.calls.iter().filter(|call| call.file == file) {
+            assert!(
+                matches!(call.outcome, CallOutcome::Resolved { .. }),
+                "{name}: {call:?}"
+            );
+        }
+        for call in calls
+            .calls
+            .iter()
+            .filter(|call| call.file == file && matches!(call.name.as_str(), "min" | "max"))
+        {
+            assert!(
+                matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                if parameters.as_slice() == [TypeInst { instantiation: Instantiation::Parameter, optional: false,
+                    kind: TypeKind::Set(Box::new(TypeInst { instantiation: Instantiation::Parameter, optional: false, kind: TypeKind::Int })) }]
+                    && return_type == &TypeInst { instantiation: Instantiation::Parameter, optional: false, kind: TypeKind::Int })
+            );
+        }
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let callable = zincite_lint::resolve_callable_definitions(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+        );
+        let target = |name: &str| {
+            bindings
+                .declarations
+                .iter()
+                .find(|d| d.file == file && d.top_level && d.name == name)
+                .unwrap()
+                .id
+        };
+        let choices = target("choices");
+        let direct = target("direct");
+        let choice = definitions
+            .definitions
+            .iter()
+            .find(|d| d.target == choices)
+            .unwrap();
+        let scalar = definitions
+            .definitions
+            .iter()
+            .find(|d| d.target == direct)
+            .unwrap();
+        assert!(callable.outputs.is_empty());
+        assert!(callable.inspected_locals.is_empty());
+        for local in bindings
+            .declarations
+            .iter()
+            .filter(|d| d.file == file && !d.top_level && matches!(d.name.as_str(), "p" | "d"))
+        {
+            assert!(
+                !definitions
+                    .definitions
+                    .iter()
+                    .any(|definition| definition.target == local.id)
+            );
+        }
+        let bounded = definitions.bounded_or_defined_targets(&bindings, &domains);
+        assert!(!bounded.contains(&choices) && !bounded.contains(&direct));
+        let result = analyze_model(
+            &context,
+            &LintOptions::from_selection("unbounded-variable").unwrap(),
+        );
+        assert!(
+            result.errors.is_empty() && result.findings.is_empty(),
+            "{name}: {result:?}"
+        );
+        match reason {
+            None => {
+                assert!(
+                    matches!(choice.safety, DefinitionSafety::Unknown(_)),
+                    "FRESH_CHOICE_LET_RED: {:?}",
+                    choice.safety
+                );
+                assert!(
+                    matches!(scalar.safety, DefinitionSafety::Unknown(_)),
+                    "FRESH_CHOICE_RANGE_RED: {:?}",
+                    scalar.safety
+                );
+                assert_eq!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Completed,
+                    "{:?}",
+                    result.limitations
+                );
+            }
+            Some(_) => {
+                let DefinitionSafety::Unsupported(reason) = &choice.safety else {
+                    panic!("{name}: {:?}", choice.safety);
+                };
+                assert!(!reason.is_empty());
+                assert!(matches!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Limited { .. }
+                ));
+                assert!(
+                    result
+                        .limitations
+                        .iter()
+                        .any(|limit| limit.location.path == root
+                            && limit.message.contains(reason.as_str())),
+                    "{name}: {:?}",
+                    result.limitations
+                );
+            }
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
