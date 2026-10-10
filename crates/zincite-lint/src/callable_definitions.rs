@@ -14695,6 +14695,59 @@ impl<'a> Producer<'a> {
         all.extend(headers);
         Ok((ids, parts[1], all))
     }
+    fn native_fixed_source_safety(
+        &self,
+        file: FileId,
+        written: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> Option<DefinitionSafety> {
+        let node = unwrap(written);
+        if node.kind() != NodeKind::CallExpression || !self.core(file, node, view, "is_fixed") {
+            return None;
+        }
+        let arguments: Vec<_> = node.child_nodes().collect();
+        let [argument] = arguments.as_slice() else {
+            return None;
+        };
+        let decision = TypeInst::par(TypeKind::Int).with_inst(Instantiation::Decision);
+        let result = TypeInst::par(TypeKind::Bool);
+        let facts = self.view(file, node, view);
+        if self
+            .expression_type(facts, file, argument)
+            .is_none_or(|e| e.ty != decision)
+            || self
+                .expression_type(facts, file, node)
+                .is_none_or(|e| e.ty != result)
+        {
+            return None;
+        }
+        let mut nodes = vec![written];
+        while let Some(source) = nodes.pop() {
+            if source.kind() == NodeKind::Error || !self.source_annotations_safe(file, source) {
+                return Some(DefinitionSafety::Unsupported(
+                    "fixedness source annotation or syntax is unsupported".into(),
+                ));
+            }
+            nodes.extend(source.child_nodes());
+        }
+        if !self.prefix_primitive(file, node, facts, "is_fixed", &[decision], &result) {
+            return Some(DefinitionSafety::Unsupported(
+                "fixedness selected written primitive or tuple is unsupported".into(),
+            ));
+        }
+        if let unsupported @ DefinitionSafety::Unsupported(_) =
+            self.initialized_source_safety(file, argument, view, generators, &mut Vec::new())
+        {
+            return Some(unsupported);
+        }
+        if let Some(reason) = self.closed_integer_source_error(file, argument, true, true) {
+            return Some(DefinitionSafety::Unsupported(reason));
+        }
+        Some(DefinitionSafety::Unknown(
+            "decision fixedness is unproved".into(),
+        ))
+    }
     fn parameter_test_safety(
         &self,
         file: FileId,
@@ -17767,7 +17820,7 @@ impl<'a> Producer<'a> {
                 if indices.len() == rank && indices.iter().all(parameter_int)
                     && element.known() && !optional(element)
                     && (matches!(element.kind, TypeKind::Int | TypeKind::Bool)
-                        && (axes == 2 || element.kind == TypeKind::Bool)
+                        && (matches!(axes, 2 | 3) || element.kind == TypeKind::Bool)
                         || axes == 1 && t.instantiation == Instantiation::Parameter
                             && parameter_set(element)))
         };
@@ -17797,7 +17850,10 @@ impl<'a> Producer<'a> {
                 matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
                     if parameters.len() == axes + 1 && parameters.iter().zip(&children)
                         .all(|(formal, actual)| typed(actual) == Some(formal))
-                        && typed(node) == Some(return_type))
+                        && typed(node) == Some(return_type)
+                        && (axes != 3 || !matches!(&return_type.kind,
+                            TypeKind::Array { element, .. } if element.kind == TypeKind::Int)
+                            || self.prefix_primitive(file, node, facts, "array3d", parameters, return_type)))
             });
         let mut nodes = vec![written];
         while let Some(current) = nodes.pop() {
@@ -19075,15 +19131,50 @@ impl<'a> Producer<'a> {
         if block.kind() != NodeKind::LetBlock {
             return None;
         }
-        let locals: Vec<_> = block.child_nodes().collect();
-        let [local] = locals.as_slice() else {
-            return None;
-        };
-        let owner = self.bindings.declarations.iter().find(|declaration| {
-            declaration.file == file
-                && declaration.role == DeclarationRole::Local
-                && declaration.syntax_range == local.range()
-        })?;
+        let mut parameters = Vec::new();
+        let mut constraints = Vec::new();
+        let mut fresh = None;
+        for entry in block.child_nodes() {
+            if entry.kind() == NodeKind::Constraint && fresh.is_some() {
+                let expressions: Vec<_> = entry.child_nodes().collect();
+                let [constraint] = expressions.as_slice() else {
+                    return None;
+                };
+                if typed(constraint)
+                    .is_none_or(|ty| !ty.known() || optional(ty) || ty.kind != TypeKind::Bool)
+                {
+                    return None;
+                }
+                constraints.push(*constraint);
+                continue;
+            }
+            if entry.kind() != NodeKind::Declaration || fresh.is_some() {
+                return None;
+            }
+            let owner = self.bindings.declarations.iter().find(|declaration| {
+                declaration.file == file
+                    && declaration.role == DeclarationRole::Local
+                    && declaration.syntax_range == entry.range()
+            })?;
+            let ty = &self.view(file, entry, view).declarations[owner.id.0].ty;
+            let initializers: Vec<_> = entry
+                .child_nodes()
+                .filter(|part| is_expression(part.kind()))
+                .collect();
+            if ty == &integer
+                && let [initializer] = initializers.as_slice()
+            {
+                if typed(initializer) != Some(&integer) {
+                    return None;
+                }
+                parameters.push((entry, *initializer));
+            } else if ty == &decision && initializers.is_empty() {
+                fresh = Some((entry, owner));
+            } else {
+                return None;
+            }
+        }
+        let (local, owner) = fresh?;
         let body = unwrap(body);
         if local.kind() != NodeKind::Declaration
             || self.view(file, node, view).declarations[owner.id.0].ty != decision
@@ -19196,10 +19287,42 @@ impl<'a> Producer<'a> {
             {
                 return Err(reason);
             }
-            // Existing source readers decide which operations they can inspect.
-            // The operations physically written in these bounds must also retain
-            // their exact selected bodyless declaration, type, defaults and hints.
-            let mut nodes = bounds.clone();
+            let mut sources = bounds.clone();
+            for (parameter, initializer) in parameters {
+                let mut types: Vec<_> = parameter
+                    .child_nodes()
+                    .filter(|part| {
+                        !is_expression(part.kind()) && part.kind() != NodeKind::Annotation
+                    })
+                    .collect();
+                if types.len() != 1 {
+                    return Err("fresh integer let parameter type is unsupported".into());
+                }
+                while let Some(ty) = types.pop() {
+                    if ty.kind() == NodeKind::DomainType {
+                        for value in ty.child_nodes() {
+                            if typed(value) != Some(&set) {
+                                return Err(
+                                    "fresh integer let parameter domain type is unsupported".into(),
+                                );
+                            }
+                            if let Some(reason) = self.closed_integer_source_error_with_branches(
+                                file, value, false, true, true,
+                            ) {
+                                return Err(reason);
+                            }
+                            sources.push(value);
+                        }
+                    } else {
+                        types.extend(ty.child_nodes());
+                    }
+                }
+                sources.push(initializer);
+            }
+            sources.extend(constraints);
+            // Check every selected written operation and initialized source.
+            // Constraint inspection does not define the fresh result local.
+            let mut nodes = sources.clone();
             while let Some(source) = nodes.pop() {
                 if matches!(
                     source.kind(),
@@ -19212,14 +19335,14 @@ impl<'a> Producer<'a> {
                     let facts = self.view(file, source, view);
                     let call = self
                         .operation_fact(facts, file, source)
-                        .ok_or("fresh integer let bound selection is unavailable")?;
+                        .ok_or("fresh integer let source selection is unavailable")?;
                     let CallOutcome::Resolved {
                         parameters,
                         return_type,
                         ..
                     } = &call.outcome
                     else {
-                        return Err("fresh integer let bound selection is unsupported".into());
+                        return Err("fresh integer let source selection is unsupported".into());
                     };
                     if !self.prefix_primitive(
                         file,
@@ -19230,15 +19353,20 @@ impl<'a> Producer<'a> {
                         return_type,
                     ) {
                         return Err(
-                            "fresh integer let bound written primitive is unsupported".into()
+                            "fresh integer let source written primitive is unsupported".into()
                         );
                     }
                 }
                 nodes.extend(source.child_nodes());
             }
-            for bound in &bounds {
+            for source in sources {
+                if let Some(reason) =
+                    self.closed_integer_source_error_with_branches(file, source, false, true, true)
+                {
+                    return Err(reason);
+                }
                 if let DefinitionSafety::Unsupported(reason) =
-                    self.initialized_source_safety(file, bound, view, generators, &mut Vec::new())
+                    self.initialized_source_safety(file, source, view, generators, &mut Vec::new())
                 {
                     return Err(reason);
                 }
@@ -22759,6 +22887,9 @@ impl<'a> Producer<'a> {
         view: &CallableFacts,
         generators: &[&'a SyntaxNode],
     ) -> DefinitionSafety {
+        if let Some(safety) = self.native_fixed_source_safety(file, node, view, generators) {
+            return safety;
+        }
         if let Some(safety) = self.integer_product_source_safety(file, node, view, generators) {
             return safety;
         }

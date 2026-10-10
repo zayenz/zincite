@@ -658,7 +658,47 @@ impl<'context> Producer<'context> {
             && !optional(ty)
             && let Some(generators) = generators
         {
+            let call = unwrap_parentheses(value);
+            let rank_three_reshape = matches!(&ty.kind, TypeKind::Array { indices, element }
+                if indices.len() == 3 && element.kind == TypeKind::Int)
+                && call.kind() == NodeKind::CallExpression
+                && crate::callables::core_operation(
+                    self.context,
+                    self.bindings,
+                    self.calls,
+                    file,
+                    call,
+                    "array3d",
+                ) == Ok(true);
+            let decision_int =
+                crate::TypeInst::par(TypeKind::Int).with_inst(Instantiation::Decision);
+            let parameter_bool = crate::TypeInst::par(TypeKind::Bool);
+            let fixedness = ty.kind == TypeKind::Bool
+                && call.kind() == NodeKind::CallExpression
+                && crate::callables::core_operation(
+                    self.context, self.bindings, self.calls, file, call, "is_fixed",
+                ) == Ok(true)
+                && crate::callables::operation_fact(self.context, self.calls, file, call)
+                    .is_some_and(|fact| {
+                        matches!(&fact.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                            if parameters.as_slice() == std::slice::from_ref(&decision_int)
+                                && *return_type == parameter_bool)
+                    })
+                && {
+                    let mut arguments = call.child_nodes();
+                    arguments.next().is_some_and(|argument| {
+                        let location = self.context.files[file].location(argument.range());
+                        arguments.next().is_none()
+                            && self.expression_indices
+                                .get(&(file, location.range.start, location.range.end))
+                                .is_some_and(|&index| self.calls.expressions[index].ty == decision_int)
+                    })
+                };
+            // These gates only select the existing source reader. It retains
+            // primitive/body/source failures and supplies no definition proof.
             let initializer = (ty.kind == TypeKind::Int
+                || rank_three_reshape
+                || fixedness
                 || matches!(&ty.kind, TypeKind::Array { indices, element }
                     if indices.len() == 1 && element.kind == TypeKind::Int)
                 || matches!(&ty.kind, TypeKind::Array { indices, element }

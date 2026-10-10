@@ -7190,3 +7190,12 @@ selects that local copy. This is a dependency-context difference, not evidence
 that the top-level source is invalid. The checks neither compile an instance to
 FlatZinc nor solve it. Captures remain private under
 `semantic77-jobshop3-compiler-closure-v1`.
+
+The next independently reviewed increment inspects rank-three integer reshapes,
+exact native `is_fixed` calls and fresh integer lets with checked preceding
+parameter locals and Boolean constraints. It retains branch-aware source-error
+checks and returns Unknown without claiming values, local output identities or
+search coverage. The three focused cases and earlier fresh-let controls pass.
+The integrated checkout passes formatting, Clippy and all 278 workspace tests.
+Original-instance replay and whole-task acceptance remain pending; base-083
+remains open.

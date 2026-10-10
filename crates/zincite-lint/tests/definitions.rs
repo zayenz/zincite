@@ -1027,3 +1027,211 @@ fn fresh_integer_let_inspects_sources_without_defining_private_choices() {
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
+
+#[test]
+fn decision_sources_inspect_rank_three_reshape_fixedness_and_constrained_fresh_let() {
+    let library = concat!(
+        "annotation mzn_internal_representation;\n",
+        "function set of int: '..'(int: a, int: b) :: mzn_internal_representation;\n",
+        "function array[int,int,int] of var int: array3d(set of int: a, set of int: b, set of int: c, array[int] of var int: values);\n",
+        "function bool: is_fixed(var int: x);\n",
+        "function var bool: '='(var int: a, var int: b) :: mzn_internal_representation;\n",
+        "function var bool: '\\/'(var bool: a, var bool: b) :: mzn_internal_representation;\n",
+        "function int: 'div'(int: a, int: b) :: mzn_internal_representation;\n",
+    );
+    let source = concat!(
+        "int: limit; array[1..2] of var int: inputs;\n",
+        "array[1..2,1..2,1..2] of var int: reshaped = array3d(1..2,1..2,1..2,\n",
+        "[if is_fixed(inputs[c]) then inputs[c] else\n",
+        "let {int: lower = 0; int: upper = limit; var lower..upper: p;\n",
+        "constraint p = inputs[c] \\/ p = limit;} in p endif | a in 1..2, b in 1..2, c in 1..2]);\n",
+        "var bool: fixed = is_fixed(inputs[1]);\n",
+        "var int: constrained = let {int: lower = 0; int: upper = limit;\n",
+        "var lower..upper: p; constraint p = inputs[1];} in p; solve satisfy;\n",
+    );
+    for (name, source, library, refused) in [
+        (
+            "decision-sources-symbolic",
+            source.to_owned(),
+            library.to_owned(),
+            &[][..],
+        ),
+        (
+            "decision-sources-local-error",
+            source.replace("lower = 0", "lower = 1 div 0"),
+            library.to_owned(),
+            &["reshaped", "constrained"][..],
+        ),
+        (
+            "decision-sources-written-fixedness",
+            source.to_owned(),
+            library.replace("is_fixed(var int: x);", "is_fixed(var int: x) = true;"),
+            &["reshaped", "fixed"][..],
+        ),
+    ] {
+        let (directory, _) = model(name, "solve satisfy;", "");
+        let root = directory.join("root.mzn");
+        write(&directory.join("library/std/stdlib.mzn"), &library);
+        write(&root, &source);
+        let context = load_model(
+            &root,
+            &ModelOptions {
+                stdlib_dir: Some(directory.join("library")),
+                include_dirs: Vec::new(),
+            },
+        );
+        assert!(
+            context.errors.is_empty() && context.limitations.is_empty(),
+            "{name}: {context:?}"
+        );
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|f| f.parsed.diagnostics().is_empty())
+        );
+        assert!(context.root_file.is_some() && context.implicit_core.is_some());
+        assert!(context.includes.iter().all(|edge| edge.target.is_some()));
+        let file = context.files.iter().position(|f| f.path == root).unwrap();
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        for call in calls.calls.iter().filter(|call| call.file == file) {
+            assert!(
+                matches!(call.outcome, CallOutcome::Resolved { .. }),
+                "{name}: {call:?}"
+            );
+        }
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let callable = zincite_lint::resolve_callable_definitions(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+        );
+        assert!(callable.outputs.is_empty());
+        assert!(callable.inspected_locals.is_empty());
+        let locals: Vec<_> = bindings
+            .declarations
+            .iter()
+            .filter(|d| d.file == file && !d.top_level && d.name == "p")
+            .collect();
+        assert_eq!(locals.len(), 2);
+        let target = |name: &str| {
+            bindings
+                .declarations
+                .iter()
+                .find(|d| d.file == file && d.top_level && d.name == name)
+                .unwrap()
+                .id
+        };
+        let input = target("inputs");
+        let limit = target("limit");
+        let c = bindings
+            .declarations
+            .iter()
+            .find(|d| {
+                d.file == file
+                    && d.role == zincite_lint::DeclarationRole::Generator
+                    && d.name == "c"
+            })
+            .unwrap()
+            .id;
+        // These explicit equalities already create conditional scalar records.
+        // The source reader must neither remove them nor certify the local choice.
+        for (local, expected) in locals.iter().zip([
+            vec![
+                ("p = inputs[c]", vec![input, c]),
+                ("p = limit", vec![limit]),
+            ],
+            vec![("p = inputs[1]", vec![input])],
+        ]) {
+            let records: Vec<_> = definitions
+                .definitions
+                .iter()
+                .filter(|d| d.target == local.id)
+                .collect();
+            assert_eq!(records.len(), expected.len());
+            for (text, dependencies) in expected {
+                let record = records
+                    .iter()
+                    .find(|d| source[d.location.range.clone()].trim() == text)
+                    .unwrap();
+                assert_eq!(record.coverage, DefinitionCoverage::Scalar);
+                assert_eq!(record.enforcement, DefinitionEnforcement::Conditional);
+                assert_eq!(record.dependencies, dependencies);
+                if text == "p = limit" {
+                    assert_eq!(record.safety, DefinitionSafety::Supported);
+                } else {
+                    assert!(matches!(record.safety, DefinitionSafety::Unsupported(_)));
+                }
+            }
+        }
+        let bounded = definitions.bounded_or_defined_targets(&bindings, &domains);
+        for local in locals {
+            assert_eq!(
+                bounded.contains(&local.id),
+                domains.declarations[local.id.0]
+                    .domain
+                    .has_explicit_numeric_domain()
+            );
+            assert!(!callable.definitions.iter().any(|d| d.target == local.id));
+        }
+        let result = analyze_model(
+            &context,
+            &LintOptions::from_selection("unbounded-variable").unwrap(),
+        );
+        assert!(result.errors.is_empty());
+        for name in ["reshaped", "fixed", "constrained"] {
+            let id = bindings
+                .declarations
+                .iter()
+                .find(|d| d.file == file && d.top_level && d.name == name)
+                .unwrap()
+                .id;
+            let definition = definitions
+                .definitions
+                .iter()
+                .find(|d| d.target == id)
+                .unwrap();
+            assert!(!bounded.contains(&id));
+            if refused.contains(&name) {
+                let DefinitionSafety::Unsupported(reason) = &definition.safety else {
+                    panic!("{name}: {:?}", definition.safety);
+                };
+                assert!(!reason.is_empty());
+                assert!(matches!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Limited { .. }
+                ));
+                assert!(
+                    result
+                        .limitations
+                        .iter()
+                        .any(|limit| limit.location.path == root
+                            && limit.message.contains(reason.as_str())),
+                    "{name}: {:?}",
+                    result.limitations
+                );
+            } else {
+                assert!(
+                    matches!(definition.safety, DefinitionSafety::Unknown(_)),
+                    "DECISION_SOURCE_INSPECTION_RED {name}: {:?}",
+                    definition.safety
+                );
+            }
+        }
+        if refused.is_empty() {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{:?}",
+                result.limitations
+            );
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
