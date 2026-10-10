@@ -37,3 +37,9 @@ Read [the query expansion](../brief.md#query-and-data-transformation-expansion),
 - Reuse the focused public tests introduced by preceding tasks; add an end-to-end regression only for a demonstrated integration failure.
 - Run both command forms on the exact local model/data pairs, directly check retained/removed structured data and run MiniZinc instance checks on originals/candidates without solving. Record missing evidence rather than counting it as passed.
 - Run cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, and cargo test --workspace; use the brief's focused testing level.
+
+## Checkpoint
+
+Paired command recipes, actual private-instance reductions, direct source/data checks, compiler acceptance and fresh-process latency/RSS measurements are recorded in [the acceptance report](../../../scripts/query-acceptance.md). Independent whole-task review and required Cargo checks passed for that evidence at snapshot Wa27405e5c51666ef.
+
+The task remains open: both actual reductions return status 1 with four computed enum-indexed accesses unresolved in the read-only model. MiniZinc accepts the originals and candidates, but complete-reduction evidence for the third completion condition is missing. Full installed-library semantic inspection also reaches the documented collection limit. No dependency-analysis repair or corpus sweep was launched. Private originals remain byte-identical, and candidates/raw evidence remain temporary under /tmp/zincite092/.

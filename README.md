@@ -243,6 +243,32 @@ mode. Traversal follows static written references for the requested number of
 waves and terminates on recursion. See the reference for ordering, limits and
 available facts. An incomplete semantic report exits 1 with located stderr notes.
 
+### Recipes for both command forms
+
+The following pairs use the same query, settings and input. Replace the example
+paths with your files. Default edits print a candidate; redirect output to a
+temporary file to inspect it before an explicit `--write`.
+
+| Operation | Standalone | Root command |
+| --- | --- | --- |
+| Count assignments | `zincite-query 'items \| filter(kind("assignment")) \| count' data.dzn` | `zincite query 'items \| filter(kind("assignment")) \| count' data.dzn` |
+| Inspect record fields | `zincite-query 'filter(name("records")) \| elements \| fields \| names \| json' data.dzn` | `zincite query 'filter(name("records")) \| elements \| fields \| names \| json' data.dzn` |
+| Change an assignment | `zincite-query 'filter(name("capacity")) \| set_value("20")' data.dzn` | `zincite query 'filter(name("capacity")) \| set_value("20")' data.dzn` |
+| Keep positive weights | `zincite-query 'filter(name("weights")) \| filter_elements(gt(0))' data.dzn` | `zincite query 'filter(name("weights")) \| filter_elements(gt(0))' data.dzn` |
+| Reduce an enum | `zincite-query --model model.mzn 'reduce_enum("Guests", keep_first(8))' data.dzn` | `zincite query --model model.mzn 'reduce_enum("Guests", keep_first(8))' data.dzn` |
+| Inspect declaration uses | `zincite-query 'filter(name("capacity")) \| declarations \| uses \| json' model.mzn` | `zincite query 'filter(name("capacity")) \| declarations \| uses \| json' model.mzn` |
+
+Structured inspection requires literal values. Enum-keyed records can establish
+alignment directly; unrelated positional arrays still need model declarations.
+Semantic queries return available facts and limitations together. Configure
+`--stdlib-dir DIR` when builtin facts are needed, and keep exit 1 or a reported
+collection limit visible. Neither source navigation nor instance reduction
+evaluates arbitrary MiniZinc expressions.
+
+The [query acceptance report](scripts/query-acceptance.md) records actual paired
+commands, private-instance checks, measurements and the remaining completeness
+and resource limits.
+
 ## Exit codes
 
 | Code | `zincite fmt` / `zincite-fmt` | `zincite lint` / `zincite-lint` |
