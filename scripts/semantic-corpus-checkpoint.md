@@ -6786,3 +6786,31 @@ the prior wrappers propagated the selected sliding-body boundary; a separate
 exact initialized-source check of the scoped Boolean concatenation is still
 needed before claiming the complete actual-source chain inspected. Compiler056
 remains original source-only, and base-083 and final corpus acceptance stay open.
+
+Canonical implicit standard bodyless `array2d` now matches a known present
+multidimensional third actual through the existing rank-one matching view.
+The exact three-parameter set-axis signature guard retains nominal result axes,
+optional/decision element qualifiers, no-default/body requirements, and the
+existing unknown/ambiguity veto. User and written-body overloads keep their
+previous rank matching. This establishes types, without values, extents, source
+safety, outputs or search coverage.
+
+The focused public group reproduces the old matrix NoMatch and passes after the
+repair, including optional/decision matrices, nominal axes, rank-one fallback,
+User/written-body exclusions and unknown actual/competing-signature controls.
+Workspace formatting, Clippy and tests pass. ROOT audited six receipts and twelve
+complete streams under `target/benchmarks/base083/semantic70-array2d-matrix-main-checks-v1`
+and the paired original replay package.
+
+The original Workforce native replay under
+`target/benchmarks/base083/semantic70-workforce-array2d-native-prerequisite-v1`
+retains one warning and three limitations, down from six. The array2d diagnostic
+and downstream unused generic not/occurs reports disappear; the three remaining
+search limitations are cardinality actuals, the regexp body, and the optional
+local transition table. The latter has a known written optional matrix type;
+Local, initializer and invoked-actual readers independently refuse its optional
+elements, so this matcher does not supply their missing source inspection.
+All 1,133 source/library pins remain unchanged across the replay. Retained
+compiler056 is original source-only acceptance; actual-instance, complete scoped
+actual-source inspection and final corpus acceptance remain unproven. Base-083
+stays open with all Done conditions unchecked.

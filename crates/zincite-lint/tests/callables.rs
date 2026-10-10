@@ -974,3 +974,131 @@ fn standard_present_boolean_forall_accepts_multidimensional_matching_views() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn standard_array2d_matrix_matching_preserves_optional_elements_and_nominal_axes() {
+    use zincite_lint::SourceKind;
+    let (directory, options) = setup("matrix-array2d");
+    let root = directory.join("root.mzn");
+    let library = options.stdlib_dir.as_ref().unwrap().join("std/stdlib.mzn");
+    let canonical = "function array[$$E,$$F] of any $V: array2d(set of $$E:S1,set of $$F:S2,array[$U] of any $V:x);\n";
+    let alternative = "function array[$$E,$$F] of any $V: array2d(array[int] of $$E:S1,array[int] of $$F:S2,array[int] of any $V:x)=[(S1[1],S2[1]):x[1]];\n";
+    let source = concat!(
+        "enum Axis={A,B};\n",
+        "array[1..2,Axis] of opt int: matrix=array2d(1..2,Axis,[|1,<>|<>,2|]);\n",
+        "array[Axis,Axis] of var opt int: decisions;\n",
+        "array[1..2,Axis] of var opt int: reshaped=array2d(1..2,Axis,decisions);\n",
+        "array[1..2,Axis] of opt int: vector=array2d(1..2,Axis,[1,<>,<>,2]);\n",
+        "any: unknown=array2d(1..2,Axis,missing); solve satisfy;\n",
+    );
+    write(&library, &format!("{canonical}{alternative}"));
+    write(&root, source);
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    assert!(context.limitations.is_empty(), "{:?}", context.limitations);
+    assert!(
+        context
+            .files
+            .iter()
+            .all(|file| file.parsed.diagnostics().is_empty())
+    );
+    let bindings = resolve_bindings(&context);
+    let facts = resolve_callables(&context, &bindings);
+    let axis = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "Axis")
+        .unwrap()
+        .id;
+    for (marker, instantiation) in [
+        ("array2d(1..2,Axis,[|", Instantiation::Parameter),
+        ("array2d(1..2,Axis,decisions)", Instantiation::Decision),
+        ("array2d(1..2,Axis,[1", Instantiation::Parameter),
+    ] {
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = outcome(&facts, &root, source, marker)
+        else {
+            panic!("{marker}: {:?}", outcome(&facts, &root, source, marker));
+        };
+        let owner = &bindings.declarations[declaration.0];
+        assert_eq!(owner.role, DeclarationRole::Function);
+        assert_eq!(context.files[owner.file].kind, SourceKind::StandardLibrary);
+        assert!(context.files[owner.file].implicit);
+        assert_eq!(
+            context.files[owner.file].canonical_path,
+            library.canonicalize().unwrap()
+        );
+        assert_eq!(parameters.len(), 3);
+        assert!(
+            matches!(&parameters[0].kind, TypeKind::Set(element) if element.kind == TypeKind::Int)
+        );
+        assert!(
+            matches!(&parameters[1].kind, TypeKind::Set(element) if element.kind == TypeKind::Enum(axis))
+        );
+        assert!(
+            matches!(&parameters[2].kind, TypeKind::Array { indices, element }
+            if indices.len() == 1 && indices[0].kind == TypeKind::Int
+                && element.kind == TypeKind::Int && element.optional
+                && element.instantiation == instantiation)
+        );
+        assert_eq!(return_type.instantiation, instantiation);
+        assert!(!return_type.optional);
+        assert!(
+            matches!(&return_type.kind, TypeKind::Array { indices, element }
+            if indices.len() == 2 && indices[0].kind == TypeKind::Int
+                && indices[1].kind == TypeKind::Enum(axis)
+                && element.kind == TypeKind::Int && element.optional
+                && element.instantiation == instantiation)
+        );
+    }
+    assert!(matches!(
+        outcome(&facts, &root, source, "array2d(1..2,Axis,missing)"),
+        CallOutcome::Unsupported { .. }
+    ));
+    for (standard, user) in [
+        (
+            canonical.replace(';', "=[(i,j):x[min(index_set(x))]|i in S1,j in S2];"),
+            String::new(),
+        ),
+        (String::new(), canonical.to_owned()),
+    ] {
+        write(&library, &standard);
+        let changed = format!("{user}{source}");
+        write(&root, &changed);
+        let context = load_model(&root, &options);
+        let bindings = resolve_bindings(&context);
+        let facts = resolve_callables(&context, &bindings);
+        for marker in ["array2d(1..2,Axis,[|", "array2d(1..2,Axis,decisions)"] {
+            assert!(
+                matches!(
+                    outcome(&facts, &root, &changed, marker),
+                    CallOutcome::NoMatch { .. }
+                ),
+                "{marker}: {:?}",
+                outcome(&facts, &root, &changed, marker)
+            );
+        }
+        assert!(matches!(
+            outcome(&facts, &root, &changed, "array2d(1..2,Axis,[1"),
+            CallOutcome::Resolved { .. }
+        ));
+    }
+    write(&root, source);
+    write(
+        &library,
+        &format!(
+            "{canonical}\nfunction int: array2d(set of $$E:S1,set of $$F:S2,array[int,int] of Missing:x);\n"
+        ),
+    );
+    let context = load_model(&root, &options);
+    let bindings = resolve_bindings(&context);
+    let facts = resolve_callables(&context, &bindings);
+    assert!(matches!(
+        outcome(&facts, &root, source, "array2d(1..2,Axis,[|"),
+        CallOutcome::Unsupported { .. }
+    ));
+    std::fs::remove_dir_all(directory).unwrap();
+}

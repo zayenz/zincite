@@ -1368,9 +1368,9 @@ impl<'a> Engine<'a> {
                     *actual = default.as_ref();
                 }
             }
-            // Pinned standard searches, array1d, integer sum and present Boolean
-            // forall coerce multidimensional arrays to row-major one-dimensional
-            // inputs. Keep this limited to retained standard identities.
+            // Pinned standard searches, array reshapes, integer sum and present
+            // Boolean forall use row-major one-dimensional matching views.
+            // Keep this limited to retained standard identities.
             let d = &self.bindings.declarations[id.0];
             let standard = self.context.files[d.file].kind == crate::SourceKind::StandardLibrary
                 && self.context.files[d.file].implicit;
@@ -1379,11 +1379,51 @@ impl<'a> Engine<'a> {
                     d.name.as_str(),
                     "array1d" | "int_search" | "bool_search" | "float_search" | "set_search"
                 );
+            let array2d_view = standard
+                && d.name == "array2d"
+                && d.role == DeclarationRole::Function
+                && signature.parameters.len() == 3
+                && signature.parameters.iter().all(|p| !p.has_default)
+                && signature.return_type.instantiation == Instantiation::Unknown
+                && !signature.return_type.optional
+                && self.nodes[id.0].is_some_and(|node| {
+                    !node.child_nodes().any(|child| is_expression(child.kind()))
+                })
+                && matches!(&signature.return_type.kind,
+                    TypeKind::Array { indices, element }
+                    if indices.len() == 2
+                        && indices[0] != indices[1]
+                        && signature.parameters[..2].iter().zip(indices).all(|(p, axis)|
+                            p.ty.instantiation == Instantiation::Parameter && !p.ty.optional
+                                && axis.instantiation == Instantiation::Parameter && !axis.optional
+                                && matches!(axis.kind, TypeKind::Variable { enum_only: true, any: false, .. })
+                                && matches!(&p.ty.kind, TypeKind::Set(value) if value.as_ref() == axis))
+                        && !element.optional
+                        && element.instantiation == Instantiation::Unknown
+                        && matches!(element.kind, TypeKind::Variable { enum_only: false, any: true, .. })
+                        && signature.parameters[2].ty.instantiation == Instantiation::Unknown
+                        && !signature.parameters[2].ty.optional
+                        && matches!(&signature.parameters[2].ty.kind,
+                            TypeKind::Array { indices: input, element: value }
+                            if input.len() == 1 && value == element
+                                && input[0].instantiation == Instantiation::Parameter && !input[0].optional
+                                && matches!(&input[0].kind, TypeKind::Variable { name, enum_only: false, any: false }
+                                    if matches!(&element.kind, TypeKind::Variable { name: value, .. } if name != value))));
             let coerced: Vec<_> = assigned
                 .iter()
                 .zip(&signature.parameters)
-                .map(|(actual, formal)| {
+                .enumerate()
+                .map(|(position, (actual, formal))| {
                     actual.map(|actual| {
+                        let array2d_input_view = array2d_view
+                            && position == 2
+                            && actual.known()
+                            && !actual.optional
+                            && matches!(actual.instantiation, Instantiation::Parameter | Instantiation::Decision)
+                            && matches!(&actual.kind, TypeKind::Array { indices, .. }
+                                if indices.len() > 1 && indices.iter().all(|index|
+                                    index.instantiation == Instantiation::Parameter && !index.optional
+                                        && matches!(index.kind, TypeKind::Int | TypeKind::Enum(_))));
                         let integer_sum_view = standard
                             && d.name == "sum"
                             && signature.parameters.len() == 1
@@ -1445,7 +1485,7 @@ impl<'a> Engine<'a> {
                                 element: element.clone(),
                             };
                         }
-                        if (standard_view || integer_sum_view || boolean_forall_view)
+                        if (standard_view || array2d_input_view || integer_sum_view || boolean_forall_view)
                             && let (
                                 TypeKind::Array { indices, .. },
                                 TypeKind::Array {
