@@ -38,7 +38,14 @@ pub(crate) enum StageKind {
     Json,
     SetValue(String),
     Remove,
+    ReduceEnum(String, Retention),
     EmitDocument,
+}
+
+#[derive(Debug)]
+pub(crate) enum Retention {
+    Keep(Vec<(String, Range<usize>)>),
+    First(usize),
 }
 
 #[derive(Debug)]
@@ -139,6 +146,52 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
                 parser.punctuation(b')', "expected ')' after replacement expression")?;
                 StageKind::SetValue(value)
             }
+            "reduce_enum" => {
+                parser.punctuation(b'(', "expected '(' after reduce_enum")?;
+                let name = parser.string()?.0;
+                if crate::identifier_identity(&name).is_empty() {
+                    return Err(QueryError::query(
+                        name_range,
+                        "enum identity must not be empty",
+                    ));
+                }
+                parser.punctuation(b',', "expected ',' before enum retention")?;
+                let (selection, selection_range) = parser.word("expected keep or keep_first")?;
+                parser.punctuation(b'(', "expected '(' after retention")?;
+                let retention = match selection {
+                    "keep_first" => Retention::First(parser.integer()?),
+                    "keep" => {
+                        let mut names = Vec::new();
+                        parser.space();
+                        if parser.current() != Some(b')') {
+                            loop {
+                                if names.len() >= limits.collection {
+                                    return Err(QueryError::query(
+                                        start..parser.position,
+                                        "query collection limit exceeded",
+                                    ));
+                                }
+                                names.push(parser.string()?);
+                                parser.space();
+                                if parser.current() != Some(b',') {
+                                    break;
+                                }
+                                parser.punctuation(b',', "expected ',' between members")?;
+                            }
+                        }
+                        Retention::Keep(names)
+                    }
+                    _ => {
+                        return Err(QueryError::query(
+                            selection_range,
+                            "expected keep or keep_first",
+                        ));
+                    }
+                };
+                parser.punctuation(b')', "expected ')' after retention")?;
+                parser.punctuation(b')', "expected ')' after reduce_enum")?;
+                StageKind::ReduceEnum(name, retention)
+            }
             "remove" => StageKind::Remove,
             "emit_document" => StageKind::EmitDocument,
             _ => {
@@ -172,7 +225,10 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
         }
         editing |= matches!(
             kind,
-            StageKind::SetValue(_) | StageKind::Remove | StageKind::FilterElements(_)
+            StageKind::SetValue(_)
+                | StageKind::Remove
+                | StageKind::FilterElements(_)
+                | StageKind::ReduceEnum(_, _)
         );
         let terminal = matches!(
             kind,

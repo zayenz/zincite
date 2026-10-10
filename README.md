@@ -11,7 +11,7 @@ Zincite provides source tools for MiniZinc model (`.mzn`) and data
 
 - **`zincite fmt`** (or **`zincite-fmt`**) formats source, checks formatting, and writes changes in place.
 - **`zincite lint`** (or **`zincite-lint`**) is a linter for MiniZinc models and data.
-- **`zincite query`** (or **`zincite-query`**) inspects items, expressions, calls and annotations, emits JSON/count reports, and explicitly edits data assignments.
+- **`zincite query`** (or **`zincite-query`**) inspects items, expressions, calls and annotations, emits JSON/count reports, and explicitly edits data assignments and enum membership.
 
 The tools are written in Rust and share a parser that preserves source spelling,
 comments, whitespace and source locations. The commands do not require a MiniZinc
@@ -194,8 +194,23 @@ Default editing prints the candidate and leaves files unchanged. `--diff` previe
 it; `--write` replaces the explicit regular file after checking the original bytes
 again and preserving permissions. The modes are mutually exclusive; writes
 reject stdin and symlinks. Edits change instance meaning and establish syntax
-only. Queries check syntax without loading includes or evaluating data. Query errors
-exit 2 with empty stdout. See the [query reference](docs/reference.md#query-library)
+only. Syntax queries do not load includes or evaluate data. Enum reduction uses
+optional read-only model facts:
+
+```sh
+zincite query --model seating.mzn 'reduce_enum("Guests", keep("A", "C"))' data.dzn
+zincite-query --diff 'reduce_enum("Guests", keep_first(20))' data.dzn
+```
+
+Retention preserves original enum order and quoted spelling; empty retention is
+allowed. Reduction removes matching keyed records and supported array slices,
+including nested arrays and rectangular axes. Positional alignment requires
+unambiguous model declarations and full original enum coverage. `-I DIR` adds
+include paths in order; `--stdlib-dir DIR` overrides `MZN_STDLIB_DIR`.
+Remaining scalar/computed dependencies and unavailable alignment facts make the
+candidate incomplete. Set cleanup and integer group compaction remain deferred.
+Incomplete previews exit 1 with located stderr diagnostics; `--write` refuses them.
+Actual errors exit 2 with empty stdout. See the [query reference](docs/reference.md#query-library)
 for kind strings, comment rules and limits, or run `zincite query --help`.
 
 ## Exit codes
@@ -206,9 +221,9 @@ for kind strings, comment rules and limits, or run `zincite query --help`.
 | `1` | Check mode found formatting changes | Unsuppressed warnings |
 | `2` | Input, syntax, configuration, directive or usage error | Input, syntax, directive, usage or dependency error |
 
-`zincite query` / `zincite-query` exits 0 on success and 2 on query, input,
-usage or I/O errors. An empty fragment selection succeeds and emits no source;
-its count is 0.
+`zincite query` / `zincite-query` exits 0 for complete results, 1 for incomplete
+reduction candidates and 2 for query, input, model, usage or I/O errors. An empty
+fragment selection succeeds and emits no source; its count is 0.
 
 Errors take precedence when checking multiple files. Diagnostics include a file
 path and source location where applicable.
@@ -238,7 +253,7 @@ The commands have reusable Rust libraries:
 | `zincite-syntax` | Lexer, parser, source locations and a concrete syntax tree |
 | `zincite-fmt` | Formatting a parsed file, with configurable layout |
 | `zincite-lint` | Lint rules, diagnostics and explicit model/include context |
-| `zincite-query` | Source inspection, JSON/count reports and explicit data assignment edits |
+| `zincite-query` | Source inspection, JSON/count reports and explicit data/enum edits |
 
 See the [syntax and library reference](docs/reference.md) for APIs and detailed
 language coverage. Generate local API documentation with

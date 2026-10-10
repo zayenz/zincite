@@ -41,11 +41,7 @@ fn query_source_and_usage_errors_exit_two_with_empty_stdout() {
         ),
         (vec!["emit"], "int: x = ;", "<stdin>:1:"),
         (vec!["count", "a.dzn", "b.dzn"], "", "at most one input"),
-        (
-            vec!["count", "--model", "model.mzn"],
-            "",
-            "unsupported option",
-        ),
+        (vec!["count", "--model"], "", "requires a path"),
         (
             vec!["count", "--stdin-filepath", "data.dzn", "model.mzn"],
             "",
@@ -62,7 +58,7 @@ fn query_source_and_usage_errors_exit_two_with_empty_stdout() {
     let help = String::from_utf8(output.stdout).unwrap();
     assert!(help.starts_with("Usage: zincite-query "));
     assert!(help.contains("filter") && help.contains("count"));
-    assert!(!help.contains("--model") && help.contains("subtree"));
+    assert!(help.contains("--model") && help.contains("reduce_enum") && help.contains("subtree"));
 }
 
 #[test]
@@ -204,4 +200,126 @@ fn collection_filters_inspect_preview_and_write_only_complete_candidates() {
         assert_eq!(std::fs::read(&path).unwrap(), source);
     }
     std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn enum_reduction_previews_complete_and_incomplete_candidates_and_uses_read_only_model() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-query-reduce-{}", std::process::id()));
+    std::fs::create_dir(&directory).unwrap();
+    let includes = directory.join("includes");
+    std::fs::create_dir(&includes).unwrap();
+    let model = directory.join("model.mzn");
+    let declarations = includes.join("declarations.mzn");
+    let data = directory.join("instance.dzn");
+    let model_bytes = b"include \"declarations.mzn\"; solve satisfy;\n";
+    let declaration_bytes = b"enum Guests; array[Guests] of int: scores;\n";
+    let source = b"Guests = {A,B,C}; scores = [10,20,30];\n";
+    let expression = "reduce_enum(\"Guests\", keep(\"C\", \"A\"))";
+    std::fs::write(&model, model_bytes).unwrap();
+    std::fs::write(&declarations, declaration_bytes).unwrap();
+    std::fs::write(&data, source).unwrap();
+    let options = [
+        "--model",
+        model.to_str().unwrap(),
+        "-I",
+        includes.to_str().unwrap(),
+    ];
+    let mut arguments = options.to_vec();
+    arguments.extend([expression, data.to_str().unwrap()]);
+    let output = run(&arguments, b"");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"Guests = {A,C}; scores = [10,30];\n");
+    let candidate = output.stdout;
+    for mode in ["--diff", "--write"] {
+        let mut arguments = options.to_vec();
+        arguments.extend([mode, expression, data.to_str().unwrap()]);
+        let output = run(&arguments, b"");
+        assert_eq!(output.status.code(), Some(0));
+        assert!(output.stderr.is_empty());
+        if mode == "--diff" {
+            assert!(output.stdout.starts_with(b"--- a/"));
+        }
+    }
+    assert_eq!(std::fs::read(&data).unwrap(), candidate);
+    assert_eq!(std::fs::read(&model).unwrap(), model_bytes);
+    assert_eq!(std::fs::read(&declarations).unwrap(), declaration_bytes);
+
+    let incomplete = b"Guests = {A,B,C}; scores = [10,20,30]; chosen = B;\n";
+    std::fs::write(&data, incomplete).unwrap();
+    for mode in [None, Some("--diff"), Some("--write")] {
+        let mut arguments = options.to_vec();
+        arguments.extend(mode);
+        arguments.extend([expression, data.to_str().unwrap()]);
+        let output = run(&arguments, b"");
+        assert_eq!(output.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("removed enum member"));
+        if mode == Some("--write") {
+            assert!(output.stdout.is_empty());
+        } else {
+            assert!(!output.stdout.is_empty());
+        }
+        assert_eq!(std::fs::read(&data).unwrap(), incomplete);
+    }
+    let computed_model = b"\xef\xbb\xbfenum Guests; array[Guests] of int: scores;\nint: chosen = scores[to_enum(Guests, 2)];\n";
+    std::fs::write(&declarations, computed_model).unwrap();
+    std::fs::write(&data, source).unwrap();
+    for mode in [None, Some("--diff"), Some("--write")] {
+        let mut arguments = options.to_vec();
+        arguments.extend(mode);
+        arguments.extend([expression, data.to_str().unwrap()]);
+        let output = run(&arguments, b"");
+        assert_eq!(output.status.code(), Some(1));
+        let diagnostics = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            diagnostics.contains("declarations.mzn:2:15:"),
+            "{diagnostics}"
+        );
+        assert!(diagnostics.contains("computed enum-indexed access"));
+        assert_eq!(std::fs::read(&data).unwrap(), source);
+        assert_eq!(std::fs::read(&declarations).unwrap(), computed_model);
+        if mode == Some("--write") {
+            assert!(output.stdout.is_empty());
+        } else {
+            assert!(!output.stdout.is_empty());
+        }
+    }
+    let output = run(
+        &[
+            "--model",
+            model.to_str().unwrap(),
+            expression,
+            data.to_str().unwrap(),
+        ],
+        b"",
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("model.mzn:1:"));
+    let output = run(
+        &[
+            "--model",
+            "unavailable.mzn",
+            "count",
+            data.to_str().unwrap(),
+        ],
+        b"",
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout, b"2\n");
+    let output = run(
+        &[
+            "reduce_enum(\"Guests\", keep(\"unknown\"))",
+            data.to_str().unwrap(),
+        ],
+        b"",
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    std::fs::remove_dir_all(directory).unwrap();
 }

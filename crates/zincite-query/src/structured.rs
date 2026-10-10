@@ -136,7 +136,7 @@ fn collection_node<'a>(
     Ok(node)
 }
 
-fn unwrapped(mut node: &SyntaxNode) -> &SyntaxNode {
+pub(crate) fn unwrapped(mut node: &SyntaxNode) -> &SyntaxNode {
     while node.kind() == NodeKind::ParenthesizedExpression {
         let Some(child) = node.child_nodes().next() else {
             break;
@@ -146,7 +146,7 @@ fn unwrapped(mut node: &SyntaxNode) -> &SyntaxNode {
     node
 }
 
-fn direct_token(input: &Input, node: &SyntaxNode) -> Option<usize> {
+pub(crate) fn direct_token(input: &Input, node: &SyntaxNode) -> Option<usize> {
     node.children().iter().find_map(|child| match child {
         SyntaxElement::Token(index)
             if !matches!(
@@ -160,11 +160,11 @@ fn direct_token(input: &Input, node: &SyntaxNode) -> Option<usize> {
     })
 }
 
-fn has_colon(input: &Input, node: &SyntaxNode) -> bool {
+pub(crate) fn has_colon(input: &Input, node: &SyntaxNode) -> bool {
     node.children().iter().any(|child| matches!(child, SyntaxElement::Token(index) if input.syntax().tokens()[*index].kind == TokenKind::Colon))
 }
 
-fn array_indexing(node: &SyntaxNode) -> ArrayIndexing {
+pub(crate) fn array_indexing(node: &SyntaxNode) -> ArrayIndexing {
     let mut explicit = false;
     let mut bare = false;
     for entry in node.child_nodes() {
@@ -842,12 +842,12 @@ fn compare(
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-enum Key {
+pub(crate) enum Key {
     Integer(i64),
     Member(String),
 }
 
-fn key_parts(
+pub(crate) fn key_parts(
     value: &LiteralValue<'_>,
     node: &SyntaxNode,
     input: &Input,
@@ -883,7 +883,7 @@ fn key_part(
     }
 }
 
-fn validate_keys(
+pub(crate) fn validate_keys(
     keys: &[Vec<Key>],
     source_range: &Range<usize>,
     work: &mut Work,
@@ -1391,7 +1391,7 @@ fn matrix_edit(
     })
 }
 
-fn collection_edit(
+pub(crate) fn collection_edit(
     input: &Input,
     target: &SyntaxNode,
     entries: &[&SyntaxNode],
@@ -1444,6 +1444,7 @@ fn collection_edit(
         .collect();
     let punctuation = match separator {
         TokenKind::Colon => ":",
+        TokenKind::Pipe => "|",
         _ => ",",
     };
     let insertions: Vec<_> = kept
@@ -1588,4 +1589,23 @@ fn attach_entry_comments(
         }
     }
     Ok(())
+}
+
+/// Decode only an index, leaving computed descendants in the value untouched.
+pub(crate) fn read_key(
+    input: &Input,
+    node: &SyntaxNode,
+    work: &mut Work,
+    range: &Range<usize>,
+    limits: Limits,
+) -> Result<Vec<Key>, QueryError> {
+    let mut reader = LiteralReader {
+        input,
+        work,
+        range,
+        limits,
+        entries: 0,
+    };
+    let value = reader.read(node, 0)?;
+    key_parts(&value, node, input, reader.work, range)
 }

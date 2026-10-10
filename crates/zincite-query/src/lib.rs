@@ -10,7 +10,9 @@
 use std::collections::BTreeMap;
 use std::ops::Range;
 
-use zincite_lint::{EditPart, SourceSnapshot, TextEdit, prepare_text_edits};
+use zincite_lint::{
+    EditPart, ModelContext, SourceLocation, SourceSnapshot, TextEdit, prepare_text_edits,
+};
 use zincite_syntax::{
     ByteParsedFile, Diagnostic, FileMode, NodeKind, ParsedFile, SyntaxElement, SyntaxNode,
     TokenKind, byte_line_column, parse_bytes_with_mode,
@@ -19,8 +21,10 @@ use zincite_syntax::{
 pub mod cli;
 mod inspection;
 mod language;
+mod reduction;
 mod structured;
 pub use inspection::{JsonResult, NodeSelection, SelectedNode};
+pub use reduction::{ReductionResult, UnresolvedDependency};
 pub use structured::{
     ArrayIndexing, LiteralEntry, LiteralField, LiteralKind, LiteralLabel, LiteralRow,
     LiteralSelection, LiteralValue,
@@ -49,10 +53,11 @@ impl Default for Limits {
 }
 
 /// Coordinate space of a query failure.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ErrorLocation {
     Query,
     Input,
+    Model(SourceLocation),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -310,6 +315,8 @@ pub enum QueryResult<'a> {
     Json(JsonResult<'a>),
     /// Complete validated candidate from one intentional data transformation.
     Document(Vec<u8>),
+    /// Reparsed enum reduction with any remaining located dependencies.
+    Reduction(ReductionResult),
 }
 
 impl QueryResult<'_> {
@@ -341,6 +348,7 @@ impl QueryResult<'_> {
             Self::Json(result) => result.render(),
             Self::Count(count) => format!("{count}\n").into_bytes(),
             Self::Document(bytes) => bytes.clone(),
+            Self::Reduction(result) => result.candidate().source_bytes().to_vec(),
             Self::Selection(selection) if selection.document => selection.input.bytes.clone(),
             Self::Selection(selection) => {
                 let mut bytes = Vec::new();
@@ -369,14 +377,33 @@ impl Query {
         self.stages.iter().any(|stage| {
             matches!(
                 stage.kind,
-                StageKind::SetValue(_) | StageKind::Remove | StageKind::FilterElements(_)
+                StageKind::SetValue(_)
+                    | StageKind::Remove
+                    | StageKind::FilterElements(_)
+                    | StageKind::ReduceEnum(_, _)
             )
         })
+    }
+
+    pub fn requires_model_facts(&self) -> bool {
+        self.stages
+            .iter()
+            .any(|stage| matches!(stage.kind, StageKind::ReduceEnum(_, _)))
     }
 
     pub fn evaluate<'a>(
         &self,
         input: &'a Input,
+        limits: Limits,
+    ) -> Result<QueryResult<'a>, QueryError> {
+        self.evaluate_with_model(input, None, limits)
+    }
+
+    /// Only enum reduction consumes the optional read-only model context.
+    pub fn evaluate_with_model<'a>(
+        &self,
+        input: &'a Input,
+        model: Option<&ModelContext>,
         limits: Limits,
     ) -> Result<QueryResult<'a>, QueryError> {
         let mut work = Work {
@@ -473,6 +500,23 @@ impl Query {
                         input,
                         result,
                         comparison,
+                        &stage.range,
+                        &mut work,
+                        limits,
+                    )?)
+                }
+                StageKind::ReduceEnum(name, retention) => {
+                    if !matches!(result, QueryResult::Selection(_)) {
+                        return Err(inspection::type_error(
+                            &stage.range,
+                            "reduce_enum requires an item selection",
+                        ));
+                    }
+                    QueryResult::Reduction(reduction::reduce(
+                        input,
+                        model,
+                        name,
+                        retention,
                         &stage.range,
                         &mut work,
                         limits,
@@ -644,15 +688,16 @@ fn finish_candidate(
     let snapshot = SourceSnapshot::new("<query>.dzn", input.source_bytes());
     let candidate = prepare_text_edits(&snapshot, input.source_bytes(), edits)
         .map_err(|error| QueryError::query(range.clone(), error.to_string()))?;
-    let candidate_input = Input::parse(candidate, FileMode::Data).map_err(|error| {
-        QueryError::query(
-            range.clone(),
-            format!(
-                "invalid data edit candidate: {}",
-                error.diagnostics[0].message
-            ),
-        )
-    })?;
+    let candidate_input =
+        Input::parse_named(candidate, FileMode::Data, input.file()).map_err(|error| {
+            QueryError::query(
+                range.clone(),
+                format!(
+                    "invalid data edit candidate: {}",
+                    error.diagnostics[0].message
+                ),
+            )
+        })?;
     validate_document_directives(&candidate_input, &[], work, range).map_err(|error| {
         QueryError::query(
             range.clone(),

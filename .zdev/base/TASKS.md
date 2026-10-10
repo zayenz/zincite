@@ -4,8 +4,8 @@
 
 - Total: 96
 - Ready: 4
-- Blocked: 6
-- Done: 86
+- Blocked: 5
+- Done: 87
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -96,8 +96,8 @@
 | [base-085](tasks/085-deliver-source-preserving-item-queries-through-library-and-b.md) | Deliver source-preserving item queries through library and both commands | done | base-084 |
 | [base-086](tasks/086-replace-and-remove-selected-data-assignments-with-source-pre.md) | Replace and remove selected data assignments with source-preserving previews | done | base-085 |
 | [base-087](tasks/087-inspect-and-filter-structured-literal-data-while-preserving.md) | Inspect and filter structured literal data while preserving keys and records | done | base-086 |
-| [base-088](tasks/088-reduce-enum-membership-and-dependent-indexed-records-and-arr.md) | Reduce enum membership and dependent indexed records and array slices | ready | base-087 |
-| [base-089](tasks/089-prune-removed-enum-members-from-sets-and-repair-supported-gr.md) | Prune removed enum members from sets and repair supported group indices | blocked | base-088 |
+| [base-088](tasks/088-reduce-enum-membership-and-dependent-indexed-records-and-arr.md) | Reduce enum membership and dependent indexed records and array slices | done | base-087 |
+| [base-089](tasks/089-prune-removed-enum-members-from-sets-and-repair-supported-gr.md) | Prune removed enum members from sets and repair supported group indices | ready | base-088 |
 | [base-090](tasks/090-query-nested-expressions-and-emit-structured-source-inspecti.md) | Query nested expressions and emit structured source inspection reports | done | base-085 |
 | [base-091](tasks/091-expose-existing-declaration-references-and-semantic-facts-to.md) | Expose existing declaration references and semantic facts to model queries | blocked | base-090, base-089 |
 | [base-092](tasks/092-validate-both-query-commands-and-wedding-instance-reduction.md) | Validate both query commands and wedding-instance reduction on representative data | blocked | base-089, base-091 |

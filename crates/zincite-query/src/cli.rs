@@ -4,14 +4,16 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use zincite_lint::{SourceSnapshot, replace_source_file, write_fix_diff};
+use zincite_lint::{
+    ModelOptions, SourceLocation, SourceSnapshot, load_model, replace_source_file, write_fix_diff,
+};
 use zincite_syntax::{FileMode, byte_line_column};
 
-use crate::{ErrorLocation, Input, Limits, Query, QueryError};
+use crate::{ErrorLocation, Input, Limits, Query, QueryError, QueryResult};
 
-const HELP: &str = "Usage: zincite-query [--stdin-filepath PATH] [--diff|--write] QUERY [FILE|-]
+const HELP: &str = "Usage: zincite-query [--stdin-filepath PATH] [--model PATH] [-I DIR] [--stdlib-dir DIR] [--diff|--write] QUERY [FILE|-]
 
-Inspect MiniZinc source or change selected data assignments.
+Inspect MiniZinc source or change data assignments and enum membership.
 No input or '-' reads stdin; .dzn paths select assignment-only data syntax.
 Syntax queries do not load includes or require a MiniZinc library or solver.
 QUERY is one fixed pipeline separated by '|'; an empty query selects all items.
@@ -40,7 +42,8 @@ Stages:
     set_value(\"EXPRESSION\") Replace selected data assignment right-hand sides
     filter_elements(CMP)    Filter literal set/array/matrix elements in data mode
     remove                  Remove selected data assignments and attached comments
-    emit_document           Emit the complete validated edit candidate
+    reduce_enum(NAME,KEEP)   Reduce an explicit enum and supported dependent arrays
+    emit_document           Emit the reparsed edit candidate
 Source/string emission is implicit; edits implicitly emit_document.
 Projections inspect selected nodes; use subtree to include descendants.
 Range bounds are half-open original byte coordinates, including a BOM.
@@ -53,6 +56,12 @@ Element comparisons: eq(VALUE), lt(NUMBER), le(NUMBER), gt(NUMBER), ge(NUMBER).
 Equality accepts numbers, Booleans, strings and explicit member(\"A\") identities.
 Filtering preserves written keys and retained comments; positional lists compact.
 Matrices require a common column mask; starting-key bare tails cannot be changed.
+Enum retention: keep(\"A\", \"B\") selects identities in original order;
+keep_first(N) keeps an original prefix. Empty retention is allowed.
+reduce_enum inspects the entire data document, including after filter/head.
+Explicit enum keys establish identity; positional axes require model domains.
+Remaining scalar/computed/set dependence makes the candidate incomplete.
+Set cleanup and integer group compaction are deferred.
 values accepts head/count/json/emit; other projections continue as node streams.
 Predicates: kind(\"assignment\"), name(\"capacity\"); names compare identifier identity.
 Item kinds: assignment, declaration, enum, type_alias, function, predicate, test,
@@ -64,14 +73,18 @@ Fragment selections that unbalance paired formatter markers fail.
 
 Options:
     --stdin-filepath PATH   Select stdin language mode and diagnostic path
+    --model PATH            Read model declarations for enum reduction
+    -I DIR                  Add an include directory in supplied order
+    --stdlib-dir DIR        MiniZinc library root; overrides MZN_STDLIB_DIR
     --diff                  Preview an editing pipeline as a whole-file diff
-    --write                 Replace the explicit regular file; rejects stdin/symlinks
+    --write                 Write a complete candidate; rejects stdin/symlinks
     --                      End option processing
     -h, --help              Show this help
 
 Limits: 1048576 query bytes, 64 nested parentheses/not operators,
         100000 collected entries and 1000000 evaluation work units.
-Exit codes: 0 success, 2 query/input/usage/I/O errors.
+Exit codes: 0 complete, 1 incomplete candidate, 2 query/input/model/usage/I/O errors.
+Incomplete previews emit source/diff with stderr dependencies; --write refuses them.
 Query, input and usage errors leave stdout empty.
 ";
 
@@ -87,13 +100,15 @@ struct Arguments {
     path: Option<PathBuf>,
     stdin_filepath: Option<PathBuf>,
     output: OutputMode,
+    model_path: Option<PathBuf>,
+    model_options: ModelOptions,
 }
 
 /// Shared entry point for both command spellings. Arguments exclude the binary
 /// or subcommand name. The complete result is buffered before writing stdout.
 pub fn run(arguments: Vec<OsString>, invocation: &str) -> ExitCode {
     match execute(arguments, invocation) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(status) => ExitCode::from(status),
         Err(message) => {
             let _ = writeln!(io::stderr(), "{message}");
             ExitCode::from(2)
@@ -101,10 +116,11 @@ pub fn run(arguments: Vec<OsString>, invocation: &str) -> ExitCode {
     }
 }
 
-fn execute(arguments: Vec<OsString>, invocation: &str) -> Result<(), String> {
+fn execute(arguments: Vec<OsString>, invocation: &str) -> Result<u8, String> {
     if arguments.len() == 1 && matches!(arguments[0].to_str(), Some("-h" | "--help")) {
         return io::stdout()
             .write_all(HELP.replacen("zincite-query", invocation, 1).as_bytes())
+            .map(|()| 0)
             .map_err(|error| format!("stdout: {error}"));
     }
     let arguments =
@@ -160,14 +176,49 @@ fn execute(arguments: Vec<OsString>, invocation: &str) -> Result<(), String> {
             .collect::<Vec<_>>()
             .join("\n")
     })?;
+    let model = arguments
+        .model_path
+        .as_ref()
+        .filter(|_| query.requires_model_facts())
+        .map(|path| load_model(path, &arguments.model_options));
+    if let Some(model) = &model
+        && !model.errors.is_empty()
+    {
+        return Err(model
+            .errors
+            .iter()
+            .map(|error| model_diagnostic(&error.location, &error.message, "error"))
+            .collect::<Vec<_>>()
+            .join("\n"));
+    }
     let result = query
-        .evaluate(&input, limits)
+        .evaluate_with_model(&input, model.as_ref(), limits)
         .map_err(|error| match error.location {
             ErrorLocation::Query => query_diagnostic(&arguments.query, &error),
             ErrorLocation::Input => {
                 located(&label, input.source_bytes(), &error.range, &error.message)
             }
+            ErrorLocation::Model(ref location) => {
+                model_diagnostic(location, &error.message, "error")
+            }
         })?;
+    let mut status = 0;
+    if let QueryResult::Reduction(reduction) = &result
+        && !reduction.is_complete()
+    {
+        status = 1;
+        for dependency in reduction.unresolved() {
+            writeln!(
+                io::stderr(),
+                "{}",
+                model_diagnostic(&dependency.location, &dependency.message, "incomplete")
+            )
+            .map_err(|error| format!("stderr: {error}"))?;
+        }
+        if arguments.output == OutputMode::Write {
+            return Ok(1);
+        }
+    }
     let candidate = result.render();
     let output = match arguments.output {
         OutputMode::Source => candidate,
@@ -185,11 +236,12 @@ fn execute(arguments: Vec<OsString>, invocation: &str) -> Result<(), String> {
             let snapshot = SourceSnapshot::new(arguments.path.as_ref().unwrap(), &bytes);
             replace_source_file(&snapshot, &candidate)
                 .map_err(|error| format!("{label}: {error}"))?;
-            return Ok(());
+            return Ok(0);
         }
     };
     io::stdout()
         .write_all(&output)
+        .map(|()| status)
         .map_err(|error| format!("stdout: {error}"))
 }
 
@@ -197,6 +249,12 @@ fn parse_arguments(arguments: Vec<OsString>) -> Result<Arguments, String> {
     let mut positional = Vec::new();
     let mut stdin_filepath = None;
     let mut output = OutputMode::Source;
+    let mut model_path = None;
+    let mut model_options = ModelOptions {
+        include_dirs: Vec::new(),
+        stdlib_dir: std::env::var_os("MZN_STDLIB_DIR").map(PathBuf::from),
+    };
+    let mut explicit_stdlib = false;
     let mut options = true;
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
@@ -214,6 +272,27 @@ fn parse_arguments(arguments: Vec<OsString>) -> Result<Arguments, String> {
             } else {
                 OutputMode::Write
             };
+        } else if options && argument == "--model" {
+            if model_path.is_some() {
+                return Err("repeated --model".into());
+            }
+            model_path = Some(PathBuf::from(
+                arguments.next().ok_or("--model requires a path")?,
+            ));
+        } else if options && argument == "-I" {
+            model_options.include_dirs.push(PathBuf::from(
+                arguments.next().ok_or("-I requires a directory")?,
+            ));
+        } else if options && argument == "--stdlib-dir" {
+            if explicit_stdlib {
+                return Err("repeated --stdlib-dir".into());
+            }
+            explicit_stdlib = true;
+            model_options.stdlib_dir = Some(PathBuf::from(
+                arguments
+                    .next()
+                    .ok_or("--stdlib-dir requires a directory")?,
+            ));
         } else if options && argument == "--stdin-filepath" {
             if stdin_filepath.is_some() {
                 return Err("repeated --stdin-filepath".into());
@@ -251,6 +330,8 @@ fn parse_arguments(arguments: Vec<OsString>) -> Result<Arguments, String> {
         path,
         stdin_filepath,
         output,
+        model_path,
+        model_options,
     })
 }
 
@@ -263,5 +344,16 @@ fn located(label: &str, bytes: &[u8], range: &std::ops::Range<usize>, message: &
     format!(
         "{label}:{line}:{column}: error: {message} (bytes {}..{})",
         range.start, range.end
+    )
+}
+
+fn model_diagnostic(location: &SourceLocation, message: &str, level: &str) -> String {
+    format!(
+        "{}:{}:{}: {level}: {message} (bytes {}..{})",
+        location.path.display(),
+        location.line,
+        location.column,
+        location.range.start,
+        location.range.end
     )
 }

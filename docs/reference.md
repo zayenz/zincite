@@ -222,8 +222,8 @@ by the objective expression. Each node retains its precise source range.
 ## Query library
 
 `zincite-query` selects top-level items from one model or assignment-only data
-file and explicitly edits selected data assignments. Its reusable library and
-both commands use the same fixed pipeline:
+file and explicitly edits data assignments and enum membership. Its reusable
+library and both commands use the same fixed pipeline:
 
 | Stage | Result |
 | --- | --- |
@@ -250,7 +250,8 @@ both commands use the same fixed pipeline:
 | `set_value("EXPRESSION")` | Replace selected assignment right-hand sides in data mode |
 | `filter_elements(comparison)` | Explicitly filter literal set, array or matrix elements in data mode |
 | `remove` | Remove selected data assignments and their attached comments/directives |
-| `emit_document` | Render the complete validated edit candidate |
+| `reduce_enum("Guests", keep("A", "B"))` | Keep explicit enum members and slice supported dependent arrays |
+| `emit_document` | Render the reparsed edit candidate |
 
 Stages are separated by `|`. The initial selection is `items`, including for an
 empty query. Source or projected-string emission is implicit. `emit` and `json` are terminal.
@@ -456,6 +457,47 @@ layout bytes remain untouched, so filtering can leave extra spaces or blank line
 Duplicate or overlapping targets fail as one atomic batch; use `unique` when an
 inspection pipeline selects the same collection more than once.
 
+### Enum reduction
+
+```sh
+zincite query --model seating.mzn 'reduce_enum("Guests", keep("A", "C"))' data.dzn
+zincite-query --diff 'reduce_enum("Guests", keep_first(20))' data.dzn
+```
+
+`reduce_enum` requires a top-level item selection in data mode and inspects the
+whole document, even after `filter` or `head`. The target must be one assignment
+whose value is an explicit set of unique member identifiers. Parentheses and
+quoted spelling survive. `keep` chooses identities while preserving original
+member order; `keep_first` uses that order. Unknown requested members and
+constructed or anonymous enums are located errors. `keep()` and `keep_first(0)`
+allow empty retention.
+
+Explicit member keys establish enum identity without a model. With model facts,
+unique top-level declarations associate data assignments with enum identities,
+expanded types and written index domains. Positional slicing requires the full
+original enum domain and exact coverage; an enum index type alone does not prove
+that a named subset has the same membership. Unknown aliases, ambiguous
+associations, computed indices and starting-key tails remain unresolved.
+
+Reduction removes matching keyed entries, including whole records, and slices
+supported positional lists, matrix rows/columns and rectangular tuple-key arrays.
+It follows tuple and record fields, matching record labels rather than type field
+order, and can edit a nested array beside an unsupported computed field. Repeated
+target dimensions receive the same membership mask. Other axes, surviving values,
+comments and source spelling keep their written order. Empty lists are supported;
+empty multidimensional forms that cannot preserve established axes remain
+unresolved. No integer value is treated as an enum identity merely by position or
+matching length.
+
+`ReductionResult` owns the reparsed `candidate()` and exposes located `unresolved()`
+dependencies; `is_complete()` means that list is empty. Surviving removed-member
+scalars, relevant computed accesses, missing alignment facts and direct dependencies
+in read-only model sources remain visible. Set pruning, empty-group removal and
+integer group compaction are deferred to base-089: affected sets stay unchanged
+and make this reduction incomplete. Strings and record labels are never rewritten
+as enum members. This bounded check does not establish satisfiability or full
+compiler type validity.
+
 Use the library independently:
 
 ```rust,ignore
@@ -474,10 +516,14 @@ if let QueryResult::Selection(selection) = &result {
 let original_fragment = result.render();
 ```
 
-`QueryResult` keeps item/node/literal selections, strings, counts, histograms or an owned `Document(Vec<u8>)` native
-until `render`. `JsonResult::result` exposes the native result behind a JSON emitter.
+`QueryResult` keeps item/node/literal selections, strings, counts, histograms,
+`Document(Vec<u8>)` or `Reduction(ReductionResult)` native until `render`. `JsonResult::result` exposes the native result behind a JSON emitter.
 `NodeSelection` exposes original CST nodes, file identities and byte ranges.
-`Document` contains a complete validated edit candidate. A
+`Document` contains a complete validated edit candidate. `Query::evaluate(input,
+limits)` uses no model; `evaluate_with_model(input, Option<&ModelContext>, limits)`
+uses optional read-only facts for enum reduction and rejects loader errors in that
+context. `ErrorLocation::Model(SourceLocation)` retains original model/include
+locations for actual failures. A
 selection borrows its `Input`, its item CST nodes and identifier identities. `Input` exposes
 original bytes, token bytes/ranges and source locations. `SelectedItem::range`
 and `source_range`, `Input::token_range` and all input diagnostics use original
@@ -507,17 +553,25 @@ limits are checked during evaluation.
 
 The commands take one query argument and one optional file or `-`.
 `--stdin-filepath PATH` selects stdin's language mode and diagnostic label;
-without it stdin uses model mode. Extra files, directories and semantic options
-such as `--model`, `-I` and `--stdlib-dir` are rejected. Query diagnostics identify
+without it stdin uses model mode. Extra files and directory inputs are rejected.
+`--model PATH` supplies read-only model declarations for enum reduction. Includes
+search the including directory, ordered `-I DIR` directories, then the configured
+library's `std` directory. `--stdlib-dir DIR` overrides `MZN_STDLIB_DIR`. Syntax
+inspection does not load a supplied model or require a library. A loader note
+about unavailable builtins alone does not make a declaration-only reduction
+incomplete; missing facts required by the reduction do. Query diagnostics identify
 `<query>` line/column and query byte ranges; input diagnostics identify the input
 path and original source byte ranges. Both command forms buffer a complete result
-before writing stdout, exit 0 on success and 2 on query/input/usage/I/O errors.
-Query and input failures leave stdout empty.
+before writing stdout. Status 0 means complete, status 1 means an incomplete
+reduction candidate, and status 2 means an actual query/input/model/usage/I/O error.
+Actual failures leave stdout empty. Incomplete source/diff previews emit the
+candidate with located dependencies on stderr; incomplete `--write` emits no
+source and preserves the exact original file.
 
-Editing prints the complete candidate by default and never writes implicitly.
+Editing prints the candidate by default and never writes implicitly.
 `--diff` and `--write` require an editing pipeline and are mutually exclusive.
-Diff accepts stdin and buffers a whole-file unified preview. Write requires the
-explicit regular file, rejects stdin and symlinks, checks exact original bytes
+Diff accepts stdin and buffers a whole-file unified preview. Write requires a
+complete result and the explicit regular file, rejects stdin and symlinks, checks exact original bytes
 again before rename, and preserves file permissions through a completed sibling
 temporary. Successful writes emit no source. Invalid or stale candidates leave
 the original unchanged. Includes and model files are never implicit write targets.

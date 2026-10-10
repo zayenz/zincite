@@ -807,3 +807,278 @@ fn literal_failures_are_located_and_never_return_partial_candidates() {
         b"x = [1 ];"
     );
 }
+
+fn reduction_model(tag: &str, source: &str) -> zincite_lint::ModelContext {
+    let path = std::env::temp_dir().join(format!(
+        "zincite-reduction-{tag}-{}.mzn",
+        std::process::id()
+    ));
+    std::fs::write(&path, source).unwrap();
+    let model = zincite_lint::load_model(&path, &zincite_lint::ModelOptions::default());
+    std::fs::remove_file(path).unwrap();
+    assert!(model.errors.is_empty(), "{:?}", model.errors);
+    model
+}
+
+fn reduce(
+    input: &Input,
+    model: Option<&zincite_lint::ModelContext>,
+    expression: &str,
+) -> zincite_query::ReductionResult {
+    let result = Query::parse(expression, Limits::default())
+        .unwrap()
+        .evaluate_with_model(input, model, Limits::default())
+        .unwrap();
+    let QueryResult::Reduction(result) = result else {
+        panic!("expected reduction")
+    };
+    result
+}
+
+#[test]
+fn enum_reduction_keeps_identity_order_comments_and_whole_keyed_records() {
+    let source = b"\xef\xbb\xbfGuests = ({'A', B, C});\r\nguests = [\r\n% keep \xff\r\n'A': (name: \"B\", B: 10),\r\n% removed record\r\nB: (name: \"gone\", B: B),\r\nC: (name: \"C\", B: 30)\r\n];\r\n";
+    let input = Input::parse_named(source.to_vec(), FileMode::Data, "guests.dzn").unwrap();
+    let result = reduce(
+        &input,
+        None,
+        "head(0) | reduce_enum(\"Guests\", keep(\"C\", \"A\"))",
+    );
+    assert!(result.is_complete(), "{:?}", result.unresolved());
+    assert_eq!(result.candidate().source_bytes(), b"\xef\xbb\xbfGuests = ({'A',  C});\r\nguests = [\r\n% keep \xff\r\n'A': (name: \"B\", B: 10),\r\n\r\nC: (name: \"C\", B: 30)\r\n];\r\n");
+    assert_eq!(result.candidate().file(), "guests.dzn");
+    let prefix = reduce(&input, None, "reduce_enum(\"Guests\", keep_first(1))");
+    assert!(prefix.is_complete());
+    assert!(
+        !prefix
+            .candidate()
+            .source_bytes()
+            .windows(5)
+            .any(|bytes| bytes == b"C: (n")
+    );
+    for expression in [
+        "reduce_enum(\"Guests\", keep())",
+        "reduce_enum(\"Guests\", keep_first(0))",
+    ] {
+        let empty = reduce(&input, None, expression);
+        assert!(empty.is_complete());
+        assert_eq!(
+            query(
+                empty.candidate(),
+                "filter(name(\"Guests\")) | elements | count"
+            )
+            .render(),
+            b"0\n"
+        );
+        assert_eq!(
+            query(
+                empty.candidate(),
+                "filter(name(\"guests\")) | elements | count"
+            )
+            .render(),
+            b"0\n"
+        );
+    }
+    assert_eq!(input.source_bytes(), source);
+    for (source, expression, expected) in [
+        (
+            "Guests = {A, B};",
+            "reduce_enum(\"Guests\", keep(\"C\"))",
+            "unknown requested",
+        ),
+        (
+            "Guests = anon_enum(3);",
+            "reduce_enum(\"Guests\", keep_first(1))",
+            "constructed",
+        ),
+        (
+            "Guests = {A, A};",
+            "reduce_enum(\"Guests\", keep_first(1))",
+            "unique",
+        ),
+    ] {
+        let input = Input::parse(source.as_bytes().to_vec(), FileMode::Data).unwrap();
+        let error = Query::parse(expression, Limits::default())
+            .unwrap()
+            .evaluate(&input, Limits::default())
+            .unwrap_err();
+        assert!(error.message.contains(expected), "{error:?}");
+    }
+}
+
+#[test]
+fn enum_reduction_slices_positional_nested_and_rectangular_axes_by_model_identity() {
+    let model = reduction_model(
+        "axes",
+        "enum Guests; enum Topics = {T, U};\ntype Info = record(array[Guests] of int: weights, string: name);\narray[Guests] of Info: guests; array[Guests] of int: scores;\narray[Guests, Guests] of int: matrix; array[Guests, Topics] of int: keyed; array[Topics, Guests] of int: by_topic; int: unchanged;\nsolve satisfy;\n",
+    );
+    let input = Input::parse(b"Guests = {A, B, C};\nguests = [(name: \"A\", weights: [11,12,13]), (name: \"B\", weights: [21,22,23]), (name: \"C\", weights: [31,32,33])];\nscores = [10,20,30];\nmatrix = [|1,2,3|4,5,6|7,8,9|];\nkeyed = [(C,U): 32, (A,T): 11, (B,T): 21, (C,T): 31, (A,U): 12, (B,U): 22];\nby_topic = [| C: A: B: | U: 3,1,2 | T: 6,4,5 |];\nunchanged = 20;\n".to_vec(), FileMode::Data).unwrap();
+    let result = reduce(
+        &input,
+        Some(&model),
+        "reduce_enum(\"Guests\", keep(\"C\", \"A\"))",
+    );
+    assert!(result.is_complete(), "{:?}", result.unresolved());
+    let candidate = result.candidate();
+    let source = String::from_utf8(candidate.source_bytes().to_vec()).unwrap();
+    assert!(source.contains("scores = [10,30]"), "{source}");
+    assert!(
+        source.contains("weights: [11,13]") && source.contains("weights: [31,33]"),
+        "{source}"
+    );
+    assert!(!source.contains("name: \"B\"") && !source.contains("21,22,23"));
+    assert!(source.contains("matrix = [|1,3|7,9|]"), "{source}");
+    assert!(
+        source.contains("(C,U): 32, (A,T): 11,  (C,T): 31, (A,U): 12"),
+        "{source}"
+    );
+    assert!(
+        source.contains("by_topic = [| C: A:  | U: 3,1 | T: 6,4 |]"),
+        "{source}"
+    );
+    assert!(source.contains("unchanged = 20;"));
+    assert_eq!(
+        query(
+            candidate,
+            "filter(name(\"keyed\")) | keys | subtree | names | json"
+        )
+        .render(),
+        b"[\"C\",\"U\",\"A\",\"T\",\"C\",\"T\",\"A\",\"U\"]\n"
+    );
+}
+
+#[test]
+fn enum_reduction_exposes_remaining_dependencies_without_losing_independent_edits() {
+    let model = reduction_model(
+        "incomplete",
+        "enum Guests; set of Guests: Subset;\ntype Info = record(array[Guests] of int: weights, Guests: computed);\nInfo: info; Guests: chosen; set of Guests: group;\narray[Subset] of int: ambiguous; array[int] of int: other;\nconstraint chosen != B; solve satisfy;\n",
+    );
+    let source = b"Guests = {A, B, C};\ninfo = (computed: other[B], weights: [1,2,3]);\nchosen = B; group = {A, B}; Subset = {A,C}; ambiguous = [10,20]; other = [9,8];\n";
+    let input = Input::parse_named(source.to_vec(), FileMode::Data, "remaining.dzn").unwrap();
+    let result = reduce(
+        &input,
+        Some(&model),
+        "reduce_enum(\"Guests\", keep(\"A\", \"C\"))",
+    );
+    assert!(!result.is_complete());
+    let text = String::from_utf8(result.candidate().source_bytes().to_vec()).unwrap();
+    assert!(
+        text.contains("weights: [1,3]") && text.contains("computed: other[B]"),
+        "{text}"
+    );
+    assert!(text.contains("chosen = B; group = {A, B}") && text.contains("ambiguous = [10,20]"));
+    assert!(
+        result
+            .unresolved()
+            .iter()
+            .any(|dependency| dependency.message.contains("positional enum alignment"))
+    );
+    assert!(
+        result
+            .unresolved()
+            .iter()
+            .any(|dependency| dependency.message.contains("set cleanup"))
+    );
+    assert!(
+        result
+            .unresolved()
+            .iter()
+            .any(|dependency| dependency.location.path == model.root
+                && dependency.message.contains("read-only model"))
+    );
+    let computed = result
+        .unresolved()
+        .iter()
+        .find(|dependency| dependency.message.contains("computed enum"))
+        .unwrap();
+    assert_eq!(&source[computed.location.range.clone()], b"other[B]");
+    assert_eq!(
+        computed.location.path,
+        std::path::Path::new("remaining.dzn")
+    );
+    let unknown = Input::parse(
+        b"Guests = {A,B}; chosen = keyed[2]; values = [1,2]; keyed = [A: 10, B: 20];".to_vec(),
+        FileMode::Data,
+    )
+    .unwrap();
+    let result = reduce(&unknown, None, "reduce_enum(\"Guests\", keep_first(1))");
+    assert!(!result.is_complete());
+    assert!(
+        result
+            .unresolved()
+            .iter()
+            .any(|dependency| dependency.message.contains("alignment"))
+    );
+    assert!(
+        result
+            .unresolved()
+            .iter()
+            .any(|dependency| dependency.message.contains("computed enum"))
+    );
+    let empty_axes = Input::parse(
+        b"Guests = {A,B}; matrix = [| A: B: | A: 1,2 | B: 3,4 |];".to_vec(),
+        FileMode::Data,
+    )
+    .unwrap();
+    let result = reduce(&empty_axes, None, "reduce_enum(\"Guests\", keep())");
+    assert!(!result.is_complete());
+    assert!(
+        String::from_utf8_lossy(result.candidate().source_bytes())
+            .contains("matrix = [| A: B: | A: 1,2 | B: 3,4 |]")
+    );
+    let model = reduction_model(
+        "ambiguous",
+        "enum Guests; array[Guests] of int: values; array[int] of int: values; set of Guests: group; solve satisfy;",
+    );
+    let input = Input::parse(
+        b"Guests = {A,B,C}; values = [A: 1, B: 2, C: 3]; group = {A,C};".to_vec(),
+        FileMode::Data,
+    )
+    .unwrap();
+    let result = reduce(
+        &input,
+        Some(&model),
+        "reduce_enum(\"Guests\", keep(\"A\", \"C\"))",
+    );
+    assert!(!result.is_complete());
+    assert_eq!(result.unresolved().len(), 1);
+    assert!(result.unresolved()[0].message.contains("ambiguous"));
+    assert!(
+        String::from_utf8_lossy(result.candidate().source_bytes())
+            .contains("values = [A: 1,  C: 3]; group = {A,C};")
+    );
+}
+
+#[test]
+fn enum_reduction_retains_computed_model_access_dependencies_with_original_locations() {
+    let source = "\u{feff}enum Guests; array[Guests] of int: scores;\nint: chosen = scores[to_enum(Guests, 2)];\nint: first = scores[A];\nint: unchanged = let { array[1..3] of int: scores = [1,2,3]; } in scores[2];\nsolve satisfy;\n";
+    let model = reduction_model("model-access", source);
+    let input = Input::parse_named(
+        b"Guests = {A,B,C}; scores = [10,20,30];\n".to_vec(),
+        FileMode::Data,
+        "scores.dzn",
+    )
+    .unwrap();
+    let result = reduce(
+        &input,
+        Some(&model),
+        "reduce_enum(\"Guests\", keep(\"A\", \"C\"))",
+    );
+    assert!(!result.is_complete());
+    assert_eq!(
+        result.candidate().source_bytes(),
+        b"Guests = {A,C}; scores = [10,30];\n"
+    );
+    assert_eq!(result.unresolved().len(), 1);
+    let dependency = &result.unresolved()[0];
+    assert_eq!(dependency.location.path, model.root);
+    assert_eq!(
+        &source.as_bytes()[dependency.location.range.clone()],
+        b"scores[to_enum(Guests, 2)]"
+    );
+    assert_eq!(
+        (dependency.location.line, dependency.location.column),
+        (2, 15)
+    );
+    assert!(dependency.message.contains("computed enum-indexed access"));
+}
