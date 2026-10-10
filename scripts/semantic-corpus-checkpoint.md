@@ -7537,3 +7537,26 @@ previous behavior. Final original and corpus acceptance remain pending.
 Main formatting, Clippy and all 298 workspace tests pass for this increment,
 with all complete streams and 108 integrated source pins checked. Base-083
 remains open.
+
+### Conditional integer-minimum source inspection
+
+Selected default-free bodyless standard min calls can now inspect same-file
+initialized parameter rank-one integer arrays whose complete conditional
+branches are nonempty literals or one unfiltered closed-range comprehension.
+The existing source, owning-header, annotation and cycle checks run first;
+success remains Unknown and supplies no minimum, extent or output proof.
+
+The enclosing exact parameter bool2int conversion now inspects its Boolean
+source, retaining Unknown. An already-inspected integer array literal uses the
+existing branch-aware closed-error check; symbolic guards retain both branches.
+
+Two earlier candidates compiled but failed the original positive fixture,
+first at the enclosing conversion and then at the eager arithmetic postcheck.
+Their complete failed captures are retained. The revised baseline still fails
+at the intended assertion; the repair passes all six public cases, including
+backing and guard errors, decision guards, empty branches and changed min bodies.
+Original Local-source closure and final corpus acceptance remain pending.
+
+Main formatting, Clippy and all 298 workspace tests pass for this increment,
+with all complete streams and 108 integrated source pins checked. Base-083
+remains open.

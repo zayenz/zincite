@@ -3142,18 +3142,30 @@ fn parameter_integer_array_conditionals_inspect_sources_without_proof() {
     let library = concat!(
         "annotation mzn_internal_representation; annotation promise_commutative;\n",
         "function bool: '='($T: a,$T: b) :: mzn_internal_representation :: promise_commutative;\n",
+        "function bool: '>'(int: a,int: b) :: mzn_internal_representation;\n",
+        "function bool: 'not'(bool: b) :: mzn_internal_representation;\n",
         "function set of int: '..'(int: a,int: b) :: mzn_internal_representation;\n",
+        "function int: '-'(int: a) :: mzn_internal_representation;\n",
         "function int: 'div'(int: a,int: b) :: mzn_internal_representation;\n",
+        "function $T: min(array[$U] of par $T: values) :: promise_commutative;\n",
+        "function int: bool2int(bool: b);\n",
     );
     let source = concat!(
         "bool: guard; array[1..2] of int: input;\n",
         "array[1..2] of int: racks = if guard then [1,2]\n",
         "  else [input[i] | i in 1..2] endif;\n",
-        "array[1..2] of var int: result = if guard then [0,0] else racks endif;\n",
+        "array[1..4] of var int: result = if guard then [1,0,0,0]\n",
+        "  else [bool2int(-1==min(racks)),bool2int(racks[1]>0),\n",
+        "    bool2int(racks[2]>0),bool2int(not(-1==min(racks)))] endif;\n",
         "solve satisfy;\n",
     );
     let source_zero = source.replace("of int: input;", "of int: input = [1 div 0,2];");
     let guard_zero = source.replace("bool: guard;", "bool: guard = (1 div 0 == 0);");
+    let empty_branch = source.replace("| i in 1..2]", "| i in 1..0]");
+    let changed_minimum = library.replace(
+        "min(array[$U] of par $T: values) :: promise_commutative;",
+        "min(array[$U] of par $T: values) :: promise_commutative = values[1];",
+    );
     let decision_guard = concat!(
         "var bool: guard;\n",
         "array[1..2] of var int: result = if guard then [1,2] else [3,4] endif;\n",
@@ -3161,6 +3173,16 @@ fn parameter_integer_array_conditionals_inspect_sources_without_proof() {
     );
     for (name, source, reason) in [
         ("symbolic-parameter-guard", source, None),
+        (
+            "empty-conditional-branch",
+            empty_branch.as_str(),
+            Some("conditional integer minimum source has an empty or unsupported branch"),
+        ),
+        (
+            "changed-minimum-body",
+            source,
+            Some("conditional integer minimum selected primitive or source type is unsupported"),
+        ),
         (
             "initialized-source-zero",
             source_zero.as_str(),
@@ -3183,7 +3205,14 @@ fn parameter_integer_array_conditionals_inspect_sources_without_proof() {
             "",
         );
         let root = directory.join("root.mzn");
-        write(&directory.join("library/std/stdlib.mzn"), library);
+        write(
+            &directory.join("library/std/stdlib.mzn"),
+            if name == "changed-minimum-body" {
+                &changed_minimum
+            } else {
+                library
+            },
+        );
         write(&root, source);
         let context = load_model(
             &root,
@@ -3319,7 +3348,6 @@ fn parameter_integer_array_conditionals_inspect_sources_without_proof() {
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
-
 #[test]
 fn multidimensional_length_inspects_sources_without_extent_proof() {
     let library = concat!(

@@ -21373,6 +21373,190 @@ impl<'a> Producer<'a> {
             )
         })
     }
+    // Inspect an initialized conditional source without proving its minimum,
+    // index membership, extent or output dependencies.
+    fn conditional_integer_min_source_safety(
+        &self,
+        file: FileId,
+        written: &'a SyntaxNode,
+        collection: &'a SyntaxNode,
+        view: &CallableFacts,
+    ) -> Option<DefinitionSafety> {
+        let integer = TypeInst::par(TypeKind::Int);
+        let array = TypeInst::par(TypeKind::Array {
+            indices: vec![integer.clone()],
+            element: Box::new(integer.clone()),
+        });
+        let node = unwrap(written);
+        let facts = self.view(file, node, view);
+        let call = self.operation_fact(facts, file, node)?;
+        let CallOutcome::Resolved {
+            declaration: primitive,
+            parameters,
+            return_type,
+        } = &call.outcome
+        else {
+            return None;
+        };
+        let id = self.reference(file, collection)?;
+        let owner = &self.bindings.declarations[id.0];
+        if !self.core(file, node, facts, "min")
+            || parameters.as_slice() != std::slice::from_ref(&array)
+            || return_type != &integer
+            || self
+                .expression_type(facts, file, collection)
+                .is_none_or(|value| value.ty != array)
+            || facts.declarations[id.0].ty != array
+            || owner.file != file
+            || self.context.files[file].kind != SourceKind::User
+            || !(owner.role == DeclarationRole::Value && owner.top_level
+                || owner.role == DeclarationRole::Local
+                    && !owner.top_level
+                    && owner.syntax_range.end <= collection.range().start)
+        {
+            return None;
+        }
+        let declaration = find_node(
+            self.context.files[file].parsed.tree(),
+            &owner.syntax_range,
+            owner.role,
+        )?;
+        let initializers: Vec<_> = declaration
+            .child_nodes()
+            .filter(|part| is_expression(part.kind()))
+            .collect();
+        let [initializer] = initializers.as_slice() else {
+            return None;
+        };
+        if unwrap(initializer).kind() != NodeKind::ConditionalExpression {
+            return None;
+        }
+        let checked = (|| -> Result<(), String> {
+            if !crate::definitions::annotations_safe(self.context, file, written)
+                || !self.prefix_primitive(file, node, facts, "min", parameters, return_type)
+                || !self.calls.signatures.iter().any(|signature| {
+                    signature.declaration == *primitive
+                        && signature.parameters.len() == 1
+                        && !signature.parameters[0].has_default
+                })
+                || self
+                    .expression_type(self.view(file, initializer, view), file, initializer)
+                    .is_none_or(|value| value.ty != array)
+            {
+                return Err(
+                    "conditional integer minimum selected primitive or source type is unsupported"
+                        .into(),
+                );
+            }
+            let lexical = if owner.role == DeclarationRole::Local {
+                local_source_scope(self.context.files[file].parsed.tree(), declaration)
+                    .ok_or("conditional minimum local owning scope is unavailable")?
+            } else {
+                Vec::new()
+            };
+            self.integer_source_headers_safety(file, view, &lexical)?;
+            self.type_dependencies(file, declaration, view, &lexical)?;
+            let mut active = vec![id];
+            let mut types = vec![
+                declaration
+                    .child_nodes()
+                    .next()
+                    .ok_or("conditional minimum written type is unavailable")?,
+            ];
+            if !self.source_annotations_safe(file, declaration) {
+                return Err("conditional minimum source annotation is unsupported".into());
+            }
+            while let Some(ty) = types.pop() {
+                if ty.kind() == NodeKind::Error || !self.source_annotations_safe(file, ty) {
+                    return Err("conditional minimum written type is unsupported".into());
+                }
+                if ty.kind() == NodeKind::DomainType {
+                    for source in ty.child_nodes() {
+                        if let Some(reason) =
+                            self.closed_integer_source_error(file, source, false, true)
+                        {
+                            return Err(reason);
+                        }
+                        if let DefinitionSafety::Unsupported(reason) = self
+                            .initialized_source_safety(file, source, view, &lexical, &mut active)
+                        {
+                            return Err(reason);
+                        }
+                    }
+                } else {
+                    types.extend(ty.child_nodes());
+                }
+            }
+            // The existing scan checks transitive initialized references before
+            // direct inspection, retaining its active-owner cycle guard.
+            if let DefinitionSafety::Unsupported(reason) =
+                self.initialized_source_safety(file, initializer, view, &lexical, &mut active)
+            {
+                return Err(reason);
+            }
+            if !self.nonempty_conditional_array_source(file, initializer) {
+                return Err(
+                    "conditional integer minimum source has an empty or unsupported branch".into(),
+                );
+            }
+            Ok(())
+        })();
+        Some(match checked {
+            Ok(()) => {
+                DefinitionSafety::Unknown("conditional integer minimum value is unproved".into())
+            }
+            Err(reason) => DefinitionSafety::Unsupported(reason),
+        })
+    }
+    fn nonempty_conditional_array_source(&self, file: FileId, written: &SyntaxNode) -> bool {
+        let node = unwrap(written);
+        match node.kind() {
+            NodeKind::ArrayLiteral => {
+                node.child_nodes().next().is_some()
+                    && node.child_nodes().all(|value| {
+                        is_expression(value.kind()) && value.kind() != NodeKind::IndexedArrayEntry
+                    })
+            }
+            NodeKind::ArrayComprehension => {
+                let parts: Vec<_> = node.child_nodes().collect();
+                let Some(list) = parts
+                    .iter()
+                    .find(|part| part.kind() == NodeKind::GeneratorList)
+                else {
+                    return false;
+                };
+                let generators: Vec<_> = list.child_nodes().collect();
+                let [generator] = generators.as_slice() else {
+                    return false;
+                };
+                parts.len() == 2
+                    && crate::domains::generator_slots(&self.context.files[file].parsed, generator)
+                        == 1
+                    && generator.child_nodes().count() == 1
+                    && generator
+                        .child_nodes()
+                        .next()
+                        .is_some_and(|source| unwrap(source).kind() == NodeKind::RangeExpression)
+                    && self.nonempty_source(file, generator)
+            }
+            NodeKind::ConditionalExpression => {
+                let branches: Vec<_> = node.child_nodes().collect();
+                branches.len() >= 2
+                    && branches.iter().enumerate().all(|(position, branch)| {
+                        let parts: Vec<_> = branch.child_nodes().collect();
+                        if branch.kind() == NodeKind::ConditionalBranch && parts.len() == 2 {
+                            self.nonempty_conditional_array_source(file, parts[1])
+                        } else {
+                            branch.kind() == NodeKind::ElseBranch
+                                && parts.len() == 1
+                                && position + 1 == branches.len()
+                                && self.nonempty_conditional_array_source(file, parts[0])
+                        }
+                    })
+            }
+            _ => false,
+        }
+    }
     fn parameter_set_source_empty(&self, file: FileId, source: &SyntaxNode) -> bool {
         let written_domain = expression_domain(self.context, self.bindings, file, source);
         let mut domain = &written_domain;
@@ -25947,7 +26131,9 @@ impl<'a> Producer<'a> {
                     return unsupported;
                 }
                 for cell in cells {
-                    if let Some(reason) = self.closed_integer_source_error(file, cell, true, true) {
+                    if let Some(reason) = self
+                        .closed_integer_source_error_with_branches(file, cell, false, true, true)
+                    {
                         return DefinitionSafety::Unsupported(reason);
                     }
                 }
@@ -27168,6 +27354,45 @@ impl<'a> Producer<'a> {
                 self.direct_children_safety(file, &children, view, generators)
             }
             NodeKind::CallExpression => {
+                let parameter_integer = TypeInst::par(TypeKind::Int);
+                let parameter_boolean = TypeInst::par(TypeKind::Bool);
+                if self.core(file, node, view, "bool2int")
+                    && children.len() == 1
+                    && ty(node) == Some(&parameter_integer)
+                    && ty(children[0]) == Some(&parameter_boolean)
+                {
+                    if !crate::definitions::annotations_safe(self.context, file, written)
+                        || !self.prefix_primitive(
+                            file,
+                            node,
+                            self.view(file, node, view),
+                            "bool2int",
+                            std::slice::from_ref(&parameter_boolean),
+                            &parameter_integer,
+                        )
+                        || !self
+                            .operation_fact(self.view(file, node, view), file, node)
+                            .is_some_and(|call| {
+                                matches!(&call.outcome, CallOutcome::Resolved { declaration, .. }
+                                if self.calls.signatures.iter().any(|signature|
+                                    signature.declaration == *declaration
+                                        && signature.parameters.len() == 1
+                                        && !signature.parameters[0].has_default))
+                            })
+                    {
+                        return DefinitionSafety::Unsupported(
+                            "Boolean integer conversion selected written primitive is unsupported"
+                                .into(),
+                        );
+                    }
+                    return match self.initialized_children_safety(file, &children, view, generators)
+                    {
+                        unsupported @ DefinitionSafety::Unsupported(_) => unsupported,
+                        _ => DefinitionSafety::Unknown(
+                            "Boolean integer conversion value is unproved".into(),
+                        ),
+                    };
+                }
                 if self.core(file, node, view, "pow") {
                     let base_int = |t: &TypeInst| {
                         t.known()
@@ -27318,6 +27543,11 @@ impl<'a> Producer<'a> {
                 let values: Vec<_> = collection.child_nodes().collect();
                 let (safety, nonempty) = match collection.kind() {
                     NodeKind::Expression => {
+                        if let Some(safety) = self
+                            .conditional_integer_min_source_safety(file, written, collection, view)
+                        {
+                            return safety;
+                        }
                         let safety = match self.dependencies(file, collection, view, generators) {
                             Ok(_) => DefinitionSafety::Supported,
                             Err(reason) => DefinitionSafety::Unsupported(reason),
