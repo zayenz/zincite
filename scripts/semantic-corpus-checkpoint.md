@@ -7154,3 +7154,23 @@ under `target/benchmarks/base083/final-corpus-72007a2-v1` and
 `semantic76-final-corpus-reconciliation-preparation-v1/root-audit.json`.
 Concrete support-gap reconciliation, evidence after the pending repairs and
 independent whole-task verification remain required; base-083 is open.
+
+Four independently reviewed repair increments are now committed through
+`711ef72`: known array element types for `index_set`, source inspection of fresh
+integer lets, conditional search branch inspection, and native array bounds and
+explicit slice types. The integrated checkout passes formatting, Clippy and all
+276 workspace tests. These are partial repairs; base-083 remains open.
+
+The private combined Connect replay retains 96 thesis limitations and 407
+expanded limitations, compared with 98 and 409 before the fresh-let repair.
+The remaining thesis limitations belong to array-index-start, search-coverage
+and unbounded-variable. The original embedded-data instance independently
+compiles with MiniZinc 2.10.1 and Gecode without solving. Neither that compiler
+check nor source inspection proves values, output dependencies or search
+coverage.
+
+Reconciliation identifies all six corpus roots with NotRun rules as standalone
+data files. Four contain declarations rejected by the data-file policy, and two
+contain syntax errors. Their historical compiler classification is unchecked
+data, so no model-instance acceptance is inferred. The six complete roots with
+unresolved dependencies retain separate include-context checks.
