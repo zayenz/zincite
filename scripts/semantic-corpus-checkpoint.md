@@ -6590,8 +6590,17 @@ The unchanged public cases and existing optional-body regression pass under
 `target/benchmarks/base083/semantic68-ignored-identity-wrapper-green-preparation-v3`;
 ROOT checked 1,174 unchanged pins, two receipts and four full streams.
 Corrected workspace gates are recorded under
-`target/benchmarks/base083/semantic69-identity-wrapper-main-gates-v2`. Subsequent
-lex/view outcomes in the original queens model remain unobserved; base-083 is open.
+`target/benchmarks/base083/semantic69-identity-wrapper-main-gates-v2`. The
+original queens replay is now audited. Both native commands terminate with
+warning exit 1: thesis preserves all 15 warnings and the scoped-local coverage
+limitation, while adding the exposed owning-let limitation “arbitrary value
+calls do not prove output dependencies” at bytes 368..1162. Default preserves
+its complete four-warning stream exactly. ROOT checked 1,283 unchanged
+before/after/current pins, twelve absent configuration/include paths, two
+receipts and four full streams under
+`target/benchmarks/base083/semantic68-ignored-identity-wrapper-green-preparation-v3/original-comparison`.
+The frozen candidate replay proves neither current-main whole-model completion
+nor a full per-rule partition; base-083 remains open.
 
 The separate duplicate-record native candidate preserves diagnostics and all
 31 analysis stage pairs, reducing Project Planning wall time from 590 to 272
