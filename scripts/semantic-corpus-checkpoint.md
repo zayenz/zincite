@@ -6425,3 +6425,20 @@ refusal. Two source-only compiler controls pass. Integrated workspace gates
 are recorded under
 `target/benchmarks/base083/semantic67-ordinary-exists-main-gates-v1`. These
 repairs do not complete base-083; fresh final evidence remains required.
+
+The private Project Planning producer-timing diagnostic is terminal. Its normal
+release build uses the retained b76c151 source plus elapsed markers only. Native
+thesis execution takes 1,332 seconds wall and 1,299 seconds child CPU, with about
+3.55 GiB peak child RSS. The 1,800-second limit is unchanged; its warning exit 1
+and complete marker-stripped diagnostics match the retained final4fea capture
+byte for byte. ROOT rechecked all 719 inputs and four full streams; groups are
+reaped and empty, with cleanup EPERM retained separately from successful group
+verification.
+
+Direct definitions take about 755 seconds, numeric facts 333 seconds, guarded
+facts 110 seconds and callable definitions 48 seconds. A one-second sample in
+direct definitions identifies value-safety checking and definition recording;
+it does not establish exact source-line costs or whole-run percentages. Two
+separate lookup candidates are prepared, with behavior and performance validation
+pending. No allocation improvement or cutoff repair is claimed. The failed full
+corpus capture remains unchanged, and base-083 remains open.

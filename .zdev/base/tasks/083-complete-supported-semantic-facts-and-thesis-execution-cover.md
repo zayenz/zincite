@@ -38,6 +38,8 @@ Use the retained `ProjectPlannertest_16_7.mzn` capture as a concrete review case
 
 - Allocation extension for the compiler-accepted Teams symbolic enum-subset domain gap: `crates/zincite-lint/src/unbounded_variable.rs` and `crates/zincite-lint/tests/unbounded.rs`. Coordination checked clean main and the other private assignments; neither path is owned by a sibling. Keep this repair in the existing named symbolic-domain helper, preserving Unknown facts, optional/initialized/unsupported refusals and exact nominal identity.
 
+- Allocation extension for the measured direct-definition lookup cost: `crates/zincite-lint/src/value_safety.rs`. Coordination checked clean main and all private assignments; only the definition-cost worker owns this file. The retained Project Planning diagnostic attributes about 755 seconds to direct definitions and matches the earlier native diagnostics exactly. A bounded stack sample identifies value-safety checking and definition recording as hot functions in that window. Compare the existing first-match expression index reuse and duplicate-record lookup separately; retain physical ranges, public safety behavior, duplicate upgrades and record ordering. Measure before admitting a performance change; numeric and guarded analysis costs remain separate work.
+
 ## Done when
 
 - [ ] Diagnostic scaling and repetitive advice have been reviewed against original source constructs, including the retained large generated model; the findings and any grouping decision are recorded.
