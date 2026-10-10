@@ -7207,3 +7207,11 @@ body refusals, returning Unknown without membership or output proofs. All four
 focused cases pass. The integrated checkout passes formatting, Clippy and all
 279 workspace tests. Fresh original and whole-corpus acceptance remain pending;
 base-083 remains open.
+
+The next independently reviewed increment inspects integer actuals accepted
+through native Float formals. It checks the selected written primitive and the
+actual integer sources, retaining division-by-zero, overflow and body refusals.
+It returns Unknown without converted values or output proofs. All six focused
+cases pass, and the integrated checkout passes formatting, Clippy and all 280
+workspace tests. Fresh original and whole-corpus acceptance remain pending;
+base-083 remains open.

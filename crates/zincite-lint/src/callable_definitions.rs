@@ -18625,7 +18625,11 @@ impl<'a> Producer<'a> {
             || children.len() != arity
             || children.iter().any(|n| {
                 n.kind() == NodeKind::NamedArgument
-                    || typed(n).is_none_or(|t| !present(t, input.clone(), instantiation))
+                    || typed(n).is_none_or(|t| {
+                        !present(t, input.clone(), instantiation)
+                            && !(input == TypeKind::Float
+                                && present(t, TypeKind::Int, Instantiation::Parameter))
+                    })
             })
             || typed(node).is_none_or(|t| !present(t, result.clone(), Instantiation::Parameter))
             || !crate::definitions::annotations_safe(self.context, file, written)
@@ -18641,12 +18645,52 @@ impl<'a> Producer<'a> {
                 "Float conversion or scalar fix signature is unsupported".into(),
             ));
         }
+        let coerced_integer = input == TypeKind::Float
+            && children.iter().any(|child| {
+                typed(child).is_some_and(|ty| present(ty, TypeKind::Int, Instantiation::Parameter))
+            });
+        if coerced_integer
+            && self.operation_fact(facts, file, node).is_none_or(|call| {
+                !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                    if self.prefix_primitive(file, node, facts, name, parameters, return_type))
+            })
+        {
+            return Some(DefinitionSafety::Unsupported(
+                "Float coerced selected written primitive is unsupported".into(),
+            ));
+        }
+        // Inspect coerced operands at their written Int type; a Float formal
+        // does not hide closed integer errors or supply a converted value.
+        if coerced_integer {
+            for child in &children {
+                if typed(child)
+                    .is_some_and(|ty| present(ty, TypeKind::Int, Instantiation::Parameter))
+                    && let Some(reason) = self.closed_integer_source_error(file, child, false, true)
+                {
+                    return Some(DefinitionSafety::Unsupported(reason));
+                }
+            }
+        }
         if let unsupported @ DefinitionSafety::Unsupported(_) =
             self.initialized_children_safety(file, &children, view, generators)
         {
             return Some(unsupported);
         }
         if name == "/" {
+            if typed(children[1])
+                .is_some_and(|ty| present(ty, TypeKind::Int, Instantiation::Parameter))
+                && crate::domains::expression_integer(
+                    self.context,
+                    self.bindings,
+                    file,
+                    children[1],
+                )
+                .is_ok_and(|value| value == Some(0))
+            {
+                return Some(DefinitionSafety::Unsupported(
+                    "Float division by closed integer zero is unsupported".into(),
+                ));
+            }
             let divisor = unwrap(children[1]);
             let tokens = crate::domains::tokens(&self.context.files[file].parsed, divisor);
             let literal_zero = divisor.kind() == NodeKind::Expression

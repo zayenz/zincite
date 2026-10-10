@@ -1430,3 +1430,242 @@ fn rank_four_parameter_integer_sources_preserve_unknown_and_errors() {
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
+
+#[test]
+fn parameter_float_coercions_inspect_integer_sources_without_output_proof() {
+    let library = concat!(
+        "function int: ceil(float: value);\n",
+        "function float: '/'(float: left, float: right);\n",
+        "function int: 'div'(int: left, int: right);\n",
+        "function int: '+'(int: left, int: right);\n",
+    );
+    let ceiling = "int: n; var int: result = ceil(n); solve satisfy;\n";
+    let quotient = "int: n; int: d; var int: result = ceil(n / d); solve satisfy;\n";
+    let source_zero = ceiling.replace("int: n;", "int: n = 1 div 0;");
+    let source_overflow = ceiling.replace("int: n;", "int: n = 9223372036854775807 + 1;");
+    let divisor_zero = quotient.replace("int: d;", "int: d = 0;");
+    let changed_body = library.replace("ceil(float: value);", "ceil(float: value) = 1;");
+    for (name, source, library, reason) in [
+        ("ceiling", ceiling, library, None),
+        ("quotient", quotient, library, None),
+        (
+            "source-zero",
+            source_zero.as_str(),
+            library,
+            Some("integer division by zero"),
+        ),
+        (
+            "source-overflow",
+            source_overflow.as_str(),
+            library,
+            Some("integer arithmetic overflow"),
+        ),
+        (
+            "divisor-zero",
+            divisor_zero.as_str(),
+            library,
+            Some("Float division by closed integer zero"),
+        ),
+        (
+            "selected-body",
+            ceiling,
+            changed_body.as_str(),
+            Some("Float coerced selected written primitive is unsupported"),
+        ),
+    ] {
+        let (directory, _) = model(&format!("float-coercion-{name}"), "solve satisfy;", "");
+        write(&directory.join("library/std/stdlib.mzn"), library);
+        let root = directory.join("root.mzn");
+        write(&root, source);
+        let context = load_model(
+            &root,
+            &ModelOptions {
+                stdlib_dir: Some(directory.join("library")),
+                include_dirs: Vec::new(),
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(
+            context
+                .includes
+                .iter()
+                .all(|include| include.target.is_some())
+        );
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let file = context
+            .files
+            .iter()
+            .position(|file| file.path == root)
+            .unwrap();
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == file)
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let target = bindings
+            .declarations
+            .iter()
+            .find(|declaration| declaration.file == file && declaration.name == "result")
+            .unwrap()
+            .id;
+        let written = context.files[file]
+            .parsed
+            .tree()
+            .child_nodes()
+            .find(|node| node.range() == bindings.declarations[target.0].syntax_range)
+            .unwrap();
+        let value = written
+            .child_nodes()
+            .find(|node| node.kind() == zincite_syntax::NodeKind::CallExpression)
+            .unwrap();
+        let actual = value.child_nodes().next().unwrap();
+        let actual_type = &calls
+            .expressions
+            .iter()
+            .find(|expression| {
+                expression.file == file && expression.location.range == actual.range()
+            })
+            .unwrap()
+            .ty;
+        assert_eq!(actual_type.instantiation, Instantiation::Parameter);
+        assert!(!actual_type.optional);
+        assert_eq!(
+            actual_type.kind,
+            if source.contains("n / d") {
+                TypeKind::Float
+            } else {
+                TypeKind::Int
+            }
+        );
+        for call in calls
+            .calls
+            .iter()
+            .filter(|call| call.file == file && matches!(call.name.as_str(), "ceil" | "/"))
+        {
+            let CallOutcome::Resolved {
+                declaration,
+                parameters,
+                return_type,
+            } = &call.outcome
+            else {
+                unreachable!()
+            };
+            assert_eq!(
+                context.files[bindings.declarations[declaration.0].file].kind,
+                SourceKind::StandardLibrary
+            );
+            assert!(parameters.iter().all(|parameter| parameter.instantiation
+                == Instantiation::Parameter
+                && !parameter.optional
+                && parameter.kind == TypeKind::Float));
+            assert_eq!(parameters.len(), if call.name == "ceil" { 1 } else { 2 });
+            assert_eq!(return_type.instantiation, Instantiation::Parameter);
+            assert!(!return_type.optional);
+            assert_eq!(
+                return_type.kind,
+                if call.name == "ceil" {
+                    TypeKind::Int
+                } else {
+                    TypeKind::Float
+                }
+            );
+        }
+        if actual.kind() == zincite_syntax::NodeKind::BinaryExpression {
+            for operand in actual.child_nodes() {
+                let ty = &calls
+                    .expressions
+                    .iter()
+                    .find(|expression| {
+                        expression.file == file && expression.location.range == operand.range()
+                    })
+                    .unwrap()
+                    .ty;
+                assert_eq!(ty.instantiation, Instantiation::Parameter);
+                assert!(!ty.optional);
+                assert_eq!(ty.kind, TypeKind::Int);
+            }
+        }
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let definition = definitions
+            .definitions
+            .iter()
+            .find(|definition| definition.target == target)
+            .unwrap();
+        assert_eq!(definition.value.range, value.range());
+        assert!(
+            !definitions
+                .bounded_or_defined_targets(&bindings, &domains)
+                .contains(&target)
+        );
+        let callable = zincite_lint::resolve_callable_definitions(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+        );
+        assert!(callable.outputs.is_empty());
+        assert!(callable.inspected_locals.is_empty());
+        let result = analyze_model(
+            &context,
+            &LintOptions::from_selection("unbounded-variable").unwrap(),
+        );
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        assert!(result.findings.is_empty(), "{name}: {:?}", result.findings);
+        match reason {
+            None => {
+                assert!(
+                    matches!(definition.safety, DefinitionSafety::Unknown(_)),
+                    "FLOAT_COERCION_SOURCE_RED {name}: {:?}",
+                    definition.safety
+                );
+                assert_eq!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Completed,
+                    "{name}: {:?}",
+                    result.limitations
+                );
+                assert!(result.limitations.is_empty());
+            }
+            Some(reason) => {
+                assert!(
+                    matches!(&definition.safety, DefinitionSafety::Unsupported(actual) if actual.contains(reason)),
+                    "{name}: {:?}",
+                    definition.safety
+                );
+                assert!(matches!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Limited { .. }
+                ));
+                assert!(
+                    result
+                        .limitations
+                        .iter()
+                        .any(|limit| limit.location.path == root && limit.message.contains(reason)),
+                    "{name}: {:?}",
+                    result.limitations
+                );
+            }
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
