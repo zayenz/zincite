@@ -7302,3 +7302,21 @@ global-cardinality, regular/2 and two sliding-sum calls. Connect retains its
 Gecode no-solve instance acceptance; Workforce retains source-only acceptance,
 with no matching-data instance claim. These two original replays are diagnostic
 evidence, not final corpus or base-083 acceptance.
+
+### Checked literal-regexp relation sources
+
+The regular/2 increment inspects the selected standard wrapper's complete
+written body, exact owning formals and native conversion/regexp declaration
+before admitting its source. Checked symbolic inputs retain Unknown and the
+partiality barrier; they provide no value, membership, output or search-coverage
+certificate. Closed selector errors and changed native bodies remain refused.
+
+The focused baseline failed at the intended source assertion; the corrected
+candidate passed its three public cases. The fixture uses the same present
+Boolean aggregate signature as the existing regexp search check. Independent
+review found no unresolved increment issue. Main formatting, Clippy and all
+291 workspace tests passed, including both existing regexp and regular/4
+checks. Full streams and the integrated 108-source map were rechecked.
+
+These checks do not replace an original-model replay or the final expanded
+corpus. Base-083 remains open with every completion box unchecked.

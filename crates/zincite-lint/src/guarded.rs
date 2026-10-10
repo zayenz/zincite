@@ -2065,7 +2065,17 @@ impl<'a> Producer<'a> {
                 self.instantiations,
                 self.domains,
                 (file, node, &generators),
-            ) {
+            )
+            .or_else(|| {
+                crate::callable_definitions::literal_regular_source_safety(
+                    self.context,
+                    self.bindings,
+                    self.calls,
+                    self.instantiations,
+                    self.domains,
+                    (file, node, &generators),
+                )
+            }) {
                 let inspected = match scope_error {
                     Some(reason) => self.unsupported(file, node, reason).definedness,
                     None => match safety {

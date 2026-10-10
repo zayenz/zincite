@@ -1393,3 +1393,215 @@ fn regular_four_relations_inspect_optional_sources_and_both_bodies_without_total
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn literal_regular_relations_inspect_sources_without_totality_proof() {
+    use zincite_lint::{
+        CallOutcome, DeclarationRole, Instantiation, SearchCoverage, SourceKind, TypeKind,
+    };
+    let positive = concat!(
+        "include \"regular_regexp.mzn\";\n",
+        "enum Day = {First, Last}; enum Shift = {Work, Rest};\n",
+        "int: workers; set of int: Workers = 1..workers;\n",
+        "array[Day,Workers] of var Shift: schedule;\n",
+        "constraint forall(worker in Workers)(regular(schedule[..,worker], \".* Rest Rest .*\"));\n",
+        "solve satisfy;\n",
+    );
+    let regular = concat!(
+        "include \"fzn_regular_regexp.mzn\";\n",
+        "predicate regular(array[int] of var $$E: xs,string: regexp) = fzn_regular(enum2int(xs),regexp);\n",
+    );
+    let native = "predicate fzn_regular(array[int] of var int: xs,string: regexp);\n";
+    let core = CORE.replace("array[int] of var opt bool: a", "array[int] of var bool: a");
+    let core =
+        format!("{core}\nfunction array[$X] of var int: enum2int(array[$X] of var $$E: x);\n");
+    let source_zero = positive.replace("schedule[..,worker]", "schedule[..,(worker div 0)]");
+    let written_native = native.replace(");", ") = true;");
+    assert_ne!(source_zero, positive);
+    assert_ne!(written_native, native);
+    for (name, source, native, failure) in [
+        ("symbolic", positive, native, None),
+        (
+            "closed-selector",
+            source_zero.as_str(),
+            native,
+            Some("division by zero"),
+        ),
+        (
+            "written-native",
+            positive,
+            written_native.as_str(),
+            Some("native declaration"),
+        ),
+    ] {
+        let dir = std::env::temp_dir().join(format!(
+            "zincite-literal-regular-guarded-{name}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(dir.join("library/std")).unwrap();
+        for (file, contents) in [
+            ("stdlib.mzn", core.as_str()),
+            ("regular_regexp.mzn", regular),
+            ("fzn_regular_regexp.mzn", native),
+        ] {
+            std::fs::write(dir.join("library/std").join(file), contents).unwrap();
+        }
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(context.includes.iter().all(|edge| edge.target.is_some()));
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let file = context.root_file.unwrap();
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == file)
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let root_call = calls
+            .calls
+            .iter()
+            .find(|call| call.file == file && call.name == "regular")
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &root_call.outcome
+        else {
+            unreachable!()
+        };
+        let owner = &bindings.declarations[declaration.0];
+        assert_eq!(owner.role, DeclarationRole::Predicate);
+        assert_eq!(context.files[owner.file].kind, SourceKind::StandardLibrary);
+        assert!(!context.files[owner.file].implicit);
+        let symbol = bindings
+            .declarations
+            .iter()
+            .find(|owner| owner.top_level && owner.name == "Shift")
+            .unwrap()
+            .id;
+        assert!(matches!(parameters.as_slice(), [array, pattern]
+            if !array.optional && array.instantiation == Instantiation::Decision
+                && matches!(&array.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 1 && indices[0].kind == TypeKind::Int
+                        && element.kind == TypeKind::Enum(symbol) && element.instantiation == Instantiation::Decision && !element.optional)
+                && pattern.kind == TypeKind::String && !pattern.optional && pattern.instantiation == Instantiation::Parameter));
+        assert_eq!(return_type.kind, TypeKind::Bool);
+        assert_eq!(return_type.instantiation, Instantiation::Decision);
+        assert!(!return_type.optional);
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let numeric =
+            resolve_numeric_facts(&context, &bindings, &calls, &inst, &domains, &definitions);
+        let optional = resolve_optional_facts(
+            &context,
+            &bindings,
+            &calls,
+            &inst,
+            &domains,
+            &numeric,
+            &definitions,
+        );
+        let facts = resolve_guarded_facts_with_options(
+            &context, &bindings, &calls, &inst, &domains, &numeric, &optional,
+        );
+        let call_start = source.find("regular(").unwrap();
+        let value = facts
+            .expressions
+            .iter()
+            .find(|value| {
+                value.file == file
+                    && value.location.range.start == call_start
+                    && text(&context, file, &value.location).starts_with("regular(")
+            })
+            .unwrap();
+        if let Some(reason) = failure {
+            assert!(
+                matches!(
+                    &value.raw_definedness,
+                    GuardedOutcome::Unsupported(_) | GuardedOutcome::Refuted
+                ),
+                "{name}: {value:?}"
+            );
+            assert_eq!(value.definedness, value.raw_definedness);
+            assert!(
+                facts.limitations.iter().any(|limit| limit.file == file
+                    && limit.location.range == value.location.range
+                    && limit.reason.contains(reason)),
+                "{name}: {:?}",
+                facts.limitations
+            );
+        } else {
+            assert_eq!(
+                value.raw_definedness,
+                GuardedOutcome::Unknown,
+                "REGULAR_TWO_SOURCE_RED {name}: {value:?}"
+            );
+            assert_eq!(value.definedness, GuardedOutcome::Unknown);
+            assert_eq!(value.truth, Some(GuardedOutcome::Unknown));
+            assert!(!facts.limitations.iter().any(|limit| limit.file == file && limit.location.range == value.location.range));
+        }
+        assert_eq!(value.numeric, None);
+        let callable = zincite_lint::resolve_callable_definitions(
+            &context, &bindings, &calls, &inst, &domains,
+        );
+        assert!(callable.outputs.is_empty());
+        assert!(callable.inspected_locals.is_empty());
+        let search = zincite_lint::resolve_search_coverage(
+            &context,
+            &bindings,
+            &calls,
+            &inst,
+            &domains,
+            &definitions,
+        );
+        let schedule = bindings
+            .declarations
+            .iter()
+            .find(|owner| owner.top_level && owner.name == "schedule")
+            .unwrap()
+            .id;
+        let coverage = search
+            .declarations
+            .iter()
+            .find(|value| value.declaration == schedule)
+            .unwrap()
+            .coverage;
+        if failure.is_none() {
+            assert_eq!(coverage, SearchCoverage::Uncovered, "{name}: {search:?}");
+        } else {
+            assert!(
+                matches!(
+                    coverage,
+                    SearchCoverage::Unknown | SearchCoverage::Uncovered
+                ),
+                "{name}: {search:?}"
+            );
+        }
+        assert!(search.searched.is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

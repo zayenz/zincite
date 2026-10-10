@@ -391,6 +391,215 @@ pub(super) fn regular_four_source_safety<'a>(
         },
     )
 }
+// Inspect the selected literal-regexp wrapper without proving the relation total.
+pub(super) fn literal_regular_source_safety<'a>(
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    calls: &'a CallableFacts,
+    instantiations: &'a InstantiationFacts,
+    domains: &'a DomainFacts,
+    source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
+) -> Option<DefinitionSafety> {
+    let (file, node, generators) = source;
+    let mut producer = Producer {
+        context,
+        bindings,
+        calls,
+        instantiations,
+        domains,
+        lookups: None,
+        instances: Vec::new(),
+        boundaries: Vec::new(),
+        selected_set_source: false,
+        inactive_integer_body: None,
+    };
+    if node.kind() != NodeKind::CallExpression {
+        return None;
+    }
+    let fact = producer.operation_fact(calls, file, node)?;
+    let CallOutcome::Resolved {
+        declaration,
+        parameters,
+        return_type,
+    } = &fact.outcome
+    else {
+        return None;
+    };
+    let owner = &bindings.declarations[declaration.0];
+    let boolean = TypeInst::par(TypeKind::Bool).with_inst(Instantiation::Decision);
+    if owner.name != "regular"
+        || owner.role != DeclarationRole::Predicate
+        || context.files[owner.file].kind != SourceKind::StandardLibrary
+        || context.files[owner.file].implicit
+        || !matches!(parameters.as_slice(), [array, pattern]
+            if array.known() && !optional(array) && array.instantiation == Instantiation::Decision
+                && matches!(&array.kind, TypeKind::Array { indices, element }
+                    if indices.as_slice() == [TypeInst::par(TypeKind::Int)]
+                        && element.instantiation == Instantiation::Decision
+                        && matches!(element.kind, TypeKind::Enum(_)))
+                && *pattern == TypeInst::par(TypeKind::String))
+        || *return_type != boolean
+        || producer
+            .expression_type(calls, file, node)
+            .is_none_or(|actual| actual.ty != boolean)
+    {
+        return None;
+    }
+    let id = *declaration;
+    let parameters = parameters.clone();
+    let clause = Clause {
+        file,
+        item: fact.item,
+        node,
+        generators: generators.to_vec(),
+        kind: ClauseKind::Call,
+    };
+    producer.discover(&clause, calls, &[]);
+    let mut cursor = 0;
+    while cursor < producer.instances.len() {
+        let instance = &producer.instances[cursor];
+        let mut ancestry = instance.ancestry.clone();
+        ancestry.push(instance.id);
+        let clauses = instance.clauses.clone();
+        let view = instance.view.clone();
+        for clause in &clauses {
+            producer.discover(clause, &view, &ancestry);
+        }
+        cursor += 1;
+    }
+    let checked: Result<(), String> = (|| {
+        if !crate::definitions::annotations_safe(context, file, node) {
+            return Err("literal regexp wrapper actual annotation is unsupported".into());
+        }
+        let written = find_node(
+            context.files[owner.file].parsed.tree(),
+            &owner.syntax_range,
+            owner.role,
+        )
+        .ok_or("literal regexp wrapper source is unavailable")?;
+        if let Some(reason) = producer.closed_integer_source_error(owner.file, written, false, true)
+        {
+            return Err(reason);
+        }
+        if !producer.callable_annotations_safe(owner.file, written) {
+            return Err("literal regexp wrapper metadata is unsupported".into());
+        }
+        let mut signatures = calls
+            .signatures
+            .iter()
+            .filter(|signature| signature.declaration == id);
+        let signature = signatures
+            .next()
+            .ok_or("literal regexp wrapper signature is unavailable")?;
+        if signatures.next().is_some()
+            || signature.parameters.len() != 2
+            || signature
+                .parameters
+                .iter()
+                .any(|parameter| parameter.has_default)
+            || signature.return_type != boolean
+        {
+            return Err("literal regexp wrapper signature or defaults are unsupported".into());
+        }
+        let bodies: Vec<_> = written
+            .child_nodes()
+            .filter(|child| is_expression(child.kind()))
+            .collect();
+        let [body] = bodies.as_slice() else {
+            return Err("literal regexp wrapper requires its complete owning body".into());
+        };
+        // Validated declaration hints are separate from formal/type metadata.
+        let mut types: Vec<_> = written
+            .child_nodes()
+            .filter(|child| !is_expression(child.kind()) && child.kind() != NodeKind::Annotation)
+            .collect();
+        while let Some(ty) = types.pop() {
+            if is_expression(ty.kind())
+                || !crate::definitions::annotations_safe(context, owner.file, ty)
+            {
+                return Err("literal regexp wrapper written type or default is unsupported".into());
+            }
+            types.extend(ty.child_nodes());
+        }
+        let instance = producer
+            .instances
+            .iter()
+            .find(|instance| {
+                instance.id == id && instance.parameters == parameters && !instance.recursive
+            })
+            .ok_or("literal regexp wrapper nonrecursive body view is unavailable")?;
+        let body = unwrap(body);
+        let view = &instance.view;
+        if body.kind() != NodeKind::CallExpression
+            || producer
+                .expression_type(view, owner.file, body)
+                .is_none_or(|expression| expression.ty != boolean)
+        {
+            return Err("literal regexp wrapper body form or type is unsupported".into());
+        }
+        let native = producer
+            .operation_fact(view, owner.file, body)
+            .ok_or("literal regexp wrapper native selection is unavailable")?;
+        let CallOutcome::Resolved {
+            declaration: native_id,
+            parameters: native_parameters,
+            ..
+        } = &native.outcome
+        else {
+            return Err("literal regexp wrapper native selection is unsupported".into());
+        };
+        let native_argument = |position| {
+            call_argument(
+                context, bindings, view, owner.file, body, *native_id, position,
+            )
+            .ok_or("literal regexp wrapper native actual is unavailable")
+        };
+        let (conversion_file, conversion) = native_argument(0)?;
+        let input = producer
+            .array_conversion_argument(conversion_file, conversion, view)
+            .ok_or("literal regexp wrapper requires its checked enum conversion")?;
+        let (pattern_file, pattern) = native_argument(1)?;
+        for (position, source_file, actual) in
+            [(0, conversion_file, input), (1, pattern_file, pattern)]
+        {
+            let formal = formal_parameter(context, bindings, id, position)
+                .ok_or("literal regexp wrapper formal identity is unavailable")?;
+            if source_file != owner.file
+                || unwrap(actual).kind() != NodeKind::Expression
+                || producer.reference(source_file, unwrap(actual)) != Some(formal)
+            {
+                return Err("literal regexp wrapper must forward its exact owning formals".into());
+            }
+        }
+        let mut invocation = Invocation {
+            actuals: Vec::new(),
+            reachable: Some(true),
+        };
+        producer.invocation_actuals(&clause, calls, instance, &mut invocation)?;
+        let native_clause = Clause {
+            file: owner.file,
+            item: owner.item,
+            node: body,
+            generators: Vec::new(),
+            kind: ClauseKind::Call,
+        };
+        producer
+            .inspect_literal_regular(
+                &native_clause,
+                view,
+                *native_id,
+                native_parameters,
+                Some(&invocation),
+            )
+            .ok_or("literal regexp wrapper native declaration or tuple is unsupported")?
+    })();
+    Some(match checked {
+        Ok(()) => DefinitionSafety::Unknown(
+            "literal regexp relation values, partiality and membership are unproved".into(),
+        ),
+        Err(reason) => DefinitionSafety::Unsupported(reason),
+    })
+}
 // Inspect only an optional matrix's whole owning lexical initializer.
 // This shares constructor checks with model lets and supplies no value proof.
 pub(super) fn optional_parameter_matrix_initializer_safety<'a>(
