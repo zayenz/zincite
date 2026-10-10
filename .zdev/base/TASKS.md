@@ -3,8 +3,8 @@
 # Tasks: base
 
 - Total: 94
-- Ready: 4
-- Blocked: 10
+- Ready: 3
+- Blocked: 11
 - Done: 80
 
 | ID | Task | State | Blocked by |
@@ -91,7 +91,7 @@
 | [base-080](tasks/080-resolve-and-classify-the-remaining-corpus-processing-gaps.md) | Resolve and classify the remaining corpus processing gaps | done | — |
 | [base-081](tasks/081-meet-the-public-wide-matrix-save-budget-with-a-measured-loca.md) | Meet the public wide-matrix save budget with a measured local repair | ready | base-080 |
 | [base-082](tasks/082-attribute-the-remaining-full-batch-rss-and-expanded-lint-cut.md) | Attribute the remaining full-batch RSS and expanded-lint cutoffs | done | base-080 |
-| [base-083](tasks/083-complete-supported-semantic-facts-and-thesis-execution-cover.md) | Complete supported semantic facts and thesis execution coverage | ready | base-080, base-082 |
+| [base-083](tasks/083-complete-supported-semantic-facts-and-thesis-execution-cover.md) | Complete supported semantic facts and thesis execution coverage | blocked | base-080, base-082, base-094 |
 | [base-084](tasks/084-add-the-root-zincite-command-with-shared-fmt-and-lint-entry.md) | Add the root zincite command with shared fmt and lint entry points | ready | — |
 | [base-085](tasks/085-deliver-source-preserving-item-queries-through-library-and-b.md) | Deliver source-preserving item queries through library and both commands | blocked | base-084 |
 | [base-086](tasks/086-replace-and-remove-selected-data-assignments-with-source-pre.md) | Replace and remove selected data assignments with source-preserving previews | blocked | base-085 |

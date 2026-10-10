@@ -7,7 +7,7 @@ status = "open"
 complexity = "advanced"
 afk = true
 priority = "normal"
-blocked_by = ["base-080", "base-082"]
+blocked_by = ["base-080", "base-082", "base-094"]
 +++
 # Complete supported semantic facts and thesis execution coverage
 
@@ -16,6 +16,8 @@ blocked_by = ["base-080", "base-082"]
 Complete resolved valid models receive all fourteen applicable thesis analyses with sound supported facts, and fresh expanded-preset evidence accounts for every root instead of treating registry presence or partial execution as coverage.
 
 ## Context
+
+Further semantic-completeness repair is parked until base-093 makes callable analysis readable and base-094 replans its purpose, guarantees and consumer contracts. Repeated construct-specific repairs have accumulated excessive complexity; resume from the approved bounded plan rather than continuing that repair sequence. Preserve completed increments and retained private evidence. Independent formatter, unified-command and query tasks remain available.
 
 Read brief Semantic analysis and background/thesis-rule-coverage.md, scripts/semantic-corpus-checkpoint.md, target/base076/after-replays and target/benchmarks/base078/full-audit.json. Loader re-entry, defaulted/qualified ranking and source-location costs are already repaired. Current bounded controls retain unknown not/occurs, generic all_different/array1d/int_search body facts and unsupported search body control flow. In the latest observed thesis prefix of 83 complete resolved roots, unused-declaration is Limited 83 / Completed 0; search-coverage is Limited 80 / Completed 3 and decision-variable-operator is Limited 2 / Completed 81. All has 81 complete resolved roots and still no root with every selected rule Completed. These are observed limitations, not automatic proof of each implementation defect. Use the preceding resource attribution to address only its confirmed expanded-analysis cost as needed for complete evidence.
 
