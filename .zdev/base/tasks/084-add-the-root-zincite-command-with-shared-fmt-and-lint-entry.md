@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-084"
 key = "umbrella-cli"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -26,12 +26,22 @@ Read [the query expansion](../brief.md#query-and-data-transformation-expansion),
 
 ## Done when
 
-- [ ] A Cargo package at the repository root builds and installs the zincite binary; fmt and lint dispatch through the same entry points as their standalone binaries.
-- [ ] Root/subcommand help, no-subcommand help and unknown-subcommand errors follow the brief and reflect the actual invocation.
-- [ ] Both command forms agree for formatter stdout/check/write and lint selection/settings/diff/fix/error paths; existing library APIs remain usable independently.
-- [ ] README installation and command examples describe both invocation forms without claiming query support yet.
+- [x] A Cargo package at the repository root builds and installs the zincite binary; fmt and lint dispatch through the same entry points as their standalone binaries.
+- [x] Root/subcommand help, no-subcommand help and unknown-subcommand errors follow the brief and reflect the actual invocation.
+- [x] Both command forms agree for formatter stdout/check/write and lint selection/settings/diff/fix/error paths; existing library APIs remain usable independently.
+- [x] README installation and command examples describe both invocation forms without claiming query support yet.
 
 ## Validation
 
 - Reuse existing CLI tests; add only a few public comparisons for formatter stdout/check, lint selection/settings and usage failure. Preserve existing write/fix checks rather than duplicating their full matrix.
 - Run cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, and cargo test --workspace; use the brief's focused testing level.
+
+## Result
+
+Added root zincite fmt/lint dispatch through shared CLI entry points, preserving standalone behavior and documenting both invocation forms.
+
+Validation:
+
+- Independent whole-task extraction review and public root/standalone comparisons pass, including stdout/check/write, lint settings/diff and existing fix checks.
+- cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, and cargo test --workspace pass.
+- Temporary offline locked root installation and invocation-specific help pass.

@@ -9,8 +9,8 @@
 Zincite provides a formatter and linter for MiniZinc model (`.mzn`) and data
 (`.dzn`) files:
 
-- **`zincite-fmt`** formats source, checks formatting, and writes changes in place.
-- **`zincite-lint`** is a linter for MiniZinc models and data.
+- **`zincite fmt`** (or **`zincite-fmt`**) formats source, checks formatting, and writes changes in place.
+- **`zincite lint`** (or **`zincite-lint`**) is a linter for MiniZinc models and data.
 
 Both tools are written in Rust and share a parser that preserves source spelling,
 comments, whitespace and source locations. Neither command requires a MiniZinc
@@ -27,9 +27,19 @@ Install from a checkout with a current stable Rust toolchain:
 ```sh
 git clone https://github.com/zayenz/zincite.git
 cd zincite
+cargo install --locked --path .
+```
+
+The root command provides `zincite fmt` and `zincite lint`. To install the
+standalone commands instead, use:
+
+```sh
 cargo install --locked --path crates/zincite-fmt
 cargo install --locked --path crates/zincite-lint
 ```
+
+Both invocation forms use the same options, defaults and exit codes. Run
+`zincite --help` for the command list.
 
 The `0.0.0-pre` packages on crates.io are empty name reservations. Install from
 source to use the tools.
@@ -38,14 +48,14 @@ source to use the tools.
 
 ```sh
 # Print formatted source to stdout.
-zincite-fmt model.mzn
+zincite fmt model.mzn
 
 # Check files or a directory without changing them.
-zincite-fmt --check model.mzn data.dzn
-zincite-fmt --check models/
+zincite fmt --check model.mzn data.dzn
+zincite fmt --check models/
 
 # Format explicit files in place.
-zincite-fmt --write model.mzn data.dzn
+zincite fmt --write model.mzn data.dzn
 ```
 
 With no input argument, or with `-`, the formatter reads stdin. Multiple files
@@ -67,7 +77,7 @@ Send the editor buffer to stdin and use its path for language mode and
 EditorConfig lookup:
 
 ```sh
-zincite-fmt --stdin-filepath path/to/model.mzn < path/to/model.mzn
+zincite fmt --stdin-filepath path/to/model.mzn < path/to/model.mzn
 ```
 
 Replace the buffer with stdout only when the command succeeds. A `.dzn` path
@@ -96,10 +106,10 @@ Comments, literal contents and skipped regions retain their original text.
 Command-line options override EditorConfig:
 
 ```sh
-zincite-fmt --indent-size 2 --max-line-length 80 model.mzn
+zincite fmt --indent-size 2 --max-line-length 80 model.mzn
 ```
 
-Run `zincite-fmt --help` for all options.
+Run `zincite fmt --help` (or `zincite-fmt --help`) for all options.
 
 ### Keeping layout unchanged
 
@@ -111,10 +121,10 @@ Skipped source must still parse; unmatched or misplaced markers are errors.
 ## Linting
 
 ```sh
-zincite-lint model.mzn data.dzn
-zincite-lint models/
-zincite-lint --rules naming model.mzn
-zincite-lint --stdin-filepath model.mzn < model.mzn
+zincite lint model.mzn data.dzn
+zincite lint models/
+zincite lint --rules naming model.mzn
+zincite lint --stdin-filepath model.mzn < model.mzn
 ```
 
 Use `--rules` with a comma-separated list to select rules. To suppress a rule
@@ -129,11 +139,11 @@ errors. Ordinary analysis writes diagnostics to stderr and preserves source.
 Use `--diff` to preview eligible fixes or `--fix` to apply them. See the
 [linting guide](docs/linting.md) for fix selection and restrictions.
 It accepts files, directories or stdin, with the same directory discovery and
-`.dzn` selection as the formatter. Run `zincite-lint --help` for details.
+`.dzn` selection as the formatter. Run `zincite lint --help` (or `zincite-lint --help`) for details.
 
 ## Exit codes
 
-| Code | `zincite-fmt` | `zincite-lint` |
+| Code | `zincite fmt` / `zincite-fmt` | `zincite lint` / `zincite-lint` |
 | --- | --- | --- |
 | `0` | Formatting succeeded; in check mode, no changes needed | No warnings |
 | `1` | Check mode found formatting changes | Unsuppressed warnings |

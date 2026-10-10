@@ -5,6 +5,8 @@ use std::num::NonZeroUsize;
 use zincite_syntax::{Diagnostic, NodeKind, ParsedFile, SyntaxElement, SyntaxNode, TokenKind};
 
 mod bytes;
+pub mod cli;
+mod config;
 mod directives;
 mod includes;
 mod layout;

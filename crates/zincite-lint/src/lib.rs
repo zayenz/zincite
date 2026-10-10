@@ -9,6 +9,7 @@ mod bindings;
 mod callable_definitions;
 mod callables;
 mod captures;
+pub mod cli;
 mod compact_if;
 mod constant_variable;
 mod decision_use;

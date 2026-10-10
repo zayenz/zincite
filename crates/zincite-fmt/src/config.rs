@@ -1,8 +1,8 @@
 use std::num::NonZeroUsize;
 use std::path::Path;
 
+use crate::{FormatOptions, IndentStyle, LineEnding};
 use ec4rs::Properties;
-use zincite_fmt::{FormatOptions, IndentStyle, LineEnding};
 
 pub struct Settings {
     pub format: FormatOptions,
