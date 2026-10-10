@@ -673,6 +673,15 @@ impl<'a> Engine<'a> {
                                 continue;
                             }
                             let actual = self.infer(file, item, selector);
+                            if let TypeKind::Set(element) = &actual.kind {
+                                supported &= actual.instantiation == Instantiation::Parameter
+                                    && !actual.optional
+                                    && actual.known()
+                                    && matches!(index.kind, TypeKind::Int | TypeKind::Enum(_))
+                                    && coerces(element, index);
+                                retained.push(index.clone());
+                                continue;
+                            }
                             supported &= !actual.optional
                                 && coerces(
                                     &actual.clone().with_inst(Instantiation::Parameter),
@@ -683,7 +692,7 @@ impl<'a> Engine<'a> {
                         if !supported || !retained.is_empty() && decision_index {
                             TypeInst::unknown("array index or slicing type is unsupported")
                         } else if !retained.is_empty() {
-                            // A full-axis slice retains each selected index type.
+                            // A slice retains each selected index type.
                             // MiniZinc forbids decision selectors when any axis is sliced.
                             TypeInst {
                                 instantiation: subject.instantiation,
@@ -1524,11 +1533,39 @@ impl<'a> Engine<'a> {
                 })
                 .collect();
             let assigned: Vec<_> = coerced.iter().map(Option::as_ref).collect();
+            // Native scalar array bounds accept any rank. Keep the actual's
+            // axes in the matching target; this supplies no bound or value fact.
+            let bound_pattern = if standard
+                && matches!(d.name.as_str(), "lb_array" | "ub_array")
+                && d.role == DeclarationRole::Function
+                && self.nodes[id.0].is_some_and(|node| array_bound_primitive(&signature, node))
+                && let [Some(actual)] = assigned.as_slice()
+                && actual.known()
+                && !actual.optional
+                && let TypeKind::Array { indices, .. } = &actual.kind
+                && indices.len() > 1
+                && indices.iter().all(|index| {
+                    index.instantiation == Instantiation::Parameter
+                        && !index.optional
+                        && matches!(index.kind, TypeKind::Int | TypeKind::Enum(_))
+                }) {
+                let mut pattern = signature.parameters[0].ty.clone();
+                if let TypeKind::Array { indices: axes, .. } = &mut pattern.kind {
+                    *axes = indices.clone();
+                }
+                Some(pattern)
+            } else {
+                None
+            };
             let mut variables = BTreeMap::new();
             let mut state = Match::Yes;
             for (actual, formal) in assigned.iter().zip(&signature.parameters) {
                 if let Some(actual) = actual {
-                    let result = match_type(actual, &formal.ty, &mut variables);
+                    let result = match_type(
+                        actual,
+                        bound_pattern.as_ref().unwrap_or(&formal.ty),
+                        &mut variables,
+                    );
                     if result == Match::No {
                         state = Match::No;
                         break;
@@ -1546,7 +1583,8 @@ impl<'a> Engine<'a> {
                 .iter()
                 .zip(&assigned)
                 .map(|(p, actual)| {
-                    let mut target = substitute(&p.ty, &variables);
+                    let mut target =
+                        substitute(bound_pattern.as_ref().unwrap_or(&p.ty), &variables);
                     // Presence tests return bool independently of the absent
                     // scalar's unconstrained $T. Keep Bottom instead of making
                     // that core call unresolved; do not invent a concrete type.
@@ -1746,6 +1784,65 @@ impl<'a> Engine<'a> {
             }
         }
     }
+}
+
+fn array_bound_primitive(signature: &CallableSignature, node: &SyntaxNode) -> bool {
+    let [parameter] = signature.parameters.as_slice() else {
+        return false;
+    };
+    let TypeKind::Array { indices, element } = &parameter.ty.kind else {
+        return false;
+    };
+    let enum_variable = |ty: &TypeInst| {
+        matches!(
+            ty.kind,
+            TypeKind::Variable {
+                enum_only: true,
+                any: false,
+                ..
+            }
+        )
+    };
+    let native_element = match &element.kind {
+        TypeKind::Variable { .. } => enum_variable(element),
+        TypeKind::Float => true,
+        TypeKind::Set(value) => {
+            !element.optional
+                && value.instantiation == Instantiation::Parameter
+                && !value.optional
+                && enum_variable(value)
+        }
+        _ => false,
+    };
+    let mut result = element.as_ref().clone();
+    result.instantiation = Instantiation::Parameter;
+    result.optional = false;
+    if parameter.has_default
+        || parameter.name.as_deref() != Some("x")
+        || parameter.ty.instantiation != Instantiation::Decision
+        || parameter.ty.optional
+        || element.instantiation != Instantiation::Decision
+        || !native_element
+        || result != signature.return_type
+        || !matches!(indices.as_slice(), [axis]
+            if axis.instantiation == Instantiation::Parameter && !axis.optional
+                && matches!(axis.kind, TypeKind::Variable { enum_only: false, any: false, .. }))
+    {
+        return false;
+    }
+    fn plain(node: &SyntaxNode) -> bool {
+        matches!(
+            node.kind(),
+            NodeKind::FunctionDeclaration
+                | NodeKind::ParameterList
+                | NodeKind::Parameter
+                | NodeKind::ArrayType
+                | NodeKind::SetType
+                | NodeKind::ScalarType
+                | NodeKind::TypeInstVariable
+        ) && node.child_nodes().all(plain)
+    }
+    plain(node)
 }
 
 pub(super) fn is_expression(kind: NodeKind) -> bool {

@@ -397,12 +397,20 @@ fn lattice_minima_unknown_candidates_and_rule_local_limits_do_not_guess() {
         outcome(&facts, &root, source, "'element'(1,xs,value)"),
         CallOutcome::NoMatch { .. }
     ));
+    assert!(matches!(
+        outcome(&facts, &root, source, "consume(fixed[1..2])"),
+        CallOutcome::NoMatch { .. }
+    ));
+    assert!(matches!(
+        outcome(&facts, &root, source, "consume(optional+1)"),
+        CallOutcome::Unsupported { .. }
+    ));
     let both =
         LintOptions::from_selection("element-predicate,global-variable-in-function").unwrap();
     let result = analyze_model(&context, &both);
     assert_eq!(result.status(), 1);
     assert_eq!(result.findings.len(), 2);
-    assert_eq!(result.limitations.len(), 5);
+    assert_eq!(result.limitations.len(), 4);
     assert!(matches!(
         result.rules[0].outcome,
         RuleOutcome::Limited { .. }
@@ -1227,6 +1235,291 @@ fn standard_integer_product_preserves_raw_matrix_types_when_matching() {
             outcome(&facts, &root, &user_source, marker),
             CallOutcome::NoMatch { .. }
         ));
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn standard_array_bounds_preserve_rank_axes_and_native_overload_ranking() {
+    use zincite_lint::SourceKind;
+    let (directory, options) = setup("array-bounds");
+    let root = directory.join("root.mzn");
+    let library = options.stdlib_dir.as_ref().unwrap().join("std/stdlib.mzn");
+    let standard = concat!(
+        "function $$E: lb_array(array[$U] of var $$E: x);\n",
+        "function $$E: lb_array(array[$U] of var opt $$E: x);\n",
+        "function $$E: ub_array(array[$U] of var $$E: x);\n",
+        "function $$E: ub_array(array[$U] of var opt $$E: x);\n",
+        "function float: lb_array(array[$U] of var float: x);\n",
+        "function float: lb_array(array[$U] of var opt float: x);\n",
+        "function float: ub_array(array[$U] of var float: x);\n",
+        "function float: ub_array(array[$U] of var opt float: x);\n",
+        "function set of $$E: lb_array(array[$U] of var set of $$E: x);\n",
+        "function set of $$E: ub_array(array[$U] of var set of $$E: x);\n",
+    );
+    let source = concat!(
+        "enum Rows={r1,r2}; enum Cols={c1,c2}; enum Values={v1,v2};\n",
+        "array[Rows,Cols] of var int: decisions; int: lower=lb_array(decisions);\n",
+        "array[Rows,Cols] of int: parameters; int: upper=ub_array(parameters);\n",
+        "array[Rows,Cols] of var opt Values: partial; Values: enum_upper=ub_array(partial);\n",
+        "array[Rows,Cols] of var opt float: floats; float: float_lower=lb_array(floats);\n",
+        "array[Rows,Cols] of var set of Values: sets; set of Values: set_upper=ub_array(sets);\n",
+        "solve satisfy;\n",
+    );
+    write(&library, standard);
+    write(&root, source);
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    assert!(context.limitations.is_empty(), "{:?}", context.limitations);
+    assert!(
+        context
+            .files
+            .iter()
+            .all(|file| file.parsed.diagnostics().is_empty())
+    );
+    let bindings = resolve_bindings(&context);
+    let facts = resolve_callables(&context, &bindings);
+    let rows = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "Rows")
+        .unwrap()
+        .id;
+    let cols = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "Cols")
+        .unwrap()
+        .id;
+    for (marker, name) in [
+        ("lb_array(decisions)", "decisions"),
+        ("ub_array(parameters)", "parameters"),
+        ("ub_array(partial)", "partial"),
+        ("lb_array(floats)", "floats"),
+        ("ub_array(sets)", "sets"),
+    ] {
+        let actual = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap()
+            .id;
+        let raw = &facts.declarations[actual.0].ty;
+        let TypeKind::Array { indices, element } = &raw.kind else {
+            panic!("{name}: {raw:?}");
+        };
+        assert_eq!(indices.len(), 2);
+        assert_eq!(indices[0].kind, TypeKind::Enum(rows));
+        assert_eq!(indices[1].kind, TypeKind::Enum(cols));
+        assert!(
+            indices
+                .iter()
+                .all(|axis| axis.instantiation == Instantiation::Parameter && !axis.optional)
+        );
+        let actual_start = source.find(marker).unwrap() + marker.find('(').unwrap() + 1;
+        assert!(
+            facts
+                .expressions
+                .iter()
+                .any(|expression| expression.file == context.root_file.unwrap()
+                    && expression.location.range == (actual_start..actual_start + name.len())
+                    && expression.ty == *raw)
+        );
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = outcome(&facts, &root, source, marker)
+        else {
+            panic!("{marker}: {:?}", outcome(&facts, &root, source, marker));
+        };
+        let owner = &bindings.declarations[declaration.0];
+        assert_eq!(owner.role, DeclarationRole::Function);
+        assert_eq!(context.files[owner.file].kind, SourceKind::StandardLibrary);
+        assert!(context.files[owner.file].implicit);
+        assert_eq!(
+            context.files[owner.file].canonical_path,
+            library.canonicalize().unwrap()
+        );
+        let [parameter] = parameters.as_slice() else {
+            panic!("{parameters:?}")
+        };
+        assert_eq!(parameter.instantiation, Instantiation::Decision);
+        assert!(!parameter.optional);
+        let TypeKind::Array {
+            indices: target_axes,
+            element: target_element,
+        } = &parameter.kind
+        else {
+            panic!("{parameter:?}")
+        };
+        assert_eq!(target_axes, indices);
+        assert_eq!(target_element.kind, element.kind);
+        assert_eq!(target_element.instantiation, Instantiation::Decision);
+        assert_eq!(target_element.optional, element.optional);
+        assert_eq!(return_type.kind, element.kind);
+        assert_eq!(return_type.instantiation, Instantiation::Parameter);
+        assert!(!return_type.optional);
+        let signature = facts
+            .signatures
+            .iter()
+            .find(|s| s.declaration == *declaration)
+            .unwrap();
+        assert!(
+            matches!(&signature.parameters[0].ty.kind, TypeKind::Array { indices, .. } if indices.len() == 1)
+        );
+    }
+
+    // Changed standard bodies and user lookalikes retain ordinary rank matching.
+    let float_source = "enum Rows={r1,r2}; enum Cols={c1,c2}; array[Rows,Cols] of var float: xs; float: result=lb_array(xs); solve satisfy;";
+    let changed = "function float: lb_array(array[$U] of var float: x) = 0.0;\n";
+    for user in [false, true] {
+        write(&library, if user { "" } else { changed });
+        let source = if user {
+            format!("{changed}{float_source}")
+        } else {
+            float_source.to_owned()
+        };
+        write(&root, &source);
+        let context = load_model(&root, &options);
+        assert!(context.errors.is_empty(), "{:?}", context.errors);
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let facts = resolve_callables(&context, &bindings);
+        assert!(matches!(
+            outcome(&facts, &root, &source, "lb_array(xs)"),
+            CallOutcome::NoMatch { .. }
+        ));
+    }
+    write(&root, source);
+    // A potentially applicable unknown signature still vetoes the known match.
+    write(
+        &library,
+        &format!("{standard}function int: ub_array(array[$$A,$$B] of Missing: x);\n"),
+    );
+    let context = load_model(&root, &options);
+    let bindings = resolve_bindings(&context);
+    let facts = resolve_callables(&context, &bindings);
+    assert!(matches!(
+        outcome(&facts, &root, source, "ub_array(parameters)"),
+        CallOutcome::Unsupported { .. }
+    ));
+    // Equal native prototypes remain ambiguous; the view adds no preference.
+    write(
+        &library,
+        &format!("{standard}function $$E: ub_array(array[$U] of var $$E: x);\n"),
+    );
+    let context = load_model(&root, &options);
+    let bindings = resolve_bindings(&context);
+    let facts = resolve_callables(&context, &bindings);
+    assert!(matches!(
+        outcome(&facts, &root, source, "ub_array(parameters)"),
+        CallOutcome::Ambiguous { .. }
+    ));
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn explicit_array_slices_retain_matching_axes_and_preserve_selector_refusals() {
+    let (directory, options) = setup("explicit-slices");
+    let root = directory.join("root.mzn");
+    let source = concat!(
+        "enum Row={R1,R2}; enum Other={O1,O2};\n",
+        "array[int,int] of var bool: flags; array[Row,int] of var opt int: values;\n",
+        "array[int,int] of int: fixed; int: i; var int: d;\n",
+        "set of int: selected; set of Row: rows; set of Other: others;\n",
+        "opt set of int: optional; var set of int: decision;\n",
+        "any: by_range=flags[i,1..4]; any: by_set=flags[selected,{1,2}];\n",
+        "any: by_enum=values[rows,i]; any: by_full_axis=values[..,i];\n",
+        "any: by_parameter=fixed[selected,i]; any: enum_to_int=flags[rows,i];\n",
+        "any: bad_enum=values[others,i]; any: bad_optional=flags[i,optional];\n",
+        "any: bad_decision=flags[i,decision]; any: bad_scalar=flags[d,1..4];\n",
+        "any: bad_unknown=flags[i,unavailable]; solve satisfy;\n",
+    );
+    write(&root, source);
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    assert!(context.limitations.is_empty(), "{:?}", context.limitations);
+    assert!(
+        context
+            .files
+            .iter()
+            .all(|file| file.parsed.diagnostics().is_empty())
+    );
+    let bindings = resolve_bindings(&context);
+    let facts = resolve_callables(&context, &bindings);
+    let declaration = |name| {
+        bindings
+            .declarations
+            .iter()
+            .find(|d| d.location.path == root && d.name == name)
+            .unwrap()
+    };
+    let ty = |name| &facts.declarations[declaration(name).id.0].ty;
+    let row = declaration("Row").id;
+    assert_ne!(row, declaration("Other").id);
+    assert!(
+        matches!(&ty("values").kind, TypeKind::Array { indices, element }
+        if indices.len() == 2 && indices[0].kind == TypeKind::Enum(row)
+            && indices[1].kind == TypeKind::Int && element.kind == TypeKind::Int
+            && element.instantiation == Instantiation::Decision && element.optional)
+    );
+    for name in ["selected", "rows"] {
+        assert_eq!(ty(name).instantiation, Instantiation::Parameter);
+        assert!(!ty(name).optional);
+        assert!(matches!(&ty(name).kind, TypeKind::Set(element)
+            if element.instantiation == Instantiation::Parameter && !element.optional
+                && element.kind == if name == "rows" { TypeKind::Enum(row) } else { TypeKind::Int }));
+    }
+    for (name, subject, retained) in [
+        ("by_range", "flags", vec![1]),
+        ("by_set", "flags", vec![0, 1]),
+        ("by_enum", "values", vec![0]),
+        ("by_full_axis", "values", vec![0]),
+        ("by_parameter", "fixed", vec![0]),
+        ("enum_to_int", "flags", vec![0]),
+    ] {
+        let TypeKind::Array { indices, element } = &ty(subject).kind else {
+            panic!("{subject}: {:?}", ty(subject));
+        };
+        let slice = ty(name);
+        assert_eq!(slice.instantiation, ty(subject).instantiation, "{name}");
+        assert_eq!(slice.optional, ty(subject).optional, "{name}");
+        let TypeKind::Array {
+            indices: slice_indices,
+            element: slice_element,
+        } = &slice.kind
+        else {
+            panic!("{name}: {slice:?}");
+        };
+        assert_eq!(
+            slice_indices,
+            &retained
+                .into_iter()
+                .map(|axis| indices[axis].clone())
+                .collect::<Vec<_>>(),
+            "{name}"
+        );
+        assert_eq!(slice_element, element, "{name}");
+    }
+    for name in [
+        "bad_enum",
+        "bad_optional",
+        "bad_decision",
+        "bad_scalar",
+        "bad_unknown",
+    ] {
+        assert_eq!(ty(name).instantiation, Instantiation::Unknown, "{name}");
+        assert!(
+            matches!(ty(name).kind, TypeKind::Unknown(_)),
+            "{name}: {:?}",
+            ty(name)
+        );
     }
     std::fs::remove_dir_all(directory).unwrap();
 }

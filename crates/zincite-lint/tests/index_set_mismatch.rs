@@ -251,22 +251,13 @@ fn enum_identity_unknown_data_and_unsupported_slices_have_distinct_outcomes() {
     );
     std::fs::remove_dir_all(dir).unwrap();
     let (dir, _, result) = model(
-        "unsupported",
+        "explicit-range",
         "array[1..2,1..2] of int:grid; array[int,int] of int:slice=grid[..,1..2]; solve satisfy;",
     );
     assert_eq!(result.status(), 0);
     assert!(result.findings.is_empty());
-    assert!(matches!(
-        result.rules[0].outcome,
-        RuleOutcome::Limited { .. }
-    ));
-    assert!(
-        result
-            .limitations
-            .iter()
-            .any(|l| l.location.path == dir.join("root.mzn") && l.message.contains("sliced")),
-        "{result:?}"
-    );
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+    assert!(result.limitations.is_empty(), "{result:?}");
     std::fs::remove_dir_all(dir).unwrap();
 }
 
