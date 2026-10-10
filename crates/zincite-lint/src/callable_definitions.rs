@@ -17775,6 +17775,315 @@ impl<'a> Producer<'a> {
         }
         Some(arguments)
     }
+    // Source inspection only: these native rank-four parameter arrays never
+    // establish selector membership, reshaped extent or output dependencies.
+    fn rank_four_source_headers_safety(
+        &self,
+        file: FileId,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> Result<(), String> {
+        let integer = TypeInst::par(TypeKind::Int);
+        let set = TypeInst::par(TypeKind::Set(Box::new(integer.clone())));
+        for (position, header) in generators.iter().enumerate() {
+            let mut nodes = vec![*header];
+            while let Some(node) = nodes.pop() {
+                if node.kind() == NodeKind::Error || !self.source_annotations_safe(file, node) {
+                    return Err("rank-four source header annotation is unsupported".into());
+                }
+                nodes.extend(node.child_nodes());
+            }
+            let parts: Vec<_> = header.child_nodes().collect();
+            let Some(source) = parts.first() else {
+                return Err("rank-four generator source is unavailable".into());
+            };
+            let binders: Vec<_> = self
+                .bindings
+                .declarations
+                .iter()
+                .filter(|d| {
+                    d.file == file
+                        && d.role == DeclarationRole::Generator
+                        && d.syntax_range == header.range()
+                })
+                .collect();
+            if header.kind() != NodeKind::Generator || binders.is_empty()
+                || binders.len() != crate::domains::generator_slots(&self.context.files[file].parsed, header)
+                || !header.children().iter().any(|part| matches!(part,
+                    SyntaxElement::Token(index) if self.context.files[file].parsed.tokens()[*index].kind == TokenKind::In))
+                || binders.iter().any(|binder| self.view(file, header, view).declarations[binder.id.0].ty != integer)
+                || self.expression_type(self.view(file, source, view), file, source).is_none_or(|e| e.ty != set)
+            {
+                return Err("rank-four generator identity or type is unsupported".into());
+            }
+            for (index, part) in parts.iter().enumerate() {
+                let (value, scope) = if index == 0 {
+                    (*part, &generators[..position])
+                } else {
+                    let conditions: Vec<_> = part.child_nodes().collect();
+                    let [condition] = conditions.as_slice() else {
+                        return Err("rank-four generator filter is unsupported".into());
+                    };
+                    if part.kind() != NodeKind::WhereFilter
+                        || self
+                            .expression_type(self.view(file, condition, view), file, condition)
+                            .is_none_or(|e| e.ty != TypeInst::par(TypeKind::Bool))
+                    {
+                        return Err("rank-four generator filter type is unsupported".into());
+                    }
+                    (*condition, &generators[..=position])
+                };
+                if let Some(reason) = self.closed_integer_source_error(file, value, true, true) {
+                    return Err(reason);
+                }
+                if let DefinitionSafety::Unsupported(reason) =
+                    self.initialized_source_safety(file, value, view, scope, &mut Vec::new())
+                {
+                    return Err(reason);
+                }
+            }
+        }
+        Ok(())
+    }
+    fn rank_four_integer_backing_safety(
+        &self,
+        file: FileId,
+        written: &'a SyntaxNode,
+        view: &CallableFacts,
+    ) -> Option<DefinitionSafety> {
+        let node = unwrap(written);
+        let integer = TypeInst::par(TypeKind::Int);
+        let flat = TypeInst::par(TypeKind::Array {
+            indices: vec![integer.clone()],
+            element: Box::new(integer.clone()),
+        });
+        let matrix = TypeInst::par(TypeKind::Array {
+            indices: vec![integer.clone(); 4],
+            element: Box::new(integer.clone()),
+        });
+        let facts = self.view(file, node, view);
+        if node.kind() != NodeKind::CallExpression
+            || !self.core(file, node, facts, "array4d")
+            || self
+                .expression_type(facts, file, node)
+                .is_none_or(|e| e.ty != matrix)
+        {
+            return None;
+        }
+        // The backing source is a complete top-level initializer. It therefore
+        // has no erased lexical generator or local-formal scope.
+        let call = self.operation_fact(facts, file, node)?;
+        let owner = self.bindings.declarations.iter().find(|d| {
+            d.file == file
+                && d.item == call.item
+                && d.top_level
+                && d.role == DeclarationRole::Value
+                && self.calls.declarations[d.id.0].ty == matrix
+        })?;
+        let declaration = find_node(
+            self.context.files[file].parsed.tree(),
+            &owner.syntax_range,
+            owner.role,
+        )?;
+        let initializers: Vec<_> = declaration
+            .child_nodes()
+            .filter(|n| is_expression(n.kind()))
+            .collect();
+        if !matches!(initializers.as_slice(), [source] if unwrap(source).range() == node.range()) {
+            return None;
+        }
+        let checked = (|| -> Result<(), String> {
+            let mut nodes = vec![declaration];
+            while let Some(source) = nodes.pop() {
+                if source.kind() == NodeKind::Error || !self.source_annotations_safe(file, source) {
+                    return Err("rank-four backing annotation or source is unsupported".into());
+                }
+                nodes.extend(source.child_nodes());
+            }
+            if let Some(reason) = self.closed_integer_source_error(file, declaration, true, true) {
+                return Err(reason);
+            }
+            let arguments: Vec<_> = node.child_nodes().collect();
+            if arguments.len() != 5
+                || arguments
+                    .iter()
+                    .any(|n| n.kind() == NodeKind::NamedArgument)
+            {
+                return Err("rank-four backing arguments are unsupported".into());
+            }
+            let set = TypeInst::par(TypeKind::Set(Box::new(integer.clone())));
+            let mut parameters = vec![set; 4];
+            parameters.push(flat.clone());
+            if arguments
+                .iter()
+                .zip(&parameters)
+                .any(|(argument, parameter)| {
+                    self.expression_type(self.view(file, argument, view), file, argument)
+                        .is_none_or(|e| &e.ty != parameter)
+                })
+            {
+                return Err("rank-four backing actual types are unsupported".into());
+            }
+            self.parameter_array_primitive(file, node, view, "array4d", &parameters, &matrix)?;
+            let source = unwrap(arguments[4]);
+            let data = (source.kind() == NodeKind::Expression
+                && matches!(crate::domains::tokens(&self.context.files[file].parsed, source).as_slice(),
+                    [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier)))
+                .then(|| self.reference(file, source)).flatten()
+                .ok_or("rank-four backing requires a bare initialized data source")?;
+            let data_owner = &self.bindings.declarations[data.0];
+            if !data_owner.top_level
+                || data_owner.role != DeclarationRole::Value
+                || self.calls.declarations[data.0].ty != flat
+            {
+                return Err("rank-four backing data identity is unsupported".into());
+            }
+            let data_source = find_node(
+                self.context.files[data_owner.file].parsed.tree(),
+                &data_owner.syntax_range,
+                data_owner.role,
+            )
+            .ok_or("rank-four backing data declaration is unavailable")?;
+            if data_source
+                .child_nodes()
+                .filter(|n| is_expression(n.kind()))
+                .count()
+                != 1
+            {
+                return Err("rank-four backing data initializer is unavailable".into());
+            }
+            if let DefinitionSafety::Unsupported(reason) =
+                self.initialized_children_safety(file, &arguments, view, &[])
+            {
+                return Err(reason);
+            }
+            Ok(())
+        })();
+        Some(match checked {
+            Ok(()) => {
+                DefinitionSafety::Unknown("rank-four reshape extent and values are unproved".into())
+            }
+            Err(reason) => DefinitionSafety::Unsupported(reason),
+        })
+    }
+    fn rank_four_integer_cell_safety(
+        &self,
+        file: FileId,
+        written: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> Option<DefinitionSafety> {
+        let node = unwrap(written);
+        let integer = TypeInst::par(TypeKind::Int);
+        let decision = integer.clone().with_inst(Instantiation::Decision);
+        let matrix = TypeInst::par(TypeKind::Array {
+            indices: vec![integer.clone(); 4],
+            element: Box::new(integer.clone()),
+        });
+        let typed = |value: &SyntaxNode| {
+            self.expression_type(self.view(file, value, view), file, value)
+                .map(|e| &e.ty)
+        };
+        if node.kind() != NodeKind::ArrayAccessExpression || typed(node) != Some(&decision) {
+            return None;
+        }
+        let children: Vec<_> = node.child_nodes().collect();
+        let [subject, a, b, c, d] = children.as_slice() else {
+            return None;
+        };
+        let subject = unwrap(subject);
+        if subject.kind() != NodeKind::Expression
+            || !matches!(crate::domains::tokens(&self.context.files[file].parsed, subject).as_slice(),
+                [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+            || typed(subject) != Some(&matrix)
+            || [a, b, c, d]
+                .iter()
+                .any(|selector| typed(selector).is_none_or(|t| t != &integer && t != &decision))
+            || [a, b, c, d]
+                .iter()
+                .filter(|selector| typed(selector) == Some(&decision))
+                .count()
+                != 1
+        {
+            return None;
+        }
+        let array = self.reference(file, subject)?;
+        let owner = &self.bindings.declarations[array.0];
+        if !owner.top_level
+            || owner.role != DeclarationRole::Value
+            || self.calls.declarations[array.0].ty != matrix
+        {
+            return None;
+        }
+        let checked = (|| -> Result<(), String> {
+            let mut nodes = vec![written];
+            while let Some(source) = nodes.pop() {
+                if source.kind() == NodeKind::Error || !self.source_annotations_safe(file, source) {
+                    return Err("rank-four cell annotation or source is unsupported".into());
+                }
+                nodes.extend(source.child_nodes());
+            }
+            if let Some(reason) = self.closed_integer_source_error(file, written, true, true) {
+                return Err(reason);
+            }
+            self.rank_four_source_headers_safety(file, view, generators)?;
+            let declared = find_node(
+                self.context.files[owner.file].parsed.tree(),
+                &owner.syntax_range,
+                owner.role,
+            )
+            .ok_or("rank-four backing declaration is unavailable")?;
+            let initializers: Vec<_> = declared
+                .child_nodes()
+                .filter(|n| is_expression(n.kind()))
+                .collect();
+            let [initializer] = initializers.as_slice() else {
+                return Err("rank-four cell requires one initialized backing source".into());
+            };
+            match self.rank_four_integer_backing_safety(owner.file, initializer, self.calls) {
+                Some(DefinitionSafety::Unsupported(reason)) => return Err(reason),
+                Some(_) => {}
+                None => return Err("rank-four cell backing constructor is unsupported".into()),
+            }
+            if let DefinitionSafety::Unsupported(reason) =
+                self.initialized_children_safety(file, &children, view, generators)
+            {
+                return Err(reason);
+            }
+            let (axes, element) =
+                match crate::domains::bare_index_domain(&self.domains.declarations[array.0].domain)
+                {
+                    Domain::Array { indices, element } if indices.len() == 4 => (indices, element),
+                    Domain::Unsupported(reason) => return Err(reason.clone()),
+                    _ => return Err("rank-four declared domain is unsupported".into()),
+                };
+            for domain in axes.iter().chain(std::iter::once(element.as_ref())) {
+                domain.numeric_minimum().map_err(str::to_owned)?;
+            }
+            for (axis, selector) in axes.iter().zip(&children[1..]) {
+                if crate::domains::invariant_expression_integer(
+                    self.context,
+                    self.bindings,
+                    file,
+                    selector,
+                )
+                .is_ok_and(|value| {
+                    value.is_some_and(|value| {
+                        crate::domains::index_domain_member(axis, value) == Some(false)
+                    })
+                }) {
+                    return Err("rank-four selection is outside its declared index set".into());
+                }
+            }
+            Ok(())
+        })();
+        Some(match checked {
+            Ok(()) => DefinitionSafety::Unknown(
+                "rank-four selection membership and values are unproved".into(),
+            ),
+            Err(reason) => DefinitionSafety::Unsupported(reason),
+        })
+    }
     fn inline_reshape_safety(
         &self,
         file: FileId,
@@ -22941,6 +23250,12 @@ impl<'a> Producer<'a> {
             return safety;
         }
         if let Some(safety) = self.decision_scalar_bound_safety(file, node, view, generators) {
+            return safety;
+        }
+        if let Some(safety) = self.rank_four_integer_backing_safety(file, node, view) {
+            return safety;
+        }
+        if let Some(safety) = self.rank_four_integer_cell_safety(file, node, view, generators) {
             return safety;
         }
         // A strict dependency on a named collection does not inspect its

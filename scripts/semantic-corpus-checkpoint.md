@@ -7199,3 +7199,11 @@ search coverage. The three focused cases and earlier fresh-let controls pass.
 The integrated checkout passes formatting, Clippy and all 278 workspace tests.
 Original-instance replay and whole-task acceptance remain pending; base-083
 remains open.
+
+The next independently reviewed increment inspects a checked native rank-four
+parameter integer backing array and cells with one decision integer selector.
+It retains actual generator sources and filters, source errors and primitive
+body refusals, returning Unknown without membership or output proofs. All four
+focused cases pass. The integrated checkout passes formatting, Clippy and all
+279 workspace tests. Fresh original and whole-corpus acceptance remain pending;
+base-083 remains open.
