@@ -13949,6 +13949,8 @@ fn initialized_local_boolean_comprehension_inspects_sources_without_output_proof
         "solve satisfy;\n",
     );
     let closed = positive.replace("source[i]", "source[i + (1 div 0)]");
+    let inferred_axis = positive.replace("array[1..card(Input)]", "array[int]");
+    let inferred_closed = inferred_axis.replace("source[i]", "source[i + (1 div 0)]");
     let same_axis = concat!(
         "int: employees;\n",
         "set of int: Employees = 1..employees;\n",
@@ -13966,6 +13968,16 @@ fn initialized_local_boolean_comprehension_inspects_sources_without_output_proof
         (
             "initialized-same-axis-bool-endpoint-error",
             endpoint_error.as_str(),
+            false,
+        ),
+        (
+            "initialized-inferred-axis-bool-symbolic",
+            inferred_axis.as_str(),
+            true,
+        ),
+        (
+            "initialized-inferred-axis-bool-closed",
+            inferred_closed.as_str(),
             false,
         ),
     ] {

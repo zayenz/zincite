@@ -6653,3 +6653,16 @@ and new cases pass afterward. The Workforce original still has independent
 regular, inferred-axis, enum-generator and other prerequisites; its completion
 is not claimed. Evidence and workspace gates are retained under
 `target/benchmarks/base083/semantic69-initialized-same-axis-main-checks-v1`.
+
+The same local consumer now recognizes the inferred axis in written
+`array[int]` Boolean comprehensions. Admission requires exact present rank-one
+integer-axis Boolean types for the local and initializer, then retains the
+shared written annotations, element-domain, forward/cycle and full construction
+checks. No explicit cardinality equation is needed for an inferred axis; its
+extent remains unknown. Two more cases extend the existing public group,
+with no copied test harness: the inferred symbolic case fails before repair,
+and the closed body division error remains refused after repair. All six
+cases and the workspace checks pass under
+`target/benchmarks/base083/semantic69-inferred-int-local-axis-main-checks-v1`.
+The Workforce decision-enum array binder remains a separate unsupported
+prerequisite, so this axis repair does not establish original-model completion.

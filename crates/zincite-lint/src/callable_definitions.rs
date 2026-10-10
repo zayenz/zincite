@@ -14258,10 +14258,15 @@ impl<'a> Producer<'a> {
         if written.kind() != NodeKind::ArrayType || parts.len() != 2 {
             return Err("local comprehension requires one written integer axis".into());
         }
+        let inferred_axis = parts[0].kind() == NodeKind::ScalarType
+            && parts[0].child_nodes().next().is_none()
+            && matches!(crate::domains::tokens(&self.context.files[file].parsed, parts[0]).as_slice(),
+                [token] if token.kind == TokenKind::Int);
         let axis = parts[0]
             .child_nodes()
             .next()
             .map(unwrap)
+            .or_else(|| inferred_axis.then_some(parts[0]))
             .ok_or("local comprehension axis unavailable")?;
         let endpoints: Vec<_> = axis.child_nodes().collect();
         let source = initializer
@@ -14272,7 +14277,39 @@ impl<'a> Producer<'a> {
             .map(unwrap)
             .ok_or("local comprehension source unavailable")?;
         let facts = self.view(file, initializer, view);
-        if let Some(source_id) = crate::domains::parameter_integer_set_source(
+        if inferred_axis {
+            // The initializer supplies this axis. Its extent remains unproved;
+            // common written-type and construction checks still follow.
+            let array = TypeInst {
+                instantiation: Instantiation::Decision,
+                optional: false,
+                kind: TypeKind::Array {
+                    indices: vec![TypeInst::par(TypeKind::Int)],
+                    element: Box::new(TypeInst {
+                        instantiation: Instantiation::Decision,
+                        optional: false,
+                        kind: TypeKind::Bool,
+                    }),
+                },
+            };
+            if initializer.kind() != NodeKind::ArrayComprehension
+                || self
+                    .expression_type(facts, file, initializer)
+                    .is_none_or(|e| e.ty != array)
+                || self
+                    .bindings
+                    .declarations
+                    .iter()
+                    .find(|d| {
+                        d.file == file
+                            && d.role == DeclarationRole::Local
+                            && d.syntax_range == local.range()
+                    })
+                    .is_none_or(|d| facts.declarations[d.id.0].ty != array)
+            {
+                return Err("local inferred-axis comprehension type is unsupported".into());
+            }
+        } else if let Some(source_id) = crate::domains::parameter_integer_set_source(
             self.context,
             self.bindings,
             facts,
