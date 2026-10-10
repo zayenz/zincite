@@ -6639,3 +6639,17 @@ source prerequisites. ROOT checked 1,173 unchanged pins and the successful
 receipt/full streams under
 `target/benchmarks/base083/semantic68-workforce-regular-source-preflight-preparation-v2`.
 No adapter, membership, output or whole-original completion is inferred.
+
+The initialized same-axis local comprehension repair stays in its existing
+consumer. A single unfiltered integer generator may use the same initialized
+top-level parameter set as its written axis only when the initializer is an
+inspected core parameter range starting at one. Declaration identity, exact
+types, annotations, cycles and closed source errors remain checked. Existing
+cardinality helpers are unchanged; inspection supplies no size, membership,
+output or search certificate. Two cases extend the existing public Boolean
+comprehension test: symbolic `Employees = 1..employees` and a closed endpoint
+division error. The symbolic case fails before the repair and all four existing
+and new cases pass afterward. The Workforce original still has independent
+regular, inferred-axis, enum-generator and other prerequisites; its completion
+is not claimed. Evidence and workspace gates are retained under
+`target/benchmarks/base083/semantic69-initialized-same-axis-main-checks-v1`.

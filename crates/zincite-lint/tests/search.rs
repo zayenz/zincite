@@ -13949,9 +13949,25 @@ fn initialized_local_boolean_comprehension_inspects_sources_without_output_proof
         "solve satisfy;\n",
     );
     let closed = positive.replace("source[i]", "source[i + (1 div 0)]");
+    let same_axis = concat!(
+        "int: employees;\n",
+        "set of int: Employees = 1..employees;\n",
+        "array[Employees] of var bool: source;\n",
+        "constraint let {\n",
+        "  array[Employees] of var bool: local = [source[i] | i in Employees];\n",
+        "} in forall(local);\n",
+        "solve satisfy;\n",
+    );
+    let endpoint_error = same_axis.replace("1..employees", "1..(employees + (1 div 0))");
     for (name, source, completed) in [
         ("initialized-local-bool-symbolic", positive, true),
         ("initialized-local-bool-closed", closed.as_str(), false),
+        ("initialized-same-axis-bool-symbolic", same_axis, true),
+        (
+            "initialized-same-axis-bool-endpoint-error",
+            endpoint_error.as_str(),
+            false,
+        ),
     ] {
         let (dir, _) = model(name, "solve satisfy;", "");
         std::fs::write(

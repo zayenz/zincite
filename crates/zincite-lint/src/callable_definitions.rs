@@ -14272,34 +14272,142 @@ impl<'a> Producer<'a> {
             .map(unwrap)
             .ok_or("local comprehension source unavailable")?;
         let facts = self.view(file, initializer, view);
-        let source_id = crate::domains::parameter_integer_set_source(
+        if let Some(source_id) = crate::domains::parameter_integer_set_source(
             self.context,
             self.bindings,
             facts,
             file,
             source,
-        )
-        .ok_or("local comprehension requires a bare parameter integer set")?;
-        if axis.kind() != NodeKind::RangeExpression
-            || !self.core(file, axis, view, "..")
-            || endpoints.len() != 2
-            || crate::domains::invariant_expression_integer(
+        ) {
+            if axis.kind() != NodeKind::RangeExpression
+                || !self.core(file, axis, view, "..")
+                || endpoints.len() != 2
+                || crate::domains::invariant_expression_integer(
+                    self.context,
+                    self.bindings,
+                    file,
+                    endpoints[0],
+                ) != Ok(Some(1))
+                || crate::domains::parameter_set_cardinality(
+                    self.context,
+                    self.bindings,
+                    facts,
+                    file,
+                    unwrap(endpoints[1]),
+                ) != Some(source_id)
+            {
+                return Err("local comprehension axis lacks the same-source cardinality".into());
+            }
+            self.dependencies(file, endpoints[0], view, generators)?;
+        } else {
+            // A single unfiltered 1..N source can use its own written axis.
+            // Inspect its sources without evaluating N or publishing an extent.
+            let bare = |node: &SyntaxNode| {
+                node.kind() == NodeKind::Expression
+                    && node.child_nodes().next().is_none()
+                    && matches!(crate::domains::tokens(&self.context.files[file].parsed, node).as_slice(),
+                        [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+            };
+            let source_id = self
+                .reference(file, source)
+                .filter(|id| bare(source) && bare(axis) && self.reference(file, axis) == Some(*id))
+                .ok_or("local comprehension requires a bare parameter integer set")?;
+            let owner = &self.bindings.declarations[source_id.0];
+            let integer = TypeInst::par(TypeKind::Int);
+            let set = TypeInst::par(TypeKind::Set(Box::new(integer.clone())));
+            let headers: Vec<_> = initializer
+                .child_nodes()
+                .find(|node| node.kind() == NodeKind::GeneratorList)
+                .into_iter()
+                .flat_map(SyntaxNode::child_nodes)
+                .collect();
+            if owner.file != file
+                || !owner.top_level
+                || owner.role != DeclarationRole::Value
+                || owner.instantiation != Instantiation::Parameter
+                || facts.declarations[source_id.0].ty != set
+                || self
+                    .expression_type(facts, file, source)
+                    .is_none_or(|e| e.ty != set)
+                || self
+                    .expression_type(facts, file, axis)
+                    .is_none_or(|e| e.ty != set)
+                || headers.len() != 1
+                || headers[0].child_nodes().count() != 1
+                || crate::domains::generator_slots(&self.context.files[file].parsed, headers[0])
+                    != 1
+            {
+                return Err(
+                    "local comprehension same-axis source or traversal is unsupported".into(),
+                );
+            }
+            let declaration = find_node(
+                self.context.files[file].parsed.tree(),
+                &owner.syntax_range,
+                owner.role,
+            )
+            .ok_or("local comprehension source declaration unavailable")?;
+            let source_type = declaration
+                .child_nodes()
+                .next()
+                .ok_or("local comprehension written source type unavailable")?;
+            let members: Vec<_> = source_type.child_nodes().collect();
+            let values: Vec<_> = declaration
+                .child_nodes()
+                .filter(|n| is_expression(n.kind()))
+                .collect();
+            if source_type.kind() != NodeKind::SetType
+                || members.len() != 1
+                || members[0].kind() != NodeKind::ScalarType
+                || members[0].child_nodes().next().is_some()
+                || !matches!(crate::domains::tokens(&self.context.files[file].parsed, members[0]).as_slice(),
+                    [token] if token.kind == TokenKind::Int)
+                || values.len() != 1
+                || !crate::definitions::annotations_safe(self.context, file, declaration)
+                || !crate::definitions::annotations_safe(self.context, file, source_type)
+            {
+                return Err("local comprehension written integer-set source is unsupported".into());
+            }
+            let range = unwrap(values[0]);
+            let bounds: Vec<_> = range.child_nodes().collect();
+            let range_view = self.view(file, range, view);
+            if range.kind() != NodeKind::RangeExpression
+                || bounds.len() != 2
+                || bounds.iter().any(|bound| {
+                    self.expression_type(range_view, file, bound)
+                        .is_none_or(|e| e.ty != integer)
+                })
+                || !self.prefix_primitive(
+                    file,
+                    range,
+                    range_view,
+                    "..",
+                    &[integer.clone(), integer],
+                    &set,
+                )
+            {
+                return Err(
+                    "local comprehension requires a written parameter integer range".into(),
+                );
+            }
+            if let Some(reason) = self.closed_integer_source_error(file, source, true, true) {
+                return Err(reason);
+            }
+            if let DefinitionSafety::Unsupported(reason) =
+                self.initialized_source_safety(file, source, view, generators, &mut Vec::new())
+            {
+                return Err(reason);
+            }
+            if crate::domains::invariant_expression_integer(
                 self.context,
                 self.bindings,
                 file,
-                endpoints[0],
+                bounds[0],
             ) != Ok(Some(1))
-            || crate::domains::parameter_set_cardinality(
-                self.context,
-                self.bindings,
-                facts,
-                file,
-                unwrap(endpoints[1]),
-            ) != Some(source_id)
-        {
-            return Err("local comprehension axis lacks the same-source cardinality".into());
+            {
+                return Err("local comprehension same-axis range does not start at one".into());
+            }
         }
-        self.dependencies(file, endpoints[0], view, generators)?;
         let mut nodes = vec![written];
         while let Some(node) = nodes.pop() {
             if !crate::definitions::annotations_safe(self.context, file, node) {
