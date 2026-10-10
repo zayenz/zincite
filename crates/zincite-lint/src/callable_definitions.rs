@@ -14986,6 +14986,98 @@ impl<'a> Producer<'a> {
             "reflected domain members, nonemptiness and values are unproved".into(),
         ))
     }
+    fn native_generator_max_source_safety(
+        &self,
+        file: FileId,
+        written: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> Option<DefinitionSafety> {
+        let node = unwrap(written);
+        if node.kind() != NodeKind::GeneratorCallExpression || !self.core(file, node, view, "max") {
+            return None;
+        }
+        let integer = TypeInst::par(TypeKind::Int);
+        let array = TypeInst::par(TypeKind::Array {
+            indices: vec![integer.clone()],
+            element: Box::new(integer.clone()),
+        });
+        let facts = self.view(file, node, view);
+        if self
+            .expression_type(facts, file, node)
+            .is_none_or(|e| e.ty != integer)
+            || self.operation_fact(facts, file, node).is_none_or(|call| {
+                !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                    if parameters.as_slice() == std::slice::from_ref(&array)
+                        && return_type == &integer)
+            })
+        {
+            return None;
+        }
+        let checked = (|| -> Result<(), String> {
+            let parts: Vec<_> = node.child_nodes().collect();
+            let [list, body] = parts.as_slice() else {
+                return Err("native max generator body or headers are unsupported".into());
+            };
+            if list.kind() != NodeKind::GeneratorList
+                || list.child_nodes().count() == 0
+                || self
+                    .expression_type(self.view(file, body, view), file, body)
+                    .is_none_or(|e| e.ty != integer)
+            {
+                return Err("native max generator body or headers are unsupported".into());
+            }
+            let mut nodes = vec![written];
+            while let Some(source) = nodes.pop() {
+                if source.kind() == NodeKind::Error || !self.source_annotations_safe(file, source) {
+                    return Err("native max source annotation or syntax is unsupported".into());
+                }
+                nodes.extend(source.child_nodes());
+            }
+            if !self.prefix_primitive(
+                file,
+                node,
+                facts,
+                "max",
+                std::slice::from_ref(&array),
+                &integer,
+            ) {
+                return Err("native max selected written primitive or tuple is unsupported".into());
+            }
+            let headers: Vec<_> = list.child_nodes().collect();
+            let mut all = generators.to_vec();
+            all.extend(headers.iter().copied());
+            self.integer_source_headers_safety(file, view, &all)?;
+            if let Some(reason) = self.closed_integer_source_error(file, body, true, true) {
+                return Err(reason);
+            }
+            if let DefinitionSafety::Unsupported(reason) =
+                self.initialized_source_safety(file, body, view, &all, &mut Vec::new())
+            {
+                return Err(reason);
+            }
+            if headers.iter().any(|header| {
+                header
+                    .child_nodes()
+                    .next()
+                    .is_some_and(|source| self.parameter_set_source_empty(file, source))
+                    || header.child_nodes().skip(1).any(|filter| {
+                        filter.child_nodes().next().is_some_and(|condition| {
+                            self.assertion_literal(file, condition) == Some(TokenKind::False)
+                        })
+                    })
+            }) {
+                return Err("native max is undefined for an empty iteration".into());
+            }
+            Ok(())
+        })();
+        Some(match checked {
+            Ok(()) => {
+                DefinitionSafety::Unknown("native max nonemptiness and value are unproved".into())
+            }
+            Err(reason) => DefinitionSafety::Unsupported(reason),
+        })
+    }
     fn parameter_test_safety(
         &self,
         file: FileId,
@@ -17067,7 +17159,19 @@ impl<'a> Producer<'a> {
             return false;
         }
         if node.kind() == NodeKind::GeneratorCallExpression {
-            if name != "forall"
+            let eligible = if name == "forall" {
+                true
+            } else if name == "max" {
+                let integer = TypeInst::par(TypeKind::Int);
+                let array = TypeInst::par(TypeKind::Array {
+                    indices: vec![integer.clone()],
+                    element: Box::new(integer.clone()),
+                });
+                parameters == std::slice::from_ref(&array) && result == &integer
+            } else {
+                false
+            };
+            if !eligible
                 || parameters.len() != 1
                 || call.generator_argument.as_ref() != parameters.first()
             {
@@ -18013,8 +18117,8 @@ impl<'a> Producer<'a> {
         }
         Some(arguments)
     }
-    // Source inspection only: these native rank-three/rank-four parameter arrays never
-    // establish selector membership, reshaped extent or output dependencies.
+    // Inspect integer generator sources and filters in lexical order without
+    // establishing membership, extent or output dependencies.
     fn integer_source_headers_safety(
         &self,
         file: FileId,
@@ -19705,20 +19809,7 @@ impl<'a> Producer<'a> {
         {
             return Some(unsupported);
         }
-        let written_domain = expression_domain(self.context, self.bindings, file, argument);
-        let mut domain = &written_domain;
-        while let Domain::Named { domain: inner, .. } = domain {
-            domain = inner;
-        }
-        let empty = match domain {
-            Domain::LiteralSet(values) => values.is_empty(),
-            Domain::Range { lower, upper } => {
-                matches!((crate::domains::invariant_integer(lower), crate::domains::invariant_integer(upper)),
-                (Ok(Some(lower)), Ok(Some(upper))) if lower > upper)
-            }
-            Domain::Enum(id) => self.enum_extent(*id).is_some_and(|size| size == 0),
-            _ => false,
-        };
+        let empty = self.parameter_set_source_empty(file, argument);
         Some(if empty {
             DefinitionSafety::Unsupported(
                 "parameter set extremum is undefined for an empty set".into(),
@@ -19728,6 +19819,22 @@ impl<'a> Producer<'a> {
                 "parameter set extremum nonemptiness or value is unproved".into(),
             )
         })
+    }
+    fn parameter_set_source_empty(&self, file: FileId, source: &SyntaxNode) -> bool {
+        let written_domain = expression_domain(self.context, self.bindings, file, source);
+        let mut domain = &written_domain;
+        while let Domain::Named { domain: inner, .. } = domain {
+            domain = inner;
+        }
+        match domain {
+            Domain::LiteralSet(values) => values.is_empty(),
+            Domain::Range { lower, upper } => {
+                matches!((crate::domains::invariant_integer(lower), crate::domains::invariant_integer(upper)),
+                (Ok(Some(lower)), Ok(Some(upper))) if lower > upper)
+            }
+            Domain::Enum(id) => self.enum_extent(*id).is_some_and(|size| size == 0),
+            _ => false,
+        }
     }
     fn user_integer_fresh_let_safety(
         &self,
@@ -23946,6 +24053,10 @@ impl<'a> Producer<'a> {
             return safety;
         }
         if let Some(safety) = self.native_dom_source_safety(file, node, view, generators) {
+            return safety;
+        }
+        if let Some(safety) = self.native_generator_max_source_safety(file, node, view, generators)
+        {
             return safety;
         }
         if let Some(safety) = self.integer_product_source_safety(file, node, view, generators) {

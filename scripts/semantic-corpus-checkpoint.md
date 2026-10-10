@@ -7281,3 +7281,12 @@ headers do not leak into the initializer. Strict dependency handling remains
 unchanged. Both focused cases, formatting, Clippy and all 289 workspace tests
 pass. Inspection stays Unknown without values or output certificates. Original
 and final corpus acceptance remain pending; base-083 remains open.
+
+The next independently reviewed increment inspects exact Parameter Int generator
+`max` sources through the existing primitive and lexical header readers. It
+retains source/body errors and known-empty refusals, returning Unknown without
+nonemptiness or extremum values. All seven focused cases pass; MiniZinc compiles
+the portable positive case to FlatZinc with Gecode without solving. Formatting,
+Clippy and all 290 workspace tests pass, including the existing set-extremum,
+dom, Local-scope and regular/4 controls. Original and final corpus acceptance
+remain pending; base-083 remains open.
