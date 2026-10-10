@@ -7132,7 +7132,25 @@ data, compiler and installed-library inputs remain unchanged. The historical
 bare-context failure remains recorded; this is separate configured-instance
 evidence under `semantic76-compiler-classification-audit-v1/configured-precheck`.
 
-The fresh 6,417-root corpus is running against the unchanged 108-source
+The fresh 6,417-root corpus has finished against the unchanged 108-source
 `72007a2` map and rebuilt release assets. Thirty current public controls pass.
-Full corpus reconciliation and independent whole-task verification remain
-pending; base-083 is open.
+The saved-capture reconciliation passes: all 124 shard drivers and 496
+native/companion children are accounted for, every root has both preset records,
+and no root or rule result is Unobserved. Checked original, source, library and
+tool inputs remain unchanged. The three-lane run took about 2.5 hours; this is
+parallel capture time, not an isolated throughput comparison.
+
+Both presets classify 1,179 structurally complete roots, of which 1,173 have
+resolved dependencies. Of those resolved roots, 499 have every thesis rule
+Completed and 199 have every expanded rule Completed. The remaining results
+retain their Limited, Inapplicable and NotRun outcomes. Six roots have NotRun
+rules. These counts do not establish compiler-supported semantic coverage.
+
+The historical compiler classifications remain 2,241 source-only accepted roots,
+3,876 unchecked data files, 276 compiler-nonzero roots and 24 earlier rejections.
+Source-only acceptance is distinct from actual instance compilation; compiler
+failures require their own context checks. Full records are retained privately
+under `target/benchmarks/base083/final-corpus-72007a2-v1` and
+`semantic76-final-corpus-reconciliation-preparation-v1/root-audit.json`.
+Concrete support-gap reconciliation, evidence after the pending repairs and
+independent whole-task verification remain required; base-083 is open.
