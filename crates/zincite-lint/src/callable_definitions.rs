@@ -14850,6 +14850,64 @@ impl<'a> Producer<'a> {
             "decision fixedness is unproved".into(),
         ))
     }
+    fn native_dom_source_safety(
+        &self,
+        file: FileId,
+        written: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> Option<DefinitionSafety> {
+        let node = unwrap(written);
+        if node.kind() != NodeKind::CallExpression || !self.core(file, node, view, "dom") {
+            return None;
+        }
+        let arguments: Vec<_> = node.child_nodes().collect();
+        let [argument] = arguments.as_slice() else {
+            return None;
+        };
+        if argument.kind() == NodeKind::NamedArgument
+            || unwrap(argument).kind() != NodeKind::ArrayAccessExpression
+        {
+            return None;
+        }
+        let decision = TypeInst::par(TypeKind::Int).with_inst(Instantiation::Decision);
+        let result = TypeInst::par(TypeKind::Set(Box::new(TypeInst::par(TypeKind::Int))));
+        let facts = self.view(file, node, view);
+        if self
+            .expression_type(facts, file, argument)
+            .is_none_or(|e| e.ty != decision)
+            || self
+                .expression_type(facts, file, node)
+                .is_none_or(|e| e.ty != result)
+        {
+            return None;
+        }
+        let mut nodes = vec![written];
+        while let Some(source) = nodes.pop() {
+            if source.kind() == NodeKind::Error || !self.source_annotations_safe(file, source) {
+                return Some(DefinitionSafety::Unsupported(
+                    "domain reflection source annotation or syntax is unsupported".into(),
+                ));
+            }
+            nodes.extend(source.child_nodes());
+        }
+        if !self.prefix_primitive(file, node, facts, "dom", &[decision], &result) {
+            return Some(DefinitionSafety::Unsupported(
+                "domain reflection selected written primitive or tuple is unsupported".into(),
+            ));
+        }
+        if let unsupported @ DefinitionSafety::Unsupported(_) =
+            self.decision_scalar_bound_operand_safety(file, argument, view, generators)
+        {
+            return Some(unsupported);
+        }
+        if let Some(reason) = self.closed_integer_source_error(file, argument, true, true) {
+            return Some(DefinitionSafety::Unsupported(reason));
+        }
+        Some(DefinitionSafety::Unknown(
+            "reflected domain members, nonemptiness and values are unproved".into(),
+        ))
+    }
     fn parameter_test_safety(
         &self,
         file: FileId,
@@ -23807,6 +23865,9 @@ impl<'a> Producer<'a> {
         generators: &[&'a SyntaxNode],
     ) -> DefinitionSafety {
         if let Some(safety) = self.native_fixed_source_safety(file, node, view, generators) {
+            return safety;
+        }
+        if let Some(safety) = self.native_dom_source_safety(file, node, view, generators) {
             return safety;
         }
         if let Some(safety) = self.integer_product_source_safety(file, node, view, generators) {

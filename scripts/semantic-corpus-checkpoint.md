@@ -7258,3 +7258,10 @@ unchanged search regression pass. Formatting, Clippy and all 286 workspace
 tests pass on the integrated checkout. Inspection remains Unknown without
 membership, extent or output proofs. Original and final corpus acceptance
 remain pending; base-083 remains open.
+
+The next independently reviewed increment inspects exact native integer `dom`
+sources through the existing checked array-cell operand reader. Inspection stays
+Unknown without reflected members, nonemptiness, bounds or output certificates.
+All three focused cases pass. Formatting, Clippy and all 287 workspace tests
+pass on the integrated checkout. Original and final corpus acceptance remain
+pending; base-083 remains open.

@@ -2179,3 +2179,192 @@ fn rank_three_flat_parameter_integer_sources_preserve_unknown_and_errors() {
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
+
+#[test]
+fn native_integer_domain_sources_preserve_unknown_and_errors() {
+    let library = concat!(
+        "annotation mzn_internal_representation;\n",
+        "function set of $$E: dom(var $$E: x);\n",
+        "function int: card(set of $T: x);\n",
+        "function set of int: '..'(int: a, int: b) :: mzn_internal_representation;\n",
+        "function int: 'div'(int: a, int: b) :: mzn_internal_representation;\n",
+    );
+    let source = concat!(
+        "var 1..2: seed;\n",
+        "array[1..1] of var int: values = [seed];\n",
+        "var int: result = card(dom(values[1]));\n",
+        "solve satisfy;\n",
+    );
+    let source_zero = source.replace("values = [seed]", "values = [1 div 0]");
+    let written_body = library.replace("dom(var $$E: x);", "dom(var $$E: x) = dom(x);");
+    for (name, source, library, reason) in [
+        ("symbolic", source, library, None),
+        (
+            "source-zero",
+            source_zero.as_str(),
+            library,
+            Some("division by zero"),
+        ),
+        (
+            "written-body",
+            source,
+            written_body.as_str(),
+            Some("domain reflection selected written primitive or tuple"),
+        ),
+    ] {
+        let (directory, _) = model(&format!("native-dom-source-{name}"), "solve satisfy;", "");
+        let standard = directory.join("library/std/stdlib.mzn");
+        let root = directory.join("root.mzn");
+        write(&standard, library);
+        write(&root, source);
+        let context = load_model(
+            &root,
+            &ModelOptions {
+                stdlib_dir: Some(directory.join("library")),
+                include_dirs: Vec::new(),
+            },
+        );
+        assert!(
+            context.errors.is_empty() && context.limitations.is_empty(),
+            "{name}: {context:?}"
+        );
+        assert!(context.includes.iter().all(|edge| edge.target.is_some()));
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let file = context.root_file.unwrap();
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let dom = calls
+            .calls
+            .iter()
+            .find(|call| call.file == file && call.name == "dom")
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &dom.outcome
+        else {
+            panic!(
+                "{name}: exact native dom selection required: {:?}",
+                dom.outcome
+            );
+        };
+        let owner = &bindings.declarations[declaration.0];
+        assert_eq!(context.files[owner.file].path, standard);
+        assert_eq!(context.files[owner.file].kind, SourceKind::StandardLibrary);
+        assert!(context.files[owner.file].implicit);
+        let integer = TypeInst {
+            instantiation: Instantiation::Parameter,
+            optional: false,
+            kind: TypeKind::Int,
+        };
+        let decision = TypeInst {
+            instantiation: Instantiation::Decision,
+            ..integer.clone()
+        };
+        assert_eq!(parameters.as_slice(), std::slice::from_ref(&decision));
+        assert_eq!(
+            *return_type,
+            TypeInst {
+                kind: TypeKind::Set(Box::new(integer)),
+                instantiation: Instantiation::Parameter,
+                optional: false
+            }
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let target = bindings
+            .declarations
+            .iter()
+            .find(|d| d.file == file && d.name == "result")
+            .unwrap()
+            .id;
+        let definition = definitions
+            .definitions
+            .iter()
+            .find(|d| d.target == target)
+            .unwrap();
+        assert_eq!(definition.coverage, DefinitionCoverage::Scalar);
+        assert_eq!(definition.enforcement, DefinitionEnforcement::Enforced);
+        assert!(
+            !definitions
+                .bounded_or_defined_targets(&bindings, &domains)
+                .contains(&target)
+        );
+        let callable = zincite_lint::resolve_callable_definitions(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+        );
+        assert!(
+            callable
+                .outputs
+                .iter()
+                .all(|output| output.callable != *declaration)
+        );
+        assert!(
+            !callable
+                .definitions
+                .iter()
+                .any(|definition| definition.target == target)
+        );
+        let result = analyze_model(
+            &context,
+            &LintOptions::from_selection("unbounded-variable").unwrap(),
+        );
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        assert!(
+            !result
+                .findings
+                .iter()
+                .any(|finding| finding.message.contains("'result'"))
+        );
+        match reason {
+            None => {
+                assert!(
+                    matches!(definition.safety, DefinitionSafety::Unknown(_)),
+                    "NATIVE_DOM_SOURCE_RED: {:?}",
+                    definition.safety
+                );
+                assert_eq!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Completed,
+                    "{name}: {:?}",
+                    result.limitations
+                );
+                assert!(result.limitations.is_empty());
+            }
+            Some(reason) => {
+                assert!(
+                    matches!(&definition.safety, DefinitionSafety::Unsupported(actual) if actual.contains(reason)),
+                    "{name}: {:?}",
+                    definition.safety
+                );
+                assert!(matches!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Limited { .. }
+                ));
+                assert!(
+                    result
+                        .limitations
+                        .iter()
+                        .any(|limit| limit.location.path == root
+                            && !limit.location.range.is_empty()
+                            && limit.message.contains(reason)),
+                    "{name}: {:?}",
+                    result.limitations
+                );
+            }
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
