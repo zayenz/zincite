@@ -6853,3 +6853,22 @@ limitations byte-for-byte, with 1,133 unchanged source/library pins under
 The cardinality actual, regexp prerequisite and optional transition gaps remain;
 this source repair does not establish their completion or final corpus acceptance.
 Base-083 remains open with all Done conditions unchecked.
+
+The bounded BNN producer diagnostic on frozen 96f7b3d source reached its original
+1,800-second child limit inside `resolve_guarded_facts_with_options`. Build and
+all 1,191 pinned inputs remain checked; the child was killed and reaped. The
+43 timing rows end at that stage's begin marker, so the elapsed phase cost and
+subsequent stages remain unobserved. Historical empty-stream equality establishes
+neither diagnostic parity nor a performance ratio. The full capture is retained
+under `target/benchmarks/base083/semantic70-bnn-producer-timing-preparation-v2`.
+
+A five-second live stack sample under
+`target/benchmarks/base083/semantic71-bnn-guarded-live-sample-v1` identifies all
+373 collapsed leaf samples in `callable_definitions::Producer::reference`. Its
+caller is guarded array-index membership inspecting a declaration's written
+domain via the closed-source reader, whose temporary Producer has no lookup
+index and scans the complete reference table. ROOT checked that source chain.
+The sample identifies this cost in its observation window; it supplies neither
+whole-phase proportions nor an allocation-growth explanation. A narrow reuse of
+identical immutable declaration-domain checks is being prepared privately.
+Base-083 performance and complete corpus acceptance remain open.
