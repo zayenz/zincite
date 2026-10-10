@@ -6442,3 +6442,19 @@ it does not establish exact source-line costs or whole-run percentages. Two
 separate lookup candidates are prepared, with behavior and performance validation
 pending. No allocation improvement or cutoff repair is claimed. The failed full
 corpus capture remains unchanged, and base-083 remains open.
+
+The rank-two private Boolean-channel repair is integrated. It checks both
+explicit integer axes and permits whole-array output coverage only for a full
+checked `forall` channel from an already searched array. The public positive
+case has genuine RED/GREEN evidence; a closed second-axis failure and filtered
+partial traversal stay Limited without whole-array coverage. Three source-only
+MiniZinc controls pass. Integrated formatting, Clippy and workspace tests pass
+under `target/benchmarks/base083/semantic68-rank-two-main-gates-v1`.
+
+The separate original `nqueens_sym.mzn` replay removes its local array-type
+limitation but retains the scoped-local search limitation inside the symmetry
+wrapper. All fifteen thesis warnings and both default streams are unchanged.
+ROOT checked four terminal receipts, eight complete streams and 1,261 original,
+source, tool and binary pins. This is a supported channel increment, not proof
+that the original model or base-083 is complete. The wrapper's ability to ignore
+its argument must be retained when assessing the remaining limitation.

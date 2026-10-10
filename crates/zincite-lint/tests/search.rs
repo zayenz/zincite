@@ -13139,3 +13139,153 @@ fn ordinary_exists_inspects_sources_without_member_or_output_proof() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn rank_two_private_boolean_channel_requires_checked_full_traversal() {
+    use zincite_lint::{CallOutcome, DeclarationRole, DefinitionEnforcement};
+    let source = concat!(
+        "int: n;\n",
+        "array[1..n] of var 1..n: q;\n",
+        "constraint let {\n",
+        "  array[1..n,1..n] of var bool: qb;\n",
+        "} in\n",
+        "  forall(i,j in 1..n)(qb[i,j] <-> (q[i]=j));\n",
+        "solve :: int_search(q,input_order,indomain_min,complete) satisfy;\n",
+    );
+    let axis_zero = source.replace(
+        "array[1..n,1..n] of var bool: qb;",
+        "array[1..n,1..(n div 0)] of var bool: qb;",
+    );
+    let partial = source.replace("forall(i,j in 1..n)", "forall(i,j in 1..n where i=1)");
+    for (name, source, completed, axis_error) in [
+        ("rank-two-private-channel", source, true, false),
+        (
+            "rank-two-private-axis-zero",
+            axis_zero.as_str(),
+            false,
+            true,
+        ),
+        (
+            "rank-two-private-partial-channel",
+            partial.as_str(),
+            false,
+            false,
+        ),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}function var bool: '<->'(var bool: left,var bool: right);\nfunction int: 'div'(int: left,int: right);\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let search = resolve_search_coverage(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+            &definitions,
+        );
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        let qb = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == "qb" && d.role == DeclarationRole::Local)
+            .unwrap()
+            .id;
+        let q = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "q")
+            .unwrap()
+            .id;
+        assert_eq!(
+            coverage(&bindings, &search, "q"),
+            SearchCoverage::WholeArray
+        );
+        assert!(
+            search
+                .searched
+                .iter()
+                .all(|value| value.declaration != Some(qb))
+        );
+        let result = analyze_model(&context, &selected());
+        if completed {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "RANK_TWO_PRIVATE_BOOL_RED: {:?}",
+                result.limitations
+            );
+            assert_eq!(
+                search.declarations[qb.0].coverage,
+                SearchCoverage::WholeArray
+            );
+            assert!(
+                callable.definitions.iter().any(|definition| {
+                    definition.target == qb
+                        && definition.coverage == DefinitionCoverage::WholeArray
+                        && definition.enforcement == DefinitionEnforcement::Enforced
+                        && definition.safety == DefinitionSafety::Supported
+                        && definition.dependencies.contains(&q)
+                        && !definition.cyclic
+                }),
+                "{:?}",
+                callable.unavailable
+            );
+        } else {
+            assert!(matches!(
+                result.rules[0].outcome,
+                RuleOutcome::Limited { .. }
+            ));
+            assert_ne!(
+                search.declarations[qb.0].coverage,
+                SearchCoverage::WholeArray
+            );
+            assert_ne!(search.declarations[qb.0].coverage, SearchCoverage::Scalar);
+            assert!(callable.definitions.iter().all(|definition| {
+                definition.target != qb || definition.coverage != DefinitionCoverage::WholeArray
+            }));
+            if axis_error {
+                assert!(
+                    result.limitations.iter().any(|diagnostic| {
+                        diagnostic.location.path == context.root
+                            && diagnostic
+                                .message
+                                .contains("private Boolean array range is unsupported")
+                    }),
+                    "{:?}",
+                    result.limitations
+                );
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

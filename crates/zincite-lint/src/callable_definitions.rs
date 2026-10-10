@@ -3023,13 +3023,24 @@ impl<'a> Producer<'a> {
                     if nodes.len() == 2 {
                         for (lhs, rhs) in [(nodes[0], nodes[1]), (nodes[1], nodes[0])] {
                             let lhs = unwrap(lhs);
-                            let Some(target) = (lhs.kind() == NodeKind::Expression)
-                                .then(|| self.reference(clause.file, lhs))
-                                .flatten()
+                            let Some((target, coverage)) =
+                                self.target(clause.file, lhs, view, &clause.generators)
                             else {
                                 continue;
                             };
-                            if !self.scoped_local(clause, target, view, TypeKind::Bool) {
+                            let kind = if lhs.kind() == NodeKind::Expression {
+                                TypeKind::Bool
+                            } else if lhs.kind() == NodeKind::ArrayAccessExpression
+                                && coverage == DefinitionCoverage::WholeArray
+                                && matches!(&view.declarations[target.0].ty.kind,
+                                    TypeKind::Array { indices, element }
+                                        if indices.len() == 2 && element.kind == TypeKind::Bool)
+                            {
+                                view.declarations[target.0].ty.kind.clone()
+                            } else {
+                                continue;
+                            };
+                            if !self.scoped_local(clause, target, view, kind) {
                                 continue;
                             }
                             let range = self.context.files[clause.file].location(rhs.range()).range;
@@ -3051,7 +3062,7 @@ impl<'a> Producer<'a> {
                                 out.push(Output {
                                     target,
                                     dependencies,
-                                    coverage: DefinitionCoverage::Scalar,
+                                    coverage,
                                     location: self.context.files[clause.file]
                                         .location(clause.node.range()),
                                     enforced_boolean: false,
@@ -3558,40 +3569,68 @@ impl<'a> Producer<'a> {
                             }
                         }
                         if ty.instantiation == Instantiation::Decision && initializer.is_none() {
-                            let boolean_array = matches!(&ty.kind, TypeKind::Array { indices, element }
-                                if indices.len() == 1 && indices[0].kind == TypeKind::Int
-                                    && indices[0].instantiation == Instantiation::Parameter
-                                    && element.kind == TypeKind::Bool);
-                            if boolean_array {
-                                let index = local
+                            let boolean_array_rank = match &ty.kind {
+                                TypeKind::Array { indices, element }
+                                    if matches!(indices.len(), 1 | 2)
+                                        && indices.iter().all(|index| {
+                                            index.kind == TypeKind::Int
+                                                && index.instantiation == Instantiation::Parameter
+                                        })
+                                        && element.kind == TypeKind::Bool =>
+                                {
+                                    Some(indices.len())
+                                }
+                                _ => None,
+                            };
+                            if let Some(rank) = boolean_array_rank {
+                                let written = local
                                     .child_nodes()
                                     .find(|n| n.kind() == NodeKind::ArrayType)
-                                    .and_then(|n| n.child_nodes().next())
-                                    .filter(|n| n.kind() == NodeKind::DomainType)
-                                    .and_then(|n| n.child_nodes().next())
-                                    .filter(|n| unwrap(n).kind() == NodeKind::RangeExpression);
-                                let Some(index) = index else {
+                                    .map(|n| n.child_nodes().collect::<Vec<_>>());
+                                let indices = written
+                                    .as_deref()
+                                    .and_then(|nodes| nodes.split_last())
+                                    .map(|(_, indices)| indices)
+                                    .filter(|indices| indices.len() == rank);
+                                let Some(indices) = indices else {
                                     self.unavailable(
                                         clause,
-                                        "private Boolean array requires an explicit integer range",
+                                        "private Boolean array requires explicit integer ranges",
                                         unavailable,
                                     );
                                     return;
                                 };
-                                if let Err(reason) =
-                                    self.dependencies(clause.file, index, view, &clause.generators)
-                                {
-                                    self.unavailable(
-                                        clause,
-                                        &format!(
-                                            "private Boolean array range is unsupported: {reason}"
-                                        ),
-                                        unavailable,
-                                    );
-                                    return;
+                                for index in indices {
+                                    let index = (index.kind() == NodeKind::DomainType)
+                                        .then(|| index.child_nodes().next())
+                                        .flatten()
+                                        .filter(|n| unwrap(n).kind() == NodeKind::RangeExpression);
+                                    let Some(index) = index else {
+                                        self.unavailable(
+                                            clause,
+                                            "private Boolean array requires an explicit integer range",
+                                            unavailable,
+                                        );
+                                        return;
+                                    };
+                                    if let Err(reason) = self.dependencies(
+                                        clause.file,
+                                        index,
+                                        view,
+                                        &clause.generators,
+                                    ) {
+                                        self.unavailable(
+                                            clause,
+                                            &format!(
+                                                "private Boolean array range is unsupported: {reason}"
+                                            ),
+                                            unavailable,
+                                        );
+                                        return;
+                                    }
                                 }
                             }
-                            if ty.kind == TypeKind::Bool || boolean_array {
+                            if ty.kind == TypeKind::Bool || boolean_array_rank.is_some() {
                                 if let Err(reason) = self.type_dependencies(
                                     clause.file,
                                     local,
@@ -5611,7 +5650,13 @@ impl<'a> Producer<'a> {
                             q.child_nodes()
                                 .find(|n| n.kind() != NodeKind::GeneratorList)
                         })
-                        .is_some_and(|body| contains(body, owning))
+                        .is_some_and(|body| {
+                            contains(body, owning)
+                                || matches!(&ty.kind, TypeKind::Array { indices, element }
+                                    if indices.len() == 2 && element.kind == TypeKind::Bool)
+                                    && contains(owning, node)
+                                    && contains(body, clause.node)
+                        })
                 }
                 NodeKind::ArrayComprehension => {
                     position > 0 && self.core(clause.file, ancestors[position - 1], view, "forall")
