@@ -13796,6 +13796,277 @@ impl<'a> Producer<'a> {
         }
         Ok(())
     }
+    // This selected value body supplies source safety only. Neither its local
+    // bound nor set_card proves the actual set's cardinality or any output.
+    fn decision_enum_card_body_safety(
+        &self,
+        id: DeclarationId,
+        parameters: &[TypeInst],
+        result: &TypeInst,
+    ) -> Result<(), String> {
+        let error = || "decision enum card selected body is unsupported".to_owned();
+        let owner = &self.bindings.declarations[id.0];
+        let written = find_node(
+            self.context.files[owner.file].parsed.tree(),
+            &owner.syntax_range,
+            owner.role,
+        )
+        .ok_or_else(error)?;
+        let bodies: Vec<_> = written
+            .child_nodes()
+            .filter(|n| is_expression(n.kind()))
+            .collect();
+        let [body] = bodies.as_slice() else {
+            return Err(error());
+        };
+        // Inspect closed errors before a changed shape is refused. Both branches
+        // of this unknown bound must be defined; the condition proves no truth.
+        if let Some(reason) = self.closed_integer_source_error(owner.file, written, false, true) {
+            return Err(reason);
+        }
+        if owner.role != DeclarationRole::Function
+            || !self.callable_annotations_safe(owner.file, written)
+            || written
+                .child_nodes()
+                .filter(|n| !is_expression(n.kind()) && n.kind() != NodeKind::Annotation)
+                .any(|n| !self.prefix_primitive_source_safe(owner.file, n))
+        {
+            return Err(error());
+        }
+        let formal = formal_parameter(self.context, self.bindings, id, 0).ok_or_else(error)?;
+        let lists: Vec<_> = written
+            .child_nodes()
+            .filter(|n| n.kind() == NodeKind::ParameterList)
+            .collect();
+        if !matches!(lists.as_slice(), [list] if list.child_nodes().count() == 1)
+            || parameters.len() != 1
+        {
+            return Err(error());
+        }
+        let view = instantiated_body(self.context, self.bindings, self.calls, id, parameters);
+        let integer = TypeInst::par(TypeKind::Int);
+        let boolean = TypeInst::par(TypeKind::Bool);
+        let decision_integer = integer.clone().with_inst(Instantiation::Decision);
+        let decision_boolean = boolean.clone().with_inst(Instantiation::Decision);
+        let integer_set = TypeInst::par(TypeKind::Set(Box::new(integer.clone())));
+        let decision_integer_set = integer_set.clone().with_inst(Instantiation::Decision);
+        let parameter_set = parameters[0].clone().with_inst(Instantiation::Parameter);
+        let typed =
+            |node: &SyntaxNode| self.expression_type(&view, owner.file, node).map(|e| &e.ty);
+        let reference = |node: &SyntaxNode| {
+            let node = unwrap(node);
+            (node.kind() == NodeKind::Expression)
+                .then(|| self.reference(owner.file, node))
+                .flatten()
+        };
+        if result != &decision_integer
+            || view.declarations[formal.0].ty != parameters[0]
+            || body.kind() != NodeKind::LetExpression
+            || typed(body) != Some(result)
+        {
+            return Err(error());
+        }
+        self.type_dependencies(owner.file, written, &view, &[])?;
+        let formal_node = find_node(
+            self.context.files[owner.file].parsed.tree(),
+            &self.bindings.declarations[formal.0].syntax_range,
+            DeclarationRole::Parameter,
+        )
+        .ok_or_else(error)?;
+        self.type_dependencies(owner.file, formal_node, &view, &[])?;
+        let mut nodes = vec![*body];
+        while let Some(node) = nodes.pop() {
+            if node.kind() == NodeKind::Error || !self.source_annotations_safe(owner.file, node)
+                || self.operation_fact(&view, owner.file, node).is_some_and(|call|
+                    matches!(call.outcome, CallOutcome::Resolved { declaration, .. } if declaration == id))
+            {
+                return Err(error());
+            }
+            nodes.extend(node.child_nodes());
+        }
+        let parts: Vec<_> = body.child_nodes().collect();
+        let [block, returned] = parts.as_slice() else {
+            return Err(error());
+        };
+        let locals: Vec<_> = block.child_nodes().collect();
+        let [local, constraint] = locals.as_slice() else {
+            return Err(error());
+        };
+        if block.kind() != NodeKind::LetBlock
+            || local.kind() != NodeKind::Declaration
+            || constraint.kind() != NodeKind::Constraint
+        {
+            return Err(error());
+        }
+        let local_id = self
+            .bindings
+            .declarations
+            .iter()
+            .find(|d| {
+                d.file == owner.file
+                    && d.role == DeclarationRole::Local
+                    && d.syntax_range == local.range()
+            })
+            .map(|d| d.id)
+            .ok_or_else(error)?;
+        if local_id == formal
+            || view.declarations[local_id.0].ty != decision_integer
+            || reference(returned) != Some(local_id)
+            || typed(returned) != Some(result)
+            || local.child_nodes().count() != 1
+        {
+            return Err(error());
+        }
+        let domain = local.child_nodes().next().ok_or_else(error)?;
+        let ranges: Vec<_> = domain.child_nodes().collect();
+        let [range] = ranges.as_slice() else {
+            return Err(error());
+        };
+        let range = unwrap(range);
+        let ends: Vec<_> = range.child_nodes().collect();
+        let [zero, upper] = ends.as_slice() else {
+            return Err(error());
+        };
+        if domain.kind() != NodeKind::DomainType
+            || range.kind() != NodeKind::RangeExpression
+            || !self.prefix_primitive(
+                owner.file,
+                range,
+                &view,
+                "..",
+                &[integer.clone(), integer.clone()],
+                &integer_set,
+            )
+            || !matches!(crate::domains::tokens(&self.context.files[owner.file].parsed, unwrap(zero)).as_slice(),
+                [token] if token.kind == TokenKind::IntegerLiteral)
+            || !crate::domains::invariant_expression_integer(
+                self.context,
+                self.bindings,
+                owner.file,
+                zero,
+            )
+            .is_ok_and(|value| value == Some(0))
+        {
+            return Err(error());
+        }
+        let upper = unwrap(upper);
+        let branches: Vec<_> = upper.child_nodes().collect();
+        let [then, otherwise] = branches.as_slice() else {
+            return Err(error());
+        };
+        let first: Vec<_> = then.child_nodes().collect();
+        let second: Vec<_> = otherwise.child_nodes().collect();
+        let ([guard, count], [unbounded]) = (first.as_slice(), second.as_slice()) else {
+            return Err(error());
+        };
+        if upper.kind() != NodeKind::ConditionalExpression
+            || typed(upper) != Some(&integer)
+            || then.kind() != NodeKind::ConditionalBranch
+            || otherwise.kind() != NodeKind::ElseBranch
+            || !matches!(crate::domains::tokens(&self.context.files[owner.file].parsed, unwrap(unbounded)).as_slice(),
+                [token] if token.kind == TokenKind::Infinity)
+            || typed(unbounded) != Some(&integer)
+        {
+            return Err(error());
+        }
+        let guard = unwrap(guard);
+        let count = unwrap(count);
+        let bounds: Vec<_> = count.child_nodes().collect();
+        let [bound] = bounds.as_slice() else {
+            return Err(error());
+        };
+        let bound = unwrap(bound);
+        for (node, name, expected, output) in [
+            (guard, "has_ub_set", &parameters[0], &boolean),
+            (bound, "ub", &parameters[0], &parameter_set),
+            (count, "card", &parameter_set, &integer),
+        ] {
+            if node.kind() != NodeKind::CallExpression
+                || !self.prefix_primitive(
+                    owner.file,
+                    node,
+                    &view,
+                    name,
+                    std::slice::from_ref(expected),
+                    output,
+                )
+                || node.child_nodes().count() != 1
+            {
+                return Err(error());
+            }
+        }
+        if guard.child_nodes().next().and_then(reference) != Some(formal)
+            || bound.child_nodes().next().and_then(reference) != Some(formal)
+        {
+            return Err(error());
+        }
+        let constraints: Vec<_> = constraint.child_nodes().collect();
+        let [cardinality] = constraints.as_slice() else {
+            return Err(error());
+        };
+        let cardinality = unwrap(cardinality);
+        let arguments: Vec<_> = cardinality.child_nodes().collect();
+        let [convert, actual_count] = arguments.as_slice() else {
+            return Err(error());
+        };
+        let convert = unwrap(convert);
+        if convert.kind() != NodeKind::CallExpression
+            || !self.prefix_primitive(
+                owner.file,
+                convert,
+                &view,
+                "enum2int",
+                parameters,
+                &decision_integer_set,
+            )
+            || convert.child_nodes().next().and_then(reference) != Some(formal)
+            || reference(actual_count) != Some(local_id)
+            || typed(actual_count) != Some(&decision_integer)
+        {
+            return Err(error());
+        }
+        let call = self
+            .operation_fact(&view, owner.file, cardinality)
+            .ok_or_else(error)?;
+        let CallOutcome::Resolved {
+            declaration,
+            parameters: selected,
+            return_type,
+        } = &call.outcome
+        else {
+            return Err(error());
+        };
+        let primitive = &self.bindings.declarations[declaration.0];
+        let primitive_source = &self.context.files[primitive.file];
+        if cardinality.kind() != NodeKind::CallExpression
+            || call.generator_argument.is_some()
+            || primitive.name != "set_card"
+            || primitive.role != DeclarationRole::Predicate
+            || primitive_source.kind != SourceKind::StandardLibrary
+            || !primitive_source.implicit
+            || selected.as_slice() != [decision_integer_set, decision_integer]
+            || return_type != &decision_boolean
+            || typed(cardinality) != Some(return_type)
+        {
+            return Err(error());
+        }
+        let primitive_node = find_node(
+            primitive_source.parsed.tree(),
+            &primitive.syntax_range,
+            primitive.role,
+        )
+        .ok_or_else(error)?;
+        let primitive_lists: Vec<_> = primitive_node
+            .child_nodes()
+            .filter(|n| n.kind() == NodeKind::ParameterList)
+            .collect();
+        if !matches!(primitive_lists.as_slice(), [list] if list.child_nodes().count() == 2)
+            || !self.prefix_primitive_source_safe(primitive.file, primitive_node)
+        {
+            return Err(error());
+        }
+        Ok(())
+    }
     fn aggregate_source_safety(
         &self,
         file: FileId,
@@ -13814,10 +14085,21 @@ impl<'a> Producer<'a> {
         }
         let facts = self.view(file, node, view);
         let typed = |value: &SyntaxNode| self.expression_type(facts, file, value).map(|e| &e.ty);
+        let decision_enum_set = |t: &TypeInst| {
+            t.known()
+                && !optional(t)
+                && t.instantiation == Instantiation::Decision
+                && matches!(&t.kind, TypeKind::Set(element) if element.known() && !optional(element)
+                    && element.instantiation == Instantiation::Parameter
+                    && matches!(element.kind, TypeKind::Enum(_)))
+        };
         let collection = |t: &TypeInst, actual: bool| {
             t.known()
                 && !optional(t)
-                && (!card || t.instantiation == Instantiation::Parameter || decision_integer_set(t))
+                && (!card
+                    || t.instantiation == Instantiation::Parameter
+                    || decision_integer_set(t)
+                    || decision_enum_set(t))
                 && if card {
                     matches!(&t.kind, TypeKind::Set(element) if element.known() && !optional(element)
                         && element.instantiation == Instantiation::Parameter
@@ -13909,10 +14191,29 @@ impl<'a> Producer<'a> {
                 "aggregate selected signature, collection or annotation is unsupported".into(),
             ));
         }
+        if card && typed(children[0]).is_some_and(decision_enum_set) {
+            let Some(CallOutcome::Resolved {
+                declaration,
+                parameters,
+                return_type,
+            }) = self
+                .operation_fact(facts, file, node)
+                .map(|call| &call.outcome)
+            else {
+                return Some(DefinitionSafety::Unsupported(
+                    "decision enum card selected tuple is unavailable".into(),
+                ));
+            };
+            if let Err(reason) =
+                self.decision_enum_card_body_safety(*declaration, parameters, return_type)
+            {
+                return Some(DefinitionSafety::Unsupported(reason));
+            }
+        }
         let safety =
             self.initialized_source_safety(file, children[0], view, generators, &mut Vec::new());
         if card
-            && typed(children[0]).is_some_and(decision_integer_set)
+            && typed(children[0]).is_some_and(|t| decision_integer_set(t) || decision_enum_set(t))
             && !matches!(safety, DefinitionSafety::Unsupported(_))
         {
             if let Some(reason) = self.closed_integer_source_error(file, children[0], true, true) {

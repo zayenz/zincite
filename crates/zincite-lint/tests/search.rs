@@ -12581,3 +12581,146 @@ fn enum_collection_binders_inspect_sources_without_search_certificates() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+#[test]
+fn decision_enum_cardinality_inspects_selected_body_without_output_proof() {
+    use zincite_lint::{CallOutcome, Instantiation, TypeKind};
+    let source = "enum Participant; set of Participant: Leads; array[Leads] of var set of Participant: members; constraint forall(i,j in Leads)(abs(card(members[i])-card(members[j])) <= 1); solve satisfy;\n";
+    let body = r#"function var int: card(var set of $$E: x) :: promise_total =
+  let {
+    var 0..(if has_ub_set(x) then card(ub(x)) else infinity endif): c;
+    constraint set_card(enum2int(x), c);
+  } in c;
+"#;
+    for (name, selected_body, completed) in [
+        ("decision-enum-card-body", body.to_owned(), true),
+        (
+            "decision-enum-card-body-zero",
+            body.replace("card(ub(x))", "card(ub(x)) + (1 div 0)"),
+            false,
+        ),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}\nannotation promise_total; annotation mzn_internal_representation; \
+                 function int: card(set of $T: x); \
+                 function bool: has_ub_set(var set of $$E: x); \
+                 function set of $$E: ub(var set of $$E: x); \
+                 function var set of int: enum2int(var set of $$E: x) :: mzn_internal_representation; \
+                 predicate set_card(var set of int: s,var int: x); \
+                 function int: '+'(int: left,int: right); \
+                 function int: 'div'(int: left,int: right); \
+                 function var int: '-'(var int: left,var int: right); \
+                 function var int: abs(var int: value); \
+                 function var bool: '<='(var int: left,var int: right);\n{selected_body}"
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let members = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "members")
+            .unwrap()
+            .id;
+        let card_call = calls
+            .calls
+            .iter()
+            .find(|call| call.file == 0 && call.name == "card")
+            .unwrap();
+        assert!(
+            matches!(&card_call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+            if matches!(&calls.declarations[members.0].ty.kind, TypeKind::Array { element, .. } if parameters.as_slice() == std::slice::from_ref(element.as_ref()))
+                && matches!(&parameters[0].kind, TypeKind::Set(element) if matches!(element.kind, TypeKind::Enum(_)))
+                && return_type.kind == TypeKind::Int && !return_type.optional
+                && return_type.instantiation == Instantiation::Decision),
+            "{name}: {:?}",
+            card_call.outcome
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let search = resolve_search_coverage(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+            &definitions,
+        );
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        assert!(
+            callable.outputs.is_empty(),
+            "{name}: {:?}",
+            callable.outputs
+        );
+        assert!(
+            callable
+                .definitions
+                .iter()
+                .all(|definition| definition.target != members)
+        );
+        assert_ne!(
+            coverage(&bindings, &search, "members"),
+            SearchCoverage::Scalar
+        );
+        assert_ne!(
+            coverage(&bindings, &search, "members"),
+            SearchCoverage::WholeArray
+        );
+        let analysis = analyze_model(&context, &selected());
+        if completed {
+            assert_eq!(
+                analysis.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                analysis.limitations
+            );
+            assert!(
+                definitions
+                    .definitions
+                    .iter()
+                    .all(|definition| definition.target != members
+                        || definition.safety != DefinitionSafety::Supported)
+            );
+        } else {
+            assert!(
+                matches!(analysis.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                analysis.limitations
+            );
+            assert!(
+                analysis
+                    .limitations
+                    .iter()
+                    .any(
+                        |limitation| limitation.location.path == dir.join("root.mzn")
+                            && limitation.location.line == 1
+                            && limitation.message.contains("integer division by zero")
+                    ),
+                "{name}: {:?}",
+                analysis.limitations
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

@@ -6390,3 +6390,14 @@ cardinality, membership and team_lead-domain gaps remained in that private arm.
 Integrated formatting, Clippy and workspace tests pass in
 `target/benchmarks/base083/semantic67-enum-collection-main-gates-v1`.
 Fresh final evidence remains required after these Rust changes.
+
+The decision enum-set cardinality repair is integrated. Search source safety now
+inspects the exact selected standard `card` body, including its conditional local
+bound, enum conversion and `set_card` constraint. It adds no known cardinality,
+output definition or search coverage. The original-shaped `forall` relation has
+genuine RED/GREEN evidence; the selected-body closed-zero negative stays Limited
+with a located division-by-zero reason. Source-only MiniZinc controls pass. The
+private original Teams comparison removes the aggregate limitation and retains
+its unrelated search gaps. Integrated workspace gates are recorded under
+`target/benchmarks/base083/semantic67-enum-card-main-gates-v1`. Fresh final corpus
+evidence and whole-task verification remain pending.
