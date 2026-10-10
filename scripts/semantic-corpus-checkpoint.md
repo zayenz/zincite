@@ -7001,3 +7001,20 @@ rebuilding measured binaries or repeating timings. The public prerequisite route
 uses the exported domain resolver; native callable-aware domain processing and
 per-rule outcomes retain their separate measured evidence. This closes the bounded
 memo error-control question, not final corpus or whole-task acceptance.
+
+
+A fresh replay confirms the historical multidimensional integer `product` matching
+gap on current main. The original unit model passes an actual MiniZinc/Gecode
+FlatZinc compile without solving (877-byte FZN); original/compiler/library/Rust
+pins remain unchanged. Zincite still reports NoMatch for both the parameter matrix
+literal and decision matrix calls. The resolver currently gives restricted standard
+`sum` and `forall` multidimensional matching views but excludes `product`.
+
+The installed parameter Int overload is bodyless; the decision Int overload has a
+real `product_rec(array1d(x))` body. Any matching repair must preserve their normal
+ranking and separate source/body obligations, without global coercion or output
+proof. The current replay retains one warning and seven limitations, including
+generic optional-body and output dependency prerequisites; original completion is
+not established. Full captures, two located product refusals, compiler output and
+1,134 unchanged pins are retained under
+`target/benchmarks/base083/semantic73-product-original-precheck-v1`.
