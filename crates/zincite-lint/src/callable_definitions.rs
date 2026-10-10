@@ -3441,6 +3441,19 @@ impl<'a> Producer<'a> {
                             return;
                         };
                         let ty = &view.declarations[declaration.id.0].ty;
+                        if let Some(safety) = self.optional_parameter_matrix_safety(
+                            clause,
+                            local,
+                            declaration.id,
+                            view,
+                        ) {
+                            if let DefinitionSafety::Unsupported(reason) = safety {
+                                self.unavailable(clause, &reason, unavailable);
+                                return;
+                            }
+                            uncertain_initialization = true;
+                            continue;
+                        }
                         if !ty.known() || optional(ty) {
                             self.unavailable(
                                 clause,
@@ -19579,6 +19592,452 @@ impl<'a> Producer<'a> {
             Ok(()) => DefinitionSafety::Unknown("parameter floor sum value is unproved".into()),
             Err(reason) => DefinitionSafety::Unsupported(reason),
         })
+    }
+    // Inspect this optional constructor without establishing any cell value,
+    // presence, extent or local output. Its present sources remain strict.
+    fn optional_parameter_matrix_safety(
+        &self,
+        clause: &Clause<'a>,
+        local: &'a SyntaxNode,
+        id: DeclarationId,
+        view: &CallableFacts,
+    ) -> Option<DefinitionSafety> {
+        let ty = &view.declarations[id.0].ty;
+        let parameter = |ty: &TypeInst| {
+            ty.known() && !optional(ty) && ty.instantiation == Instantiation::Parameter
+        };
+        let TypeKind::Array { indices, element } = &ty.kind else {
+            return None;
+        };
+        if !ty.known()
+            || ty.optional
+            || ty.instantiation != Instantiation::Parameter
+            || indices.len() != 2
+            || indices.iter().any(|axis| {
+                !parameter(axis) || !matches!(axis.kind, TypeKind::Int | TypeKind::Enum(_))
+            })
+            || element.instantiation != Instantiation::Parameter
+            || !element.optional
+            || element.kind != TypeKind::Int
+        {
+            return None;
+        }
+        let initializer = unwrap(
+            local
+                .child_nodes()
+                .find(|node| is_expression(node.kind()))?,
+        );
+        if initializer.kind() != NodeKind::CallExpression
+            || self
+                .operation_fact(
+                    self.view(clause.file, initializer, view),
+                    clause.file,
+                    initializer,
+                )
+                .is_none_or(|call| call.name != "array2d")
+        {
+            return None;
+        }
+        let checked = (|| {
+            let file = clause.file;
+            let typed = |node: &SyntaxNode| {
+                self.expression_type(self.view(file, node, view), file, node)
+                    .map(|value| &value.ty)
+            };
+            let arguments: Vec<_> = initializer.child_nodes().map(unwrap).collect();
+            let [rows, columns, input] = arguments.as_slice() else {
+                return Err("optional parameter matrix requires three positional arguments".into());
+            };
+            if initializer
+                .child_nodes()
+                .any(|argument| argument.kind() == NodeKind::NamedArgument)
+                || typed(initializer) != Some(ty)
+            {
+                return Err(
+                    "optional parameter matrix written type or nominal axes mismatch".into(),
+                );
+            }
+            let integer = TypeInst::par(TypeKind::Int);
+            let parameters = vec![
+                TypeInst::par(TypeKind::Set(Box::new(indices[0].clone()))),
+                TypeInst::par(TypeKind::Set(Box::new(indices[1].clone()))),
+                TypeInst::par(TypeKind::Array {
+                    indices: vec![integer.clone()],
+                    element: element.clone(),
+                }),
+            ];
+            self.parameter_array_primitive(file, initializer, view, "array2d", &parameters, ty)?;
+            if typed(rows) != Some(&parameters[0]) || typed(columns) != Some(&parameters[1]) {
+                return Err("optional parameter matrix axis argument type is unsupported".into());
+            }
+            let written = local
+                .child_nodes()
+                .next()
+                .filter(|node| node.kind() == NodeKind::ArrayType)
+                .ok_or("optional parameter matrix written array type is unavailable")?;
+            let parts: Vec<_> = written.child_nodes().collect();
+            if parts.len() != 3 || parts.iter().any(|part| part.kind() != NodeKind::DomainType) {
+                return Err(
+                    "optional parameter matrix requires written named axes and member domain"
+                        .into(),
+                );
+            }
+            let mut active = vec![id];
+            for (position, (axis, argument)) in parts[..2].iter().zip([*rows, *columns]).enumerate()
+            {
+                let sources: Vec<_> = axis.child_nodes().map(unwrap).collect();
+                let [source] = sources.as_slice() else {
+                    return Err(
+                        "optional parameter matrix written axis source is unsupported".into(),
+                    );
+                };
+                let identity = self
+                    .bindings
+                    .references
+                    .iter()
+                    .find(|reference| {
+                        reference.file == file
+                            && reference.location.range
+                                == self.context.files[file].location(source.range()).range
+                    })
+                    .and_then(|reference| match reference.resolution {
+                        BindingResolution::Resolved(id) => Some(id),
+                        _ => None,
+                    });
+                if source.kind() != NodeKind::Expression
+                    || source.child_nodes().next().is_some()
+                    || argument.kind() != NodeKind::Expression
+                    || argument.child_nodes().next().is_some()
+                    || identity.is_none()
+                    || self.reference(file, argument) != identity
+                {
+                    return Err("optional parameter matrix axis must retain its written declaration identity".into());
+                }
+                if let TypeKind::Enum(enum_id) = indices[position].kind
+                    && (identity != Some(enum_id)
+                        || !self.bindings.declarations[enum_id.0].top_level
+                        || self.bindings.declarations[enum_id.0].role != DeclarationRole::Enum)
+                {
+                    return Err(
+                        "optional parameter matrix enum axis requires its owning bare enum source"
+                            .into(),
+                    );
+                }
+                self.optional_matrix_source_safety(
+                    (file, argument, local.range().start),
+                    view,
+                    &clause.generators,
+                    &mut active,
+                )?;
+            }
+            let members: Vec<_> = parts[2].child_nodes().collect();
+            let [member] = members.as_slice() else {
+                return Err("optional parameter matrix member domain source is unsupported".into());
+            };
+            self.optional_matrix_source_safety(
+                (file, member, local.range().start),
+                view,
+                &clause.generators,
+                &mut active,
+            )?;
+            let input_type =
+                typed(input).ok_or("optional parameter matrix input type is unavailable")?;
+            let TypeKind::Array {
+                indices: raw_indices,
+                element: raw_element,
+            } = &input_type.kind
+            else {
+                return Err("optional parameter matrix input is not an array".into());
+            };
+            if !input_type.known()
+                || input_type.optional
+                || input_type.instantiation != Instantiation::Parameter
+                || raw_element != element
+                || raw_indices.iter().any(|axis| axis != &integer)
+            {
+                return Err(
+                    "optional parameter matrix raw input or normalized formal is unsupported"
+                        .into(),
+                );
+            }
+            let cells: Vec<_> = match input.kind() {
+                NodeKind::ArrayLiteral if raw_indices.len() == 1 => {
+                    let cells: Vec<_> = input.child_nodes().collect();
+                    if cells
+                        .iter()
+                        .any(|cell| cell.kind() == NodeKind::IndexedArrayEntry)
+                    {
+                        return Err(
+                            "optional parameter matrix indexed literal is unsupported".into()
+                        );
+                    }
+                    cells
+                }
+                NodeKind::MatrixLiteral if raw_indices.len() == 2 => {
+                    let rows: Vec<_> = input.child_nodes().collect();
+                    let width = rows.first().map_or(0, |row| row.child_nodes().count());
+                    if rows.iter().any(|row| {
+                        row.kind() != NodeKind::MatrixRow
+                            || row.child_nodes().count() != width
+                            || crate::domains::tokens(&self.context.files[file].parsed, row)
+                                .iter()
+                                .any(|token| token.kind == TokenKind::Colon)
+                    }) {
+                        return Err(
+                            "optional parameter matrix requires a plain rectangular literal".into(),
+                        );
+                    }
+                    rows.into_iter().flat_map(|row| row.child_nodes()).collect()
+                }
+                _ => {
+                    return Err("optional parameter matrix input source form is unsupported".into());
+                }
+            };
+            if !self.source_annotations_safe(file, initializer)
+                || !self.source_annotations_safe(file, input)
+            {
+                return Err("optional parameter matrix source annotation is unsupported".into());
+            }
+            let Domain::Array {
+                indices: domains,
+                element: member_domain,
+            } = &self.domains.declarations[id.0].domain
+            else {
+                return Err("optional parameter matrix written domains are unavailable".into());
+            };
+            if domains.len() != 2 {
+                return Err("optional parameter matrix written axes are unavailable".into());
+            }
+            member_domain.numeric_minimum().map_err(str::to_owned)?;
+            let mut size = Some(1_i64);
+            for domain in domains {
+                domain.numeric_minimum().map_err(str::to_owned)?;
+                let extent = match crate::domains::bare_index_domain(domain) {
+                    Domain::Range { .. } => {
+                        crate::domains::index_domain_interval(domain).and_then(|(lower, upper)| {
+                            if lower > upper {
+                                Some(0)
+                            } else {
+                                upper.checked_sub(lower)?.checked_add(1)
+                            }
+                        })
+                    }
+                    Domain::Enum(id) => self.enum_extent(*id),
+                    _ => None,
+                };
+                size = size
+                    .zip(extent)
+                    .and_then(|(size, extent)| size.checked_mul(extent));
+            }
+            if size.is_some_and(|size| usize::try_from(size).ok() != Some(cells.len())) {
+                return Err(
+                    "optional parameter matrix closed axis extent disagrees with literal cells"
+                        .into(),
+                );
+            }
+            for written_cell in cells {
+                let cell = unwrap(written_cell);
+                if !self.source_annotations_safe(file, written_cell) {
+                    return Err("optional parameter matrix cell annotation is unsupported".into());
+                }
+                let cell_type =
+                    typed(cell).ok_or("optional parameter matrix cell type is unavailable")?;
+                let absent = cell.kind() == NodeKind::Expression
+                    && cell.child_nodes().next().is_none()
+                    && matches!(crate::domains::tokens(&self.context.files[file].parsed, cell).as_slice(),
+                        [token] if token.kind == TokenKind::Absent)
+                    && cell_type.instantiation == Instantiation::Parameter
+                    && cell_type.optional
+                    && cell_type.kind == TypeKind::Bottom;
+                if absent {
+                    continue;
+                }
+                if !parameter(cell_type)
+                    || cell_type.kind != TypeKind::Int
+                    || !crate::types::coerces(cell_type, element)
+                {
+                    return Err("optional parameter matrix cell must be typed absent or present Parameter Int".into());
+                }
+                self.optional_matrix_source_safety(
+                    (file, written_cell, local.range().start),
+                    view,
+                    &clause.generators,
+                    &mut active,
+                )?;
+                if let Some(value) = crate::domains::invariant_expression_integer(
+                    self.context,
+                    self.bindings,
+                    file,
+                    cell,
+                )? && (crate::domains::index_domain_member(member_domain, value) == Some(false)
+                    || matches!(crate::domains::bare_index_domain(member_domain), Domain::Range { lower, .. }
+                        if crate::domains::invariant_integer(lower).is_ok_and(|bound|
+                            bound.is_some_and(|bound| value < bound))))
+                {
+                    return Err(
+                        "optional parameter matrix cell is outside its written member domain"
+                            .into(),
+                    );
+                }
+            }
+            Ok(())
+        })();
+        Some(match checked {
+            Ok(()) => DefinitionSafety::Unknown(
+                "optional parameter matrix extent and values are unproved".into(),
+            ),
+            Err(reason) => DefinitionSafety::Unsupported(reason),
+        })
+    }
+    // Add earlier lexical locals to the existing source readers. The same
+    // graph also retains selected primitive checks in transitive sources.
+    fn optional_matrix_source_safety(
+        &self,
+        source: (FileId, &'a SyntaxNode, usize),
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+        active: &mut Vec<DeclarationId>,
+    ) -> Result<(), String> {
+        let (file, written, before) = source;
+        let mut nodes = vec![written];
+        while let Some(node) = nodes.pop() {
+            if node.kind() == NodeKind::Annotation {
+                continue;
+            }
+            if matches!(
+                node.kind(),
+                NodeKind::CallExpression
+                    | NodeKind::UnaryExpression
+                    | NodeKind::BinaryExpression
+                    | NodeKind::RangeExpression
+            ) && let Some(call) = self.operation_fact(self.view(file, node, view), file, node)
+                && let CallOutcome::Resolved {
+                    parameters,
+                    return_type,
+                    ..
+                } = &call.outcome
+            {
+                self.parameter_array_primitive(
+                    file,
+                    node,
+                    view,
+                    &call.name,
+                    parameters,
+                    return_type,
+                )?;
+            }
+            nodes.extend(node.child_nodes());
+            if node.kind() != NodeKind::Expression || node.child_nodes().next().is_some() {
+                continue;
+            }
+            let range = self.context.files[file].location(node.range()).range;
+            if self.bindings.references.iter().any(|reference| {
+                reference.file == file
+                    && range.start <= reference.location.range.start
+                    && reference.location.range.end <= range.end
+                    && matches!(&reference.resolution, BindingResolution::Resolved(id)
+                        if self.bindings.declarations[id.0].role == DeclarationRole::TypeAlias)
+            }) {
+                return Err("optional matrix type alias source inspection is unsupported".into());
+            }
+            let Some(id) = self.reference(file, node) else {
+                continue;
+            };
+            let owner = &self.bindings.declarations[id.0];
+            if owner.role != DeclarationRole::Local
+                && !(owner.top_level
+                    && matches!(owner.role, DeclarationRole::Value | DeclarationRole::Enum))
+            {
+                continue;
+            }
+            if active.contains(&id) {
+                return Err("cyclic optional matrix initialized source".into());
+            }
+            let local = owner.role == DeclarationRole::Local;
+            if local && (owner.file != file || owner.syntax_range.end > before) {
+                return Err("optional matrix source must be an earlier lexical local".into());
+            }
+            let declaration = find_node(
+                self.context.files[owner.file].parsed.tree(),
+                &owner.syntax_range,
+                owner.role,
+            )
+            .ok_or("optional matrix source declaration is unavailable")?;
+            let facts = if local { view } else { self.calls };
+            let lexical: Vec<_> = if local {
+                generators
+                    .iter()
+                    .copied()
+                    .filter(|header| header.range().end <= declaration.range().start)
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            active.push(id);
+            let checked: Result<(), String> = (|| {
+                if local {
+                    let ty = &facts.declarations[id.0].ty;
+                    let initializers: Vec<_> = declaration
+                        .child_nodes()
+                        .filter(|part| is_expression(part.kind()))
+                        .collect();
+                    if !ty.known()
+                        || optional(ty)
+                        || ty.instantiation != Instantiation::Parameter
+                        || initializers.len() != 1
+                        || !self.source_annotations_safe(owner.file, declaration)
+                        || self
+                            .expression_type(facts, owner.file, initializers[0])
+                            .is_none_or(|actual| {
+                                !actual.ty.known()
+                                    || optional(&actual.ty)
+                                    || actual.ty.instantiation != Instantiation::Parameter
+                                    || !crate::types::coerces(&actual.ty, ty)
+                            })
+                    {
+                        return Err("optional matrix local initializer type, coercion or annotation is unsupported".into());
+                    }
+                }
+                // Existing readers own expression/global/enum checks. The
+                // prewalk supplies local order/cycles and selected written guards.
+                let mut parts = vec![declaration];
+                while let Some(part) = parts.pop() {
+                    if part.kind() == NodeKind::Annotation {
+                        continue;
+                    }
+                    if local && !self.source_annotations_safe(owner.file, part) {
+                        return Err(
+                            "optional matrix local written type annotation is unsupported".into(),
+                        );
+                    }
+                    if is_expression(part.kind()) {
+                        self.optional_matrix_source_safety(
+                            (owner.file, part, declaration.range().start),
+                            facts,
+                            &lexical,
+                            active,
+                        )?;
+                    } else {
+                        parts.extend(part.child_nodes());
+                    }
+                }
+                if local {
+                    self.type_dependencies(owner.file, declaration, facts, &lexical)?;
+                }
+                Ok(())
+            })();
+            active.pop();
+            checked?;
+        }
+        if let Some(reason) = self.closed_integer_source_error(file, written, true, true) {
+            return Err(reason);
+        }
+        if let DefinitionSafety::Unsupported(reason) =
+            self.initialized_source_safety(file, written, view, generators, active)
+        {
+            return Err(reason);
+        }
+        Ok(())
     }
     // The array source family uses only these selected standard primitives.
     // Their full written trees must contain no implementation/default expression.

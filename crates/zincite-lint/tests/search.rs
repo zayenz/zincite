@@ -15066,3 +15066,307 @@ fn invoked_parameter_set_matching_views_inspect_sources_without_output_proof() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn optional_parameter_matrices_inspect_sources_without_output_proof() {
+    use zincite_lint::{CallOutcome, DeclarationRole, Instantiation, SourceKind, TypeKind};
+    let positive = concat!(
+        "int: limit;\n",
+        "enum Axis = {A, B};\n",
+        "enum OtherAxis = {C, D};\n",
+        "var bool: decision;\n",
+        "constraint let {\n",
+        "  set of int: States = 1..limit;\n",
+        "  array[States, Axis] of opt States: transitions =\n",
+        "    array2d(States, Axis, [|1, <>|<>, 2|]);\n",
+        "} in true;\n",
+        "solve satisfy;\n",
+    );
+    let primitive = "function array[$$E,$$F] of any $V: array2d(set of $$E: S1,set of $$F: S2,array[$U] of any $V: x);\n";
+    let closed = positive.replace("<>, 2|]", "<>, (1 div 0)|]");
+    let vector = positive.replace("[|1, <>|<>, 2|]", "[1,<>,<>,2]");
+    let changed_body = primitive.replace(" x);", " x) = [(i,j):x[1] | i in S1,j in S2];");
+    let user = format!(
+        "function array[int,Axis] of opt int: array2d(set of int: rows,set of Axis: columns,array[int] of opt int: values) = [(i,j):values[1] | i in rows,j in columns];\n{vector}"
+    );
+    let other_axis = positive.replace("array2d(States, Axis,", "array2d(States, OtherAxis,");
+    let annotated_alias = positive
+        .replace(
+            "int: limit;",
+            "int: limit; annotation check; type StateDomain :: check = 1..limit;",
+        )
+        .replace(
+            "of opt States: transitions",
+            "of opt StateDomain: transitions",
+        );
+    for (name, source, standard, error, user_selected, different_axis) in [
+        (
+            "optional-parameter-matrix-symbolic",
+            positive,
+            primitive,
+            None,
+            false,
+            false,
+        ),
+        (
+            "optional-parameter-matrix-closed-cell",
+            closed.as_str(),
+            primitive,
+            Some("division by zero"),
+            false,
+            false,
+        ),
+        (
+            "optional-parameter-matrix-written-body",
+            vector.as_str(),
+            changed_body.as_str(),
+            Some("body, default or type expression"),
+            false,
+            false,
+        ),
+        (
+            "optional-parameter-matrix-user-overload",
+            user.as_str(),
+            primitive,
+            Some("identity or signature"),
+            true,
+            false,
+        ),
+        (
+            "optional-parameter-matrix-nominal-axis",
+            other_axis.as_str(),
+            primitive,
+            Some("nominal axes mismatch"),
+            false,
+            true,
+        ),
+        (
+            "optional-parameter-matrix-annotated-member-alias",
+            annotated_alias.as_str(),
+            primitive,
+            Some("type alias source inspection"),
+            false,
+            false,
+        ),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!("{CORE}{standard}function int: 'div'(int: left,int: right);\n"),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(context.includes.iter().all(|edge| edge.target.is_some()));
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let axis = bindings
+            .declarations
+            .iter()
+            .find(|declaration| {
+                declaration.top_level
+                    && declaration.name == if different_axis { "OtherAxis" } else { "Axis" }
+            })
+            .unwrap()
+            .id;
+        let local = bindings
+            .declarations
+            .iter()
+            .find(|declaration| {
+                declaration.role == DeclarationRole::Local && declaration.name == "transitions"
+            })
+            .unwrap()
+            .id;
+        let decision = bindings
+            .declarations
+            .iter()
+            .find(|declaration| declaration.top_level && declaration.name == "decision")
+            .unwrap()
+            .id;
+        let mut roots = calls
+            .calls
+            .iter()
+            .filter(|call| context.files[call.file].path == context.root && call.name == "array2d");
+        let call = roots.next().unwrap();
+        assert!(roots.next().is_none());
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &call.outcome
+        else {
+            panic!("{name}: unresolved constructor {:?}", call.outcome);
+        };
+        assert_eq!(
+            bindings.declarations[declaration.0].role,
+            DeclarationRole::Function
+        );
+        let owner = &context.files[bindings.declarations[declaration.0].file];
+        assert_eq!(
+            owner.kind,
+            if user_selected {
+                SourceKind::User
+            } else {
+                SourceKind::StandardLibrary
+            }
+        );
+        assert_eq!(owner.implicit, !user_selected);
+        assert_eq!(parameters.len(), 3);
+        assert!(matches!(&parameters[0].kind, TypeKind::Set(element)
+            if element.kind == TypeKind::Int && !element.optional && element.instantiation == Instantiation::Parameter));
+        assert!(matches!(&parameters[1].kind, TypeKind::Set(element)
+            if element.kind == TypeKind::Enum(axis) && !element.optional && element.instantiation == Instantiation::Parameter));
+        assert!(
+            matches!(&parameters[2].kind, TypeKind::Array { indices, element }
+            if indices.len() == 1 && indices[0].kind == TypeKind::Int
+                && indices[0].instantiation == Instantiation::Parameter && !indices[0].optional
+                && element.kind == TypeKind::Int && element.optional
+                && element.instantiation == Instantiation::Parameter)
+        );
+        assert!(
+            matches!(&return_type.kind, TypeKind::Array { indices, element }
+            if indices.len() == 2 && indices[0].kind == TypeKind::Int
+                && indices[1].kind == TypeKind::Enum(axis)
+                && indices.iter().all(|index| !index.optional && index.instantiation == Instantiation::Parameter)
+                && element.kind == TypeKind::Int && element.optional
+                && element.instantiation == Instantiation::Parameter)
+        );
+        assert!(!return_type.optional);
+        assert_eq!(return_type.instantiation, Instantiation::Parameter);
+        let written = &calls.declarations[local.0].ty;
+        if different_axis {
+            assert_ne!(written, return_type);
+        } else {
+            assert_eq!(written, return_type);
+        }
+        if !user_selected && standard == primitive {
+            let root = &context.files[call.file];
+            let mut nodes = vec![root.parsed.tree()];
+            let matrix = loop {
+                let node = nodes.pop().unwrap();
+                if node.kind() == zincite_syntax::NodeKind::MatrixLiteral {
+                    break node;
+                }
+                nodes.extend(node.child_nodes());
+            };
+            let raw = &calls
+                .expressions
+                .iter()
+                .find(|expression| {
+                    expression.file == call.file && expression.location.range == matrix.range()
+                })
+                .unwrap()
+                .ty;
+            assert!(matches!(&raw.kind, TypeKind::Array { indices, element }
+                if indices.len() == 2 && indices.iter().all(|index|
+                    index.kind == TypeKind::Int && !index.optional && index.instantiation == Instantiation::Parameter)
+                    && element.kind == TypeKind::Int && element.optional
+                    && element.instantiation == Instantiation::Parameter));
+            assert!(!raw.optional);
+            assert_eq!(raw.instantiation, Instantiation::Parameter);
+        }
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        let search =
+            resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        assert!(search.searched.is_empty());
+        assert!(
+            callable.outputs.is_empty(),
+            "{name}: {:?}",
+            callable.outputs
+        );
+        assert!(
+            callable
+                .definitions
+                .iter()
+                .all(|definition| definition.target != local && definition.target != decision)
+        );
+        assert!(
+            definitions
+                .definitions
+                .iter()
+                .all(
+                    |definition| (definition.target != local && definition.target != decision)
+                        || definition.safety != DefinitionSafety::Supported
+                )
+        );
+        assert!(!callable.inspected_locals.contains(&local));
+        let result = analyze_model(&context, &selected());
+        if let Some(error) = error {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                result.limitations
+            );
+            assert!(result.limitations.is_empty());
+            let refusal = callable
+                .unavailable
+                .iter()
+                .find(|unavailable| {
+                    unavailable.location.path == context.root
+                        && !unavailable.location.range.is_empty()
+                        && unavailable.reason.contains(error)
+                })
+                .unwrap_or_else(|| panic!("{name}: {:?}", callable.unavailable));
+            assert!(!refusal.targets.is_empty(), "{name}: {refusal:?}");
+            assert!(
+                refusal.targets.iter().all(|target| {
+                    calls.declarations[target.0].ty.instantiation == Instantiation::Parameter
+                        && matches!(
+                            search.declarations[target.0].coverage,
+                            SearchCoverage::Scalar | SearchCoverage::WholeArray
+                        )
+                }),
+                "{name}: {refusal:?}"
+            );
+        } else {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "OPTIONAL_PARAMETER_MATRIX_RED {name}: {:?}",
+                result.limitations
+            );
+            assert!(result.limitations.is_empty());
+            assert!(
+                callable.unavailable.is_empty(),
+                "{name}: {:?}",
+                callable.unavailable
+            );
+            assert_eq!(
+                coverage(&bindings, &search, "decision"),
+                SearchCoverage::Uncovered
+            );
+            assert!(
+                result
+                    .findings
+                    .iter()
+                    .any(|finding| finding.rule == zincite_lint::Rule::SearchCoverage
+                        && finding.location.path == context.root
+                        && finding.message.contains("decision"))
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

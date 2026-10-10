@@ -6917,3 +6917,26 @@ baseline supplies no complete diagnostic parity result. Native peak child RSS is
 11,494.703 MiB; this completed observation cannot establish a memory improvement
 against the censored baseline. Final allocation/growth checks, complete final
 corpus/native acceptance and base-083 completion remain open.
+
+
+Optional parameter matrices now inspect the selected bodyless standard `array2d`
+constructor, written axes, cells and transitive parameter sources without
+producing output dependencies, values, presence or extent facts. Closed source
+errors, changed/user constructors, nominal-axis mismatches and uninspected
+member-domain type aliases retain explicit refusals. The alias control reproduced
+the missing refusal before the local guard; the complete six-case public group,
+workspace formatting, Clippy and tests pass under
+`target/benchmarks/base083/semantic72-optional-matrix-v4-main-validation-v1`.
+The earlier compile error and incorrect parameter-only search expectation remain
+in their failed captures; production search coverage policy is unchanged.
+
+The original Workforce replay now reaches the owning standard `regular` body.
+It retains one warning and three limitations: regexp prerequisites, an unsupported
+local initializer in `regular`, and the enclosing local result evaluation. This
+is progress past optional matrix inspection, not complete original-model support.
+Full streams, terminal cleanup and 1,133 unchanged input pins are retained under
+`target/benchmarks/base083/semantic72-workforce-optional-matrix-native-prerequisite-v1`.
+Original-source probes independently observed the four-argument `regular` tuple
+and its instantiated six-argument `fzn_regular` and `fzn_regular_set` selections;
+those written bodies still require source inspection. Base-083 remains open,
+with all Done conditions unchecked and final corpus acceptance outstanding.
