@@ -13732,3 +13732,207 @@ fn literal_result_element_inspects_without_inverse_outputs() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn ignored_rank_two_boolean_channels_are_inspected_without_coverage() {
+    use zincite_lint::{
+        CallOutcome, DeclarationRole, Domain, Instantiation, NumericBound, SourceKind, TypeInst,
+        TypeKind,
+    };
+    use zincite_syntax::NodeKind;
+    let source = concat!(
+        "int: n;\n",
+        "array[1..n] of var 1..n: q;\n",
+        "constraint symmetry_breaking_constraint(\n",
+        "  let { array[1..n,1..n] of var bool: qb; } in\n",
+        "    forall(i,j in 1..n)(qb[i,j] <-> (q[i]=j))\n",
+        ");\n",
+        "solve :: int_search(q,input_order,indomain_min,complete) satisfy;\n",
+    );
+    let axis_zero = source.replace("array[1..n,1..n]", "array[1..n,1..(n div 0)]");
+    let filtered = source.replace("forall(i,j in 1..n)", "forall(i,j in 1..n where i=1)");
+    let decision_bool = TypeInst {
+        instantiation: Instantiation::Decision,
+        optional: false,
+        kind: TypeKind::Bool,
+    };
+    let mut outcomes = Vec::new();
+    for (name, source, axis_error) in [
+        ("ignored-rank-two-full-channel", source, false),
+        ("ignored-rank-two-axis-zero", axis_zero.as_str(), true),
+        (
+            "ignored-rank-two-filtered-channel",
+            filtered.as_str(),
+            false,
+        ),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}function var bool: '<->'(var bool: left,var bool: right);\nfunction int: 'div'(int: left,int: right);\npredicate symmetry_breaking_constraint(var bool: b);\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{:?}", context.errors);
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls.calls.iter().all(|call| matches!(
+                call.outcome,
+                CallOutcome::Resolved { .. } | CallOutcome::Intrinsic { .. }
+            )),
+            "{:?}",
+            calls.calls
+        );
+        let wrapper = calls
+            .calls
+            .iter()
+            .find(|call| call.name == "symmetry_breaking_constraint")
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &wrapper.outcome
+        else {
+            panic!("{:?}", wrapper.outcome);
+        };
+        assert_eq!(parameters.as_slice(), std::slice::from_ref(&decision_bool));
+        assert_eq!(return_type, &decision_bool);
+        let selected_wrapper = &bindings.declarations[declaration.0];
+        assert_eq!(selected_wrapper.role, DeclarationRole::Predicate);
+        let library = &context.files[selected_wrapper.file];
+        assert_eq!(library.kind, SourceKind::StandardLibrary);
+        assert!(library.implicit);
+        let written = library
+            .parsed
+            .tree()
+            .child_nodes()
+            .nth(selected_wrapper.item)
+            .unwrap();
+        assert_eq!(written.kind(), NodeKind::PredicateDeclaration);
+        assert_eq!(written.range(), selected_wrapper.syntax_range);
+        assert_eq!(
+            &library.parsed.source()[written.range()],
+            "predicate symmetry_breaking_constraint(var bool: b);"
+        );
+        let local = bindings
+            .declarations
+            .iter()
+            .find(|declaration| declaration.name == "qb")
+            .unwrap();
+        assert_eq!(local.role, DeclarationRole::Local);
+        let qb = local.id;
+        assert!(matches!(&calls.declarations[qb.0].ty,
+            TypeInst { instantiation: Instantiation::Decision, optional: false,
+                kind: TypeKind::Array { indices, element } }
+                if indices.len() == 2 && element.as_ref() == &decision_bool
+                    && indices.iter().all(|axis| axis.instantiation == Instantiation::Parameter
+                        && !axis.optional && axis.kind == TypeKind::Int)));
+        let q = bindings
+            .declarations
+            .iter()
+            .find(|declaration| declaration.top_level && declaration.name == "q")
+            .unwrap()
+            .id;
+        let n = bindings
+            .declarations
+            .iter()
+            .find(|declaration| declaration.top_level && declaration.name == "n")
+            .unwrap()
+            .id;
+        let domains = resolve_domains(&context, &bindings);
+        assert_eq!(domains.declarations[n.0].domain, Domain::UnconstrainedInt);
+        let Domain::Array { indices, .. } = &domains.declarations[qb.0].domain else {
+            panic!("{:?}", domains.declarations[qb.0]);
+        };
+        assert_eq!(indices.len(), 2);
+        assert_eq!(
+            indices[0],
+            Domain::Range {
+                lower: NumericBound::Integer(1),
+                upper: NumericBound::Symbol(n),
+            }
+        );
+        if axis_error {
+            assert!(matches!(
+                indices[1],
+                Domain::Range {
+                    upper: NumericBound::Unsupported(_),
+                    ..
+                } | Domain::Unsupported(_)
+            ));
+        } else {
+            assert_eq!(indices[1], indices[0]);
+        }
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let (_, search) = facts(&context);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        assert_eq!(
+            search.declarations[q.0].coverage,
+            SearchCoverage::WholeArray
+        );
+        assert!(
+            search
+                .searched
+                .iter()
+                .all(|value| value.declaration != Some(qb))
+        );
+        assert_ne!(
+            search.declarations[qb.0].coverage,
+            SearchCoverage::WholeArray
+        );
+        assert_ne!(search.declarations[qb.0].coverage, SearchCoverage::Scalar);
+        assert!(
+            callable
+                .definitions
+                .iter()
+                .all(|definition| definition.target != qb)
+        );
+        assert!(callable.outputs.iter().all(|output| output.target != qb));
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        outcomes.push((
+            name,
+            axis_error,
+            result,
+            context.root.clone(),
+            qb,
+            callable.inspected_locals,
+            callable.unavailable,
+        ));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    for (name, axis_error, result, root, qb, inspected, unavailable) in outcomes {
+        if axis_error {
+            assert!(matches!(
+                result.rules[0].outcome,
+                RuleOutcome::Limited { .. }
+            ));
+            assert!(
+                result.limitations.iter().any(|diagnostic| {
+                    diagnostic.location.path == root && !diagnostic.location.range.is_empty()
+                }),
+                "{name}: {:?}",
+                result.limitations
+            );
+        } else {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Completed),
+                "IGNORED_RANK_TWO_INSPECTION_RED {name}: {:?}; qb={qb:?}; inspected={inspected:?}; unavailable={unavailable:?}",
+                result.limitations
+            );
+        }
+    }
+}

@@ -4317,10 +4317,11 @@ impl<'a> Producer<'a> {
                 if let Some(checked) =
                     self.inspect_ignored_constraint(clause, view, id, &parameters, known, active)
                 {
-                    if let Err(reason) = checked {
-                        self.unavailable(clause, &reason, unavailable);
+                    match checked {
+                        Ok(locals) => extend(inspected, locals),
+                        Err(reason) => self.unavailable(clause, &reason, unavailable),
                     }
-                    // The wrapper may be ignored: never forward outputs or locals.
+                    // Checked source IDs supply no enforcement or output guarantee.
                     return;
                 }
                 if let Some(checked) =
@@ -5094,7 +5095,7 @@ impl<'a> Producer<'a> {
         parameters: &[TypeInst],
         known: &[CallableOutput],
         active: &mut Vec<(FileId, std::ops::Range<usize>)>,
-    ) -> Option<Result<(), String>> {
+    ) -> Option<Result<Vec<DeclarationId>, String>> {
         let declaration = &self.bindings.declarations[id.0];
         let source = &self.context.files[declaration.file];
         if !matches!(
@@ -5182,6 +5183,99 @@ impl<'a> Producer<'a> {
             // references. An ignored wrapper grants no outputs or membership.
             let quantified = unwrap(argument);
             if lexical.is_empty()
+                && quantified.kind() == NodeKind::LetExpression
+                && self.context.files[file].kind == SourceKind::User
+                && self.context.files[file]
+                    .parsed
+                    .tree()
+                    .child_nodes()
+                    .nth(clause.item)
+                    .is_some_and(|item| item.kind() == NodeKind::Constraint)
+            {
+                let locals: Vec<_> = quantified
+                    .child_nodes()
+                    .filter(|node| node.kind() == NodeKind::LetBlock)
+                    .flat_map(|block| block.child_nodes())
+                    .filter(|local| {
+                        local.kind() == NodeKind::Declaration
+                            && !local.child_nodes().any(|node| is_expression(node.kind()))
+                    })
+                    .filter_map(|local| {
+                        self.bindings.declarations.iter().find(|declaration| {
+                            declaration.file == file
+                                && declaration.role == DeclarationRole::Local
+                                && declaration.syntax_range == local.range()
+                        })
+                    })
+                    .filter(|declaration| {
+                        let ty = &facts.declarations[declaration.id.0].ty;
+                        ty.known()
+                            && !optional(ty)
+                            && ty.instantiation == Instantiation::Decision
+                            && matches!(&ty.kind, TypeKind::Array { indices, element }
+                                if indices.len() == 2 && element.kind == TypeKind::Bool
+                                    && element.instantiation == Instantiation::Decision
+                                    && indices.iter().all(|axis| axis.kind == TypeKind::Int
+                                        && axis.instantiation == Instantiation::Parameter))
+                    })
+                    .map(|declaration| declaration.id)
+                    .collect();
+                if !locals.is_empty() {
+                    let mut nodes = vec![quantified];
+                    while let Some(node) = nodes.pop() {
+                        if node.kind() == NodeKind::Generator {
+                            let mut scope = generator_source_scope(quantified, node, lexical)
+                                .ok_or("ignored constraint generator scope is unavailable")?;
+                            let preceding = scope.len();
+                            scope.push(node);
+                            self.relation_iterations(file, &scope, preceding, facts, false)?;
+                        }
+                        if matches!(
+                            node.kind(),
+                            NodeKind::CallExpression | NodeKind::GeneratorCallExpression
+                        ) && self.core(file, node, facts, "forall")
+                        {
+                            let (selected, _) = self
+                                .resolved(file, node, facts)
+                                .ok_or("ignored constraint forall selection is unavailable")?;
+                            let owner = &self.bindings.declarations[selected.0];
+                            let written = find_node(
+                                self.context.files[owner.file].parsed.tree(),
+                                &owner.syntax_range,
+                                owner.role,
+                            )
+                            .ok_or("ignored constraint forall declaration is unavailable")?;
+                            if !self.prefix_primitive_source_safe(owner.file, written) {
+                                return Err("ignored constraint forall body, default, domain or annotation is unsupported".into());
+                            }
+                        }
+                        nodes.extend(node.child_nodes());
+                    }
+                    let owning = Clause {
+                        file,
+                        item: clause.item,
+                        node: quantified,
+                        generators: lexical.to_vec(),
+                        kind: ClauseKind::Local,
+                    };
+                    let mut unavailable = Vec::new();
+                    let mut inspected = Vec::new();
+                    self.interpret_forwarded(
+                        (&owning, facts, known),
+                        &mut Vec::new(),
+                        &mut unavailable,
+                        &mut inspected,
+                        active,
+                        None,
+                    );
+                    if let Some(unavailable) = unavailable.into_iter().next() {
+                        return Err(unavailable.reason);
+                    }
+                    extend(&mut inspected, locals);
+                    return Ok(inspected);
+                }
+            }
+            if lexical.is_empty()
                 && quantified.kind() == NodeKind::GeneratorCallExpression
                 && self.core(file, quantified, facts, "forall")
             {
@@ -5237,7 +5331,7 @@ impl<'a> Producer<'a> {
                     let generators: Vec<_> = headers.child_nodes().collect();
                     match self.parameter_row_let_safety(file, body, facts, &generators, &[]) {
                         Some(DefinitionSafety::Unsupported(reason)) => return Err(reason),
-                        Some(DefinitionSafety::Unknown(_)) => return Ok(()),
+                        Some(DefinitionSafety::Unknown(_)) => return Ok(Vec::new()),
                         _ => {}
                     }
                 }
@@ -5327,19 +5421,20 @@ impl<'a> Producer<'a> {
                 return Err("redundant constraint argument clauses unavailable".into());
             }
             let mut unavailable = Vec::new();
+            let mut inspected = Vec::new();
             for child in clauses {
                 self.interpret_forwarded(
                     (&child, view, known),
                     &mut Vec::new(),
                     &mut unavailable,
-                    &mut Vec::new(),
+                    &mut inspected,
                     active,
                     None,
                 );
             }
             match unavailable.into_iter().next() {
                 Some(unavailable) => Err(unavailable.reason),
-                None => Ok(()),
+                None => Ok(inspected),
             }
         })())
     }

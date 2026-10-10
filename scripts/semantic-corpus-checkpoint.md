@@ -6490,3 +6490,25 @@ The first integrated gate identified public-test layout only; Rust formatting
 corrected it without changing fixtures or assertions. Formatting, Clippy and
 workspace tests then pass under
 `target/benchmarks/base083/semantic68-literal-element-main-gates-v2`.
+
+Ignored-wrapper inspection now checks a model-level owning `let` before its naked
+local references, validates retained headers/filters and selected `forall` source,
+and reuses the existing complete Local interpreter. Only successful inspection
+IDs are retained; temporary outputs are discarded. Full and filtered public
+channels complete without coverage, while the closed axis case stays Limited.
+ROOT checked 1,174 unchanged pins and the terminal GREEN receipt/full streams,
+reusing the genuine RED and source-only compiler controls. The integrated patch
+preserves the independent aggregate-reader and literal-element changes; only an
+obsolete neighboring context line was removed from its transport patch.
+Formatting, Clippy and workspace tests pass under
+`target/benchmarks/base083/semantic68-ignored-wrapper-main-gates-v1`.
+
+The separate exact-original queens comparison has four terminal warning exits,
+1,261 unchanged pins and eight verified full streams. Its thesis streams remain
+byte-identical with fifteen warnings and the generic scoped-local search
+limitation; both default streams are unchanged too. This increment does not
+complete that original model. The remaining owning-scope refusal still needs
+diagnosis. Evidence is under
+`target/benchmarks/base083/semantic68-ignored-rank-two-local-inspection-green-preparation-v1`.
+Concurrent allocation work means these debug replays provide no timing ratio.
+Base-083 remains open.
