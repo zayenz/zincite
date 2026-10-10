@@ -6568,3 +6568,39 @@ its known markers. The diagnostic capture has 1,155 unchanged pins, two terminal
 receipts and four full streams under
 `target/benchmarks/base083/semantic68-ignored-rank-two-original-inspection-diagnostic-preparation-v1`.
 A narrowly checked identity-body correction remains pending. Base-083 is open.
+
+The standard ignored-wrapper inspector now also accepts an exact identity body
+for the owning model-level `let` with an uninitialized rank-two Boolean local.
+The body must reference its own plain present `var bool` formal. It verifies matching
+formal, body and selected tuple types, retaining default and declaration/call
+annotation refusals. User wrappers and other standard bodies are not admitted
+by this route. Inspected local IDs still grant no output or search coverage.
+The corrected public regression has genuine RED/GREEN evidence: the selected
+nonimplicit identity completes inspection, while a changed closed-error body
+remains located Limited without local certificates. ROOT checked 1,165 RED and
+1,168 GREEN unchanged pins and both receipts/full streams under
+`target/benchmarks/base083/semantic68-ignored-identity-wrapper-{red,green}-preparation-v2`.
+The initial v1 test compile failure is retained separately and is not behavioral
+evidence. Integration preserves the independent Boolean-comprehension changes
+and appends the exact reviewed public test despite obsolete patch context.
+The first full suite exposed precise error-location loss for another identity-
+wrapped call. New admission is now limited before argument inspection; other
+actuals retain generic dispatch and the existing standard-body error locations.
+The unchanged public cases and existing optional-body regression pass under
+`target/benchmarks/base083/semantic68-ignored-identity-wrapper-green-preparation-v3`;
+ROOT checked 1,174 unchanged pins, two receipts and four full streams.
+Corrected workspace gates are recorded under
+`target/benchmarks/base083/semantic69-identity-wrapper-main-gates-v2`. Subsequent
+lex/view outcomes in the original queens model remain unobserved; base-083 is open.
+
+The separate duplicate-record native candidate preserves diagnostics and all
+31 analysis stage pairs, reducing Project Planning wall time from 590 to 272
+seconds and child CPU from 589 to 270 seconds. Direct definitions fall from
+324 seconds to 1.6 seconds; numeric and guarded costs are approximately unchanged.
+Peak RSS is 4,502 MiB versus 4,620 MiB in this single pair. ROOT checked 793
+unchanged pins, four terminal receipts, eight full streams and the binary under
+`target/benchmarks/base083/semantic69-project17-duplicate-record-comparison-preparation-v1`.
+This candidate adds a transient table proportional to distinct retained rows;
+fresh allocation measurements are required before integration. Native RSS alone
+does not quantify its added storage. No performance admission or final corpus
+acceptance is claimed for the pending candidate.

@@ -5148,9 +5148,59 @@ impl<'a> Producer<'a> {
             "redundant_constraint" | "symmetry_breaking_constraint"
         ) || declaration.role != DeclarationRole::Predicate
             || source.kind != SourceKind::StandardLibrary
-            || !source.implicit
         {
             return None;
+        }
+        if !source.implicit {
+            let (file, argument) = call_argument(
+                self.context,
+                self.bindings,
+                self.view(clause.file, clause.node, view),
+                clause.file,
+                clause.node,
+                id,
+                0,
+            )?;
+            let argument = unwrap(argument);
+            let facts = self.view(file, argument, view);
+            if file != clause.file
+                || !clause.generators.is_empty()
+                || clause.node.kind() != NodeKind::CallExpression
+                || clause.node.child_nodes().count() != 1
+                || argument.kind() != NodeKind::LetExpression
+                || self.context.files[file].kind != SourceKind::User
+                || !self.context.files[file]
+                    .parsed
+                    .tree()
+                    .child_nodes()
+                    .nth(clause.item)
+                    .is_some_and(|item| item.kind() == NodeKind::Constraint)
+                || !argument
+                    .child_nodes()
+                    .filter(|node| node.kind() == NodeKind::LetBlock)
+                    .flat_map(|block| block.child_nodes())
+                    .any(|local| {
+                        local.kind() == NodeKind::Declaration
+                            && !local.child_nodes().any(|node| is_expression(node.kind()))
+                            && self.bindings.declarations.iter().any(|owner| {
+                                let ty = &facts.declarations[owner.id.0].ty;
+                                owner.file == file
+                                    && owner.role == DeclarationRole::Local
+                                    && owner.syntax_range == local.range()
+                                    && ty.known()
+                                    && !optional(ty)
+                                    && ty.instantiation == Instantiation::Decision
+                                    && matches!(&ty.kind, TypeKind::Array { indices, element }
+                                        if indices.len() == 2 && element.kind == TypeKind::Bool
+                                            && element.instantiation == Instantiation::Decision
+                                            && indices.iter().all(|axis| axis.kind == TypeKind::Int
+                                                && axis.instantiation == Instantiation::Parameter))
+                            })
+                    })
+            {
+                // Other actuals retain generic inspection and its precise locations.
+                return None;
+            }
         }
         Some((|| {
             let written = find_node(
@@ -5169,9 +5219,33 @@ impl<'a> Producer<'a> {
                 .child_nodes()
                 .collect();
             let declared = &self.calls.declarations[formal.0].ty;
+            let bodies: Vec<_> = written
+                .child_nodes()
+                .filter(|n| is_expression(n.kind()))
+                .collect();
+            // Standard redefinitions may have the exact identity body.
+            let identity = if !source.implicit
+                && let [body] = bodies.as_slice()
+            {
+                let body = unwrap(body);
+                formals.len() == 1
+                    && formals[0].child_nodes().next().is_some_and(|ty| {
+                        matches!(crate::domains::tokens(&source.parsed, ty).as_slice(),
+                            [variable, boolean] if variable.kind == TokenKind::Var && boolean.kind == TokenKind::Bool)
+                    })
+                    && parameters == std::slice::from_ref(declared)
+                    && body.kind() == NodeKind::Expression
+                    && matches!(crate::domains::tokens(&source.parsed, body).as_slice(),
+                        [name] if matches!(name.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+                    && self.reference(declaration.file, body) == Some(formal)
+                    && self.expression_type(self.calls, declaration.file, body)
+                        .is_some_and(|expression| expression.ty == *declared)
+            } else {
+                false
+            };
             if clause.node.kind() != NodeKind::CallExpression
                 || clause.node.child_nodes().count() != 1
-                || written.child_nodes().any(|n| is_expression(n.kind()))
+                || !(source.implicit && bodies.is_empty() || identity)
                 || formals.len() != 1
                 || formals[0].child_nodes().any(|n| is_expression(n.kind()))
                 || !boolean(declared) || declared.instantiation != Instantiation::Decision

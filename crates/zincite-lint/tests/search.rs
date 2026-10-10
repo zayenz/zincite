@@ -14088,3 +14088,139 @@ fn initialized_local_boolean_comprehension_inspects_sources_without_output_proof
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn standard_identity_wrappers_inspect_private_channels_without_coverage() {
+    use zincite_lint::{CallOutcome, DeclarationRole, Instantiation, SourceKind, TypeKind};
+    let source = concat!(
+        "int: n;\n",
+        "array[1..n] of var 1..n: q;\n",
+        "constraint symmetry_breaking_constraint(\n",
+        "  let { array[1..n,1..n] of var bool: qb; } in\n",
+        "    forall(i,j in 1..n)(qb[i,j] <-> (q[i]=j))\n",
+        ");\n",
+        "solve :: int_search(q,input_order,indomain_min,complete) satisfy;\n",
+    );
+    // The loader retains solver redefinitions as nonimplicit Std sources.
+    for (name, written, changed_body) in [
+        (
+            "standard-wrapper-closed-body",
+            "predicate symmetry_breaking_constraint(var bool: b) = b /\\ (1 div 0 = 0);\n",
+            true,
+        ),
+        (
+            "standard-wrapper-identity",
+            "predicate symmetry_breaking_constraint(var bool: b) = b;\n",
+            false,
+        ),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!("{CORE}function var bool: '<->'(var bool: left,var bool: right);\nfunction int: 'div'(int: left,int: right);\npredicate symmetry_breaking_constraint(var bool: b);\n"),
+        )
+        .unwrap();
+        std::fs::write(dir.join("library/std/solver_redefinitions.mzn"), written).unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let wrapper = calls
+            .calls
+            .iter()
+            .find(|call| call.name == "symmetry_breaking_constraint")
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &wrapper.outcome
+        else {
+            panic!("{name}: {:?}", wrapper.outcome);
+        };
+        assert_eq!(parameters.as_slice(), std::slice::from_ref(return_type));
+        assert!(
+            !return_type.optional
+                && return_type.instantiation == Instantiation::Decision
+                && return_type.kind == TypeKind::Bool
+        );
+        let owner = &bindings.declarations[declaration.0];
+        let standard = &context.files[owner.file];
+        assert_eq!(owner.role, DeclarationRole::Predicate);
+        assert_eq!(standard.kind, SourceKind::StandardLibrary);
+        assert!(!standard.implicit);
+        assert_eq!(
+            &standard.parsed.source()[owner.syntax_range.clone()],
+            written.trim_end()
+        );
+        let qb = bindings
+            .declarations
+            .iter()
+            .find(|declaration| declaration.name == "qb")
+            .unwrap()
+            .id;
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let (_, search) = facts(&context);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        assert_eq!(
+            coverage(&bindings, &search, "q"),
+            SearchCoverage::WholeArray
+        );
+        assert!(
+            search
+                .searched
+                .iter()
+                .all(|value| value.declaration != Some(qb))
+        );
+        assert_ne!(search.declarations[qb.0].coverage, SearchCoverage::Scalar);
+        assert_ne!(
+            search.declarations[qb.0].coverage,
+            SearchCoverage::WholeArray
+        );
+        assert!(callable.outputs.iter().all(|output| output.target != qb));
+        assert!(
+            callable
+                .definitions
+                .iter()
+                .all(|definition| definition.target != qb)
+        );
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        if changed_body {
+            assert!(matches!(
+                result.rules[0].outcome,
+                RuleOutcome::Limited { .. }
+            ));
+            assert!(!callable.inspected_locals.contains(&qb));
+            assert!(
+                result
+                    .limitations
+                    .iter()
+                    .any(|diagnostic| diagnostic.location.path == context.root
+                        && !diagnostic.location.range.is_empty()),
+                "{name}: {:?}",
+                result.limitations
+            );
+        } else {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Completed),
+                "STANDARD_IDENTITY_WRAPPER_RED: {:?}; inspected={:?}; unavailable={:?}",
+                result.limitations,
+                callable.inspected_locals,
+                callable.unavailable
+            );
+            assert!(callable.inspected_locals.contains(&qb));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
