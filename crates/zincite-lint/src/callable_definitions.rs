@@ -19649,10 +19649,6 @@ impl<'a> Producer<'a> {
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
         let integer = TypeInst::par(TypeKind::Int);
-        let flat = TypeInst::par(TypeKind::Array {
-            indices: vec![integer.clone()],
-            element: Box::new(integer.clone()),
-        });
         if node.kind() != NodeKind::CallExpression {
             return None;
         }
@@ -19664,10 +19660,23 @@ impl<'a> Producer<'a> {
         } else {
             return None;
         };
+        let instantiation = self.expression_type(facts, file, node)?.ty.instantiation;
+        if instantiation != Instantiation::Parameter
+            && !(rank == 3 && instantiation == Instantiation::Decision)
+        {
+            return None;
+        }
+        let element = integer.clone().with_inst(instantiation);
+        let flat = TypeInst::par(TypeKind::Array {
+            indices: vec![integer.clone()],
+            element: Box::new(element.clone()),
+        })
+        .with_inst(instantiation);
         let matrix = TypeInst::par(TypeKind::Array {
             indices: vec![integer.clone(); rank],
-            element: Box::new(integer.clone()),
-        });
+            element: Box::new(element),
+        })
+        .with_inst(instantiation);
         if self
             .expression_type(facts, file, node)
             .is_none_or(|e| e.ty != matrix)
@@ -19739,6 +19748,7 @@ impl<'a> Producer<'a> {
             if !data_owner.top_level
                 || data_owner.role != DeclarationRole::Value
                 || self.calls.declarations[data.0].ty != flat
+                || instantiation == Instantiation::Decision && data_owner.file != file
             {
                 return Err("native integer backing data identity is unsupported".into());
             }
@@ -19748,13 +19758,19 @@ impl<'a> Producer<'a> {
                 data_owner.role,
             )
             .ok_or("native integer backing data declaration is unavailable")?;
-            if data_source
+            let data_initializers: Vec<_> = data_source
                 .child_nodes()
                 .filter(|n| is_expression(n.kind()))
-                .count()
-                != 1
-            {
+                .collect();
+            let [initializer] = data_initializers.as_slice() else {
                 return Err("native integer backing data initializer is unavailable".into());
+            };
+            if instantiation == Instantiation::Decision
+                && unwrap(initializer).kind() != NodeKind::ArrayLiteral
+            {
+                return Err(
+                    "native decision integer backing requires a written array literal".into(),
+                );
             }
             if let DefinitionSafety::Unsupported(reason) =
                 self.initialized_children_safety(file, &arguments, view, &[])

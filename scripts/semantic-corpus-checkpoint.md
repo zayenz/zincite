@@ -7379,3 +7379,19 @@ full streams and the integrated 108-source map were rechecked.
 
 Original-model replay and final expanded-corpus evidence remain pending.
 Base-083 remains open with every completion box unchecked.
+
+### Checked rank-three decision-integer backing sources
+
+The native array3d source reader now inspects present decision-integer arrays
+with a same-file, initialized top-level literal backing. It retains the exact
+selected primitive, axes, metadata, body and source-error checks. Parameter
+rank-three and rank-four behavior is preserved. The result remains Unknown;
+no extent, values, output or search certificate is supplied.
+
+The original Connect source observer identifies four matching array3d calls.
+The focused baseline fails at the intended assertion, and the candidate passes
+four public cases covering a symbolic positive, axis and backing errors, and a
+changed primitive body. Independent source review found no unresolved issue.
+Main formatting, Clippy and all 295 workspace tests passed; full streams and
+108 source pins were rechecked. Original-model replay and final expanded-corpus
+acceptance remain pending. Base-083 remains open.
