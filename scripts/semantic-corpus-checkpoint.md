@@ -7320,3 +7320,20 @@ checks. Full streams and the integrated 108-source map were rechecked.
 
 These checks do not replace an original-model replay or the final expanded
 corpus. Base-083 remains open with every completion box unchecked.
+
+### Checked set-extremum arithmetic sources
+
+The arithmetic increment inspects exact parameter-set min/max operands and
+nested symbolic div/mod dividends while retaining Unknown. Computed divisors
+still require the independent evaluator; closed-zero extrema, empty sources,
+overflow and changed written primitives remain refused. Existing branch-aware
+closed-source checks now catch overflowing initialized array contents before
+selected length and arithmetic bypasses. A MiniZinc 2.10.1 Gecode compile-only
+control independently rejects that backing overflow, even with length-only use.
+
+The focused baseline failed at the intended source assertion; all six candidate
+cases passed without weakening the backing-overflow control. Independent review
+found no unresolved increment issue. Main formatting, Clippy and all 292
+workspace tests passed, preserving the earlier regular/2 and regular/4 checks.
+Full streams and the integrated 108-source map were rechecked. Original-model
+replay and final corpus acceptance remain pending; base-083 is still open.

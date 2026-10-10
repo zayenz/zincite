@@ -2738,3 +2738,178 @@ fn native_generator_max_sources_preserve_unknown_and_errors() {
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
+
+#[test]
+fn inspected_set_extrema_arithmetic_preserves_unknown_and_source_errors() {
+    let library = concat!(
+        "function $$E: min(set of $$E: s);\n",
+        "function $$E: max(set of $$E: s);\n",
+        "function int: length(array[int] of int: values);\n",
+        "function int: 'div'(int: a, int: b);\n",
+        "function int: 'mod'(int: a, int: b);\n",
+        "function int: '+'(int: a, int: b);\n",
+        "function set of $$E: '..'($$E: a, $$E: b);\n",
+        "function array[$$E,$$F,$$G] of any $V: array3d(\n",
+        "set of $$E: a, set of $$F: b, set of $$G: c, array[$U] of any $V: values);\n",
+    );
+    let source = concat!(
+        "int: n; set of int: PITS = 1..n; set of int: COORDS = 1..3;\n",
+        "array[int] of int: flat = [n];\n",
+        "set of int: Axis = 1..length(flat) div max(PITS) div max(COORDS);\n",
+        "array[int,int,int] of int: matrix = array3d(PITS, COORDS, Axis, flat);\n",
+        "var 1..2: pick; var int: cell = matrix[1,1,pick];\n",
+        "var int: quotient = length(flat) div max(PITS) div max(COORDS);\n",
+        "var int: remainder = length(flat) mod min(PITS) mod max(COORDS);\n",
+        "solve satisfy;\n",
+    );
+    let max_zero = source.replace("PITS = 1..n", "PITS = {0}");
+    let empty = source.replace("COORDS = 1..3", "COORDS = {}");
+    let computed_zero = source.replace("max(COORDS)", "(max({1}) div 2)");
+    let overflow = source.replace("flat = [n]", "flat = [9223372036854775807 + 1]");
+    let written_body = library.replace(
+        "function $$E: max(set of $$E: s);",
+        "function int: max(set of int: s) = 1 div 0;",
+    );
+    for (case_name, source, library, reason) in [
+        ("symbolic", source, library, None),
+        (
+            "max-zero",
+            max_zero.as_str(),
+            library,
+            Some("division by zero"),
+        ),
+        ("empty", empty.as_str(), library, Some("empty set")),
+        (
+            "computed-zero",
+            computed_zero.as_str(),
+            library,
+            Some("bounded integer arithmetic"),
+        ),
+        ("overflow", overflow.as_str(), library, Some("overflow")),
+        (
+            "written-body",
+            source,
+            written_body.as_str(),
+            Some("selected written primitive"),
+        ),
+    ] {
+        let (directory, _) = model(
+            &format!("extrema-arithmetic-{case_name}"),
+            "solve satisfy;",
+            "",
+        );
+        let standard = directory.join("library/std/stdlib.mzn");
+        write(&standard, library);
+        let root = directory.join("root.mzn");
+        write(&root, source);
+        let context = load_model(
+            &root,
+            &ModelOptions {
+                stdlib_dir: Some(directory.join("library")),
+                include_dirs: Vec::new(),
+            },
+        );
+        assert!(
+            context.errors.is_empty(),
+            "{case_name}: {:?}",
+            context.errors
+        );
+        assert!(
+            context.limitations.is_empty(),
+            "{case_name}: {:?}",
+            context.limitations
+        );
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let file = context.root_file.unwrap();
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == file)
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{case_name}: public call selection must resolve"
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let bounded = definitions.bounded_or_defined_targets(&bindings, &domains);
+        for target_name in ["quotient", "remainder", "cell"] {
+            let target = bindings
+                .declarations
+                .iter()
+                .find(|d| d.file == file && d.name == target_name)
+                .unwrap()
+                .id;
+            let definition = definitions
+                .definitions
+                .iter()
+                .find(|d| d.target == target)
+                .unwrap();
+            assert!(!bounded.contains(&target));
+            match reason {
+                None => assert!(
+                    matches!(definition.safety, DefinitionSafety::Unknown(_)),
+                    "ORIENTATIONS_ARITHMETIC_SOURCE_RED: {case_name}/{target_name}: {:?}",
+                    definition.safety
+                ),
+                Some(reason) => assert!(
+                    matches!(&definition.safety,
+                    DefinitionSafety::Unsupported(actual) if actual.contains(reason)),
+                    "{case_name}/{target_name}: {:?}",
+                    definition.safety
+                ),
+            }
+        }
+        let callable = zincite_lint::resolve_callable_definitions(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+        );
+        assert!(callable.outputs.is_empty());
+        let result = analyze_model(
+            &context,
+            &LintOptions::from_selection("unbounded-variable").unwrap(),
+        );
+        assert!(result.errors.is_empty(), "{case_name}: {:?}", result.errors);
+        assert!(
+            result.findings.is_empty(),
+            "{case_name}: {:?}",
+            result.findings
+        );
+        match reason {
+            None => assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{case_name}: {:?}",
+                result.limitations
+            ),
+            Some(reason) => {
+                assert!(matches!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Limited { .. }
+                ));
+                assert!(
+                    result
+                        .limitations
+                        .iter()
+                        .any(|limit| limit.location.path == root
+                            && !limit.location.range.is_empty()
+                            && limit.message.contains(reason)),
+                    "{case_name}: {:?}",
+                    result.limitations
+                );
+            }
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}

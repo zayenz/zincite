@@ -25467,7 +25467,8 @@ impl<'a> Producer<'a> {
                     let mut safety = DefinitionSafety::Supported;
                     let mut unsupported = None;
                     let mut values = Vec::new();
-                    for child in &children {
+                    let mut inspected_extremum = false;
+                    for (position, child) in children.iter().enumerate() {
                         let inspected = self.initialized_source_safety(
                             file,
                             child,
@@ -25530,25 +25531,122 @@ impl<'a> Producer<'a> {
                                         )
                                         .is_ok_and(|value| value.is_some())
                                 });
+                        // These exact primitives have already had every source
+                        // inspected. The invariant interpreter does not evaluate
+                        // set extrema; retain only closed error vetoes here.
+                        let parameter = TypeInst::par(TypeKind::Int);
+                        let set = TypeInst::par(TypeKind::Set(Box::new(parameter.clone())));
+                        let extremum = wrapper.kind() == NodeKind::CallExpression
+                            && ty(wrapper) == Some(&parameter)
+                            && operands.len() == 1
+                            && ty(operands[0]) == Some(&set)
+                            && (self.core(file, wrapper, view, "min")
+                                || self.core(file, wrapper, view, "max"));
+                        // A nested quotient/remainder is inspected only as the
+                        // dividend. A computed divisor still needs the independent
+                        // evaluator, which can establish a concrete zero.
+                        let nested_dividend = position == 0
+                            && matches!(&inspected, DefinitionSafety::Unknown(_))
+                            && wrapper.kind() == NodeKind::BinaryExpression
+                            && matches!(wrapper_name, Some("div" | "mod"))
+                            && self.prefix_primitive(
+                                file,
+                                wrapper,
+                                self.view(file, wrapper, view),
+                                wrapper_name.unwrap(),
+                                &[parameter.clone(), parameter.clone()],
+                                &parameter,
+                            );
+                        if (extremum || nested_dividend)
+                            && !matches!(&inspected, DefinitionSafety::Unsupported(_))
+                        {
+                            if !self.prefix_primitive(
+                                file,
+                                node,
+                                self.view(file, node, view),
+                                name.unwrap(),
+                                &[parameter.clone(), parameter.clone()],
+                                &parameter,
+                            ) || extremum
+                                && !self.prefix_primitive(
+                                    file,
+                                    wrapper,
+                                    self.view(file, wrapper, view),
+                                    if self.core(file, wrapper, view, "min") {
+                                        "min"
+                                    } else {
+                                        "max"
+                                    },
+                                    std::slice::from_ref(&set),
+                                    &parameter,
+                                )
+                            {
+                                unsupported = Some(
+                                    "integer division/remainder selected written primitive is unsupported".into(),
+                                );
+                                values.push(None);
+                                continue;
+                            }
+                            if let Some(reason) = self.closed_integer_source_error_with_branches(
+                                file, child, false, true, true,
+                            ) {
+                                unsupported = Some(reason);
+                                values.push(None);
+                                continue;
+                            }
+                            safety = DefinitionSafety::Unknown(
+                                "integer division/remainder operands are unproved".into(),
+                            );
+                            if extremum {
+                                inspected_extremum = true;
+                                let interval =
+                                    crate::domains::index_domain_interval(&expression_domain(
+                                        self.context,
+                                        self.bindings,
+                                        file,
+                                        operands[0],
+                                    ));
+                                values.push(interval.map(|(lower, upper)| {
+                                    if self.core(file, wrapper, view, "min") {
+                                        lower
+                                    } else {
+                                        upper
+                                    }
+                                }));
+                            } else {
+                                values.push(None);
+                            }
+                            continue;
+                        }
                         match inspected {
-                            DefinitionSafety::Unsupported(reason) => unsupported = Some(reason),
+                            DefinitionSafety::Unsupported(reason) => {
+                                unsupported = Some(reason);
+                                values.push(None);
+                                continue;
+                            }
                             unknown @ DefinitionSafety::Unknown(_) => safety = unknown,
                             DefinitionSafety::Supported => {}
                         }
                         // A selected length has already had its original source
                         // inspected above. The definitionless integer interpreter
                         // cannot evaluate this call; retain an unproved value.
-                        if symbolic_selection
-                            || wrapped_selection
-                            || length_argument(
-                                self.context,
-                                self.bindings,
-                                self.view(file, child, view),
-                                file,
-                                unwrap(child),
-                            )
-                            .is_some()
-                        {
+                        let inspected_length = length_argument(
+                            self.context,
+                            self.bindings,
+                            self.view(file, child, view),
+                            file,
+                            unwrap(child),
+                        )
+                        .is_some();
+                        if symbolic_selection || wrapped_selection || inspected_length {
+                            if inspected_length
+                                && let Some(reason) = self
+                                    .closed_integer_source_error_with_branches(
+                                        file, child, false, true, true,
+                                    )
+                            {
+                                unsupported = Some(reason);
+                            }
                             values.push(None);
                             continue;
                         }
@@ -25573,7 +25671,20 @@ impl<'a> Producer<'a> {
                     if let Some(reason) = unsupported {
                         return DefinitionSafety::Unsupported(reason);
                     }
-                    if values.iter().all(Option::is_some) {
+                    if let (Some(left), Some(right)) = (values[0], values[1]) {
+                        if inspected_extremum {
+                            let checked = if name == Some("div") {
+                                left.checked_div(right)
+                            } else {
+                                left.checked_rem(right)
+                            };
+                            if checked.is_none() {
+                                return DefinitionSafety::Unsupported(
+                                    "integer arithmetic overflow".into(),
+                                );
+                            }
+                            return safety;
+                        }
                         match crate::domains::invariant_expression_integer(
                             self.context,
                             self.bindings,
