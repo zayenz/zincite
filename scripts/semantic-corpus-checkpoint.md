@@ -7469,3 +7469,20 @@ Main formatting, Clippy and all 296 workspace tests pass, with complete streams
 and 108 source pins checked. Original Connect replay after the semantic repairs
 and final expanded-corpus acceptance remain pending. Constraint-body locals
 still require their own supported owning-source prerequisites. Base-083 is open.
+
+### Completed original lookup comparison
+
+Both lookup versions now have complete native and companion captures for the
+unchanged Connect and Workforce originals. Diagnostics and full rule records
+match exactly between versions. Connect completes twelve thesis analyses with
+two Limited, and seventeen expanded analyses with nine Limited. These snapshots
+precede the semantic repairs above; their older Workforce GCC limitation does
+not supersede the repaired twenty-six-analysis result.
+
+Connect's expanded native observation falls from 1,469 to 786 seconds with
+identical diagnostics. The earlier run was sampled for two seconds and both
+runs overlapped other workloads, so this remains one qualified cost comparison.
+Independent review checked all input pins, terminal receipts, complete streams,
+resolved dependencies, shared rule records and return-to-baseline drop records.
+There are no unfinished or Unobserved roots in either comparison capture.
+The combined semantic repair replay and final corpus acceptance remain pending.
