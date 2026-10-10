@@ -6412,3 +6412,16 @@ MiniZinc source-only checks pass; none proves data-instance validity. Integrated
 workspace gates are recorded under
 `target/benchmarks/base083/semantic67-optional-float-main-gates-v1`. Final corpus
 evidence and whole-task verification remain pending.
+
+The ordinary bodyless `exists` source reader is integrated. It inspects the
+exact selected standard signature and initialized Boolean-array dependencies
+without enforcing a particular member or exporting output/search guarantees.
+The original LatinBool comparison removes its only search limitation and
+preserves all four warnings, including the unsearched array warning. Fresh
+RED/GREEN targets exercise three public cases. The initializer-zero case keeps
+a located forwarding limitation and a precise division-by-zero fact through
+exported expression safety; the written-body negative keeps its located zero
+refusal. Two source-only compiler controls pass. Integrated workspace gates
+are recorded under
+`target/benchmarks/base083/semantic67-ordinary-exists-main-gates-v1`. These
+repairs do not complete base-083; fresh final evidence remains required.

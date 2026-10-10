@@ -4283,6 +4283,12 @@ impl<'a> Producer<'a> {
                     // The wrapper may be ignored: never forward outputs or locals.
                     return;
                 }
+                if let Some(checked) = self.inspect_bodyless_exists(clause, view, id, &parameters) {
+                    if let Err(reason) = checked {
+                        self.unavailable(clause, &reason, unavailable);
+                    }
+                    return;
+                }
                 if let Some(checked) =
                     self.inspect_bodyless_integer_maximum(clause, view, id, &parameters)
                 {
@@ -5276,6 +5282,110 @@ impl<'a> Producer<'a> {
             match unavailable.into_iter().next() {
                 Some(unavailable) => Err(unavailable.reason),
                 None => Ok(()),
+            }
+        })())
+    }
+    // Inspect the existential source without enforcing any particular member.
+    fn inspect_bodyless_exists(
+        &self,
+        clause: &Clause<'a>,
+        view: &CallableFacts,
+        id: DeclarationId,
+        parameters: &[TypeInst],
+    ) -> Option<Result<(), String>> {
+        let array = |ty: &TypeInst| {
+            ty.known()
+                && !optional(ty)
+                && matches!(&ty.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 1 && indices[0].known() && !optional(&indices[0])
+                        && indices[0].kind == TypeKind::Int
+                        && indices[0].instantiation == Instantiation::Parameter
+                        && element.known() && !optional(element) && element.kind == TypeKind::Bool
+                        && element.instantiation == ty.instantiation)
+        };
+        if clause.node.kind() != NodeKind::CallExpression
+            || !self.core(clause.file, clause.node, view, "exists")
+            || parameters.len() != 1
+            || !array(&parameters[0])
+        {
+            return None;
+        }
+        let owner = &self.bindings.declarations[id.0];
+        let written = find_node(
+            self.context.files[owner.file].parsed.tree(),
+            &owner.syntax_range,
+            owner.role,
+        )?;
+        let signature = self.calls.signatures.iter().find(|s| s.declaration == id)?;
+        if owner.role != DeclarationRole::Function
+            || written.child_nodes().any(|node| is_expression(node.kind()))
+            || signature.parameters.len() != 1
+            || signature.parameters[0].has_default
+        {
+            return None;
+        }
+        let facts = self.view(clause.file, clause.node, view);
+        let CallOutcome::Resolved {
+            parameters: selected,
+            return_type,
+            ..
+        } = &self
+            .operation_fact(facts, clause.file, clause.node)?
+            .outcome
+        else {
+            return None;
+        };
+        if selected.as_slice() != parameters
+            || !return_type.known()
+            || optional(return_type)
+            || return_type.kind != TypeKind::Bool
+            || return_type.instantiation != parameters[0].instantiation
+        {
+            return None;
+        }
+        let (file, actual) = call_argument(
+            self.context,
+            self.bindings,
+            facts,
+            clause.file,
+            clause.node,
+            id,
+            0,
+        )?;
+        if self
+            .expression_type(self.view(file, actual, view), file, actual)
+            .is_none_or(|value| value.ty != parameters[0])
+        {
+            return None;
+        }
+        Some((|| {
+            self.parameter_array_primitive(
+                clause.file,
+                clause.node,
+                view,
+                "exists",
+                selected,
+                return_type,
+            )?;
+            if !crate::definitions::annotations_safe(self.context, clause.file, clause.node) {
+                return Err("existential call annotation is unsupported".into());
+            }
+            if let Some(reason) = self.closed_integer_source_error(file, actual, false, true) {
+                return Err(reason);
+            }
+            let lexical = if file == clause.file
+                && clause.node.range().start <= actual.range().start
+                && actual.range().end <= clause.node.range().end
+            {
+                &clause.generators[..]
+            } else {
+                &[]
+            };
+            match self.initialized_source_safety(file, actual, view, lexical, &mut Vec::new()) {
+                DefinitionSafety::Unsupported(reason) => Err(reason),
+                // This reader also checks dependencies; symbolic uncertainty
+                // establishes no value, extent, member or output guarantee.
+                _ => Ok(()),
             }
         })())
     }

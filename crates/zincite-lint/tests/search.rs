@@ -12942,3 +12942,200 @@ function any $T: assert(bool: condition, string: message, any $T: result);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn ordinary_exists_inspects_sources_without_member_or_output_proof() {
+    use zincite_lint::{CallOutcome, Instantiation, SourceKind, TypeInst, TypeKind};
+    let source = concat!(
+        "int: n; array[1..n] of var bool: values;\n",
+        "predicate exactlyone(array[int] of var bool: x) = exists(x);\n",
+        "constraint exactlyone(values); solve satisfy;\n",
+    );
+    let primitive = "function var bool: exists(array[$T] of var bool: x) :: promise_commutative;\n";
+    let written = "function var bool: exists(array[$T] of var bool: x) :: promise_commutative = let { int: bad = 1 div 0; } in true;\n";
+    let partial = source.replace("var bool: values;", "var bool: values = [1 div 0 = 0];");
+    for (name, model_source, declaration, completed) in [
+        ("ordinary-exists-symbolic", source, primitive, true),
+        (
+            "ordinary-exists-source-zero",
+            partial.as_str(),
+            primitive,
+            false,
+        ),
+        ("ordinary-exists-written-zero", source, written, false),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!("{CORE}include \"stdlib_logic.mzn\"; function int: 'div'(int: x,int: y);\n"),
+        )
+        .unwrap();
+        let selected_path = dir.join("library/std/stdlib_logic.mzn");
+        std::fs::write(
+            &selected_path,
+            format!("annotation promise_commutative;\n{declaration}"),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), model_source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let call = calls
+            .calls
+            .iter()
+            .find(|c| c.file == 0 && c.name == "exists")
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &call.outcome
+        else {
+            panic!("{name}: selected exists {:?}", call.outcome);
+        };
+        let owner = &bindings.declarations[declaration.0];
+        assert_eq!(context.files[owner.file].path, selected_path);
+        assert_eq!(context.files[owner.file].kind, SourceKind::StandardLibrary);
+        assert!(context.files[owner.file].implicit);
+        let boolean = TypeInst {
+            instantiation: Instantiation::Decision,
+            optional: false,
+            kind: TypeKind::Bool,
+        };
+        let array = TypeInst {
+            instantiation: Instantiation::Decision,
+            optional: false,
+            kind: TypeKind::Array {
+                indices: vec![TypeInst {
+                    instantiation: Instantiation::Parameter,
+                    optional: false,
+                    kind: TypeKind::Int,
+                }],
+                element: Box::new(boolean.clone()),
+            },
+        };
+        assert_eq!(parameters.as_slice(), std::slice::from_ref(&array));
+        assert_eq!(return_type, &boolean);
+        let values = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "values")
+            .unwrap()
+            .id;
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        assert!(
+            callable
+                .outputs
+                .iter()
+                .all(|o| o.target != values && o.callable != *declaration)
+        );
+        assert!(callable.definitions.iter().all(|d| d.target != values));
+        assert!(
+            !definitions
+                .definitions
+                .iter()
+                .any(|d| d.target == values && d.safety == DefinitionSafety::Supported)
+        );
+        let search =
+            resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        assert!(search.searched.is_empty());
+        let analysis = analyze_model(&context, &selected());
+        if completed {
+            assert_eq!(
+                coverage(&bindings, &search, "values"),
+                SearchCoverage::Uncovered,
+                "{name}: {:?}",
+                callable.unavailable
+            );
+            assert!(
+                callable.unavailable.is_empty(),
+                "{name}: {:?}",
+                callable.unavailable
+            );
+            assert!(
+                search.limitations.is_empty(),
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert_eq!(
+                analysis.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                analysis.limitations
+            );
+            assert!(analysis.limitations.is_empty());
+        } else {
+            assert!(
+                matches!(analysis.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                analysis.limitations
+            );
+            let expected_path = if name == "ordinary-exists-written-zero" {
+                selected_path
+            } else {
+                dir.join("root.mzn")
+            };
+            if name == "ordinary-exists-source-zero" {
+                let file = context.root_file.unwrap();
+                let root = &context.files[file];
+                let declared = &bindings.declarations[values.0];
+                let mut nodes = vec![root.parsed.tree()];
+                let initializer = loop {
+                    let node = nodes.pop().expect("values array initializer");
+                    if node.kind() == zincite_syntax::NodeKind::ArrayLiteral
+                        && declared.syntax_range.start <= node.range().start
+                        && node.range().end <= declared.syntax_range.end
+                    {
+                        break node;
+                    }
+                    nodes.extend(node.child_nodes());
+                };
+                assert_eq!(&root.parsed.source()[initializer.range()], "[1 div 0 = 0]");
+                let safety =
+                    zincite_lint::expression_safety(&context, &bindings, &calls, file, initializer);
+                assert!(
+                    matches!(&safety, DefinitionSafety::Unsupported(reason) if reason.contains("division by zero")),
+                    "{name}: {safety:?}"
+                );
+                assert!(
+                    callable
+                        .unavailable
+                        .iter()
+                        .any(|u| u.location.path == expected_path
+                            && model_source[u.location.range.clone()]
+                                .contains("exactlyone(values)")),
+                    "{name}: {:?}",
+                    callable.unavailable
+                );
+            } else {
+                assert!(
+                    callable
+                        .unavailable
+                        .iter()
+                        .any(|u| u.reason.contains("division by zero")
+                            && u.location.path == expected_path
+                            && !u.location.range.is_empty()),
+                    "{name}: {:?}",
+                    callable.unavailable
+                );
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
