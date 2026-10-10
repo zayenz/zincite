@@ -7519,3 +7519,21 @@ conditional sources directly; the original extrema prerequisite remains open.
 Main formatting, Clippy and all 297 workspace tests pass for this increment.
 Complete gate streams and all 108 integrated source pins were checked. Final
 original and full-corpus acceptance remain pending; base-083 is open.
+
+### Multidimensional parameter-array length inspection
+
+Exact implicit-standard-library length calls over present parameter rank-three
+integer arrays now resolve for source inspection. The existing complete source
+scan retains backing and axis errors. Successful inspection stays Unknown and
+exports no extent, value or output certificate.
+
+Independent code review found that the initial candidate could feed strict
+metadata dependencies into callable output inference. The revised candidate
+refuses that newly admitted route. The old candidate fails the new enforced
+User equality control at the intended output assertion; the revision passes
+all five public cases. Existing rank-one and other metadata paths retain their
+previous behavior. Final original and corpus acceptance remain pending.
+
+Main formatting, Clippy and all 298 workspace tests pass for this increment,
+with all complete streams and 108 integrated source pins checked. Base-083
+remains open.

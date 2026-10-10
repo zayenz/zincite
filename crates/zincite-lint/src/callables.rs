@@ -1497,6 +1497,17 @@ impl<'a> Engine<'a> {
                                     && element.instantiation == actual.instantiation)
                             && self.nodes[id.0].is_some_and(|node|
                                 !node.child_nodes().any(|child| is_expression(child.kind())));
+                        let length_view = standard
+                            && d.name == "length"
+                            && d.role == DeclarationRole::Function
+                            && self.nodes[id.0].is_some_and(|node| length_primitive(&signature, node))
+                            && actual.known()
+                            && !crate::value_safety::optional(actual)
+                            && actual.instantiation == Instantiation::Parameter
+                            && matches!(&actual.kind, TypeKind::Array { indices, element }
+                                if indices.len() == 3
+                                    && indices.iter().all(|axis| *axis == TypeInst::par(TypeKind::Int))
+                                    && **element == TypeInst::par(TypeKind::Int));
                         let mut actual = actual.clone();
                         // MiniZinc inserts set2array for present parameter Int/Enum
                         // sets supplied to rank-one array formals. This matching
@@ -1516,7 +1527,7 @@ impl<'a> Engine<'a> {
                                 element: element.clone(),
                             };
                         }
-                        if (standard_view || array2d_input_view || integer_aggregate_view || boolean_forall_view)
+                        if (standard_view || array2d_input_view || integer_aggregate_view || boolean_forall_view || length_view)
                             && let (
                                 TypeKind::Array { indices, .. },
                                 TypeKind::Array {
@@ -1784,6 +1795,40 @@ impl<'a> Engine<'a> {
             }
         }
     }
+}
+
+// This written generic native length accepts a rank-three matching view.
+// The view changes no raw array type and proves no size or source safety.
+pub(super) fn length_primitive(signature: &CallableSignature, node: &SyntaxNode) -> bool {
+    let [parameter] = signature.parameters.as_slice() else {
+        return false;
+    };
+    if parameter.has_default
+        || parameter.ty.optional
+        || parameter.ty.instantiation != Instantiation::Unknown
+        || signature.return_type != TypeInst::par(TypeKind::Int)
+        || !matches!(&parameter.ty.kind, TypeKind::Array { indices, element }
+            if matches!(indices.as_slice(), [axis]
+                if axis.instantiation == Instantiation::Parameter && !axis.optional
+                    && matches!(&axis.kind, TypeKind::Variable { name, enum_only: false, any: false }
+                        if matches!(&element.kind, TypeKind::Variable { name: value, enum_only: false, any: true }
+                            if name != value)))
+                && element.instantiation == Instantiation::Unknown && !element.optional)
+    {
+        return false;
+    }
+    fn plain(node: &SyntaxNode) -> bool {
+        matches!(
+            node.kind(),
+            NodeKind::FunctionDeclaration
+                | NodeKind::ParameterList
+                | NodeKind::Parameter
+                | NodeKind::ArrayType
+                | NodeKind::ScalarType
+                | NodeKind::TypeInstVariable
+        ) && node.child_nodes().all(plain)
+    }
+    plain(node)
 }
 
 fn array_bound_primitive(signature: &CallableSignature, node: &SyntaxNode) -> bool {

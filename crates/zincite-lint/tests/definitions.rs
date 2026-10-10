@@ -3319,3 +3319,362 @@ fn parameter_integer_array_conditionals_inspect_sources_without_proof() {
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
+
+#[test]
+fn multidimensional_length_inspects_sources_without_extent_proof() {
+    let library = concat!(
+        "function int: length(array[$T] of any $U: x);\n",
+        "function array[$$E,$$F,$$G] of any $V: array3d(\n",
+        "set of $$E: a, set of $$F: b, set of $$G: c, array[$U] of any $V: values);\n",
+        "function set of $$E: '..'($$E: a, $$E: b);\n",
+        "function int: '+'(int: a, int: b);\n",
+        "function int: 'div'(int: a, int: b);\n",
+        "function $$E: max(set of $$E: s);\n",
+    );
+    let source = concat!(
+        "int: n; set of int: I = 1..n;\n",
+        "array[int] of int: flat = [n];\n",
+        "array[int,int,int] of int: matrix = array3d(I, 1..1, 1..1, flat);\n",
+        "var int: measured = length(matrix);\n",
+        "var int: quotient = length(matrix) div 2;\n",
+        "var int: selected = max({length(matrix)}) div 2;\n",
+        "solve satisfy;\n",
+    );
+    let backing_error = source.replace("flat = [n]", "flat = [9223372036854775807 + 1]");
+    let axis_error = source.replace("array3d(I,", "array3d(1..(1 div 0),");
+    let changed_body = library.replace(
+        "function int: length(array[$T] of any $U: x);",
+        "function int: length(array[$T] of any $U: x) = 0;",
+    );
+    for (name, source, library, reason) in [
+        ("symbolic", source, library, None),
+        (
+            "backing-error",
+            backing_error.as_str(),
+            library,
+            Some("overflow"),
+        ),
+        (
+            "axis-error",
+            axis_error.as_str(),
+            library,
+            Some("division by zero"),
+        ),
+        ("changed-body", source, changed_body.as_str(), Some("")),
+    ] {
+        let (directory, _) = model(&format!("rank-three-length-{name}"), "solve satisfy;", "");
+        write(&directory.join("library/std/stdlib.mzn"), library);
+        let root = directory.join("root.mzn");
+        write(&root, source);
+        let context = load_model(
+            &root,
+            &ModelOptions {
+                stdlib_dir: Some(directory.join("library")),
+                include_dirs: Vec::new(),
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let file = context.root_file.unwrap();
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let integer = TypeInst {
+            instantiation: Instantiation::Parameter,
+            optional: false,
+            kind: TypeKind::Int,
+        };
+        let matrix = bindings
+            .declarations
+            .iter()
+            .find(|d| d.file == file && d.name == "matrix")
+            .unwrap()
+            .id;
+        assert_eq!(
+            calls.declarations[matrix.0].ty,
+            TypeInst {
+                instantiation: Instantiation::Parameter,
+                optional: false,
+                kind: TypeKind::Array {
+                    indices: vec![integer.clone(); 3],
+                    element: Box::new(integer.clone())
+                },
+            }
+        );
+        let flat_type = TypeInst {
+            instantiation: Instantiation::Parameter,
+            optional: false,
+            kind: TypeKind::Array {
+                indices: vec![integer.clone()],
+                element: Box::new(integer.clone()),
+            },
+        };
+        let length_calls: Vec<_> = calls
+            .calls
+            .iter()
+            .filter(|c| c.file == file && c.name == "length")
+            .collect();
+        assert_eq!(length_calls.len(), 3);
+        if name == "changed-body" {
+            assert!(
+                length_calls
+                    .iter()
+                    .all(|call| !matches!(call.outcome, CallOutcome::Resolved { .. })),
+                "changed written primitive must not receive the matching view"
+            );
+        } else {
+            for call in &length_calls {
+                assert!(
+                    matches!(&call.outcome, CallOutcome::Resolved { declaration, parameters, return_type }
+                    if parameters.as_slice() == std::slice::from_ref(&flat_type)
+                        && return_type == &integer
+                        && context.files[bindings.declarations[declaration.0].file].kind == SourceKind::StandardLibrary
+                        && context.files[bindings.declarations[declaration.0].file].implicit),
+                    "MULTIDIMENSIONAL_LENGTH_SOURCE_RED: {name}: {:?}",
+                    call.outcome
+                );
+            }
+        }
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let bounded = definitions.bounded_or_defined_targets(&bindings, &domains);
+        for target_name in ["measured", "quotient", "selected"] {
+            let target = bindings
+                .declarations
+                .iter()
+                .find(|d| d.file == file && d.name == target_name)
+                .unwrap()
+                .id;
+            let definition = definitions
+                .definitions
+                .iter()
+                .find(|d| d.target == target)
+                .unwrap();
+            assert!(!bounded.contains(&target), "{name}/{target_name}");
+            match reason {
+                None => assert!(
+                    matches!(definition.safety, DefinitionSafety::Unknown(_)),
+                    "MULTIDIMENSIONAL_LENGTH_SOURCE_RED: {name}/{target_name}: {:?}",
+                    definition.safety
+                ),
+                Some(reason) => assert!(
+                    matches!(&definition.safety, DefinitionSafety::Unsupported(actual) if actual.contains(reason)),
+                    "{name}/{target_name}: {:?}",
+                    definition.safety
+                ),
+            }
+        }
+        let callable = zincite_lint::resolve_callable_definitions(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+        );
+        assert!(callable.outputs.is_empty(), "{name}");
+        assert!(callable.inspected_locals.is_empty(), "{name}");
+        let result = analyze_model(
+            &context,
+            &LintOptions::from_selection("unbounded-variable").unwrap(),
+        );
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        assert!(result.findings.is_empty(), "{name}: {:?}", result.findings);
+        match reason {
+            None => {
+                assert_eq!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Completed,
+                    "{name}: {:?}",
+                    result.limitations
+                );
+                assert!(result.limitations.is_empty());
+            }
+            Some(reason) => {
+                assert!(matches!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Limited { .. }
+                ));
+                assert!(
+                    result
+                        .limitations
+                        .iter()
+                        .any(|limit| limit.location.path == root
+                            && !limit.location.range.is_empty()
+                            && limit.message.contains(reason)),
+                    "{name}: {:?}",
+                    result.limitations
+                );
+            }
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    // An enforced User equality must not turn the new matching view into an output.
+    let source = concat!(
+        "array[int,int,int] of int: matrix; var int: x;\n",
+        "predicate p(array[int,int,int] of int: m,var int: x) = x = length(m);\n",
+        "constraint p(matrix,x); solve satisfy;\n",
+    );
+    let (directory, _) = model("rank-three-length-output-boundary", "solve satisfy;", "");
+    write(
+        &directory.join("library/std/stdlib.mzn"),
+        &format!("{library}function var bool: '='(any $T: x,any $T: y);\n"),
+    );
+    let root = directory.join("root.mzn");
+    write(&root, source);
+    let context = load_model(
+        &root,
+        &ModelOptions {
+            stdlib_dir: Some(directory.join("library")),
+            include_dirs: Vec::new(),
+        },
+    );
+    assert!(context.errors.is_empty() && context.limitations.is_empty());
+    assert!(
+        context
+            .files
+            .iter()
+            .all(|file| file.parsed.diagnostics().is_empty())
+    );
+    let file = context.root_file.unwrap();
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    assert!(
+        calls
+            .calls
+            .iter()
+            .filter(|call| call.file == file)
+            .all(|call| matches!(&call.outcome, CallOutcome::Resolved { .. })),
+        "output-boundary control must have resolved calls: {:?}",
+        calls.calls
+    );
+    let p = calls
+        .calls
+        .iter()
+        .find(|call| call.file == file && call.name == "p")
+        .unwrap();
+    assert!(
+        matches!(&p.outcome, CallOutcome::Resolved { declaration, .. }
+            if context.files[bindings.declarations[declaration.0].file].kind == SourceKind::User),
+        "enforced User predicate must resolve: {:?}",
+        p.outcome
+    );
+    let length = calls
+        .calls
+        .iter()
+        .find(|call| call.file == file && call.name == "length")
+        .unwrap();
+    let integer = TypeInst {
+        instantiation: Instantiation::Parameter,
+        optional: false,
+        kind: TypeKind::Int,
+    };
+    let flat_type = TypeInst {
+        instantiation: Instantiation::Parameter,
+        optional: false,
+        kind: TypeKind::Array {
+            indices: vec![integer.clone()],
+            element: Box::new(integer.clone()),
+        },
+    };
+    assert!(
+        matches!(&length.outcome, CallOutcome::Resolved { declaration, parameters, return_type }
+            if parameters.as_slice() == std::slice::from_ref(&flat_type)
+                && return_type == &integer
+                && context.files[bindings.declarations[declaration.0].file].kind == SourceKind::StandardLibrary
+                && context.files[bindings.declarations[declaration.0].file].implicit),
+        "new length matching view must resolve: {:?}",
+        length.outcome
+    );
+    let target = bindings
+        .declarations
+        .iter()
+        .find(|declaration| {
+            declaration.file == file && declaration.top_level && declaration.name == "x"
+        })
+        .unwrap()
+        .id;
+    let instantiations = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let definitions = resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+    let callable = zincite_lint::resolve_callable_definitions(
+        &context,
+        &bindings,
+        &calls,
+        &instantiations,
+        &domains,
+    );
+    assert!(
+        callable.outputs.is_empty(),
+        "MULTIDIMENSIONAL_LENGTH_OUTPUT_BOUNDARY_RED: {:?}",
+        callable.outputs
+    );
+    assert!(callable.definitions.iter().all(|row| row.target != target));
+    assert!(
+        definitions
+            .definitions
+            .iter()
+            .all(|row| row.target != target)
+    );
+    assert!(
+        !definitions
+            .bounded_or_defined_targets(&bindings, &domains)
+            .contains(&target)
+    );
+    assert!(
+        callable
+            .unavailable
+            .iter()
+            .any(|row| row.location.path == root
+                && !row.location.range.is_empty()
+                && row.reason == "multidimensional array length is unproved"),
+        "strict output dependency remains unavailable: {:?}",
+        callable.unavailable
+    );
+    let search = zincite_lint::resolve_search_coverage(
+        &context,
+        &bindings,
+        &calls,
+        &instantiations,
+        &domains,
+        &definitions,
+    );
+    assert_eq!(
+        search.declarations[target.0].coverage,
+        zincite_lint::SearchCoverage::Unknown
+    );
+    assert!(search.searched.is_empty());
+    let result = analyze_model(
+        &context,
+        &LintOptions::from_selection("search-coverage").unwrap(),
+    );
+    assert!(result.errors.is_empty());
+    assert!(matches!(
+        result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    assert!(
+        result
+            .limitations
+            .iter()
+            .any(|row| row.location.path == root
+                && !row.location.range.is_empty()
+                && row
+                    .message
+                    .contains("multidimensional array length is unproved")),
+        "{:?}",
+        result.limitations
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}

@@ -1263,6 +1263,9 @@ pub(super) fn length_argument<'a>(
     if !actual.known() || optional(actual) {
         return None;
     }
+    let rank_three = actual.instantiation == Instantiation::Parameter
+        && matches!(&actual.kind, TypeKind::Array { indices, element }
+            if indices.len() == 3 && indices.iter().all(integer) && integer(element));
     let (element, set) = match &actual.kind {
         TypeKind::Set(element)
             if actual.instantiation == Instantiation::Parameter && index(element) =>
@@ -1270,11 +1273,12 @@ pub(super) fn length_argument<'a>(
             (element.as_ref(), true)
         }
         TypeKind::Array { indices, element }
-            if indices.len() == 1
-                && index(&indices[0])
-                && element.known()
-                && !optional(element)
-                && matches!(element.kind, TypeKind::Int | TypeKind::Enum(_)) =>
+            if rank_three
+                || indices.len() == 1
+                    && index(&indices[0])
+                    && element.known()
+                    && !optional(element)
+                    && matches!(element.kind, TypeKind::Int | TypeKind::Enum(_)) =>
         {
             (element.as_ref(), false)
         }
@@ -1292,6 +1296,35 @@ pub(super) fn length_argument<'a>(
                         && (!set || formal.instantiation == Instantiation::Parameter)))
     }) {
         return None;
+    }
+    if rank_three {
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            ..
+        } = &operation_fact(context, calls, file, node)?.outcome
+        else {
+            return None;
+        };
+        let owner = &bindings.declarations[declaration.0];
+        let source = &context.files[owner.file];
+        let signature = calls
+            .signatures
+            .iter()
+            .find(|s| s.declaration == *declaration)?;
+        let written = find_node(source.parsed.tree(), &owner.syntax_range, owner.role)?;
+        if owner.role != DeclarationRole::Function
+            || source.kind != SourceKind::StandardLibrary
+            || !source.implicit
+            || !crate::callables::length_primitive(signature, written)
+            || parameters[0]
+                != TypeInst::par(TypeKind::Array {
+                    indices: vec![TypeInst::par(TypeKind::Int)],
+                    element: Box::new(TypeInst::par(TypeKind::Int)),
+                })
+        {
+            return None;
+        }
     }
     Some(argument)
 }
@@ -18419,7 +18452,8 @@ impl<'a> Producer<'a> {
         }
         let sum = self.core(file, node, view, "sum");
         let card = self.core(file, node, view, "card");
-        if !(sum || card || self.core(file, node, view, "length")) {
+        let length = self.core(file, node, view, "length");
+        if !(sum || card || length) {
             return None;
         }
         let facts = self.view(file, node, view);
@@ -18444,12 +18478,14 @@ impl<'a> Producer<'a> {
                         && element.instantiation == Instantiation::Parameter
                         && matches!(element.kind, TypeKind::Int | TypeKind::Enum(_)))
                 } else if !sum {
-                    // Length is selected for any present one-dimensional array;
-                    // inspecting its construction proves no element value or size.
+                    // Inspect the original collection; matching views prove no size.
                     matches!(&t.kind, TypeKind::Array { indices, element }
-                        if indices.len() == 1 && indices[0].known() && !optional(&indices[0])
-                            && indices[0].instantiation == Instantiation::Parameter
-                            && matches!(indices[0].kind, TypeKind::Int | TypeKind::Enum(_))
+                        if (indices.len() == 1 || actual && t.instantiation == Instantiation::Parameter
+                                && indices.len() == 3 && **element == TypeInst::par(TypeKind::Int)
+                                && indices.iter().all(|axis| *axis == TypeInst::par(TypeKind::Int)))
+                            && indices.iter().all(|axis| axis.known() && !optional(axis)
+                                && axis.instantiation == Instantiation::Parameter
+                                && matches!(axis.kind, TypeKind::Int | TypeKind::Enum(_)))
                             && element.known() && !optional(element))
                 } else {
                     matches!(&t.kind, TypeKind::Array { indices, element }
@@ -18530,6 +18566,17 @@ impl<'a> Producer<'a> {
                 "aggregate selected signature, collection or annotation is unsupported".into(),
             ));
         }
+        let rank_three_length = length
+            && typed(children[0]).is_some_and(
+                |t| matches!(&t.kind, TypeKind::Array { indices, .. } if indices.len() == 3),
+            );
+        if rank_three_length
+            && length_argument(self.context, self.bindings, facts, file, node).is_none()
+        {
+            return Some(DefinitionSafety::Unsupported(
+                "multidimensional length selected written primitive is unsupported".into(),
+            ));
+        }
         if card && typed(children[0]).is_some_and(decision_enum_set) {
             let Some(CallOutcome::Resolved {
                 declaration,
@@ -18551,6 +18598,11 @@ impl<'a> Producer<'a> {
         }
         let safety =
             self.initialized_source_safety(file, children[0], view, generators, &mut Vec::new());
+        if rank_three_length && !matches!(safety, DefinitionSafety::Unsupported(_)) {
+            return Some(DefinitionSafety::Unknown(
+                "multidimensional array length is unproved".into(),
+            ));
+        }
         if card
             && typed(children[0]).is_some_and(|t| decision_integer_set(t) || decision_enum_set(t))
             && !matches!(safety, DefinitionSafety::Unsupported(_))
@@ -28300,6 +28352,20 @@ impl<'a> Producer<'a> {
                         })
                     {
                         return Err("array metadata type or arity is unsupported".into());
+                    }
+                    if self.core(file, node, view, "length")
+                        && self.expression_type(facts, file, children[0]).is_some_and(|e| {
+                            e.ty.known() && !optional(&e.ty)
+                                && e.ty.instantiation == Instantiation::Parameter
+                                && matches!(&e.ty.kind, TypeKind::Array { indices, element }
+                                    if indices.len() == 3
+                                        && indices.iter().all(|axis| *axis == TypeInst::par(TypeKind::Int))
+                                        && **element == TypeInst::par(TypeKind::Int))
+                        })
+                        && length_argument(self.context, self.bindings, facts, file, node).is_some()
+                    {
+                        // This matching view admits source inspection, never an output dependency.
+                        return Err("multidimensional array length is unproved".into());
                     }
                     return self.child_dependencies(file, &children, view, generators);
                 }
