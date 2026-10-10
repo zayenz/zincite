@@ -2,8 +2,8 @@
 
 # Tasks: base
 
-- Total: 94
-- Ready: 3
+- Total: 96
+- Ready: 5
 - Blocked: 11
 - Done: 80
 
@@ -103,3 +103,5 @@
 | [base-092](tasks/092-validate-both-query-commands-and-wedding-instance-reduction.md) | Validate both query commands and wedding-instance reduction on representative data | blocked | base-089, base-091 |
 | [base-093](tasks/093-refactor-callable-definitions-into-readable-internal-modules.md) | Refactor callable definitions into readable internal modules | ready | — |
 | [base-094](tasks/094-replan-callable-analysis-responsibilities-and-semantic-suppo.md) | Replan callable analysis responsibilities and semantic support | blocked | base-093 |
+| [base-095](tasks/095-fix-formatter-layout-for-multiline-callable-bodies.md) | Fix formatter layout for multiline callable bodies | ready | — |
+| [base-096](tasks/096-fix-formatter-indentation-and-wrapping-of-conjunction-chains.md) | Fix formatter indentation and wrapping of conjunction chains | ready | — |
