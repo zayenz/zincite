@@ -1193,3 +1193,484 @@ fn enum_reduction_retains_computed_model_access_dependencies_with_original_locat
     );
     assert!(dependency.message.contains("computed enum-indexed access"));
 }
+
+fn semantic_model(
+    tag: &str,
+    root: &[u8],
+    included: &[u8],
+    core: &str,
+) -> zincite_lint::ModelContext {
+    let directory = std::env::temp_dir().join(format!(
+        "zincite-query-semantic-{tag}-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(directory.join("library/std")).unwrap();
+    std::fs::write(directory.join("root.mzn"), root).unwrap();
+    std::fs::write(directory.join("included.mzn"), included).unwrap();
+    std::fs::write(directory.join("library/std/stdlib.mzn"), core).unwrap();
+    let model = zincite_lint::load_model(
+        directory.join("root.mzn"),
+        &zincite_lint::ModelOptions {
+            include_dirs: vec![],
+            stdlib_dir: Some(directory.join("library")),
+        },
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+    assert!(model.errors.is_empty(), "{:?}", model.errors);
+    model
+}
+
+fn semantic<'a>(
+    input: &'a Input,
+    model: &'a zincite_lint::ModelContext,
+    expression: &str,
+) -> zincite_query::SemanticResult<'a> {
+    let result = Query::parse(expression, Limits::default())
+        .unwrap()
+        .evaluate_with_model(input, Some(model), Limits::default())
+        .unwrap();
+    let QueryResult::Semantic(report) = result else {
+        panic!("expected semantic inspection")
+    };
+    report
+}
+
+#[test]
+fn semantic_navigation_keeps_shadowing_overloads_shared_nodes_and_actual_source_owners() {
+    use zincite_lint::{
+        BindingResolution, CallOutcome, DeclarationRole, SourceKind, TypeKind, resolve_bindings,
+        resolve_callables,
+    };
+    use zincite_query::{SemanticEntity, SemanticStream};
+    let source = b"\xef\xbb\xbfinclude \"included.mzn\";\r\nint: x = included;\r\nfunction int: choose(int: x = included) = let { int: x = x; } in x;\r\nfloat: floating = choose(1.0);\r\nint: chosen = choose(x);\r\narray[int] of int: pair = [i | i,j in 1..2];\r\nsolve satisfy;\r\n";
+    let included = b"\xef\xbb\xbf% included\r\nint: 'included' = 2;\r\n";
+    let model = semantic_model(
+        "owners",
+        source,
+        included,
+        "function float: choose(float: x) = x;\nfunction set of int: '..'(int: lower, int: upper);\n",
+    );
+    let input =
+        Input::parse_named(source.to_vec(), FileMode::Model, "diagnostic-label.mzn").unwrap();
+    let bindings = resolve_bindings(&model);
+    let callables = resolve_callables(&model, &bindings);
+
+    let references = semantic(&input, &model, "filter(name(\"x\")) | references");
+    assert!(references.is_complete());
+    assert!(references.callables().is_none() && references.instantiation_facts().is_none());
+    let SemanticStream::Entities(rows) = references.stream() else {
+        panic!()
+    };
+    let SemanticEntity::Reference(reference) = rows[0] else {
+        panic!()
+    };
+    assert_eq!(
+        references.location(rows[0]),
+        &bindings.references[reference].location
+    );
+    let BindingResolution::Resolved(included_id) = bindings.references[reference].resolution else {
+        panic!()
+    };
+    let declaration = semantic(
+        &input,
+        &model,
+        "filter(name(\"x\")) | references | declarations",
+    );
+    let SemanticStream::Entities(rows) = declaration.stream() else {
+        panic!()
+    };
+    assert_eq!(rows, &[SemanticEntity::Declaration(included_id)]);
+    assert_eq!(
+        declaration.location(rows[0]),
+        &bindings.declarations[included_id.0].location
+    );
+    assert_eq!(
+        model.files[declaration.file(rows[0])].kind,
+        SourceKind::User
+    );
+    assert_eq!(declaration.source_bytes(rows[0]), b"int: 'included' = 2;");
+    assert_eq!(
+        &included[declaration.location(rows[0]).range.clone()],
+        b"'included'"
+    );
+    let json = semantic(
+        &input,
+        &model,
+        "filter(name(\"x\")) | references | declarations | json",
+    );
+    let value: serde_json::Value =
+        serde_json::from_slice(&QueryResult::Semantic(json).render()).unwrap();
+    assert_eq!(value["result"][0]["text"], "int: 'included' = 2;");
+    assert_eq!(
+        value["result"][0]["file"],
+        model.files[bindings.declarations[included_id.0].file]
+            .path
+            .to_string_lossy()
+            .as_ref()
+    );
+
+    let shadowed = semantic(
+        &input,
+        &model,
+        "filter(name(\"choose\")) | references | filter(name(\"x\")) | declarations | unique",
+    );
+    let SemanticStream::Entities(rows) = shadowed.stream() else {
+        panic!()
+    };
+    let roles: Vec<_> = rows
+        .iter()
+        .map(|entity| {
+            let SemanticEntity::Declaration(id) = entity else {
+                panic!()
+            };
+            bindings.declarations[id.0].role
+        })
+        .collect();
+    assert_eq!(roles, [DeclarationRole::Parameter, DeclarationRole::Local]);
+    let shared = semantic(
+        &input,
+        &model,
+        "subtree | declarations | filter(name(\"i\") or name(\"j\")) | unique",
+    );
+    let SemanticStream::Entities(rows) = shared.stream() else {
+        panic!()
+    };
+    assert_eq!(rows.len(), 2);
+    let (SemanticEntity::Declaration(a), SemanticEntity::Declaration(b)) = (rows[0], rows[1])
+    else {
+        panic!()
+    };
+    assert_ne!(a, b);
+    assert_eq!(
+        bindings.declarations[a.0].syntax_range,
+        bindings.declarations[b.0].syntax_range
+    );
+
+    for (name, kind, owner) in [
+        ("chosen", TypeKind::Int, SourceKind::User),
+        ("floating", TypeKind::Float, SourceKind::StandardLibrary),
+    ] {
+        let call = callables
+            .calls
+            .iter()
+            .find(|call| {
+                call.name == "choose"
+                    && source[call.location.range.start..].starts_with(if name == "chosen" {
+                        b"choose(x)"
+                    } else {
+                        b"choose(1.0)"
+                    })
+            })
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            return_type,
+            ..
+        } = &call.outcome
+        else {
+            panic!("{:?}", call.outcome)
+        };
+        let report = semantic(
+            &input,
+            &model,
+            &format!(
+                "filter(name(\"{name}\")) | references | filter(name(\"choose\")) | declarations | filter(source_kind(\"{}\")) | types",
+                if owner == SourceKind::User {
+                    "user"
+                } else {
+                    "standard_library"
+                }
+            ),
+        );
+        assert!(report.is_complete());
+        let SemanticStream::Types(rows) = report.stream() else {
+            panic!()
+        };
+        assert_eq!(rows[0].ty.as_ref().unwrap(), return_type);
+        assert_eq!(rows[0].ty.as_ref().unwrap().kind, kind);
+        assert_eq!(
+            model.files[bindings.declarations[declaration.0].file].kind,
+            owner
+        );
+        let uses = semantic(
+            &input,
+            &model,
+            &format!(
+                "filter(name(\"{name}\")) | references | filter(name(\"choose\")) | declarations | uses"
+            ),
+        );
+        assert!(uses.is_complete(), "{:?}", uses.limitations());
+        let SemanticStream::Entities(rows) = uses.stream() else {
+            panic!()
+        };
+        assert_eq!(rows.len(), 1);
+        assert_eq!(uses.location(rows[0]), &call.location);
+    }
+    let defaults = semantic(
+        &input,
+        &model,
+        "filter(name(\"choose\")) | declarations | transitive_references(1) | names",
+    );
+    assert_eq!(
+        QueryResult::Semantic(defaults).render(),
+        b"included\nx\nx\n"
+    );
+}
+
+#[test]
+fn semantic_traversal_is_bounded_deterministic_and_reports_limit_errors() {
+    use zincite_query::SemanticStream;
+    let source = b"int: a = b; int: b = a; int: c = a; solve satisfy;";
+    let model = semantic_model("cycle", source, b"", "");
+    let input = Input::parse(source.to_vec(), FileMode::Model).unwrap();
+    for (depth, expected) in [
+        (0, &b""[..]),
+        (1, &b"b\n"[..]),
+        (2, &b"b\na\n"[..]),
+        (100, &b"b\na\n"[..]),
+    ] {
+        let expression =
+            format!("filter(name(\"a\")) | declarations | transitive_references({depth}) | names");
+        let report = semantic(&input, &model, &expression);
+        assert!(report.is_complete());
+        assert_eq!(QueryResult::Semantic(report).render(), expected);
+    }
+    let direct = semantic(&input, &model, "subtree | references");
+    let unique = semantic(&input, &model, "subtree | references | unique");
+    let SemanticStream::Entities(direct_rows) = direct.stream() else {
+        panic!()
+    };
+    let SemanticStream::Entities(unique_rows) = unique.stream() else {
+        panic!()
+    };
+    assert!(direct_rows.len() > unique_rows.len());
+    let query = Query::parse(
+        "declarations | transitive_references(100)",
+        Limits::default(),
+    )
+    .unwrap();
+    for limits in [
+        Limits {
+            work: 5,
+            ..Limits::default()
+        },
+        Limits {
+            collection: 5,
+            ..Limits::default()
+        },
+    ] {
+        let error = query
+            .evaluate_with_model(&input, Some(&model), limits)
+            .unwrap_err();
+        assert_eq!(error.location, ErrorLocation::Query);
+        assert!(error.message.contains("limit exceeded"));
+    }
+}
+
+#[test]
+fn semantic_unknowns_survive_boolean_filters_projections_and_exact_root_checks() {
+    use zincite_lint::{Instantiation, TypeKind};
+    use zincite_query::SemanticStream;
+    let source = b"function $T: identity($T: x) = x; par tuple(int, $T): mixed; var int: v; int: result = missing(v); int: read = mixed; int: duplicate; int: duplicate; int: ambiguous = duplicate; solve satisfy;";
+    let model = semantic_model("unknown", source, b"", "");
+    let input = Input::parse_named(source.to_vec(), FileMode::Model, "label-only.mzn").unwrap();
+    let types = semantic(
+        &input,
+        &model,
+        "filter(name(\"mixed\")) | declarations | types",
+    );
+    assert!(!types.is_complete());
+    let SemanticStream::Types(rows) = types.stream() else {
+        panic!()
+    };
+    assert!(matches!(
+        rows[0].ty.as_ref().unwrap().kind,
+        TypeKind::Tuple(_)
+    ));
+    let instantiations = semantic(
+        &input,
+        &model,
+        "filter(name(\"mixed\")) | declarations | instantiations",
+    );
+    assert!(instantiations.is_complete());
+    assert!(instantiations.callables().is_none());
+    let SemanticStream::Instantiations(rows) = instantiations.stream() else {
+        panic!()
+    };
+    assert_eq!(rows[0].instantiation, Instantiation::Parameter);
+    let expression_types = semantic(
+        &input,
+        &model,
+        "filter(name(\"read\")) | expressions | types",
+    );
+    assert!(!expression_types.is_complete());
+    let SemanticStream::Types(rows) = expression_types.stream() else {
+        panic!()
+    };
+    assert!(matches!(
+        rows[0].ty.as_ref().unwrap().kind,
+        TypeKind::Tuple(_)
+    ));
+    let expression_inst = semantic(
+        &input,
+        &model,
+        "filter(name(\"read\")) | expressions | instantiations",
+    );
+    assert!(expression_inst.is_complete());
+    let SemanticStream::Instantiations(rows) = expression_inst.stream() else {
+        panic!()
+    };
+    assert_eq!(rows[0].instantiation, Instantiation::Parameter);
+    assert!(rows[0].reason.is_none());
+    let zincite_query::SemanticSubject::Node { file, location, .. } = &rows[0].subject else {
+        panic!()
+    };
+    let produced = zincite_lint::resolve_instantiations(
+        &model,
+        expression_inst.bindings().unwrap(),
+        expression_inst.callables().unwrap(),
+    );
+    assert!(produced.expressions.iter().any(|fact| fact.file == *file
+        && fact.location == *location
+        && fact.instantiation == rows[0].instantiation));
+    for predicate in [
+        "type(\"tuple\")",
+        "not type(\"tuple\")",
+        "not (type(\"tuple\") or name(\"no\"))",
+        "type(\"tuple\") and instantiation(\"par\")",
+    ] {
+        let query = Query::parse(&format!("declarations | filter(name(\"mixed\")) | filter({predicate}) | names | count | json"), Limits::default()).unwrap();
+        assert!(query.requires_model_facts());
+        let QueryResult::Semantic(report) = query
+            .evaluate_with_model(&input, Some(&model), Limits::default())
+            .unwrap()
+        else {
+            panic!()
+        };
+        assert!(!report.is_complete());
+        assert_eq!(report.limitations()[0].location.path, model.root);
+        let json: serde_json::Value =
+            serde_json::from_slice(&QueryResult::Semantic(report).render()).unwrap();
+        assert_eq!(json["complete"], false);
+        assert_eq!(json["result"], 0);
+        assert!(!json["limitations"].as_array().unwrap().is_empty());
+    }
+    let known_or = semantic(
+        &input,
+        &model,
+        "declarations | filter(name(\"mixed\")) | filter(type(\"tuple\") or name(\"mixed\")) | names",
+    );
+    assert!(!known_or.is_complete());
+    assert_eq!(QueryResult::Semantic(known_or).render(), b"mixed\n");
+    let missing = semantic(
+        &input,
+        &model,
+        "filter(name(\"result\")) | references | declarations | head(0) | names | count | json",
+    );
+    assert!(!missing.is_complete());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&QueryResult::Semantic(missing).render())
+            .unwrap()["result"],
+        0
+    );
+
+    let ambiguous = semantic(
+        &input,
+        &model,
+        "filter(name(\"ambiguous\")) | references | declarations",
+    );
+    assert!(!ambiguous.is_complete());
+    let SemanticStream::Entities(rows) = ambiguous.stream() else {
+        panic!()
+    };
+    assert!(rows.is_empty());
+    assert!(ambiguous.bindings().unwrap().references.iter().any(|reference| matches!(&reference.resolution, zincite_lint::BindingResolution::Ambiguous(ids) if ids.len() == 2)));
+    let source_only = Query::parse(
+        "filter(not (source_kind(\"standard_library\") or name(\"no\"))) | count | json",
+        Limits::default(),
+    )
+    .unwrap();
+    assert!(source_only.requires_model_facts());
+    let QueryResult::Semantic(source_only) = source_only
+        .evaluate_with_model(&input, Some(&model), Limits::default())
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(source_only.bindings().is_none() && source_only.callables().is_none());
+
+    let query = Query::parse("references", Limits::default()).unwrap();
+    assert!(
+        query
+            .evaluate(&input, Limits::default())
+            .unwrap_err()
+            .message
+            .contains("model context")
+    );
+    let mut with_bom = b"\xef\xbb\xbf".to_vec();
+    with_bom.extend_from_slice(source);
+    for bytes in [with_bom, b"int: unrelated;".to_vec()] {
+        let other =
+            Input::parse_named(bytes, FileMode::Model, model.root.to_string_lossy()).unwrap();
+        let error = query
+            .evaluate_with_model(&other, Some(&model), Limits::default())
+            .unwrap_err();
+        assert_eq!(error.location, ErrorLocation::Input);
+        assert!(error.message.contains("exactly match"));
+    }
+    let data = Input::parse(b"x=1;".to_vec(), FileMode::Data).unwrap();
+    assert!(
+        query
+            .evaluate_with_model(&data, Some(&model), Limits::default())
+            .unwrap_err()
+            .message
+            .contains("model-file mode")
+    );
+}
+
+#[test]
+fn semantic_intrinsic_targets_replace_lexical_uncertainty_without_loading_unused_facts() {
+    use zincite_lint::{
+        BindingResolution, CallOutcome, ReferenceKind, resolve_bindings, resolve_callables,
+    };
+    let source = b"int: x = +1; int: y = missing(1); solve satisfy;";
+    let model = semantic_model("intrinsic-target", source, b"", "");
+    let input = Input::parse(source.to_vec(), FileMode::Model).unwrap();
+    let bindings = resolve_bindings(&model);
+    let reference = bindings
+        .references
+        .iter()
+        .find(|reference| reference.name == "+")
+        .unwrap();
+    assert_eq!(reference.kind, ReferenceKind::Callable);
+    assert_eq!(reference.resolution, BindingResolution::Unresolved);
+    let callables = resolve_callables(&model, &bindings);
+    assert!(
+        callables
+            .calls
+            .iter()
+            .any(|call| call.location == reference.location
+                && matches!(call.outcome, CallOutcome::Intrinsic { .. }))
+    );
+
+    let report = semantic(
+        &input,
+        &model,
+        "filter(name(\"x\")) | references | declarations | json",
+    );
+    assert!(report.is_complete(), "{:?}", report.limitations());
+    let json: serde_json::Value =
+        serde_json::from_slice(&QueryResult::Semantic(report).render()).unwrap();
+    assert_eq!(json["complete"], true);
+    assert_eq!(json["result"], serde_json::json!([]));
+    let missing = semantic(
+        &input,
+        &model,
+        "filter(name(\"y\")) | references | declarations | names | count | json",
+    );
+    assert!(!missing.is_complete());
+    assert!(!missing.limitations().is_empty());
+    let references_only = semantic(&input, &model, "filter(name(\"x\")) | references | count");
+    assert!(references_only.callables().is_none());
+    assert!(!references_only.is_complete());
+}

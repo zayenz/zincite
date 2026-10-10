@@ -16,6 +16,12 @@ pub(crate) struct Stage {
 #[derive(Debug)]
 pub(crate) enum StageKind {
     Items,
+    References,
+    Declarations,
+    Uses,
+    TransitiveReferences(usize),
+    Types,
+    Instantiations,
     Filter(Predicate),
     Head(usize),
     Count,
@@ -57,6 +63,9 @@ pub(crate) struct Predicate {
 #[derive(Debug)]
 pub(crate) enum PredicateKind {
     Kind(String),
+    Type(String),
+    Instantiation(String),
+    SourceKind(String),
     Name(String),
     Not(Box<Predicate>),
     Group(Box<Predicate>),
@@ -84,6 +93,17 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
         let (name, name_range) = parser.word("expected a query stage")?;
         let kind = match name {
             "items" => StageKind::Items,
+            "references" => StageKind::References,
+            "declarations" => StageKind::Declarations,
+            "uses" => StageKind::Uses,
+            "types" => StageKind::Types,
+            "instantiations" => StageKind::Instantiations,
+            "transitive_references" => {
+                parser.punctuation(b'(', "expected '(' after transitive_references")?;
+                let depth = parser.integer()?;
+                parser.punctuation(b')', "expected ')' after traversal depth")?;
+                StageKind::TransitiveReferences(depth)
+            }
             "filter" => {
                 parser.punctuation(b'(', "expected '(' after filter")?;
                 let predicate = parser.predicate(0)?;
@@ -367,7 +387,10 @@ impl<'a> Parser<'a> {
             });
         }
         let (name, range) = self.word("expected kind(...) or name(...) predicate")?;
-        if !matches!(name, "kind" | "name") {
+        if !matches!(
+            name,
+            "kind" | "name" | "type" | "instantiation" | "source_kind"
+        ) {
             return Err(QueryError::query(
                 range,
                 format!("unknown predicate '{name}'"),
@@ -385,7 +408,36 @@ impl<'a> Parser<'a> {
             }
             PredicateKind::Kind(value)
         } else {
-            PredicateKind::Name(value)
+            match name {
+                "type" => {
+                    if !crate::semantic::known_type_kind(&value) {
+                        return Err(QueryError::query(
+                            value_range,
+                            format!("unknown type kind '{value}'"),
+                        ));
+                    }
+                    PredicateKind::Type(value)
+                }
+                "instantiation" => {
+                    if !matches!(value.as_str(), "par" | "var") {
+                        return Err(QueryError::query(
+                            value_range,
+                            "instantiation requires par or var",
+                        ));
+                    }
+                    PredicateKind::Instantiation(value)
+                }
+                "source_kind" => {
+                    if !matches!(value.as_str(), "user" | "standard_library") {
+                        return Err(QueryError::query(
+                            value_range,
+                            "source_kind requires user or standard_library",
+                        ));
+                    }
+                    PredicateKind::SourceKind(value)
+                }
+                _ => PredicateKind::Name(value),
+            }
         };
         Ok(Predicate {
             kind,

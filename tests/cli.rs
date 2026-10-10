@@ -167,3 +167,96 @@ fn query_inspection_reports_and_errors_share_root_command_behavior() {
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
 }
+
+#[test]
+fn query_subcommand_shares_semantic_context_stdin_and_status_contracts() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-root-semantic-{}", std::process::id()));
+    let library = directory.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(library.join("std/stdlib.mzn"), "").unwrap();
+    let root = directory.join("root.mzn");
+    let source =
+        "\u{feff}include \"included.mzn\";\r\nint: value = imported;\r\nsolve satisfy;\r\n";
+    std::fs::write(&root, source).unwrap();
+    std::fs::write(
+        directory.join("included.mzn"),
+        "\u{feff}int: imported=2;\r\n",
+    )
+    .unwrap();
+    let expression = "filter(name(\"value\")) | references | declarations | instantiations | json";
+    let output = run(
+        &[
+            "query",
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            expression,
+            root.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert!(output.status.success() && output.stderr.is_empty());
+    let text = String::from_utf8(output.stdout.clone()).unwrap();
+    assert!(text.contains("\"complete\":true") && text.contains("\"instantiation\":\"par\""));
+    let arguments = [
+        "query",
+        "--model",
+        root.to_str().unwrap(),
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        "--stdin-filepath",
+        "label-only.mzn",
+        expression,
+    ];
+    let stdin = run(&arguments, source);
+    assert!(stdin.status.success() && stdin.stderr.is_empty());
+    assert_eq!(stdin.stdout, output.stdout);
+    let mismatch = run(&arguments, source.trim_start_matches('\u{feff}'));
+    assert_eq!(mismatch.status.code(), Some(2));
+    assert!(mismatch.stdout.is_empty());
+    let unknown = directory.join("unknown.mzn");
+    std::fs::write(&unknown, "function $T: identity($T:x)=x; solve satisfy;").unwrap();
+    let incomplete = run(
+        &[
+            "query",
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            "declarations | filter(not type(\"int\")) | names | count | json",
+            unknown.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(incomplete.status.code(), Some(1));
+    let text = String::from_utf8(incomplete.stdout).unwrap();
+    assert!(text.contains("\"complete\":false") && text.contains("\"result\":0"));
+    assert!(
+        String::from_utf8(incomplete.stderr)
+            .unwrap()
+            .contains("incomplete")
+    );
+    let missing = directory.join("missing.mzn");
+    std::fs::write(&missing, "include \"absent.mzn\"; solve satisfy;").unwrap();
+    let error = run(
+        &[
+            "query",
+            "references | count | json",
+            missing.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(error.status.code(), Some(2));
+    assert!(error.stdout.is_empty());
+    let syntax = run(
+        &[
+            "query",
+            "--model",
+            directory.join("not-present.mzn").to_str().unwrap(),
+            "count",
+            root.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert!(syntax.status.success() && syntax.stderr.is_empty());
+    assert_eq!(syntax.stdout, b"3\n");
+    std::fs::remove_dir_all(directory).unwrap();
+}

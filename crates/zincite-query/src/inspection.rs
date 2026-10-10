@@ -174,7 +174,7 @@ pub(crate) fn filter<'a>(
     for node in selection.nodes {
         work.visit(range)?;
         work.spend(node.node.children().len(), range)?;
-        let names = direct_names(selection.input, node.node);
+        let names = direct_names(selection.input.syntax(), node.node);
         if predicate.matches_values(&kind_name(node.node.kind()), names.first().copied(), work)? {
             nodes.push(node);
         }
@@ -200,7 +200,7 @@ pub(crate) fn project<'a>(
             work.spend(selected.range.len(), &stage.range)?;
         }
         let names = match stage.kind {
-            StageKind::Names => direct_names(selection.input, selected.node),
+            StageKind::Names => direct_names(selection.input.syntax(), selected.node),
             StageKind::CallNames => call_name(selection.input, selected.node)
                 .into_iter()
                 .collect(),
@@ -221,19 +221,22 @@ pub(crate) fn project<'a>(
     Ok(QueryResult::Strings(values))
 }
 
-fn direct_names<'a>(input: &'a Input, node: &SyntaxNode) -> Vec<&'a str> {
+pub(crate) fn direct_names<'a>(
+    input: &'a zincite_syntax::ParsedFile,
+    node: &SyntaxNode,
+) -> Vec<&'a str> {
     node.children()
         .iter()
         .filter_map(|child| {
             let SyntaxElement::Token(index) = child else {
                 return None;
             };
-            let token = &input.syntax().tokens()[*index];
+            let token = &input.tokens()[*index];
             matches!(
                 token.kind,
                 TokenKind::Identifier | TokenKind::QuotedIdentifier
             )
-            .then(|| identifier_identity(&input.syntax().source()[token.range.clone()]))
+            .then(|| identifier_identity(&input.source()[token.range.clone()]))
         })
         .collect()
 }
@@ -245,7 +248,7 @@ fn call_name<'a>(input: &'a Input, node: &SyntaxNode) -> Option<&'a str> {
     ) {
         return None;
     }
-    direct_names(input, node).first().copied().or_else(|| {
+    direct_names(input.syntax(), node).first().copied().or_else(|| {
         node.children().iter().any(|child| matches!(child, SyntaxElement::Token(index) if input.syntax().tokens()[*index].kind == TokenKind::Anonymous)).then_some("_")
     })
 }
@@ -264,7 +267,7 @@ fn annotation_name<'a>(input: &'a Input, node: &SyntaxNode) -> Option<&'a str> {
     ) {
         head = head.child_nodes().next()?;
     }
-    call_name(input, head).or_else(|| direct_names(input, head).first().copied()).or_else(|| {
+    call_name(input, head).or_else(|| direct_names(input.syntax(), head).first().copied()).or_else(|| {
         head.children().iter().any(|child| matches!(child, SyntaxElement::Token(index) if input.syntax().tokens()[*index].kind == TokenKind::Output)).then_some("output")
     })
 }
@@ -342,7 +345,18 @@ pub(crate) fn json<'a>(
     work: &mut Work,
     range: &Range<usize>,
 ) -> Result<QueryResult<'a>, QueryError> {
-    match &result {
+    validate_json(&result, work, range)?;
+    Ok(QueryResult::Json(JsonResult {
+        result: Box::new(result),
+    }))
+}
+
+pub(crate) fn validate_json(
+    result: &QueryResult<'_>,
+    work: &mut Work,
+    range: &Range<usize>,
+) -> Result<(), QueryError> {
+    match result {
         QueryResult::Selection(selection) => {
             for item in &selection.items {
                 work.spend(item.range.len().max(1), range)?;
@@ -369,7 +383,7 @@ pub(crate) fn json<'a>(
         QueryResult::Count(_) => {}
         _ => return Err(type_error(range, "json requires an inspection result")),
     }
-    match &result {
+    match result {
         QueryResult::Selection(selection) => {
             for item in &selection.items {
                 original_text(selection.input, &item.range)?;
@@ -384,15 +398,13 @@ pub(crate) fn json<'a>(
         }
         _ => {}
     }
-    Ok(QueryResult::Json(JsonResult {
-        result: Box::new(result),
-    }))
+    Ok(())
 }
 
 fn node_json(input: &Input, node: &SyntaxNode, range: &Range<usize>) -> Result<Value, QueryError> {
     Ok(json!({
         "kind": kind_name(node.kind()),
-        "names": direct_names(input, node),
+        "names": direct_names(input.syntax(), node),
         "call_names": call_name(input, node).into_iter().collect::<Vec<_>>(),
         "annotation_names": annotation_name(input, node).into_iter().collect::<Vec<_>>(),
         "file": input.file(),
@@ -401,7 +413,7 @@ fn node_json(input: &Input, node: &SyntaxNode, range: &Range<usize>) -> Result<V
     }))
 }
 
-fn json_value(result: &QueryResult<'_>) -> Result<Value, QueryError> {
+pub(crate) fn json_value(result: &QueryResult<'_>) -> Result<Value, QueryError> {
     match result {
         QueryResult::Selection(selection) => selection
             .items
@@ -436,7 +448,9 @@ pub(crate) fn kind_name(kind: NodeKind) -> String {
 }
 
 pub(crate) fn known_kind(name: &str) -> bool {
-    ItemKind::parse(name).is_some() || SYNTAX_KINDS.iter().any(|kind| kind_name(*kind) == name)
+    name == "reference"
+        || ItemKind::parse(name).is_some()
+        || SYNTAX_KINDS.iter().any(|kind| kind_name(*kind) == name)
 }
 
 fn is_expression(kind: NodeKind) -> bool {

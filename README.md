@@ -217,6 +217,32 @@ Incomplete previews exit 1 with located stderr diagnostics; `--write` refuses th
 Actual errors exit 2 with empty stdout. See the [query reference](docs/reference.md#query-library)
 for kind strings, comment rules and limits, or run `zincite query --help`.
 
+Model queries also inspect existing declaration, reference, type and `par`/`var`
+facts without running lint policy:
+
+```sh
+zincite query 'filter(name("capacity")) | declarations | uses | json' model.mzn
+zincite-query 'references | declarations | types | json' model.mzn
+zincite query 'declarations | transitive_references(3) | names | unique' model.mzn
+```
+
+`references` selects written occurrences inside selected regions; `declarations`
+selects owned declarations or proven reference targets. `uses` follows exact
+identities, including lexical shadowing and selected overloads. `types` keeps
+structured native types; `instantiations` exposes independently available
+`par`/`var` facts. Filters accept `type("int")`, `instantiation("var")` and
+`source_kind("user")` or `source_kind("standard_library")`. Unknown facts remain
+unknown under `not` and make the semantic report incomplete, including after
+`names` or `count`. Semantic JSON contains `complete`, located `limitations` and
+`result`. Included source retains its actual file and original byte ranges.
+
+Semantic file queries use that model file as their root unless `--model` is
+supplied. Stdin requires explicit `--model` and bytes matching its retained root
+exactly, including a BOM; `--stdin-filepath` supplies only a label and language
+mode. Traversal follows static written references for the requested number of
+waves and terminates on recursion. See the reference for ordering, limits and
+available facts. An incomplete semantic report exits 1 with located stderr notes.
+
 ## Exit codes
 
 | Code | `zincite fmt` / `zincite-fmt` | `zincite lint` / `zincite-lint` |
@@ -226,7 +252,7 @@ for kind strings, comment rules and limits, or run `zincite query --help`.
 | `2` | Input, syntax, configuration, directive or usage error | Input, syntax, directive, usage or dependency error |
 
 `zincite query` / `zincite-query` exits 0 for complete results, 1 for incomplete
-reduction candidates and 2 for query, input, model, usage or I/O errors. An empty
+semantic reports or reduction candidates and 2 for query, input, model, usage or I/O errors. An empty
 fragment selection succeeds and emits no source; its count is 0.
 
 Errors take precedence when checking multiple files. Diagnostics include a file

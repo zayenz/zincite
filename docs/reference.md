@@ -235,6 +235,12 @@ library and both commands use the same fixed pipeline:
 | `children` | Replace nodes with immediate CST child nodes |
 | `subtree` | Expand each node to itself and all descendants |
 | `range(start,end)` | Keep selected nodes fully contained in the half-open input byte range |
+| `references` | Select written reference occurrences contained in selected regions |
+| `declarations` | Select declarations owned by selected nodes or proven reference targets |
+| `uses` | Select written occurrences referring to selected declaration identities |
+| `transitive_references(n)` | Expand declaration references for at most `n` waves |
+| `types` | Inspect native structured declaration/expression types |
+| `instantiations` | Inspect independently available `par`/`var` facts and unknown reasons |
 | `names` | Project directly retained identifier identities |
 | `call_names` | Project call and generator-call heads on selected nodes |
 | `annotation_names` | Project heads of selected annotation nodes |
@@ -516,6 +522,89 @@ Strings and record labels are never rewritten as enum members. This bounded chec
 does not establish satisfiability or full
 compiler type validity.
 
+### Semantic inspection
+
+Semantic stages consume the public `load_model`, `resolve_bindings`,
+`resolve_callables` and `resolve_instantiations` APIs. They do not enable lint
+rules. An explicit model-mode input file is its own root by default; `--model`
+supplies another retained root. Semantic input must be in model mode and match
+that root's original bytes exactly, including the BOM and opaque comments.
+Stdin needs explicit `--model`; a matching `--stdin-filepath` label alone does
+not load a model. The library requires a `ModelContext` with a retained root.
+Syntax pipelines ignore an unused supplied model, including a missing path.
+Data reduction keeps its separate optional model interpretation contract.
+
+`references` selects each written reference fully contained in a selected node's
+or declaration's owning region. A selected reference has its exact token region.
+`declarations` selects declarations whose owning CST range equals a selected
+node's range, preserves already selected declaration IDs, or follows proven
+reference targets. Use `subtree | declarations` to reach nested declarations.
+Value/type targets require a resolved binding. Callable targets require the
+selected `CallOutcome::Resolved` overload at that exact file and head location;
+lexical overload candidates are never followed as proven edges. An intrinsic is
+a known endpoint with no declaration. `uses` compares exact declaration IDs
+against retained occurrences across all files. Uncertain targets make its use
+set incomplete, even if no occurrence can be retained. Candidate identities
+remain available in the native facts and reference JSON.
+
+`transitive_references(n)` starts from selected declarations or proven reference
+targets. Each wave enumerates references fully contained in a declaration's
+written owning region, including types, signatures, defaults, initializers and
+nested bindings, then follows proven targets. `n=0` emits no references. Roots
+retain incoming order; within a root, references use retained FileId, original
+range and reference-kind order (value, callable, type). Targets expand in first
+discovery order. Each stage expands a DeclarationId once and emits a reference
+once by FileId/range/kind, retaining its first occurrence. Distinct declarations
+sharing a CST node stay distinct. Direct `references`, `declarations` and `uses`
+retain incoming-root order and duplicates; `unique` explicitly removes repeated
+semantic identities. Reaching the requested depth defines a bounded result.
+These are static written relationships and establish neither flattening
+dependencies nor full transitive closure, compiler validity or satisfiability.
+
+`types` accepts declaration/reference streams or selected CST nodes. An exact
+owning declaration node expands into its declaration identities; other nodes
+require an exact expression fact. References use their exact occurrence facts;
+call heads use selected call returns. A different expression cannot inherit a
+same-named declaration's type. Native `TypeInst` retains instantiation,
+optionality, enum DeclarationId and recursive set/array/tuple/record components.
+Text emission of type rows gives one kind per line. `instantiations` similarly
+emits `par`, `var` or `unknown`; native rows keep the producer's unknown reason.
+Declaration instantiation uses the binding fact independently of full typing.
+Expression facts may also establish instantiation while typing is unavailable.
+
+Semantic predicates are `type("KIND")`, `instantiation("par"|"var")` and
+`source_kind("user"|"standard_library")`. Source kind comes from the retained
+ModelFile. Type kinds are `bool`, `int`, `float`, `string`, `annotation`, `enum`,
+`set`, `array`, `tuple`, `record` and `bottom`. A type with unknown instantiation,
+an unresolved type variable or any unknown nested component yields unknown.
+Filters keep only proven true rows. `not` preserves unknown; `and` and `or` use
+three-valued Boolean rules and short circuit. An encountered unknown remains a
+located report limitation even if another branch establishes the filter result.
+`kind("declaration")` and `kind("reference")` distinguish semantic identities;
+`name` compares the retained identifier identity. Semantic rows accept
+`filter`, `head`, `count`, `names`, `text`, `unique`, `emit` and `json`; projected
+strings also accept `tally`. Unrelated CST navigation and data edits produce
+located stage-type errors.
+
+Semantic JSON always uses `{ "complete": BOOL, "limitations": [...],
+"result": VALUE }`, including counts and empty selections. Rows include actual
+file/FileId, source kind and original location. Declaration `range` locates its
+name; `syntax_range` locates its owning source, rendered as `text`. Reference
+ranges/text locate the written occurrence. Type rows add structured `type`;
+instantiation rows add `instantiation` and `reason`. No whole fact table is
+serialized. Unknown/unresolved/ambiguous/unsupported outcomes and loader
+limitations survive projections and make the report incomplete. Status 1 emits
+its result plus located stderr notes; model/dependency errors are status 2 with
+empty stdout. An unconfigured standard library remains a limitation even when
+some facts are available. This differs from declaration-only data reduction.
+
+Fact families are computed only on demand, once per evaluation. The producers
+scan a whole retained context; before calling them, the query bounds its token
+and CST-node scan by work and collection limits. Reference scans, target lookups,
+expansion, row additions, type components and output bytes are charged too.
+Nested type inspection respects `Limits::nesting`. Exceeded limits are actual
+errors and never silent truncation.
+
 Use the library independently:
 
 ```rust,ignore
@@ -535,12 +624,20 @@ let original_fragment = result.render();
 ```
 
 `QueryResult` keeps item/node/literal selections, strings, counts, histograms,
-`Document(Vec<u8>)` or `Reduction(ReductionResult)` native until `render`. `JsonResult::result` exposes the native result behind a JSON emitter.
+`Document(Vec<u8>)`, `Reduction(ReductionResult)` or `Semantic(SemanticResult)`
+native until `render`. `JsonResult::result` exposes the native result behind a JSON emitter.
 `NodeSelection` exposes original CST nodes, file identities and byte ranges.
 `Document` contains a complete validated edit candidate. `Query::evaluate(input,
 limits)` uses no model; `evaluate_with_model(input, Option<&ModelContext>, limits)`
-uses optional read-only facts for enum reduction and rejects loader errors in that
-context. `ErrorLocation::Model(SourceLocation)` retains original model/include
+uses optional read-only facts for enum reduction or required retained-root facts
+for semantic inspection, and rejects relevant loader errors. Its signature borrows
+both `Input` and `ModelContext` for the result lifetime. `SemanticResult` exposes
+its final `SemanticStream`, completion, located limitations, immutable model and
+only computed fact families. Declaration/reference IDs belong to its `BindingFacts`;
+selected overloads remain in `CallableFacts`. Type and instantiation rows retain
+native subjects and values. Included source reads its actual ModelFile bytes;
+original locations include that file's BOM exactly once. Owning declaration
+`syntax_range` in native binding facts remains BOM-stripped. `ErrorLocation::Model(SourceLocation)` retains original model/include
 locations for actual failures. A
 selection borrows its `Input`, its item CST nodes and identifier identities. `Input` exposes
 original bytes, token bytes/ranges and source locations. `SelectedItem::range`
@@ -572,7 +669,8 @@ limits are checked during evaluation.
 The commands take one query argument and one optional file or `-`.
 `--stdin-filepath PATH` selects stdin's language mode and diagnostic label;
 without it stdin uses model mode. Extra files and directory inputs are rejected.
-`--model PATH` supplies read-only model declarations for enum reduction. Includes
+`--model PATH` supplies a retained root for semantic inspection or read-only
+model declarations for enum reduction. Includes
 search the including directory, ordered `-I DIR` directories, then the configured
 library's `std` directory. `--stdlib-dir DIR` overrides `MZN_STDLIB_DIR`. Syntax
 inspection does not load a supplied model or require a library. A loader note
@@ -581,7 +679,8 @@ incomplete; missing facts required by the reduction do. Query diagnostics identi
 `<query>` line/column and query byte ranges; input diagnostics identify the input
 path and original source byte ranges. Both command forms buffer a complete result
 before writing stdout. Status 0 means complete, status 1 means an incomplete
-reduction candidate, and status 2 means an actual query/input/model/usage/I/O error.
+semantic report or reduction candidate, and status 2 means an actual
+query/input/model/usage/I/O error.
 Actual failures leave stdout empty. Incomplete source/diff previews emit the
 candidate with located dependencies on stderr; incomplete `--write` emits no
 source and preserves the exact original file.

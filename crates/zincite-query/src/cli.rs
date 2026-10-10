@@ -28,6 +28,12 @@ Stages:
     children                Select immediate CST child nodes
     subtree                 Select each node and its descendants, with duplicates
     range(START,END)         Keep nodes contained in an original-input byte range
+    references              Select written references inside selected regions
+    declarations            Select owned declarations or proven reference targets
+    uses                    Select occurrences referring to selected declarations
+    transitive_references(N) Follow written declaration references for N waves
+    types                   Inspect native declaration/expression type facts
+    instantiations          Inspect available par/var facts and unknown reasons
     names                   Project direct identifier identities
     call_names              Project selected call heads
     annotation_names        Project selected annotation heads
@@ -65,6 +71,24 @@ Literal group accesses use original-to-retained indices; required empty cells st
 Remaining scalar/computed dependence makes the candidate incomplete.
 values accepts head/count/json/emit; other projections continue as node streams.
 Predicates: kind(\"assignment\"), name(\"capacity\"); names compare identifier identity.
+Semantic predicates: type(\"int\"), instantiation(\"par\"|\"var\"),
+    source_kind(\"user\"|\"standard_library\"). Unknown stays unknown under not.
+Type kinds: bool, int, float, string, annotation, enum, set, array, tuple, record,
+    bottom. Nested unknown types/type variables cannot match a type predicate.
+Semantic streams accept filter/head/count/names/text/unique/json/emit;
+    names/text yield strings and may use tally. Unrelated CST/edit stages fail.
+Semantic source uses actual retained file owners and original BOM coordinates.
+references/declarations/uses preserve root order and duplicates; unique uses IDs.
+transitive_references starts at declarations or proven reference targets. N=0
+    emits none. Expand N waves, visiting roots then file/range/kind order; cycles
+    stop by declaration ID, emitted references deduplicate file/range/kind.
+Traversal includes signatures, defaults, initializers and nested written regions.
+Semantic queries load an explicit model-mode file as root, or use --model.
+Semantic stdin requires --model and exact original root bytes, including BOM.
+--stdin-filepath is a label and mode, never a model filesystem identity.
+Semantic JSON is {complete, limitations, result}, including counts/empty streams.
+Located unknown facts and model limitations survive every projection.
+These inspect static written relationships; they do not run lint policy or solve.
 Item kinds: assignment, declaration, enum, type_alias, function, predicate, test,
        annotation, constraint, include, output, solve.
 Navigated node kinds use CST names in snake_case, such as call_expression.
@@ -74,7 +98,7 @@ Fragment selections that unbalance paired formatter markers fail.
 
 Options:
     --stdin-filepath PATH   Select stdin language mode and diagnostic path
-    --model PATH            Read model declarations for enum reduction
+    --model PATH            Retain a root for semantic queries or data reduction
     -I DIR                  Add an include directory in supplied order
     --stdlib-dir DIR        MiniZinc library root; overrides MZN_STDLIB_DIR
     --diff                  Preview an editing pipeline as a whole-file diff
@@ -84,7 +108,7 @@ Options:
 
 Limits: 1048576 query bytes, 64 nested parentheses/not operators,
         100000 collected entries and 1000000 evaluation work units.
-Exit codes: 0 complete, 1 incomplete candidate, 2 query/input/model/usage/I/O errors.
+Exit codes: 0 complete, 1 incomplete semantic report/candidate, 2 query/input/model/usage/I/O errors.
 Incomplete previews emit source/diff with stderr dependencies; --write refuses them.
 Query, input and usage errors leave stdout empty.
 ";
@@ -177,9 +201,12 @@ fn execute(arguments: Vec<OsString>, invocation: &str) -> Result<u8, String> {
             .collect::<Vec<_>>()
             .join("\n")
     })?;
-    let model = arguments
-        .model_path
-        .as_ref()
+    let model_path = arguments.model_path.as_ref().or_else(|| {
+        (mode == FileMode::Model)
+            .then_some(arguments.path.as_ref())
+            .flatten()
+    });
+    let model = model_path
         .filter(|_| query.requires_model_facts())
         .map(|path| load_model(path, &arguments.model_options));
     if let Some(model) = &model
@@ -218,6 +245,19 @@ fn execute(arguments: Vec<OsString>, invocation: &str) -> Result<u8, String> {
         }
         if arguments.output == OutputMode::Write {
             return Ok(1);
+        }
+    }
+    if let QueryResult::Semantic(semantic) = &result
+        && !semantic.is_complete()
+    {
+        status = 1;
+        for limitation in semantic.limitations() {
+            writeln!(
+                io::stderr(),
+                "{}",
+                model_diagnostic(&limitation.location, &limitation.message, "incomplete")
+            )
+            .map_err(|error| format!("stderr: {error}"))?;
         }
     }
     let candidate = result.render();

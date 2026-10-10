@@ -22,9 +22,14 @@ pub mod cli;
 mod inspection;
 mod language;
 mod reduction;
+mod semantic;
 mod structured;
 pub use inspection::{JsonResult, NodeSelection, SelectedNode};
 pub use reduction::{ReductionResult, UnresolvedDependency};
+pub use semantic::{
+    SemanticEntity, SemanticInstantiation, SemanticResult, SemanticStream, SemanticSubject,
+    SemanticType,
+};
 pub use structured::{
     ArrayIndexing, LiteralEntry, LiteralField, LiteralKind, LiteralLabel, LiteralRow,
     LiteralSelection, LiteralValue,
@@ -317,6 +322,8 @@ pub enum QueryResult<'a> {
     Document(Vec<u8>),
     /// Reparsed enum reduction with any remaining located dependencies.
     Reduction(ReductionResult),
+    /// Read-only semantic inspection, retaining its context, facts and limitations.
+    Semantic(SemanticResult<'a>),
 }
 
 impl QueryResult<'_> {
@@ -349,6 +356,7 @@ impl QueryResult<'_> {
             Self::Count(count) => format!("{count}\n").into_bytes(),
             Self::Document(bytes) => bytes.clone(),
             Self::Reduction(result) => result.candidate().source_bytes().to_vec(),
+            Self::Semantic(result) => result.render(),
             Self::Selection(selection) if selection.document => selection.input.bytes.clone(),
             Self::Selection(selection) => {
                 let mut bytes = Vec::new();
@@ -386,9 +394,9 @@ impl Query {
     }
 
     pub fn requires_model_facts(&self) -> bool {
-        self.stages
-            .iter()
-            .any(|stage| matches!(stage.kind, StageKind::ReduceEnum(_, _)))
+        self.stages.iter().any(|stage| {
+            matches!(stage.kind, StageKind::ReduceEnum(_, _)) || semantic::requests_facts(stage)
+        })
     }
 
     pub fn evaluate<'a>(
@@ -399,13 +407,17 @@ impl Query {
         self.evaluate_with_model(input, None, limits)
     }
 
-    /// Only enum reduction consumes the optional read-only model context.
+    /// Semantic inspection borrows the supplied model and requires exact root bytes.
+    /// Enum reduction keeps its separate optional data/model interpretation contract.
     pub fn evaluate_with_model<'a>(
         &self,
         input: &'a Input,
-        model: Option<&ModelContext>,
+        model: Option<&'a ModelContext>,
         limits: Limits,
     ) -> Result<QueryResult<'a>, QueryError> {
+        if self.stages.iter().any(semantic::requests_facts) {
+            return semantic::evaluate(self, input, model, limits);
+        }
         let mut work = Work {
             remaining: limits.work,
         };
@@ -416,160 +428,7 @@ impl Query {
         });
         for stage in &self.stages {
             work.visit(&stage.range)?;
-            result = match &stage.kind {
-                StageKind::Items => {
-                    inspection::require_nodes(&result, &stage.range)?;
-                    QueryResult::Selection(Selection {
-                        input,
-                        items: collect_items(
-                            input,
-                            limits.collection,
-                            &mut work,
-                            &stage.range,
-                            true,
-                        )?,
-                        document: true,
-                    })
-                }
-                StageKind::Filter(predicate) => match result {
-                    QueryResult::Selection(mut selection) => {
-                        let mut retained = Vec::new();
-                        for item in selection.items {
-                            work.visit(&stage.range)?;
-                            if predicate.matches(&item, &mut work)? {
-                                retained.push(item);
-                            }
-                        }
-                        selection.items = retained;
-                        selection.document = false;
-                        QueryResult::Selection(selection)
-                    }
-                    QueryResult::Nodes(selection) => {
-                        inspection::filter(selection, predicate, &mut work, &stage.range)?
-                    }
-                    _ => {
-                        return Err(inspection::type_error(
-                            &stage.range,
-                            "filter requires selected nodes",
-                        ));
-                    }
-                },
-                StageKind::Head(count) => match result {
-                    QueryResult::Selection(mut selection) => {
-                        selection.items.truncate(*count);
-                        selection.document = false;
-                        QueryResult::Selection(selection)
-                    }
-                    QueryResult::Nodes(mut selection) => {
-                        selection.truncate(*count);
-                        QueryResult::Nodes(selection)
-                    }
-                    QueryResult::Literals(mut selection) => {
-                        selection.truncate(*count);
-                        QueryResult::Literals(selection)
-                    }
-                    QueryResult::Strings(mut strings) => {
-                        strings.truncate(*count);
-                        QueryResult::Strings(strings)
-                    }
-                    _ => {
-                        return Err(inspection::type_error(
-                            &stage.range,
-                            "head requires a node, literal or string stream",
-                        ));
-                    }
-                },
-                StageKind::Count => QueryResult::Count(match &result {
-                    QueryResult::Selection(selection) => selection.items.len(),
-                    QueryResult::Nodes(selection) => selection.nodes().len(),
-                    QueryResult::Strings(strings) => strings.len(),
-                    QueryResult::Literals(selection) => selection.values().len(),
-                    _ => {
-                        return Err(inspection::type_error(
-                            &stage.range,
-                            "count requires a node, literal or string stream",
-                        ));
-                    }
-                }),
-                StageKind::Values => structured::values(result, stage, &mut work, limits)?,
-                StageKind::Fields | StageKind::Elements | StageKind::Keys => {
-                    structured::project(result, stage, &mut work, limits)?
-                }
-                StageKind::FilterElements(comparison) => {
-                    QueryResult::Document(structured::transform_elements(
-                        input,
-                        result,
-                        comparison,
-                        &stage.range,
-                        &mut work,
-                        limits,
-                    )?)
-                }
-                StageKind::ReduceEnum(name, retention) => {
-                    if !matches!(result, QueryResult::Selection(_)) {
-                        return Err(inspection::type_error(
-                            &stage.range,
-                            "reduce_enum requires an item selection",
-                        ));
-                    }
-                    QueryResult::Reduction(reduction::reduce(
-                        input,
-                        model,
-                        name,
-                        retention,
-                        &stage.range,
-                        &mut work,
-                        limits,
-                    )?)
-                }
-                StageKind::SetValue(_) | StageKind::Remove => {
-                    let QueryResult::Selection(selection) = result else {
-                        return Err(inspection::type_error(
-                            &stage.range,
-                            "transformations require an item selection",
-                        ));
-                    };
-                    QueryResult::Document(transform_assignments(
-                        input,
-                        &selection.items,
-                        stage,
-                        &mut work,
-                        limits.collection,
-                    )?)
-                }
-                StageKind::Emit => {
-                    if !matches!(
-                        result,
-                        QueryResult::Selection(_)
-                            | QueryResult::Nodes(_)
-                            | QueryResult::Strings(_)
-                            | QueryResult::Tally(_)
-                            | QueryResult::Literals(_)
-                    ) {
-                        return Err(inspection::type_error(
-                            &stage.range,
-                            "emit requires a node, literal or string stream or tally",
-                        ));
-                    }
-                    result
-                }
-                StageKind::EmitDocument => result,
-                StageKind::Expressions
-                | StageKind::Children
-                | StageKind::Subtree
-                | StageKind::Range(_) => {
-                    inspection::navigate(result, stage, &mut work, limits.collection)?
-                }
-                StageKind::Names
-                | StageKind::CallNames
-                | StageKind::AnnotationNames
-                | StageKind::Text => {
-                    inspection::project(result, stage, &mut work, limits.collection)?
-                }
-                StageKind::Unique => inspection::unique(result, &mut work, &stage.range)?,
-                StageKind::Tally => inspection::tally(result, &mut work, &stage.range)?,
-                StageKind::Json => inspection::json(result, &mut work, &stage.range)?,
-            };
+            result = evaluate_stage(input, model, result, stage, &mut work, limits)?;
         }
         if let QueryResult::Selection(selection) = &result
             && !selection.document
@@ -588,6 +447,162 @@ impl Query {
         }
         Ok(result)
     }
+}
+
+fn evaluate_stage<'a>(
+    input: &'a Input,
+    model: Option<&'a ModelContext>,
+    result: QueryResult<'a>,
+    stage: &Stage,
+    work: &mut Work,
+    limits: Limits,
+) -> Result<QueryResult<'a>, QueryError> {
+    Ok(match &stage.kind {
+        StageKind::Items => {
+            inspection::require_nodes(&result, &stage.range)?;
+            QueryResult::Selection(Selection {
+                input,
+                items: collect_items(input, limits.collection, work, &stage.range, true)?,
+                document: true,
+            })
+        }
+        StageKind::Filter(predicate) => match result {
+            QueryResult::Selection(mut selection) => {
+                let mut retained = Vec::new();
+                for item in selection.items {
+                    work.visit(&stage.range)?;
+                    if predicate.matches(&item, work)? {
+                        retained.push(item);
+                    }
+                }
+                selection.items = retained;
+                selection.document = false;
+                QueryResult::Selection(selection)
+            }
+            QueryResult::Nodes(selection) => {
+                inspection::filter(selection, predicate, work, &stage.range)?
+            }
+            _ => {
+                return Err(inspection::type_error(
+                    &stage.range,
+                    "filter requires selected nodes",
+                ));
+            }
+        },
+        StageKind::Head(count) => match result {
+            QueryResult::Selection(mut selection) => {
+                selection.items.truncate(*count);
+                selection.document = false;
+                QueryResult::Selection(selection)
+            }
+            QueryResult::Nodes(mut selection) => {
+                selection.truncate(*count);
+                QueryResult::Nodes(selection)
+            }
+            QueryResult::Literals(mut selection) => {
+                selection.truncate(*count);
+                QueryResult::Literals(selection)
+            }
+            QueryResult::Strings(mut strings) => {
+                strings.truncate(*count);
+                QueryResult::Strings(strings)
+            }
+            _ => {
+                return Err(inspection::type_error(
+                    &stage.range,
+                    "head requires a node, literal or string stream",
+                ));
+            }
+        },
+        StageKind::Count => QueryResult::Count(match &result {
+            QueryResult::Selection(selection) => selection.items.len(),
+            QueryResult::Nodes(selection) => selection.nodes().len(),
+            QueryResult::Strings(strings) => strings.len(),
+            QueryResult::Literals(selection) => selection.values().len(),
+            _ => {
+                return Err(inspection::type_error(
+                    &stage.range,
+                    "count requires a node, literal or string stream",
+                ));
+            }
+        }),
+        StageKind::Values => structured::values(result, stage, work, limits)?,
+        StageKind::Fields | StageKind::Elements | StageKind::Keys => {
+            structured::project(result, stage, work, limits)?
+        }
+        StageKind::FilterElements(comparison) => QueryResult::Document(
+            structured::transform_elements(input, result, comparison, &stage.range, work, limits)?,
+        ),
+        StageKind::ReduceEnum(name, retention) => {
+            if !matches!(result, QueryResult::Selection(_)) {
+                return Err(inspection::type_error(
+                    &stage.range,
+                    "reduce_enum requires an item selection",
+                ));
+            }
+            QueryResult::Reduction(reduction::reduce(
+                input,
+                model,
+                name,
+                retention,
+                &stage.range,
+                work,
+                limits,
+            )?)
+        }
+        StageKind::SetValue(_) | StageKind::Remove => {
+            let QueryResult::Selection(selection) = result else {
+                return Err(inspection::type_error(
+                    &stage.range,
+                    "transformations require an item selection",
+                ));
+            };
+            QueryResult::Document(transform_assignments(
+                input,
+                &selection.items,
+                stage,
+                work,
+                limits.collection,
+            )?)
+        }
+        StageKind::Emit => {
+            if !matches!(
+                result,
+                QueryResult::Selection(_)
+                    | QueryResult::Nodes(_)
+                    | QueryResult::Strings(_)
+                    | QueryResult::Tally(_)
+                    | QueryResult::Literals(_)
+            ) {
+                return Err(inspection::type_error(
+                    &stage.range,
+                    "emit requires a node, literal or string stream or tally",
+                ));
+            }
+            result
+        }
+        StageKind::EmitDocument => result,
+        StageKind::Expressions | StageKind::Children | StageKind::Subtree | StageKind::Range(_) => {
+            inspection::navigate(result, stage, work, limits.collection)?
+        }
+        StageKind::Names | StageKind::CallNames | StageKind::AnnotationNames | StageKind::Text => {
+            inspection::project(result, stage, work, limits.collection)?
+        }
+        StageKind::Unique => inspection::unique(result, work, &stage.range)?,
+        StageKind::Tally => inspection::tally(result, work, &stage.range)?,
+        StageKind::Json => inspection::json(result, work, &stage.range)?,
+        StageKind::References
+        | StageKind::Declarations
+        | StageKind::Uses
+        | StageKind::TransitiveReferences(_)
+        | StageKind::Types
+        | StageKind::Instantiations => {
+            return Err(inspection::type_error(
+                &stage.range,
+                "stage requires semantic inspection",
+            ));
+        }
+    })
 }
 
 // Build one original-coordinate batch, validate its complete data candidate,
@@ -913,6 +928,12 @@ impl Predicate {
         match &self.kind {
             PredicateKind::Kind(expected) => Ok(kind == expected),
             PredicateKind::Name(expected) => Ok(name == Some(identifier_identity(expected))),
+            PredicateKind::Type(_)
+            | PredicateKind::Instantiation(_)
+            | PredicateKind::SourceKind(_) => Err(QueryError::query(
+                self.range.clone(),
+                "predicate requires semantic inspection",
+            )),
             PredicateKind::Not(predicate) => Ok(!predicate.matches_values(kind, name, work)?),
             PredicateKind::Group(predicate) => predicate.matches_values(kind, name, work),
             PredicateKind::And(predicates) => {

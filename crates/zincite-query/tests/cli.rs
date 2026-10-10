@@ -328,3 +328,107 @@ fn enum_reduction_previews_complete_and_incomplete_candidates_and_uses_read_only
     assert!(output.stdout.is_empty());
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn semantic_cli_loads_only_requested_models_and_keeps_incomplete_and_error_statuses() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-query-semantic-cli-{}", std::process::id()));
+    std::fs::create_dir_all(directory.join("library/std")).unwrap();
+    let root = directory.join("root.mzn");
+    let library = directory.join("library");
+    let source =
+        b"\xef\xbb\xbfinclude \"included.mzn\";\r\nint: value = imported;\r\nsolve satisfy;\r\n";
+    std::fs::write(&root, source).unwrap();
+    std::fs::write(
+        directory.join("included.mzn"),
+        b"\xef\xbb\xbfint: imported = 2;\r\n",
+    )
+    .unwrap();
+    std::fs::write(library.join("std/stdlib.mzn"), "").unwrap();
+    let expression = "filter(name(\"value\")) | references | declarations | types | json";
+    let output = run(
+        &[
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            expression,
+            root.to_str().unwrap(),
+        ],
+        b"",
+    );
+    assert!(output.status.success(), "{:?}", output.stderr);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["complete"], true);
+    assert_eq!(json["result"][0]["text"], "int: imported = 2;");
+    assert_eq!(json["result"][0]["type"]["kind"], "int");
+    assert_eq!(json["result"][0]["source_kind"], "user");
+    let arguments = [
+        "--model",
+        root.to_str().unwrap(),
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        "--stdin-filepath",
+        "label-only.mzn",
+        expression,
+    ];
+    let stdin = run(&arguments, source);
+    assert!(stdin.status.success() && stdin.stderr.is_empty());
+    assert_eq!(stdin.stdout, output.stdout);
+    let mismatch = run(&arguments, &source[3..]);
+    assert_eq!(mismatch.status.code(), Some(2));
+    assert!(mismatch.stdout.is_empty());
+    assert!(
+        String::from_utf8(mismatch.stderr)
+            .unwrap()
+            .contains("exactly match")
+    );
+    let label = run(
+        &["--stdin-filepath", root.to_str().unwrap(), "references"],
+        source,
+    );
+    assert_eq!(label.status.code(), Some(2));
+    assert!(label.stdout.is_empty());
+
+    let unknown = directory.join("unknown.mzn");
+    std::fs::write(&unknown, "int: value = absent; solve satisfy;").unwrap();
+    let output = run(
+        &[
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            "references | declarations | names | count | json",
+            unknown.to_str().unwrap(),
+        ],
+        b"",
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["complete"], false);
+    assert_eq!(json["result"], 0);
+    assert!(!json["limitations"].as_array().unwrap().is_empty());
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("incomplete")
+    );
+    let missing = directory.join("missing.mzn");
+    std::fs::write(&missing, "include \"absent.mzn\"; solve satisfy;").unwrap();
+    let output = run(&["references | json", missing.to_str().unwrap()], b"");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("absent.mzn")
+    );
+    let output = run(
+        &[
+            "--model",
+            directory.join("not-present.mzn").to_str().unwrap(),
+            "count",
+            root.to_str().unwrap(),
+        ],
+        b"",
+    );
+    assert!(output.status.success() && output.stderr.is_empty());
+    assert_eq!(output.stdout, b"3\n");
+    std::fs::remove_dir_all(directory).unwrap();
+}
