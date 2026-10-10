@@ -6940,3 +6940,22 @@ Original-source probes independently observed the four-argument `regular` tuple
 and its instantiated six-argument `fzn_regular` and `fzn_regular_set` selections;
 those written bodies still require source inspection. Base-083 remains open,
 with all Done conditions unchecked and final corpus acceptance outstanding.
+
+
+The guarded declaration-domain memo growth comparison completed all twelve serial
+native/allocator observations on frozen before/after sources. For 100 and 1,000
+written blocks, all fourteen rule outcomes, complete source/dependency records,
+diagnostics and restored allocator-drop records match. Whole-analysis allocation
+calls decrease by 13,111 and 131,907, and requested bytes by 569,753 and 5,693,192.
+Retained bytes are unchanged; peak allocation deltas increase by 4,209 and 67,572
+bytes. These are two individual growing observations, not a stable timing ratio,
+global complexity proof or a BNN memory improvement.
+
+The deliberate error control also preserves complete before/after observations,
+but the runner exits 1 because four assertions expected internal division/overflow
+refusal reasons in thesis diagnostics. Actual diagnostics contain only two located
+search-coverage warnings. Direct guarded-fact inspection remains pending; this
+failed control is retained, not waived. ROOT checked all twelve full stream hashes,
+terminal cleanup, unchanged pins and six complete companion/drop records under
+`target/benchmarks/base083/semantic72-guarded-memo-growth-runner-preparation-v2`.
+No repeated build or BNN baseline run was needed. Base-083 remains open.
