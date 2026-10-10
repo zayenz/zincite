@@ -6701,3 +6701,23 @@ two receipts, four complete streams and the library/probe artifacts under
 This is focused source-model evidence; retained compiler087 is source-only and
 no actual instance or final whole-corpus acceptance is claimed. Other valid
 model gaps remain, and base-083 stays open.
+
+The symmetry marker consumer now recognizes the selected nonimplicit standard
+`symmetry_breaking_constraint` predicate loaded through solver redefinitions
+using its exact present decision-Boolean parameter/result tuple. User overloads
+and uncertain selection remain excluded or Limited; other advisory families
+and enforcement/output reasoning are unchanged. The existing public family
+control group exercises both implicit and physical redefinition routes, including
+selected-owner assertions. It reproduces the old missing-marker failure and
+passes after the repair. Formatting, Clippy and all workspace tests pass under
+`target/benchmarks/base083/semantic69-nonimplicit-symmetry-marker-main-checks-v1`.
+
+The original queens replay removes exactly its seven already-marked symmetry
+warnings, preserving the remaining eight warnings byte-for-byte. The current
+public library probe still confirms a Complete root, resolved user calls and all
+fourteen thesis IDs Completed with no errors or limitations. ROOT checked 1,133
+unchanged source/library pins, twelve absent configuration/include paths and
+complete native/probe receipts and streams under
+`target/benchmarks/base083/semantic69-queens-symmetry-native-prerequisite-v1`.
+Retained compiler087 is source-only; actual instance and final whole-corpus
+acceptance remain unclaimed, and base-083 stays open.

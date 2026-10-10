@@ -4,7 +4,8 @@ use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 use crate::callables::operation_fact;
 use crate::{
     BindingFacts, CallOutcome, CallableFacts, DeclarationId, DeclarationRole, FileFinding, FileId,
-    ModelContext, Rule, Severity, SourceDiagnostic, SourceKind, SourceLocation, TypeKind,
+    Instantiation, ModelContext, Rule, Severity, SourceDiagnostic, SourceKind, SourceLocation,
+    TypeKind,
 };
 
 const FAMILY: [&str; 11] = [
@@ -87,8 +88,10 @@ impl Walker<'_> {
             && FAMILY.contains(&self.bindings.declarations[id.0].name.as_str())
     }
     fn wrapper(&self, id: DeclarationId) -> bool {
-        self.standard_predicate(id, true)
-            && self.bindings.declarations[id.0].name == "symmetry_breaking_constraint"
+        let declaration = &self.bindings.declarations[id.0];
+        declaration.role == DeclarationRole::Predicate
+            && self.context.files[declaration.file].kind == SourceKind::StandardLibrary
+            && declaration.name == "symmetry_breaking_constraint"
     }
     fn location(&self, file: FileId, node: &SyntaxNode) -> SourceLocation {
         let range = node.range();
@@ -118,10 +121,15 @@ impl Walker<'_> {
             match &call.outcome {
                 CallOutcome::Resolved {
                     declaration,
+                    parameters,
                     return_type,
-                    ..
                 } => {
-                    if self.wrapper(*declaration) && return_type.kind == TypeKind::Bool {
+                    if self.wrapper(*declaration)
+                        && return_type.kind == TypeKind::Bool
+                        && !return_type.optional
+                        && return_type.instantiation == Instantiation::Decision
+                        && matches!(parameters.as_slice(), [parameter] if parameter == return_type)
+                    {
                         child_marker = Some(true);
                     }
                     if self.family_predicate(*declaration) && return_type.kind == TypeKind::Bool {

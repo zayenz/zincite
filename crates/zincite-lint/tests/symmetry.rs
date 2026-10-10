@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use zincite_lint::{
-    LintOptions, ModelOptions, Rule, RuleOutcome, SymmetryUseOutcome, analyze_model, load_model,
+    CallOutcome, DeclarationRole, Instantiation, LintOptions, ModelOptions, Rule, RuleOutcome,
+    SourceKind, SymmetryUseOutcome, TypeInst, TypeKind, analyze_model, load_model,
     resolve_bindings, resolve_callables, resolve_symmetry_uses,
 };
 
@@ -40,10 +41,36 @@ fn setup(name: &str, core: &str) -> (PathBuf, ModelOptions) {
 
 #[test]
 fn complete_family_markers_user_overloads_suppression_ranges_and_advisory_cli() {
+    for redefined in [false, true] {
+        check_family_markers(redefined);
+    }
+}
+
+fn check_family_markers(redefined: bool) {
     let (directory, options) = setup(
-        "family",
-        "predicate symmetry_breaking_constraint(var bool: b)=b;",
+        if redefined {
+            "family-redefined"
+        } else {
+            "family"
+        },
+        if redefined {
+            "predicate symmetry_breaking_constraint(var bool: b);"
+        } else {
+            "predicate symmetry_breaking_constraint(var bool: b)=b;"
+        },
     );
+    let wrapper_path = options.stdlib_dir.as_ref().unwrap().join(if redefined {
+        "std/solver_redefinitions.mzn"
+    } else {
+        "std/stdlib.mzn"
+    });
+    if redefined {
+        std::fs::write(
+            &wrapper_path,
+            "predicate symmetry_breaking_constraint(var bool: b)=b;",
+        )
+        .unwrap();
+    }
     let mut source = "\u{feff}% é\r\ninclude \"family.mzn\"; var int: x;\n".to_owned();
     for name in FAMILY {
         source.push_str(&format!(
@@ -64,6 +91,33 @@ fn complete_family_markers_user_overloads_suppression_ranges_and_advisory_cli() 
     assert!(context.errors.is_empty(), "{:?}", context.errors);
     let bindings = resolve_bindings(&context);
     let calls = resolve_callables(&context, &bindings);
+    let wrapper = calls
+        .calls
+        .iter()
+        .find(|call| {
+            Some(call.file) == context.root_file && call.name == "symmetry_breaking_constraint"
+        })
+        .unwrap();
+    let CallOutcome::Resolved {
+        declaration,
+        parameters,
+        return_type,
+    } = &wrapper.outcome
+    else {
+        panic!("{:?}", wrapper.outcome);
+    };
+    let owner = &bindings.declarations[declaration.0];
+    assert_eq!(owner.role, DeclarationRole::Predicate);
+    assert_eq!(context.files[owner.file].path, wrapper_path);
+    assert_eq!(context.files[owner.file].kind, SourceKind::StandardLibrary);
+    assert_eq!(context.files[owner.file].implicit, !redefined);
+    let boolean = TypeInst {
+        instantiation: Instantiation::Decision,
+        optional: false,
+        kind: TypeKind::Bool,
+    };
+    assert_eq!(parameters.as_slice(), std::slice::from_ref(&boolean));
+    assert_eq!(*return_type, boolean);
     let facts = resolve_symmetry_uses(&context, &bindings, &calls);
     assert_eq!(
         facts
