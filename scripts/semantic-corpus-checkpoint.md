@@ -7073,3 +7073,32 @@ full streams and unchanged input pins are retained under
 formatted FlatZinc comparison remain qualified by their unchanged external
 inputs. This closes the original thesis prerequisite, not base-083's final corpus
 or whole-task acceptance.
+
+## Integer product written-body inspection
+
+The compiler-accepted `md_product_int.mzn` now completes all fourteen thesis
+rules and all twenty-six expanded rules. Both presets retain one search-coverage
+warning and have zero analysis limitations. Native status 1 reflects that
+warning. The earlier actual Gecode compile-to-FlatZinc acceptance remains
+qualified by unchanged external input pins; no solver run was performed.
+
+The source reader checks the selected integer `product` forwarding body and
+`product_rec` recurrence, their written signatures and metadata, exact primitive
+selections, caller array sources, local identities and conditional guards.
+Successful inspection remains Unknown: it supplies no product value, bounds,
+local recurrence output, extent or search-coverage certificate. Strict output
+dependencies remain unchanged.
+
+The focused public test covers symbolic success, a closed error in the written
+body, a closed caller-axis error and a changed recurrence selector. The baseline
+compiled and failed at its existing output-dependency limitation. The first
+candidate compiled but failed its positive case: a diagnostic localized reversed
+`forall` child ordering. Correcting that ordering alone passes all four cases.
+The failed candidate and diagnostic are retained alongside final fresh-target
+GREEN, original full per-rule outcomes and native replay under
+`target/benchmarks/base083/semantic75-product-*`.
+
+Workspace formatting, Clippy and tests pass. Complete stream hashes, terminal
+process receipts and unchanged source/dependency pins were checked. This is a
+useful repair increment; base-083 remains open pending final corpus evidence and
+independent whole-task verification.

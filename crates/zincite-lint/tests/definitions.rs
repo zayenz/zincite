@@ -664,3 +664,187 @@ solve satisfy;
     );
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn selected_integer_product_inspects_written_sources_without_output_proof() {
+    let library = concat!(
+        "annotation promise_commutative; annotation mzn_internal_representation;\n",
+        "function int: length(array[$T] of any $U: x);\n",
+        "function bool: '='($T: x, $T: y) :: mzn_internal_representation :: promise_commutative;\n",
+        "function var bool: '='(any $T: x, any $T: y) :: mzn_internal_representation :: promise_commutative;\n",
+        "function $$E: min(set of $$E: s);\n",
+        "function set of $$E: index_set(array[$$E] of any $U: x);\n",
+        "function array[int] of any $V: array1d(array[$U] of any $V: x);\n",
+        "function var bool: forall(array[$T] of var bool: x) :: promise_commutative;\n",
+        "function set of $$E: '..'($$E: a, $$E: b) :: mzn_internal_representation;\n",
+        "function int: '-'(int: x, int: y) :: mzn_internal_representation;\n",
+        "function int: '+'(int: x, int: y) :: mzn_internal_representation;\n",
+        "function var int: '+'(var int: x, var int: y) :: mzn_internal_representation;\n",
+        "function int: 'div'(int: x, int: y) :: mzn_internal_representation;\n",
+        "function var int: '*'(var int: x, var int: y) :: mzn_internal_representation :: promise_commutative;\n",
+        "function var int: product(array[$T] of var int: x) :: promise_commutative = product_rec(array1d(x));\n",
+        "function var int: product_rec(array[int] of var int: x) =\n",
+        "  if length(x) = 0 then 1\n",
+        "  elseif length(x) = 1 then x[min(index_set(x))]\n",
+        "  else let {\n",
+        "    array[int] of var int: xx = array1d(x);\n",
+        "    array[index_set(xx)] of var int: y;\n",
+        "    constraint y[1] = xx[1];\n",
+        "    constraint forall(i in 2..length(y))(y[i] = y[i - 1] * xx[i]);\n",
+        "  } in y[length(y)] endif;\n",
+    );
+    let source = concat!(
+        "int: rows; int: columns;\n",
+        "array[1..rows, 1..columns] of var 1..2: xs;\n",
+        "var int: result = product(xs);\n",
+        "solve satisfy;\n",
+    );
+    let body_error = library.replace("y[1] = xx[1]", "y[1] = xx[1] + (1 div 0)");
+    let changed_recurrence = library.replace("* xx[i]", "* xx[i - 1]");
+    let source_error = source.replace("1..columns", "1..(1 div 0)");
+    for (name, source, library, reason) in [
+        ("symbolic", source, library, None),
+        (
+            "body-zero",
+            source,
+            body_error.as_str(),
+            Some("integer division by zero"),
+        ),
+        (
+            "source-zero",
+            source_error.as_str(),
+            library,
+            Some("integer division by zero"),
+        ),
+        (
+            "changed-recurrence",
+            source,
+            changed_recurrence.as_str(),
+            Some("integer product selected written body is unsupported"),
+        ),
+    ] {
+        let (directory, _) = model(&format!("integer-product-{name}"), "solve satisfy;", "");
+        write(&directory.join("library/std/stdlib.mzn"), library);
+        let root = directory.join("root.mzn");
+        write(&root, source);
+        let context = load_model(
+            &root,
+            &ModelOptions {
+                stdlib_dir: Some(directory.join("library")),
+                include_dirs: Vec::new(),
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let file = context
+            .files
+            .iter()
+            .position(|file| file.path == root)
+            .unwrap();
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let selected = calls
+            .calls
+            .iter()
+            .find(|call| call.file == file && call.name == "product")
+            .unwrap();
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &selected.outcome
+        else {
+            panic!(
+                "{name}: product must resolve before checking source safety: {:?}",
+                selected.outcome
+            );
+        };
+        assert_eq!(return_type.instantiation, Instantiation::Decision);
+        assert!(!return_type.optional);
+        assert_eq!(return_type.kind, TypeKind::Int);
+        assert!(
+            matches!(parameters.as_slice(), [TypeInst { kind: TypeKind::Array { indices, element }, .. }]
+            if indices.len() == 1 && element.instantiation == Instantiation::Decision && element.kind == TypeKind::Int)
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let target = bindings
+            .declarations
+            .iter()
+            .find(|d| d.file == file && d.name == "result")
+            .unwrap()
+            .id;
+        let definition = definitions
+            .definitions
+            .iter()
+            .find(|d| d.target == target)
+            .unwrap();
+        let callable = zincite_lint::resolve_callable_definitions(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+        );
+        assert!(
+            callable
+                .outputs
+                .iter()
+                .all(|output| output.callable != *declaration)
+        );
+        assert!(
+            !definitions
+                .bounded_or_defined_targets(&bindings, &domains)
+                .contains(&target)
+        );
+        let result = analyze_model(
+            &context,
+            &LintOptions::from_selection("unbounded-variable").unwrap(),
+        );
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        match reason {
+            None => {
+                assert!(
+                    matches!(definition.safety, DefinitionSafety::Unknown(_)),
+                    "INTEGER_PRODUCT_SOURCE_RED: {:?}",
+                    definition.safety
+                );
+                assert_eq!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Completed,
+                    "{:?}",
+                    result.limitations
+                );
+                assert!(result.findings.is_empty());
+            }
+            Some(reason) => {
+                assert!(
+                    matches!(&definition.safety, DefinitionSafety::Unsupported(actual) if actual.contains(reason)),
+                    "{name}: {:?}",
+                    definition.safety
+                );
+                assert!(matches!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Limited { .. }
+                ));
+                assert!(result.findings.is_empty());
+                assert!(
+                    result
+                        .limitations
+                        .iter()
+                        .any(|limit| limit.location.path == root && limit.message.contains(reason)),
+                    "{name}: {:?}",
+                    result.limitations
+                );
+            }
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}

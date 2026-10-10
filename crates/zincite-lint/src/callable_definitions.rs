@@ -21973,6 +21973,541 @@ impl<'a> Producer<'a> {
             Err(reason) => DefinitionSafety::Unsupported(reason),
         })
     }
+    // Inspect the selected integer product implementation without proving its
+    // value, bounds, local recurrence outputs or flattened extent.
+    fn integer_product_source_safety(
+        &self,
+        file: FileId,
+        written: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> Option<DefinitionSafety> {
+        let node = unwrap(written);
+        let integer = TypeInst::par(TypeKind::Int);
+        let decision_integer = integer.clone().with_inst(Instantiation::Decision);
+        let array = TypeInst::par(TypeKind::Array {
+            indices: vec![integer.clone()],
+            element: Box::new(decision_integer.clone()),
+        })
+        .with_inst(Instantiation::Decision);
+        let facts = self.view(file, node, view);
+        let call = self.operation_fact(facts, file, node)?;
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &call.outcome
+        else {
+            return None;
+        };
+        if node.kind() != NodeKind::CallExpression
+            || !self.core(file, node, facts, "product")
+            || parameters.as_slice() != std::slice::from_ref(&array)
+            || return_type != &decision_integer
+        {
+            return None;
+        }
+        let checked = (|| {
+            let arguments: Vec<_> = node.child_nodes().collect();
+            let [actual] = arguments.as_slice() else {
+                return Err("integer product requires its single written array actual".into());
+            };
+            let actual_written = *actual;
+            let actual = unwrap(actual_written);
+            let actual_type = self
+                .expression_type(facts, file, actual)
+                .ok_or("integer product actual type is unavailable")?;
+            let TypeKind::Array { indices, element } = &actual_type.ty.kind else {
+                return Err("integer product actual is not an array".into());
+            };
+            // The raw rank belongs to the caller, not to the matched rank-one
+            // formal. Restrict this route to a retained top-level array source.
+            let source = self
+                .reference(file, actual)
+                .filter(|_| {
+                    actual.kind() == NodeKind::Expression && actual.child_nodes().next().is_none()
+                })
+                .ok_or("integer product actual source identity is unsupported")?;
+            let owner = &self.bindings.declarations[source.0];
+            if call.generator_argument.is_some()
+                || !actual_type.ty.known()
+                || optional(&actual_type.ty)
+                || actual_type.ty.instantiation != Instantiation::Decision
+                || !matches!(indices.len(), 1 | 2)
+                || indices.iter().any(|axis| axis != &integer)
+                || element.as_ref() != &decision_integer
+                || !owner.top_level
+                || owner.role != DeclarationRole::Value
+                || facts.declarations[source.0].ty != actual_type.ty
+                || self
+                    .expression_type(facts, file, node)
+                    .is_none_or(|value| value.ty != decision_integer)
+                || !self.source_annotations_safe(file, written)
+            {
+                return Err(
+                    "integer product actual type, scope or annotation is unsupported".into(),
+                );
+            }
+            if let Some(reason) = self.closed_integer_source_error(file, written, true, true) {
+                return Err(reason);
+            }
+            if let DefinitionSafety::Unsupported(reason) = self.initialized_source_safety(
+                file,
+                actual_written,
+                facts,
+                generators,
+                &mut Vec::new(),
+            ) {
+                return Err(reason);
+            }
+            self.integer_product_written_body(*declaration, &array, &decision_integer)
+        })();
+        Some(match checked {
+            Ok(()) => DefinitionSafety::Unknown(
+                "integer product value, bounds and output dependencies are unproved".into(),
+            ),
+            Err(reason) => DefinitionSafety::Unsupported(reason),
+        })
+    }
+    fn integer_product_written_body(
+        &self,
+        product: DeclarationId,
+        array: &TypeInst,
+        result: &TypeInst,
+    ) -> Result<(), String> {
+        let error = || "integer product selected written body is unsupported".to_owned();
+        // Both selected signatures are inspected, including written defaults,
+        // types and metadata; instantiation supplies types, not body safety.
+        let body = |id: DeclarationId| -> Result<_, String> {
+            let owner = &self.bindings.declarations[id.0];
+            let written = find_node(
+                self.context.files[owner.file].parsed.tree(),
+                &owner.syntax_range,
+                owner.role,
+            )
+            .ok_or_else(error)?;
+            if let Some(reason) = self.closed_integer_source_error(owner.file, written, false, true)
+            {
+                return Err(reason);
+            }
+            let values: Vec<_> = written
+                .child_nodes()
+                .filter(|n| is_expression(n.kind()))
+                .collect();
+            let [body] = values.as_slice() else {
+                return Err(error());
+            };
+            let lists: Vec<_> = written
+                .child_nodes()
+                .filter(|n| n.kind() == NodeKind::ParameterList)
+                .collect();
+            if owner.role != DeclarationRole::Function
+                || self.context.files[owner.file].kind != SourceKind::StandardLibrary
+                || !self.context.files[owner.file].implicit
+                || !matches!(lists.as_slice(), [list] if list.child_nodes().count() == 1)
+                || !self.callable_annotations_safe(owner.file, written)
+                || written
+                    .child_nodes()
+                    .filter(|n| !is_expression(n.kind()) && n.kind() != NodeKind::Annotation)
+                    .any(|n| !self.prefix_primitive_source_safe(owner.file, n))
+            {
+                return Err(error());
+            }
+            let formal = formal_parameter(self.context, self.bindings, id, 0).ok_or_else(error)?;
+            let view = instantiated_body(
+                self.context,
+                self.bindings,
+                self.calls,
+                id,
+                std::slice::from_ref(array),
+            );
+            if view.declarations[formal.0].ty != *array
+                || self
+                    .expression_type(&view, owner.file, body)
+                    .is_none_or(|value| value.ty != *result)
+            {
+                return Err(error());
+            }
+            self.type_dependencies(owner.file, written, &view, &[])?;
+            let mut nodes = vec![*body];
+            while let Some(node) = nodes.pop() {
+                if node.kind() == NodeKind::Error || !self.source_annotations_safe(owner.file, node)
+                {
+                    return Err(error());
+                }
+                if let Some(call) = self.operation_fact(&view, owner.file, node)
+                    && let CallOutcome::Resolved { declaration, .. } = &call.outcome
+                {
+                    if *declaration == id || (*declaration == product && id != product) {
+                        return Err("recursive integer product source is unsupported".into());
+                    }
+                    let leaf = &self.bindings.declarations[declaration.0];
+                    let source = find_node(
+                        self.context.files[leaf.file].parsed.tree(),
+                        &leaf.syntax_range,
+                        leaf.role,
+                    )
+                    .ok_or_else(error)?;
+                    if let Some(reason) =
+                        self.closed_integer_source_error(leaf.file, source, false, true)
+                    {
+                        return Err(reason);
+                    }
+                }
+                nodes.extend(node.child_nodes());
+            }
+            Ok((owner.file, *body, formal, view))
+        };
+        let (outer_file, forwarding, outer_formal, outer) = body(product)?;
+        let forwarded: Vec<_> = forwarding.child_nodes().collect();
+        let [flatten] = forwarded.as_slice() else {
+            return Err(error());
+        };
+        let flatten = unwrap(flatten);
+        let inputs: Vec<_> = flatten.child_nodes().collect();
+        if forwarding.kind() != NodeKind::CallExpression
+            || !self.core(outer_file, forwarding, &outer, "product_rec")
+            || flatten.kind() != NodeKind::CallExpression
+            || !matches!(inputs.as_slice(), [input] if unwrap(input).kind() == NodeKind::Expression
+                && unwrap(input).child_nodes().next().is_none() && self.reference(outer_file, unwrap(input)) == Some(outer_formal))
+            || !self.prefix_primitive(
+                outer_file,
+                flatten,
+                &outer,
+                "array1d",
+                std::slice::from_ref(array),
+                array,
+            )
+        {
+            return Err(error());
+        }
+        let CallOutcome::Resolved {
+            declaration: inner_id,
+            parameters,
+            return_type,
+        } = &self
+            .operation_fact(&outer, outer_file, forwarding)
+            .ok_or_else(error)?
+            .outcome
+        else {
+            return Err(error());
+        };
+        if parameters.as_slice() != std::slice::from_ref(array) || return_type != result {
+            return Err(error());
+        }
+        let (file, conditional, formal, view) = body(*inner_id)?;
+        let integer = TypeInst::par(TypeKind::Int);
+        let boolean = TypeInst::par(TypeKind::Bool);
+        let decision_boolean = boolean.clone().with_inst(Instantiation::Decision);
+        let set = TypeInst::par(TypeKind::Set(Box::new(integer.clone())));
+        let booleans = TypeInst::par(TypeKind::Array {
+            indices: vec![integer.clone()],
+            element: Box::new(decision_boolean.clone()),
+        })
+        .with_inst(Instantiation::Decision);
+        let typed = |node: &SyntaxNode| {
+            self.expression_type(&view, file, node)
+                .map(|value| &value.ty)
+        };
+        let reference = |node: &SyntaxNode| {
+            let node = unwrap(node);
+            (node.kind() == NodeKind::Expression && node.child_nodes().next().is_none())
+                .then(|| self.reference(file, node))
+                .flatten()
+        };
+        let literal = |node: &SyntaxNode, expected| {
+            let node = unwrap(node);
+            typed(node) == Some(&integer)
+                && matches!(crate::domains::tokens(&self.context.files[file].parsed, node).as_slice(),
+                    [token] if token.kind == TokenKind::IntegerLiteral)
+                && crate::domains::invariant_expression_integer(
+                    self.context,
+                    self.bindings,
+                    file,
+                    node,
+                ) == Ok(Some(expected))
+        };
+        let primitive = |node: &SyntaxNode, name, parameters: &[TypeInst], output: &TypeInst| {
+            if self.prefix_primitive(file, unwrap(node), &view, name, parameters, output) {
+                Ok(())
+            } else {
+                Err(error())
+            }
+        };
+        let unary = |node: &SyntaxNode, name, id, output: &TypeInst| -> Result<(), String> {
+            let node = unwrap(node);
+            if node.kind() != NodeKind::CallExpression
+                || node.child_nodes().count() != 1
+                || node.child_nodes().next().and_then(reference) != Some(id)
+            {
+                return Err(error());
+            }
+            primitive(node, name, std::slice::from_ref(array), output)
+        };
+        let branches: Vec<_> = conditional.child_nodes().collect();
+        let [empty_branch, single_branch, otherwise] = branches.as_slice() else {
+            return Err(error());
+        };
+        let empty: Vec<_> = empty_branch.child_nodes().collect();
+        let single: Vec<_> = single_branch.child_nodes().collect();
+        let last: Vec<_> = otherwise.child_nodes().collect();
+        let ([zero_guard, one], [one_guard, singleton], [local]) =
+            (empty.as_slice(), single.as_slice(), last.as_slice())
+        else {
+            return Err(error());
+        };
+        if conditional.kind() != NodeKind::ConditionalExpression
+            || empty_branch.kind() != NodeKind::ConditionalBranch
+            || single_branch.kind() != NodeKind::ConditionalBranch
+            || otherwise.kind() != NodeKind::ElseBranch
+            || !literal(one, 1)
+            || !crate::types::coerces(&integer, result)
+        {
+            return Err(error());
+        }
+        for (guard, expected) in [(*zero_guard, 0), (*one_guard, 1)] {
+            let guard = unwrap(guard);
+            let parts: Vec<_> = guard.child_nodes().collect();
+            let [length, count] = parts.as_slice() else {
+                return Err(error());
+            };
+            if guard.kind() != NodeKind::BinaryExpression || !literal(count, expected) {
+                return Err(error());
+            }
+            primitive(guard, "=", &[integer.clone(), integer.clone()], &boolean)?;
+            unary(length, "length", formal, &integer)?;
+        }
+        let singleton = unwrap(singleton);
+        let selected: Vec<_> = singleton.child_nodes().collect();
+        let [subject, minimum] = selected.as_slice() else {
+            return Err(error());
+        };
+        let minimum = unwrap(minimum);
+        let bounds: Vec<_> = minimum.child_nodes().collect();
+        let [axis] = bounds.as_slice() else {
+            return Err(error());
+        };
+        if singleton.kind() != NodeKind::ArrayAccessExpression
+            || typed(singleton) != Some(result)
+            || reference(subject) != Some(formal)
+            || !self.array_bound_index(file, formal, minimum, &view)
+        {
+            return Err(error());
+        }
+        primitive(minimum, "min", std::slice::from_ref(&set), &integer)?;
+        unary(axis, "index_set", formal, &set)?;
+        let local = unwrap(local);
+        let let_parts: Vec<_> = local.child_nodes().collect();
+        let [block, returned] = let_parts.as_slice() else {
+            return Err(error());
+        };
+        let locals: Vec<_> = block.child_nodes().collect();
+        let [cells, products, base, recurrence] = locals.as_slice() else {
+            return Err(error());
+        };
+        if local.kind() != NodeKind::LetExpression
+            || typed(local) != Some(result)
+            || block.kind() != NodeKind::LetBlock
+            || cells.kind() != NodeKind::Declaration
+            || products.kind() != NodeKind::Declaration
+            || base.kind() != NodeKind::Constraint
+            || recurrence.kind() != NodeKind::Constraint
+        {
+            return Err(error());
+        }
+        let local_id = |node: &SyntaxNode| {
+            self.bindings
+                .declarations
+                .iter()
+                .find(|id| {
+                    id.file == file
+                        && id.role == DeclarationRole::Local
+                        && id.syntax_range == node.range()
+                })
+                .map(|id| id.id)
+        };
+        let cells_id = local_id(cells).ok_or_else(error)?;
+        let products_id = local_id(products).ok_or_else(error)?;
+        let cell_values: Vec<_> = cells
+            .child_nodes()
+            .filter(|n| is_expression(n.kind()))
+            .collect();
+        let [flatten] = cell_values.as_slice() else {
+            return Err(error());
+        };
+        if cells_id == products_id
+            || cells_id == formal
+            || products_id == formal
+            || view.declarations[cells_id.0].ty != *array
+            || view.declarations[products_id.0].ty != *array
+            || products.child_nodes().any(|n| is_expression(n.kind()))
+            || cells
+                .child_nodes()
+                .filter(|n| !is_expression(n.kind()))
+                .any(|n| !self.prefix_primitive_source_safe(file, n))
+        {
+            return Err(error());
+        }
+        self.type_dependencies(file, cells, &view, &[])?;
+        unary(flatten, "array1d", formal, array)?;
+        let types: Vec<_> = products.child_nodes().collect();
+        let [array_type] = types.as_slice() else {
+            return Err(error());
+        };
+        let components: Vec<_> = array_type.child_nodes().collect();
+        let [axis_type, member_type] = components.as_slice() else {
+            return Err(error());
+        };
+        let axes: Vec<_> = axis_type.child_nodes().collect();
+        let [axis] = axes.as_slice() else {
+            return Err(error());
+        };
+        if array_type.kind() != NodeKind::ArrayType
+            || axis_type.kind() != NodeKind::DomainType
+            || !self.prefix_primitive_source_safe(file, member_type)
+        {
+            return Err(error());
+        }
+        unary(axis, "index_set", cells_id, &set)?;
+        self.type_dependencies(file, products, &view, &[])?;
+        let base_parts: Vec<_> = base.child_nodes().collect();
+        let recurrence_parts: Vec<_> = recurrence.child_nodes().collect();
+        let ([base], [quantified]) = (base_parts.as_slice(), recurrence_parts.as_slice()) else {
+            return Err(error());
+        };
+        let base = unwrap(base);
+        let base_operands: Vec<_> = base.child_nodes().collect();
+        let [first_product, first_cell] = base_operands.as_slice() else {
+            return Err(error());
+        };
+        let access = |node: &'a SyntaxNode, id| -> Result<_, String> {
+            let node = unwrap(node);
+            let parts: Vec<_> = node.child_nodes().collect();
+            let [subject, selector] = parts.as_slice() else {
+                return Err(error());
+            };
+            if node.kind() != NodeKind::ArrayAccessExpression
+                || typed(node) != Some(result)
+                || reference(subject) != Some(id)
+            {
+                return Err(error());
+            }
+            Ok(*selector)
+        };
+        if !literal(access(first_product, products_id)?, 1)
+            || !literal(access(first_cell, cells_id)?, 1)
+            || base.kind() != NodeKind::BinaryExpression
+        {
+            return Err(error());
+        }
+        primitive(
+            base,
+            "=",
+            &[result.clone(), result.clone()],
+            &decision_boolean,
+        )?;
+        let quantified = unwrap(quantified);
+        let quantified_parts: Vec<_> = quantified.child_nodes().collect();
+        let [list, equality] = quantified_parts.as_slice() else {
+            return Err(error());
+        };
+        let headers: Vec<_> = list.child_nodes().collect();
+        let [header] = headers.as_slice() else {
+            return Err(error());
+        };
+        let sources: Vec<_> = header.child_nodes().collect();
+        let [source] = sources.as_slice() else {
+            return Err(error());
+        };
+        let binders: Vec<_> = self
+            .bindings
+            .declarations
+            .iter()
+            .filter(|id| {
+                id.file == file
+                    && id.role == DeclarationRole::Generator
+                    && id.syntax_range == header.range()
+            })
+            .collect();
+        let [binder] = binders.as_slice() else {
+            return Err(error());
+        };
+        if quantified.kind() != NodeKind::GeneratorCallExpression
+            || list.kind() != NodeKind::GeneratorList
+            || header.kind() != NodeKind::Generator
+            || crate::domains::generator_slots(&self.context.files[file].parsed, header) != 1
+            || !header.children().iter().any(|child| {
+                matches!(child, SyntaxElement::Token(index)
+                if self.context.files[file].parsed.tokens()[*index].kind == TokenKind::In)
+            })
+            || view.declarations[binder.id.0].ty != integer
+        {
+            return Err(error());
+        }
+        primitive(
+            quantified,
+            "forall",
+            std::slice::from_ref(&booleans),
+            &decision_boolean,
+        )?;
+        let source = unwrap(source);
+        let ends: Vec<_> = source.child_nodes().collect();
+        let [two, length] = ends.as_slice() else {
+            return Err(error());
+        };
+        if source.kind() != NodeKind::RangeExpression || !literal(two, 2) {
+            return Err(error());
+        }
+        primitive(source, "..", &[integer.clone(), integer.clone()], &set)?;
+        unary(length, "length", products_id, &integer)?;
+        let equality = unwrap(equality);
+        let operands: Vec<_> = equality.child_nodes().collect();
+        let [next, multiply] = operands.as_slice() else {
+            return Err(error());
+        };
+        let multiply = unwrap(multiply);
+        let factors: Vec<_> = multiply.child_nodes().collect();
+        let [previous, cell] = factors.as_slice() else {
+            return Err(error());
+        };
+        let predecessor = unwrap(access(previous, products_id)?);
+        let predecessor_parts: Vec<_> = predecessor.child_nodes().collect();
+        let [index, one] = predecessor_parts.as_slice() else {
+            return Err(error());
+        };
+        if equality.kind() != NodeKind::BinaryExpression
+            || multiply.kind() != NodeKind::BinaryExpression
+            || reference(access(next, products_id)?) != Some(binder.id)
+            || reference(access(cell, cells_id)?) != Some(binder.id)
+            || predecessor.kind() != NodeKind::BinaryExpression
+            || reference(index) != Some(binder.id)
+            || !literal(one, 1)
+        {
+            return Err(error());
+        }
+        primitive(
+            equality,
+            "=",
+            &[result.clone(), result.clone()],
+            &decision_boolean,
+        )?;
+        primitive(multiply, "*", &[result.clone(), result.clone()], result)?;
+        primitive(
+            predecessor,
+            "-",
+            &[integer.clone(), integer.clone()],
+            &integer,
+        )?;
+        unary(
+            access(returned, products_id)?,
+            "length",
+            products_id,
+            &integer,
+        )?;
+        // These exact normalization/guard/recurrence sources are checked only
+        // for inspection. No y/xx definitions or traversal facts escape here.
+        Ok(())
+    }
     fn direct_safety(
         &self,
         file: FileId,
@@ -21980,6 +22515,9 @@ impl<'a> Producer<'a> {
         view: &CallableFacts,
         generators: &[&'a SyntaxNode],
     ) -> DefinitionSafety {
+        if let Some(safety) = self.integer_product_source_safety(file, node, view, generators) {
+            return safety;
+        }
         if let Some(safety) = self.integer_array_set_safety(file, node, view, generators) {
             return safety;
         }
