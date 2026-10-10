@@ -6512,3 +6512,23 @@ diagnosis. Evidence is under
 `target/benchmarks/base083/semantic68-ignored-rank-two-local-inspection-green-preparation-v1`.
 Concurrent allocation work means these debug replays provide no timing ratio.
 Base-083 remains open.
+
+The measured definition lookup repair reuses the producer's existing first-match
+expression index in value safety. Public safety calls retain their existing lookup;
+file identities, public ranges and duplicate selection remain unchanged. The
+matched Project Planning native comparison falls from 1,332 to 870 seconds wall
+and from 1,299 to 863 seconds child CPU, with byte-identical diagnostics. Direct
+definitions fall from 755 to 328 seconds. Evidence is under
+`target/benchmarks/base083/semantic68-project17-type-index-comparison-preparation-v1`.
+
+Fresh matched allocation companions report exactly equal tracked allocation
+counts, requested bytes, retained bytes and peak live bytes in all three phases.
+Analysis requests 133,653,271,645 bytes across 1,511,164,791 allocations, with
+3,121,870,883 peak live bytes. Native peak RSS rises from 3,640 to 4,610 MiB,
+while the companions report 4,561 and 4,402 MiB respectively. The counter measures
+requested heap layouts, not allocator overhead or resident pages. These single
+observations support the CPU improvement without establishing stable or lower
+RSS; the native RSS difference remains unexplained. Allocation evidence is under
+`target/benchmarks/base083/semantic69-project17-allocation-companions-preparation-v1`.
+Integrated formatting, Clippy and workspace tests pass under
+`target/benchmarks/base083/semantic69-type-index-main-gates-v1`. Base-083 remains open.

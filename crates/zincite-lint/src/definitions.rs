@@ -628,8 +628,14 @@ impl<'context> Producer<'context> {
             }
         }
         let instantiation = self.instantiation(file, value);
-        let mut safety =
-            crate::expression_safety(self.context, self.bindings, self.calls, file, value);
+        let mut safety = crate::value_safety::indexed_expression_safety(
+            self.context,
+            self.bindings,
+            self.calls,
+            file,
+            value,
+            &self.expression_indices,
+        );
         let declaration = &self.bindings.declarations[target.0];
         let ty = &self.calls.declarations[target.0].ty;
         if matches!(safety, DefinitionSafety::Unsupported(_))

@@ -3,6 +3,7 @@ use crate::domains::{expression_integer, invariant_expression_integer};
 use crate::{
     BindingFacts, CallableFacts, DefinitionSafety, FileId, ModelContext, TypeInst, TypeKind,
 };
+use std::collections::HashMap;
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
 /// Check supported value safety without running lint or evaluating model code.
@@ -21,6 +22,25 @@ pub fn expression_safety(
         bindings,
         calls,
         membership: None,
+        expression_indices: None,
+    }
+    .check(file, node)
+}
+/// Use the caller's first-match index for these same original callable facts.
+pub(super) fn indexed_expression_safety(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &CallableFacts,
+    file: FileId,
+    node: &SyntaxNode,
+    expression_indices: &HashMap<(FileId, usize, usize), usize>,
+) -> DefinitionSafety {
+    Safety {
+        context,
+        bindings,
+        calls,
+        membership: None,
+        expression_indices: Some(expression_indices),
     }
     .check(file, node)
 }
@@ -29,10 +49,16 @@ struct Safety<'a> {
     bindings: &'a BindingFacts,
     calls: &'a CallableFacts,
     membership: Option<std::ops::Range<usize>>,
+    expression_indices: Option<&'a HashMap<(FileId, usize, usize), usize>>,
 }
 impl Safety<'_> {
     fn ty(&self, file: FileId, node: &SyntaxNode) -> Option<&TypeInst> {
         let location = self.context.files[file].location(node.range());
+        if let Some(indices) = self.expression_indices {
+            return indices
+                .get(&(file, location.range.start, location.range.end))
+                .map(|&row| &self.calls.expressions[row].ty);
+        }
         self.calls
             .expressions
             .iter()
@@ -187,6 +213,7 @@ pub(super) fn traversal_expression_safety(
         bindings,
         calls,
         membership: Some(access.range()),
+        expression_indices: None,
     }
     .check(file, node)
 }
