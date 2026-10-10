@@ -40,6 +40,8 @@ Use the retained `ProjectPlannertest_16_7.mzn` capture as a concrete review case
 
 - Allocation extension for the measured direct-definition lookup cost: `crates/zincite-lint/src/value_safety.rs`. Coordination checked clean main and all private assignments; only the definition-cost worker owns this file. The retained Project Planning diagnostic attributes about 755 seconds to direct definitions and matches the earlier native diagnostics exactly. A bounded stack sample identifies value-safety checking and definition recording as hot functions in that window. Compare the existing first-match expression index reuse and duplicate-record lookup separately; retain physical ranges, public safety behavior, duplicate upgrades and record ordering. Measure before admitting a performance change; numeric and guarded analysis costs remain separate work.
 
+- Allocation extension for the original queens explicit-marker gap: `crates/zincite-lint/src/symmetry.rs` and `crates/zincite-lint/tests/symmetry.rs`. Coordination checked clean main at a8ea05c and the private sibling assignments; neither path overlaps them. The implicit-only marker guard overlooks the selected nonimplicit standard Boolean wrapper loaded through solver redefinitions. Recognize its resolved declaration and tuple identity while retaining User-overload exclusions and ambiguous/unsupported propagation. Marker recognition supplies no enforcement or output proof; other advisory families remain unchanged.
+
 ## Done when
 
 - [ ] Diagnostic scaling and repetitive advice have been reviewed against original source constructs, including the retained large generated model; the findings and any grouping decision are recorded.
