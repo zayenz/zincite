@@ -2,9 +2,9 @@
 
 # Tasks: base
 
-- Total: 92
-- Ready: 3
-- Blocked: 9
+- Total: 94
+- Ready: 4
+- Blocked: 10
 - Done: 80
 
 | ID | Task | State | Blocked by |
@@ -101,3 +101,5 @@
 | [base-090](tasks/090-query-nested-expressions-and-emit-structured-source-inspecti.md) | Query nested expressions and emit structured source inspection reports | blocked | base-085 |
 | [base-091](tasks/091-expose-existing-declaration-references-and-semantic-facts-to.md) | Expose existing declaration references and semantic facts to model queries | blocked | base-090, base-089 |
 | [base-092](tasks/092-validate-both-query-commands-and-wedding-instance-reduction.md) | Validate both query commands and wedding-instance reduction on representative data | blocked | base-089, base-091 |
+| [base-093](tasks/093-refactor-callable-definitions-into-readable-internal-modules.md) | Refactor callable definitions into readable internal modules | ready | — |
+| [base-094](tasks/094-replan-callable-analysis-responsibilities-and-semantic-suppo.md) | Replan callable analysis responsibilities and semantic support | blocked | base-093 |
