@@ -13936,3 +13936,155 @@ fn ignored_rank_two_boolean_channels_are_inspected_without_coverage() {
         }
     }
 }
+
+#[test]
+fn initialized_local_boolean_comprehension_inspects_sources_without_output_proof() {
+    use zincite_lint::{CallOutcome, DeclarationRole, Instantiation, TypeKind};
+    let positive = concat!(
+        "set of int: Input;\n",
+        "array[Input] of var bool: source;\n",
+        "constraint let {\n",
+        "  array[1..card(Input)] of var bool: local = [source[i] | i in Input];\n",
+        "} in forall(local);\n",
+        "solve satisfy;\n",
+    );
+    let closed = positive.replace("source[i]", "source[i + (1 div 0)]");
+    for (name, source, completed) in [
+        ("initialized-local-bool-symbolic", positive, true),
+        ("initialized-local-bool-closed", closed.as_str(), false),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}function int: card(set of int: values);\nfunction int: '+'(int: left,int: right);\nfunction int: 'div'(int: left,int: right);\nfunction var bool: forall(array[int] of var bool: values);\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(context.includes.iter().all(|edge| edge.target.is_some()));
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let local = bindings
+            .declarations
+            .iter()
+            .find(|d| d.role == DeclarationRole::Local && d.name == "local")
+            .unwrap()
+            .id;
+        let input = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "source")
+            .unwrap()
+            .id;
+        assert!(
+            matches!(&calls.declarations[local.0].ty.kind, TypeKind::Array { indices, element }
+            if indices.len() == 1 && indices[0].kind == TypeKind::Int
+                && element.kind == TypeKind::Bool && !element.optional
+                && element.instantiation == Instantiation::Decision)
+        );
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        let search =
+            resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        assert!(search.searched.is_empty());
+        assert!(
+            callable.outputs.is_empty(),
+            "{name}: {:?}",
+            callable.outputs
+        );
+        assert!(
+            callable
+                .definitions
+                .iter()
+                .all(|d| d.target != input && d.target != local)
+        );
+        assert!(
+            definitions
+                .definitions
+                .iter()
+                .all(|d| (d.target != input && d.target != local)
+                    || d.safety != DefinitionSafety::Supported)
+        );
+        let result = analyze_model(&context, &selected());
+        if completed {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "INITIALIZED_LOCAL_BOOL_RED: {:?}",
+                result.limitations
+            );
+            assert!(result.limitations.is_empty());
+            assert!(
+                callable.unavailable.is_empty(),
+                "{:?}",
+                callable.unavailable
+            );
+            assert!(callable.inspected_locals.contains(&local));
+            assert_eq!(
+                search.declarations[local.0].coverage,
+                SearchCoverage::Unknown
+            );
+            assert_eq!(
+                coverage(&bindings, &search, "source"),
+                SearchCoverage::Uncovered
+            );
+            assert!(
+                result
+                    .findings
+                    .iter()
+                    .any(|f| f.rule == zincite_lint::Rule::SearchCoverage
+                        && f.location.path == context.root
+                        && f.message.contains("source"))
+            );
+        } else {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{:?}",
+                result.limitations
+            );
+            assert!(!callable.inspected_locals.contains(&local));
+            assert!(
+                callable
+                    .unavailable
+                    .iter()
+                    .any(|u| u.location.path == context.root
+                        && !u.location.range.is_empty()
+                        && u.reason.contains("division by zero")),
+                "{:?}",
+                callable.unavailable
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

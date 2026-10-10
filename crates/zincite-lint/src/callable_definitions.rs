@@ -1475,7 +1475,39 @@ impl<'a> Producer<'a> {
                 continue;
             }
             if forall {
-                return false;
+                if node.kind() != NodeKind::CallExpression || quantified.is_some() {
+                    return false;
+                }
+                let Some(call) = self.operation_fact(self.view(file, node, view), file, node)
+                else {
+                    return false;
+                };
+                let CallOutcome::Resolved {
+                    declaration,
+                    parameters,
+                    ..
+                } = &call.outcome
+                else {
+                    return false;
+                };
+                let clause = Clause {
+                    file,
+                    item,
+                    node,
+                    generators: ambient.clone(),
+                    kind: ClauseKind::Call,
+                };
+                if !matches!(
+                    self.inspect_bodyless_boolean_aggregate(
+                        &clause,
+                        view,
+                        *declaration,
+                        parameters
+                    ),
+                    Some(Ok(()))
+                ) {
+                    return false;
+                }
             }
             pending.extend(node.child_nodes().map(|n| (n, ambient.clone())));
         }
@@ -3416,12 +3448,17 @@ impl<'a> Producer<'a> {
                             return;
                         }
                         let initializer = local.child_nodes().find(|n| is_expression(n.kind()));
+                        let boolean_comprehension = initializer
+                            .is_some_and(|n| unwrap(n).kind() == NodeKind::ArrayComprehension)
+                            && matches!(&ty.kind, TypeKind::Array { element, .. }
+                                if element.kind == TypeKind::Bool);
                         let scoped_array = ty.instantiation == Instantiation::Decision
                             && matches!(&ty.kind, TypeKind::Array { indices, element }
                                 if indices.len() == 1 && indices[0].known() && !optional(&indices[0])
                                     && indices[0].kind == TypeKind::Int
                                     && indices[0].instantiation == Instantiation::Parameter
-                                    && element.known() && !optional(element) && element.kind == TypeKind::Int)
+                                    && element.known() && !optional(element)
+                                    && (element.kind == TypeKind::Int || boolean_comprehension))
                             && initializer.is_some();
                         if scoped_array {
                             let initializer = unwrap(initializer.unwrap());
@@ -3445,14 +3482,22 @@ impl<'a> Producer<'a> {
                                     self.unavailable(clause, &reason, unavailable);
                                     return;
                                 }
-                                if let DefinitionSafety::Unsupported(reason) = self
-                                    .integer_comprehension_safety(
+                                let safety = if boolean_comprehension {
+                                    self.collection_construction_safety(
                                         clause.file,
                                         initializer,
                                         view,
                                         &clause.generators,
                                     )
-                                {
+                                } else {
+                                    self.integer_comprehension_safety(
+                                        clause.file,
+                                        initializer,
+                                        view,
+                                        &clause.generators,
+                                    )
+                                };
+                                if let DefinitionSafety::Unsupported(reason) = safety {
                                     self.unavailable(clause, &reason, unavailable);
                                     return;
                                 }

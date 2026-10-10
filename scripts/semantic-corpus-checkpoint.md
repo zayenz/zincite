@@ -6545,3 +6545,26 @@ Existing definition/range regressions pass, and integrated formatting, Clippy
 and workspace tests pass under
 `target/benchmarks/base083/semantic69-find-node-main-gates-v1`. This bounded
 comparison does not establish final corpus acceptance or memory growth limits.
+
+Initialized one-dimensional Boolean local comprehensions now reuse existing
+collection-source checks and retain checked local inspection through ordinary
+`forall(local)`. Symbolic dimensions remain Unknown, the input remains Uncovered,
+and no inverse definition, output or search seed is inferred. The public positive
+has genuine RED/GREEN evidence; a closed selector division-by-zero remains a
+located limitation without an inspected-local certificate. ROOT checked 1,203
+unchanged pins and the terminal GREEN receipt and full streams under
+`target/benchmarks/base083/semantic68-initialized-local-boolean-comprehension-green-preparation-v2`.
+The rotating-workforce original's selected tuples were inspected privately;
+regular and sliding_sum prerequisites remain separate gaps. Retained compiler
+controls are source-only, not actual-data FlatZinc acceptance. Integrated
+formatting, Clippy and workspace validation is recorded under
+`target/benchmarks/base083/semantic69-initialized-local-bool-main-gates-v1`.
+
+The queens original's remaining ignored-wrapper limitation is now diagnosed:
+the selected standard `symmetry_breaking_constraint` predicate has the real
+identity body `b`, rather than the bodyless form accepted by the current helper.
+Temporary instrumentation preserves exact prior diagnostics after removing only
+its known markers. The diagnostic capture has 1,155 unchanged pins, two terminal
+receipts and four full streams under
+`target/benchmarks/base083/semantic68-ignored-rank-two-original-inspection-diagnostic-preparation-v1`.
+A narrowly checked identity-body correction remains pending. Base-083 is open.
