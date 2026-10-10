@@ -147,3 +147,81 @@ fn conditional_partial_and_unanchored_cycles_still_receive_domain_advice() {
     );
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn symbolic_enum_subset_domains_complete_without_inventing_bounds() {
+    use zincite_lint::Domain;
+    let positive = concat!(
+        "enum Participant; set of Participant: Leads;\n",
+        "array[Participant] of var Leads: assignment;\n",
+        "var Leads: chosen; var Participant: direct; solve satisfy;\n",
+    );
+    let optional = positive.replace("of var Leads: assignment", "of var opt Leads: assignment");
+    for (name, source, completed) in [
+        ("symbolic-enum-subset", positive, true),
+        ("optional-enum-subset", optional.as_str(), false),
+    ] {
+        let (directory, context) = model(name, source);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let domains = resolve_domains(&context, &bindings);
+        let leads = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "Leads")
+            .unwrap()
+            .id;
+        let assignment = bindings
+            .declarations
+            .iter()
+            .find(|d| d.top_level && d.name == "assignment")
+            .unwrap();
+        assert!(matches!(&domains.declarations[assignment.id.0].domain,
+            Domain::Array { element, .. } if matches!(element.as_ref(),
+                Domain::Named { declaration, domain } if *declaration == leads && domain.as_ref() == &Domain::Unknown)));
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        assert!(result.findings.is_empty(), "{name}: {:?}", result.findings);
+        if completed {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                result.limitations
+            );
+            assert!(
+                result.limitations.is_empty(),
+                "{name}: {:?}",
+                result.limitations
+            );
+        } else {
+            assert!(matches!(
+                result.rules[0].outcome,
+                RuleOutcome::Limited { .. }
+            ));
+            assert_eq!(
+                result.limitations.len(),
+                1,
+                "{name}: {:?}",
+                result.limitations
+            );
+            assert_eq!(result.limitations[0].location, assignment.location);
+            assert!(
+                result.limitations[0]
+                    .message
+                    .contains("declared domain is unknown")
+            );
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}

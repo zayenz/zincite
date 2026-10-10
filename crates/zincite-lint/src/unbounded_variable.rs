@@ -183,15 +183,42 @@ fn symbolic_parameter_domain(
         } if domain.as_ref() == &Domain::Unknown => {
             let declaration = &bindings.declarations[declaration.0];
             let ty = &calls.declarations[declaration.id.0].ty;
+            let supported_element = match &ty.kind {
+                TypeKind::Set(element)
+                    if element.known()
+                        && !optional(element)
+                        && element.instantiation == Instantiation::Parameter =>
+                {
+                    match element.kind {
+                        TypeKind::Int => true,
+                        TypeKind::Enum(id) => {
+                            // A symbolic subset of this plain input enum supplies
+                            // no members, extent or numeric interval.
+                            let enumeration = &bindings.declarations[id.0];
+                            enumeration.top_level
+                                && enumeration.role == DeclarationRole::Enum
+                                && find_node(
+                                    context.files[enumeration.file].parsed.tree(),
+                                    &enumeration.syntax_range,
+                                    enumeration.role,
+                                )
+                                .is_some_and(|node| {
+                                    node.kind() == zincite_syntax::NodeKind::EnumDeclaration
+                                        && node.child_nodes().next().is_none()
+                                })
+                        }
+                        _ => false,
+                    }
+                }
+                _ => false,
+            };
             declaration.top_level
                 && declaration.role == DeclarationRole::Value
                 && declaration.instantiation == Instantiation::Parameter
                 && ty.known()
                 && !optional(ty)
                 && ty.instantiation == Instantiation::Parameter
-                && matches!(&ty.kind, TypeKind::Set(element)
-                    if element.kind == TypeKind::Int
-                        && element.instantiation == Instantiation::Parameter)
+                && supported_element
                 && find_node(
                     context.files[declaration.file].parsed.tree(),
                     &declaration.syntax_range,

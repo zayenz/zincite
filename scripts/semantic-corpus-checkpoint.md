@@ -6368,3 +6368,13 @@ The saved result is under
 `target/benchmarks/base083/semantic65-final-corpus-reconciliation-preparation-v2/root-audit.json`.
 Private repair validation and a separate timeout investigation are now active;
 base-083 remains open.
+
+The symbolic enum-subset domain repair is integrated. An uninitialized parameter
+set of a plain input enum can supply a symbolic decision domain without requiring
+numeric bounds. Raw Named Unknown is unchanged; optional and unsupported forms
+retain their refusals. The focused positive/negative test has genuine RED/GREEN
+evidence from separate fresh targets, and source-only MiniZinc controls pass.
+The original Teams comparison removes its team_lead domain limitation while
+retaining other search and objective gaps. Formatting, Clippy and workspace
+tests pass in `target/benchmarks/base083/semantic67-enum-domain-main-gates-v1`.
+Fresh final corpus evidence and whole-task verification remain pending.
