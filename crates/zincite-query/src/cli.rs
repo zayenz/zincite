@@ -42,7 +42,7 @@ Stages:
     set_value(\"EXPRESSION\") Replace selected data assignment right-hand sides
     filter_elements(CMP)    Filter literal set/array/matrix elements in data mode
     remove                  Remove selected data assignments and attached comments
-    reduce_enum(NAME,KEEP)   Reduce an explicit enum and supported dependent arrays
+    reduce_enum(NAME,KEEP)   Reduce an explicit enum and supported dependent data
     emit_document           Emit the reparsed edit candidate
 Source/string emission is implicit; edits implicitly emit_document.
 Projections inspect selected nodes; use subtree to include descendants.
@@ -60,8 +60,9 @@ Enum retention: keep(\"A\", \"B\") selects identities in original order;
 keep_first(N) keeps an original prefix. Empty retention is allowed.
 reduce_enum inspects the entire data document, including after filter/head.
 Explicit enum keys establish identity; positional axes require model domains.
-Remaining scalar/computed/set dependence makes the candidate incomplete.
-Set cleanup and integer group compaction are deferred.
+Supported sets prune removed members; array[int] groups drop newly empty entries.
+Literal group accesses use original-to-retained indices; required empty cells stay.
+Remaining scalar/computed dependence makes the candidate incomplete.
 values accepts head/count/json/emit; other projections continue as node streams.
 Predicates: kind(\"assignment\"), name(\"capacity\"); names compare identifier identity.
 Item kinds: assignment, declaration, enum, type_alias, function, predicate, test,

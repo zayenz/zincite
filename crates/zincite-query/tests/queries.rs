@@ -966,18 +966,12 @@ fn enum_reduction_exposes_remaining_dependencies_without_losing_independent_edit
         text.contains("weights: [1,3]") && text.contains("computed: other[B]"),
         "{text}"
     );
-    assert!(text.contains("chosen = B; group = {A, B}") && text.contains("ambiguous = [10,20]"));
+    assert!(text.contains("chosen = B; group = {A }") && text.contains("ambiguous = [10,20]"));
     assert!(
         result
             .unresolved()
             .iter()
             .any(|dependency| dependency.message.contains("positional enum alignment"))
-    );
-    assert!(
-        result
-            .unresolved()
-            .iter()
-            .any(|dependency| dependency.message.contains("set cleanup"))
     );
     assert!(
         result
@@ -1046,6 +1040,123 @@ fn enum_reduction_exposes_remaining_dependencies_without_losing_independent_edit
     assert!(
         String::from_utf8_lossy(result.candidate().source_bytes())
             .contains("values = [A: 1,  C: 3]; group = {A,C};")
+    );
+}
+
+#[test]
+fn enum_reduction_prunes_nested_sets_and_repairs_original_group_indices() {
+    let model = reduction_model(
+        "groups",
+        "enum Guests; enum Others = {X,Y};\ntype Info = record(set of Guests: friends, array[int] of set of Guests: groups, int: B, string: label);\nInfo: info; array[Guests] of Info: guests; set of Guests: before; set of Guests: after; set of Guests: nested; set of Guests: unshifted; tuple(array[int] of set of Guests, int): bundle; set of Guests: from_tuple; set of Others: other; int: unchanged;\nconstraint forall(g in Guests)(guests[g].B >= 0);\nint: local = let { array[1..4] of int: info = [1,2,3,4]; } in info[4];\nsolve satisfy;\n",
+    );
+    let source = b"Guests = {'A',B,C};\nbefore = info.groups[4];\ninfo = (friends: {B}, groups: [\n% retained group\n{A,B},\n% removed group\n{B},\n{},\n{'C'}], B: 4, label: \"B\");\nguests = [(friends: {A,B}, groups: [{B},{A},{C,B}], B: 10, label: \"A\"), (friends: {B}, groups: [{B}], B: 20, label: \"gone\"), (friends: {B,C}, groups: [{B,C}], B: 30, label: \"C\")];\nafter = info.groups[(4)]; nested = guests[A].groups[3]; unshifted = guests[C].groups[1];\nbundle = ([{B},{A,C}], 4); from_tuple = bundle.1[2];\nother = {X,Y}; unchanged = 4;\n";
+    let input = Input::parse(source.to_vec(), FileMode::Data).unwrap();
+    let result = reduce(
+        &input,
+        Some(&model),
+        "reduce_enum(\"Guests\", keep(\"A\", \"C\"))",
+    );
+    assert!(result.is_complete(), "{:?}", result.unresolved());
+    let text = String::from_utf8_lossy(result.candidate().source_bytes());
+    assert!(
+        text.contains("before = info.groups[3]") && text.contains("after = info.groups[(3)]"),
+        "{text}"
+    );
+    assert!(
+        text.contains("nested = guests[A].groups[2]")
+            && text.contains("unshifted = guests[C].groups[1]"),
+        "{text}"
+    );
+    assert!(
+        text.contains("bundle = ([{A,C}], 4); from_tuple = bundle.1[1]"),
+        "{text}"
+    );
+    assert!(
+        text.contains("friends: {}")
+            && text.contains("% retained group")
+            && !text.contains("% removed group"),
+        "{text}"
+    );
+    assert!(
+        text.contains("groups: [{A},{C}]") && !text.contains("label: \"gone\""),
+        "{text}"
+    );
+    assert!(
+        text.contains("B: 4, label: \"B\"") && text.contains("other = {X,Y}; unchanged = 4"),
+        "{text}"
+    );
+    assert_eq!(
+        query(
+            result.candidate(),
+            "filter(name(\"info\")) | fields | filter(name(\"groups\")) | elements | count"
+        )
+        .render(),
+        b"3\n"
+    );
+    assert_eq!(input.source_bytes(), source);
+}
+
+#[test]
+fn enum_reduction_keeps_required_empty_fields_and_fixed_cells_complete() {
+    let model = reduction_model(
+        "empty-sets",
+        "enum Guests; type Info = record(set of Guests: friends); Info: info; array[1..3] of set of Guests: fixed; array[Guests] of set of Guests: keyed; array[1..2,1..2] of set of Guests: cells; solve satisfy;",
+    );
+    let input = Input::parse(b"Guests = {A,B,C}; info = (friends: {B}); fixed = [{B},{}, {A,B}]; keyed = [{B},{A},{B,C}]; cells = [|{B},{}|{A,B},{C}|];".to_vec(), FileMode::Data).unwrap();
+    let result = reduce(
+        &input,
+        Some(&model),
+        "reduce_enum(\"Guests\", keep(\"A\", \"C\"))",
+    );
+    assert!(result.is_complete(), "{:?}", result.unresolved());
+    let text = String::from_utf8_lossy(result.candidate().source_bytes());
+    assert!(
+        text.contains("info = (friends: {})")
+            && text.contains("fixed = [{},{}, {A}]")
+            && text.contains("keyed = [{},{C}]")
+            && text.contains("cells = [|{},{}|{A},{C}|]"),
+        "{text}"
+    );
+}
+
+#[test]
+fn enum_reduction_retains_unsupported_group_accesses_beside_independent_edits() {
+    let model_source = "enum Guests; array[int] of set of Guests: groups; set of Guests: deleted; set of Guests: computed; set of Guests: mixed; int: n; set of Guests: read_only = groups[3]; solve satisfy;";
+    let model = reduction_model("group-dependencies", model_source);
+    let source = b"Guests = {A,B,C}; deleted = groups[2]; computed = groups[n]; groups = [{A,B},{B},{C}]; mixed = {A,B,f(B)}; n = 3;";
+    let input = Input::parse_named(source.to_vec(), FileMode::Data, "groups.dzn").unwrap();
+    let result = reduce(
+        &input,
+        Some(&model),
+        "reduce_enum(\"Guests\", keep(\"A\", \"C\"))",
+    );
+    assert!(!result.is_complete());
+    let text = String::from_utf8_lossy(result.candidate().source_bytes());
+    assert!(
+        text.contains("groups = [{A},{C}]")
+            && text.contains("mixed = {A,f(B)}")
+            && text.contains("deleted = groups[2]; computed = groups[n]"),
+        "{text}"
+    );
+    for expected in [b"groups[2]".as_slice(), b"groups[n]", b"f(B)"] {
+        assert!(
+            result
+                .unresolved()
+                .iter()
+                .any(
+                    |dependency| dependency.location.path == std::path::Path::new("groups.dzn")
+                        && &source[dependency.location.range.clone()] == expected
+                ),
+            "{:?}",
+            result.unresolved()
+        );
+    }
+    assert!(
+        result
+            .unresolved()
+            .iter()
+            .any(|dependency| dependency.location.path == model.root
+                && &model_source.as_bytes()[dependency.location.range.clone()] == b"groups[3]")
     );
 }
 

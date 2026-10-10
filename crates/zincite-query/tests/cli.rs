@@ -213,8 +213,8 @@ fn enum_reduction_previews_complete_and_incomplete_candidates_and_uses_read_only
     let declarations = includes.join("declarations.mzn");
     let data = directory.join("instance.dzn");
     let model_bytes = b"include \"declarations.mzn\"; solve satisfy;\n";
-    let declaration_bytes = b"enum Guests; array[Guests] of int: scores;\n";
-    let source = b"Guests = {A,B,C}; scores = [10,20,30];\n";
+    let declaration_bytes = b"enum Guests; array[Guests] of int: scores; array[int] of set of Guests: same_table; set of Guests: chosen;\nconstraint forall(g in Guests)(scores[g] >= 0);\n";
+    let source = b"Guests = {A,B,C}; chosen = same_table[3]; scores = [10,20,30]; same_table = [{A,B},{B},{C}];\n";
     let expression = "reduce_enum(\"Guests\", keep(\"C\", \"A\"))";
     std::fs::write(&model, model_bytes).unwrap();
     std::fs::write(&declarations, declaration_bytes).unwrap();
@@ -234,7 +234,10 @@ fn enum_reduction_previews_complete_and_incomplete_candidates_and_uses_read_only
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(output.stdout, b"Guests = {A,C}; scores = [10,30];\n");
+    assert_eq!(
+        output.stdout,
+        b"Guests = {A,C}; chosen = same_table[2]; scores = [10,30]; same_table = [{A},{C}];\n"
+    );
     let candidate = output.stdout;
     for mode in ["--diff", "--write"] {
         let mut arguments = options.to_vec();
@@ -250,7 +253,7 @@ fn enum_reduction_previews_complete_and_incomplete_candidates_and_uses_read_only
     assert_eq!(std::fs::read(&model).unwrap(), model_bytes);
     assert_eq!(std::fs::read(&declarations).unwrap(), declaration_bytes);
 
-    let incomplete = b"Guests = {A,B,C}; scores = [10,20,30]; chosen = B;\n";
+    let incomplete = b"Guests = {A,B,C}; scores = [10,20,30]; same_table = [{A,B},{B},{C}]; chosen = same_table[2];\n";
     std::fs::write(&data, incomplete).unwrap();
     for mode in [None, Some("--diff"), Some("--write")] {
         let mut arguments = options.to_vec();
@@ -258,7 +261,9 @@ fn enum_reduction_previews_complete_and_incomplete_candidates_and_uses_read_only
         arguments.extend([expression, data.to_str().unwrap()]);
         let output = run(&arguments, b"");
         assert_eq!(output.status.code(), Some(1));
-        assert!(String::from_utf8_lossy(&output.stderr).contains("removed enum member"));
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("removed or out-of-coverage group")
+        );
         if mode == Some("--write") {
             assert!(output.stdout.is_empty());
         } else {
@@ -266,7 +271,7 @@ fn enum_reduction_previews_complete_and_incomplete_candidates_and_uses_read_only
         }
         assert_eq!(std::fs::read(&data).unwrap(), incomplete);
     }
-    let computed_model = b"\xef\xbb\xbfenum Guests; array[Guests] of int: scores;\nint: chosen = scores[to_enum(Guests, 2)];\n";
+    let computed_model = b"\xef\xbb\xbfenum Guests; array[Guests] of int: scores; array[int] of set of Guests: same_table;\nint: ordinal = scores[to_enum(Guests, 2)];\nset of Guests: chosen;\n";
     std::fs::write(&declarations, computed_model).unwrap();
     std::fs::write(&data, source).unwrap();
     for mode in [None, Some("--diff"), Some("--write")] {
@@ -277,7 +282,7 @@ fn enum_reduction_previews_complete_and_incomplete_candidates_and_uses_read_only
         assert_eq!(output.status.code(), Some(1));
         let diagnostics = String::from_utf8_lossy(&output.stderr);
         assert!(
-            diagnostics.contains("declarations.mzn:2:15:"),
+            diagnostics.contains("declarations.mzn:2:16:"),
             "{diagnostics}"
         );
         assert!(diagnostics.contains("computed enum-indexed access"));
@@ -311,7 +316,7 @@ fn enum_reduction_previews_complete_and_incomplete_candidates_and_uses_read_only
         b"",
     );
     assert_eq!(output.status.code(), Some(0));
-    assert_eq!(output.stdout, b"2\n");
+    assert_eq!(output.stdout, b"4\n");
     let output = run(
         &[
             "reduce_enum(\"Guests\", keep(\"unknown\"))",

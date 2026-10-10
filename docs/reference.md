@@ -250,7 +250,7 @@ library and both commands use the same fixed pipeline:
 | `set_value("EXPRESSION")` | Replace selected assignment right-hand sides in data mode |
 | `filter_elements(comparison)` | Explicitly filter literal set, array or matrix elements in data mode |
 | `remove` | Remove selected data assignments and their attached comments/directives |
-| `reduce_enum("Guests", keep("A", "B"))` | Keep explicit enum members and slice supported dependent arrays |
+| `reduce_enum("Guests", keep("A", "B"))` | Keep explicit enum members and reduce supported dependent arrays, sets and group accesses |
 | `emit_document` | Render the reparsed edit candidate |
 
 Stages are separated by `|`. The initial selection is `items`, including for an
@@ -489,13 +489,31 @@ empty multidimensional forms that cannot preserve established axes remain
 unresolved. No integer value is treated as an enum identity merely by position or
 matching length.
 
+Supported set literals lose direct references to removed members, including sets
+inside records, tuples and arrays. Known unrelated element types remain unchanged.
+Computed set entries remain visible with located diagnostics while independent
+literal members can still be pruned. Required record fields, fixed-index cells and
+multidimensional cells retain valid empty sets.
+
+Positional one-dimensional `array[int] of set of Guests` groups may lose entries
+that become empty after pruning. Pre-existing empty groups and singletons stay in
+order. Fixed ranges, named subsets and unknown axes do not permit group compaction.
+An explicit mapping from each original integer index to its retained index repairs
+literal group accesses in data. Unique model/data associations and supported
+record fields, tuple fields or literal array selectors identify the original group
+collection; assignment order does not affect the mapping. Deleted groups,
+computed selectors and unknown collection paths remain unresolved. Arbitrary
+integers and strings are never reinterpreted as group indices.
+
 `ReductionResult` owns the reparsed `candidate()` and exposes located `unresolved()`
 dependencies; `is_complete()` means that list is empty. Surviving removed-member
 scalars, relevant computed accesses, missing alignment facts and direct dependencies
-in read-only model sources remain visible. Set pruning, empty-group removal and
-integer group compaction are deferred to base-089: affected sets stay unchanged
-and make this reduction incomplete. Strings and record labels are never rewritten
-as enum members. This bounded check does not establish satisfiability or full
+in read-only model sources remain visible. An ordinary enum generator such as
+`forall(g in Guests)(scores[g] >= 0)` preserves member identity when its source
+resolves directly to the target enum. Numeric conversions such as `to_enum` and
+read-only model group accesses that need an index repair remain unresolved.
+Strings and record labels are never rewritten as enum members. This bounded check
+does not establish satisfiability or full
 compiler type validity.
 
 Use the library independently:

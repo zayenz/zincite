@@ -207,8 +207,12 @@ allowed. Reduction removes matching keyed records and supported array slices,
 including nested arrays and rectangular axes. Positional alignment requires
 unambiguous model declarations and full original enum coverage. `-I DIR` adds
 include paths in order; `--stdlib-dir DIR` overrides `MZN_STDLIB_DIR`.
+Reduction also prunes supported nested sets. Positional `array[int]` groups of
+the target enum lose newly empty sets and keep singletons and pre-existing empty
+sets; supported literal group accesses receive the compacted indices. Required
+record fields and fixed-index cells remain present when their sets become empty.
 Remaining scalar/computed dependencies and unavailable alignment facts make the
-candidate incomplete. Set cleanup and integer group compaction remain deferred.
+candidate incomplete.
 Incomplete previews exit 1 with located stderr diagnostics; `--write` refuses them.
 Actual errors exit 2 with empty stdout. See the [query reference](docs/reference.md#query-library)
 for kind strings, comment rules and limits, or run `zincite query --help`.

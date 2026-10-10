@@ -147,10 +147,17 @@ pub(crate) fn unwrapped(mut node: &SyntaxNode) -> &SyntaxNode {
 }
 
 pub(crate) fn direct_token(input: &Input, node: &SyntaxNode) -> Option<usize> {
+    syntax_token(input.syntax(), node)
+}
+
+pub(crate) fn syntax_token(
+    parsed: &zincite_syntax::ParsedFile,
+    node: &SyntaxNode,
+) -> Option<usize> {
     node.children().iter().find_map(|child| match child {
         SyntaxElement::Token(index)
             if !matches!(
-                input.syntax().tokens()[*index].kind,
+                parsed.tokens()[*index].kind,
                 TokenKind::Whitespace | TokenKind::LineComment | TokenKind::BlockComment
             ) =>
         {
