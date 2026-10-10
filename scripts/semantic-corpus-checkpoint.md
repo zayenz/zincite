@@ -6378,3 +6378,15 @@ The original Teams comparison removes its team_lead domain limitation while
 retaining other search and objective gaps. Formatting, Clippy and workspace
 tests pass in `target/benchmarks/base083/semantic67-enum-domain-main-gates-v1`.
 Fresh final corpus evidence and whole-task verification remain pending.
+
+The enum-collection binder repair is integrated. It inspects parameter arrays
+of nominal enum sets and nested binders through their owning declarations,
+including selected comparisons and closed source errors. Unknown values and
+search coverage remain unknown; no outputs or traversal certificates are added.
+The focused symbolic and closed-zero regression has genuine RED/GREEN evidence,
+and source-only MiniZinc controls pass. The original Teams comparison removes
+its two collection-search limitations and objective-domain limitation; separate
+cardinality, membership and team_lead-domain gaps remained in that private arm.
+Integrated formatting, Clippy and workspace tests pass in
+`target/benchmarks/base083/semantic67-enum-collection-main-gates-v1`.
+Fresh final evidence remains required after these Rust changes.

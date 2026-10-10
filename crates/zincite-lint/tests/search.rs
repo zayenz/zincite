@@ -12466,3 +12466,118 @@ predicate symmetry_breaking_constraint(var bool: b);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn enum_collection_binders_inspect_sources_without_search_certificates() {
+    use zincite_lint::CallOutcome;
+    let positive = concat!(
+        "enum Person; array[Person] of var Person: choice;\n",
+        "array[int] of set of Person: groups;\n",
+        "array[int] of var bool: pairs = [choice[p1] = choice[p2]\n",
+        "  | members in groups, p1,p2 in members where p1 < p2];\n",
+        "var int: score = sum(pairs); solve minimize score;\n",
+    );
+    let closed_error = positive.replace("array[int] of set", "array[1..(1 div 0)] of set");
+    for (name, source, completed) in [
+        ("enum-collection", positive, true),
+        ("enum-collection-source-zero", closed_error.as_str(), false),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!("{CORE}function bool: '<'($T: x,$T: y); function int: 'div'(int: x,int: y);\n"),
+        )
+        .unwrap();
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{:?}", context.errors);
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{:?}",
+            calls.calls
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let search = resolve_search_coverage(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+            &definitions,
+        );
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        let result = analyze_model(&context, &selected());
+        if completed {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "ENUM_COLLECTION_RED: {:?}",
+                result.limitations
+            );
+            assert!(search.limitations.is_empty());
+            for name in ["pairs", "score"] {
+                assert_eq!(coverage(&bindings, &search, name), SearchCoverage::Unknown);
+            }
+            let callable = resolve_callable_definitions(
+                &context,
+                &bindings,
+                &calls,
+                &instantiations,
+                &domains,
+            );
+            assert!(callable.outputs.is_empty());
+            assert_eq!(
+                coverage(&bindings, &search, "choice"),
+                SearchCoverage::Uncovered
+            );
+            assert!(search.searched.is_empty());
+            assert_eq!(result.findings.len(), 1);
+            assert_eq!(&source[result.findings[0].location.range.clone()], "choice");
+        } else {
+            assert!(matches!(
+                result.rules[0].outcome,
+                RuleOutcome::Limited { .. }
+            ));
+            let score = bindings
+                .declarations
+                .iter()
+                .find(|d| d.top_level && d.name == "score")
+                .unwrap()
+                .id;
+            let definition = definitions
+                .definitions
+                .iter()
+                .find(|d| d.target == score)
+                .unwrap();
+            assert!(
+                matches!(&definition.safety, DefinitionSafety::Unsupported(reason) if reason.contains("zero")),
+                "{:?}",
+                definition.safety
+            );
+            assert!(
+                result
+                    .limitations
+                    .iter()
+                    .any(|diagnostic| diagnostic.location.path == context.root
+                        && diagnostic.message.contains("zero")),
+                "{:?}",
+                result.limitations
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

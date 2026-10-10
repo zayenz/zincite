@@ -12939,6 +12939,99 @@ impl<'a> Producer<'a> {
             checked => checked,
         }
     }
+    fn enum_collection_header(
+        &self,
+        file: FileId,
+        header: &SyntaxNode,
+        view: &CallableFacts,
+        preceding: &[&SyntaxNode],
+    ) -> bool {
+        let Some(source) = header.child_nodes().next().map(unwrap) else {
+            return false;
+        };
+        if source.kind() != NodeKind::Expression
+            || !matches!(crate::domains::tokens(&self.context.files[file].parsed, source).as_slice(),
+                [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+        {
+            return false;
+        }
+        let Some(id) = self.reference(file, source) else {
+            return false;
+        };
+        let declaration = &self.bindings.declarations[id.0];
+        let Some(ty) = self.expression_type(view, file, source).map(|e| &e.ty) else {
+            return false;
+        };
+        let parameter =
+            |t: &TypeInst| t.known() && !optional(t) && t.instantiation == Instantiation::Parameter;
+        if !parameter(ty) || ty != &view.declarations[id.0].ty {
+            return false;
+        }
+        let binders: Vec<_> = self
+            .bindings
+            .declarations
+            .iter()
+            .filter(|d| {
+                d.file == file
+                    && d.role == DeclarationRole::Generator
+                    && d.syntax_range == header.range()
+            })
+            .collect();
+        match &ty.kind {
+            TypeKind::Array { indices, element } => {
+                declaration.top_level
+                    && declaration.role == DeclarationRole::Value
+                    && indices.len() == 1
+                    && parameter(&indices[0])
+                    && indices[0].kind == TypeKind::Int
+                    && parameter(element)
+                    && matches!(&element.kind, TypeKind::Set(member)
+                        if parameter(member) && matches!(member.kind, TypeKind::Enum(_)))
+                    && binders.len() == 1
+                    && &view.declarations[binders[0].id.0].ty == element.as_ref()
+            }
+            TypeKind::Set(element) => {
+                let Some(owning) = preceding.iter().find(|owning| {
+                    owning.range() == declaration.syntax_range
+                        && crate::domains::generator_slots(&self.context.files[file].parsed, owning)
+                            == 1
+                        && owning.children().iter().any(|child| {
+                            matches!(child, SyntaxElement::Token(i)
+                            if self.context.files[file].parsed.tokens()[*i].kind == TokenKind::In)
+                        })
+                }) else {
+                    return false;
+                };
+                let Some(array) = owning.child_nodes().next().map(unwrap) else {
+                    return false;
+                };
+                let Some(array_id) = self.reference(file, array).filter(|id| {
+                    array.kind() == NodeKind::Expression
+                        && self.bindings.declarations[id.0].top_level
+                        && self.bindings.declarations[id.0].role == DeclarationRole::Value
+                }) else {
+                    return false;
+                };
+                let array_type = &view.declarations[array_id.0].ty;
+                declaration.file == file
+                    && declaration.role == DeclarationRole::Generator
+                    && parameter(array_type)
+                    && self
+                        .expression_type(view, file, array)
+                        .is_some_and(|e| &e.ty == array_type)
+                    && matches!(&array_type.kind, TypeKind::Array { indices, element: member }
+                        if indices.len() == 1 && parameter(&indices[0]) && indices[0].kind == TypeKind::Int
+                            && member.as_ref() == ty)
+                    && parameter(element)
+                    && matches!(element.kind, TypeKind::Enum(_))
+                    && !binders.is_empty()
+                    && binders
+                        .iter()
+                        .all(|binder| &view.declarations[binder.id.0].ty == element.as_ref())
+            }
+            _ => false,
+        }
+    }
     // Inspect collection construction without turning unproved index
     // membership, cardinality or filtered iteration into output dependencies.
     fn collection_construction_safety(
@@ -13122,10 +13215,60 @@ impl<'a> Producer<'a> {
                         })
                     })
                 });
+            let enum_collection = node.kind() == NodeKind::ArrayComprehension
+                && element.kind == TypeKind::Bool
+                && list.child_nodes().any(|header| {
+                    header.child_nodes().next().is_some_and(|source| {
+                        typed(source).is_some_and(|t| {
+                            present_parameter(t)
+                                && matches!(&t.kind, TypeKind::Array { element, .. }
+                            if matches!(&element.kind, TypeKind::Set(member)
+                                if matches!(member.kind, TypeKind::Enum(_))))
+                        })
+                    })
+                });
             let mut nodes = vec![node];
             while let Some(current) = nodes.pop() {
                 if !crate::definitions::annotations_safe(self.context, file, current) {
                     return Err("parameter collection annotation is unsupported".into());
+                }
+                if enum_collection
+                    && current.kind() == NodeKind::BinaryExpression
+                    && let Some(name) = operator(self.context, file, current)
+                        .and_then(crate::bindings::symbolic_operator)
+                    && matches!(name, "=" | "!=" | "<" | "<=" | ">" | ">=")
+                {
+                    let Some(call) = self.operation_fact(facts, file, current) else {
+                        return Err("enum collection comparison selection unavailable".into());
+                    };
+                    let CallOutcome::Resolved {
+                        parameters,
+                        return_type,
+                        ..
+                    } = &call.outcome
+                    else {
+                        return Err("enum collection comparison selection unsupported".into());
+                    };
+                    let operands: Vec<_> = current.child_nodes().collect();
+                    if parameters.len() != 2
+                        || !present(return_type)
+                        || return_type.kind != TypeKind::Bool
+                        || parameters.iter().zip(&operands).any(|(formal, actual)| {
+                            typed(actual).is_none_or(|t| !present(t) || t.kind != formal.kind)
+                        })
+                        || !self.prefix_primitive(
+                            file,
+                            current,
+                            facts,
+                            name,
+                            parameters,
+                            return_type,
+                        )
+                    {
+                        return Err(
+                            "enum collection comparison written primitive unsupported".into()
+                        );
+                    }
                 }
                 nodes.extend(current.child_nodes());
             }
@@ -13134,7 +13277,8 @@ impl<'a> Producer<'a> {
                 && unwrap(body).kind() == NodeKind::ConditionalExpression;
             let mut all = generators.to_vec();
             let mut unsupported = None;
-            if decision_sets || decision_union || enum_sum || optional_range_sum {
+            if decision_sets || decision_union || enum_sum || optional_range_sum || enum_collection
+            {
                 for (position, header) in generators.iter().enumerate() {
                     for value in header.child_nodes() {
                         let (value, scope) = if value.kind() == NodeKind::WhereFilter {
@@ -13170,6 +13314,8 @@ impl<'a> Producer<'a> {
                             && d.syntax_range == header.range()
                     })
                     .collect();
+                let enum_header =
+                    enum_collection && self.enum_collection_header(file, header, facts, &all);
                 if !header.children().iter().any(|c| {
                     matches!(c, SyntaxElement::Token(i)
                     if self.context.files[file].parsed.tokens()[*i].kind == TokenKind::In)
@@ -13178,18 +13324,19 @@ impl<'a> Producer<'a> {
                     || decision_union && (binders.len() != 1 || header.child_nodes().count() != 1)
                     || binders.len()
                         != crate::domains::generator_slots(&self.context.files[file].parsed, header)
-                    || binders.iter().any(|d| {
-                        let t = &facts.declarations[d.id.0].ty;
-                        !present_parameter(t)
-                            || if optional_range_sum {
-                                t.kind != TypeKind::Int
-                            } else if optional_sum {
-                                !matches!(t.kind, TypeKind::Enum(_))
-                            } else {
-                                t.kind != TypeKind::Int
-                                    && !(enum_sum && matches!(t.kind, TypeKind::Enum(_)))
-                            }
-                    })
+                    || !enum_header
+                        && binders.iter().any(|d| {
+                            let t = &facts.declarations[d.id.0].ty;
+                            !present_parameter(t)
+                                || if optional_range_sum {
+                                    t.kind != TypeKind::Int
+                                } else if optional_sum {
+                                    !matches!(t.kind, TypeKind::Enum(_))
+                                } else {
+                                    t.kind != TypeKind::Int
+                                        && !(enum_sum && matches!(t.kind, TypeKind::Enum(_)))
+                                }
+                        })
                 {
                     return Err(if optional_sum {
                         "optional sum requires named parameter enum binders".into()
@@ -13220,6 +13367,7 @@ impl<'a> Producer<'a> {
                         return Err("optional sum source and binder enum identities differ".into());
                     }
                 } else if !optional_range_sum
+                    && !enum_header
                     && typed(source).is_none_or(|t| {
                         !(integer_set(t)
                             && binders.iter().all(|binder| {
@@ -13263,7 +13411,8 @@ impl<'a> Producer<'a> {
                     || optional_sum
                     || decision_sets
                     || decision_union
-                    || enum_sum)
+                    || enum_sum
+                    || enum_collection)
                     && let Some(reason) = self.closed_integer_source_error(file, source, true, true)
                 {
                     unsupported = Some(reason);
@@ -13290,7 +13439,8 @@ impl<'a> Producer<'a> {
                         || optional_sum
                         || decision_sets
                         || decision_union
-                        || enum_sum)
+                        || enum_sum
+                        || enum_collection)
                         && let Some(reason) =
                             self.closed_integer_source_error(file, condition, true, true)
                     {
@@ -13447,7 +13597,11 @@ impl<'a> Producer<'a> {
             };
             if let DefinitionSafety::Unsupported(reason) = body_safety {
                 unsupported = Some(reason);
-            } else if (optional_sum || decision_sets || decision_union || enum_sum)
+            } else if (optional_sum
+                || decision_sets
+                || decision_union
+                || enum_sum
+                || enum_collection)
                 && let Some(reason) = self.closed_integer_source_error(file, body, true, true)
             {
                 unsupported = Some(reason);
