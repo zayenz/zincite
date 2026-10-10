@@ -1979,6 +1979,25 @@ predicate global_cardinality(
             "forall(day in Days)(global_cardinality(schedule[day,..],Shift,requirements[day,..],requirements[day,..]))",
         );
     assert_ne!(integer_positive, positive);
+    let mixed_core = core
+        .replace(
+            "function var bool: '='(var int: a,var int: b);",
+            "function var bool: '='(any $T:x,any $T:y)::mzn_internal_representation::promise_commutative;",
+        )
+        .replace(
+            "function var bool: '<='(var int: a,var int: b);",
+            "function var bool: '<='(var $T:x,$T:y)::mzn_internal_representation;",
+        )
+        .replace(
+            "function var bool: '>='(var int: a,var int: b);",
+            "function var bool: '>='(var $T:x,$T:y)::mzn_internal_representation;",
+        );
+    let mixed_core = format!("{mixed_core}\nannotation mzn_internal_representation;\n");
+    let changed_mixed_core = mixed_core.replace(
+        "function var bool: '='(any $T:x,any $T:y)::mzn_internal_representation::promise_commutative;",
+        "function var bool: '='(any $T:x,any $T:y)::mzn_internal_representation::promise_commutative = false;",
+    );
+    assert_ne!(changed_mixed_core, mixed_core);
     let closed = positive.replace("schedule[..,worker]", "schedule[..,(worker div 0)]");
     let changed_count = count.replace(
         "sum([bool2int(y) | y in xx])",
@@ -1986,14 +2005,15 @@ predicate global_cardinality(
     );
     assert_ne!(closed, positive);
     assert_ne!(changed_count, count);
-    for (name, source, count, failure, enum_axis) in [
-        ("enum-axis", positive, count, None, true),
+    for (name, source, count, failure, enum_axis, primitive_core) in [
+        ("enum-axis", positive, count, None, true, core.as_str()),
         (
             "integer-axis",
             integer_positive.as_str(),
             count,
             None,
             false,
+            core.as_str(),
         ),
         (
             "closed-selector",
@@ -2001,6 +2021,7 @@ predicate global_cardinality(
             count,
             Some("division by zero"),
             true,
+            core.as_str(),
         ),
         (
             "changed-count",
@@ -2008,6 +2029,23 @@ predicate global_cardinality(
             changed_count.as_str(),
             Some("complete written body"),
             true,
+            core.as_str(),
+        ),
+        (
+            "mixed-overloads",
+            integer_positive.as_str(),
+            count,
+            None,
+            false,
+            mixed_core.as_str(),
+        ),
+        (
+            "changed-mixed-equality",
+            integer_positive.as_str(),
+            count,
+            Some("primitive written declaration"),
+            false,
+            changed_mixed_core.as_str(),
         ),
     ] {
         let dir = std::env::temp_dir().join(format!(
@@ -2015,7 +2053,7 @@ predicate global_cardinality(
             std::process::id()
         ));
         std::fs::create_dir_all(dir.join("library/std")).unwrap();
-        let core = format!("{core}\n{count}");
+        let core = format!("{primitive_core}\n{count}");
         for (file, source) in [
             ("stdlib.mzn", core.as_str()),
             ("global_cardinality.mzn", gcc),
@@ -2152,7 +2190,12 @@ predicate global_cardinality(
             assert_eq!(
                 value.raw_definedness,
                 GuardedOutcome::Unknown,
-                "GCC_SOURCE_RED {name}: {value:?}"
+                "{} {name}: {value:?}",
+                if name == "mixed-overloads" {
+                    "GCC_MIXED_SOURCE_RED"
+                } else {
+                    "GCC_SOURCE_RED"
+                }
             );
             assert_eq!(value.definedness, GuardedOutcome::Unknown);
             assert_eq!(value.truth, Some(GuardedOutcome::Unknown));

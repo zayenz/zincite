@@ -4078,6 +4078,10 @@ impl<'a> Producer<'a> {
                             "=" | "<=" | ">=" => {
                                 pair(&integer) && *return_type == boolean
                                     || pair(&decision_integer) && *return_type == decision_boolean
+                                    || native
+                                        && selected.as_slice()
+                                            == [decision_integer.clone(), integer.clone()]
+                                        && *return_type == decision_boolean
                             }
                             ".." => native && pair(&integer) && *return_type == set,
                             "in" => {

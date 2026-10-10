@@ -7395,3 +7395,20 @@ changed primitive body. Independent source review found no unresolved issue.
 Main formatting, Clippy and all 295 workspace tests passed; full streams and
 108 source pins were rechecked. Original-model replay and final expanded-corpus
 acceptance remain pending. Base-083 remains open.
+
+### Mixed native bound-cardinality comparisons
+
+The original Workforce observer selects native integer comparisons with a
+decision left operand and parameter right operand. The GCC body reader now
+admits those exact equality and ordering tuples. Selected declaration, written
+body, metadata and source-error checks remain mandatory; no nominal-axis rule
+or output certificate is widened.
+
+The existing four public cases are preserved. A mixed-overload positive fails
+at the intended assertion on the baseline and passes with the repair; a changed
+selected equality body remains refused. Both focused groups terminated with
+full retained streams and verified empty process groups. Independent source
+review found no unresolved defect. Original replay and final corpus acceptance
+remain pending; base-083 remains open.
+Main formatting, Clippy and all 295 workspace tests passed; the integrated
+108-source map and complete gate streams were rechecked.
