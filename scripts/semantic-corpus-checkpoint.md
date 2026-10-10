@@ -6814,3 +6814,18 @@ All 1,133 source/library pins remain unchanged across the replay. Retained
 compiler056 is original source-only acceptance; actual-instance, complete scoped
 actual-source inspection and final corpus acceptance remain unproven. Base-083
 stays open with all Done conditions unchecked.
+
+The unchanged original Workforce model and its adjacent matching instance now
+compile to FlatZinc with Gecode without solving. The clean 0.290-second capture
+under `target/benchmarks/base083/semantic71-workforce-original-instance-compile-v1`
+retains a 50,585-byte FZN and 1,038 unchanged compiler/library/model/data pins.
+This proves processing for that one instance, including the native regexp call;
+it does not validate arbitrary patterns, every instance or whole-corpus coverage.
+
+Formatting both original model and data to private output artifacts also compiles
+cleanly. ROOT compared the complete FZN files: the sole difference is the compiler's
+command-line comment naming input/output paths. Every other byte matches.
+`target/benchmarks/base083/semantic71-workforce-formatted-instance-compile-v1`
+retains the complete formatter/compiler captures and 1,146 unchanged input/source
+pins. Originals remain unchanged; no solve ran. General native regexp validity,
+the remaining source-inspection prerequisites and base-083 acceptance stay open.
