@@ -6829,3 +6829,27 @@ command-line comment naming input/output paths. Every other byte matches.
 retains the complete formatter/compiler captures and 1,146 unchanged input/source
 pins. Originals remain unchanged; no solve ran. General native regexp validity,
 the remaining source-inspection prerequisites and base-083 acceptance stay open.
+
+Scoped present decision Boolean array sources now follow their checked local
+comprehension initializer and selected concatenation through the existing source
+reader. The owning-let result binds actuals while preserving the active forwarding
+stack. These sources remain Unknown: no array values, extent, outputs or search
+coverage are proved. Written primitive, annotation, type, cycle and closed-source
+checks remain required.
+
+The three-case public group passes after reproducing the old failure to inspect
+a changed standard concatenation body. A closed division in the local source
+remains Limited; symbolic input completes without output proof. Workspace fmt,
+Clippy and tests pass. Captures are retained under
+`target/benchmarks/base083/semantic71-workforce-scoped-bool-source-main-checks-v1`.
+The exact original-source probe now returns Unknown for both concatenation and
+its scoped source graph, rather than the former integer-array refusal; retained
+selected signatures, local initializer and written domain are inspected under
+`target/benchmarks/base083/semantic71-workforce-scoped-bool-actual-repaired-v2`.
+
+The original native replay preserves its one warning and three remaining
+limitations byte-for-byte, with 1,133 unchanged source/library pins under
+`target/benchmarks/base083/semantic71-workforce-scoped-bool-native-prerequisite-v1`.
+The cardinality actual, regexp prerequisite and optional transition gaps remain;
+this source repair does not establish their completion or final corpus acceptance.
+Base-083 remains open with all Done conditions unchecked.

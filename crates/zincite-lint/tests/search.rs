@@ -14695,3 +14695,155 @@ predicate inspect_sliding(int: low,int: up,int: window_size,array[int] of var in
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn scoped_boolean_call_actuals_inspect_sources_without_output_proof() {
+    use zincite_lint::{CallOutcome, DeclarationRole, Instantiation, TypeKind};
+    let positive = concat!(
+        "int: n; set of int: Input = 1..n; array[Input] of var bool: choices;\n",
+        "predicate inspect_values(array[int] of var int: xs) =\n",
+        "  forall(i in index_set(xs))(xs[i] >= 0);\n",
+        "constraint let { array[Input] of var bool: local = [choices[i] | i in Input]; }\n",
+        "  in inspect_values(local ++ local); solve satisfy;\n",
+    );
+    let source_zero = positive.replace("1..n", "1..(n + (1 div 0))");
+    let concat = "function array[int] of any $V: '++'(array[$$X] of any $V: left,array[$$Y] of any $V: right) :: mzn_internal_representation;\n";
+    let core = CORE.replace(
+        "function array[int] of var int: '++'(array[int] of var int: left,array[int] of var int: right);\n",
+        concat,
+    ) + "annotation mzn_internal_representation; function int: '+'(int: x,int: y); function int: 'div'(int: x,int: y); function var bool: '>='(var int: x,var int: y);\n";
+    let changed = core.replace(concat, &concat.replace(";\n", " = [];\n"));
+    for (name, source, library, expected_error) in [
+        ("scoped-bool-actual", positive, core.as_str(), None),
+        (
+            "scoped-bool-source-zero",
+            source_zero.as_str(),
+            core.as_str(),
+            Some("zero"),
+        ),
+        (
+            "scoped-bool-written-concat",
+            positive,
+            changed.as_str(),
+            Some("written primitive"),
+        ),
+    ] {
+        let (dir, _) = model(name, "solve satisfy;", "");
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        std::fs::write(dir.join("library/std/stdlib.mzn"), library).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(context.includes.iter().all(|edge| edge.target.is_some()));
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let local = bindings
+            .declarations
+            .iter()
+            .find(|declaration| {
+                declaration.name == "local" && declaration.role == DeclarationRole::Local
+            })
+            .unwrap()
+            .id;
+        assert!(
+            matches!(&calls.declarations[local.0].ty.kind, TypeKind::Array { indices, element }
+            if indices.len() == 1 && indices[0].kind == TypeKind::Int
+                && indices[0].instantiation == Instantiation::Parameter && !indices[0].optional
+                && element.kind == TypeKind::Bool && element.instantiation == Instantiation::Decision
+                && !element.optional)
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let search = resolve_search_coverage(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+            &definitions,
+        );
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        assert!(
+            callable.outputs.is_empty(),
+            "{name}: {:?}",
+            callable.outputs
+        );
+        assert!(
+            callable
+                .definitions
+                .iter()
+                .all(|definition| definition.target != local)
+        );
+        assert!(search.searched.is_empty());
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        if let Some(reason) = expected_error {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                result.limitations
+            );
+            assert!(
+                callable
+                    .unavailable
+                    .iter()
+                    .any(|failure| failure.location.path == context.root
+                        && !failure.location.range.is_empty()
+                        && failure.reason.contains(reason)),
+                "{name}: {:?}",
+                callable.unavailable
+            );
+        } else {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {:?}",
+                result.limitations
+            );
+            assert!(result.limitations.is_empty());
+            assert!(callable.unavailable.is_empty());
+            assert_eq!(
+                coverage(&bindings, &search, "choices"),
+                SearchCoverage::Uncovered
+            );
+            assert_eq!(
+                search.declarations[local.0].coverage,
+                SearchCoverage::Unknown
+            );
+            assert_eq!(result.findings.len(), 1);
+            assert_eq!(
+                &source[result.findings[0].location.range.clone()],
+                "choices"
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

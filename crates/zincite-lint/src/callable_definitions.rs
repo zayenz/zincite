@@ -3819,14 +3819,53 @@ impl<'a> Producer<'a> {
                             continue;
                         }
                     }
-                    self.interpret_forwarded(
-                        (&body, view, known),
-                        &mut found,
-                        unavailable,
-                        inspected,
-                        active,
-                        invocation.as_deref_mut(),
-                    );
+                    let scoped_boolean_result = invocation.is_none()
+                        && uncertain_locals.iter().any(|id| {
+                            matches!(&view.declarations[id.0].ty.kind,
+                                TypeKind::Array { indices, element }
+                                    if indices.len() == 1 && element.kind == TypeKind::Bool)
+                        })
+                        && matches!(body.kind, ClauseKind::Call)
+                        && clause.node.child_nodes().any(|result| {
+                            result.kind() != NodeKind::LetBlock
+                                && unwrap(result).range() == body.node.range()
+                        })
+                        && self.resolved(body.file, body.node, view).is_some_and(
+                            |(id, parameters)| {
+                                self.instances.iter().any(|instance| {
+                                    instance.id == id
+                                        && instance.parameters == parameters
+                                        && !instance.recursive
+                                }) && !known.iter().any(|output| {
+                                    output.callable == id && output.parameters == parameters
+                                })
+                            },
+                        );
+                    if scoped_boolean_result {
+                        // The checked owning scope supplies sources, never outputs.
+                        // Preserve the active forwarding stack while binding actuals.
+                        let mut sources = Invocation {
+                            actuals: Vec::new(),
+                            reachable: Some(true),
+                        };
+                        self.interpret_forwarded(
+                            (&body, view, known),
+                            &mut found,
+                            unavailable,
+                            inspected,
+                            active,
+                            Some(&mut sources),
+                        );
+                    } else {
+                        self.interpret_forwarded(
+                            (&body, view, known),
+                            &mut found,
+                            unavailable,
+                            inspected,
+                            active,
+                            invocation.as_deref_mut(),
+                        );
+                    }
                 }
                 if unavailable.len() == before {
                     extend(inspected, uncertain_locals);
@@ -13544,11 +13583,28 @@ impl<'a> Producer<'a> {
                 continue;
             };
             let declaration = &self.bindings.declarations[id.0];
-            if !declaration.top_level
-                || !matches!(
-                    declaration.role,
-                    DeclarationRole::Value | DeclarationRole::Enum
-                )
+            let ty = &self.view(file, current, view).declarations[id.0].ty;
+            let local_boolean = declaration.file == file
+                && declaration.role == DeclarationRole::Local
+                && self.context.files[file].kind == SourceKind::User
+                && self.context.files[file]
+                    .parsed
+                    .tree()
+                    .child_nodes()
+                    .nth(declaration.item)
+                    .is_some_and(|item| item.kind() == NodeKind::Constraint)
+                && ty.known()
+                && !optional(ty)
+                && ty.instantiation == Instantiation::Decision
+                && matches!(&ty.kind, TypeKind::Array { indices, element }
+                    if indices.len() == 1 && indices[0] == TypeInst::par(TypeKind::Int)
+                        && **element == TypeInst::par(TypeKind::Bool).with_inst(Instantiation::Decision));
+            if !local_boolean
+                && (!declaration.top_level
+                    || !matches!(
+                        declaration.role,
+                        DeclarationRole::Value | DeclarationRole::Enum
+                    ))
             {
                 continue;
             }
@@ -13570,6 +13626,34 @@ impl<'a> Producer<'a> {
                     "initialized source declaration unavailable".into(),
                 );
             };
+            if local_boolean {
+                let initializers: Vec<_> = written
+                    .child_nodes()
+                    .filter(|value| is_expression(value.kind()))
+                    .collect();
+                let [initializer] = initializers.as_slice() else {
+                    return DefinitionSafety::Unsupported(
+                        "scoped Boolean source initializer is unavailable".into(),
+                    );
+                };
+                if unwrap(initializer).kind() != NodeKind::ArrayComprehension {
+                    return DefinitionSafety::Unsupported(
+                        "scoped Boolean source requires an inspected comprehension".into(),
+                    );
+                }
+                if let Err(reason) = self.uncertain_comprehension_type(
+                    file,
+                    written,
+                    unwrap(initializer),
+                    view,
+                    generators,
+                ) {
+                    return DefinitionSafety::Unsupported(reason);
+                }
+                safety = DefinitionSafety::Unknown(
+                    "scoped Boolean array values and extent are unproved".into(),
+                );
+            }
             active.push(id);
             let mut expressions: Vec<_> = written
                 .child_nodes()
@@ -13653,8 +13737,8 @@ impl<'a> Producer<'a> {
                 match self.initialized_source_safety(
                     declaration.file,
                     value,
-                    self.calls,
-                    &[],
+                    if local_boolean { view } else { self.calls },
+                    if local_boolean { generators } else { &[] },
                     active,
                 ) {
                     DefinitionSafety::Unsupported(reason) => unsupported = Some(reason),
@@ -20220,7 +20304,7 @@ impl<'a> Producer<'a> {
             && element.known()
             && !optional(element)
             && element.instantiation == Instantiation::Decision
-            && matches!(element.kind, TypeKind::Enum(_))
+            && matches!(element.kind, TypeKind::Enum(_) | TypeKind::Bool)
         {
             let arguments: Vec<_> = node.child_nodes().collect();
             let checked = self.operation_fact(self.view(file, node, view), file, node).is_some_and(|call|
@@ -20237,7 +20321,7 @@ impl<'a> Producer<'a> {
                         && self.prefix_primitive(file, node, self.view(file, node, view), "++", parameters, result)));
             if !checked || !crate::definitions::annotations_safe(self.context, file, written) {
                 return DefinitionSafety::Unsupported(
-                    "enum array concatenation written primitive or tuple is unsupported".into(),
+                    "decision array concatenation written primitive or tuple is unsupported".into(),
                 );
             }
             if let unsupported @ DefinitionSafety::Unsupported(_) =
@@ -20251,7 +20335,7 @@ impl<'a> Producer<'a> {
                 }
             }
             return DefinitionSafety::Unknown(
-                "enum array concatenation extent and values are unproved".into(),
+                "decision array concatenation extent and values are unproved".into(),
             );
         }
         if node.kind() == NodeKind::ArrayLiteral
