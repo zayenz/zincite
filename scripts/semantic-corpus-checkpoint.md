@@ -7224,3 +7224,12 @@ primitive, optionality, cycle and closed-error refusals. Both focused tests
 pass; formatting, Clippy and all 282 workspace tests pass on the integrated
 checkout. Fresh original and whole-corpus acceptance remain pending; base-083
 remains open.
+
+The next independently reviewed increment inspects a selected User integer
+function with a checked fresh-let body. It retains formal-to-actual identities,
+ordered caller locals and generator sources, reusing the scalar reflection
+operand checks. It returns Unknown without values, bounds, outputs or promoted
+definitions. All three focused cases pass, including closed body errors and
+recursive-body refusals. Formatting, Clippy and all 283 workspace tests pass
+on the integrated checkout. The original filtered caller path and final corpus
+acceptance remain unobserved; base-083 remains open.

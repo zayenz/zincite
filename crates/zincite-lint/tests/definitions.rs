@@ -1669,3 +1669,169 @@ fn parameter_float_coercions_inspect_integer_sources_without_output_proof() {
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
+
+#[test]
+fn user_integer_fresh_let_sources_preserve_unknown_and_refusals() {
+    let library = concat!(
+        "annotation mzn_internal_representation; annotation promise_commutative;\n",
+        "function int: lb(var int: x); function int: ub(var int: x);\n",
+        "function int: min(int: x,int: y) :: promise_commutative;\n",
+        "function int: max(int: x,int: y) :: promise_commutative;\n",
+        "function set of int: '..'(int: x,int: y) :: mzn_internal_representation;\n",
+        "function int: '+'(int: x,int: y) :: mzn_internal_representation :: promise_commutative;\n",
+        "function var int: '+'(var int: x,var int: y) :: mzn_internal_representation :: promise_commutative;\n",
+        "function int: '-'(int: x,int: y) :: mzn_internal_representation;\n",
+        "function var int: '-'(var int: x,var int: y) :: mzn_internal_representation;\n",
+        "function int: 'div'(int: x,int: y) :: mzn_internal_representation;\n",
+        "function var bool: '='(var int: x,var int: y) :: mzn_internal_representation :: promise_commutative;\n",
+        "function var bool: '\\/'(var bool: x,var bool: y) :: mzn_internal_representation :: promise_commutative;\n",
+    );
+    let source = concat!(
+        "array[1..2] of var int: inputs;\n",
+        "function var int: difference(var int: x,var int: y) =\n",
+        "  let { int: lower = min(lb(x)-ub(y),lb(x)+lb(y)),\n",
+        "        int: upper = max(ub(x)-lb(y),ub(x)+ub(y)),\n",
+        "        var lower..upper: z,\n",
+        "        constraint (z==x-y) \\/ (z==x+y) } in z;\n",
+        "var int: result = difference(inputs[1],inputs[2]);\n",
+        "solve satisfy;\n",
+    );
+    let zero = source.replace("lower = min", "lower = (1 div 0) + min");
+    let recursive = source.replace("z==x-y", "z==difference(x,y)");
+    for (name, source, failure) in [
+        ("symbolic", source, None),
+        ("closed-body-error", zero.as_str(), Some("division by zero")),
+        (
+            "recursive-body",
+            recursive.as_str(),
+            Some("written primitive"),
+        ),
+    ] {
+        let (directory, _) = model(name, "solve satisfy;", "");
+        let root = directory.join("root.mzn");
+        write(&directory.join("library/std/stdlib.mzn"), library);
+        write(&root, source);
+        let context = load_model(
+            &root,
+            &ModelOptions {
+                stdlib_dir: Some(directory.join("library")),
+                include_dirs: Vec::new(),
+            },
+        );
+        assert!(context.errors.is_empty() && context.limitations.is_empty());
+        assert!(context.root_file.is_some() && context.implicit_core.is_some());
+        assert!(context.includes.iter().all(|edge| edge.target.is_some()));
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let file = context
+            .files
+            .iter()
+            .position(|file| file.path == root)
+            .unwrap();
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        for call in calls.calls.iter().filter(|call| call.file == file) {
+            assert!(
+                matches!(call.outcome, CallOutcome::Resolved { .. }),
+                "{name}: {call:?}"
+            );
+        }
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let callable = zincite_lint::resolve_callable_definitions(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+        );
+        assert!(callable.outputs.is_empty() && callable.inspected_locals.is_empty());
+        let result = bindings
+            .declarations
+            .iter()
+            .find(|d| d.file == file && d.top_level && d.name == "result")
+            .unwrap()
+            .id;
+        let z = bindings
+            .declarations
+            .iter()
+            .find(|d| {
+                d.file == file && d.role == zincite_lint::DeclarationRole::Local && d.name == "z"
+            })
+            .unwrap()
+            .id;
+        // The written equalities already have conditional scalar records.
+        // Inspecting the function cannot promote either one to an enforced definition.
+        let equalities: Vec<_> = definitions
+            .definitions
+            .iter()
+            .filter(|d| d.target == z)
+            .collect();
+        assert_eq!(equalities.len(), 2);
+        assert!(
+            equalities
+                .iter()
+                .all(|d| d.coverage == DefinitionCoverage::Scalar
+                    && d.enforcement == DefinitionEnforcement::Conditional)
+        );
+        assert!(
+            !callable
+                .definitions
+                .iter()
+                .any(|d| d.target == z || d.target == result)
+        );
+        assert!(
+            !definitions
+                .bounded_or_defined_targets(&bindings, &domains)
+                .contains(&result)
+        );
+        let initialized = definitions
+            .definitions
+            .iter()
+            .find(|d| d.target == result)
+            .unwrap();
+        let analysis = analyze_model(
+            &context,
+            &LintOptions::from_selection("unbounded-variable").unwrap(),
+        );
+        assert!(analysis.errors.is_empty());
+        if let Some(failure) = failure {
+            let DefinitionSafety::Unsupported(reason) = &initialized.safety else {
+                panic!("{name}: {:?}", initialized.safety);
+            };
+            assert!(reason.contains(failure), "{name}: {reason}");
+            assert!(matches!(
+                analysis.rules[0].outcome,
+                RuleOutcome::Limited { .. }
+            ));
+            assert!(
+                analysis
+                    .limitations
+                    .iter()
+                    .any(|limit| limit.location.path == root
+                        && limit.message.contains(reason.as_str())),
+                "{name}: {:?}",
+                analysis.limitations
+            );
+        } else {
+            assert!(
+                matches!(initialized.safety, DefinitionSafety::Unknown(_)),
+                "USER_INTEGER_FRESH_LET_RED {:?}",
+                initialized.safety
+            );
+            assert!(
+                !analysis
+                    .findings
+                    .iter()
+                    .any(|finding| finding.message.contains("'result'"))
+            );
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}

@@ -19457,6 +19457,409 @@ impl<'a> Producer<'a> {
             )
         })
     }
+    fn user_integer_fresh_let_safety(
+        &self,
+        file: FileId,
+        written: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> Option<DefinitionSafety> {
+        let node = unwrap(written);
+        if node.kind() != NodeKind::CallExpression {
+            return None;
+        }
+        let call = self.operation_fact(self.view(file, node, view), file, node)?;
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &call.outcome
+        else {
+            return None;
+        };
+        let decision = TypeInst::par(TypeKind::Int).with_inst(Instantiation::Decision);
+        let owner = &self.bindings.declarations[declaration.0];
+        if owner.role != DeclarationRole::Function
+            || !owner.top_level
+            || self.context.files[owner.file].kind != SourceKind::User
+            || parameters.is_empty()
+            || parameters.iter().any(|ty| ty != &decision)
+            || return_type != &decision
+        {
+            return None;
+        }
+        let function = find_node(
+            self.context.files[owner.file].parsed.tree(),
+            &owner.syntax_range,
+            owner.role,
+        )?;
+        let body = function
+            .child_nodes()
+            .filter(|part| is_expression(part.kind()))
+            .last()?;
+        if unwrap(body).kind() != NodeKind::LetExpression {
+            return None;
+        }
+        Some(
+            (|| -> Result<DefinitionSafety, String> {
+                if !self.source_annotations_safe(file, written)
+                    || !self.callable_annotations_safe(owner.file, function)
+                    || function
+                        .child_nodes()
+                        .filter(|part| is_expression(part.kind()))
+                        .count()
+                        != 1
+                    || !self.calls.signatures.iter().any(|signature| {
+                        signature.declaration == *declaration
+                            && signature.return_type == decision
+                            && signature.parameters.len() == parameters.len()
+                            && signature
+                                .parameters
+                                .iter()
+                                .all(|formal| formal.ty == decision && !formal.has_default)
+                    })
+                {
+                    return Err("user integer source signature or metadata is unsupported".into());
+                }
+                // Only plain Int headers enter this body family; no named domain,
+                // default or alias is inferred from the concrete selected tuple.
+                for header in function
+                    .child_nodes()
+                    .filter(|part| !is_expression(part.kind()))
+                {
+                    let mut types = vec![header];
+                    while let Some(part) = types.pop() {
+                        if !matches!(
+                            part.kind(),
+                            NodeKind::ParameterList
+                                | NodeKind::Parameter
+                                | NodeKind::ScalarType
+                                | NodeKind::Annotation
+                        ) || !self.prefix_primitive_source_safe(owner.file, part)
+                        {
+                            return Err("user integer written header is unsupported".into());
+                        }
+                        if part.kind() != NodeKind::Annotation {
+                            types.extend(part.child_nodes());
+                        }
+                    }
+                }
+                self.user_integer_call_scope(file, written, view, generators)?;
+                let instance = Instance {
+                    id: *declaration,
+                    parameters: parameters.clone(),
+                    ancestry: Vec::new(),
+                    view: instantiated_body(
+                        self.context,
+                        self.bindings,
+                        self.calls,
+                        *declaration,
+                        parameters,
+                    ),
+                    clauses: Vec::new(),
+                    recursive: false,
+                };
+                let clause = Clause {
+                    file,
+                    item: call.item,
+                    node,
+                    generators: generators.to_vec(),
+                    kind: ClauseKind::Call,
+                };
+                let mut invocation = Invocation {
+                    actuals: Vec::new(),
+                    reachable: None,
+                };
+                self.invocation_actuals(&clause, view, &instance, &mut invocation)?;
+                self.fresh_integer_let_safety(
+                    owner.file,
+                    body,
+                    &instance.view,
+                    &[],
+                    Some(&invocation),
+                )
+                .ok_or_else(|| "user integer source requires an inspected fresh let body".into())
+            })()
+            .unwrap_or_else(DefinitionSafety::Unsupported),
+        )
+    }
+    // Caller locals are inspected in declaration order, before inherited headers
+    // and actuals use them. Their values and set nonemptiness remain unproved.
+    fn user_integer_call_scope(
+        &self,
+        file: FileId,
+        call: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> Result<(), String> {
+        let written_operation = |source: &SyntaxNode| -> Result<(), String> {
+            if matches!(
+                source.kind(),
+                NodeKind::CallExpression
+                    | NodeKind::GeneratorCallExpression
+                    | NodeKind::UnaryExpression
+                    | NodeKind::BinaryExpression
+                    | NodeKind::RangeExpression
+            ) {
+                let facts = self.view(file, source, view);
+                let call = self
+                    .operation_fact(facts, file, source)
+                    .ok_or("user integer caller source selection is unavailable")?;
+                let CallOutcome::Resolved {
+                    parameters,
+                    return_type,
+                    ..
+                } = &call.outcome
+                else {
+                    return Err("user integer caller source selection is unsupported".into());
+                };
+                if !self.prefix_primitive(file, source, facts, &call.name, parameters, return_type)
+                {
+                    return Err("user integer caller written primitive is unsupported".into());
+                }
+            }
+            Ok(())
+        };
+        let mut checked = Vec::new();
+        let mut ancestors = vec![self.context.files[file].parsed.tree()];
+        while let Some(node) = ancestors.pop() {
+            if node.range().start > call.range().start || call.range().end > node.range().end {
+                continue;
+            }
+            if node.kind() == NodeKind::LetExpression {
+                for entry in node
+                    .child_nodes()
+                    .filter(|part| part.kind() == NodeKind::LetBlock)
+                    .flat_map(|block| block.child_nodes())
+                    .take_while(|entry| entry.range().end <= call.range().start)
+                {
+                    let local = self
+                        .bindings
+                        .declarations
+                        .iter()
+                        .find(|local| {
+                            local.file == file
+                                && local.role == DeclarationRole::Local
+                                && local.syntax_range == entry.range()
+                        })
+                        .ok_or("user integer caller local identity is unavailable")?;
+                    let ty = &self.view(file, entry, view).declarations[local.id.0].ty;
+                    let parts: Vec<_> = entry
+                        .child_nodes()
+                        .filter(|part| part.kind() != NodeKind::Annotation)
+                        .collect();
+                    let [written_type, initializer] = parts.as_slice() else {
+                        return Err(
+                            "user integer caller requires initialized parameter locals".into()
+                        );
+                    };
+                    if entry.kind() != NodeKind::Declaration
+                        || !ty.known()
+                        || optional(ty)
+                        || ty.instantiation != Instantiation::Parameter
+                        || !(ty.kind == TypeKind::Int
+                            || matches!(&ty.kind, TypeKind::Set(element)
+                            if **element == TypeInst::par(TypeKind::Int)))
+                        || !matches!(
+                            written_type.kind(),
+                            NodeKind::ScalarType | NodeKind::SetType
+                        )
+                        || !is_expression(initializer.kind())
+                    {
+                        return Err(
+                            "user integer caller local type or source is unsupported".into()
+                        );
+                    }
+                    let preceding: Vec<_> = generators
+                        .iter()
+                        .copied()
+                        .filter(|header| header.range().end <= entry.range().start)
+                        .collect();
+                    self.type_dependencies(file, entry, view, &preceding)?;
+                    let mut sources = vec![entry];
+                    while let Some(source) = sources.pop() {
+                        if source.kind() == NodeKind::Error
+                            || !self.source_annotations_safe(file, source)
+                            || source.kind() == NodeKind::Expression
+                                && self.reference(file, source).is_some_and(|id| {
+                                    self.bindings.declarations[id.0].role == DeclarationRole::Local
+                                        && !checked.contains(&id)
+                                })
+                        {
+                            return Err(
+                                "user integer caller local scope or annotation is unsupported"
+                                    .into(),
+                            );
+                        }
+                        written_operation(source)?;
+                        sources.extend(source.child_nodes());
+                    }
+                    if let Some(reason) = self.closed_integer_source_error_with_branches(
+                        file,
+                        initializer,
+                        false,
+                        true,
+                        true,
+                    ) {
+                        return Err(reason);
+                    }
+                    if let DefinitionSafety::Unsupported(reason) = self.initialized_source_safety(
+                        file,
+                        initializer,
+                        view,
+                        &preceding,
+                        &mut Vec::new(),
+                    ) {
+                        return Err(reason);
+                    }
+                    checked.push(local.id);
+                }
+            }
+            ancestors.extend(node.child_nodes());
+        }
+        // Reuse the same present-Int header contract and source-before-binder,
+        // filter-after-binder ordering as the existing array source reader.
+        self.rank_four_source_headers_safety(file, view, generators)?;
+        let mut sources = vec![call];
+        sources.extend(generators.iter().copied());
+        while let Some(source) = sources.pop() {
+            if source.kind() == NodeKind::Expression
+                && self.reference(file, source).is_some_and(|id| {
+                    let owner = &self.bindings.declarations[id.0];
+                    owner.role == DeclarationRole::Local
+                        && (!checked.contains(&id) || owner.syntax_range.end > source.range().start)
+                })
+            {
+                return Err("user integer actual local scope is unsupported".into());
+            }
+            if source.kind() == NodeKind::Error || !self.source_annotations_safe(file, source) {
+                return Err("user integer actual source annotation is unsupported".into());
+            }
+            if source.range() != call.range() {
+                written_operation(source)?;
+            }
+            sources.extend(source.child_nodes());
+        }
+        Ok(())
+    }
+    // Inspect this fresh-let source family with retained physical formal-to-actual
+    // correspondence. No invocation output or reflected numeric bound is created.
+    fn fresh_integer_invoked_source(
+        &self,
+        file: FileId,
+        source: &'a SyntaxNode,
+        view: &CallableFacts,
+        invocation: &Invocation<'a, '_>,
+    ) -> Result<(), String> {
+        let integer = TypeInst::par(TypeKind::Int);
+        let decision = integer.clone().with_inst(Instantiation::Decision);
+        let boolean = |ty: &TypeInst| ty.known() && !optional(ty) && ty.kind == TypeKind::Bool;
+        let int = |ty: &TypeInst| ty == &integer || ty == &decision;
+        let mut nodes = vec![source];
+        while let Some(written) = nodes.pop() {
+            let node = unwrap(written);
+            if node.kind() == NodeKind::Expression {
+                let ty = self
+                    .expression_type(self.view(file, node, view), file, node)
+                    .ok_or("invoked integer source type is unavailable")?;
+                if !int(&ty.ty) && !boolean(&ty.ty) {
+                    return Err("invoked integer source type is unsupported".into());
+                }
+                if let Some(id) = self.reference(file, node) {
+                    let owner = &self.bindings.declarations[id.0];
+                    let own_formal = invocation.actuals.iter().any(|actual| actual.formal == id);
+                    let own_local = owner.file == file
+                        && owner.role == DeclarationRole::Local
+                        && owner.syntax_range.end <= node.range().start
+                        && invocation.actuals.iter().any(|actual| {
+                            let formal = &self.bindings.declarations[actual.formal.0];
+                            formal.file == file && formal.item == owner.item
+                        });
+                    if !own_formal && !own_local {
+                        return Err(
+                            "invoked integer source reference is outside its owning body".into(),
+                        );
+                    }
+                } else if !matches!(crate::domains::tokens(&self.context.files[file].parsed, node).as_slice(),
+                    [token] if matches!(token.kind, TokenKind::IntegerLiteral | TokenKind::Infinity | TokenKind::True | TokenKind::False))
+                {
+                    return Err("invoked integer source literal is unsupported".into());
+                }
+                continue;
+            }
+            if !matches!(
+                node.kind(),
+                NodeKind::CallExpression
+                    | NodeKind::BinaryExpression
+                    | NodeKind::UnaryExpression
+                    | NodeKind::RangeExpression
+            ) {
+                return Err("invoked integer source expression is unsupported".into());
+            }
+            let call = self
+                .operation_fact(self.view(file, node, view), file, node)
+                .ok_or("invoked integer source selection is unavailable")?;
+            let CallOutcome::Resolved {
+                parameters,
+                return_type,
+                ..
+            } = &call.outcome
+            else {
+                return Err("invoked integer source selection is unsupported".into());
+            };
+            let children: Vec<_> = node.child_nodes().collect();
+            let allowed = match call.name.as_str() {
+                "lb" | "ub" => {
+                    if parameters.as_slice() != [decision.clone()]
+                        || return_type != &integer
+                        || children.len() != 1
+                    {
+                        return Err("invoked scalar reflection tuple is unsupported".into());
+                    }
+                    let actual = self
+                        .invocation_source(file, children[0], invocation)?
+                        .ok_or("invoked scalar reflection requires its own formal")?;
+                    if actual.collection {
+                        return Err("invoked scalar reflection collection is unsupported".into());
+                    }
+                    if let DefinitionSafety::Unsupported(reason) = self
+                        .decision_scalar_bound_operand_safety(
+                            actual.file,
+                            actual.node,
+                            actual.view,
+                            &actual.generators,
+                        )
+                    {
+                        return Err(reason);
+                    }
+                    continue;
+                }
+                "+" | "-" => {
+                    matches!(parameters.len(), 1 | 2)
+                        && parameters.iter().all(int)
+                        && int(return_type)
+                }
+                "min" | "max" => {
+                    parameters.as_slice() == [integer.clone(), integer.clone()]
+                        && return_type == &integer
+                }
+                "=" => parameters.len() == 2 && parameters.iter().all(int) && boolean(return_type),
+                "/\\" | "\\/" => {
+                    parameters.len() == 2 && parameters.iter().all(boolean) && boolean(return_type)
+                }
+                ".." => {
+                    parameters.as_slice() == [integer.clone(), integer.clone()]
+                        && *return_type == TypeInst::par(TypeKind::Set(Box::new(integer.clone())))
+                }
+                _ => false,
+            };
+            if !allowed {
+                return Err("invoked integer source operation is unsupported".into());
+            }
+            nodes.extend(children);
+        }
+        Ok(())
+    }
     // A fresh integer choice can have inspected sources without a defining
     // dependency vector. Keep the strict let interpreter and its outputs separate.
     fn fresh_integer_let_safety(
@@ -19465,6 +19868,7 @@ impl<'a> Producer<'a> {
         written: &'a SyntaxNode,
         view: &CallableFacts,
         generators: &[&'a SyntaxNode],
+        invocation: Option<&Invocation<'a, '_>>,
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
         let integer = TypeInst::par(TypeKind::Int);
@@ -19718,7 +20122,9 @@ impl<'a> Producer<'a> {
                 {
                     return Err(reason);
                 }
-                if let DefinitionSafety::Unsupported(reason) =
+                if let Some(invocation) = invocation {
+                    self.fresh_integer_invoked_source(file, source, view, invocation)?;
+                } else if let DefinitionSafety::Unsupported(reason) =
                     self.initialized_source_safety(file, source, view, generators, &mut Vec::new())
                 {
                     return Err(reason);
@@ -21376,17 +21782,10 @@ impl<'a> Producer<'a> {
             return None;
         }
         let result = self.expression_type(facts, file, node).map(|e| &e.ty);
-        let subject = selection.child_nodes().next().map(unwrap);
-        let array = subject.and_then(|n| self.reference(file, n));
         if argument.kind() == NodeKind::NamedArgument
             || !actual.known() || optional(actual) || actual.kind != TypeKind::Int
             || result.is_none_or(|t| !t.known() || optional(t) || t.kind != TypeKind::Int
                 || t.instantiation != Instantiation::Parameter)
-            || subject.is_none_or(|n| n.kind() != NodeKind::Expression
-                || !matches!(crate::domains::tokens(&self.context.files[file].parsed, n).as_slice(),
-                    [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier)))
-            || array.is_none_or(|id| self.bindings.declarations[id.0].role != DeclarationRole::Value
-                || !self.bindings.declarations[id.0].top_level)
             || !crate::definitions::annotations_safe(self.context, file, written)
             || !self.operation_fact(facts, file, node).is_some_and(|call| {
                 matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
@@ -21395,10 +21794,33 @@ impl<'a> Producer<'a> {
         {
             return Some(DefinitionSafety::Unsupported("scalar reflection selected operand or signature is unsupported".into()));
         }
-        if let unsupported @ DefinitionSafety::Unsupported(_) =
-            self.initialized_children_safety(file, &children, view, generators)
+        Some(self.decision_scalar_bound_operand_safety(file, argument, view, generators))
+    }
+    fn decision_scalar_bound_operand_safety(
+        &self,
+        file: FileId,
+        argument: &'a SyntaxNode,
+        view: &CallableFacts,
+        generators: &[&'a SyntaxNode],
+    ) -> DefinitionSafety {
+        let selection = unwrap(argument);
+        let subject = selection.child_nodes().next().map(unwrap);
+        let array = subject.and_then(|node| self.reference(file, node));
+        if selection.kind() != NodeKind::ArrayAccessExpression
+            || self.expression_type(self.view(file, argument, view), file, argument)
+                .is_none_or(|e| e.ty != TypeInst::par(TypeKind::Int).with_inst(Instantiation::Decision))
+            || subject.is_none_or(|node| node.kind() != NodeKind::Expression
+                || !matches!(crate::domains::tokens(&self.context.files[file].parsed, node).as_slice(),
+                    [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier)))
+            || array.is_none_or(|id| self.bindings.declarations[id.0].role != DeclarationRole::Value
+                || !self.bindings.declarations[id.0].top_level)
         {
-            return Some(unsupported);
+            return DefinitionSafety::Unsupported("scalar reflection selected operand or signature is unsupported".into());
+        }
+        if let unsupported @ DefinitionSafety::Unsupported(_) =
+            self.initialized_children_safety(file, &[argument], view, generators)
+        {
+            return unsupported;
         }
         let owner = &self.bindings.declarations[array.unwrap().0];
         if let Some(written) = find_node(
@@ -21413,9 +21835,7 @@ impl<'a> Producer<'a> {
                 value.kind() == NodeKind::ArrayLiteral && value.child_nodes().next().is_none()
             })
         {
-            return Some(DefinitionSafety::Unsupported(
-                "scalar reflection source is empty".into(),
-            ));
+            return DefinitionSafety::Unsupported("scalar reflection source is empty".into());
         }
         let mut domains = vec![&self.domains.declarations[owner.id.0].domain];
         while let Some(domain) = domains.pop() {
@@ -21429,21 +21849,19 @@ impl<'a> Producer<'a> {
                     if matches!((crate::domains::invariant_integer(lower), crate::domains::invariant_integer(upper)),
                         (Ok(Some(lower)), Ok(Some(upper))) if upper < lower) =>
                 {
-                    return Some(DefinitionSafety::Unsupported(
+                    return DefinitionSafety::Unsupported(
                         "scalar reflection source domain is empty".into(),
-                    ));
+                    );
                 }
                 Domain::LiteralSet(values) if values.is_empty() => {
-                    return Some(DefinitionSafety::Unsupported(
+                    return DefinitionSafety::Unsupported(
                         "scalar reflection source domain is empty".into(),
-                    ));
+                    );
                 }
                 _ => {}
             }
         }
-        Some(DefinitionSafety::Unknown(
-            "reflected scalar bound is unproved".into(),
-        ))
+        DefinitionSafety::Unknown("reflected scalar bound is unproved".into())
     }
     fn integer_array_set_safety(
         &self,
@@ -23320,7 +23738,10 @@ impl<'a> Producer<'a> {
         if let Some(safety) = self.parameter_row_let_safety(file, node, view, generators, &[]) {
             return safety;
         }
-        if let Some(safety) = self.fresh_integer_let_safety(file, node, view, generators) {
+        if let Some(safety) = self.fresh_integer_let_safety(file, node, view, generators, None) {
+            return safety;
+        }
+        if let Some(safety) = self.user_integer_fresh_let_safety(file, node, view, generators) {
             return safety;
         }
         if let Some(safety) = self.parameter_set_extremum_safety(file, node, view, generators) {
