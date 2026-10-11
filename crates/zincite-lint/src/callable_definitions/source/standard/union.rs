@@ -193,9 +193,19 @@ impl<'a> SourceInspector<'a> {
                     .any(|(argument, parameter)| {
                         argument.kind() == NodeKind::NamedArgument
                             || self.expression_type(view, file, argument).is_none_or(|e| {
+                                // Retain the selected native set2array matching view only.
+                                let set_array_view = e.ty.instantiation == Instantiation::Parameter
+                                    && parameter.instantiation == Instantiation::Parameter
+                                    && !optional(parameter)
+                                    && matches!((&e.ty.kind, &parameter.kind),
+                                        (TypeKind::Set(element), TypeKind::Array { indices, element: selected })
+                                            if indices.as_slice() == [TypeInst::par(TypeKind::Int)]
+                                                && element.instantiation == Instantiation::Parameter
+                                                && matches!(element.kind, TypeKind::Int | TypeKind::Enum(_))
+                                                && element == selected);
                                 !e.ty.known()
                                     || optional(&e.ty)
-                                    || !crate::types::coerces(&e.ty, parameter)
+                                    || !(crate::types::coerces(&e.ty, parameter) || set_array_view)
                             })
                     })
             {

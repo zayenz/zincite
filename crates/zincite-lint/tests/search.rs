@@ -540,6 +540,153 @@ fn parameter_set_local_alias_keeps_inspected_source_unknown() {
 }
 
 #[test]
+fn native_set_array_matching_views_inspect_caller_sources_without_outputs() {
+    use zincite_lint::CallOutcome;
+
+    let array = concat!(
+        "array[1..2] of int: Indices = [1,2];\n",
+        "array[1..2] of var 0..9: inputs; var bool: gate;\n",
+        "test within_limit(var int: value) = ub(value)<10;\n",
+        "constraint forall(i in index_set(Indices))(let {\n",
+        " int: count = if within_limit(inputs[i]) then 1 else 0 endif; var bool: marker;\n",
+        "} in marker <-> gate);\n",
+        "solve :: seq_search([int_search(inputs,input_order,indomain_min,complete),\n",
+        " bool_search([gate],input_order,indomain_min,complete)]) satisfy;\n",
+    );
+    let set = array.replace(
+        "array[1..2] of int: Indices = [1,2]",
+        "set of int: Indices = 1..2",
+    );
+    let library = format!(
+        "{CORE}{}",
+        concat!(
+            "function int: ub(var int: value); function bool: '<'(int: x,int: y);\n",
+            "function var bool: '<->'(var bool: x,var bool: y);\n",
+            "function int: 'div'(int: x,int: y); annotation opaque;\n",
+        )
+    );
+    let written = library.replace(
+        "index_set(array[int] of any $V: xs);",
+        "index_set(array[int] of any $V: xs) = 1..(1 div 0);",
+    );
+    let annotated = library.replace(
+        "index_set(array[int] of any $V: xs);",
+        "index_set(array[int] of any $V: xs) :: opaque;",
+    );
+    for (name, source, library, reason) in [
+        ("array", array.to_owned(), library.as_str(), None),
+        ("set", set.clone(), library.as_str(), None),
+        (
+            "header-source-error",
+            set.replace("Indices = 1..2", "Indices = 1..(1 div 0)"),
+            library.as_str(),
+            Some("integer division by zero"),
+        ),
+        (
+            "written-native",
+            set.clone(),
+            written.as_str(),
+            Some("written primitive"),
+        ),
+        (
+            "native-annotation",
+            set,
+            annotated.as_str(),
+            Some("written primitive"),
+        ),
+    ] {
+        let (dir, _) = model(
+            &format!("native-set-array-caller-{name}"),
+            "solve satisfy;",
+            "",
+        );
+        std::fs::write(dir.join("root.mzn"), &source).unwrap();
+        std::fs::write(dir.join("library/std/stdlib.mzn"), library).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == 0)
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let result = analyze_model(&context, &selected());
+        assert!(
+            callable.outputs.is_empty() && callable.definitions.is_empty(),
+            "{name}: {callable:?}"
+        );
+        assert!(result.errors.is_empty(), "{name}: {result:?}");
+        if let Some(reason) = reason {
+            assert!(callable.inspected_locals.is_empty(), "{name}: {callable:?}");
+            assert!(
+                callable
+                    .unavailable
+                    .iter()
+                    .any(|failure| failure.reason.contains(reason)),
+                "{name}: {callable:?}"
+            );
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {result:?}"
+            );
+        } else {
+            assert!(callable.unavailable.is_empty(), "{name}: {callable:?}");
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {result:?}"
+            );
+            assert!(
+                result.limitations.is_empty() && result.findings.is_empty(),
+                "{name}: {result:?}"
+            );
+            let marker = bindings
+                .declarations
+                .iter()
+                .find(|declaration| declaration.file == 0 && declaration.name == "marker")
+                .unwrap()
+                .id;
+            assert_eq!(
+                callable.inspected_locals,
+                vec![marker],
+                "{name}: {callable:?}"
+            );
+            let definitions =
+                resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+            let search = resolve_search_coverage(
+                &context,
+                &bindings,
+                &calls,
+                &instantiations,
+                &domains,
+                &definitions,
+            );
+            assert_eq!(
+                search.declarations[marker.0].coverage,
+                SearchCoverage::Unknown,
+                "{name}: no coverage proof"
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
 fn local_integer_concatenation_inspects_conditional_sources_without_outputs() {
     use zincite_lint::CallOutcome;
 

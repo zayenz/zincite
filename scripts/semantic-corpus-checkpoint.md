@@ -8512,3 +8512,24 @@ The one bounded private diagnostic terminated normally under its 180-second
 deadline and preserved the original hash. It used the retained `3ce14c6` baseline
 with diagnostic wrappers on the unchanged rejecting path; it is not final
 current-binary corpus evidence. All five whole-task conditions remain unchecked.
+
+### Native set-to-array argument source increment
+
+After `11c0192`, the finite Test caller control completes with a parameter Int
+array header but rejects the same native `index_set` call with a parameter Int
+set. Call selection already records the implicit set-to-array matching view.
+The native primitive source guard now recognizes the same exact view used by
+existing invocation handling: present parameter Int/enum set to a present
+parameter rank-one array, with the default integer index type and identical
+element type and nominal identity. The written set remains the source.
+
+Selected declaration/tuple/result, arity, source types, written primitive body
+and annotation checks still run. This supplies no values, index-set
+correspondence, membership, extent, totality or output proof. Both positive
+header variants inspect only the marker, whose search coverage remains Unknown;
+there are no callable outputs or definitions. Public refusals retain closed
+header source errors and changed/annotated native primitives; private callee,
+optional and nominal mismatch controls remain relevant. Current MiniZinc source
+checking and Gecode compile-only accept the positive set control without a
+solver run. Original E outcomes after the correction remain unobserved, and all
+five whole-task conditions remain unchecked.
