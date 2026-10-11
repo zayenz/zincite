@@ -4,8 +4,8 @@
 
 - Total: 96
 - Ready: 2
-- Blocked: 3
-- Done: 91
+- Blocked: 2
+- Done: 92
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -101,7 +101,7 @@
 | [base-090](tasks/090-query-nested-expressions-and-emit-structured-source-inspecti.md) | Query nested expressions and emit structured source inspection reports | done | base-085 |
 | [base-091](tasks/091-expose-existing-declaration-references-and-semantic-facts-to.md) | Expose existing declaration references and semantic facts to model queries | done | base-090, base-089 |
 | [base-092](tasks/092-validate-both-query-commands-and-wedding-instance-reduction.md) | Validate both query commands and wedding-instance reduction on representative data | ready | base-089, base-091 |
-| [base-093](tasks/093-refactor-callable-definitions-into-readable-internal-modules.md) | Refactor callable definitions into readable internal modules | ready | — |
-| [base-094](tasks/094-replan-callable-analysis-responsibilities-and-semantic-suppo.md) | Replan callable analysis responsibilities and semantic support | blocked | base-093 |
+| [base-093](tasks/093-refactor-callable-definitions-into-readable-internal-modules.md) | Refactor callable definitions into readable internal modules | done | — |
+| [base-094](tasks/094-replan-callable-analysis-responsibilities-and-semantic-suppo.md) | Replan callable analysis responsibilities and semantic support | ready | base-093 |
 | [base-095](tasks/095-fix-formatter-layout-for-multiline-callable-bodies.md) | Fix formatter layout for multiline callable bodies | done | — |
 | [base-096](tasks/096-fix-formatter-indentation-and-wrapping-of-conjunction-chains.md) | Fix formatter indentation and wrapping of conjunction chains | done | — |
