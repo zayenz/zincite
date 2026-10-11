@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-103"
 key = "format-short-conditional-comprehensions"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -25,10 +25,19 @@ Found with local zincite-fmt at f950541 while formatting Gecode's optional sched
 
 ## Done when
 
-- [ ] A short conditional array comprehension may remain compact when its complete containing line fits the configured width.
-- [ ] Non-fitting and deliberately multiline conditional comprehensions retain clear indentation within their array brackets.
+- [x] A short conditional array comprehension may remain compact when its complete containing line fits the configured width.
+- [x] Non-fitting and deliberately multiline conditional comprehensions retain clear indentation within their array brackets.
 
 ## Validation
 
 - Add a few focused formatting examples at two/four-space indentation and fitting/non-fitting widths; check reparsing, token/comment preservation and second-pass stability.
 - Run existing formatter tests and required Cargo checks.
+
+## Result
+
+Fitting short conditional array comprehensions stay compact; expanded heads and generators align clearly within brackets.
+
+Validation:
+
+- Independent verifier passed at W2370f38b344caba4; complete-line width, two/four-space indentation, comments/tokens, reparsing, grouping and second-pass stability passed.
+- cargo fmt --all -- --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace passed, including 29 formatter tests.

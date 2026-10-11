@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 103
-- Ready: 2
+- Ready: 1
 - Blocked: 2
-- Done: 99
+- Done: 100
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -111,4 +111,4 @@
 | [base-100](tasks/100-admit-normal-library-semantic-queries-with-distinct-finite-s.md) | Admit normal-library semantic queries with distinct finite scan and result bounds | done | — |
 | [base-101](tasks/101-bound-declaration-use-lookup-on-normal-installed-minizinc-li.md) | Bound declaration-use lookup on normal installed MiniZinc libraries | done | — |
 | [base-102](tasks/102-keep-fitting-quantified-condition-chains-compact.md) | Keep fitting quantified condition chains compact | done | — |
-| [base-103](tasks/103-keep-fitting-conditional-array-comprehensions-compact.md) | Keep fitting conditional array comprehensions compact | ready | — |
+| [base-103](tasks/103-keep-fitting-conditional-array-comprehensions-compact.md) | Keep fitting conditional array comprehensions compact | done | — |

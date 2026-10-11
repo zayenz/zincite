@@ -407,7 +407,7 @@ impl<'a> Formatter<'a> {
             node.kind(),
             NodeKind::ConditionalExpression | NodeKind::LetExpression
         ) {
-            self.control_expression(node, leading_space);
+            self.control_expression(node, leading_space, false);
             return;
         }
         if matches!(
@@ -728,7 +728,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    fn control_expression(&mut self, node: &SyntaxNode, leading_space: bool) {
+    fn control_expression(&mut self, node: &SyntaxNode, leading_space: bool, compact: bool) {
         let mut first = true;
         for child in node.children() {
             if self.prefix_finished() {
@@ -741,7 +741,7 @@ impl<'a> Formatter<'a> {
                         NodeKind::ConditionalBranch | NodeKind::ElseBranch
                     ) =>
                 {
-                    if !first {
+                    if !first && !compact {
                         self.newlines(self.pending_breaks.max(1));
                     }
                     let mut body = false;
@@ -751,7 +751,7 @@ impl<'a> Formatter<'a> {
                         }
                         match part {
                             SyntaxElement::Node(expression) => {
-                                if body {
+                                if body && !compact {
                                     self.newlines(self.pending_breaks.max(1));
                                 }
                                 let suffix = if body {
@@ -759,16 +759,16 @@ impl<'a> Formatter<'a> {
                                 } else {
                                     self.following_columns(branch.children(), position)
                                 };
-                                let compact = !body
+                                let compact_condition = !body
                                     && self.generator_condition_fits_inline(expression, suffix);
                                 let continuation = !body
-                                    && !compact
+                                    && !compact_condition
                                     && self.prefix_exceeds_width(expression, true, suffix);
                                 if continuation {
                                     self.indent += 1;
                                     self.newlines(self.pending_breaks.max(1));
                                 }
-                                if compact {
+                                if compact_condition {
                                     let previous = self.suffix_columns;
                                     self.suffix_columns = suffix;
                                     self.compact_generator_condition(expression, true);
@@ -793,12 +793,14 @@ impl<'a> Formatter<'a> {
                                 }
                                 if matches!(kind, TokenKind::Then | TokenKind::Else) {
                                     body = true;
-                                    self.indent += 1;
+                                    if !compact {
+                                        self.indent += 1;
+                                    }
                                 }
                             }
                         }
                     }
-                    if body {
+                    if body && !compact {
                         self.indent -= 1;
                     }
                 }
@@ -811,7 +813,7 @@ impl<'a> Formatter<'a> {
                 }
                 SyntaxElement::Token(index) => {
                     let kind = self.parsed.tokens()[*index].kind;
-                    if kind == TokenKind::EndIf {
+                    if kind == TokenKind::EndIf && !compact {
                         self.newlines(self.pending_breaks.max(1));
                     }
                     self.token_with_space(*index, !first || leading_space);
@@ -945,6 +947,33 @@ impl<'a> Formatter<'a> {
     }
 
     fn generator_expression(&mut self, node: &SyntaxNode, leading_space: bool, compact_body: bool) {
+        let mut compact_conditional = node.kind() == NodeKind::ArrayComprehension
+            && !self.has_delimited_line_break(
+                node,
+                TokenKind::LeftBracket,
+                TokenKind::RightBracket,
+            )
+            && node.child_nodes().any(|head| {
+                head.kind() == NodeKind::ConditionalExpression
+                    && !self.parsed.source()[head.range()].contains(['\r', '\n'])
+            });
+        if compact_conditional && !self.measuring {
+            let mut preview = self.preview();
+            let start = preview.output.len();
+            preview.generator_expression_contents(node, leading_space, compact_body, true);
+            compact_conditional = !preview.output[start..].contains('\n')
+                && !preview.exceeds_width(self.current_columns(), self.suffix_columns);
+        }
+        self.generator_expression_contents(node, leading_space, compact_body, compact_conditional);
+    }
+
+    fn generator_expression_contents(
+        &mut self,
+        node: &SyntaxNode,
+        leading_space: bool,
+        compact_body: bool,
+        compact_conditional: bool,
+    ) {
         let call = node.kind() == NodeKind::GeneratorCallExpression;
         let closing = match node.kind() {
             NodeKind::SetComprehension => TokenKind::RightBrace,
@@ -991,7 +1020,12 @@ impl<'a> Formatter<'a> {
                     self.generator_body(body, forall, compact_body)
                 }
                 SyntaxElement::Node(head) => {
-                    if !head_expanded && self.prefix_exceeds_width(head, false, 2) {
+                    let conditional = head.kind() == NodeKind::ConditionalExpression
+                        && node.kind() == NodeKind::ArrayComprehension;
+                    if !head_expanded
+                        && (conditional && !compact_conditional
+                            || self.prefix_exceeds_width(head, false, 2))
+                    {
                         head_expanded = true;
                         self.indent += 1;
                     }
@@ -999,7 +1033,11 @@ impl<'a> Formatter<'a> {
                         self.newlines(self.pending_breaks.max(1));
                         self.pending_breaks = 0;
                     }
-                    self.expression_before(head, false, 2);
+                    if conditional && compact_conditional {
+                        self.control_expression(head, false, true);
+                    } else {
+                        self.expression_before(head, false, 2);
+                    }
                 }
                 SyntaxElement::Token(index) => {
                     let kind = self.parsed.tokens()[*index].kind;

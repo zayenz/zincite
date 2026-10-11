@@ -915,6 +915,70 @@ else false endif;
 }
 
 #[test]
+fn conditional_array_comprehensions_fit_complete_lines_and_indent_expanded_heads() {
+    use std::num::NonZeroUsize;
+    use zincite_fmt::{FormatOptions, format_with_options};
+
+    let compact = r"array[int] of var int: start = [if is_fixed(si) /\ absent(fix(si)) then 0 else deopt(si) endif | si in s];";
+    let multiline = "array[int] of var int: start = [if is_fixed(si) /\\ absent(fix(si)) then\n/* Keep  branch */ 0 else deopt(si) endif | si in s];";
+    for indent_size in [2, 4] {
+        let indent = " ".repeat(indent_size);
+        for (source, width, expanded) in [
+            (compact, compact.len(), false),
+            (compact, 80, true),
+            (multiline, 120, true),
+        ] {
+            let options = FormatOptions {
+                indent_size: NonZeroUsize::new(indent_size).unwrap(),
+                max_line_length: NonZeroUsize::new(width),
+                ..FormatOptions::default()
+            };
+            let parsed = parse(source);
+            assert!(parsed.diagnostics().is_empty());
+            let formatted = format_with_options(&parsed, &options).unwrap();
+            if expanded {
+                assert!(
+                    formatted.contains(&format!("= [\n{indent}if is_fixed(si)")),
+                    "{formatted}"
+                );
+                assert!(
+                    formatted.contains(&format!("\n{indent}else\n{indent}{indent}deopt(si)")),
+                    "{formatted}"
+                );
+                assert!(
+                    formatted.contains(&format!("\n{indent}endif |\n{indent}si in s,\n];")),
+                    "{formatted}"
+                );
+            } else {
+                assert_eq!(formatted, format!("{compact}\n"));
+            }
+            assert!(formatted.lines().all(|line| line.len() <= width));
+            let reparsed = parse(&formatted);
+            assert!(reparsed.diagnostics().is_empty(), "{formatted}");
+            let spellings = |file: &zincite_syntax::ParsedFile| {
+                file.tokens()
+                    .iter()
+                    .filter(|token| {
+                        token.kind != TokenKind::Whitespace
+                            && !(token.kind == TokenKind::Comma
+                                && file.source()[token.range.end..]
+                                    .trim_start()
+                                    .starts_with(']'))
+                    })
+                    .map(|token| file.source()[token.range.clone()].to_owned())
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(spellings(&parsed), spellings(&reparsed));
+            assert_eq!(
+                structure(parsed.tree(), &parsed),
+                structure(reparsed.tree(), &reparsed)
+            );
+            assert_eq!(format_with_options(&reparsed, &options).unwrap(), formatted);
+        }
+    }
+}
+
+#[test]
 fn short_forall_conditions_fit_inline_without_collapsing_multiline_bodies() {
     use zincite_fmt::{FormatOptions, format_with_options};
     let source = r#"predicate bounded(array[int] of var int: xs) =
