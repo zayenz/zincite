@@ -267,3 +267,66 @@ fn joint_selection_deduplicates_emitted_accesses_and_preserves_suppression() {
     assert_eq!(Rule::DEFAULT.len(), 3);
     assert_eq!(Rule::THESIS.len(), 14);
 }
+
+#[test]
+fn filtered_native_index_sets_keep_symbolic_counts_and_source_errors() {
+    let core = concat!(
+        "function set of int: '..'(int: left, int: right);\n",
+        "function set of int: index_set(array[int] of $V: xs);\n",
+        "function int: min(set of int: xs); function int: card(set of int: xs);\n",
+        "function bool: '>'(int: left, int: right); function bool: '>='(int: left, int: right);\n",
+        "function int: '+'(int: left, int: right); function int: 'div'(int: left, int: right);\n",
+    );
+    for (name, source_set, upper, error) in [
+        ("native", "index_set(values)", "n", false),
+        ("named", "Axis", "n", false),
+        ("error", "index_set(values)", "n + (1 div 0)", true),
+    ] {
+        let dir = std::env::temp_dir().join(format!(
+            "zincite-partial-native-axis-{name}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(dir.join("library/std")).unwrap();
+        std::fs::write(dir.join("library/std/stdlib.mzn"), core).unwrap();
+        let source = format!(
+            "int: n;\nset of int: Axis = 1..({upper});\narray[Axis] of int: values;\n\
+             constraint let {{\n  set of int: Selected = {{ i | i in {source_set} where values[i] > 0 }};\n\
+             }} in if card(Selected) > 0 then min(Selected) >= 0 else true endif;\nsolve satisfy;\n"
+        );
+        std::fs::write(dir.join("root.mzn"), &source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let result = analyze_model(
+            &context,
+            &LintOptions::from_selection("partial-expression").unwrap(),
+        );
+        assert!(result.errors.is_empty(), "{name}: {result:?}");
+        if error {
+            assert!(matches!(
+                result.rules[0].outcome,
+                RuleOutcome::Limited { .. }
+            ));
+            assert_eq!(spellings(&context, &result), ["1 div 0"]);
+            assert!(
+                result
+                    .limitations
+                    .iter()
+                    .any(|l| l.message.contains("zero"))
+            );
+        } else {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Completed),
+                "{name}: {result:?}"
+            );
+            assert!(result.findings.is_empty(), "{name}: {result:?}");
+            assert!(result.limitations.is_empty(), "{name}: {result:?}");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

@@ -767,8 +767,8 @@ impl Producer<'_> {
             conditions,
         }
     }
-    fn source_count(&mut self, file: FileId, node: &SyntaxNode) -> Cardinality {
-        let node = unwrap(node);
+    fn source_count(&mut self, file: FileId, source: &SyntaxNode) -> Cardinality {
+        let node = unwrap(source);
         if node.kind() == NodeKind::Expression
             && let Some(id) = self.reference(file, node)
         {
@@ -804,6 +804,31 @@ impl Producer<'_> {
             crate::domains::core_arithmetic(self.context, self.bindings, self.calls, file, node)
         {
             return Cardinality::Unsupported(reason);
+        }
+        if let Some(domain) = crate::domains::native_index_set_domain(
+            self.context,
+            self.bindings,
+            self.calls,
+            file,
+            node,
+        ) {
+            if let crate::DefinitionSafety::Unsupported(reason) =
+                crate::callable_definitions::initialized_integer_set_source_safety(
+                    self.context,
+                    self.bindings,
+                    (self.calls, self.calls),
+                    self.instantiations,
+                    self.domains,
+                    (file, source, &[]),
+                )
+            {
+                return Cardinality::Unsupported(reason);
+            }
+            // Named count identity cannot hide an unsupported retained axis.
+            if let Err(reason) = domain.numeric_minimum() {
+                return Cardinality::Unsupported(reason.into());
+            }
+            return domain_count(&domain);
         }
         domain_count(&expression_domain(self.context, self.bindings, file, node))
     }

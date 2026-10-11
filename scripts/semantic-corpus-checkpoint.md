@@ -8712,3 +8712,26 @@ values or bounds.
 
 No full corpus run or whole-task acceptance follows from this one-root capture.
 All five completion conditions remain unchecked.
+
+### Native axis counts for filtered collections
+
+The optional-cardinality producer now reuses the existing strict native
+`index_set` axis reader before its unchanged count projection. A filtered local
+set over a symbolic axis retains a symbolic count, matching the named-axis
+form. The existing positive-cardinality branch can establish scoped nonemptiness;
+the initializer alone supplies no exact count, members or minimum value.
+
+The existing source checker receives the complete expression, including outer
+annotations. Selected native identity, written-body and optionality checks stay
+with the axis reader; source failures and nested Unsupported axis facts veto
+count admission. Unbounded axes stay Unknown. Raw domain interpretation, direct
+definitions, callable outputs and search publication are unchanged.
+
+A three-case public regression covers native and named symbolic sources and a
+closed division-by-zero failure. Private controls retain annotation, optional,
+cycle, User-override, written-native-body and nested-axis refusals.
+
+Of the preceding 17 located rows, 13 have narrower computed-membership or
+reflection boundaries. The other four motivated this count handoff. Their
+post-change original outcomes and fresh corpus acceptance remain unobserved.
+All five base-083 completion conditions remain unchecked.

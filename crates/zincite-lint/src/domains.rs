@@ -1774,6 +1774,28 @@ pub(super) fn expression_domain(
     .domain(file, node)
 }
 
+// Recover only a selected native index_set axis for collection counting.
+pub(super) fn native_index_set_domain(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    file: FileId,
+    node: &SyntaxNode,
+) -> Option<Domain> {
+    if node.kind() != NodeKind::CallExpression {
+        return None;
+    }
+    Walker {
+        context,
+        bindings,
+        calls: Some(calls),
+        initialized_facts: None,
+        inspected_extremum: false,
+        active: Vec::new(),
+    }
+    .index_set_domain(file, node)
+}
+
 // Raw domain APIs retain their bounded interpretation; only this late Range
 // query can inspect initialized parameter-set extrema with complete facts.
 pub(super) fn inspected_parameter_extremum_range_domain<'a>(
