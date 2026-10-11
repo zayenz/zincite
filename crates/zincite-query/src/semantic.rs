@@ -850,21 +850,55 @@ impl SemanticResult<'_> {
         limits: Limits,
     ) -> Result<Vec<SemanticEntity>, QueryError> {
         let mut rows = Vec::new();
+        let mut selected = HashSet::new();
+        let mut names = HashSet::new();
+        for declaration in declarations {
+            let SemanticEntity::Declaration(id) = declaration else {
+                unreachable!()
+            };
+            work.visit(&stage.range)?;
+            check_collection(selected.len(), limits.collection, &stage.range)?;
+            selected.insert(id.0);
+            let name = &self.bindings.as_ref().unwrap().declarations[id.0].name;
+            work.spend(name.len(), &stage.range)?;
+            check_collection(names.len(), limits.collection, &stage.range)?;
+            names.insert(name.clone());
+        }
         // Uncertain occurrences matter even when the requested declaration set is empty.
         let mut targets = Vec::new();
         for id in 0..self.bindings.as_ref().unwrap().references.len() {
+            work.visit(&stage.range)?;
+            let reference = &self.bindings.as_ref().unwrap().references[id];
+            if !selected.is_empty() {
+                // Binding names are already normalized. Candidate identity also
+                // rules out shadowed declarations with the same written name.
+                let relevant = match &reference.resolution {
+                    BindingResolution::Resolved(id) => selected.contains(&id.0),
+                    BindingResolution::Overloads(ids) | BindingResolution::Ambiguous(ids) => {
+                        work.spend(ids.len(), &stage.range)?;
+                        ids.iter().any(|id| selected.contains(&id.0))
+                    }
+                    BindingResolution::Unresolved => {
+                        work.spend(reference.name.len(), &stage.range)?;
+                        names.contains(&reference.name)
+                    }
+                };
+                if !relevant {
+                    continue;
+                }
+            }
             check_collection(targets.len(), limits.collection, &stage.range)?;
-            targets.push(self.target(id, work, stage, limits)?);
+            targets.push((id, self.target(id, work, stage, limits)?));
         }
         for declaration in declarations {
             let SemanticEntity::Declaration(declaration) = declaration else {
                 unreachable!()
             };
-            for (id, target) in targets.iter().enumerate() {
+            for (id, target) in &targets {
                 work.visit(&stage.range)?;
                 if *target == Some(*declaration) {
                     check_collection(rows.len(), limits.collection, &stage.range)?;
-                    rows.push(SemanticEntity::Reference(id));
+                    rows.push(SemanticEntity::Reference(*id));
                 }
             }
         }

@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-101"
 key = "query-use-resource"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -29,10 +29,10 @@ Base-092 and scripts/query-acceptance.md retain a default-work failure at uses b
 
 ## Done when
 
-- [ ] The retained installed MiniZinc 2.10.1 capacity declarations | uses | json recipe completes with status 0, complete true, the expected written capacity use and empty stderr through both standalone and umbrella commands at unchanged default limits.
-- [ ] Nonempty declaration selections avoid resolving references proven unrelated by existing identity, candidate and normalized-name facts; matching uses retain lexical shadowing/overload identity, per-root order, duplicates and precise original source ranges. Repeated full callable-fact scans do not exhaust the retained normal-library recipe.
-- [ ] Potentially relevant unresolved, ambiguous and overloaded references retain located incomplete outcomes; upstream/model limitations and current conservative empty-selection behavior remain intact, including unknowns surviving later projections.
-- [ ] Finite admission, actual stage-work and result/expansion refusals remain located errors, and CLI errors return no partial stdout. Existing declaration/type navigation remains working.
+- [x] The retained installed MiniZinc 2.10.1 capacity declarations | uses | json recipe completes with status 0, complete true, the expected written capacity use and empty stderr through both standalone and umbrella commands at unchanged default limits.
+- [x] Nonempty declaration selections avoid resolving references proven unrelated by existing identity, candidate and normalized-name facts; matching uses retain lexical shadowing/overload identity, per-root order, duplicates and precise original source ranges. Repeated full callable-fact scans do not exhaust the retained normal-library recipe.
+- [x] Potentially relevant unresolved, ambiguous and overloaded references retain located incomplete outcomes; upstream/model limitations and current conservative empty-selection behavior remain intact, including unknowns surviving later projections.
+- [x] Finite admission, actual stage-work and result/expansion refusals remain located errors, and CLI errors return no partial stdout. Existing declaration/type navigation remains working.
 
 ## Validation
 
@@ -40,3 +40,12 @@ Base-092 and scripts/query-acceptance.md retain a default-work failure at uses b
 - cargo clippy --workspace --all-targets -- -D warnings
 - cargo test --workspace
 - Run the paired normal-library uses/declaration/type recipes and focused finite-refusal checks; no broad corpus or private replay.
+
+## Result
+
+Bound selected declaration-use lookup by existing binding identity and names while preserving relevant uncertainty, source occurrences and finite limits.
+
+Validation:
+
+- Independent whole-task pass at W72efa1a9e6a12410; unchanged snapshot confirmed. fmt, clippy and workspace tests passed.
+- Both default normal-library commands return complete identical capacity uses at 63..71; declarations/types pass. Located collection and actual uses-stage work refusals preserve empty stdout.

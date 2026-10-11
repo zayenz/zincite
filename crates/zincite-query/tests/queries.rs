@@ -1418,6 +1418,126 @@ fn semantic_navigation_keeps_shadowing_overloads_shared_nodes_and_actual_source_
 }
 
 #[test]
+fn declaration_uses_skip_unrelated_references_and_keep_order_duplicates_and_spelling() {
+    use zincite_query::{SemanticEntity, SemanticStream};
+    let source = b"\xef\xbb\xbfint: 'capacity';\r\narray[int] of int: reads = [capacity, 'capacity'];\r\nfunction int: shadow(int: capacity) = capacity;\r\nsolve satisfy;\r\n";
+    let core = (0..20)
+        .map(|i| format!("int: unrelated_{i} = missing_{i}(1);\n"))
+        .collect::<String>();
+    let model = semantic_model("uses-related", source, b"", &core);
+    let input = Input::parse(source.to_vec(), FileMode::Model).unwrap();
+    let query = Query::parse(
+        "filter(name(\"reads\")) | references | declarations | uses | json",
+        Limits::default(),
+    )
+    .unwrap();
+    let QueryResult::Semantic(report) = query
+        .evaluate_with_model(
+            &input,
+            Some(&model),
+            Limits {
+                work: 3_000,
+                collection: 4,
+                ..Limits::default()
+            },
+        )
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(report.is_complete(), "{:?}", report.limitations());
+    assert!(report.callables().is_none());
+    let SemanticStream::Entities(rows) = report.stream() else {
+        panic!()
+    };
+    let first = source
+        .windows(9)
+        .position(|bytes| bytes == b"[capacity")
+        .unwrap()
+        + 1;
+    let second = first + b"capacity, ".len();
+    assert_eq!(rows.len(), 4);
+    for (entity, range) in rows.iter().zip([
+        first..first + 8,
+        second..second + 10,
+        first..first + 8,
+        second..second + 10,
+    ]) {
+        assert!(matches!(entity, SemanticEntity::Reference(_)));
+        assert_eq!(report.location(*entity).path, model.root);
+        assert_eq!(report.location(*entity).range, range);
+        assert_eq!(report.source_bytes(*entity), &source[range]);
+    }
+}
+
+#[test]
+fn declaration_uses_keep_relevant_uncertainty_and_upstream_or_empty_selection_limits() {
+    for (tag, source, name, uncertain) in [
+        (
+            "unresolved",
+            "function int: identity(int: x) = x; int: unknown = x; int: unrelated = missing(1); solve satisfy;",
+            "x",
+            "x; int: unrelated",
+        ),
+        (
+            "ambiguous",
+            "int: x; int: x; int: unknown = x; int: unrelated = missing(1); solve satisfy;",
+            "x",
+            "x; int: unrelated",
+        ),
+        (
+            "overloaded",
+            "function int: choose(int: x) = x; function int: choose(int: y) = y; int: unknown = choose(1); int: unrelated = missing(1); solve satisfy;",
+            "choose",
+            "choose(1)",
+        ),
+    ] {
+        let model = semantic_model(tag, source.as_bytes(), b"", "");
+        let input = Input::parse(source.as_bytes().to_vec(), FileMode::Model).unwrap();
+        let report = semantic(
+            &input,
+            &model,
+            &format!(
+                "subtree | declarations | filter(name(\"{name}\")) | uses | head(0) | names | count | json"
+            ),
+        );
+        assert!(!report.is_complete());
+        assert_eq!(report.limitations().len(), 1, "{:?}", report.limitations());
+        let location = &report.limitations()[0].location;
+        assert_eq!(location.path, model.root);
+        assert_eq!(location.range.start, source.find(uncertain).unwrap());
+        assert_eq!(&source[location.range.clone()], name);
+        let json: serde_json::Value =
+            serde_json::from_slice(&QueryResult::Semantic(report).render()).unwrap();
+        assert_eq!(json["complete"], false);
+        assert_eq!(json["result"], 0);
+
+        let empty = semantic(&input, &model, "head(0) | declarations | uses | names");
+        assert!(!empty.is_complete());
+        assert!(
+            empty
+                .limitations()
+                .iter()
+                .any(|limitation| { &source[limitation.location.range.clone()] == "missing" })
+        );
+        let upstream = semantic(
+            &input,
+            &model,
+            &format!(
+                "filter(name(\"unrelated\")) | references | declarations | filter(name(\"{name}\")) | uses | count"
+            ),
+        );
+        assert!(!upstream.is_complete());
+        assert!(
+            upstream
+                .limitations()
+                .iter()
+                .any(|limitation| { &source[limitation.location.range.clone()] == "missing" })
+        );
+    }
+}
+
+#[test]
 fn semantic_traversal_is_bounded_deterministic_and_reports_limit_errors() {
     use zincite_query::SemanticStream;
     let source = b"int: a = b; int: b = a; int: c = a; solve satisfy;";
