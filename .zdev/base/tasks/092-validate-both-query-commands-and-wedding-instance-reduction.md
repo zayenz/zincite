@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-092"
 key = "query-reduction-acceptance"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "low"
@@ -26,12 +26,12 @@ Read [the query expansion](../brief.md#query-and-data-transformation-expansion),
 
 ## Done when
 
-- [ ] Documented recipes exercise item filtering, nested inspection, explicit assignment edits, structured filters, enum reduction and semantic queries through both standalone and umbrella forms.
-- [ ] Actual reductions of test_data/small.dzn and the named 150-guest mixed instance retain selected enum/record coverage, remove supported set references/empty groups, preserve expected ordering/unrelated data and report remaining dependencies honestly.
-- [ ] Originals and the two incomplete best-effort previews pass MiniZinc --instance-check-only with recorded version/settings, plus direct retained/removed structured-data checks; previews retain incomplete status, unresolved dependencies and write refusal. A separate small complete structured-reduction control passes compiler/direct data checks through both command forms and exercises the complete write path. Local originals remain byte-identical and real reduced outputs stay temporary.
-- [ ] Normal installed-library declaration/use/type navigation succeeds through both command forms with finite model-work and result/expansion bounds after base-100; resource failures remain explicit and cannot be waived as semantic exclusions.
-- [ ] A few representative/growing data measurements report command latency/memory and scaling; confirmed unexplained growth is resolved or recorded as an acceptance gap. Recheck save behavior only if shared syntax/layout changed.
-- [ ] The guide and acceptance summary state implemented stages, source-preservation behavior and best-effort limits without claiming full MiniZinc evaluation or complete semantic coverage.
+- [x] Documented recipes exercise item filtering, nested inspection, explicit assignment edits, structured filters, enum reduction and semantic queries through both standalone and umbrella forms.
+- [x] Actual reductions of test_data/small.dzn and the named 150-guest mixed instance retain selected enum/record coverage, remove supported set references/empty groups, preserve expected ordering/unrelated data and report remaining dependencies honestly.
+- [x] Originals and the two incomplete best-effort previews pass MiniZinc --instance-check-only with recorded version/settings, plus direct retained/removed structured-data checks; previews retain incomplete status, unresolved dependencies and write refusal. A separate small complete structured-reduction control passes compiler/direct data checks through both command forms and exercises the complete write path. Local originals remain byte-identical and real reduced outputs stay temporary.
+- [x] Normal installed-library declaration/use/type navigation succeeds through both command forms with finite model-work and result/expansion bounds after base-100; resource failures remain explicit and cannot be waived as semantic exclusions.
+- [x] A few representative/growing data measurements report command latency/memory and scaling; confirmed unexplained growth is resolved or recorded as an acceptance gap. Recheck save behavior only if shared syntax/layout changed.
+- [x] The guide and acceptance summary state implemented stages, source-preservation behavior and best-effort limits without claiming full MiniZinc evaluation or complete semantic coverage.
 
 ## Validation
 
@@ -39,8 +39,17 @@ Read [the query expansion](../brief.md#query-and-data-transformation-expansion),
 - Run both command forms on the exact local model/data pairs, directly check retained/removed structured data and run MiniZinc instance checks on originals/candidates without solving. Record missing evidence rather than counting it as passed.
 - Run cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, and cargo test --workspace; use the brief's focused testing level.
 
-## Checkpoint
+## Historical checkpoint
 
 Paired command recipes, actual private-instance reductions, direct source/data checks, compiler acceptance and fresh-process latency/RSS measurements are recorded in [the acceptance report](../../../scripts/query-acceptance.md). Independent whole-task review and required Cargo checks passed for that evidence at snapshot Wa27405e5c51666ef.
 
-The task remains open: both actual reductions return status 1 with four computed enum-indexed accesses unresolved in the read-only model. MiniZinc accepts the originals and candidates, but those candidates remain incomplete. The adopted contract accepts them as best-effort previews while preserving unresolved reporting and write refusal; the separate complete structured-reduction/write-path control and normal-library navigation still require acceptance evidence. Full installed-library semantic inspection also reaches the documented collection limit. No dependency-analysis repair or corpus sweep was launched. Private originals remain byte-identical, and candidates/raw evidence remain temporary under /tmp/zincite092/.
+At that checkpoint the task remained open: both actual reductions returned status 1 with four computed enum-indexed accesses unresolved in the read-only model. MiniZinc accepts the originals and candidates, but those candidates remain incomplete. The adopted contract accepts them as best-effort previews while preserving unresolved reporting and write refusal; the separate complete structured-reduction/write-path control and normal-library navigation still required acceptance evidence. Full installed-library semantic inspection also reached the documented collection limit. No dependency-analysis repair or corpus sweep was launched. Private originals remain byte-identical, and candidates/raw evidence remain temporary under /tmp/zincite092/.
+
+## Result
+
+Accepted both query commands with normal-library navigation, complete structured reduction/write control and explicitly incomplete private wedding previews with write refusal.
+
+Validation:
+
+- Independent whole-task pass at W8337c05126b6ae63; unchanged snapshot confirmed. fmt, clippy, workspace tests and diff checks passed.
+- Paired public recipe hashes and complete control bytes verified; retained no-solve compiler, direct private data/performance and unchanged-original evidence reconciled. Normal-library declaration/use/type/instantiation navigation and finite refusals pass.
