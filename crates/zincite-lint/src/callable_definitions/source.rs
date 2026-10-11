@@ -916,7 +916,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         }
         if let Some(arguments) = self
             .source
-            .set_axis_integer_reshape_arguments(file, node, view)
+            .set_axis_integer_reshape_arguments(file, node, view, true)
         {
             let mut unsupported = None;
             for argument in arguments {

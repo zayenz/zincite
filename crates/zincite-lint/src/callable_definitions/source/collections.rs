@@ -759,6 +759,7 @@ impl<'a> SourceInspector<'a> {
         file: FileId,
         written: &'a SyntaxNode,
         view: &CallableFacts,
+        inspect_index_set_axes: bool,
     ) -> Option<[&'a SyntaxNode; 3]> {
         let node = unwrap(written);
         if node.kind() != NodeKind::CallExpression || !self.core(file, node, view, "array2d") {
@@ -823,6 +824,29 @@ impl<'a> SourceInspector<'a> {
             }
             let axis = unwrap(argument);
             let axis_facts = self.view(file, axis, view);
+            if inspect_index_set_axes
+                && inline.kind() != NodeKind::ArrayComprehension
+                && let Some(id) = self.integer_index_set(file, axis, axis_facts)
+            {
+                let owner = &self.bindings.declarations[id.0];
+                let actual = &axis_facts.declarations[id.0].ty;
+                if owner.top_level
+                    && owner.role == DeclarationRole::Value
+                    && actual.instantiation == Instantiation::Parameter
+                    && matches!(&actual.kind, TypeKind::Array { indices, element }
+                        if indices.as_slice() == [TypeInst::par(TypeKind::Int)]
+                            && **element == TypeInst::par(TypeKind::Int))
+                    && self.operation_fact(axis_facts, file, axis).is_some_and(|call| {
+                        matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                            if parameters.as_slice() == std::slice::from_ref(actual)
+                                && Some(return_type) == typed(argument)
+                                && self.prefix_primitive(file, axis, axis_facts, "index_set", parameters, return_type))
+                    })
+                {
+                    // This source admission supplies no stronger adapter view.
+                    return false;
+                }
+            }
             inline.kind() == NodeKind::ArrayComprehension
                 || axis.kind() != NodeKind::RangeExpression
                 || !self.operation_fact(axis_facts, file, axis).is_some_and(|call| {

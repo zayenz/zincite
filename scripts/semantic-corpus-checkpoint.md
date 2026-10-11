@@ -8616,3 +8616,23 @@ small positive without solving. This establishes source composition, with no
 new array body reader or extent, membership, totality or output proof. The
 original right operand's transitive source and complete F outcome after this
 correction remain unobserved. All five whole-task conditions stay unchecked.
+
+### Inline native index-set reshape source increment
+
+The four changed Connect guard rows expose a source-composition mismatch:
+`array2d(Rows, ..., flat)` can inspect a named `Rows = index_set(row_source)`
+axis, while the equivalent inline native axis is refused. The existing reshape
+source checker now accepts that inline axis for a present parameter integer
+array with a bare backing array. It retains selected native identities, exact
+types, annotations, initialized sources and complete-owner checks. The stronger
+reshape adapter keeps its prior admission rules.
+
+The focused comparison preserves named-axis raw definition safety as Unknown
+and inline-axis raw definition safety as Unsupported. Successful source
+inspection leaves local coverage Unknown, callable outputs and definitions
+empty, and searched seeds unchanged. Source errors, failed siblings and a
+written `index_set` body remain refused. Current MiniZinc source checking and
+supplied-data Gecode compile-only accept the small positives without solving.
+This supplies no array extent, membership, nonemptiness, totality or output
+proof. The four original owners after this correction remain unobserved; all
+five whole-task conditions stay unchecked.

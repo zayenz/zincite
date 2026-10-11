@@ -18355,3 +18355,130 @@ fn filtered_parameter_strings_inspect_sources_without_output_proof() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn native_index_set_reshape_axes_inspect_sources_without_outputs() {
+    use zincite_lint::{CallOutcome, DeclarationRole};
+    let source = concat!(
+        "int: n; array[1..2] of int: row_source = [n,n];\n",
+        "set of int: Rows = index_set(row_source);\n",
+        "array[int] of int: flat = [n,n];\n",
+        "array[int,int] of int: matrix = array2d(Rows,1..1,flat);\n",
+        "var bool: gate;\n",
+        "constraint if matrix[1,1] > 0 then let { var bool: marker; }\n",
+        "  in marker <-> gate else true endif;\n",
+        "solve :: bool_search([gate],input_order,indomain_min,complete) satisfy;\n",
+    );
+    let primitive = "function array[$$E,$$F] of any $V: array2d(set of $$E: rows,set of $$F: columns,array[$U] of any $V: values);\n";
+    let library = format!(
+        "{CORE}{primitive}function bool: '>'(int: left,int: right); function var bool: '<->'(var bool: left,var bool: right); function int: 'div'(int: left,int: right); annotation opaque;\n"
+    );
+    let inline = source.replace("array2d(Rows,", "array2d(index_set(row_source),");
+    let written_index = library.replace(
+        "function set of int: index_set(array[int] of any $V: xs);",
+        "function set of int: index_set(array[int] of int: xs) = {1 div 0};",
+    );
+    for (name, source, library, fails) in [
+        ("named", source.to_owned(), library.as_str(), false),
+        ("inline", inline.clone(), library.as_str(), false),
+        (
+            "header-error",
+            inline.replace("row_source = [n,n]", "row_source = [1 div 0,n]"),
+            library.as_str(),
+            true,
+        ),
+        (
+            "failed-sibling",
+            inline.replace(
+                "marker <-> gate else",
+                "(marker <-> gate) /\\ (1 div 0 = 0) else",
+            ),
+            library.as_str(),
+            true,
+        ),
+        (
+            "written-index-set",
+            inline.clone(),
+            written_index.as_str(),
+            true,
+        ),
+    ] {
+        let (dir, _) = model(&format!("inline-index-set-{name}"), &source, "");
+        std::fs::write(dir.join("library/std/stdlib.mzn"), library).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty() && context.limitations.is_empty());
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|c| c.file == 0)
+                .all(|c| matches!(c.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        let search =
+            resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+        let marker = bindings
+            .declarations
+            .iter()
+            .find(|d| d.file == 0 && d.role == DeclarationRole::Local && d.name == "marker")
+            .unwrap()
+            .id;
+        let matrix = bindings
+            .declarations
+            .iter()
+            .find(|d| d.file == 0 && d.name == "matrix")
+            .unwrap()
+            .id;
+        let analysis = analyze_model(&context, &selected());
+        assert!(callable.outputs.is_empty() && callable.definitions.is_empty());
+        assert_eq!(
+            search.declarations[marker.0].coverage,
+            SearchCoverage::Unknown
+        );
+        assert!(search.searched.iter().all(|value| value.declaration != Some(marker) && value.declaration != Some(matrix)));
+        if name == "named" {
+            assert!(matches!(
+                &definitions
+                    .definitions
+                    .iter()
+                    .find(|d| d.target == matrix)
+                    .unwrap()
+                    .safety,
+                DefinitionSafety::Unknown(_)
+            ));
+        }
+        if fails {
+            assert!(callable.inspected_locals.is_empty(), "{name}: {callable:?}");
+            assert!(
+                matches!(analysis.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {analysis:?}"
+            );
+        } else {
+            assert_eq!(callable.inspected_locals, [marker], "{name}: {callable:?}");
+            assert_eq!(
+                analysis.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {analysis:?}"
+            );
+            if name == "inline" {
+                assert!(
+                    matches!(&definitions.definitions.iter().find(|d|d.target==matrix).unwrap().safety,
+                    DefinitionSafety::Unsupported(reason) if reason == "arbitrary calls do not establish definition value safety")
+                );
+            }
+        }
+    }
+}

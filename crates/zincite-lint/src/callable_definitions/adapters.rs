@@ -1155,7 +1155,7 @@ pub(crate) fn set_axis_integer_reshape_source<'a>(
         inactive_integer_body: None,
     };
     inspector
-        .set_axis_integer_reshape_arguments(source.0, source.1, calls)
+        .set_axis_integer_reshape_arguments(source.0, source.1, calls, false)
         .map(|arguments| arguments[2])
 }
 // A supported symbolic bound, not a nonempty-array or value guarantee.
