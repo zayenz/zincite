@@ -8580,3 +8580,39 @@ the positive controls without solving; supplied flags validate compiler input,
 while Zincite's source check retains symbolic flags. Original B/C outcomes
 after this correction remain unobserved. All five whole-task conditions remain
 unchecked, and final capture waits for stable operation accounting.
+
+### Current Connect observation at `56d0d9c`
+
+The bounded native and companion capture completed for the exact thesis14 and
+current-all28 selections. Full diagnostic streams and statuses match, phase
+sequences are complete, and scope drops return to their baselines. There are no
+timeouts or Unobserved rows. The outer process was reaped and its group verified
+empty. All 1,023 checked originals, 179 loaded files, 795 settings candidates
+and pinned build files remain unchanged.
+
+Warnings remain 2,507 for thesis and 5,285 for all; limitations change from
+69/385 to 68/384. Rule partitions remain 12 Completed/2 Limited for thesis and
+18 Completed/10 Limited for all. The new A/E refusals reach the documented mixed
+comparison body exclusion. B/C still encounter distinct computed User-array
+locals, outside the admitted decision-integer family. Cleared source refusals
+do not certify complete owners. Four changed guard rows expose an inline native
+index-set reshape source question; additional all-preset numeric, membership
+and scope questions remain separately classified. No final corpus acceptance
+follows from this one-root observation.
+
+### Literal concatenation source increment
+
+The current F source refusal first encounters a singleton parameter integer
+array literal before a checked integer comprehension. The Local concatenation
+reader now routes ordinary integer literals through its existing initialized
+source checker. Native selection, source types, lexical ownership, annotations,
+operand order, comprehension headers/body and complete-owner checks remain.
+
+The focused cases retain an error in the literal and a genuinely unsupported
+indexed literal. Successful inspection leaves the joined Local Unknown, its raw
+definition unsupported, callable outputs empty and searched seeds unchanged.
+Current MiniZinc model checking and supplied-data Gecode compile-only accept the
+small positive without solving. This establishes source composition, with no
+new array body reader or extent, membership, totality or output proof. The
+original right operand's transitive source and complete F outcome after this
+correction remain unobserved. All five whole-task conditions stay unchecked.

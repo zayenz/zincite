@@ -671,6 +671,13 @@ impl<'a> BodyInterpreter<'a, '_> {
                                     view,
                                     &clause.generators,
                                 ),
+                                NodeKind::ArrayLiteral => self.initialized_source_safety(
+                                    clause.file,
+                                    argument,
+                                    view,
+                                    &clause.generators,
+                                    &mut Vec::new(),
+                                ),
                                 NodeKind::Expression
                                     if self.source.reference(clause.file, argument).is_some_and(
                                         |id| self.source.bindings.declarations[id.0].top_level,

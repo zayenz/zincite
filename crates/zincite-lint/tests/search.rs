@@ -886,6 +886,10 @@ fn local_integer_concatenation_inspects_conditional_sources_without_outputs() {
             "let { array[int] of var int: joined = left ++ right; int: count",
         )
         .replace("length(left ++ right)", "length(joined)");
+    let literal = local.replace(
+        "joined = left ++ right;",
+        "joined = [0] ++ [right[i] | i in 1..n];",
+    );
     let library = format!(
         "{CORE}{}",
         concat!(
@@ -897,6 +901,14 @@ fn local_integer_concatenation_inspects_conditional_sources_without_outputs() {
     for (name, source, refused, inspected, completed) in [
         ("direct", direct.to_owned(), false, false, true),
         ("local", local.clone(), false, true, true),
+        ("literal-comprehension", literal.clone(), false, true, true),
+        (
+            "literal-source-error",
+            literal.replace("joined = [0]", "joined = [1 div 0]"),
+            true,
+            false,
+            false,
+        ),
         (
             "unknown-guard",
             local.replace(
@@ -950,6 +962,50 @@ fn local_integer_concatenation_inspects_conditional_sources_without_outputs() {
         let inst = resolve_instantiations(&context, &bindings, &calls);
         let domains = resolve_domains(&context, &bindings);
         let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let search =
+            resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        let expected_searched: Vec<_> = ["left", "right"]
+            .into_iter()
+            .map(|name| {
+                Some(
+                    bindings
+                        .declarations
+                        .iter()
+                        .find(|d| d.file == 0 && d.name == name)
+                        .unwrap()
+                        .id,
+                )
+            })
+            .collect();
+        assert_eq!(
+            search
+                .searched
+                .iter()
+                .map(|v| v.declaration)
+                .collect::<Vec<_>>(),
+            expected_searched
+        );
+        if let Some(joined) = bindings
+            .declarations
+            .iter()
+            .find(|d| d.file == 0 && d.name == "joined")
+        {
+            assert_eq!(
+                search.declarations[joined.id.0].coverage,
+                SearchCoverage::Unknown
+            );
+            assert!(matches!(
+                definitions
+                    .definitions
+                    .iter()
+                    .find(|d| d.target == joined.id)
+                    .unwrap()
+                    .safety,
+                DefinitionSafety::Unsupported(_)
+            ));
+        }
         let result = analyze_model(&context, &selected());
         assert!(
             callable.outputs.is_empty() && callable.definitions.is_empty(),
@@ -1063,12 +1119,16 @@ fn local_integer_concatenation_inspects_sources_without_outputs() {
             Some("integer division by zero"),
         ),
         (
-            "unsupported-operand-shape",
+            "literal-operand",
             comprehension.replace("[right[i] | i in Input]", "[right[1]]"),
             library.as_str(),
-            Some(
-                "local concatenation requires bare top-level arrays or checked integer comprehensions",
-            ),
+            None,
+        ),
+        (
+            "indexed-literal-operand",
+            comprehension.replace("[right[i] | i in Input]", "[1: right[1]]"),
+            library.as_str(),
+            Some("output dependency type or optionality is unsupported"),
         ),
         (
             "source-error",
