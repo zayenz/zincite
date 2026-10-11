@@ -10209,6 +10209,247 @@ solve :: int_search(successor, input_order, indomain_min, complete) satisfy;
 }
 
 #[test]
+fn decision_array_reflection_inspects_all_integer_axes_without_value_proof() {
+    use zincite_lint::{CallOutcome, DeclarationRole};
+
+    for (name, axes, element, reason) in [
+        ("rank-one", "1..rows", "var int", None),
+        ("rank-two", "1..rows,1..cols", "var int", None),
+        (
+            "second-axis-empty",
+            "1..rows,1..0",
+            "var int",
+            Some("array reflection source is empty"),
+        ),
+        (
+            "second-axis-error",
+            "1..rows,1..(1 div 0)",
+            "var int",
+            Some("integer division by zero"),
+        ),
+        (
+            "optional-elements",
+            "1..rows,1..cols",
+            "var opt int",
+            Some("array reflection selected source or signature is unsupported"),
+        ),
+    ] {
+        let source = format!(
+            "int: rows; int: cols; int: limit; array[{axes}] of {element}: values;\n\
+             int: reflected = lb_array(values);\n\
+             var int: choice = let {{ var lb_array(values)..limit: p; }} in p;\n\
+             solve satisfy;\n"
+        );
+        let (dir, _) = model(
+            &format!("decision-array-reflection-{name}"),
+            "solve satisfy;",
+            "",
+        );
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!(
+                "{CORE}function $$E: lb_array(array[$U] of var $$E: x);\n\
+                 function $$E: lb_array(array[$U] of var opt $$E: x);\n\
+                 function int: 'div'(int: left,int: right);\n"
+            ),
+        )
+        .unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == 0)
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let search = resolve_search_coverage(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+            &definitions,
+        );
+        let local = bindings
+            .declarations
+            .iter()
+            .find(|declaration| {
+                declaration.role == DeclarationRole::Local && declaration.name == "p"
+            })
+            .unwrap()
+            .id;
+        assert_eq!(search.root_state, ModelRootState::Complete, "{name}");
+        assert_eq!(
+            search.declarations[local.0].coverage,
+            SearchCoverage::Unknown,
+            "{name}"
+        );
+        assert_eq!(
+            coverage(&bindings, &search, "choice"),
+            SearchCoverage::Unknown,
+            "{name}"
+        );
+        assert!(
+            callable.outputs.is_empty() && callable.definitions.is_empty(),
+            "{name}: {callable:?}"
+        );
+        assert!(
+            !callable.inspected_locals.contains(&local),
+            "{name}: {callable:?}"
+        );
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        for target in ["reflected", "choice"] {
+            let declaration = bindings
+                .declarations
+                .iter()
+                .find(|declaration| declaration.top_level && declaration.name == target)
+                .unwrap();
+            let safety = &definitions
+                .definitions
+                .iter()
+                .find(|definition| definition.target == declaration.id)
+                .unwrap()
+                .safety;
+            if let Some(reason) = reason {
+                let reason = if name == "optional-elements" && target == "choice" {
+                    "fresh integer let source written primitive is unsupported"
+                } else {
+                    reason
+                };
+                assert!(
+                    matches!(safety, DefinitionSafety::Unsupported(actual) if actual.contains(reason)),
+                    "{name}/{target}: {safety:?}"
+                );
+            } else {
+                assert!(
+                    matches!(safety, DefinitionSafety::Unknown(_)),
+                    "{name}/{target}: {safety:?}"
+                );
+            }
+        }
+        if reason.is_some() {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {result:?}"
+            );
+            assert!(!result.limitations.is_empty(), "{name}: {result:?}");
+        } else {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {result:?}"
+            );
+            assert!(result.limitations.is_empty(), "{name}: {result:?}");
+            assert_eq!(
+                coverage(&bindings, &search, "values"),
+                SearchCoverage::Uncovered,
+                "{name}"
+            );
+            assert_eq!(result.findings.len(), 1, "{name}: {result:?}");
+            assert!(
+                result.findings[0].message.contains("'values'"),
+                "{name}: {result:?}"
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn decision_array_reflection_rejects_written_rank_two_body_in_direct_source() {
+    use zincite_lint::CallOutcome;
+
+    let (dir, _) = model(
+        "decision-array-reflection-written-body",
+        "solve satisfy;",
+        "",
+    );
+    std::fs::write(
+        dir.join("root.mzn"),
+        "int: rows; int: cols; array[1..rows,1..cols] of var int: values;\n\
+         int: reflected = lb_array(values); solve satisfy;\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!(
+            "{CORE}function int: lb_array(array[int,int] of var int: x) = 1 div 0;\n\
+                 function int: 'div'(int: left,int: right);\n"
+        ),
+    )
+    .unwrap();
+    let context = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    assert!(
+        calls
+            .calls
+            .iter()
+            .filter(|call| call.file == 0)
+            .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+        "{:?}",
+        calls.calls
+    );
+    let instantiations = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let definitions = resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+    let reflected = bindings
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "reflected")
+        .unwrap()
+        .id;
+    let safety = &definitions
+        .definitions
+        .iter()
+        .find(|definition| definition.target == reflected)
+        .unwrap()
+        .safety;
+    assert!(
+        matches!(safety, DefinitionSafety::Unsupported(reason)
+        if reason.contains("array reflection selected source or signature is unsupported")),
+        "{safety:?}"
+    );
+    let result = analyze_model(&context, &selected());
+    assert_eq!(
+        result.rules[0].outcome,
+        RuleOutcome::Completed,
+        "{result:?}"
+    );
+    assert!(
+        result.errors.is_empty() && result.limitations.is_empty(),
+        "{result:?}"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn rank_two_parameter_metadata_and_integer_conversion_inspect_sources_without_outputs() {
     let included = r#"predicate inspect_columns(array[int] of var int: xs,array[int,int] of int: tuples) =
     assert(index_set_2of2(tuples) == index_set(xs), "Tuple columns must match the variables");

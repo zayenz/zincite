@@ -8012,3 +8012,46 @@ withhold inspected locals and definitions and keep the owner Limited.
 No original G owner was replayed or closed. Its remaining selected sources and
 whole-owner disposition remain open, along with the remaining support mappings
 and final stable thesis14/current-all28 corpus accounting described above.
+
+### Base-083: decision array reflection source ranks
+
+The public control uses native `lb_array(values)` both as a direct initializer
+and in the domain of a fresh integer Local inside a Value owner. Rank-one and
+rank-two decision integer arrays have symbolic written integer axes and resolved
+calls. Before the correction, rank one admitted source inspection with Unknown
+safety, while rank two failed at the one-axis gate. Independent reproduction
+confirmed that the existing native selection retained the actual rank and
+required no calculated bound or output proof.
+
+`source/collections.rs::decision_array_bound_safety` now accepts a nonempty list
+of present parameter integer axes and requires the existing `prefix_primitive`
+check for the selected written primitive. Implicit standard identity and exact
+instantiated types alone do not admit a written rank-two overload selected by
+ordinary matching. Bare top-level identity, exact actual/formal/result types,
+annotations and initialized sources retain their checks. The existing loop
+still checks every written axis for closed emptiness and errors. The reflected
+bound, source nonemptiness and fresh Local domain remain unproved.
+Parameter-valued reflection is unchanged.
+
+The grouped public regression
+`decision_array_reflection_inspects_all_integer_axes_without_value_proof`
+checks rank one, rank two, a closed empty second axis, division by zero in the
+second axis, and the selected optional-element overload. Positive direct and
+Value-owner safety remain Unknown; Local and owner coverage remain Unknown.
+Callable outputs and definitions stay empty. The input array remains Uncovered,
+so search analysis completes with its existing input-array warning. All refusal
+cases in this group remain Limited.
+
+`decision_array_reflection_rejects_written_rank_two_body_in_direct_source`
+separately checks a resolved explicit rank-two standard overload with a written
+`1 div 0` body. Its direct source safety remains Unsupported, rather than false
+Unknown, without a fresh Local consumer masking the refusal. The unconsumed
+parameter initializer does not require a Limited search outcome; search remains
+Completed. `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings` and
+`cargo test --workspace` passed.
+
+No original V2 owner was replayed or closed. Its parameter-valued upper
+reflection and transitive sources remain separate obligations. Base-083 still
+needs the remaining support mappings and final stable thesis14/current-all28
+corpus accounting described above.

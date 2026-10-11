@@ -4942,7 +4942,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             || declaration.role != DeclarationRole::Value || !declaration.top_level
             || !actual.known() || optional(actual)
             || !matches!(&actual.kind, TypeKind::Array { indices, element }
-                if indices.len() == 1 && parameter_int(&indices[0])
+                if !indices.is_empty() && indices.iter().all(parameter_int)
                     && element.known() && !optional(element) && element.kind == TypeKind::Int
                     && element.instantiation == Instantiation::Decision)
             || result.is_none_or(|ty| !parameter_int(ty))
@@ -4950,7 +4950,8 @@ impl<'a> BodyInterpreter<'a, '_> {
             || !crate::definitions::annotations_safe(self.source.context, file, node)
             || !self.source.operation_fact(facts, file, node).is_some_and(|call| {
                 matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
-                    if parameters.len() == 1 && parameters[0] == *actual && Some(return_type) == result)
+                    if parameters.len() == 1 && parameters[0] == *actual && Some(return_type) == result
+                        && self.source.prefix_primitive(file, node, facts, &call.name, parameters, return_type))
             })
         {
             return Some(DefinitionSafety::Unsupported(
