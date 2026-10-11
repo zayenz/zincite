@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 96
-- Ready: 3
+- Ready: 2
 - Blocked: 3
-- Done: 90
+- Done: 91
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -104,4 +104,4 @@
 | [base-093](tasks/093-refactor-callable-definitions-into-readable-internal-modules.md) | Refactor callable definitions into readable internal modules | ready | — |
 | [base-094](tasks/094-replan-callable-analysis-responsibilities-and-semantic-suppo.md) | Replan callable analysis responsibilities and semantic support | blocked | base-093 |
 | [base-095](tasks/095-fix-formatter-layout-for-multiline-callable-bodies.md) | Fix formatter layout for multiline callable bodies | done | — |
-| [base-096](tasks/096-fix-formatter-indentation-and-wrapping-of-conjunction-chains.md) | Fix formatter indentation and wrapping of conjunction chains | ready | — |
+| [base-096](tasks/096-fix-formatter-indentation-and-wrapping-of-conjunction-chains.md) | Fix formatter indentation and wrapping of conjunction chains | done | — |

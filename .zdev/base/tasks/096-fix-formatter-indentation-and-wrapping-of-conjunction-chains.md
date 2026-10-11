@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-096"
 key = "format-conjunction-chains"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -43,11 +43,21 @@ Current output places two assertions after the signature, then starts one assert
 
 ## Done when
 
-- [ ] An expanded assertion/let/conditional conjunction uses one meaningful conjunct per line or block, aligned consistently relative to its enclosing expression.
-- [ ] Nested assertions, generator calls, and conditional operands keep their local indentation.
-- [ ] A short call such as length(x) stays compact when it fits on its current line; the width of an earlier conjunct does not force it to expand.
+- [x] An expanded assertion/let/conditional conjunction uses one meaningful conjunct per line or block, aligned consistently relative to its enclosing expression.
+- [x] Nested assertions, generator calls, and conditional operands keep their local indentation.
+- [x] A short call such as length(x) stays compact when it fits on its current line; the width of an earlier conjunct does not force it to expand.
 
 ## Validation
 
 - Add a small regression set based on the assertion chain and regular_nfa short-call case; check the two- and four-space layouts.
 - Check reparsing, token/comment preservation, configured width, and second-pass idempotence; run the existing area Cargo checks.
+
+## Result
+
+Aligned expanded conjunction operands and preserved nested expression layout so preceding conjuncts do not force short calls to expand.
+
+Validation:
+
+- Independent whole-task review passed; snapshot Wc5965de141910d43 comparison equal true.
+- cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings and cargo test --workspace passed independently.
+- Regression and Gecode regular/regular_nfa probes passed at two/four spaces with token/comment/tree preservation, width checks and second-pass idempotence; base-095 checks remain passing.

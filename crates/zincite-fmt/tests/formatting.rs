@@ -729,6 +729,120 @@ predicate explain(array[int] of var int: xs) =
 }
 
 #[test]
+fn expanded_conjunctions_align_operands_and_measure_calls_on_their_own_lines() {
+    use zincite_fmt::{FormatOptions, format_with_options};
+
+    let assertions = r#"predicate regular(array[int] of var bool: xs, int: Q, set of int: S,
+    array[int,int] of int: d, int: q0, set of int: F) =
+  assert(Q > 0, "regular: 'Q' must be greater than zero") /\
+  assert(card(S) > 0, "regular: 'S' must be non empty") /\
+  assert(index_set_1of2(d) = 1..Q /\ index_set_2of2(d) = S,
+    "regular: the transition function 'd' must be [1..Q,S]") /\
+  assert(forall(v in d)(v in 0..Q),
+    "regular: transition function 'd' points to states outside 0..Q") /\
+  assert(q0 in 1..Q, "regular: start state 'q0' not in 1..Q") /\
+  assert(F subset 1..Q, "regular: final states in 'F' contain states outside 1..Q") /\
+  let {var bool: result;} in result;
+"#;
+    let conditional = r#"predicate regular_nfa(array[int] of var bool: x, int: q,
+    set of int: symbols, array[int,int] of set of int: transitions,
+    int: initial, set of int: final) =
+  assert(q > 0 /\ card(symbols) > 0, "regular_nfa: states and alphabet must be nonempty") /\
+  assert(index_set_1of2(transitions) = 1..q /\ index_set_2of2(transitions) = symbols,
+    "regular_nfa: transition indexes must be [1..q,alphabet]") /\ % Keep  trailing comment
+  assert(
+    forall(targets in transitions)(targets subset 1..q) /\
+    (initial in 1..q /\ final subset 1..q),
+    "regular_nfa: invalid states") /\
+  /* Keep  conditional comment */ if length(x) = 0 then initial in final
+  else let {int: n = length(x);} in
+    if n > 0 then regular_nfa(x, q, symbols, transitions, initial, final)
+    else false endif
+  endif;
+"#;
+    for indent_size in [2, 4] {
+        let options = FormatOptions {
+            indent_size: std::num::NonZeroUsize::new(indent_size).unwrap(),
+            ..FormatOptions::default()
+        };
+        let indent = " ".repeat(indent_size);
+        for source in [assertions, conditional] {
+            let parsed = parse(source);
+            let formatted = format_with_options(&parsed, &options).unwrap();
+            let expected_assertions = if source == assertions { 6 } else { 3 };
+            assert_eq!(
+                formatted
+                    .lines()
+                    .filter(|line| line.starts_with(&format!("{indent}assert(")))
+                    .count(),
+                expected_assertions,
+                "{formatted}"
+            );
+            assert!(!formatted.contains("/\\ assert("), "{formatted}");
+            assert!(
+                !formatted
+                    .lines()
+                    .any(|line| line.trim_start().starts_with("/\\")),
+                "{formatted}"
+            );
+            if source == assertions {
+                assert!(
+                    formatted.contains(&format!("\n{indent}let {{\n")),
+                    "{formatted}"
+                );
+                assert!(
+                    formatted.contains(&format!("\n{indent}result;")),
+                    "{formatted}"
+                );
+            } else {
+                assert!(formatted.contains("if length(x) = 0 then"), "{formatted}");
+                assert!(
+                    formatted.contains(&format!(
+                        "\n{indent}/* Keep  conditional comment */\n{indent}if length(x)"
+                    )),
+                    "{formatted}"
+                );
+                assert!(
+                    formatted.contains(&format!("\n{indent}{indent}if n > 0 then")),
+                    "{formatted}"
+                );
+                assert!(
+                    formatted.contains(&format!(
+                        "\n{indent}{indent}forall (targets in transitions) (\n{indent}{indent}{indent}targets subset"
+                    )),
+                    "{formatted}"
+                );
+                assert!(
+                    formatted.contains(&format!(
+                        "\n{indent}{indent}(initial in 1 .. q /\\ final subset 1 .. q)"
+                    )),
+                    "{formatted}"
+                );
+            }
+            assert!(
+                formatted.lines().all(|line| line.chars().count() <= 120),
+                "{formatted}"
+            );
+            let reparsed = parse(formatted.clone());
+            assert!(reparsed.diagnostics().is_empty(), "{formatted}");
+            let spellings = |file: &zincite_syntax::ParsedFile| {
+                file.tokens()
+                    .iter()
+                    .filter(|token| !matches!(token.kind, TokenKind::Whitespace | TokenKind::Comma))
+                    .map(|token| file.source()[token.range.clone()].to_owned())
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(spellings(&parsed), spellings(&reparsed));
+            assert_eq!(
+                structure(parsed.tree(), &parsed),
+                structure(reparsed.tree(), &reparsed)
+            );
+            assert_eq!(format_with_options(&reparsed, &options).unwrap(), formatted);
+        }
+    }
+}
+
+#[test]
 fn short_forall_conditions_fit_inline_without_collapsing_multiline_bodies() {
     use zincite_fmt::{FormatOptions, format_with_options};
     let source = r#"predicate bounded(array[int] of var int: xs) =

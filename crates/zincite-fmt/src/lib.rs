@@ -385,8 +385,18 @@ impl<'a> Formatter<'a> {
 
     fn expression_contents(&mut self, node: &SyntaxNode, leading_space: bool) {
         if is_binary(node.kind()) {
-            let expanded = self.measuring_prefix;
-            self.binary_expression(node, leading_space, expanded, self.indent + 1);
+            let conjunction = self.is_conjunction(node);
+            let mut expanded = self.measuring_prefix
+                || conjunction && self.parsed.source()[node.range()].contains(['\r', '\n']);
+            if conjunction && !expanded && !self.measuring {
+                let mut preview = self.preview();
+                let start = preview.output.len();
+                preview.binary_expression(node, leading_space, false, self.indent + 1);
+                expanded = preview.output[start..].contains('\n')
+                    || preview.exceeds_width(self.current_columns(), self.suffix_columns);
+            }
+            let continuation_indent = self.indent + usize::from(!conjunction || !expanded);
+            self.binary_expression(node, leading_space, expanded, continuation_indent);
             return;
         }
         if node.kind() == NodeKind::InterpolatedString {
@@ -536,8 +546,9 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    // Traverse the written binary tree without regrouping operands. All binary
-    // children share one continuation column, irrespective of associativity.
+    // Traverse the written binary tree without regrouping operands. Chain
+    // operands share a continuation column; expressions inside a conjunction
+    // retain their own layout.
     fn binary_expression(
         &mut self,
         node: &SyntaxNode,
@@ -580,7 +591,9 @@ impl<'a> Formatter<'a> {
                         self.break_before_code = true;
                     }
                     let suffix = self.following_columns(node.children(), position);
-                    if is_binary(child.kind()) {
+                    if is_binary(child.kind())
+                        && self.is_conjunction(node) == self.is_conjunction(child)
+                    {
                         let previous = self.suffix_columns;
                         self.suffix_columns = suffix;
                         self.binary_expression(
@@ -612,6 +625,14 @@ impl<'a> Formatter<'a> {
             }
         }
         self.indent = initial_indent;
+    }
+
+    fn is_conjunction(&self, node: &SyntaxNode) -> bool {
+        node.kind() == NodeKind::BinaryExpression
+            && node.children().iter().any(|child| {
+                matches!(child, SyntaxElement::Token(index)
+                    if self.parsed.tokens()[*index].kind == TokenKind::And)
+            })
     }
 
     fn parenthesized(&mut self, node: &SyntaxNode, leading_space: bool) {
