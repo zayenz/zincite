@@ -10,9 +10,16 @@ const CORE: &str = concat!(
     "annotation mark(int:x);\n",
 );
 fn model(name: &str, source: &str) -> (PathBuf, ModelContext, BindingFacts, IterationFacts) {
+    model_with_core(name, source, CORE)
+}
+fn model_with_core(
+    name: &str,
+    source: &str,
+    core: &str,
+) -> (PathBuf, ModelContext, BindingFacts, IterationFacts) {
     let dir = std::env::temp_dir().join(format!("zincite-iteration-{name}-{}", std::process::id()));
     std::fs::create_dir_all(dir.join("library/std")).unwrap();
-    std::fs::write(dir.join("library/std/stdlib.mzn"), CORE).unwrap();
+    std::fs::write(dir.join("library/std/stdlib.mzn"), core).unwrap();
     std::fs::write(dir.join("root.mzn"), source).unwrap();
     let context = load_model(
         dir.join("root.mzn"),
@@ -990,6 +997,162 @@ fn safe_computed_singletons_keep_unknown_counts_without_member_values() {
                 );
             }
         }
+        assert_eq!(
+            std::fs::read_to_string(directory.join("root.mzn")).unwrap(),
+            source
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+#[test]
+fn inspected_parameter_ranges_survive_direct_and_named_sources() {
+    let core = format!(
+        "{CORE}function int: length(array[$I] of any $T: values); function int: min(set of int: values); function int: max(set of int: values); function int: assert(bool: condition, string: message, int: value);"
+    );
+    for (name, source, rules) in [
+        (
+            "named-length-axis",
+            "array[int] of int: inputs; set of int: Axis=1..(length(inputs) div 2); array[Axis] of int: cells; constraint forall(p in Axis)(cells[p] > 0); constraint forall(p in Axis)(inputs[p] > 0); solve satisfy;",
+            "index-set-mismatch,partial-expression",
+        ),
+        (
+            "direct-length-range",
+            "array[int] of int: inputs; array[int] of int: result=let {int: later=1;} in [i | i in 1..(length(inputs) div 2)]; constraint forall(i in 1..(length(inputs) div 2))(i > 0); solve satisfy;",
+            "expensive-comprehension,vacuous-constraint",
+        ),
+        (
+            "local-extrema-range-alias",
+            "int: N; array[int] of int: result=let {set of int: IPSP={i | i in 1..N where i > 0}; set of int: Axis=min(IPSP)..max(IPSP);} in [i | i in Axis]; solve satisfy;",
+            "expensive-comprehension",
+        ),
+        (
+            "local-extrema-range-alias-safe-after",
+            "int: N; array[int] of int: result=let {set of int: IPSP={i | i in 1..N}; set of int: Axis=min(IPSP)..max(IPSP); int: later=1;} in [i | i in Axis]; solve satisfy;",
+            "expensive-comprehension",
+        ),
+        (
+            "direct-extrema-range-constraint-prefix",
+            "int: N; set of int: IPSP={i | i in 1..N}; array[int] of int: result=let {constraint true; constraint assert(true, \"safe\", 1) > 0;} in [i | i in min(IPSP)..max(IPSP)]; solve satisfy;",
+            "expensive-comprehension",
+        ),
+    ] {
+        let (directory, context, _, facts) = model_with_core(name, source, &core);
+        let result = analyze_model(&context, &LintOptions::from_selection(rules).unwrap());
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        assert!(
+            result
+                .rules
+                .iter()
+                .all(|rule| rule.outcome == RuleOutcome::Completed),
+            "{name}: {:?}; limitations: {:?}",
+            result.rules,
+            result.limitations
+        );
+        assert!(result.findings.is_empty(), "{name}: {:?}", result.findings);
+        if name == "named-length-axis" {
+            for (access, expected) in [
+                ("cells[p]", GuardedOutcome::Proven),
+                ("inputs[p]", GuardedOutcome::Unknown),
+            ] {
+                let obligation = facts
+                    .iterations
+                    .iter()
+                    .flat_map(|fact| &fact.expressions)
+                    .flat_map(|expression| &expression.obligations)
+                    .find(|obligation| {
+                        text(&context, obligation.file, &obligation.operation) == access
+                    })
+                    .unwrap();
+                assert_eq!(obligation.outcome, expected);
+            }
+        }
+        assert!(
+            facts.iterations.iter().all(|fact| {
+                matches!(
+                    fact.candidates,
+                    CandidateCount::Unknown | CandidateCount::Symbolic { .. }
+                ) && matches!(
+                    fact.selected,
+                    CandidateCount::Unknown | CandidateCount::Symbolic { .. }
+                )
+            }),
+            "{name}: unexpected established or unsupported count"
+        );
+        assert_eq!(
+            std::fs::read_to_string(directory.join("root.mzn")).unwrap(),
+            source
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+#[test]
+fn inspected_parameter_ranges_keep_source_vetoes() {
+    let core = format!(
+        "{CORE}function int: length(array[$I] of any $T: values); function int: min(set of int: values); function int: max(set of int: values); function int: assert(bool: condition, string: message, int: value);"
+    );
+    for (name, source) in [
+        (
+            "range-zero-divisor",
+            "array[int] of int: inputs; constraint forall(i in 1..(length(inputs) div 0))(i > 0); solve satisfy;",
+        ),
+        (
+            "range-user-length",
+            "function int: length(array[int] of int: values)=1; array[int] of int: inputs; constraint forall(i in 1..(length(inputs) div 2))(i > 0); solve satisfy;",
+        ),
+        (
+            "range-source-annotation",
+            "array[int] of int: inputs; constraint forall(i in (1..(length(inputs) div 2) :: mark(1 div 0)))(i > 0); solve satisfy;",
+        ),
+        (
+            "range-local-extrema-error",
+            "array[int] of int: result=let {set of int: IPSP={1 div 0}; set of int: Axis=min(IPSP)..max(IPSP);} in [i | i in Axis]; solve satisfy;",
+        ),
+        (
+            "range-local-alias-annotation",
+            "int: N; array[int] of int: result=let {set of int: IPSP={i | i in 1..N}; set of int: Axis :: mark(1 div 0)=min(IPSP)..max(IPSP);} in [i | i in Axis]; solve satisfy;",
+        ),
+        (
+            "range-local-preceding-error",
+            "int: N; array[int] of int: result=let {int: bad=1 div 0; set of int: IPSP={i | i in 1..N}; set of int: Axis=min(IPSP)..max(IPSP);} in [i | i in Axis]; solve satisfy;",
+        ),
+        (
+            "range-local-after-alias-error",
+            "int: N; array[int] of int: result=let {set of int: IPSP={i | i in 1..N}; set of int: Axis=min(IPSP)..max(IPSP); int: bad=1 div 0;} in [i | i in Axis]; solve satisfy;",
+        ),
+        (
+            "range-local-direct-prefix-error",
+            "array[int] of int: inputs; array[int] of int: result=let {int: bad=1 div 0;} in [i | i in 1..(length(inputs) div 2)]; solve satisfy;",
+        ),
+        (
+            "range-local-constraint-prefix-error",
+            "int: N; set of int: IPSP={i | i in 1..N}; array[int] of int: result=let {constraint assert((1 div 0)=0, \"bad\", 1) > 0;} in [i | i in min(IPSP)..max(IPSP)]; solve satisfy;",
+        ),
+    ] {
+        let (directory, context, _, _) = model_with_core(name, source, &core);
+        let result = analyze_model(
+            &context,
+            &LintOptions::from_selection("expensive-comprehension,vacuous-constraint").unwrap(),
+        );
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        let refused = if name.starts_with("range-local-") {
+            matches!(
+                result
+                    .rules
+                    .iter()
+                    .find(|rule| rule.rule == Rule::ExpensiveComprehension)
+                    .unwrap()
+                    .outcome,
+                RuleOutcome::Limited { .. }
+            )
+        } else {
+            result
+                .rules
+                .iter()
+                .any(|rule| matches!(rule.outcome, RuleOutcome::Limited { .. }))
+        };
+        assert!(refused, "{name}: {:?}", result.rules);
         assert_eq!(
             std::fs::read_to_string(directory.join("root.mzn")).unwrap(),
             source

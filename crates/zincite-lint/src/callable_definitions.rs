@@ -239,16 +239,16 @@ fn same_output(a: &CallableOutput, b: &CallableOutput) -> bool {
         && a.coverage == b.coverage
         && a.enforced_boolean == b.enforced_boolean
 }
-// Recover the Local declaration's actual lexical headers for source inspection.
-// Later consumers contribute no headers, even when they use this local value.
-fn local_source_scope<'a>(
+// Recover a local declaration or constraint's actual lexical headers.
+// Later consumers contribute no headers to this written item.
+pub(crate) fn local_source_scope<'a>(
     mut node: &'a SyntaxNode,
     local: &'a SyntaxNode,
 ) -> Option<Vec<&'a SyntaxNode>> {
     let contains = |outer: &SyntaxNode| {
         outer.range().start <= local.range().start && local.range().end <= outer.range().end
     };
-    if local.kind() != NodeKind::Declaration || !contains(node) {
+    if !matches!(local.kind(), NodeKind::Declaration | NodeKind::Constraint) || !contains(node) {
         return None;
     }
     let mut scope = Vec::new();

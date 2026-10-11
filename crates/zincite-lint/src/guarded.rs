@@ -3124,12 +3124,12 @@ impl<'a> Producer<'a> {
     fn domain(&self, file: FileId, node: &SyntaxNode) -> Domain {
         self.index_domain(file, unwrap(node))
             .or_else(|| {
-                crate::domains::inspected_parameter_extremum_range_domain(
+                crate::domains::inspected_parameter_range_domain(
                     self.context,
                     self.bindings,
                     (self.calls, self.calls),
                     self.instantiations,
-                    self.domains,
+                    (self.domains, Some(self.numeric)),
                     (file, node, &[]),
                 )
             })
@@ -3259,11 +3259,30 @@ impl<'a> Producer<'a> {
         evaluated: &Evaluation,
     ) -> Domain {
         let source = unwrap(node);
+        let (generators, scope_error) = self.source_headers(file, scope);
+        let global = self
+            .reference(file, source)
+            .is_some_and(|id| self.bindings.declarations[id.0].top_level);
+        if let Some(domain) = crate::domains::inspected_parameter_range_domain(
+            self.context,
+            self.bindings,
+            (self.calls, self.calls),
+            self.instantiations,
+            (self.domains, Some(self.numeric)),
+            (file, node, if global { &[] } else { &generators }),
+        ) {
+            if !global && let Some(reason) = scope_error {
+                return Domain::Unsupported(reason);
+            }
+            if let GuardedOutcome::Unsupported(reason) = &evaluated.definedness {
+                return Domain::Unsupported(reason.clone());
+            }
+            return domain;
+        }
         if matches!(
             source.kind(),
             NodeKind::ArrayAccessExpression | NodeKind::RangeExpression
         ) {
-            let (generators, scope_error) = self.source_headers(file, scope);
             let inspected = if source.kind() == NodeKind::RangeExpression {
                 crate::callable_definitions::decision_prefix_source_safety(
                     self.context,
@@ -3813,12 +3832,12 @@ impl<'a> Producer<'a> {
                 }) {
                 // Inspect the actual generator range, without proving that its
                 // shifted members belong to the selected array's index set.
-                crate::domains::inspected_parameter_extremum_range_domain(
+                crate::domains::inspected_parameter_range_domain(
                     self.context,
                     self.bindings,
                     (self.calls, self.calls),
                     self.instantiations,
-                    self.domains,
+                    (self.domains, Some(self.numeric)),
                     (source_file, source, &[]),
                 )
             } else {

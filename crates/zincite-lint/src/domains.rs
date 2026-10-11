@@ -1796,8 +1796,8 @@ pub(super) fn native_index_set_domain(
     .index_set_domain(file, node)
 }
 
-// Raw domain APIs retain their bounded interpretation; only this late Range
-// query can inspect initialized parameter-set extrema with complete facts.
+// Raw domains remain unchanged. This late query carries inspected parameter
+// range uncertainty through direct sources and their initialized set aliases.
 pub(super) fn inspected_parameter_extremum_range_domain<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
@@ -1806,14 +1806,59 @@ pub(super) fn inspected_parameter_extremum_range_domain<'a>(
     domains: &'a DomainFacts,
     source: (FileId, &'a SyntaxNode, &'a [&'a SyntaxNode]),
 ) -> Option<Domain> {
-    let (file, mut node, generators) = source;
+    let mut node = source.1;
     while node.kind() == NodeKind::ParenthesizedExpression {
         node = node.child_nodes().next()?;
     }
     if node.kind() != NodeKind::RangeExpression {
         return None;
     }
+    inspected_parameter_range_domain(
+        context,
+        bindings,
+        callables,
+        instantiations,
+        (domains, None),
+        source,
+    )
+}
+
+pub(super) fn inspected_parameter_range_domain<'a>(
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    callables: (&'a crate::CallableFacts, &'a crate::CallableFacts),
+    instantiations: &'a crate::InstantiationFacts,
+    value_facts: (&'a DomainFacts, Option<&'a NumericFacts>),
+    source: (FileId, &'a SyntaxNode, &'a [&'a SyntaxNode]),
+) -> Option<Domain> {
+    let (domains, numeric) = value_facts;
+    let (source_file, written, generators) = source;
     let (calls, view) = callables;
+    let present_integer = |ty: &crate::TypeInst| {
+        ty.known()
+            && !crate::value_safety::optional(ty)
+            && ty.instantiation == crate::Instantiation::Parameter
+            && ty.kind == crate::TypeKind::Int
+    };
+    let present_set = |ty: &crate::TypeInst| {
+        ty.known()
+            && !crate::value_safety::optional(ty)
+            && ty.instantiation == crate::Instantiation::Parameter
+            && matches!(&ty.kind, crate::TypeKind::Set(element) if present_integer(element))
+    };
+    let typed = |file: FileId, node: &SyntaxNode| {
+        let range = context.files[file].location(node.range()).range;
+        view.expressions
+            .iter()
+            .find(|fact| fact.file == file && fact.location.range == range)
+            .or_else(|| {
+                calls
+                    .expressions
+                    .iter()
+                    .find(|fact| fact.file == file && fact.location.range == range)
+            })
+            .map(|fact| &fact.ty)
+    };
     let mut walker = Walker {
         context,
         bindings,
@@ -1822,22 +1867,129 @@ pub(super) fn inspected_parameter_extremum_range_domain<'a>(
         inspected_extremum: false,
         active: Vec::new(),
     };
-    let domain = walker.domain(file, node);
-    if !walker.inspected_extremum {
+    let mut aliases = Vec::new();
+    let (mut file, mut node) = (source_file, written);
+    loop {
+        while node.kind() == NodeKind::ParenthesizedExpression {
+            node = node.child_nodes().next()?;
+        }
+        if node.kind() == NodeKind::RangeExpression {
+            break;
+        }
+        if node.kind() != NodeKind::Expression
+            || node.child_nodes().next().is_some()
+            || !matches!(tokens(&context.files[file].parsed, node).as_slice(),
+                [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
+            || typed(file, node).is_none_or(|ty| !present_set(ty))
+        {
+            return None;
+        }
+        let id = walker.reference(file, node)?;
+        let declaration = &bindings.declarations[id.0];
+        let declared = calls.declarations.get(id.0)?;
+        if declared.declaration != id
+            || !present_set(&declared.ty)
+            || typed(file, node) != Some(&declared.ty)
+            || declaration.instantiation != crate::Instantiation::Parameter
+            || !matches!(
+                declaration.role,
+                DeclarationRole::Value | DeclarationRole::Local
+            )
+        {
+            return None;
+        }
+        if aliases.iter().any(|(owner, _, _)| *owner == id)
+            || declaration.role == DeclarationRole::Local
+                && (declaration.file != file || declaration.syntax_range.end > node.range().start)
+        {
+            return None;
+        }
+        let declared_node = crate::callables::find_node(
+            context.files[declaration.file].parsed.tree(),
+            &declaration.syntax_range,
+            declaration.role,
+        )?;
+        let initializers: Vec<_> = declared_node
+            .child_nodes()
+            .filter(|node| crate::callables::is_expression(node.kind()))
+            .collect();
+        let [initializer] = initializers.as_slice() else {
+            return None;
+        };
+        if typed(declaration.file, initializer) != Some(&declared.ty) {
+            return None;
+        }
+        aliases.push((id, declaration.file, declared_node));
+        if declaration.top_level {
+            walker.calls = Some(calls);
+        }
+        file = declaration.file;
+        node = initializer;
+    }
+    let endpoints: Vec<_> = node.child_nodes().collect();
+    if endpoints.len() != 2
+        || typed(file, node).is_none_or(|ty| !present_set(ty))
+        || endpoints
+            .iter()
+            .any(|endpoint| typed(file, endpoint).is_none_or(|ty| !present_integer(ty)))
+    {
         return None;
     }
-    let Domain::Range { lower, upper } = domain else {
-        return Some(Domain::Unsupported(
-            "extremum range bounds are unavailable".into(),
-        ));
+    let Domain::Range {
+        mut lower,
+        mut upper,
+    } = walker.domain(file, node)
+    else {
+        return None;
     };
-    // Check both endpoints even when one depends on an unknown extremum.
+    let mut inspected = walker.inspected_extremum;
+    for (endpoint, bound) in endpoints.iter().zip([&mut lower, &mut upper]) {
+        let range = context.files[file].location(endpoint.range()).range;
+        if integer(bound).is_err()
+            && numeric.is_some_and(|numeric| {
+                numeric.expressions.iter().any(|fact| {
+                    fact.file == file
+                        && fact.location.range == range
+                        && fact.instantiation == crate::Instantiation::Parameter
+                        && matches!(fact.outcome, NumericOutcome::Unknown(_))
+                })
+            })
+        {
+            // The numeric producer admitted this exact endpoint, without a value.
+            *bound = NumericBound::Unknown;
+            inspected = true;
+        }
+    }
+    if !inspected {
+        return None;
+    }
     for result in [integer(&lower), integer(&upper)] {
         if let Err(reason) = result {
             return Some(Domain::Unsupported(reason.into()));
         }
     }
-    if let Err(reason) = core_arithmetic(context, bindings, view, file, node) {
+    for (_, owner, declaration) in &aliases {
+        if !crate::definitions::annotations_safe(context, *owner, declaration) {
+            return Some(Domain::Unsupported(
+                "range alias annotation is unsupported".into(),
+            ));
+        }
+        if let Err(reason) = core_arithmetic(context, bindings, calls, *owner, declaration) {
+            return Some(Domain::Unsupported(reason));
+        }
+        if let Some(reason) = crate::callable_definitions::closed_integer_type_source_error(
+            context,
+            bindings,
+            calls,
+            instantiations,
+            domains,
+            (*owner, declaration),
+        ) {
+            return Some(Domain::Unsupported(reason));
+        }
+    }
+
+    if let Err(reason) = core_arithmetic(context, bindings, walker.calls.unwrap(), file, node) {
         return Some(Domain::Unsupported(reason));
     }
     if let crate::DefinitionSafety::Unsupported(reason) =
@@ -1847,13 +1999,103 @@ pub(super) fn inspected_parameter_extremum_range_domain<'a>(
             callables,
             instantiations,
             domains,
-            (file, node, generators),
+            (source_file, written, generators),
         )
     {
         return Some(Domain::Unsupported(reason));
     }
-    // This source inspection proves neither endpoint, membership nor count.
-    Some(Domain::Unknown)
+    let root = context.files[source_file].parsed.tree();
+    let Some(predecessors) = local_source_predecessors(root, written) else {
+        return Some(Domain::Unsupported(
+            "range source owning source is unavailable".into(),
+        ));
+    };
+    // Inspect the evaluated let prefix at this use after source qualification.
+    // Each initializer retains its declaration's original lexical headers.
+    for predecessor in predecessors {
+        let Some(headers) = crate::callable_definitions::local_source_scope(root, predecessor)
+        else {
+            return Some(Domain::Unsupported(
+                "range source predecessor scope is unavailable".into(),
+            ));
+        };
+        if !crate::definitions::annotations_safe(context, source_file, predecessor) {
+            return Some(Domain::Unsupported(
+                "range source predecessor annotation is unsupported".into(),
+            ));
+        }
+        if let Err(reason) = core_arithmetic(context, bindings, calls, source_file, predecessor) {
+            return Some(Domain::Unsupported(reason));
+        }
+        if let Some(reason) = crate::callable_definitions::closed_integer_type_source_error(
+            context,
+            bindings,
+            calls,
+            instantiations,
+            domains,
+            (source_file, predecessor),
+        ) {
+            return Some(Domain::Unsupported(reason));
+        }
+        for initializer in predecessor
+            .child_nodes()
+            .filter(|part| crate::callables::is_expression(part.kind()))
+        {
+            if let crate::DefinitionSafety::Unsupported(reason) =
+                crate::callable_definitions::initialized_expression_safety(
+                    context,
+                    bindings,
+                    calls,
+                    instantiations,
+                    domains,
+                    (source_file, initializer, &headers, true),
+                    None,
+                )
+            {
+                return Some(Domain::Unsupported(reason));
+            }
+        }
+    }
+    // This source inspection proves neither endpoints, membership nor count.
+    let mut domain = Domain::Unknown;
+    for (declaration, _, _) in aliases.into_iter().rev() {
+        domain = Domain::Named {
+            declaration,
+            domain: Box::new(domain),
+        };
+    }
+    Some(domain)
+}
+
+// Recover evaluated let items along this source's actual owning path.
+fn local_source_predecessors<'a>(
+    mut node: &'a SyntaxNode,
+    source: &'a SyntaxNode,
+) -> Option<Vec<&'a SyntaxNode>> {
+    let contains = |node: &SyntaxNode| {
+        node.range().start <= source.range().start && source.range().end <= node.range().end
+    };
+    let mut predecessors = Vec::new();
+    while !std::ptr::eq(node, source) {
+        let children: Vec<_> = node.child_nodes().filter(|child| contains(child)).collect();
+        let [child] = children.as_slice() else {
+            return None;
+        };
+        if node.kind() == NodeKind::LetExpression && child.kind() != NodeKind::LetBlock {
+            predecessors.extend(
+                node.child_nodes()
+                    .filter(|node| node.kind() == NodeKind::LetBlock)
+                    .flat_map(SyntaxNode::child_nodes),
+            );
+        } else if node.kind() == NodeKind::LetBlock {
+            predecessors.extend(
+                node.child_nodes()
+                    .take_while(|node| !std::ptr::eq(*node, *child)),
+            );
+        }
+        node = child;
+    }
+    Some(predecessors)
 }
 
 /// Compare membership by named identity or closed supported values. None is

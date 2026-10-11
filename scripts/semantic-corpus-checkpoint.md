@@ -8785,3 +8785,26 @@ and a small complete Gecode compile-only control pass without solving. Original
 post-change outcomes and final corpus acceptance remain unobserved; the adjacent
 original singleton with Unknown source safety is outside this correction. All
 five base-083 completion conditions remain unchecked.
+
+### Inspected parameter range handoffs
+
+The existing late range reader now retains Unknown through qualified direct
+parameter-integer ranges and initialized named range aliases. It reuses an exact
+numeric Unknown endpoint or the existing extrema inspection, preserves named
+declaration identity, and leaves raw domain interpretation unchanged. The
+definition consumer retains its old extremum-only entry point.
+
+Public checks cover a named length-based axis, its unconstrained-integer target,
+a direct length/division range and a local extrema-range alias. Own-axis access
+remains Proven; uncertain target membership and counts remain Unknown or symbolic.
+Source annotations, User overrides, closed arithmetic, initialized-source checks
+and evaluated lexical prefixes retain their vetoes. Declaration and constraint
+items keep their own headers. Safe prefixes complete; erroneous items before or
+after an alias, direct-range prefixes and local annotations specifically keep
+expensive-comprehension Limited. Existing assertion refusals remain unchanged.
+No endpoint, exact count, nonemptiness, member value, output or coverage is inferred.
+
+Formatting, clippy and 375 workspace tests pass. Five MiniZinc 2.10.1 source-only
+checks and one small complete Gecode compilation pass without solving. Original
+post-change outcomes and final corpus acceptance remain unobserved. All five
+base-083 completion conditions remain unchecked.

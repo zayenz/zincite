@@ -641,14 +641,31 @@ impl Producer<'_> {
             .as_ref()
             .map(|(_, _, d)| d.clone())
             .or_else(|| {
-                crate::domains::inspected_parameter_extremum_range_domain(
+                let (generators, scope_error) = self.source_headers(file, node, known);
+                let global = self
+                    .resolved_reference(file, node)
+                    .is_some_and(|id| self.bindings.declarations[id.0].top_level);
+                let domain = crate::domains::inspected_parameter_range_domain(
                     self.context,
                     self.bindings,
                     (self.calls, self.calls),
                     self.instantiations,
-                    self.domains,
-                    (file, node, &[]),
-                )
+                    (self.domains, Some(self.numeric)),
+                    (file, written, if global { &[] } else { &generators }),
+                )?;
+                if !global && let Some(reason) = scope_error {
+                    return Some(Domain::Unsupported(reason));
+                }
+                if let Some(evaluated) =
+                    self.guarded.expression(file, &self.location(file, written))
+                {
+                    for outcome in [&evaluated.raw_definedness, &evaluated.definedness] {
+                        if let GuardedOutcome::Unsupported(reason) = outcome {
+                            return Some(Domain::Unsupported(reason.clone()));
+                        }
+                    }
+                }
+                Some(domain)
             })
             .or_else(|| {
                 if !matches!(
