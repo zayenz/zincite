@@ -325,7 +325,7 @@ symlink-directory cycles and deduplicate overlapping inputs. Do not recursively
 write directories in this bundle. Explicit file writes retain their current
 contract. Reading included files for semantic linting never formats them.
 
-`--rules default` selects the current two rules; omitted `--rules` is equivalent.
+`--rules default` selects naming, missing-constraint-label and prefer-array-comprehension; omitted `--rules` is equivalent.
 `--rules thesis` selects exactly the fourteen thesis rules, and `--rules all`
 selects both groups. A comma-separated list of stable rule IDs selects exactly
 those rules. Reject unknown IDs and repeated `--rules`; keep the existing text
@@ -482,7 +482,8 @@ fix capability (none, sometimes or always). Families are `correctness`,
 `suspicious`, `modelling`, `performance`, and `style`; families classify purpose,
 not severity or fix safety. Assign a rule once, and document the membership.
 Keep current warning severity and exit status policy. Broad heuristic advice stays
-opt-in; preserve the two-rule `default` and fourteen-rule `thesis` presets.
+opt-in; the `default` preset includes naming, missing-constraint-label and
+prefer-array-comprehension. Preserve the fourteen-rule `thesis` preset.
 `all` expands to every registered rule and still diagnoses unavailable selections.
 
 Selectors accept exact IDs, `family:NAME`, `preset:NAME`, and legacy
@@ -494,6 +495,16 @@ rule options and fix restrictions. Existing comma-separated IDs and exact-ID
 next-item suppressions remain compatible; do not add broad suppression directives.
 Provide `--list-rules` and `--explain RULE` from the same catalogue so users can
 inspect families, availability, caveats, options and conditional fix support.
+
+The default style rule `prefer-array-comprehension` recommends direct comprehensions
+instead of proven standard `array1d`, `array2d` and `array3d` wrappers around
+matching comprehensions. Its explicit safe fix uses a plain 1D comprehension when
+the default integer index set is established, and retains `s:` for other fixed
+index sets. Multidimensional comprehensions retain the ordered index tuple before
+the colon, including one-based axes. Support independent Cartesian membership
+generators without filters; multidimensional axes must be proven nonempty so an
+empty product cannot lose another axis. Unresolved or excluded forms stay unchanged. Reuse existing semantic facts and source-edit safety; this does not
+change automatic formatting or resume parked semantic-completeness work.
 
 ### Configuration, personal presets and parameters
 

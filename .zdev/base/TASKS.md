@@ -2,8 +2,8 @@
 
 # Tasks: base
 
-- Total: 104
-- Ready: 1
+- Total: 105
+- Ready: 2
 - Blocked: 1
 - Done: 102
 
@@ -113,3 +113,4 @@
 | [base-102](tasks/102-keep-fitting-quantified-condition-chains-compact.md) | Keep fitting quantified condition chains compact | done | — |
 | [base-103](tasks/103-keep-fitting-conditional-array-comprehensions-compact.md) | Keep fitting conditional array comprehensions compact | done | — |
 | [base-104](tasks/104-indent-expanded-conditional-headers-consistently.md) | Indent expanded conditional headers consistently | done | — |
+| [base-105](tasks/105-prefer-direct-array-comprehensions-with-preserved-indices.md) | Prefer direct array comprehensions with preserved indices | ready | — |
