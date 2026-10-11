@@ -2,9 +2,9 @@
 
 # Tasks: base
 
-- Total: 96
-- Ready: 2
-- Blocked: 1
+- Total: 100
+- Ready: 4
+- Blocked: 3
 - Done: 93
 
 | ID | Task | State | Blocked by |
@@ -105,3 +105,7 @@
 | [base-094](tasks/094-replan-callable-analysis-responsibilities-and-semantic-suppo.md) | Replan callable analysis responsibilities and semantic support | done | base-093 |
 | [base-095](tasks/095-fix-formatter-layout-for-multiline-callable-bodies.md) | Fix formatter layout for multiline callable bodies | done | — |
 | [base-096](tasks/096-fix-formatter-indentation-and-wrapping-of-conjunction-chains.md) | Fix formatter indentation and wrapping of conjunction chains | done | — |
+| [base-097](tasks/097-adopt-bounded-semantic-support-and-honest-acceptance-contrac.md) | Adopt bounded semantic support and honest acceptance contracts | ready | base-094 |
+| [base-098](tasks/098-classify-retained-semantic-limitations-by-consumer-and-suppo.md) | Classify retained semantic limitations by consumer and support boundary | blocked | base-097 |
+| [base-099](tasks/099-separate-source-call-facts-from-optional-body-expansion-for.md) | Separate source call facts from optional body expansion for simple lints | blocked | base-097 |
+| [base-100](tasks/100-admit-normal-library-semantic-queries-with-distinct-finite-s.md) | Admit normal-library semantic queries with distinct finite scan and result bounds | ready | — |
