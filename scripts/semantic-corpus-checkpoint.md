@@ -7667,7 +7667,7 @@ classification, not a fifth accepted disposition or a successful owner.
 | `twoabsdiff`, 3331:26, 374107..374117 | Constraint 2594, 373039..374479, E | Whole inspection; UV selected-body safety | Open: earlier transitive source refuses; E below |
 | `nHSupport`, 3364:31, 374902..374911 | Constraint 2599, 374816..376091, F | Whole inspection; UV operator partiality/safe array definition | Open: initialized Local concat shape rejected before source fallback; F below |
 | `sp_is`, 3381:25, 375638..375643 | Constraint 2599, 374816..376091, F | Whole inspection including failed earlier array | Open: child source Supported, owner failed; F below |
-| `p`, 3429:71, 377113..377114 | Value 2606, 376996..377137, V2 | Whole initializer/domain inspection; UV reflected-domain safety | Open: rank-three decision-array reflection source refuses; V2 below |
+| `p`, 3429:71, 377113..377114 | Value 2606, 376996..377137, V2 | Whole initializer/domain inspection; UV reflected-domain safety | Open: rank-two array reflection source refuses; V2 below |
 | `nn`, 3468:64, 378397..378399 | Constraint 2608, 377404..378797, G | Whole inspection of Float domain, equality and siblings | Open: earlier native-call dependency sibling refuses; G below |
 | `fpSzU`, 3466:34, 378306..378311 | Constraint 2608, 377404..378797, G | Whole inspection; UV safe complete array definition | Open: failed sibling and fresh-let operator/partiality; G below |
 | `fpAreaU`, 3471:20, 378521..378528 | Constraint 2608, 377404..378797, G | Whole inspection; UV membership/safe product definition | Open: product child Unknown, owner failed; G below |
@@ -7798,9 +7798,12 @@ par Set Int axes and a var rank-one integer backing array. The independent fresh
 `np` let also refuses the same source, with its real owning generator headers.
 V2's complete Value reader and fresh `p` let both refuse reflected bounds:
 `lb_array` at 355786..355804 selects a known par Int result from a present
-rank-three decision integer array, outside the existing rank-one decision-array
-source family; `ub_array` at 355855..355872 also reaches the stricter parameter
-operand/nonempty proof gate. Its reflected domain source at 376667..376856
+rank-two decision integer array, outside the existing rank-one decision-array
+source family. Both selected reflection formals have two par Int axes and a
+decision Int element. The `ub_array` actual at 355855..355872 is parameter-valued
+and reaches the stricter parameter-operand/nonempty proof gate. These actual
+reflection operands are distinct from the earlier rank-three backing source.
+Its reflected domain source at 376667..376856
 therefore remains unavailable. These are bound/source demands, not unresolved
 array type or declaration identity. They cannot be called input failures or
 ordinary missing data. As with the other initialized sources, admitting more
@@ -7891,3 +7894,45 @@ missing observations, resource cutoffs and promised gaps cannot become success.
 Base-050's compiler pre-checks, source preservation and final performance and
 integration obligations remain separate. The current no-repair/no-sweep scope
 leaves those acceptance obligations open.
+
+### Base-083: parameter set local source forwarding
+
+An earlier parameter set Local can forward inspected source facts into `card`
+without exact selection membership. The public control uses a mixed let with
+`set of int: picked = pools[position]`, a conditional count, and a fresh Boolean
+marker. Before the correction, `card(pools[position])` completed search source
+inspection, while `card(picked)` made the same owner Limited with an exact
+traversal-membership refusal. Both variants retained resolved calls. The alias
+failure was independently reproduced and checked against the ordinary-alias
+support contract.
+
+`source/fallback.rs::fallback_source_safety` forwards the earlier Local's
+initializer before the parameter Bool/Set Int dispatch. It reuses the existing
+forwarder for known present parameter Int, Bool and Set Int references, retaining
+declaration identity, same-file and earlier-order checks, safe annotations and
+the initializer's lexical scope. Strict dependency traversal is unchanged. The
+source result remains Unknown when membership is unproved; it grants no set
+cardinality, output, definition or search-coverage proof. This correction does
+not admit Local arrays, decision aliases or arbitrary structured results.
+
+The grouped public regression
+`parameter_set_local_alias_keeps_inspected_source_unknown` checks direct and
+alias forms through callable facts and the search rule. Both inspect the marker,
+return no outputs or definitions, and complete without findings or limitations.
+Closed division by zero in the source, an unknown Local annotation, and a failed
+Boolean sibling keep the owner Limited and withhold inspected locals. The
+focused definition and search suites passed 20 and 58 tests respectively.
+`cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings` and
+`cargo test --workspace` passed.
+
+The V2 row and paragraph above also correct the reflected operand rank from
+three to two, using the retained selected-formal events. The earlier rank-three
+backing source and the parameter-valued upper reflection operand remain
+separate. No original owner was rerun for this increment, so B/C owner outcomes
+and the other retained source-family questions remain open. Existing diagnostic
+and confirmed-cost evidence is retained. Whole-task acceptance still requires
+the remaining support mappings and final stable thesis14/current-all28 corpus
+accounting with every original root, exact IDs, pins, complete outcomes and
+explicit unavailable or Unobserved results. Historical all26 captures remain
+separate. Base-083 remains open.

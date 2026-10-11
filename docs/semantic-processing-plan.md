@@ -181,7 +181,8 @@ Do not merely raise a collection limit or add a budget subsystem.
 Base-083 retains diagnostic scaling/grouping review, including the retained
 generated Project Planning case, confirmed expanded-analysis cost with matched
 outcomes and bounded growth/allocation/native evidence, and final complete
-14/26 accounting. Base-050 retains full corpus inventory, compiler pre-checks,
+14/current-all accounting (now 28 IDs), preserving historical 26-ID evidence.
+Base-050 retains full corpus inventory, compiler pre-checks,
 source preservation and final release performance/integration requirements.
 Neither classifications nor bounded controls substitute for final acceptance.
 The initializer-adaptation query and whole-owner extraction remain deferred;

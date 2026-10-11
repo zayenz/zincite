@@ -64,6 +64,143 @@ fn selected() -> LintOptions {
     LintOptions::from_selection("search-coverage").unwrap()
 }
 
+#[test]
+fn parameter_set_local_alias_keeps_inspected_source_unknown() {
+    use zincite_lint::{CallOutcome, DeclarationRole};
+
+    let source = concat!(
+        "set of int: Axis; array[Axis] of set of int: pools; int: position;\n",
+        "var bool: gate;\n",
+        "constraint let {\n",
+        "  set of int: picked = pools[position];\n",
+        "  int: count = if card(picked) > 0 then 1 else 0 endif;\n",
+        "  var bool: marker;\n",
+        "} in marker <-> gate;\n",
+        "solve :: bool_search([gate], input_order, indomain_min, complete) satisfy;\n",
+    );
+    let library = format!(
+        "{CORE}{}",
+        concat!(
+            "function int: card(set of int: values);\n",
+            "function bool: '>'(int: left,int: right);\n",
+            "function int: 'div'(int: left,int: right); annotation opaque;\n",
+            "function var bool: '<->'(var bool: left,var bool: right);\n",
+        ),
+    );
+    for (name, source, reason) in [
+        (
+            "direct",
+            source.replace("card(picked)", "card(pools[position])"),
+            None,
+        ),
+        ("alias", source.to_owned(), None),
+        (
+            "source-error",
+            source.replace("int: position;", "int: position = 1 div 0;"),
+            Some("integer division by zero"),
+        ),
+        (
+            "annotation",
+            source.replace("picked =", "picked :: opaque ="),
+            Some("annotation"),
+        ),
+        (
+            "failed-sibling",
+            source.replace("marker <-> gate;", "(marker <-> gate) /\\ (1 div 0 = 0);"),
+            Some("integer division by zero"),
+        ),
+    ] {
+        let (dir, _) = model(
+            &format!("parameter-set-local-alias-{name}"),
+            "solve satisfy;",
+            "",
+        );
+        std::fs::write(dir.join("root.mzn"), &source).unwrap();
+        std::fs::write(dir.join("library/std/stdlib.mzn"), &library).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == 0)
+                .all(|call| { matches!(call.outcome, CallOutcome::Resolved { .. }) }),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let marker = bindings
+            .declarations
+            .iter()
+            .find(|declaration| {
+                declaration.file == 0
+                    && declaration.role == DeclarationRole::Local
+                    && declaration.name == "marker"
+            })
+            .unwrap()
+            .id;
+        let result = analyze_model(&context, &selected());
+        // Inspecting the symbolic local grants no cardinality or output proof.
+        assert!(
+            callable.outputs.is_empty() && callable.definitions.is_empty(),
+            "{name}: {callable:?}"
+        );
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        match reason {
+            None => {
+                assert!(callable.unavailable.is_empty(), "{name}: {callable:?}");
+                assert!(
+                    callable.inspected_locals.contains(&marker),
+                    "{name}: {callable:?}"
+                );
+                assert_eq!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Completed,
+                    "{name}: {:?}",
+                    result.limitations
+                );
+                assert!(
+                    result.limitations.is_empty() && result.findings.is_empty(),
+                    "{name}: {result:?}"
+                );
+            }
+            Some(reason) => {
+                assert!(callable.inspected_locals.is_empty(), "{name}: {callable:?}");
+                assert!(
+                    callable
+                        .unavailable
+                        .iter()
+                        .any(|failure| failure.reason.contains(reason)),
+                    "{name}: {callable:?}"
+                );
+                assert!(
+                    matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                    "{name}: {result:?}"
+                );
+                assert!(
+                    result
+                        .limitations
+                        .iter()
+                        .any(|failure| failure.message.contains(reason)),
+                    "{name}: {result:?}"
+                );
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
 fn assert_mixed_decision_analysis(context: &ModelContext, search: &zincite_lint::AnalysisResult) {
     let simple = analyze_model(
         context,

@@ -52,6 +52,37 @@ impl<'a> BodyInterpreter<'a, '_> {
         {
             return safety;
         }
+        if node.kind() == NodeKind::Expression && ty(node).is_some_and(|t| {
+            t.known()
+                && !optional(t)
+                && t.instantiation == Instantiation::Parameter
+                && (matches!(t.kind, TypeKind::Int | TypeKind::Bool)
+                    || matches!(&t.kind, TypeKind::Set(element) if element.kind == TypeKind::Int))
+        }) && let Some(id) = self.source.reference(file, node)
+        {
+            let declaration = &self.source.bindings.declarations[id.0];
+            if declaration.role == DeclarationRole::Local
+                && declaration.file == file
+                && declaration.syntax_range.end <= node.range().start
+                && view.declarations[id.0].ty.instantiation == Instantiation::Parameter
+                && let Some(local) = find_node(
+                    self.source.context.files[file].parsed.tree(),
+                    &declaration.syntax_range,
+                    declaration.role,
+                )
+                && crate::definitions::annotations_safe(self.source.context, file, local)
+                && let Some(value) = local.child_nodes().find(|n| is_expression(n.kind()))
+            {
+                let Some(lexical) =
+                    local_source_scope(self.source.context.files[file].parsed.tree(), local)
+                else {
+                    return DefinitionSafety::Unsupported(
+                        "local initializer owning scope is unavailable".into(),
+                    );
+                };
+                return self.direct_safety(file, value, view, &lexical);
+            }
+        }
         if ty(node).is_some_and(|t| {
             t.known()
                 && !optional(t)
@@ -65,34 +96,6 @@ impl<'a> BodyInterpreter<'a, '_> {
             return DefinitionSafety::Unsupported(reason);
         }
         match node.kind() {
-            NodeKind::Expression => {
-                if let Some(id) = self.source.reference(file, node) {
-                    let declaration = &self.source.bindings.declarations[id.0];
-                    if declaration.role == DeclarationRole::Local
-                        && declaration.file == file
-                        && declaration.syntax_range.end <= node.range().start
-                        && view.declarations[id.0].ty.instantiation == Instantiation::Parameter
-                        && let Some(local) = find_node(
-                            self.source.context.files[file].parsed.tree(),
-                            &declaration.syntax_range,
-                            declaration.role,
-                        )
-                        && crate::definitions::annotations_safe(self.source.context, file, local)
-                        && let Some(value) = local.child_nodes().find(|n| is_expression(n.kind()))
-                    {
-                        let Some(lexical) = local_source_scope(
-                            self.source.context.files[file].parsed.tree(),
-                            local,
-                        ) else {
-                            return DefinitionSafety::Unsupported(
-                                "local initializer owning scope is unavailable".into(),
-                            );
-                        };
-                        return self.direct_safety(file, value, view, &lexical);
-                    }
-                }
-                DefinitionSafety::Unsupported(reason)
-            }
             NodeKind::ConditionalExpression => {
                 match self.source.integer_conditional_values(file, node, view) {
                     Ok(values) => self.direct_children_safety(file, &values, view, generators),
