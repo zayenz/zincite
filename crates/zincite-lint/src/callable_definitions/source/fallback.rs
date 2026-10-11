@@ -558,7 +558,8 @@ impl<'a> BodyInterpreter<'a, '_> {
                 t.known()
                     && !optional(t)
                     && (matches!(t.kind, TypeKind::Int | TypeKind::Bool | TypeKind::Enum(_))
-                        || t.kind == TypeKind::Float && t.instantiation == Instantiation::Parameter)
+                        || matches!(t.kind, TypeKind::Float | TypeKind::String)
+                            && t.instantiation == Instantiation::Parameter)
             })
         {
             let children: Vec<_> = node.child_nodes().collect();
@@ -574,7 +575,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                 && element.known()
                 && !optional(element)
                 && Some(&element.kind) == ty(node).map(|t| &t.kind)
-                && (element.kind != TypeKind::Float
+                && (!matches!(element.kind, TypeKind::Float | TypeKind::String)
                     || indices.len() == 1
                         && source.instantiation == Instantiation::Parameter
                         && element.instantiation == Instantiation::Parameter

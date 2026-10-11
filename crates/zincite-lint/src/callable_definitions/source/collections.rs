@@ -2706,6 +2706,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                         && present_parameter(&indices[0])
                         && indices[0].kind == TypeKind::Int
                         && (matches!(element.kind, TypeKind::Int | TypeKind::Bool)
+                            || present_parameter(element) && element.kind == TypeKind::String
                             || integer_set(element)
                             || decision_sets
                             || enum_values) =>

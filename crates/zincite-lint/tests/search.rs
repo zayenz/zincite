@@ -17817,3 +17817,150 @@ fn model_value_fresh_integer_lets_complete_without_search_certificates() {
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
+
+#[test]
+fn filtered_parameter_strings_inspect_sources_without_output_proof() {
+    use zincite_lint::{CallOutcome, DeclarationRole};
+
+    let source = concat!(
+        "int: n; array[1..n] of int: map; array[1..n] of string: values;\n",
+        "var bool: gate; constraint let {\n",
+        "set of int: picked = {i | i in 1..n where map[i]>0};\n",
+        "array[int] of string: copied = [values[map[i]] | i in picked];\n",
+        "var bool: marker; var bool: sibling;\n",
+        "} in marker <-> gate /\\ sibling <-> gate;\n",
+        "solve :: bool_search([gate],input_order,indomain_min,complete) satisfy;\n",
+    );
+    let library = format!(
+        "{CORE}{}",
+        concat!(
+            "function bool: '>'(int: left,int: right);\n",
+            "function var bool: '<->'(var bool: left,var bool: right);\n",
+            "function int: 'div'(int: left,int: right);\n",
+        )
+    );
+    for (label, source, error) in [
+        ("string", source.to_owned(), None),
+        ("integer", source.replace("string", "int"), None),
+        (
+            "source-error",
+            source.replace(
+                "array[1..n] of string: values",
+                "array[1..(1 div 0)] of string: values",
+            ),
+            Some("division by zero"),
+        ),
+        (
+            "selector-error",
+            source
+                .replace("values[map[i]]", "values[0]")
+                .replace(
+                    "array[1..n] of string: values",
+                    "array[1..2] of string: values",
+                )
+                .replace("i in picked]", "i in picked where false]"),
+            Some("outside its declared index set"),
+        ),
+    ] {
+        let (dir, _) = model(
+            &format!("filtered-parameter-strings-{label}"),
+            "solve satisfy;",
+            "",
+        );
+        std::fs::write(dir.join("library/std/stdlib.mzn"), &library).unwrap();
+        std::fs::write(dir.join("root.mzn"), &source).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{label}: {:?}", context.errors);
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == context.root_file.unwrap())
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{label}: {:?}",
+            calls.calls
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let (_, search) = facts(&context);
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{label}: {:?}", result.errors);
+        assert_eq!(search.root_state, ModelRootState::Complete, "{label}");
+        let execution = result
+            .rules
+            .iter()
+            .find(|row| row.rule.id() == "search-coverage")
+            .unwrap();
+        let locals: Vec<_> = bindings
+            .declarations
+            .iter()
+            .filter(|d| {
+                d.role == DeclarationRole::Local && matches!(d.name.as_str(), "marker" | "sibling")
+            })
+            .map(|d| d.id)
+            .collect();
+        assert_eq!(locals.len(), 2, "{label}");
+        assert!(
+            callable.outputs.is_empty() && callable.definitions.is_empty(),
+            "{label}: {callable:?}"
+        );
+        for local in &locals {
+            assert_eq!(
+                search.declarations[local.0].coverage,
+                SearchCoverage::Unknown,
+                "{label}"
+            );
+            assert!(
+                search
+                    .searched
+                    .iter()
+                    .all(|seed| seed.declaration != Some(*local)),
+                "{label}"
+            );
+            assert_eq!(
+                callable.inspected_locals.contains(local),
+                error.is_none(),
+                "{label}: {:?}",
+                callable.unavailable
+            );
+        }
+        if let Some(error) = error {
+            assert!(
+                matches!(execution.outcome, RuleOutcome::Limited { .. }),
+                "{label}: {:?}",
+                execution.outcome
+            );
+            assert!(
+                result
+                    .limitations
+                    .iter()
+                    .any(|limitation| limitation.message.contains(error)),
+                "{label}: {:?}",
+                result.limitations
+            );
+        } else {
+            assert!(
+                matches!(execution.outcome, RuleOutcome::Completed),
+                "{label}: {:?}; {:?}",
+                execution.outcome,
+                result.limitations
+            );
+            assert!(
+                result.limitations.is_empty(),
+                "{label}: {:?}",
+                result.limitations
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

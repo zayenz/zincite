@@ -8479,3 +8479,36 @@ compiles, with a warning that the undefined result becomes false. It is retained
 as a relational-partiality control, not classified as invalid input or a
 semantic exclusion. Original owner outcomes after this correction remain
 unobserved, and all five whole-task conditions remain unchecked.
+
+### Parameter String collection source increment
+
+After `82fe517`, a compiler-supported public control differs only in its
+parameter array element type: the integer collection is inspected, while the
+String collection is refused before inspecting its body. The correction admits
+present parameter rank-one String comprehensions through the existing collection
+checks and selected cells through the existing restrictive parameter Float
+source path. That cell path still requires a bare top-level parameter array
+with one integer axis and a present parameter element.
+
+Collection construction stays Unknown; no String values, extent, membership,
+nonemptiness, totality, callable output or searched seed is proved. The focused
+regression keeps the matching integer control, a failed source domain and a
+closed out-of-range selector behind a false filter. Private controls also retain
+header-error, optional, annotation and failed-sibling refusals. Both positive
+element variants pass current MiniZinc source checking and supplied public-data
+Gecode compile-only checks, without solving. Original outcomes after this
+correction remain unobserved.
+
+The separate D diagnostic identifies its actual first source refusal as a
+selected User parameter-set result, propagated through an initialized conditional
+to the owning constraint. Its written bodies require computed `arg_min`/`arg_max`
+collections, decision-domain reflection and computed selection. Common call
+selection and types are already available; the adopted exclusion of arbitrary
+parameter/computed value-dependency body interpretation applies. Search coverage
+retains its located Limited result; no new User-set body inspector is added.
+The old native `array2d` dependency trace does not establish this source refusal: a
+reduced native reshape/racks control completes through existing Unknown sources.
+The one bounded private diagnostic terminated normally under its 180-second
+deadline and preserved the original hash. It used the retained `3ce14c6` baseline
+with diagnostic wrappers on the unchanged rejecting path; it is not final
+current-binary corpus evidence. All five whole-task conditions remain unchecked.
