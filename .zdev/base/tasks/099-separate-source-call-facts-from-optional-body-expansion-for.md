@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-099"
 key = "simple-consumer-signature-demand"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -27,11 +27,20 @@ Read the adopted support contract and current callables.rs, instantiations.rs an
 
 ## Done when
 
-- [ ] The simple-only selection reaches the supported source-call/instantiation facts without selected-library-body expansion for optional proofs; the controlling functions and caller demand are explicit. If no implementation change is necessary, evidence establishes that behavior for the named consumers.
-- [ ] A typed opaque call, shadowed/competing overload, optional result and decision expressions in condition versus branch retain correct selected declarations, user-source types/instantiations, findings and limitations. Unknown selection cannot fabricate a definite match.
-- [ ] Mixed simple/search and representative existing deep selections preserve complete body-aware facts, ordered findings/limitations and proof refusals. Existing public resolve_callables behavior remains compatible. The simple path does not publish stronger definition/output/coverage facts or hide dependent errors.
+- [x] The simple-only selection reaches the supported source-call/instantiation facts without selected-library-body expansion for optional proofs; the controlling functions and caller demand are explicit. If no implementation change is necessary, evidence establishes that behavior for the named consumers.
+- [x] A typed opaque call, shadowed/competing overload, optional result and decision expressions in condition versus branch retain correct selected declarations, user-source types/instantiations, findings and limitations. Unknown selection cannot fabricate a definite match.
+- [x] Mixed simple/search and representative existing deep selections preserve complete body-aware facts, ordered findings/limitations and proof refusals. Existing public resolve_callables behavior remains compatible. The simple path does not publish stronger definition/output/coverage facts or hide dependent errors.
 
 ## Validation
 
 - Establish a small before/after set from existing public callable and decision-use tests: typed opaque call, overload/shadowing, optional result and condition/branch distinction. Add only a focused public regression where the changed boundary lacks an existing meaningful witness. Compare source-location facts and rule outputs, not private helper calls.
 - Compare full existing body-aware results for one mixed simple/search case and representative deep controls, including a refusal/sibling-failure control. Run cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, cargo test --workspace and git diff --check. No corpus sweep or solver run.
+
+## Result
+
+Separated source callable facts from optional selected standard-body expansion; simple decision rules use source facts and mixed/deep selections reuse the full producer.
+
+Validation:
+
+- Independent whole-task verifier PASS at Wf9d173e4ba786e10 with equal snapshot comparison.
+- fmt, clippy, workspace tests and diff checks passed; ten full public before/after captures match; eight source/full equivalence cases and mixed success/refusal controls passed.

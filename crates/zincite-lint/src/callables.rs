@@ -92,6 +92,23 @@ pub struct CallableFacts {
 /// Every inspected user call has an outcome. Matching uses component coercions
 /// and a unique lowest signature, never a summed specificity score.
 pub fn resolve_callables(context: &ModelContext, bindings: &BindingFacts) -> CallableFacts {
+    resolve_callable_facts(context, bindings, true)
+}
+
+/// Produce source types and call selections without expanding selected standard
+/// implementations for body proofs. Retain written user/explicit bodies and
+/// expression typing needed by declarations, signatures, domains and omitted
+/// defaults; these dependencies may still produce standard-library expression
+/// facts. The supplied bindings must belong to this context.
+pub fn resolve_source_callables(context: &ModelContext, bindings: &BindingFacts) -> CallableFacts {
+    resolve_callable_facts(context, bindings, false)
+}
+
+fn resolve_callable_facts(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    inspect_selected_bodies: bool,
+) -> CallableFacts {
     let mut reference_index = HashMap::with_capacity(bindings.references.len());
     for (row, reference) in bindings.references.iter().enumerate() {
         reference_index
@@ -144,35 +161,37 @@ pub fn resolve_callables(context: &ModelContext, bindings: &BindingFacts) -> Cal
     }
     // Retain interpretation inside selected standard implementations as well.
     // Native declarations are endpoints; this follows only demanded bodies.
-    let mut inspected = vec![false; bindings.declarations.len()];
-    loop {
-        let selected: Vec<_> = engine
-            .calls
-            .values()
-            .filter_map(|call| {
-                if let CallOutcome::Resolved { declaration, .. } = call.outcome {
-                    let d = &bindings.declarations[declaration.0];
-                    (context.files[d.file].kind == crate::SourceKind::StandardLibrary
-                        && !inspected[declaration.0])
-                        .then_some(declaration)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        if selected.is_empty() {
-            break;
-        }
-        for id in selected {
-            if inspected[id.0] {
-                continue;
+    if inspect_selected_bodies {
+        let mut inspected = vec![false; bindings.declarations.len()];
+        loop {
+            let selected: Vec<_> = engine
+                .calls
+                .values()
+                .filter_map(|call| {
+                    if let CallOutcome::Resolved { declaration, .. } = call.outcome {
+                        let d = &bindings.declarations[declaration.0];
+                        (context.files[d.file].kind == crate::SourceKind::StandardLibrary
+                            && !inspected[declaration.0])
+                            .then_some(declaration)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if selected.is_empty() {
+                break;
             }
-            inspected[id.0] = true;
-            let d = &bindings.declarations[id.0];
-            if let Some(node) = engine.nodes[id.0]
-                && node.child_nodes().any(|n| is_expression(n.kind()))
-            {
-                engine.inspect(d.file, d.item, node);
+            for id in selected {
+                if inspected[id.0] {
+                    continue;
+                }
+                inspected[id.0] = true;
+                let d = &bindings.declarations[id.0];
+                if let Some(node) = engine.nodes[id.0]
+                    && node.child_nodes().any(|n| is_expression(n.kind()))
+                {
+                    engine.inspect(d.file, d.item, node);
+                }
             }
         }
     }

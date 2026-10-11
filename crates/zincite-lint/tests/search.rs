@@ -63,6 +63,55 @@ fn coverage(bindings: &BindingFacts, search: &SearchFacts, name: &str) -> Search
 fn selected() -> LintOptions {
     LintOptions::from_selection("search-coverage").unwrap()
 }
+
+fn assert_mixed_decision_analysis(context: &ModelContext, search: &zincite_lint::AnalysisResult) {
+    let simple = analyze_model(
+        context,
+        &LintOptions::from_selection(
+            "decision-variable-operator,decision-variable-generator,decision-variable-condition",
+        )
+        .unwrap(),
+    );
+    let mixed = analyze_model(
+        context,
+        &LintOptions::from_selection(
+            "decision-variable-operator,decision-variable-generator,decision-variable-condition,search-coverage",
+        )
+        .unwrap(),
+    );
+    for result in [search, &simple] {
+        let rules: Vec<_> = result.rules.iter().map(|entry| entry.rule).collect();
+        let findings: Vec<_> = mixed
+            .findings
+            .iter()
+            .filter(|finding| rules.contains(&finding.rule))
+            .collect();
+        assert_eq!(format!("{findings:?}"), format!("{:?}", result.findings));
+        assert_eq!(
+            mixed
+                .rules
+                .iter()
+                .filter(|entry| rules.contains(&entry.rule))
+                .map(|entry| (entry.rule, &entry.outcome))
+                .collect::<Vec<_>>(),
+            result
+                .rules
+                .iter()
+                .map(|entry| (entry.rule, &entry.outcome))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(mixed.errors, result.errors);
+    }
+    assert_eq!(
+        mixed.limitations.iter().collect::<Vec<_>>(),
+        search
+            .limitations
+            .iter()
+            .chain(&simple.limitations)
+            .collect::<Vec<_>>()
+    );
+}
+
 #[test]
 fn guarded_enum_successor_relations_inspect_sources_without_output_proof() {
     use zincite_lint::{CallOutcome, Instantiation, SourceKind, TypeInst, TypeKind};
@@ -5219,6 +5268,7 @@ fn callable_outputs_keep_selected_direction_defaults_captures_and_array_extent()
         std::fs::read_to_string(dir.join("root.mzn")).unwrap(),
         source
     );
+    assert_mixed_decision_analysis(&context, &analyze_model(&context, &selected()));
     std::fs::remove_dir_all(dir).unwrap();
 
     let shadowed = format!(
@@ -9005,6 +9055,7 @@ solve :: int_search(placement, input_order, indomain_min, complete) satisfy;
             search.limitations
         );
         let result = analyze_model(&context, &selected());
+        assert_mixed_decision_analysis(&context, &result);
         if supported {
             assert!(
                 callable.unavailable.is_empty(),

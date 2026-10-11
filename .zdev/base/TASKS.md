@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 100
-- Ready: 3
+- Ready: 2
 - Blocked: 2
-- Done: 95
+- Done: 96
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -107,5 +107,5 @@
 | [base-096](tasks/096-fix-formatter-indentation-and-wrapping-of-conjunction-chains.md) | Fix formatter indentation and wrapping of conjunction chains | done | — |
 | [base-097](tasks/097-adopt-bounded-semantic-support-and-honest-acceptance-contrac.md) | Adopt bounded semantic support and honest acceptance contracts | done | base-094 |
 | [base-098](tasks/098-classify-retained-semantic-limitations-by-consumer-and-suppo.md) | Classify retained semantic limitations by consumer and support boundary | ready | base-097 |
-| [base-099](tasks/099-separate-source-call-facts-from-optional-body-expansion-for.md) | Separate source call facts from optional body expansion for simple lints | ready | base-097 |
+| [base-099](tasks/099-separate-source-call-facts-from-optional-body-expansion-for.md) | Separate source call facts from optional body expansion for simple lints | done | base-097 |
 | [base-100](tasks/100-admit-normal-library-semantic-queries-with-distinct-finite-s.md) | Admit normal-library semantic queries with distinct finite scan and result bounds | done | — |

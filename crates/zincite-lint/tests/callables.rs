@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 use zincite_lint::{
     BindingFacts, CallOutcome, CallableFacts, DeclarationRole, Instantiation, LintOptions,
     ModelOptions, Rule, RuleOutcome, TypeKind, analyze_file, analyze_model, lint_with_options,
-    load_model, resolve_bindings, resolve_callables,
+    load_model, resolve_bindings, resolve_callables, resolve_instantiations,
+    resolve_source_callables,
 };
 use zincite_syntax::{FileMode, parse, parse_with_mode};
 
@@ -61,6 +62,88 @@ fn resolved<'a>(
         panic!("{marker}: {:?}", outcome(facts, path, source, marker));
     };
     &bindings.declarations[declaration.0]
+}
+
+#[test]
+fn source_call_facts_skip_selected_standard_bodies_and_retain_written_user_calls() {
+    let (directory, options) = setup("source-bodies");
+    let library = options.stdlib_dir.as_ref().unwrap().join("std/stdlib.mzn");
+    let standard = concat!(
+        "function var int: from_body(var int: x)=body_only(x);\n",
+        "function var int: body_only(var int: x)=x;\n",
+    );
+    write(&library, standard);
+    let root = directory.join("root.mzn");
+    let source = concat!(
+        "var int: value; var int: result=from_body(value);\n",
+        "function var int: written(var int: x)=unavailable(x);\n",
+        "var int: user_result=written(value); solve satisfy;\n",
+    );
+    write(&root, source);
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let bindings = resolve_bindings(&context);
+    let full = resolve_callables(&context, &bindings);
+    let written = resolve_source_callables(&context, &bindings);
+    let declaration = resolved(&written, &bindings, &root, source, "from_body(value)");
+    assert_eq!(declaration.location.path, library);
+    let expected = zincite_lint::TypeInst {
+        instantiation: Instantiation::Decision,
+        optional: false,
+        kind: TypeKind::Int,
+    };
+    assert_eq!(
+        outcome(&written, &root, source, "from_body(value)"),
+        &CallOutcome::Resolved {
+            declaration: declaration.id,
+            parameters: vec![expected.clone()],
+            return_type: expected.clone(),
+        }
+    );
+    let signature = written
+        .signatures
+        .iter()
+        .find(|signature| signature.declaration == declaration.id)
+        .unwrap();
+    assert_eq!(signature.parameters[0].ty, expected);
+    assert_eq!(signature.return_type, expected);
+    let expression = written
+        .expressions
+        .iter()
+        .find(|fact| {
+            fact.location.path == root && &source[fact.location.range.clone()] == "from_body(value)"
+        })
+        .unwrap();
+    assert_eq!(expression.ty, expected);
+    assert!(
+        full.calls
+            .iter()
+            .any(|call| { call.location.path == library && call.name == "body_only" })
+    );
+    assert!(
+        !written
+            .calls
+            .iter()
+            .any(|call| { call.location.path == library && call.name == "body_only" })
+    );
+    for marker in ["from_body(value)", "written(value)", "unavailable(x)"] {
+        assert_eq!(
+            outcome(&written, &root, source, marker),
+            outcome(&full, &root, source, marker)
+        );
+    }
+    assert!(matches!(
+        outcome(&written, &root, source, "unavailable(x)"),
+        CallOutcome::Unresolved { .. }
+    ));
+    assert_eq!(
+        format!(
+            "{:?}",
+            resolve_instantiations(&context, &bindings, &written)
+        ),
+        format!("{:?}", resolve_instantiations(&context, &bindings, &full))
+    );
+    std::fs::remove_dir_all(directory).unwrap();
 }
 
 #[test]

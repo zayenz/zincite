@@ -11,9 +11,10 @@ use crate::{
     element::check_element, global_uses::check_global_uses, lint_items, lint_with_options,
     resolve_bindings, resolve_callables, resolve_compact_ifs, resolve_definitions,
     resolve_effective_zero_one, resolve_global_uses, resolve_instantiations,
-    resolve_integer_bounds, resolve_symmetry_uses, resolve_unused_declarations,
-    search_coverage::check_search_coverage, symmetry::check_symmetry_uses,
-    unbounded_variable::check_unbounded_variables, unused_declarations::check_unused_declarations,
+    resolve_integer_bounds, resolve_source_callables, resolve_symmetry_uses,
+    resolve_unused_declarations, search_coverage::check_search_coverage,
+    symmetry::check_symmetry_uses, unbounded_variable::check_unbounded_variables,
+    unused_declarations::check_unused_declarations,
 };
 
 #[derive(Debug)]
@@ -257,7 +258,6 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             || options.rules.contains(&Rule::ElementPredicate)
             || options.rules.contains(&Rule::ArrayIndexStart)
             || options.rules.contains(&Rule::CompactIf)
-            || !decision_rules.is_empty()
             || options.rules.contains(&Rule::ConstantVariable)
             || options.rules.contains(&Rule::UnboundedVariable)
             || options.rules.contains(&Rule::SearchCoverage)
@@ -274,6 +274,8 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             || options.rules.contains(&Rule::UnusedDeclaration)
         {
             Some(resolve_callables(context, &facts))
+        } else if !decision_rules.is_empty() {
+            Some(resolve_source_callables(context, &facts))
         } else {
             None
         };

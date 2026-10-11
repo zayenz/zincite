@@ -68,7 +68,7 @@ pub use callable_definitions::{
 };
 pub use callables::{
     CallFact, CallOutcome, CallableFacts, CallableParameter, CallableSignature, DeclarationType,
-    ExpressionType, resolve_callables,
+    ExpressionType, resolve_callables, resolve_source_callables,
 };
 pub use compact_if::{CompactIfFact, CompactIfFacts, CompactIfOutcome, resolve_compact_ifs};
 pub use definitions::{
