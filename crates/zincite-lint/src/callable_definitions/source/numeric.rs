@@ -710,11 +710,12 @@ impl<'a> BodyInterpreter<'a, '_> {
             return None;
         }
         let facts = self.source.view(file, node, view);
+        let call = self.source.operation_fact(facts, file, node)?;
         let CallOutcome::Resolved {
             declaration: id,
             parameters,
             return_type,
-        } = &self.source.operation_fact(facts, file, node)?.outcome
+        } = &call.outcome
         else {
             return None;
         };
@@ -732,6 +733,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                     && t.instantiation == Instantiation::Parameter
                     && t.kind == kind
             };
+            let decision = TypeInst::par(TypeKind::Int).with_inst(Instantiation::Decision);
             let signature = self
                 .source
                 .calls
@@ -747,7 +749,8 @@ impl<'a> BodyInterpreter<'a, '_> {
                 || parameters.len() != 1
                 || signature.parameters.len() != 1
                 || signature.parameters[0].has_default
-                || !parameter(&signature.parameters[0].ty, TypeKind::Int)
+                || !(parameter(&signature.parameters[0].ty, TypeKind::Int)
+                    || signature.parameters[0].ty == decision)
                 || signature.parameters[0].ty != parameters[0]
                 || !parameter(&signature.return_type, TypeKind::Bool)
                 || &signature.return_type != return_type
@@ -799,7 +802,10 @@ impl<'a> BodyInterpreter<'a, '_> {
                         actual_file,
                         actual,
                     )
-                    .is_none_or(|e| !parameter(&e.ty, TypeKind::Int))
+                    .is_none_or(|e| {
+                        !parameter(&e.ty, TypeKind::Int)
+                            && !(parameters[0] == decision && e.ty == decision)
+                    })
                 || self
                     .source
                     .expression_type(self.source.calls, declaration.file, body)
@@ -851,6 +857,50 @@ impl<'a> BodyInterpreter<'a, '_> {
                     } else {
                         types.extend(ty.child_nodes());
                     }
+                }
+                if parameters[0] == decision {
+                    self.user_integer_call_scope(file, written_call, view, generators)?;
+                    let instance = Instance {
+                        id: *id,
+                        parameters: parameters.clone(),
+                        ancestry: Vec::new(),
+                        view: instantiated_body(
+                            self.source.context,
+                            self.source.bindings,
+                            self.source.calls,
+                            *id,
+                            parameters,
+                        ),
+                        clauses: Vec::new(),
+                        recursive: false,
+                    };
+                    let clause = Clause {
+                        file,
+                        item: call.item,
+                        node,
+                        generators: generators.to_vec(),
+                        kind: ClauseKind::Call,
+                    };
+                    let mut invocation = Invocation {
+                        actuals: Vec::new(),
+                        reachable: None,
+                    };
+                    self.invocation_actuals(&clause, view, &instance, &mut invocation)?;
+                    if let Some(reason) = self.source.closed_integer_source_error_with_branches(
+                        declaration.file,
+                        body,
+                        false,
+                        true,
+                        true,
+                    ) {
+                        return Err(reason);
+                    }
+                    return self.fresh_integer_invoked_source(
+                        declaration.file,
+                        body,
+                        &instance.view,
+                        &invocation,
+                    );
                 }
                 match self.initialized_source_safety(
                     declaration.file,

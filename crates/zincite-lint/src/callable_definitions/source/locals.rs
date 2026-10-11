@@ -299,7 +299,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         }
         Ok(())
     }
-    // Inspect this fresh-let source family with retained physical formal-to-actual
+    // Inspect finite integer sources with retained physical formal-to-actual
     // correspondence. No invocation output or reflected numeric bound is created.
     pub(in crate::callable_definitions) fn fresh_integer_invoked_source(
         &self,
@@ -366,6 +366,16 @@ impl<'a> BodyInterpreter<'a, '_> {
             else {
                 return Err("invoked integer source selection is unsupported".into());
             };
+            if !self.source.prefix_primitive(
+                file,
+                node,
+                self.source.view(file, node, view),
+                &call.name,
+                parameters,
+                return_type,
+            ) {
+                return Err("invoked integer source written primitive is unsupported".into());
+            }
             let children: Vec<_> = node.child_nodes().collect();
             let allowed = match call.name.as_str() {
                 "lb" | "ub" => {
@@ -403,6 +413,10 @@ impl<'a> BodyInterpreter<'a, '_> {
                         && return_type == &integer
                 }
                 "=" => parameters.len() == 2 && parameters.iter().all(int) && boolean(return_type),
+                "<" => {
+                    parameters.as_slice() == [integer.clone(), integer.clone()]
+                        && *return_type == TypeInst::par(TypeKind::Bool)
+                }
                 "/\\" | "\\/" => {
                     parameters.len() == 2 && parameters.iter().all(boolean) && boolean(return_type)
                 }

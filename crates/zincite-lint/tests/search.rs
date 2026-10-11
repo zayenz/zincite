@@ -65,6 +65,231 @@ fn selected() -> LintOptions {
 }
 
 #[test]
+fn finite_integer_tests_inspect_invoked_sources_without_truth_or_outputs() {
+    use zincite_lint::{CallOutcome, DeclarationRole};
+
+    let source = concat!(
+        "array[1..2] of var 0..9: inputs;\n",
+        "array[1..2] of var int: selected = [if GUARD then inputs[i]\n",
+        "  else let { var 0..9: chosen; } in chosen endif | i in 1..2];\n",
+        "solve :: int_search(inputs,input_order,indomain_min,complete) satisfy;\n",
+    );
+    let test = "test within_limit(var int: value) = ub(value)<10;\n";
+    let invoked = format!(
+        "{test}{}",
+        source.replace("GUARD", "within_limit(inputs[i])")
+    );
+    let library = format!(
+        "{CORE}{}",
+        concat!(
+            "function int: ub(var int: value); function int: lb(var int: value);\n",
+            "function bool: '<'(int: left,int: right);\n",
+            "function int: 'div'(int: left,int: right);\n",
+        )
+    );
+    let written_comparison = library.replace(
+        "'<'(int: left,int: right);",
+        "'<'(int: left,int: right) = true;",
+    );
+    let user_bound = library.replace("function int: ub(var int: value); ", "");
+    for (name, source, library, reason) in [
+        (
+            "inline",
+            source.replace("GUARD", "ub(inputs[i])<10"),
+            library.as_str(),
+            None,
+        ),
+        ("invoked", invoked.clone(), library.as_str(), None),
+        (
+            "parameter",
+            format!(
+                "test within_limit(int: value) = value<10;\n{}",
+                source.replace("GUARD", "within_limit(i)"),
+            ),
+            library.as_str(),
+            None,
+        ),
+        (
+            "actual-error",
+            invoked.replace("var 0..9: inputs", "var 0..(1 div 0): inputs"),
+            library.as_str(),
+            Some("division by zero"),
+        ),
+        (
+            "body-error",
+            invoked.replace("ub(value)<10", "ub(value)<(1 div 0)"),
+            library.as_str(),
+            Some("division by zero"),
+        ),
+        (
+            "written-comparison",
+            invoked.clone(),
+            written_comparison.as_str(),
+            Some("written primitive"),
+        ),
+        (
+            "user-bound",
+            format!("function int: ub(var int: value) = 0;\n{invoked}"),
+            user_bound.as_str(),
+            Some("written primitive"),
+        ),
+        (
+            "default",
+            invoked.replace("var int: value)", "var int: value = 0)"),
+            library.as_str(),
+            Some("default or cycle"),
+        ),
+        (
+            "optional",
+            invoked.replace(test, "test within_limit(var opt int: value) = false;\n"),
+            library.as_str(),
+            Some("specialization"),
+        ),
+        (
+            "cycle",
+            invoked.replace("ub(value)<10", "within_limit(value)"),
+            library.as_str(),
+            Some("written primitive"),
+        ),
+    ] {
+        let (dir, _) = model(&format!("finite-integer-test-{name}"), "solve satisfy;", "");
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        std::fs::write(dir.join("library/std/stdlib.mzn"), library).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(
+            context.errors.is_empty()
+                && context.limitations.is_empty()
+                && context
+                    .files
+                    .iter()
+                    .all(|file| file.parsed.diagnostics().is_empty()),
+            "{name}: {context:?}"
+        );
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == 0)
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let selected = bindings
+            .declarations
+            .iter()
+            .find(|declaration| declaration.name == "selected")
+            .unwrap()
+            .id;
+        let chosen = bindings
+            .declarations
+            .iter()
+            .find(|declaration| {
+                declaration.role == DeclarationRole::Local && declaration.name == "chosen"
+            })
+            .unwrap()
+            .id;
+        let safety = &definitions
+            .definitions
+            .iter()
+            .find(|definition| definition.target == selected)
+            .unwrap()
+            .safety;
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        assert!(
+            callable.outputs.is_empty()
+                && callable.definitions.is_empty()
+                && callable.inspected_locals.is_empty(),
+            "{name}: {callable:?}"
+        );
+        let search = resolve_search_coverage(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+            &definitions,
+        );
+        for id in [selected, chosen] {
+            assert_eq!(
+                search.declarations[id.0].coverage,
+                SearchCoverage::Unknown,
+                "{name}"
+            );
+            assert!(
+                search
+                    .searched
+                    .iter()
+                    .all(|value| value.declaration != Some(id)),
+                "{name}"
+            );
+        }
+        if let Some(reason) = reason {
+            assert!(
+                matches!(safety, DefinitionSafety::Unsupported(actual) if actual.contains(reason)),
+                "{name}: {safety:?}"
+            );
+            assert!(
+                search
+                    .limitations
+                    .iter()
+                    .any(|limitation| limitation.location
+                        == bindings.declarations[chosen.0].location
+                        && limitation
+                            .message
+                            .contains("model-level local decision coverage is unsupported")),
+                "{name}: {:?}",
+                search.limitations
+            );
+        } else {
+            assert!(
+                matches!(safety, DefinitionSafety::Unknown(_)),
+                "{name}: {safety:?}"
+            );
+            assert!(
+                search.limitations.is_empty(),
+                "{name}: {:?}",
+                search.limitations
+            );
+        }
+        for rule in ["search-coverage", "unbounded-variable"] {
+            let result = analyze_model(&context, &LintOptions::from_selection(rule).unwrap());
+            assert!(
+                result.errors.is_empty() && result.findings.is_empty(),
+                "{name}/{rule}: {result:?}"
+            );
+            if reason.is_some() {
+                assert!(
+                    matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                    "{name}/{rule}: {result:?}"
+                );
+                assert!(!result.limitations.is_empty(), "{name}/{rule}: {result:?}");
+            } else {
+                assert_eq!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Completed,
+                    "{name}/{rule}: {result:?}"
+                );
+                assert!(result.limitations.is_empty(), "{name}/{rule}: {result:?}");
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
 fn parameter_set_local_alias_keeps_inspected_source_unknown() {
     use zincite_lint::{CallOutcome, DeclarationRole};
 

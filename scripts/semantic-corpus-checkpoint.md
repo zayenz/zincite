@@ -8096,3 +8096,44 @@ No original A, D, E or V1 owner was replayed or closed. Their transitive sources
 bodies and whole-owner checks remain separate obligations. Base-083 still needs
 the remaining support mappings and final stable thesis14/current-all28 corpus
 accounting described above.
+
+### Base-083: finite integer Test source substitution
+
+The public control compares `ub(inputs[i])<10` with an equivalent call to a
+one-formal User Test whose present decision integer formal appears in that
+native bound comparison. The inline array-element source and the existing
+parameter-formal Test admitted Unknown owner safety. The decision-formal Test
+failed at the parameter-only signature gate before inspecting its body.
+Independent reproduction confirmed this source admission gap. Bare scalar
+reflection has no admitted inline baseline here and remains outside this change.
+
+`source/numeric.rs::parameter_test_safety` now uses the existing
+`Instance`, `Invocation` and instantiated-body construction for the selected
+one-formal present decision integer tuple, retaining the parameter route.
+Existing actual, written formal-domain, annotation, default, cycle and caller
+scope checks remain in place. The existing finite invocation source reader maps
+an own-formal native `lb` or `ub` to the supported caller source. It now also
+admits `<` for exactly two present parameter integer operands and a present
+parameter Boolean result, checking every selected written primitive before
+traversal. It supplies no Test truth, reflected bound, calculated value,
+totality, output, dependency vector or search-coverage proof.
+
+The grouped public regression
+`finite_integer_tests_inspect_invoked_sources_without_truth_or_outputs` checks
+the inline, decision-formal and parameter-formal positive sources, actual and
+body division errors, a written native comparison, a uniquely selected User
+bound lookalike, a default, an optional formal and a recursive body. Positive
+owners retain Unknown safety; owner and fresh Local coverage remain Unknown.
+Callable outputs, definitions and inspected locals remain empty. Search and
+unbounded-variable analysis complete without findings or limitations. Each
+refusal preserves the fresh Local's located search limitation and keeps both
+rules Limited.
+`cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings` and
+`cargo test --workspace` passed. MiniZinc 2.10.1 compiled the decision-formal
+positive to Gecode FlatZinc without solving; its outputs remain private.
+
+No original V3 owner was replayed or closed. Its remaining selected sources,
+body and whole-owner disposition remain separate obligations. Parameter-valued
+array reflection, the remaining support mappings and final stable
+thesis14/current-all28 corpus accounting remain open.
