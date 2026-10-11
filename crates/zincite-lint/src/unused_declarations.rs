@@ -575,96 +575,7 @@ impl Producer<'_> {
         }
     }
     fn output_marker(&self, file: FileId, annotation: &SyntaxNode) -> Result<&'static str, String> {
-        let atom = annotation
-            .child_nodes()
-            .next()
-            .ok_or("annotation expression is unavailable")?;
-        let reserved = atom.children().iter().any(|c| {
-            matches!(c,SyntaxElement::Token(i)
-            if self.context.files[file].parsed.tokens()[*i].kind==TokenKind::Output)
-        });
-        if reserved {
-            let supported = self.bindings.declarations.iter().any(|d| {
-                d.name == "output"
-                    && d.role == DeclarationRole::Function
-                    && self.core(d.id)
-                    && crate::callables::find_node(self.context.files[d.file].parsed.tree(), &d.syntax_range, d.role).is_some_and(|n| {
-                        n.child_nodes().filter(|c| c.kind() == NodeKind::ParameterList).flat_map(|c| c.child_nodes()).any(|parameter| {
-                            parameter.child_nodes().filter(|a| a.kind() == NodeKind::Annotation).any(|annotation| {
-                                self.bindings.references.iter().any(|r| r.file == d.file && self.context.files[d.file].location(annotation.range()).range.contains(&r.location.range.start) && r.name == "annotated_expression" && matches!(r.resolution, BindingResolution::Resolved(id) if self.core(id)))
-                            })
-                        })
-                    })
-                    && self.calls.signatures.iter().any(|s| {
-                        s.declaration == d.id
-                            && s.parameters.len() == 1
-                            && s.return_type.kind == TypeKind::Annotation
-                    })
-            });
-            return if supported {
-                Ok("output")
-            } else {
-                Err("reserved output annotation identity is unavailable".into())
-            };
-        }
-        let location = self.context.files[file].location(atom.range());
-        let reference = self
-            .bindings
-            .references
-            .iter()
-            .find(|r| {
-                r.file == file
-                    && location.range.start <= r.location.range.start
-                    && r.location.range.end <= location.range.end
-            })
-            .ok_or("output annotation reference is unavailable")?;
-        let id =
-            if reference.kind == ReferenceKind::Callable {
-                match self
-                    .calls
-                    .calls
-                    .iter()
-                    .find(|c| c.file == file && c.location == reference.location)
-                    .map(|c| &c.outcome)
-                {
-                    Some(CallOutcome::Resolved { declaration, .. }) => *declaration,
-                    _ => return Err(
-                        "default-output annotation callable identity is unresolved or ambiguous"
-                            .into(),
-                    ),
-                }
-            } else if let BindingResolution::Resolved(id) = reference.resolution {
-                id
-            } else {
-                return Err("default-output annotation identity is unresolved or ambiguous".into());
-            };
-        if !self.core(id) {
-            return Err(format!(
-                "default-output annotation '{}' is not interpreted",
-                reference.name
-            ));
-        }
-        match self.bindings.declarations[id.0].name.as_str() {
-            "no_output" => Ok("no_output"),
-            "add_to_output" => Ok("add_to_output"),
-            "output_var" => Ok("output_var"),
-            "output_array" => Ok("output_array"),
-            "output_only" => Ok("output_only"),
-            name => Err(format!(
-                "default-output annotation '{name}' is not interpreted"
-            )),
-        }
-    }
-    fn core(&self, id: DeclarationId) -> bool {
-        let d = &self.bindings.declarations[id.0];
-        let source = &self.context.files[d.file];
-        source.kind == SourceKind::StandardLibrary
-            && source.implicit
-            && crate::callables::find_node(source.parsed.tree(), &d.syntax_range, d.role)
-                .is_some_and(|n| {
-                    !n.child_nodes()
-                        .any(|c| crate::callables::is_expression(c.kind()))
-                })
+        output_marker(self.context, self.bindings, self.calls, file, annotation)
     }
     fn follow(&mut self) {
         if self.facts.root_state != ModelRootState::Complete {
@@ -742,7 +653,7 @@ fn entry_item(kind: NodeKind) -> bool {
             | NodeKind::Output
     )
 }
-fn contains_anonymous(context: &ModelContext, file: FileId, node: &SyntaxNode) -> bool {
+pub(super) fn contains_anonymous(context: &ModelContext, file: FileId, node: &SyntaxNode) -> bool {
     node.children().iter().any(|c| match c {
         SyntaxElement::Token(i) => {
             context.files[file].parsed.tokens()[*i].kind == TokenKind::Anonymous
@@ -802,4 +713,103 @@ pub(super) fn check_unused_declarations(
             severity:Severity::Warning,message:format!("declaration '{}' is unreachable from this model's constraints, solve and output; consider whether it is needed",d.name)});
     }
     findings
+}
+
+// Shared marker recognition does not construct reachability or inspect selected bodies.
+pub(super) fn output_marker(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &CallableFacts,
+    file: FileId,
+    annotation: &SyntaxNode,
+) -> Result<&'static str, String> {
+    let atom = annotation
+        .child_nodes()
+        .next()
+        .ok_or("annotation expression is unavailable")?;
+    let reserved = atom.children().iter().any(|c| {
+        matches!(c,SyntaxElement::Token(i)
+            if context.files[file].parsed.tokens()[*i].kind==TokenKind::Output)
+    });
+    if reserved {
+        let supported = bindings.declarations.iter().any(|d| {
+                d.name == "output"
+                    && d.role == DeclarationRole::Function
+                    && is_implicit_native(context, bindings, d.id)
+                    && crate::callables::find_node(context.files[d.file].parsed.tree(), &d.syntax_range, d.role).is_some_and(|n| {
+                        n.child_nodes().filter(|c| c.kind() == NodeKind::ParameterList).flat_map(|c| c.child_nodes()).any(|parameter| {
+                            parameter.child_nodes().filter(|a| a.kind() == NodeKind::Annotation).any(|annotation| {
+                                bindings.references.iter().any(|r| r.file == d.file && context.files[d.file].location(annotation.range()).range.contains(&r.location.range.start) && r.name == "annotated_expression" && matches!(r.resolution, BindingResolution::Resolved(id) if is_implicit_native(context, bindings, id)))
+                            })
+                        })
+                    })
+                    && calls.signatures.iter().any(|s| {
+                        s.declaration == d.id
+                            && s.parameters.len() == 1
+                            && s.return_type.kind == TypeKind::Annotation
+                    })
+            });
+        return if supported {
+            Ok("output")
+        } else {
+            Err("reserved output annotation identity is unavailable".into())
+        };
+    }
+    let location = context.files[file].location(atom.range());
+    let reference = bindings
+        .references
+        .iter()
+        .find(|r| {
+            r.file == file
+                && location.range.start <= r.location.range.start
+                && r.location.range.end <= location.range.end
+        })
+        .ok_or("output annotation reference is unavailable")?;
+    let id = if reference.kind == ReferenceKind::Callable {
+        match calls
+            .calls
+            .iter()
+            .find(|c| c.file == file && c.location == reference.location)
+            .map(|c| &c.outcome)
+        {
+            Some(CallOutcome::Resolved { declaration, .. }) => *declaration,
+            _ => {
+                return Err(
+                    "default-output annotation callable identity is unresolved or ambiguous".into(),
+                );
+            }
+        }
+    } else if let BindingResolution::Resolved(id) = reference.resolution {
+        id
+    } else {
+        return Err("default-output annotation identity is unresolved or ambiguous".into());
+    };
+    if !is_implicit_native(context, bindings, id) {
+        return Err(format!(
+            "default-output annotation '{}' is not interpreted",
+            reference.name
+        ));
+    }
+    match bindings.declarations[id.0].name.as_str() {
+        "no_output" => Ok("no_output"),
+        "add_to_output" => Ok("add_to_output"),
+        "output_var" => Ok("output_var"),
+        "output_array" => Ok("output_array"),
+        "output_only" => Ok("output_only"),
+        name => Err(format!(
+            "default-output annotation '{name}' is not interpreted"
+        )),
+    }
+}
+fn is_implicit_native(context: &ModelContext, bindings: &BindingFacts, id: DeclarationId) -> bool {
+    let d = &bindings.declarations[id.0];
+    let source = &context.files[d.file];
+    source.kind == SourceKind::StandardLibrary
+        && source.implicit
+        && crate::callables::find_node(source.parsed.tree(), &d.syntax_range, d.role).is_some_and(
+            |n| {
+                !n.child_nodes()
+                    .any(|c| crate::callables::is_expression(c.kind()))
+            },
+        )
 }

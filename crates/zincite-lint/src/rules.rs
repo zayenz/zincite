@@ -108,6 +108,7 @@ pub enum Rule {
     MissingInputPrecondition,
     SuspiciousDomain,
     PreferArrayComprehension,
+    PreferEnum,
 }
 
 impl Rule {
@@ -150,6 +151,7 @@ impl Rule {
                 Self::GlobalConstraintOpportunity,
                 Self::MissingInputPrecondition,
                 Self::SuspiciousDomain,
+                Self::PreferEnum,
             ])
     }
 
@@ -157,6 +159,13 @@ impl Rule {
     /// registering a rule; CLI explanations and the existing accessors use it.
     pub fn metadata(self) -> RuleMetadata {
         let (id, family, purpose, requirements, limitations) = match self {
+            Self::PreferEnum => (
+                "prefer-enum",
+                RuleFamily::Style,
+                "Consider an enum for a finite integer set whose observed members serve as identities.",
+                "Complete model, lexical identities, source callable signatures and written domains.",
+                "Opt-in advice only. Numeric member uses and representation-sensitive output withhold advice. Recursive/opaque calls, computed membership and member storage in arrays or structured fields report affected limitations. External data/output compatibility and equivalent conversion are not established; no fix is offered.",
+            ),
             Self::Naming => (
                 "naming",
                 RuleFamily::Style,

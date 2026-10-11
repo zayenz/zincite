@@ -367,6 +367,7 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
                     "global-constraint-opportunity",
                     "missing-input-precondition",
                     "suspicious-domain",
+                    "prefer-enum",
                 ])
                 .collect(),
         ),
@@ -445,7 +446,8 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
         [
             Rule::MissingConstraintLabel,
             Rule::Naming,
-            Rule::PreferArrayComprehension
+            Rule::PreferArrayComprehension,
+            Rule::PreferEnum
         ]
         .into_iter()
         .chain(Rule::THESIS)
@@ -504,6 +506,7 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
             Rule::MissingConstraintLabel,
             Rule::ArrayIndexStart,
             Rule::PreferArrayComprehension,
+            Rule::PreferEnum,
             Rule::IndexSetMismatch
         ]
     );

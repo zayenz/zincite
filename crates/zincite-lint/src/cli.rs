@@ -52,7 +52,7 @@ Every candidate must parse and its original file must still match before replace
 Unused-generator-binding and element-predicate offer Safe edits only when their conditions hold.
 Other advice, and these rules when required facts are unproved, remains diagnostic-only.
 The thesis preset selects its fourteen rules; all includes every registered rule,
-including unavailable rules that fail execution. Default remains two rules.
+including unavailable rules that fail execution. Default selects naming, missing-constraint-label and prefer-array-comprehension.
 --list-rules lists rule IDs, families, availability, fix support and preset membership.
 --explain RULE describes a rule's purpose, required facts, limitations and options.
 These inspection commands run alone, write to stdout and do not read input.
@@ -65,7 +65,9 @@ Select naming,missing-constraint-label for source-local analysis.
 Stdin has no model context: selected semantic analysis reports a limitation;
 standalone .dzn inputs mark semantic rules inapplicable.
 
-Default rules are naming and missing-constraint-label; all rules remain warnings.
+Prefer-enum is opt-in advisory advice and offers no automatic fix.
+Default rules are naming, missing-constraint-label and prefer-array-comprehension;
+all rules remain warnings.
 Use --explain for each rule's naming exemptions, label syntax or analysis limits.
 Standalone suppressions apply throughout the next top-level item:
     % zincite-lint: ignore missing-constraint-label

@@ -758,7 +758,7 @@ diagnostics without partial warnings. `LintOptions::from_selection` resolves
 presets and explicit IDs; `lint_with_options(&parsed, &options)` runs a selected
 set. `Rule::DEFAULT` and `Rule::THESIS` expose preset membership. The default
 selects naming, constraint labels and model-backed direct-comprehension advice;
-`thesis` selects fourteen rules and `all` selects all 27 implemented rules. Semantic selections require the explicit model
+`thesis` selects fourteen rules and `all` selects all 28 implemented rules. Semantic selections require the explicit model
 API below; `lint_with_options` rejects them without that context.
 
 Explicit model analysis uses `load_model(root_path, &ModelOptions)` and
@@ -774,7 +774,8 @@ from names or bodyless user declarations.
 
 `ModelOptions` takes its configuration from the caller. The CLI accepts ordered
 `-I DIR` options and `--stdlib-dir DIR`, with `MZN_STDLIB_DIR` as the fallback for
-the latter. The default rules never load dependencies, even with these options.
+the latter. The default loads model context for comprehension advice; selecting only
+`naming,missing-constraint-label` keeps analysis source-local.
 Implemented rule availability is separate from a particular analysis's
 `Completed`, `Limited` or `Inapplicable` outcome.
 
@@ -785,3 +786,13 @@ syntax and suppression failures produce errors. `write_analysis` supplies the
 CLI's stderr renderer: limitations alone keep status 0 or 1, warnings produce 1,
 and errors take precedence with 2. Unsupported required semantics remain
 explicit limitations; analysis does not guess missing parameter values.
+
+`Rule::PreferEnum` is opt-in style advice with `FixSupport::None`. It consumes
+bindings, source callable signatures and raw domains, without demanding
+instantiations, definitions or selected standard-body proofs. Mixed selections
+retain the body-aware callable route required by other rules. The private member
+classifier keeps nominal candidate sets, scalar members and array axes separate;
+its findings never carry fixes. See [the supported identity-use and output
+boundary](linting.md#integer-identity-sets-and-enums). Fix support distinguishes
+available automatic edits from diagnostic-only rules; advisory wording remains
+separate from correctness, family, severity and individual fix safety.

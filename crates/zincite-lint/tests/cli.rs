@@ -34,7 +34,7 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     let list = run(&["--list-rules"], "not valid MiniZinc");
     assert!(list.status.success() && list.stderr.is_empty());
     let list = String::from_utf8(list.stdout).unwrap();
-    assert_eq!(list.lines().count(), 28);
+    assert_eq!(list.lines().count(), 29);
     assert!(list.contains("naming\tstyle\tavailable\tnone\tdefault"));
     assert!(list.contains("search-coverage\tmodelling\tavailable\tnone\tthesis"));
     assert!(list.contains("index-set-mismatch\tcorrectness\tavailable\tnone\topt-in"));
@@ -42,6 +42,12 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     assert!(list.contains("partial-expression\tsuspicious\tavailable\tnone\topt-in"));
     assert!(list.contains("vacuous-constraint\tsuspicious\tavailable\tnone\topt-in"));
     assert!(list.contains("global-constraint-opportunity\tmodelling\tavailable\tnone\topt-in"));
+    assert!(list.contains("prefer-enum\tstyle\tavailable\tnone\topt-in"));
+    let advisory = run(&["--explain", "prefer-enum"], "invalid");
+    assert!(advisory.status.success() && advisory.stderr.is_empty());
+    let advisory = String::from_utf8(advisory.stdout).unwrap();
+    assert!(advisory.contains("Opt-in advice only") && advisory.contains("Fix support: none"));
+
     let explanation = run_with_library(
         &["--explain", "element-predicate"],
         "not valid MiniZinc",
@@ -1228,7 +1234,9 @@ fn personal_settings_inspect_effective_options_and_keep_cli_replacement_read_onl
     let output = run(&args, "invalid input");
     assert_eq!(output.status.code(), Some(0));
     let text = String::from_utf8(output.stdout).unwrap();
-    assert!(text.contains("Rules: missing-constraint-label,prefer-array-comprehension,compact-if"));
+    assert!(text.contains(
+        "Rules: missing-constraint-label,prefer-array-comprehension,prefer-enum,compact-if"
+    ));
     let names = text
         .lines()
         .find_map(|line| line.strip_prefix("suspicious-shadowing.ignore-names: "))
@@ -2237,7 +2245,9 @@ fn fix_modes_validate_all_explicit_paths_and_settings_before_analysis() {
     assert_eq!(settings.status.code(), Some(0));
     let text = String::from_utf8(settings.stdout).unwrap();
     assert!(text.contains("Rules: naming\n"));
-    assert!(text.contains("fixable: naming,missing-constraint-label,prefer-array-comprehension\n"));
+    assert!(text.contains(
+        "fixable: naming,missing-constraint-label,prefer-array-comprehension,prefer-enum\n"
+    ));
     assert!(text.contains("unfixable: naming\n"));
     let result = run(&["--fix", "--rules", "naming", a], "");
     assert_eq!(result.status.code(), Some(1));

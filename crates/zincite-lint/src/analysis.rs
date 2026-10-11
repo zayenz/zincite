@@ -227,6 +227,8 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
     let mut comprehension_incomplete = false;
     let mut input_incomplete = false;
     let mut domain_contract_incomplete = false;
+    let mut enum_state = ModelRootState::Complete;
+    let mut enum_incomplete = false;
     let mut fix_snapshots = std::collections::BTreeMap::new();
     if !data && options.requires_model() {
         let facts = resolve_bindings(context);
@@ -276,6 +278,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             Some(resolve_callables(context, &facts))
         } else if !decision_rules.is_empty()
             || options.rules.contains(&Rule::PreferArrayComprehension)
+            || options.rules.contains(&Rule::PreferEnum)
         {
             Some(resolve_source_callables(context, &facts))
         } else {
@@ -296,6 +299,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             || options.rules.contains(&Rule::MissingInputPrecondition)
             || options.rules.contains(&Rule::SuspiciousDomain)
             || options.rules.contains(&Rule::EffectiveZeroOne)
+            || options.rules.contains(&Rule::PreferEnum)
         {
             Some(crate::domains::resolve_domains_with_callables(
                 context,
@@ -338,6 +342,15 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             result.limitations.extend(captures.limitations);
         }
         if let Some(calls) = calls {
+            if options.rules.contains(&Rule::PreferEnum) {
+                let checked =
+                    crate::prefer_enum::check(context, &facts, &calls, domains.as_ref().unwrap());
+                enum_state = checked.state;
+                enum_incomplete =
+                    !checked.limitations.is_empty() || enum_state == ModelRootState::Incomplete;
+                result.findings.extend(checked.findings);
+                result.limitations.extend(checked.limitations);
+            }
             if options.rules.contains(&Rule::PreferArrayComprehension) {
                 result
                     .findings
@@ -804,6 +817,10 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     reason: "a model fragment without a solve item cannot establish unused exports"
                         .into(),
                 }
+            } else if rule == Rule::PreferEnum && enum_state == ModelRootState::Fragment {
+                RuleOutcome::Inapplicable {
+                    reason: "a model fragment cannot establish all identity-set uses".into(),
+                }
             } else if rule.requires_model()
                 && (shared_incomplete
                     || (rule == Rule::GlobalVariableInFunction && capture_incomplete)
@@ -827,6 +844,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     || (rule == Rule::SearchCoverage && search_incomplete)
                     || (rule == Rule::ConstantVariable && constant_incomplete)
                     || (rule == Rule::UnboundedVariable && unbounded_incomplete)
+                    || (rule == Rule::PreferEnum && enum_incomplete)
                     || decision_incomplete.contains(&rule))
             {
                 RuleOutcome::Limited {

@@ -550,6 +550,14 @@ Resolved settings, expanded IDs and option values are inspectable through
 
 ### Fixes and source edits
 
+Describe rules clearly as offering automatic fixes (always or only for supported
+findings) or remaining diagnostic-only. Identify modelling recommendations as
+advisory: they ask for a human decision and do not claim a defect or an equivalent
+rewrite. Fix availability remains separate from rule family, severity and the
+safety/applicability of an individual edit. A diagnostic-only correctness check
+is not automatically heuristic advice. Use the existing fix-support and safety
+records for this distinction; new metadata needs a concrete consumer.
+
 Ordinary linting remains read-only. A diagnostic can carry an optional titled
 fix consisting of source edits, safety and the established applicability
 conditions. Rule-level fix support is not a promise that every finding is fixable.

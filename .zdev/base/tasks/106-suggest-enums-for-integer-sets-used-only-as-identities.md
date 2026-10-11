@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-106"
 key = "advise-enum-for-identity-sets"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -38,14 +38,25 @@ Primary sources: MiniZinc 2.10.1 specification, Enumerated types (https://docs.m
 
 ## Done when
 
-- [ ] Library and both lint entry points expose prefer-enum with advisory wording, a declaration location, working selection/suppression and no fix; defaults and thesis selections remain unchanged.
-- [ ] Focused positive models establish candidate identity use through domains/generators/direct aliases and supported user calls, including numeric array payload arithmetic and cardinality arithmetic without confusing them with numeric member use.
-- [ ] Focused counterexamples withhold advice for hidden numeric operations, objectives, literals/sentinels, representation-sensitive output/annotations, ordering and concrete integer contracts; nominal identity, lexical shadowing and generic versus concrete callable signatures are respected.
-- [ ] Affected unknown/unsupported propagation and incomplete context withhold advice with honest outcomes; unrelated limitations do not suppress supported candidates. Document the initial supported operations and exclusions.
-- [ ] The implementation records its precise supported call/alias boundary, compiler controls and any remaining gaps without claiming whole-language completeness or safe enum conversion.
+- [x] Library and both lint entry points expose prefer-enum with advisory wording, a declaration location, working selection/suppression and no fix; defaults and thesis selections remain unchanged.
+- [x] Focused positive models establish candidate identity use through domains/generators/direct aliases and supported user calls, including numeric array payload arithmetic and cardinality arithmetic without confusing them with numeric member use.
+- [x] Focused counterexamples withhold advice for hidden numeric operations, objectives, literals/sentinels, representation-sensitive output/annotations, ordering and concrete integer contracts; nominal identity, lexical shadowing and generic versus concrete callable signatures are respected.
+- [x] Affected unknown/unsupported propagation and incomplete context withhold advice with honest outcomes; unrelated limitations do not suppress supported candidates. Document the initial supported operations and exclusions.
+- [x] The implementation records its precise supported call/alias boundary, compiler controls and any remaining gaps without claiming whole-language completeness or safe enum conversion.
 
 ## Validation
 
 - Use a few grouped public behavioral checks for the positive identity/count/index cases, negative representation cases and affected/unrelated uncertainty; follow focused Testing in the brief, avoiding a combinatorial test matrix. Include unused/count-only negative controls in that grouped coverage.
 - Recreate minimal identity-index/count and numeric-offset/hidden-function controls with MiniZinc 2.10.1: compile original controls first using minizinc --compile --solver gecode with finite limits and temporary outputs, then inspect replacement controls, warnings and assertions. No solving, private inputs or corpus sweep; equivalence is not an acceptance claim.
 - Run cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, cargo test --workspace and zdev check base --format json; install current local commands after implementation as requested.
+
+## Result
+
+Added the opt-in prefer-enum advisory lint with bounded identity-use analysis, conservative numeric/output/call exclusions, located limitations and no fixes. Clarified automatic-fix versus advisory policy using existing metadata.
+
+Validation:
+
+- Fresh independent whole-task verifier PASS against Wf651e54915652a49; snapshot unchanged before completion.
+- cargo fmt --all -- --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace: 356 passed; zdev check base and git diff --check passed.
+- MiniZinc 2.10.1 Gecode compile-only controls inspected; 18 release-command checks passed, including numeric actual/result counterexamples. No solving or corpus sweep.
+- Installed zincite, zincite-fmt and zincite-lint locally; eight installed behavior checks and three help entry points passed.

@@ -1,6 +1,6 @@
 # Linting MiniZinc with Zincite
 
-Ordinary `zincite-lint` analysis reports modelling advice and preserves files.
+Ordinary `zincite-lint` analysis reports diagnostics and preserves files.
 Explicit `--fix` applies eligible edits as described below. The parser targets
 MiniZinc 2.10.1 model and data syntax. Syntax support does not establish complete
 semantic validity, model feasibility or solver performance.
@@ -14,7 +14,7 @@ cargo build --release -p zincite-lint
 ```
 
 The default selects `naming`, `missing-constraint-label` and `prefer-array-comprehension`. `thesis` keeps its
-fourteen original rules; `all` selects all 27 currently available rules. IDs,
+fourteen original rules; `all` selects all 28 currently available rules. IDs,
 `family:NAME` and `preset:NAME` can be combined with commas. Expansion keeps the
 first occurrence of each ID. `default`, `thesis` and `all` remain accepted legacy
 selectors. `--list-rules` gives family, availability, fix support and membership.
@@ -97,6 +97,7 @@ and `unfixable` restrict edits independently of diagnostics; exclusions win.
 | ID | Family | Supported advice and important boundary |
 | --- | --- | --- |
 | `prefer-array-comprehension` | style | Standard `array1d`, `array2d` and `array3d` wrappers around matching independent comprehensions. Safe explicit fixes preserve body text and Cartesian axis order. Plain 1D requires proved contiguous `1..n`; other 1D keeps its key and 2D/3D keep ordered tuple keys, with every axis proved nonempty. Filters, dependent generators, annotations and unknown callable/set identity stay unchanged. Comments in removed wrapper text withhold a fix. |
+| `prefer-enum` | style | Opt-in advisory recommendation for finite integer identity sets. Requires supported member/index use throughout a complete model; numeric member observations and representation-sensitive output withhold advice. No automatic fix. |
 | `index-set-mismatch` | correctness | Written index ranges, offsets and enum/dimension identities incompatible with declared index sets. Candidate traversal is distinct from an exact bad index; no executed-value or runtime-error claim. |
 | `hidden-optionality` | suspicious | Core length comparisons consuming a decision-filtered/membership comprehension, including supported aliases, where slot capacity can differ from present values. Capacity use and all-present/empty/inactive cases stay quiet. |
 | `partial-expression` | suspicious | Proved failed nonzero/index/nonempty/presence obligations or demonstrated incompatible candidate indices. Unknown-only requirements stay quiet; guards, assertions, defaults and nearest Boolean context retain their distinct meanings. |
@@ -112,6 +113,66 @@ Rules can report located limitations for unsupported required facts. Zincite doe
 not run a solver or infer arbitrary callee meaning, symbolic algebra, feasibility
 or optimization benefit. Current installed-library and corpus limitations are
 recorded in [the expansion checkpoint](../scripts/lint-expansion-checkpoint.md).
+
+## Integer identity sets and enums
+
+Select `prefer-enum`, `family:style` or `all` to enable this advisory rule.
+It remains outside `default` and `thesis`, and it offers no automatic fix.
+The finding points to the set name and asks the modeller to consider an enum;
+it does not establish an equivalent migration or compatibility with external
+instances or output consumers.
+
+Initial candidates are named, nonempty parameter integer sets initialized by
+written closed integer ranges or literal sets. Direct set/type/scalar aliases
+retain declaration identity. Candidate-domain scalars and membership generators
+supply member identities; matching integer bounds never connect distinct sets.
+A candidate needs an actual supported member equality, membership or index use.
+Unused sets, cardinality arithmetic and count-only iteration receive no advice.
+
+The analysis checks all written user items, including unused initializers,
+callable bodies, objectives and annotations. Resolved core scalar equality and
+disequality, same-family membership, set equality/union/intersection/difference/
+symmetric difference/subset/superset, `card`, and indexing are supported.
+Direct indexed entries/comprehensions retain their member keys as array axes.
+Candidate array axes stay separate from independent Boolean/numeric payloads:
+`cost[p] + 1` does not perform arithmetic on `p`. Core array payload aggregates
+(`sum`, `product`, `min`, `max`, `forall`, `exists`, `length`) are independent;
+`index_set` retains a one-dimensional candidate axis. Numeric member arithmetic,
+aggregation, literals/sentinels, ordering, extrema, conversions and concrete
+integer callable contracts withhold advice.
+
+Uniquely selected acyclic first-order user calls map positional/named arguments
+and retained defaults into separate formal frames. Candidate-domain and generic
+scalar/set/index contracts are supported; a generic signature still requires
+checking its written body. Direct returned aliases, captured globals, locals
+and annotations are inspected. A numeric literal supplied to a candidate-domain
+parameter or returned from a candidate-domain function withholds advice. An
+unavailable argument or result origin retains a located limitation for that
+candidate. Independent payload/count results remain independent. Numeric result
+contracts also withhold advice.
+Recursive or bodyless calls, unresolved selection, separate assignments,
+computed generator membership/results, candidate-member array/tuple/record
+storage or projection, annotated member expressions and other affected standard
+operations remain located limitations. Unrelated unknown operations do not veto
+an independently classified candidate. A limited candidate can coexist with a
+finding for another candidate.
+
+Explicit member/set output and whole candidate-indexed array output withhold
+advice, including `show` and string interpolation. Default output follows the
+resolved `no_output`, `add_to_output` and `output` conventions, including written
+initializers and anonymous array literals. Uncertain relevant markers withhold
+advice. Independent scalar payload/count output is supported. Fragments without
+a solve item and standalone data are inapplicable; multiple solve items or
+incomplete dependencies cannot establish model-wide uses.
+
+MiniZinc 2.10.1 compilation controls used Gecode with compilation only. Integer
+and enum indexing and cardinality controls compiled. Replacing offset integer
+members with enum ordinals in direct sums and a hidden integer function produced
+implicit enum-to-int coercion warnings and failed numeric assertions. Default
+integer-axis array output used `showDzn`; the enum control generated named index
+strings and `show_indexed`, even with Boolean payloads. An ordering control
+compiled, so the initial ordering exclusion is conservative. These controls
+establish representation risks, not migration equivalence or solving behavior.
 
 ## Suppression and explicit fixes
 
@@ -135,7 +196,14 @@ unsuppressed hazard. Other dimensions and nested hazards remain reportable.
   --stdlib-dir "$MZN_STDLIB_DIR" --fix model.mzn
 ```
 
-These two rules advertise conditional Safe fixes. Unused names become `_` only in
+The catalogue distinguishes automatic fix support (`always` or `sometimes`)
+from diagnostic-only rules (`none`). Advisory rules ask for a human modelling
+decision; lack of a fix does not turn a correctness diagnostic into advice.
+Fix availability is separate from family, warning severity and each edit's
+safety. `prefer-enum` is advisory and diagnostic-only;
+`prefer-array-comprehension` offers conditional Safe fixes described above.
+
+The two rules in the command examples advertise conditional Safe fixes. Unused names become `_` only in
 supported array/set/indexed comprehensions; generator-call shorthand remains
 advice-only. An element call becomes a parenthesized equality/index access only
 with resolved standard identity, complete equivalent body, compatible types and

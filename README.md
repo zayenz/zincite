@@ -295,8 +295,10 @@ path and source location where applicable.
   performance. The default linter loads model context for bounded comprehension advice.
 - Naming conventions (`naming`), constraint labels (`missing-constraint-label`)
   and direct comprehensions (`prefer-array-comprehension`) are enabled by default. The `thesis` preset selects fourteen modelling rules;
-  `all` selects all 27 implemented rules. Semantic rules use an explicit model
-  and include context. Unsupported required facts produce located limitations;
+  `all` selects all 28 implemented rules. The opt-in style rule `prefer-enum`
+  advises considering an enum for supported integer identity sets and offers no
+  automatic fix; `prefer-array-comprehension` offers fixes when its conditions hold.
+  Semantic rules use an explicit model and include context. Unsupported required facts produce located limitations;
   rule availability does not promise complete coverage of every input.
 - Files must be UTF-8. Data files accept top-level assignments. JSON data and
   solver output formats are outside the supported input formats.

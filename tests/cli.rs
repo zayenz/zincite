@@ -300,3 +300,48 @@ fn default_lint_previews_and_applies_direct_comprehensions() {
     );
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn prefer_enum_is_advisory_through_the_root_command_and_never_edits() {
+    let dir = std::env::temp_dir().join(format!("zincite-root-prefer-enum-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        "function set of int:'..'(int:a,int:b); function var bool:'='(var $T:a,var $T:b);",
+    )
+    .unwrap();
+    let source =
+        "set of int: People=1..3; var People:p; constraint p=p; solve satisfy; output [];\r\n";
+    let path = dir.join("model.mzn");
+    std::fs::write(&path, source).unwrap();
+    for selection in ["prefer-enum", "family:style", "all"] {
+        for mode in ["--fix", "--diff"] {
+            let output = Command::new(env!("CARGO_BIN_EXE_zincite"))
+                .args([
+                    "lint",
+                    "--isolated",
+                    "--stdlib-dir",
+                    dir.join("library").to_str().unwrap(),
+                    "--rules",
+                    selection,
+                    mode,
+                ])
+                .arg(&path)
+                .output()
+                .unwrap();
+            assert_eq!(
+                output.status.code(),
+                Some(1),
+                "{:?}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(String::from_utf8_lossy(&output.stderr).contains("[prefer-enum]"));
+            assert!(output.stdout.is_empty());
+            assert_eq!(std::fs::read(&path).unwrap(), source.as_bytes());
+        }
+    }
+    let explanation = run(&["lint", "--explain", "prefer-enum"], "invalid");
+    assert!(explanation.status.success() && explanation.stderr.is_empty());
+    assert!(String::from_utf8_lossy(&explanation.stdout).contains("Fix support: none"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
