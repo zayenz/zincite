@@ -4906,7 +4906,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             },
         )
     }
-    pub(in crate::callable_definitions) fn decision_array_bound_safety(
+    pub(in crate::callable_definitions) fn integer_array_bound_safety(
         &self,
         file: FileId,
         written: &'a SyntaxNode,
@@ -4930,7 +4930,10 @@ impl<'a> BodyInterpreter<'a, '_> {
             .source
             .expression_type(facts, file, argument)
             .map(|e| &e.ty)?;
-        if actual.instantiation != Instantiation::Decision {
+        if !matches!(
+            actual.instantiation,
+            Instantiation::Parameter | Instantiation::Decision
+        ) {
             return None;
         }
         let parameter_int = |ty: &TypeInst| {
@@ -4958,13 +4961,14 @@ impl<'a> BodyInterpreter<'a, '_> {
             || !matches!(&actual.kind, TypeKind::Array { indices, element }
                 if !indices.is_empty() && indices.iter().all(parameter_int)
                     && element.known() && !optional(element) && element.kind == TypeKind::Int
-                    && element.instantiation == Instantiation::Decision)
+                    && element.instantiation == actual.instantiation)
             || result.is_none_or(|ty| !parameter_int(ty))
             || !crate::definitions::annotations_safe(self.source.context, file, written)
             || !crate::definitions::annotations_safe(self.source.context, file, node)
             || !self.source.operation_fact(facts, file, node).is_some_and(|call| {
                 matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
-                    if parameters.len() == 1 && parameters[0] == *actual && Some(return_type) == result
+                    if parameters.len() == 1 && parameters[0] == actual.clone().with_inst(Instantiation::Decision)
+                        && Some(return_type) == result
                         && self.source.prefix_primitive(file, node, facts, &call.name, parameters, return_type))
             })
         {

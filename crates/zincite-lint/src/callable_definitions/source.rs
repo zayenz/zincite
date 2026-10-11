@@ -889,7 +889,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         if let Some(safety) = self.inline_reshape_safety(file, node, view, generators) {
             return safety;
         }
-        if let Some(safety) = self.decision_array_bound_safety(file, node, view, generators) {
+        if let Some(safety) = self.integer_array_bound_safety(file, node, view, generators) {
             return safety;
         }
         if let Some(safety) = self.decision_scalar_bound_safety(file, node, view, generators) {

@@ -8137,3 +8137,47 @@ No original V3 owner was replayed or closed. Its remaining selected sources,
 body and whole-owner disposition remain separate obligations. Parameter-valued
 array reflection, the remaining support mappings and final stable
 thesis14/current-all28 corpus accounting remain open.
+
+### Base-083: native integer array reflection source coercion
+
+The public control calls the same native `ub_array` on bare top-level integer
+arrays with parameter or decision elements. The selected decision formal retains
+the actual rank, integer axes and element kind. The decision counterpart admitted
+Unknown direct and fresh-domain source safety. Parameter rank one instead fell
+into the strict scoped-nonempty proof gate; rank two failed its earlier rank gate.
+Both public failures and the admitted counterpart were reproduced before repair.
+
+The existing reader, now named `integer_array_bound_safety`, accepts present
+parameter or decision integer arrays whose element instantiation matches the
+array. Its selected formal must exactly equal the actual after changing array
+and element instantiation to Decision. Rank, axes, optionality, the parameter
+integer result and the existing native written-primitive checks remain intact.
+The reader retains initialized-child inspection and every closed empty/error
+veto. It returns only Unknown reflected bounds. Strict
+`reflection_array_nonempty` and dependency traversal are unchanged; inspection
+supplies no nonempty, value, bound, totality, dependency, output or coverage proof.
+
+The existing grouped regression, renamed
+`integer_array_reflection_inspects_sources_without_value_proof`, adds the
+decision upper-bound counterpart, parameter ranks one and two, a closed empty
+second axis, a second-axis division error and optional parameter elements.
+Selected formals retain exact axes and the corresponding decision element type.
+Positive direct and fresh-domain safety and Local/owner coverage remain Unknown,
+with empty callable outputs and definitions. Search completes; decision inputs
+retain their existing uncovered-input warning, while parameter positives have
+no findings. Empty/error/optional cases remain Unsupported and Limited.
+The separate direct-only written-body regression retains the decision `lb_array`
+case and adds parameter `ub_array`; both refuse the changed native body while
+unconsumed parameter-source search remains Completed.
+
+`cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo test --workspace`, `zdev check base --format json` and
+`git diff --check` passed. MiniZinc 2.10.1 compiled a rank-two parameter positive
+with concrete data to Gecode FlatZinc without solving and with empty diagnostics.
+Compiler inputs and outputs remain private.
+
+No original V2 owner was replayed or closed. Its transitive sources, strict proof
+requirements and complete-owner disposition remain separate obligations. The
+remaining support mappings and final stable thesis14/current-all28 corpus
+accounting remain open.
