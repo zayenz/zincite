@@ -7760,7 +7760,7 @@ rejects the concatenated initializer at 374927..375032 before its ordinary
 source/dependency fallback. Standard concatenation 3218 is already selected with
 both formals and result `array[int] of var int`; common structural type,
 instantiation and call identity are available. Independent source inspection
-of `nHSupport` instead reaches rank-three decision-array reflection and refuses.
+of `nHSupport` instead reaches rank-two decision-array reflection and refuses.
 The later selected User call 2540 has `(var int, par float, par float,
 par float) -> var int`; this proves no cost computation or totality.
 The `sp_is` initializer at 375646..375670 is Supported. This is a direct
@@ -8251,3 +8251,72 @@ solving, with empty diagnostics. Compiler inputs and outputs remain private.
 No original F owner was replayed or closed. Its transitive sources and complete
 owner disposition remain separate obligations, along with the remaining support
 mappings and final stable thesis14/current-all28 corpus accounting.
+
+### Base-083: settled source reconciliation at 17e322d
+
+The retained A/B reconciliations cover nineteen sites in ten original owners.
+Their earlier pending source steps now have independently reviewed public
+controls: Local parameter-set forwarding (`1e3eb44`), bare Local integer concat
+(`a5c1ddb`), native Float equality and targetless sibling inspection (`516f8ba`),
+decision-array reflection (`85eb8df`), range-axis reshape (`ac622785`), finite
+one-formal Test substitution (`cc51ee9`), exact parameter-to-decision integer-array
+reflection (`665cf23`), native Float subtraction (`2bffca5`) and existing integer
+comprehension composition under Local concat (`17e322d`). These repairs preserve
+Unknown and source-error, selected-body, scope, annotation and sibling vetoes;
+source inspection supplies no stronger output or proof facts.
+
+The table records source progress, including previously admitted children. Every
+original owner remains **Unobserved after these repairs**: none has been replayed
+or closed. The remaining column names the actual owner, transitive source or
+property still requiring accounting; it does not predict the final rule outcome.
+
+| Owner / site | Historical bytes | Repaired or previously admitted source step | Remaining obligation |
+| --- | --- | --- | --- |
+| V1 / `np` | 355577..355579 | Range-axis reshape with bare backing | Complete array3d initializer/domain, fresh Local and actual generator scope; extent/cells and bound/value remain unproved. |
+| A / `fSep` | 360184..360188 | Range-axis reshape control; finite one-formal Test control | Actual backing/domain, initializer, both selected Tests and every Boolean/equality/iteration sibling; cardinality, membership and Test truth/totality remain separate. |
+| B / `attPos` | 364686..364692 | Earlier parameter Set(Int) alias into cardinality/conditional inspection | Actual decision selection, lazy initialized arithmetic, source/domain errors and all B siblings; membership/value remain unproved. |
+| B / `Xoff` | 365048..365052 | Same earlier alias source step | Computed User-array subject, selectors, actual/body sources and complete array definition; known tuple supplies no cells or outputs. |
+| C / `attPos` | 366584..366590 | Same alias repair for C's distinct declaration | C's actual selection, lazy arithmetic, source/domain errors and siblings; B's result cannot certify C. |
+| C / `Xoff` | 367116..367120 | Same alias repair for C's earlier source | C's computed User-array result, selectors, actual/body sources and complete array definition. |
+| D / `pos` | 370758..370761 | Range-axis reshape and integer-array reflection, including exact parameter coercion | Actual reflected operands and transitive sources, fresh domain/inequalities and D siblings; reflected bounds/nonemptiness remain unproved. |
+| D / `nzAP` | 370659..370663 | Same reshape/reflection source controls | Actual initializer, reflected/transitive sources and all D siblings; no safe complete array definition follows. |
+| D / `nDiff` | 371070..371075 | Reshape; existing array conditional, length, minimum and bool2int source checks | Actual transitive initializer and all D siblings; conversion/minimum values, extent and complete definition remain unproved. |
+| D / `nLen` | 371479..371483 | Reshape and existing symbolic source checks | Fresh-domain nonempty/alignment property, inequalities and complete D inspection; two inequalities define no whole value. |
+| D / `aLen` | 371379..371383 | Same source controls | Actual initializer/fresh domain, scoped nonempty/alignment property, inequalities and all D siblings. |
+| E / `twoabsdiff` | 374107..374117 | Range-axis reshape; filtered set/extremum and finite scalar User sources already admit Supported/Unknown | Earlier rank-three Value, later reshape, actual/body sources and conditional/Local siblings; no invocation or output closure follows. |
+| F / `nHSupport` | 374902..374911 | Local concat with an existing single-binder integer comprehension; integer-array reflection | Actual parameter-left coercion and selected concat body, transitive reflected sources, later User calls and ordered siblings; extent, totality and complete array outputs remain unproved. |
+| F / `sp_is` | 375638..375643 | Own Boolean initializer was already Supported | Earlier F sources, remaining siblings and actual result; a supported child cannot publish through a failed owner. |
+| V2 / `p` | 377113..377114 | Rank-two decision reflection and exact parameter-to-decision source coercion | Actual primitive/body eligibility, transitive reshape/reflection/extrema/domain sources and complete Value/fresh Local inspection; bounds/nonemptiness remain unproved. |
+| G / `nn` | 378397..378399 | Native ceil equality, Float subtraction and integer reflection source controls | Real generator scope, actual Float/reflection/domain sources, fresh written domain/result and all G siblings; no computed bound, membership or totality. |
+| G / `fpSzU` | 378306..378311 | Same native Float steps; admitted reflection source coercion | Actual comprehension/header, earlier reflection/extrema sources, selected bodies and complete G inspection/array definition. |
+| G / `fpAreaU` | 378521..378528 | Scalar selections and integer product already return Unknown | Exact selected-cell membership, dependency anchors, complete definition and earlier G sources/siblings; product inspection supplies no output or search closure. |
+| V3 / `b` | 380532..380533 | Finite one-decision-formal Test substitution; fresh child was already inspected | Actual Test source/domain/body, native bound/comparison barriers, complete conditional/Value siblings and current publication; truth, branch selection and output remain unproved. |
+
+D's transitive reflection and V2's selected reflection formals have exactly two
+parameter Int axes and a decision Int element, not three axes. The lower actual
+is decision-valued and the upper actual is parameter-valued. These operands are
+distinct from the earlier rank-three backing; the rank-three length actual and
+Value initializer retain their recorded ranks.
+
+The bounded duties and reviewed controls establish no further demonstrated
+current source gap. Final original observations can still expose one. Exact
+membership, nonemptiness, totality, complete arrays, dependencies, outputs and
+coverage retain their own proof gates. A generic Unsupported is never an
+exclusion: only an actual demanded operation outside the adopted bounded policy
+can receive a named exclusion, with a located limitation and Limited outcome.
+
+The diagnostic decision remains precise per-occurrence findings after existing
+item suppressions: all 65,694 retained Project Planning operator ranges are
+distinct original constructs. Reuse the measured native/outcome, allocation/drop
+and bounded growth receipts with their censored baselines, sampled or concurrent
+timing and unexplained RSS qualifications. Duty D identified no missing specific
+repair measurement; it did not complete final stable performance/accounting.
+
+Final capture still requires dynamic exact thesis14/current-all28 catalogues,
+every original in the same interleaved native/companion order, unchanged
+input/standard/import/build/helper pins, complete per-rule partitions and explicit
+invalid, unavailable, resource-cutoff and Unobserved accounting. Historical
+26-ID evidence stays separate. Recheck existing preservation, default,
+suppression, shared-include and save/batch contracts on final source. All five
+whole-task done conditions remain unchecked. This documentation increment ran
+no original capture, corpus sweep, inventory, compiler or Rust validation.
