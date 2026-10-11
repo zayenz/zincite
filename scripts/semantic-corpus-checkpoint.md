@@ -8655,3 +8655,22 @@ the separate generator-extremum limitation remains. Existing current MiniZinc
 source checking and Gecode compile-only accept the small positive without
 solving. The eight affected original limitation rows after this correction
 remain unobserved. All five whole-task conditions stay unchecked.
+
+### Named parameter-set domain handoff increment
+
+The guarded generator consumer now retains an existing callable-aware domain
+for a typed present top-level parameter integer set, after its existing
+initialized-source check. It previously reread ordinary aliases without callable
+facts and refused `PITS = index_set(r)`, including `ALT = PITS` and declarations
+from included files. The old union inspection remains unchanged.
+
+The focused public cases distinguish symbolic and declared-axis aliases from a
+closed division-by-zero source. Private controls preserve native selection,
+declaration/file identity, producer facts, direct index proofs, annotations,
+cycles, optional types and written-body refusals. Nested Unsupported facts remain
+refused even when source inspection succeeds. Existing Unknown and range facts
+supply no new membership, extent, nonemptiness, totality, output or search proof.
+Retained MiniZinc source checking and Gecode compile-only accept the small flat
+alias witness without solving; the chained regression is Rust-tested. The
+original PITS consumers after this correction remain unobserved. All five
+whole-task conditions stay unchecked.

@@ -3249,7 +3249,7 @@ impl<'a> Producer<'a> {
         }
         Some(combine(&[lower_value, predecessor]))
     }
-    // Named union sources retain their existing initialized-owner context.
+    // Named parameter sets retain their existing initialized-owner context.
     // Selected parameter sets and decision prefixes retain actual preceding headers.
     fn generator_domain(
         &self,
@@ -3330,7 +3330,10 @@ impl<'a> Producer<'a> {
                 return None;
             }
             let row = self.domains.declarations.get(id.0)?;
-            if row.declaration != id || !crate::definitions::uninspected_union(&row.domain) {
+            if row.declaration != id
+                || matches!(row.domain, Domain::Unsupported(_))
+                    && !crate::definitions::uninspected_union(&row.domain)
+            {
                 return None;
             }
             Some(Domain::Named {
@@ -3343,6 +3346,19 @@ impl<'a> Producer<'a> {
         };
         // The source resolves to a top-level value, so enclosing binders cannot
         // supply its initializer context. Its own binders are inspected normally.
+        if !crate::definitions::uninspected_union(&domain) {
+            return match crate::callable_definitions::initialized_integer_set_source_safety(
+                self.context,
+                self.bindings,
+                (self.calls, self.calls),
+                self.instantiations,
+                self.domains,
+                (file, node, &[]),
+            ) {
+                crate::DefinitionSafety::Unsupported(reason) => Domain::Unsupported(reason),
+                _ => domain,
+            };
+        }
         crate::definitions::inspect_union_domain(
             self.context,
             self.bindings,

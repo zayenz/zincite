@@ -829,3 +829,70 @@ solve satisfy;
     );
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn native_index_set_aliases_retain_domains_and_source_errors() {
+    let source = concat!(
+        "var 0..1: x; array[int] of var int: r=[x];\n",
+        "set of int: PITS=index_set(r); set of int: ALT=PITS;\n",
+        "constraint forall(i in ALT)(r[i]=0); solve satisfy;\n",
+    );
+    let native = "function set of int: index_set(array[int] of any $V: xs);";
+    let library = format!(
+        "{}function int: 'div'(int: a,int: b);\n",
+        CORE.replace("function set of $I: index_set(array[$I] of $T:a);", native)
+    );
+    for (name, source, refusal) in [
+        ("native-alias-symbolic-axis", source.to_owned(), None),
+        (
+            "native-alias-known-axis",
+            source.replace("array[int]", "array[1..1]"),
+            None,
+        ),
+        (
+            "native-alias-source-error",
+            source.replace("r=[x]", "r=[x,1 div 0]"),
+            Some("integer division by zero"),
+        ),
+    ] {
+        let (dir, _, _) = model(name, &source);
+        std::fs::write(dir.join("library/std/stdlib.mzn"), &library).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                include_dirs: vec![],
+                stdlib_dir: Some(dir.join("library")),
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let result = analyze_model(
+            &context,
+            &LintOptions::from_selection("index-set-mismatch").unwrap(),
+        );
+        assert!(
+            result.errors.is_empty() && result.findings.is_empty(),
+            "{name}: {result:?}"
+        );
+        if let Some(reason) = refusal {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {result:?}"
+            );
+            assert!(
+                result
+                    .limitations
+                    .iter()
+                    .any(|l| l.message.contains(reason)),
+                "{name}: {result:?}"
+            );
+        } else {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {result:?}"
+            );
+            assert!(result.limitations.is_empty(), "{name}: {result:?}");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
