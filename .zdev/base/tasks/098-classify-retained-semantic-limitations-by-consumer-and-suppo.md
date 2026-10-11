@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-098"
 key = "retained-semantic-family-dispositions"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -13,7 +13,7 @@ blocked_by = ["base-097"]
 
 ## Outcome
 
-The existing checkpoint gives every retained Connect local-prerequisite site a source-backed family disposition under the adopted support contract, and identifies only concrete promised-scope gaps for future bounded work.
+The existing checkpoint accounts for every retained Connect local-prerequisite site under the adopted support contract, with source-backed family evidence and either a justified disposition or an explicitly open support-classification question. Only concrete promised-scope gaps are identified for future bounded work.
 
 ## Context
 
@@ -28,10 +28,10 @@ Read the adopted brief/support plan, thesis mapping, base-083 and scripts/semant
 
 ## Done when
 
-- [ ] Every one of the nineteen historical sites maps to an owning item/family and a disposition with affected rules, required fact, current producer/consumer path and supporting evidence/counterevidence. Repeated families are grouped without dropping individual sites or presenting historical totals as current execution counts.
-- [ ] Later relevant controls and retained Workforce observations are reconciled with what remains unobserved on the originals. An undecidable classification states the exact missing evidence and remains open; it cannot be counted as a justified disposition or promised-support success.
-- [ ] Concrete promised-scope gaps, if any, are described as separately bounded follow-up proposals with owner, public witness, proof barrier and proportionate validation. Prioritize reusable identity/type/instantiation facts. If only documented exclusions remain, state that no semantic repair is justified. No follow-up is imported or implemented here.
-- [ ] The report retains base-083's separate diagnostic scaling, confirmed cost and eventual complete 14/26 accounting obligations. Classification and bounded controls are not final acceptance.
+- [x] Every one of the nineteen historical sites maps to an owning item/family and either a justified disposition or an explicitly open support-classification question, with affected rules, required fact, current producer/consumer path and supporting evidence/counterevidence. Repeated families are grouped without dropping individual sites or presenting historical totals as current execution counts.
+- [x] Later relevant controls and retained Workforce observations are reconciled with what remains unobserved on the originals. An undecidable classification states the exact missing evidence and remains open; it cannot be counted as a justified disposition or promised-support success.
+- [x] Concrete promised-scope gaps, if any, are described as separately bounded follow-up proposals with owner, public witness, proof barrier and proportionate validation. Prioritize reusable identity/type/instantiation facts. If only documented exclusions remain, state that no semantic repair is justified. No follow-up is imported or implemented here.
+- [x] The report retains base-083's separate diagnostic scaling, confirmed cost and eventual complete 14/26 accounting obligations. Classification and bounded controls are not final acceptance.
 
 ## Validation
 
@@ -65,7 +65,18 @@ cost and complete 14/26 accounting obligations remain separate.
 
 The user subsequently approved bounded observations of only these ten owning
 items, under the exception above, and continuation of the zdev loop. No semantic
-repairs or corpus sweeps are authorized. Keep this task open and base-083 parked
-until the missing evidence is classified and independently reviewed; do not
-classify missing observations as documented exclusions or promised-support
-success.
+repairs or corpus sweeps are authorized. This bounded documentation investigation
+may complete once its source-backed report is independently reviewed under the
+revised Outcome and Done when conditions. All nineteen unresolved support
+questions remain open and excluded from justified-disposition and promised-support
+success totals; base-083 and base-050 retain their separate acceptance obligations,
+and base-083 stays parked under the current no-repair/no-sweep scope.
+
+## Result
+
+Completed the user-approved bounded investigation: all nineteen historical sites are accounted for with source-backed current owner evidence; support classifications remain explicitly open.
+
+Validation:
+
+- Independent whole-task verifier passed at W81f6df9043e41197 under the approved documentation outcome; exact nineteen-site inventory, ten owner observations, hashes, unchanged pins, consumer gates and counterevidence verified.
+- git diff --check and zdev check base passed; no semantic repairs, corpus sweeps or final acceptance claimed. Base-083 stays parked and base-050 acceptance remains open.
