@@ -349,6 +349,176 @@ fn local_integer_concatenation_inspects_sources_without_outputs() {
     }
 }
 
+#[test]
+fn native_float_integer_equality_inspects_sources_without_outputs() {
+    use zincite_lint::{CallOutcome, DeclarationRole};
+
+    let direct = concat!(
+        "int: n; int: d; var int: result; var bool: gate;\n",
+        "constraint let {\n",
+        "  int: estimate = ceil(n / d);\n",
+        "  var bool: marker;\n",
+        "} in marker <-> gate;\n",
+        "solve :: seq_search([int_search([result], input_order, indomain_min, complete),\n",
+        "  bool_search([gate], input_order, indomain_min, complete)]) satisfy;\n",
+    );
+    let equality = direct.replace(
+        "int: estimate = ceil(n / d);",
+        "constraint result = ceil(n / d);",
+    );
+    let library = format!(
+        "{CORE}{}",
+        concat!(
+            "function int: ceil(float: value);\n",
+            "function float: '/'(float: left,float: right);\n",
+            "function var bool: '<->'(var bool: left,var bool: right);\n",
+            "function int: 'div'(int: left,int: right);\n",
+        )
+    );
+    let changed_ceil = library.replace("ceil(float: value);", "ceil(float: value) = 1;");
+    let changed_equality = library.replace(
+        "'='(any $T: left,any $T: right);",
+        "'='(any $T: left,any $T: right) = true;",
+    );
+    for (name, source, library, reason) in [
+        ("initializer", direct.to_owned(), library.as_str(), None),
+        ("equality", equality.clone(), library.as_str(), None),
+        (
+            "source-error",
+            equality.replace("int: n;", "int: n = 1 div 0;"),
+            library.as_str(),
+            Some("integer division by zero"),
+        ),
+        (
+            "divisor-zero",
+            equality.replace("int: d;", "int: d = 0;"),
+            library.as_str(),
+            Some("Float division by closed integer zero"),
+        ),
+        (
+            "written-ceil",
+            equality.clone(),
+            changed_ceil.as_str(),
+            Some("selected written primitive"),
+        ),
+        (
+            "written-equality",
+            equality.clone(),
+            changed_equality.as_str(),
+            Some("selected written primitive"),
+        ),
+        (
+            "failed-sibling",
+            equality.replace("marker <-> gate;", "(marker <-> gate) /\\ (1 div 0 = 0);"),
+            library.as_str(),
+            Some("integer division by zero"),
+        ),
+    ] {
+        let (dir, _) = model(
+            &format!("native-float-equality-{name}"),
+            "solve satisfy;",
+            "",
+        );
+        std::fs::write(dir.join("root.mzn"), &source).unwrap();
+        std::fs::write(dir.join("library/std/stdlib.mzn"), library).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == 0)
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        let marker = bindings
+            .declarations
+            .iter()
+            .find(|declaration| {
+                declaration.file == 0
+                    && declaration.role == DeclarationRole::Local
+                    && declaration.name == "marker"
+            })
+            .unwrap()
+            .id;
+        let target = bindings
+            .declarations
+            .iter()
+            .find(|declaration| declaration.file == 0 && declaration.name == "result")
+            .unwrap()
+            .id;
+        let result = analyze_model(&context, &selected());
+        assert!(callable.outputs.is_empty(), "{name}: {callable:?}");
+        assert!(
+            callable
+                .definitions
+                .iter()
+                .all(|definition| definition.target != target),
+            "{name}: {callable:?}"
+        );
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        if let Some(reason) = reason {
+            assert!(
+                callable.inspected_locals.is_empty() && callable.definitions.is_empty(),
+                "{name}: {callable:?}"
+            );
+            assert!(
+                callable
+                    .unavailable
+                    .iter()
+                    .any(|failure| failure.reason.contains(reason)),
+                "{name}: {callable:?}"
+            );
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {result:?}"
+            );
+            assert!(
+                result.limitations.iter().any(|failure| failure
+                    .message
+                    .contains("local constraints or result evaluation are unsupported")),
+                "{name}: {result:?}"
+            );
+        } else {
+            assert!(callable.unavailable.is_empty(), "{name}: {callable:?}");
+            assert!(
+                callable.inspected_locals.contains(&marker),
+                "{name}: {callable:?}"
+            );
+            if name == "equality" {
+                assert_eq!(callable.definitions.len(), 1, "{name}: {callable:?}");
+                assert_eq!(callable.definitions[0].target, marker);
+                assert_eq!(callable.definitions[0].coverage, DefinitionCoverage::Scalar);
+                assert_eq!(callable.definitions[0].safety, DefinitionSafety::Supported);
+            } else {
+                assert!(callable.definitions.is_empty(), "{name}: {callable:?}");
+            }
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {result:?}"
+            );
+            assert!(
+                result.limitations.is_empty() && result.findings.is_empty(),
+                "{name}: {result:?}"
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
 fn assert_mixed_decision_analysis(context: &ModelContext, search: &zincite_lint::AnalysisResult) {
     let simple = analyze_model(
         context,

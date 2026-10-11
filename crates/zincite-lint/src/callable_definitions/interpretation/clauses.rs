@@ -1398,6 +1398,19 @@ impl<'a> BodyInterpreter<'a, '_> {
             );
             return;
         }
+        if nodes.iter().all(|node| {
+            self.source
+                .target(clause.file, node, view, &clause.generators)
+                .is_none()
+        }) {
+            // A relation without an output target still checks its sources.
+            if let DefinitionSafety::Unsupported(reason) =
+                self.initialized_children_safety(clause.file, &nodes, view, &clause.generators)
+            {
+                self.unavailable(clause, &reason, unavailable);
+            }
+            return;
+        }
         let before = out.len();
         for (lhs, rhs) in [(nodes[0], nodes[1]), (nodes[1], nodes[0])] {
             let Some((target, coverage)) =

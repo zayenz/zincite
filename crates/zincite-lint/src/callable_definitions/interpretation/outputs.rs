@@ -37,13 +37,50 @@ impl<'a> BodyInterpreter<'a, '_> {
         {
             return Ok(false);
         }
-        // Only the demonstrated bare selection chain enters this uncertainty
-        // path. Arithmetic selectors keep their original strict limitation.
+        // Bare selections and existing native Float sources enter this path.
+        // Arithmetic selectors keep their original strict limitation.
         let mut selections = operands.clone();
         while let Some(value) = selections.pop() {
             let value = unwrap(value);
             match value.kind() {
                 NodeKind::ArrayAccessExpression => selections.extend(value.child_nodes()),
+                NodeKind::CallExpression => {
+                    let facts = self.source.view(file, value, view);
+                    let call = self.source.operation_fact(facts, file, value);
+                    if !operands.iter().any(|operand| unwrap(operand).range() == value.range())
+                        || operands.iter().any(|operand| {
+                            let operand = unwrap(operand);
+                            operand.range() != value.range()
+                                && (operand.kind() != NodeKind::Expression
+                                    || !matches!(crate::domains::tokens(&self.source.context.files[file].parsed, operand).as_slice(),
+                                        [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier | TokenKind::IntegerLiteral)))
+                        })
+                        || call.is_none_or(|call| {
+                            !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                                if parameters.as_slice() == [TypeInst::par(TypeKind::Float)]
+                                    && *return_type == TypeInst::par(TypeKind::Int))
+                        })
+                    {
+                        return Ok(false);
+                    }
+                    let Some(safety) =
+                        self.parameter_float_safety(file, value, view, &clause.generators)
+                    else {
+                        return Ok(false);
+                    };
+                    if let DefinitionSafety::Unsupported(reason) = safety {
+                        return Err(reason);
+                    }
+                    if call.is_none_or(|call| {
+                        !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                            if self.source.prefix_primitive(file, value, facts, &call.name, parameters, return_type))
+                    }) || self.source.operation_fact(self.source.view(file, node, view), file, node).is_none_or(|call| {
+                        !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                            if self.source.prefix_primitive(file, node, self.source.view(file, node, view), "=", parameters, return_type))
+                    }) {
+                        return Err("native Float equality selected written primitive is unsupported".into());
+                    }
+                }
                 NodeKind::Expression => {
                     let tokens =
                         crate::domains::tokens(&self.source.context.files[file].parsed, value);

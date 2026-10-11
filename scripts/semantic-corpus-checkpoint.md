@@ -7973,3 +7973,42 @@ No original F owner was replayed. Its transitive reflection and selected User
 sources remain separate obligations, and this bare-source control does not
 settle its whole-owner disposition. Base-083 still needs the remaining support
 mappings and final stable thesis14/current-all28 accounting described above.
+
+### Base-083: native Float equality source inspection
+
+The public control compares `int: estimate = ceil(n / d)` with
+`constraint result = ceil(n / d)` in the same mixed let, using symbolic integer
+parameters and the selected native Float division and `ceil` primitives. All
+owning calls resolve. The initializer completed source inspection; the equality
+failed at strict output-dependency traversal before using the existing Float
+source reader. Independent reproduction confirmed this source admission gap.
+
+`interpretation/outputs.rs::uncertain_integer_equality` now uses the existing
+`parameter_float_safety` reader for a whole equality operand whose selected
+tuple is parameter Float to parameter Int. The other operand remains a typed
+bare integer source. The equality, selected native primitive, annotation,
+generator and initialized source checks remain in place. Checked uncertainty
+discards both output directions; it supplies no calculated `ceil` value,
+equality truth or result definition. The independent marker relation retains
+its scalar Supported definition.
+
+The sibling control also exposed an existing skip: an equality without either
+output target never inspected its operands. `interpret_equality_clause` now
+checks those sources with `initialized_children_safety` and propagates located
+Unsupported reasons without producing outputs. It does not change the owner's
+initialization state to suppress an otherwise supported marker definition.
+
+The grouped public regression
+`native_float_integer_equality_inspects_sources_without_outputs` checks both
+positive forms, an initialized integer source error, a closed zero Float
+divisor, written `ceil` and equality bodies, and a targetless failing sibling.
+The positive forms complete search analysis without findings or limitations.
+The equality has only the independent marker definition; all refusal cases
+withhold inspected locals and definitions and keep the owner Limited.
+`cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings` and
+`cargo test --workspace` passed.
+
+No original G owner was replayed or closed. Its remaining selected sources and
+whole-owner disposition remain open, along with the remaining support mappings
+and final stable thesis14/current-all28 corpus accounting described above.
