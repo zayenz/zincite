@@ -2022,7 +2022,7 @@ impl<'a> Producer<'a> {
                     if indices.len() == 2 && element.optional && element.kind == TypeKind::Int
                         && element.instantiation == Instantiation::Parameter)
         }) {
-            let (generators, scope_error) = self.source_headers(file, node, scope);
+            let (generators, scope_error) = self.source_headers(file, scope);
             if let Some(safety) =
                 crate::callable_definitions::optional_parameter_matrix_initializer_safety(
                     self.context,
@@ -2057,7 +2057,7 @@ impl<'a> Producer<'a> {
             .operation_fact(file, node)
             .is_some_and(|fact| fact.name == "regular")
         {
-            let (generators, scope_error) = self.source_headers(file, node, scope);
+            let (generators, scope_error) = self.source_headers(file, scope);
             if let Some(safety) = crate::callable_definitions::regular_four_source_safety(
                 self.context,
                 self.bindings,
@@ -2103,7 +2103,7 @@ impl<'a> Producer<'a> {
             .operation_fact(file, node)
             .is_some_and(|fact| fact.name == "sliding_sum")
         {
-            let (generators, scope_error) = self.source_headers(file, node, scope);
+            let (generators, scope_error) = self.source_headers(file, scope);
             if let Some(safety) = crate::callable_definitions::sliding_sum_source_safety(
                 self.context,
                 self.bindings,
@@ -2139,7 +2139,7 @@ impl<'a> Producer<'a> {
             .operation_fact(file, node)
             .is_some_and(|fact| fact.name == "global_cardinality")
         {
-            let (generators, scope_error) = self.source_headers(file, node, scope);
+            let (generators, scope_error) = self.source_headers(file, scope);
             if let Some(safety) = crate::callable_definitions::gcc_source_safety(
                 self.context,
                 self.bindings,
@@ -3135,11 +3135,11 @@ impl<'a> Producer<'a> {
             })
             .unwrap_or_else(|| expression_domain(self.context, self.bindings, file, node))
     }
-    // These source consumers need the same actual preceding membership headers.
+    // Scope retains visible membership headers in lexical evaluation order.
+    // An enclosing comprehension header can follow its body in the source.
     fn source_headers(
         &self,
         file: FileId,
-        source: &SyntaxNode,
         scope: &Scope<'a>,
     ) -> (Vec<&'a SyntaxNode>, Option<String>) {
         let mut generators: Vec<&SyntaxNode> = Vec::new();
@@ -3156,7 +3156,6 @@ impl<'a> Producer<'a> {
                 if *owner != file
                     || declared.file != file
                     || declared.role != crate::DeclarationRole::Generator
-                    || declared.syntax_range.end > source.range().start
                 {
                     scope_error = Some("generator source scope is unavailable".into());
                     continue;
@@ -3177,7 +3176,6 @@ impl<'a> Producer<'a> {
                 }
             }
         }
-        generators.sort_by_key(|g| g.range().start);
         (generators, scope_error)
     }
     fn decision_prefix_predecessor(
@@ -3208,7 +3206,7 @@ impl<'a> Producer<'a> {
         let [selected, offset] = operands.as_slice() else {
             return None;
         };
-        let (generators, scope_error) = self.source_headers(file, node, scope);
+        let (generators, scope_error) = self.source_headers(file, scope);
         let safety = crate::callable_definitions::decision_prefix_source_safety(
             self.context,
             self.bindings,
@@ -3265,7 +3263,7 @@ impl<'a> Producer<'a> {
             source.kind(),
             NodeKind::ArrayAccessExpression | NodeKind::RangeExpression
         ) {
-            let (generators, scope_error) = self.source_headers(file, source, scope);
+            let (generators, scope_error) = self.source_headers(file, scope);
             let inspected = if source.kind() == NodeKind::RangeExpression {
                 crate::callable_definitions::decision_prefix_source_safety(
                     self.context,

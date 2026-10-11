@@ -8636,3 +8636,22 @@ supplied-data Gecode compile-only accept the small positives without solving.
 This supplies no array extent, membership, nonemptiness, totality or output
 proof. The four original owners after this correction remain unobserved; all
 five whole-task conditions stay unchecked.
+
+### Enclosing generator source scope increment
+
+An enclosing comprehension binder is visible in its body even when its header
+appears later in the source. The guarded source helper previously rejected that
+header by physical position and sorted visible headers by source offset. It now
+uses their existing lexical evaluation order. Generator traversal still checks
+each source before introducing its own binder; file, declaration role, exact
+header identity and unsupported-domain checks remain.
+
+The focused nested-set control preserves the selected outer declaration and
+source definedness while changing the inner domain refusal to Unknown. A closed
+initializer error and a later same-list binder remain refused. The private
+controls retain declaration, reference, type, call, output, cardinality and
+search facts. No members, extent, nonemptiness, totality or outputs are inferred;
+the separate generator-extremum limitation remains. Existing current MiniZinc
+source checking and Gecode compile-only accept the small positive without
+solving. The eight affected original limitation rows after this correction
+remain unobserved. All five whole-task conditions stay unchecked.

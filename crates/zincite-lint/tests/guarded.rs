@@ -2210,3 +2210,67 @@ predicate global_cardinality(
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn nested_generator_sources_keep_enclosing_membership_and_source_errors() {
+    use zincite_lint::{BindingResolution, Domain, GuardAssumptionKind};
+    let positive = concat!(
+        "array[1..2] of set of int: groups = [{1},{2}];\n",
+        "array[1..2] of var int: totals = [sum(m in groups[c])(m) | c in 1..2];\n",
+        "solve satisfy;\n",
+    );
+    let failure = positive.replace("[{1},{2}]", "[{1 div 0},{2}]");
+    for (name, source, error) in [
+        ("nested-membership", positive, false),
+        ("nested-membership-zero", failure.as_str(), true),
+    ] {
+        let (dir, context, facts) = model(name, source);
+        let bindings = resolve_bindings(&context);
+        let selected = expression(&context, &facts, "groups[c]");
+        assert_eq!(selected.definedness, GuardedOutcome::Proven);
+        let [outer] = selected.context.assumptions.as_ref() else {
+            panic!("expected only the enclosing membership: {selected:?}");
+        };
+        let GuardAssumptionKind::GeneratorMembership { declaration, .. } = outer.kind else {
+            panic!("expected enclosing membership: {outer:?}");
+        };
+        assert!(
+            bindings.declarations[declaration.0].syntax_range.start > selected.location.range.end
+        );
+        let reference = bindings
+            .references
+            .iter()
+            .find(|reference| {
+                reference.file == selected.file
+                    && reference.name == "c"
+                    && selected
+                        .location
+                        .range
+                        .contains(&reference.location.range.start)
+            })
+            .unwrap();
+        assert_eq!(
+            reference.resolution,
+            BindingResolution::Resolved(declaration)
+        );
+        let member = expression(&context, &facts, "m");
+        let GuardAssumptionKind::GeneratorMembership { domain, .. } =
+            &member.context.assumptions.last().unwrap().kind
+        else {
+            panic!("expected inner membership: {member:?}");
+        };
+        if error {
+            assert!(
+                matches!(domain, Domain::Unsupported(reason) if reason.contains("partiality")),
+                "{domain:?}"
+            );
+            assert_eq!(
+                expression(&context, &facts, "1 div 0").raw_definedness,
+                GuardedOutcome::Refuted
+            );
+        } else {
+            assert_eq!(domain, &Domain::Unknown);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
