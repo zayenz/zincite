@@ -2,8 +2,8 @@
 
 # Tasks: base
 
-- Total: 103
-- Ready: 1
+- Total: 104
+- Ready: 2
 - Blocked: 2
 - Done: 100
 
@@ -112,3 +112,4 @@
 | [base-101](tasks/101-bound-declaration-use-lookup-on-normal-installed-minizinc-li.md) | Bound declaration-use lookup on normal installed MiniZinc libraries | done | — |
 | [base-102](tasks/102-keep-fitting-quantified-condition-chains-compact.md) | Keep fitting quantified condition chains compact | done | — |
 | [base-103](tasks/103-keep-fitting-conditional-array-comprehensions-compact.md) | Keep fitting conditional array comprehensions compact | done | — |
+| [base-104](tasks/104-indent-expanded-conditional-headers-consistently.md) | Indent expanded conditional headers consistently | ready | — |
