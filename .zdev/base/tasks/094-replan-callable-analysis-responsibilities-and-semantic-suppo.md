@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-094"
 key = "callable-purpose-plan"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -29,13 +29,22 @@ Read the completed callable-readability task and its module map, brief Semantic 
 
 ## Done when
 
-- [ ] The saved plan identifies each current responsibility and consumer, the guarantees and prerequisites of each fact/API, and checked examples of where the current structure creates duplication, excessive specialization or unclear ownership.
-- [ ] The plan compares a small set of realistic approaches and recommends a bounded design with explicit handling of Unknown and unsupported cases, including what should remain outside callable analysis.
-- [ ] Concrete follow-up task drafts specify observable outcomes, ownership, dependencies and proportionate validation. The plan states the conditions for resuming base-083 and explicitly flags user decisions or proposed brief changes.
-- [ ] Independent advanced-design review challenges the recommendation and its consumer contracts; material objections are resolved or retained as explicit decisions without claiming implementation or final corpus acceptance.
+- [x] The saved plan identifies each current responsibility and consumer, the guarantees and prerequisites of each fact/API, and checked examples of where the current structure creates duplication, excessive specialization or unclear ownership.
+- [x] The plan compares a small set of realistic approaches and recommends a bounded design with explicit handling of Unknown and unsupported cases, including what should remain outside callable analysis.
+- [x] Concrete follow-up task drafts specify observable outcomes, ownership, dependencies and proportionate validation. The plan states the conditions for resuming base-083 and explicitly flags user decisions or proposed brief changes.
+- [x] Independent advanced-design review challenges the recommendation and its consumer contracts; material objections are resolved or retained as explicit decisions without claiming implementation or final corpus acceptance.
 
 ## Validation
 
 - Use source inspection and existing public behavior/corpus evidence to support the plan. Distinguish observed failures from hypotheses; use small read-only or private bounded controls only when an uncertainty requires them.
 - No new tests or Rust implementation are expected. Review the plan against every affected consumer and the current brief; run zdev check after any authorized record changes.
 - Proposed implementation and task changes remain separate from this task's planning result and follow the normal review/approval workflow.
+
+## Result
+
+Saved a source-backed callable-analysis plan with current fact and adapter contracts, checked ownership examples, three alternatives and bounded follow-up drafts. Independent advanced review simplified the initializer proposal to a named query without metadata transport; base-083 resumption still requires plan approval.
+
+Validation:
+
+- Independent GPT-6.1-sol/xhigh design challenge passed after checked rework; all source inspection and proof barriers retained.
+- Fresh GPT-6.1-sol/medium whole-task verifier passed all four completion conditions, consumer and reference checks, documentation whitespace checks and git diff --check. Post-review snapshot Wc72a9d9d54867976 compared equal.

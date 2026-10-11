@@ -4,8 +4,8 @@
 
 - Total: 96
 - Ready: 2
-- Blocked: 2
-- Done: 92
+- Blocked: 1
+- Done: 93
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -91,7 +91,7 @@
 | [base-080](tasks/080-resolve-and-classify-the-remaining-corpus-processing-gaps.md) | Resolve and classify the remaining corpus processing gaps | done | — |
 | [base-081](tasks/081-meet-the-public-wide-matrix-save-budget-with-a-measured-loca.md) | Meet the public wide-matrix save budget with a measured local repair | done | base-080 |
 | [base-082](tasks/082-attribute-the-remaining-full-batch-rss-and-expanded-lint-cut.md) | Attribute the remaining full-batch RSS and expanded-lint cutoffs | done | base-080 |
-| [base-083](tasks/083-complete-supported-semantic-facts-and-thesis-execution-cover.md) | Complete supported semantic facts and thesis execution coverage | blocked | base-080, base-082, base-094 |
+| [base-083](tasks/083-complete-supported-semantic-facts-and-thesis-execution-cover.md) | Complete supported semantic facts and thesis execution coverage | ready | base-080, base-082, base-094 |
 | [base-084](tasks/084-add-the-root-zincite-command-with-shared-fmt-and-lint-entry.md) | Add the root zincite command with shared fmt and lint entry points | done | — |
 | [base-085](tasks/085-deliver-source-preserving-item-queries-through-library-and-b.md) | Deliver source-preserving item queries through library and both commands | done | base-084 |
 | [base-086](tasks/086-replace-and-remove-selected-data-assignments-with-source-pre.md) | Replace and remove selected data assignments with source-preserving previews | done | base-085 |
@@ -102,6 +102,6 @@
 | [base-091](tasks/091-expose-existing-declaration-references-and-semantic-facts-to.md) | Expose existing declaration references and semantic facts to model queries | done | base-090, base-089 |
 | [base-092](tasks/092-validate-both-query-commands-and-wedding-instance-reduction.md) | Validate both query commands and wedding-instance reduction on representative data | ready | base-089, base-091 |
 | [base-093](tasks/093-refactor-callable-definitions-into-readable-internal-modules.md) | Refactor callable definitions into readable internal modules | done | — |
-| [base-094](tasks/094-replan-callable-analysis-responsibilities-and-semantic-suppo.md) | Replan callable analysis responsibilities and semantic support | ready | base-093 |
+| [base-094](tasks/094-replan-callable-analysis-responsibilities-and-semantic-suppo.md) | Replan callable analysis responsibilities and semantic support | done | base-093 |
 | [base-095](tasks/095-fix-formatter-layout-for-multiline-callable-bodies.md) | Fix formatter layout for multiline callable bodies | done | — |
 | [base-096](tasks/096-fix-formatter-indentation-and-wrapping-of-conjunction-chains.md) | Fix formatter indentation and wrapping of conjunction chains | done | — |
