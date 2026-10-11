@@ -8400,3 +8400,57 @@ observations and complete owner/property checks. Final thesis14/current-all28
 accounting and all five whole-task done conditions remain open. No original has
 been replayed on the revised source yet; no corpus sweep or compiler run was
 added.
+
+### Base-083: original Connect observation at 3ce14c6
+
+The revised original Connect observation completed both native and allocation
+companion selections within the unchanged 1,800-second limit. Native thesis14
+took 28.518 seconds and current-all28 took 66.148 seconds; companions took
+28.881 and 67.200 seconds. All four children returned warning status 1, were
+reaped and had no timeout. The outer process returned 0 and its group was
+confirmed empty after reaping. Its terminal cleanup permission error remains
+in the receipt. The earlier 1,800-second cutoff is censored; these observations
+establish no exact before/after speedup ratio.
+
+Complete native and companion diagnostics match byte-for-byte. Both companions
+retain exact manifest/load/analyze/render/root/drop/complete order, one root,
+no missing observations and exact allocation baseline after drop. The same
+fourteen source/outcome/finding-count records match across presets. Thesis
+reports 2,507 findings, zero errors and 69 limitations: twelve rules Completed,
+with unbounded-variable and search-coverage Limited. All reports 5,285 findings,
+zero errors and 385 limitations: eighteen rules Completed and ten Limited.
+These are current observations, not an automatic exclusion classification.
+
+Receipts and streams are under
+`target/benchmarks/base083/resume-connect-3ce14c6`; root checks are retained in
+`/tmp/zincite083-connect-root-accounting.json` and
+`/tmp/zincite083-connect-root-original-pin-check.json`. All 179 loaded originals
+have unchanged before/after inventory pins. The fresh 189,497-file inventory
+and 795 configuration-absence candidates match the prior inventory. Exact
+thesis14/all28 manifests still discover 6,417 roots with effective defaults;
+the known stale editor-link discovery error remains explicit. This preflight
+does not substitute for final corpus accounting.
+
+Operation review remains necessary. The first bare-implication concat controls
+did not request the original source-inspection route and justify no repair.
+The actual original F ancestor is a parameter conditional; its scope question
+remains open. A separate public caller control witnesses an earlier initialized
+rank-one parameter integer array rejected by the existing finite Test caller
+shape guard. Its guard-only prototype changes source admission without changing
+types, selected calls, definitions, callable outputs or searched seeds. The
+positive is inspection-only Unknown; error, optionality and failed-sibling
+controls retain refusal. Private evidence is indexed by
+`/tmp/zincite083-caller-scope-investigation.json`; root reproduced the positive
+and two refusals in `/tmp/zincite083-caller-scope-root-witness-check.json`.
+This control closes no original owner, mixed comparator body or decision-local
+obligation. Full capture waits for stable source mapping and repairs; all five
+whole-task conditions remain unchecked.
+
+The caller correction permits only an initialized present parameter array with
+one parameter Int axis and parameter Int element. Existing declaration order,
+written-type dependencies, lexical identities, preceding generators, annotations,
+closed source errors and primitive/source checks still run. The public regression
+checks the successful scalar/array caller context and retains initializer-error
+and failed-sibling refusals. The inspected marker stays Unknown, with no callable
+output, definition or searched seed. Decision, multidimensional and optional
+arrays remain outside this correction; no callee body family is added.

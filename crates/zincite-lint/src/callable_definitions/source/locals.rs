@@ -213,10 +213,13 @@ impl<'a> BodyInterpreter<'a, '_> {
                         || ty.instantiation != Instantiation::Parameter
                         || !(ty.kind == TypeKind::Int
                             || matches!(&ty.kind, TypeKind::Set(element)
-                            if **element == TypeInst::par(TypeKind::Int)))
+                            if **element == TypeInst::par(TypeKind::Int))
+                            || matches!(&ty.kind, TypeKind::Array { indices, element }
+                            if indices.as_slice() == [TypeInst::par(TypeKind::Int)]
+                                && **element == TypeInst::par(TypeKind::Int)))
                         || !matches!(
                             written_type.kind(),
-                            NodeKind::ScalarType | NodeKind::SetType
+                            NodeKind::ScalarType | NodeKind::SetType | NodeKind::ArrayType
                         )
                         || !is_expression(initializer.kind())
                     {

@@ -290,6 +290,119 @@ fn finite_integer_tests_inspect_invoked_sources_without_truth_or_outputs() {
 }
 
 #[test]
+fn finite_integer_tests_inspect_earlier_parameter_array_sources() {
+    use zincite_lint::{CallOutcome, DeclarationRole};
+
+    let source = concat!(
+        "test within_limit(var int: value) = ub(value)<10;\n",
+        "array[1..2] of var 0..9: inputs; var bool: gate;\n",
+        "constraint forall(i in 1..2) (let {\n",
+        "  int: earlier = i;\n",
+        "  array[int] of int: locals = [earlier | k in 1..2];\n",
+        "  int: count = if within_limit(inputs[i]) then 1 else 0 endif;\n",
+        "  var bool: marker;\n",
+        "} in marker <-> gate);\n",
+        "solve :: seq_search([int_search(inputs,input_order,indomain_min,complete),\n",
+        "  bool_search([gate],input_order,indomain_min,complete)]) satisfy;\n",
+    );
+    let library = format!(
+        "{CORE}{}",
+        concat!(
+            "function int: ub(var int: value);\n",
+            "function bool: '<'(int: left,int: right);\n",
+            "function int: 'div'(int: left,int: right);\n",
+            "function var bool: '<->'(var bool: left,var bool: right);\n",
+        )
+    );
+    for (name, source, fails) in [
+        ("symbolic", source.to_owned(), false),
+        (
+            "source-error",
+            source.replace("[earlier |", "[1 div 0 |"),
+            true,
+        ),
+        (
+            "failed-sibling",
+            source.replace(
+                "in marker <-> gate",
+                "in (marker <-> gate) /\\ (1 div 0 = 0)",
+            ),
+            true,
+        ),
+    ] {
+        let (dir, _) = model(&format!("finite-integer-array-caller-{name}"), &source, "");
+        std::fs::write(dir.join("library/std/stdlib.mzn"), &library).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty() && context.limitations.is_empty());
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == 0)
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        let search =
+            resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+        let marker = bindings
+            .declarations
+            .iter()
+            .find(|d| d.file == 0 && d.role == DeclarationRole::Local && d.name == "marker")
+            .unwrap()
+            .id;
+        assert!(callable.outputs.is_empty() && callable.definitions.is_empty());
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        assert_eq!(
+            search.declarations[marker.0].coverage,
+            SearchCoverage::Unknown
+        );
+        assert!(
+            search
+                .searched
+                .iter()
+                .all(|value| value.declaration != Some(marker))
+        );
+        let analysis = analyze_model(&context, &selected());
+        assert!(analysis.errors.is_empty() && analysis.findings.is_empty());
+        if fails {
+            assert!(callable.inspected_locals.is_empty(), "{name}: {callable:?}");
+            assert!(matches!(
+                analysis.rules[0].outcome,
+                RuleOutcome::Limited { .. }
+            ));
+            assert!(
+                analysis
+                    .limitations
+                    .iter()
+                    .any(|limit| limit.message.contains("integer division by zero")),
+                "{name}: {analysis:?}"
+            );
+        } else {
+            assert!(
+                callable.inspected_locals.contains(&marker),
+                "{name}: {callable:?}"
+            );
+            assert_eq!(analysis.rules[0].outcome, RuleOutcome::Completed);
+            assert!(analysis.limitations.is_empty());
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
 fn parameter_set_local_alias_keeps_inspected_source_unknown() {
     use zincite_lint::{CallOutcome, DeclarationRole};
 
