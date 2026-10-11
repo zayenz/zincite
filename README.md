@@ -65,7 +65,8 @@ require `--check` or `--write`; directories support `--check` only. Directory
 checks include hidden and Git-ignored `.mzn` and `.dzn` files and skip `.git`.
 
 Formatting preserves comments and literal spelling. It uses four-space
-indentation and a default maximum width of 120 columns, expands `forall` bodies,
+indentation and a default maximum width of 120 columns, expands `forall` bodies
+(with short direct `if`/`elseif` conditions kept inline when they fit),
 aligns matrix columns, and sorts adjacent include groups with `globals.mzn`
 first. Long literals and preserved comments may exceed the width.
 

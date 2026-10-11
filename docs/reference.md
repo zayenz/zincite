@@ -97,8 +97,10 @@ operator spelling and explicit parentheses. It puts a labelled constraint's
 expression on the following line and retains explicitly multiline comma-separated
 lists with one entry per line and a trailing comma. A multiline nested entry does
 not expand its enclosing list. Generator calls use spaces before their header and
-body parentheses. `forall` bodies always use block indentation, including quoted
-`'forall'` calls. Other short bodies stay compact; explicitly expanded bodies stay
+body parentheses. `forall` bodies use block indentation, including quoted
+`'forall'` calls. A direct `if` or `elseif` condition with a single short body can
+stay inline when the complete condition fits; comments and multiline expressions
+retain their layout. Other short bodies stay compact; explicitly expanded bodies stay
 expanded. Generator headers exceeding 120 columns or written with line breaks
 use one generator per line, with each `where` filter indented beneath its generator.
 Expanded headers have a trailing comma; bodies contain a single expression without

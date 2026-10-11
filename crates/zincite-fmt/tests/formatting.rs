@@ -636,7 +636,7 @@ fn nested_control_layout_preserves_scope_comments_annotations_and_stability() {
 fn callable_layout_preserves_signatures_comments_and_body_structure() {
     let parsed = parse(include_str!("../../../tests/fixtures/callables.mzn"));
     let formatted = format(&parsed).unwrap();
-    assert!(formatted.contains("function any $T: identity(\n    any $T: value, % Keep  parameter comment\n    int: count = 1,\n) :: doc_comment(\"Identity  docs\") = let"), "{formatted}");
+    assert!(formatted.contains("function any $T: identity(\n    any $T: value, % Keep  parameter comment\n    int: count = 1,\n) :: doc_comment(\"Identity  docs\") =\n    let"), "{formatted}");
     assert!(formatted.contains(
         "function array[$$Index] of var opt $T: opaque(array[$$Index] of var opt $T: values);"
     ));
@@ -660,6 +660,138 @@ fn callable_layout_preserves_signatures_comments_and_body_structure() {
             .len(),
         1
     );
+}
+
+#[test]
+fn callable_bodies_start_below_headers_and_let_bodies_keep_their_level() {
+    use zincite_fmt::{FormatOptions, format_with_options};
+    let source = r#"function var int: product(array[$$X] of var int: x) :: promise_commutative =
+  if mzn_in_root_context() then
+    let {
+      var int: result :: is_defined_var;
+      constraint native_product(array1d(x), result) :: defines_var(result);
+    } in result
+  else
+    product_rec(array1d(x))
+  endif;
+predicate gecode_all_different(array[int] of int: offset, array[int] of var int: x) =
+  gecode_all_different_offset(offset, x);
+predicate explain(array[int] of var int: xs) =
+  % Keep  body explanation
+  let { int: n = length(xs); } in
+    if n = 0 then true else xs[1] > 0 endif;
+"#;
+    let expected = r#"function var int: product(array[$$X] of var int: x) :: promise_commutative =
+    if mzn_in_root_context() then
+        let {
+            var int: result :: is_defined_var;
+            constraint native_product(array1d(x), result) :: defines_var(result);
+        } in
+        result
+    else
+        product_rec(array1d(x))
+    endif;
+predicate gecode_all_different(array[int] of int: offset, array[int] of var int: x) =
+    gecode_all_different_offset(offset, x);
+predicate explain(array[int] of var int: xs) =
+    % Keep  body explanation
+    let {
+        int: n = length(xs);
+    } in
+    if n = 0 then
+        true
+    else
+        xs[1] > 0
+    endif;
+"#;
+    for indent_size in [2, 4] {
+        let options = FormatOptions {
+            indent_size: std::num::NonZeroUsize::new(indent_size).unwrap(),
+            ..FormatOptions::default()
+        };
+        let parsed = parse(source);
+        let formatted = format_with_options(&parsed, &options).unwrap();
+        let expected = if indent_size == 2 {
+            expected.replace("    ", "  ")
+        } else {
+            expected.to_owned()
+        };
+        assert_eq!(formatted, expected);
+        assert!(formatted.lines().all(|line| line.chars().count() <= 120));
+        let reparsed = parse(formatted.clone());
+        assert!(reparsed.diagnostics().is_empty());
+        assert_eq!(
+            structure(parsed.tree(), &parsed),
+            structure(reparsed.tree(), &reparsed)
+        );
+        assert_eq!(format_with_options(&reparsed, &options).unwrap(), formatted);
+    }
+}
+
+#[test]
+fn short_forall_conditions_fit_inline_without_collapsing_multiline_bodies() {
+    use zincite_fmt::{FormatOptions, format_with_options};
+    let source = r#"predicate bounded(array[int] of var int: xs) =
+if forall (i in index_set(xs)) (
+  has_bounds(xs[i])
+) then true
+elseif 'forall' (i in index_set(xs)) (xs[i] > 0) then false
+elseif forall (i in index_set(xs)) (
+  % Keep  condition explanation
+  xs[i] > 1
+) then true
+elseif forall (i in index_set(xs)) (xs[i] > 1 /\
+  xs[i] < 10) then false
+elseif forall (i in 1..3) (a(xs)
+  /\ b(xs)) then true
+elseif forall (i in 1..3) ((a(i) /\
+  b(i))) then true
+elseif forall (i in 1..3) (not (a(i) /\
+  b(i))) then false
+else forall(i in index_set(xs))(xs[i] != 0) endif;
+"#;
+    for indent_size in [2, 4] {
+        for width in [50, 120] {
+            let options = FormatOptions {
+                indent_size: std::num::NonZeroUsize::new(indent_size).unwrap(),
+                max_line_length: std::num::NonZeroUsize::new(width),
+                ..FormatOptions::default()
+            };
+            let parsed = parse(source);
+            let formatted = format_with_options(&parsed, &options).unwrap();
+            if width == 120 {
+                assert!(
+                    formatted.contains("if forall (i in index_set(xs)) (has_bounds(xs[i])) then"),
+                    "{formatted}"
+                );
+                assert!(
+                    formatted.contains("elseif 'forall' (i in index_set(xs)) (xs[i] > 0) then"),
+                    "{formatted}"
+                );
+            } else {
+                assert!(
+                    !formatted.contains("if forall (i in index_set(xs)) (has_bounds(xs[i])) then")
+                );
+            }
+            assert!(formatted.contains("% Keep  condition explanation\n"));
+            assert!(formatted.contains("xs[i] > 1 /\\\n"), "{formatted}");
+            assert!(formatted.contains("a(xs) /\\\n"), "{formatted}");
+            assert_eq!(formatted.matches("a(i) /\\\n").count(), 2, "{formatted}");
+            assert!(formatted.contains("else\n"));
+            assert!(formatted.contains("forall (i in index_set(xs)) (\n"));
+            assert!(
+                formatted.lines().all(|line| line.chars().count() <= width),
+                "{formatted}"
+            );
+            let reparsed = parse(formatted.clone());
+            assert!(reparsed.diagnostics().is_empty());
+            assert_eq!(
+                structure(parsed.tree(), &parsed),
+                structure(reparsed.tree(), &reparsed)
+            );
+            assert_eq!(format_with_options(&reparsed, &options).unwrap(), formatted);
+        }
+    }
 }
 
 #[test]

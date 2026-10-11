@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-095"
 key = "format-callable-bodies"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -44,11 +44,23 @@ Current output puts the first if after the long signature and prints else/endif 
 
 ## Done when
 
-- [ ] A multiline if/let body starts on a new line after = and is indented relative to the callable header; else/endif and closing let braces follow the same body indentation.
-- [ ] A short wrapper call can remain compact on the indented body line when its signature would otherwise force unnecessary argument expansion.
-- [ ] Leading body comments retain their text and indentation with the expression they explain.
+- [x] A multiline if/let body starts on a new line after = and is indented relative to the callable header; else/endif and closing let braces follow the same body indentation.
+- [x] A short wrapper call can remain compact on the indented body line when its signature would otherwise force unnecessary argument expansion.
+- [x] Leading body comments retain their text and indentation with the expression they explain.
+- [x] A multiline expression after `let { ... } in` stays at the let indentation instead of adding another level.
+- [x] A direct `if`/`elseif` condition using `forall` with a single short body may remain inline when the whole condition fits; comments and genuinely multiline bodies retain their layout.
 
 ## Validation
 
 - Add a few focused formatter regressions for the examples, including a comment-led body; check formatting at two- and four-space indentation.
 - Check reparsing, token/comment preservation, width behavior, and second-pass idempotence; run the existing area Cargo checks.
+
+## Result
+
+Fixed callable body layout and comment attachment, aligned let-in bodies with let, and allowed fitting short direct if/elseif forall conditions while preserving multiline-body stability.
+
+Validation:
+
+- Independent whole-task review passed; snapshot W56562b7921da3f79 comparison equal true.
+- cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, cargo test --workspace and zdev check passed.
+- Focused old-failing/new-passing regressions and independent CLI checks verify two/four-space layouts, widths 50/120, token/comment/structure preservation and second-pass idempotence.

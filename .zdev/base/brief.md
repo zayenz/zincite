@@ -83,9 +83,14 @@ style properties. Honor `.editorconfig` indentation style/size, tab width, line
 endings, and the `max_line_length` extension. Explicit command-line options take
 precedence. Default to four-space indentation and a 120-column limit.
 
-Always expand `forall` bodies into block layout, including a single short
-expression. Preserve explicitly multiline comma-separated lists even when they
-would fit on one line; normalise them to one item per line with consistent
+Expand `forall` bodies into block layout. A `forall` used directly as an
+`if` or `elseif` condition may stay on one line when its single short body and
+complete condition fit the configured width. Preserve comments and genuinely
+multiline bodies. The expression after a `let { ... } in` block stays at the
+indentation of the `let`; do not add an extra indentation level for that body.
+
+Preserve explicitly multiline comma-separated lists even when they would fit on
+one line; normalise them to one item per line with consistent
 indentation. This intentionally allows compact and expanded layouts for equivalent
 lists. Other generator calls, including `exists` and numeric `sum`, may stay
 inline when short; retain their explicitly expanded bodies.

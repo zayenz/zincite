@@ -115,6 +115,7 @@ fn format_output(
         prefix_scanned: 0,
         break_before_code: false,
         suffix_columns: 0,
+        preserve_binary_breaks: false,
     };
     let mut ranges = protected.iter().peekable();
     let mut protected_output = Vec::new();
@@ -187,6 +188,7 @@ struct Formatter<'a> {
     prefix_scanned: usize,
     break_before_code: bool,
     suffix_columns: usize,
+    preserve_binary_breaks: bool,
 }
 
 struct MatrixCell {
@@ -317,6 +319,42 @@ impl<'a> Formatter<'a> {
                         self.break_before_code = true;
                     }
                     self.token(*index);
+                    if kind == TokenKind::Equal
+                        && matches!(
+                            item.kind(),
+                            NodeKind::FunctionDeclaration
+                                | NodeKind::PredicateDeclaration
+                                | NodeKind::TestDeclaration
+                                | NodeKind::AnnotationDeclaration
+                        )
+                    {
+                        let tail = &item.children()[position + 1..];
+                        let body = tail.iter().find_map(|child| match child {
+                            SyntaxElement::Node(body) => Some(body),
+                            _ => None,
+                        });
+                        let comment = tail.iter().any(|child| {
+                            matches!(child, SyntaxElement::Token(index)
+                                if matches!(self.parsed.tokens()[*index].kind,
+                                    TokenKind::LineComment | TokenKind::BlockComment))
+                        });
+                        if comment
+                            || body.is_some_and(|body| {
+                                let mut preview = self.preview();
+                                let start = preview.output.len();
+                                preview.expression_before(body, true, 1);
+                                preview.output[start..].contains('\n')
+                                    || preview.exceeds_width(self.current_columns(), 1)
+                            })
+                        {
+                            // The body owns one level even if the signature wrapped.
+                            if !continuation {
+                                self.indent += 1;
+                                continuation = true;
+                            }
+                            self.newlines(1);
+                        }
+                    }
                     if kind == TokenKind::StringLiteral {
                         label_pending = false;
                     }
@@ -369,7 +407,7 @@ impl<'a> Formatter<'a> {
                 | NodeKind::ArrayComprehension
                 | NodeKind::IndexedArrayComprehension
         ) {
-            self.generator_expression(node, leading_space);
+            self.generator_expression(node, leading_space, false);
             return;
         }
         if node.kind() == NodeKind::MatrixLiteral {
@@ -510,6 +548,7 @@ impl<'a> Formatter<'a> {
         let initial_indent = self.indent;
         let mut first = true;
         let mut operator_seen = false;
+        let mut break_after_operator = false;
         for (position, child) in node.children().iter().enumerate() {
             if self.prefix_finished() {
                 break;
@@ -518,6 +557,13 @@ impl<'a> Formatter<'a> {
                 SyntaxElement::Node(child) => {
                     if operator_seen
                         && (expanded
+                            || break_after_operator
+                            || self.preserve_binary_breaks
+                                && (self.pending_breaks > 0
+                                    || self.parsed.source()[child.range()]
+                                        .chars()
+                                        .take_while(|c| c.is_whitespace())
+                                        .any(|c| matches!(c, '\r' | '\n')))
                             || self.prefix_exceeds_width(
                                 child,
                                 !first,
@@ -553,6 +599,9 @@ impl<'a> Formatter<'a> {
                     let kind = self.parsed.tokens()[*index].kind;
                     if kind == TokenKind::LineComment {
                         self.indent = continuation_indent;
+                    }
+                    if self.preserve_binary_breaks && !is_trivia(kind) && self.pending_breaks > 0 {
+                        break_after_operator = true;
                     }
                     self.token_with_space(*index, first && leading_space || !first);
                     if !is_trivia(kind) {
@@ -689,13 +738,23 @@ impl<'a> Formatter<'a> {
                                 } else {
                                     self.following_columns(branch.children(), position)
                                 };
-                                let continuation =
-                                    !body && self.prefix_exceeds_width(expression, true, suffix);
+                                let compact = !body
+                                    && self.generator_condition_fits_inline(expression, suffix);
+                                let continuation = !body
+                                    && !compact
+                                    && self.prefix_exceeds_width(expression, true, suffix);
                                 if continuation {
                                     self.indent += 1;
                                     self.newlines(self.pending_breaks.max(1));
                                 }
-                                self.expression_before(expression, true, suffix);
+                                if compact {
+                                    let previous = self.suffix_columns;
+                                    self.suffix_columns = suffix;
+                                    self.generator_expression(expression, true, true);
+                                    self.suffix_columns = previous;
+                                } else {
+                                    self.expression_before(expression, true, suffix);
+                                }
                                 if continuation {
                                     self.indent -= 1;
                                 }
@@ -726,10 +785,8 @@ impl<'a> Formatter<'a> {
                     self.local_block(block);
                 }
                 SyntaxElement::Node(body) => {
-                    self.indent += 1;
                     self.newlines(self.pending_breaks.max(1));
                     self.expression_before(body, true, self.suffix_columns);
-                    self.indent -= 1;
                 }
                 SyntaxElement::Token(index) => {
                     let kind = self.parsed.tokens()[*index].kind;
@@ -776,7 +833,49 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    fn generator_expression(&mut self, node: &SyntaxNode, leading_space: bool) {
+    fn generator_condition_fits_inline(&self, node: &SyntaxNode, suffix: usize) -> bool {
+        if node.kind() != NodeKind::GeneratorCallExpression {
+            return false;
+        }
+        if !node.children().iter().any(|child| {
+            matches!(child, SyntaxElement::Token(index)
+                if matches!(&self.parsed.source()[self.parsed.tokens()[*index].range.clone()],
+                    "forall" | "'forall'"))
+        }) {
+            return false;
+        }
+        let Some(body) = node
+            .child_nodes()
+            .find(|child| child.kind() != NodeKind::GeneratorList)
+        else {
+            return false;
+        };
+        let range = node.range();
+        let tokens = self.parsed.tokens();
+        let start_token = tokens.partition_point(|token| token.range.end <= range.start);
+        if body.child_nodes().count() != 1
+            || body
+                .child_nodes()
+                .any(|expression| self.parsed.source()[expression.range()].contains(['\r', '\n']))
+            || tokens[start_token..]
+                .iter()
+                .take_while(|token| token.range.start < range.end)
+                .any(|token| {
+                    token.range.end <= range.end
+                        && matches!(token.kind, TokenKind::LineComment | TokenKind::BlockComment)
+                })
+        {
+            return false;
+        }
+        let mut preview = self.preview();
+        preview.suffix_columns = suffix;
+        let start = preview.output.len();
+        preview.generator_expression(node, true, true);
+        !preview.output[start..].contains('\n')
+            && !preview.exceeds_width(self.current_columns(), suffix)
+    }
+
+    fn generator_expression(&mut self, node: &SyntaxNode, leading_space: bool, compact_body: bool) {
         let call = node.kind() == NodeKind::GeneratorCallExpression;
         let closing = match node.kind() {
             NodeKind::SetComprehension => TokenKind::RightBrace,
@@ -819,7 +918,9 @@ impl<'a> Formatter<'a> {
                     self.generator_list(list, header_expanded, !call);
                     self.suffix_columns = suffix;
                 }
-                SyntaxElement::Node(body) if call => self.generator_body(body, forall),
+                SyntaxElement::Node(body) if call => {
+                    self.generator_body(body, forall, compact_body)
+                }
                 SyntaxElement::Node(head) => {
                     if !head_expanded && self.prefix_exceeds_width(head, false, 2) {
                         head_expanded = true;
@@ -978,11 +1079,16 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    fn generator_body(&mut self, body: &SyntaxNode, forall: bool) {
-        let expanded = forall
-            || self.has_delimited_line_break(body, TokenKind::LeftParen, TokenKind::RightParen)
-            || self.measuring_prefix
-            || self.node_exceeds_width(body, true, self.suffix_columns);
+    fn generator_body(&mut self, body: &SyntaxNode, forall: bool, compact: bool) {
+        let expanded = !compact
+            && (forall
+                || self.has_delimited_line_break(
+                    body,
+                    TokenKind::LeftParen,
+                    TokenKind::RightParen,
+                )
+                || self.measuring_prefix
+                || self.node_exceeds_width(body, true, self.suffix_columns));
         if self.prefix_exceeds_width(body, true, self.suffix_columns) {
             self.newlines(self.pending_breaks.max(1));
         }
@@ -1001,11 +1107,14 @@ impl<'a> Formatter<'a> {
                         self.newlines(self.pending_breaks.max(1));
                         self.pending_breaks = 0;
                     }
+                    let preserve_breaks = self.preserve_binary_breaks;
+                    self.preserve_binary_breaks |= expanded && forall;
                     self.expression_before(
                         expression,
                         false,
                         if expanded { 0 } else { 1 + self.suffix_columns },
                     );
+                    self.preserve_binary_breaks = preserve_breaks;
                 }
                 SyntaxElement::Token(index) => match self.parsed.tokens()[*index].kind {
                     TokenKind::LeftParen => {
@@ -1082,6 +1191,7 @@ impl<'a> Formatter<'a> {
             prefix_scanned: 0,
             break_before_code: self.break_before_code,
             suffix_columns: self.suffix_columns,
+            preserve_binary_breaks: self.preserve_binary_breaks,
         }
     }
 
