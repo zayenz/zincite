@@ -610,6 +610,7 @@ impl Producer<'_> {
         node: &SyntaxNode,
         known: &BTreeMap<usize, Domain>,
     ) -> IterationIndexSet {
+        let written = node;
         let node = unwrap(node);
         if array_concatenation(self.context, self.bindings, self.calls, file, node).is_some()
             && self
@@ -656,35 +657,7 @@ impl Producer<'_> {
                 ) {
                     return None;
                 }
-                let mut generators = Vec::new();
-                let mut scope_error = None;
-                for (id, domain) in known {
-                    let declaration = &self.bindings.declarations[*id];
-                    if declaration.file != file
-                        || declaration.role != DeclarationRole::Generator
-                        || declaration.syntax_range.end > node.range().start
-                    {
-                        continue;
-                    }
-                    if let Domain::Unsupported(reason) = domain {
-                        scope_error = Some(reason.clone());
-                    }
-                    let Some(header) = find_node(
-                        self.context.files[file].parsed.tree(),
-                        &declaration.syntax_range,
-                        declaration.role,
-                    ) else {
-                        scope_error = Some("generator source header is unavailable".into());
-                        continue;
-                    };
-                    if !generators
-                        .iter()
-                        .any(|node: &&SyntaxNode| node.range() == header.range())
-                    {
-                        generators.push(header);
-                    }
-                }
-                generators.sort_by_key(|node| node.range().start);
+                let (generators, scope_error) = self.source_headers(file, node, known);
                 let safety = if node.kind() == NodeKind::RangeExpression {
                     crate::callable_definitions::decision_prefix_source_safety(
                         self.context,
@@ -802,12 +775,80 @@ impl Producer<'_> {
         if let Err(reason) = core_arithmetic(self.context, self.bindings, self.calls, file, node) {
             domain = Domain::Unsupported(reason);
         }
-        self.set(
+        let mut set = self.set(
             file,
             self.location(file, node),
             domain,
             helper.map(|(a, d, _)| (a, d)),
-        )
+        );
+        if matches!(set.cardinality, Cardinality::Unsupported(_))
+            && node.kind() == NodeKind::SetLiteral
+            && node.child_nodes().count() == 1
+            && matches!(&set.domain, Domain::LiteralSet(values) if values.len() == 1)
+            && self
+                .guarded
+                .expression(file, &self.location(file, written))
+                .is_some_and(|fact| {
+                    fact.raw_definedness == GuardedOutcome::Proven
+                        && fact.definedness == GuardedOutcome::Proven
+                })
+        {
+            let (generators, scope_error) = self.source_headers(file, written, known);
+            if scope_error.is_none()
+                && !matches!(
+                    crate::callable_definitions::initialized_integer_set_source_safety(
+                        self.context,
+                        self.bindings,
+                        (self.calls, self.calls),
+                        self.instantiations,
+                        self.domains,
+                        (file, written, &generators),
+                    ),
+                    crate::DefinitionSafety::Unsupported(_)
+                )
+            {
+                // Source inspection permits an unknown count without interpreting its member.
+                set.cardinality = Cardinality::Unknown;
+            }
+        }
+        set
+    }
+    fn source_headers(
+        &self,
+        file: FileId,
+        node: &SyntaxNode,
+        known: &BTreeMap<usize, Domain>,
+    ) -> (Vec<&SyntaxNode>, Option<String>) {
+        let mut generators = Vec::new();
+        let mut scope_error = None;
+        for (id, domain) in known {
+            let declaration = &self.bindings.declarations[*id];
+            if declaration.file != file
+                || declaration.role != DeclarationRole::Generator
+                || declaration.syntax_range.end > node.range().start
+            {
+                continue;
+            }
+            if let Domain::Unsupported(reason) = domain {
+                scope_error = Some(reason.clone());
+            }
+            let Some(header) = find_node(
+                self.context.files[file].parsed.tree(),
+                &declaration.syntax_range,
+                declaration.role,
+            ) else {
+                scope_error = Some("generator source header is unavailable".into());
+                continue;
+            };
+            if !generators
+                .iter()
+                .any(|node: &&SyntaxNode| node.range() == header.range())
+            {
+                generators.push(header);
+            }
+        }
+        generators.sort_by_key(|node| node.range().start);
+        (generators, scope_error)
     }
     fn numeric_value(&self, file: FileId, node: &SyntaxNode) -> Option<&NumericOutcome> {
         let location = self.location(file, node);

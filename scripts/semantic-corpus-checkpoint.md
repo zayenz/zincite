@@ -8735,3 +8735,53 @@ Of the preceding 17 located rows, 13 have narrower computed-membership or
 reflection boundaries. The other four motivated this count handoff. Their
 post-change original outcomes and fresh corpus acceptance remain unobserved.
 All five base-083 completion conditions remain unchecked.
+
+### Current Connect observation at `86cb19d`
+
+The one-root native and companion runs completed for thesis14 and current-all28.
+Statuses and full diagnostic streams match, every phase completed, and scope
+drops returned to baseline. Original, loaded-source, configuration and tool pins
+remain unchanged. These checks establish capture integrity, not acceptance.
+
+Warnings remain 2,507 for thesis and 5,285 for all. Limitations are 71/248;
+partitions remain 12 Completed/2 Limited and 18 Completed/10 Limited. Compared
+with `34ca502`, all cleared 35 limitations and added none: 22 partial-expression,
+four index-set-mismatch and nine vacuous-constraint messages. All-only limitations
+are now 177. The four repaired minimum arguments retain Unknown counts and
+nonemptiness; clearing their source refusal proves no minimum or member value.
+
+A separate observation retained the existing numeric, optional, guarded,
+iteration, definition and search facts. Its call-output filter incorrectly
+compared whole-expression ranges with callee-token ranges and emitted no call
+rows. A minimal bindings/calls supplement corrected that observation without
+rerunning the other owners: it retained 7,752 call facts and associated all 2,135
+original operations with their actual calls. Selected signatures and written
+body metadata supply no safety, output or computed-value proof.
+
+Current demand reviews and public controls distinguish the retained slice-count
+and computed-union membership boundaries from witnessed count/range handoff gaps.
+Those gaps remain repair work; this observation does not settle every limitation
+or replace the final corpus evidence. All five base-083 conditions remain
+unchecked.
+
+### Safe symbolic singleton counts
+
+Iteration counting now retains Unknown for a literal singleton whose written
+source has proved raw and effective definedness and passes the existing
+initialized parameter-integer-set source check. It no longer needs the member's
+numeric value to decline a count-based candidate. The raw domain and member
+interpretation remain unchanged; no exact count, membership, nonemptiness,
+output or coverage proof follows.
+
+The existing checker retains actual preceding headers, present parameter-Int
+typing, complete initializer errors and cycles. The shared header reader preserves
+the prior range and set-cell source checks. A four-case public regression covers
+a wrapped safe source, division by zero, uncertain indexing and an erroneous
+annotation. Separate controls retain an erroneous initializer sibling even when
+the selected cell is proved safe, and a referenced dimension error.
+
+Workspace formatting, clippy and 373 tests pass. MiniZinc 2.10.1 source checking
+and a small complete Gecode compile-only control pass without solving. Original
+post-change outcomes and final corpus acceptance remain unobserved; the adjacent
+original singleton with Unknown source safety is outside this correction. All
+five base-083 completion conditions remain unchecked.

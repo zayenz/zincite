@@ -915,3 +915,85 @@ solve satisfy;
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
+
+#[test]
+fn safe_computed_singletons_keep_unknown_counts_without_member_values() {
+    for (name, source_set, supported) in [
+        ("safe-singleton", "({cells[j]})", true),
+        ("undefined-singleton", "{1 div 0}", false),
+        ("unknown-singleton", "{cells[k]}", false),
+        (
+            "undefined-singleton-annotation",
+            "({cells[j]} :: mark(1 div 0))",
+            false,
+        ),
+    ] {
+        let source = format!(
+            "array[1..2] of int: cells; int: k;\nconstraint forall(j in 1..2, i in {source_set})(true); solve satisfy;"
+        );
+        let (directory, context, _, facts) = model(name, &source);
+        let fact = iteration(
+            &context,
+            &facts,
+            &format!("forall(j in 1..2, i in {source_set})(true)"),
+        );
+        let singleton = &fact.generators[1].index_set;
+        assert!(
+            matches!(
+                &singleton.domain,
+                Domain::LiteralSet(values) if values.len() == 1
+                    && matches!(values[0], NumericBound::Unsupported(_) | NumericBound::Arithmetic { .. })
+            ),
+            "{name}: {:?}",
+            singleton.domain
+        );
+        if supported {
+            assert_eq!(singleton.cardinality, Cardinality::Unknown);
+            assert!(matches!(fact.candidates, CandidateCount::Unknown));
+            assert!(matches!(fact.selected, CandidateCount::Unknown));
+            assert!(!matches!(
+                singleton.equal_members(singleton),
+                GuardedOutcome::Proven
+            ));
+        } else {
+            assert!(matches!(singleton.cardinality, Cardinality::Unsupported(_)));
+            assert!(matches!(fact.candidates, CandidateCount::Unsupported(_)));
+        }
+        let result = analyze_model(
+            &context,
+            &LintOptions::from_selection("expensive-comprehension,partial-expression").unwrap(),
+        );
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        let expensive = result
+            .rules
+            .iter()
+            .find(|r| r.rule == Rule::ExpensiveComprehension)
+            .unwrap();
+        if supported {
+            assert_eq!(expensive.outcome, RuleOutcome::Completed);
+            assert!(
+                result.limitations.is_empty(),
+                "{name}: {:?}",
+                result.limitations
+            );
+            assert!(result.findings.is_empty(), "{name}: {:?}", result.findings);
+        } else {
+            assert!(matches!(expensive.outcome, RuleOutcome::Limited { .. }));
+            if name == "undefined-singleton" {
+                assert!(
+                    result.findings.iter().any(|finding| {
+                        finding.rule == Rule::PartialExpression
+                            && text(&context, fact.file, &finding.location) == "1 div 0"
+                    }),
+                    "{name}: {:?}",
+                    result.findings
+                );
+            }
+        }
+        assert_eq!(
+            std::fs::read_to_string(directory.join("root.mzn")).unwrap(),
+            source
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
