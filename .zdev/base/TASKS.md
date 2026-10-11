@@ -2,9 +2,9 @@
 
 # Tasks: base
 
-- Total: 100
+- Total: 101
 - Ready: 2
-- Blocked: 2
+- Blocked: 3
 - Done: 96
 
 | ID | Task | State | Blocked by |
@@ -100,7 +100,7 @@
 | [base-089](tasks/089-prune-removed-enum-members-from-sets-and-repair-supported-gr.md) | Prune removed enum members from sets and repair supported group indices | done | base-088 |
 | [base-090](tasks/090-query-nested-expressions-and-emit-structured-source-inspecti.md) | Query nested expressions and emit structured source inspection reports | done | base-085 |
 | [base-091](tasks/091-expose-existing-declaration-references-and-semantic-facts-to.md) | Expose existing declaration references and semantic facts to model queries | done | base-090, base-089 |
-| [base-092](tasks/092-validate-both-query-commands-and-wedding-instance-reduction.md) | Validate both query commands and wedding-instance reduction on representative data | ready | base-089, base-091, base-100 |
+| [base-092](tasks/092-validate-both-query-commands-and-wedding-instance-reduction.md) | Validate both query commands and wedding-instance reduction on representative data | blocked | base-089, base-091, base-100, base-101 |
 | [base-093](tasks/093-refactor-callable-definitions-into-readable-internal-modules.md) | Refactor callable definitions into readable internal modules | done | — |
 | [base-094](tasks/094-replan-callable-analysis-responsibilities-and-semantic-suppo.md) | Replan callable analysis responsibilities and semantic support | done | base-093 |
 | [base-095](tasks/095-fix-formatter-layout-for-multiline-callable-bodies.md) | Fix formatter layout for multiline callable bodies | done | — |
@@ -109,3 +109,4 @@
 | [base-098](tasks/098-classify-retained-semantic-limitations-by-consumer-and-suppo.md) | Classify retained semantic limitations by consumer and support boundary | ready | base-097 |
 | [base-099](tasks/099-separate-source-call-facts-from-optional-body-expansion-for.md) | Separate source call facts from optional body expansion for simple lints | done | base-097 |
 | [base-100](tasks/100-admit-normal-library-semantic-queries-with-distinct-finite-s.md) | Admit normal-library semantic queries with distinct finite scan and result bounds | done | — |
+| [base-101](tasks/101-bound-declaration-use-lookup-on-normal-installed-minizinc-li.md) | Bound declaration-use lookup on normal installed MiniZinc libraries | ready | — |

@@ -7,7 +7,7 @@ status = "open"
 complexity = "standard"
 afk = true
 priority = "low"
-blocked_by = ["base-089", "base-091", "base-100"]
+blocked_by = ["base-089", "base-091", "base-100", "base-101"]
 +++
 # Validate both query commands and wedding-instance reduction on representative data
 
