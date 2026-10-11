@@ -1203,7 +1203,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         let name = match node.kind() {
             NodeKind::BinaryExpression => operator(self.source.context, file, node)
                 .and_then(crate::bindings::symbolic_operator)
-                .filter(|name| matches!(*name, "*" | "/")),
+                .filter(|name| matches!(*name, "*" | "/" | "-")),
             NodeKind::CallExpression => ["int2float", "ceil", "fix"]
                 .into_iter()
                 .find(|name| self.source.core(file, node, view, name)),
@@ -1213,7 +1213,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             "int2float" => (TypeKind::Int, TypeKind::Float, Instantiation::Parameter, 1),
             "ceil" => (TypeKind::Float, TypeKind::Int, Instantiation::Parameter, 1),
             "fix" => (TypeKind::Int, TypeKind::Int, Instantiation::Decision, 1),
-            "*" | "/"
+            "*" | "/" | "-"
                 if typed(node)
                     .is_some_and(|t| present(t, TypeKind::Float, Instantiation::Parameter)) =>
             {
@@ -1267,14 +1267,19 @@ impl<'a> BodyInterpreter<'a, '_> {
             && children.iter().any(|child| {
                 typed(child).is_some_and(|ty| present(ty, TypeKind::Int, Instantiation::Parameter))
             });
-        if coerced_integer
+        if (coerced_integer || name == "-")
             && self.source.operation_fact(facts, file, node).is_none_or(|call| {
                 !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
                     if self.source.prefix_primitive(file, node, facts, name, parameters, return_type))
             })
         {
             return Some(DefinitionSafety::Unsupported(
-                "Float coerced selected written primitive is unsupported".into(),
+                if coerced_integer {
+                    "Float coerced selected written primitive is unsupported"
+                } else {
+                    "Float selected written primitive is unsupported"
+                }
+                .into(),
             ));
         }
         // Inspect coerced operands at their written Int type; a Float formal

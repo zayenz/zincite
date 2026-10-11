@@ -576,7 +576,7 @@ fn local_integer_concatenation_inspects_sources_without_outputs() {
 
 #[test]
 fn native_float_integer_equality_inspects_sources_without_outputs() {
-    use zincite_lint::{CallOutcome, DeclarationRole};
+    use zincite_lint::{CallOutcome, DeclarationRole, Instantiation, TypeInst, TypeKind};
 
     let direct = concat!(
         "int: n; int: d; var int: result; var bool: gate;\n",
@@ -591,22 +591,47 @@ fn native_float_integer_equality_inspects_sources_without_outputs() {
         "int: estimate = ceil(n / d);",
         "constraint result = ceil(n / d);",
     );
+    let subtraction = direct.replace("ceil(n / d)", "ceil(n / d - 1.0)");
     let library = format!(
         "{CORE}{}",
         concat!(
             "function int: ceil(float: value);\n",
             "function float: '/'(float: left,float: right);\n",
+            "function float: '-'(float: left,float: right);\n",
             "function var bool: '<->'(var bool: left,var bool: right);\n",
             "function int: 'div'(int: left,int: right);\n",
         )
     );
     let changed_ceil = library.replace("ceil(float: value);", "ceil(float: value) = 1;");
+    let changed_subtraction = library.replace(
+        "'-'(float: left,float: right);",
+        "'-'(float: left,float: right) = 0.0;",
+    );
     let changed_equality = library.replace(
         "'='(any $T: left,any $T: right);",
         "'='(any $T: left,any $T: right) = true;",
     );
     for (name, source, library, reason) in [
         ("initializer", direct.to_owned(), library.as_str(), None),
+        ("subtraction", subtraction.clone(), library.as_str(), None),
+        (
+            "subtraction-source-error",
+            subtraction.replace("int: n;", "int: n = 1 div 0;"),
+            library.as_str(),
+            Some("integer division by zero"),
+        ),
+        (
+            "subtraction-divisor-zero",
+            subtraction.replace("int: d;", "int: d = 0;"),
+            library.as_str(),
+            Some("Float division by closed integer zero"),
+        ),
+        (
+            "subtraction-written-body",
+            subtraction.clone(),
+            changed_subtraction.as_str(),
+            Some("selected written primitive"),
+        ),
         ("equality", equality.clone(), library.as_str(), None),
         (
             "source-error",
@@ -665,6 +690,23 @@ fn native_float_integer_equality_inspects_sources_without_outputs() {
             "{name}: {:?}",
             calls.calls
         );
+        let float = TypeInst {
+            instantiation: Instantiation::Parameter,
+            optional: false,
+            kind: TypeKind::Float,
+        };
+        for call in calls
+            .calls
+            .iter()
+            .filter(|call| call.file == 0 && call.name == "-")
+        {
+            assert!(
+                matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                    if parameters.as_slice() == [float.clone(), float.clone()] && return_type == &float),
+                "{name}: {:?}",
+                call.outcome
+            );
+        }
         let inst = resolve_instantiations(&context, &bindings, &calls);
         let domains = resolve_domains(&context, &bindings);
         let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
@@ -710,10 +752,16 @@ fn native_float_integer_equality_inspects_sources_without_outputs() {
                 matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
                 "{name}: {result:?}"
             );
+            let phase = if name.starts_with("subtraction-") {
+                "local output initializer or domain is unsupported"
+            } else {
+                "local constraints or result evaluation are unsupported"
+            };
             assert!(
-                result.limitations.iter().any(|failure| failure
-                    .message
-                    .contains("local constraints or result evaluation are unsupported")),
+                result
+                    .limitations
+                    .iter()
+                    .any(|failure| failure.message.contains(phase)),
                 "{name}: {result:?}"
             );
         } else {

@@ -8181,3 +8181,37 @@ No original V2 owner was replayed or closed. Its transitive sources, strict proo
 requirements and complete-owner disposition remain separate obligations. The
 remaining support mappings and final stable thesis14/current-all28 corpus
 accounting remain open.
+
+### Base-083: native parameter Float subtraction sources
+
+The public control replaces `ceil(n / d)` with `ceil(n / d - 1.0)` in the same
+Local initializer. Both calls resolve; subtraction selects two present parameter
+Float operands and a present parameter Float result. The baseline admitted the
+owner, while subtraction failed the Float source gate and left search Limited.
+The public regression reproduced the independently confirmed source admission
+gap before repair.
+
+`parameter_float_safety` now admits binary native subtraction through its existing
+typed Float path. Subtraction always passes the existing selected written-primitive
+check, including when both written operands are already Float. Integer coercion,
+annotations, exact types, initialized children and closed source/divisor error
+checks retain their existing behavior. Arithmetic remains Unknown and supplies
+no calculated value, bound, totality, output or coverage proof.
+
+The existing `native_float_integer_equality_inspects_sources_without_outputs`
+group adds subtraction, an initialized integer source error, a closed zero
+divisor and a selected subtraction primitive with a written body. It checks the
+exact parameter Float tuple. The positive completes search without findings or
+limitations, retaining inspected marker sources and empty outputs and definitions.
+All new refusals withhold inspected locals and definitions and remain Limited;
+the existing equality and failing-sibling controls still pass.
+`cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo test --workspace`, `zdev check base --format json` and
+`git diff --check` passed. MiniZinc 2.10.1 compiled the positive with supplied
+parameter values to Gecode FlatZinc without solving, with empty diagnostics.
+Compiler inputs and outputs remain private.
+
+No original G owner was replayed or closed. Its transitive sources and complete
+owner disposition remain separate obligations, along with the remaining support
+mappings and final stable thesis14/current-all28 corpus accounting.
