@@ -274,7 +274,9 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             || options.rules.contains(&Rule::UnusedDeclaration)
         {
             Some(resolve_callables(context, &facts))
-        } else if !decision_rules.is_empty() {
+        } else if !decision_rules.is_empty()
+            || options.rules.contains(&Rule::PreferArrayComprehension)
+        {
             Some(resolve_source_callables(context, &facts))
         } else {
             None
@@ -336,6 +338,16 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
             result.limitations.extend(captures.limitations);
         }
         if let Some(calls) = calls {
+            if options.rules.contains(&Rule::PreferArrayComprehension) {
+                result
+                    .findings
+                    .extend(crate::prefer_array_comprehension::check(
+                        context,
+                        &facts,
+                        &calls,
+                        &mut fix_snapshots,
+                    ));
+            }
             if options.rules.contains(&Rule::UnmarkedSymmetryBreaking) {
                 let symmetry = resolve_symmetry_uses(context, &facts, &calls);
                 let (findings, limitations) = check_symmetry_uses(context, &symmetry);

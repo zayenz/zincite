@@ -32,7 +32,12 @@ fn catalogue_exposes_current_capabilities_and_preserves_presets() {
         assert!(metadata.available && rule.is_available());
         assert_eq!(
             metadata.fix_support,
-            if matches!(rule, Rule::ElementPredicate | Rule::UnusedGeneratorBinding) {
+            if matches!(
+                rule,
+                Rule::ElementPredicate
+                    | Rule::UnusedGeneratorBinding
+                    | Rule::PreferArrayComprehension
+            ) {
                 FixSupport::Sometimes
             } else {
                 FixSupport::None
@@ -66,7 +71,7 @@ fn catalogue_exposes_current_capabilities_and_preserves_presets() {
             .rules
             .contains(&Rule::PartialExpression)
     );
-    assert_eq!(Rule::DEFAULT.len(), 2);
+    assert_eq!(Rule::DEFAULT.len(), 3);
     assert_eq!(Rule::THESIS.len(), 14);
     assert!(Rule::from_id("unknown-rule").is_none());
 }
@@ -322,7 +327,11 @@ fn compiler_source_extensions_reach_nested_naming_and_constraint_checks() {
 #[test]
 fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
     use zincite_lint::{LintOptions, lint_with_options};
-    let defaults = ["naming", "missing-constraint-label"];
+    let defaults = [
+        "naming",
+        "missing-constraint-label",
+        "prefer-array-comprehension",
+    ];
     let thesis = [
         "array-index-start",
         "compact-if",
@@ -376,7 +385,10 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
     let parsed = parse(source);
     assert_eq!(
         lint(&parsed),
-        lint_with_options(&parsed, &LintOptions::default())
+        lint_with_options(
+            &parsed,
+            &LintOptions::from_selection("naming,missing-constraint-label").unwrap()
+        )
     );
     for (selection, rule) in [
         ("naming", Rule::Naming),
@@ -424,27 +436,31 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
 
 #[test]
 fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
-    use zincite_lint::{LintOptions, lint_with_options, settings::LintSettings};
+    use zincite_lint::{LintOptions, settings::LintSettings};
     let expanded =
         LintOptions::from_selection("missing-constraint-label,family:style,preset:thesis,all")
             .unwrap();
     assert_eq!(
         expanded.rules,
-        [Rule::MissingConstraintLabel, Rule::Naming]
-            .into_iter()
-            .chain(Rule::THESIS)
-            .chain(Rule::ADDITIONAL)
-            .chain([
-                Rule::IndexSetMismatch,
-                Rule::HiddenOptionality,
-                Rule::PartialExpression,
-                Rule::VacuousConstraint,
-                Rule::UnusedGeneratorBinding,
-                Rule::GlobalConstraintOpportunity,
-                Rule::MissingInputPrecondition,
-                Rule::SuspiciousDomain
-            ])
-            .collect::<Vec<_>>()
+        [
+            Rule::MissingConstraintLabel,
+            Rule::Naming,
+            Rule::PreferArrayComprehension
+        ]
+        .into_iter()
+        .chain(Rule::THESIS)
+        .chain(Rule::ADDITIONAL)
+        .chain([
+            Rule::IndexSetMismatch,
+            Rule::HiddenOptionality,
+            Rule::PartialExpression,
+            Rule::VacuousConstraint,
+            Rule::UnusedGeneratorBinding,
+            Rule::GlobalConstraintOpportunity,
+            Rule::MissingInputPrecondition,
+            Rule::SuspiciousDomain
+        ])
+        .collect::<Vec<_>>()
     );
     for (legacy, prefixed) in [
         ("default", "preset:default"),
@@ -487,6 +503,7 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
         [
             Rule::MissingConstraintLabel,
             Rule::ArrayIndexStart,
+            Rule::PreferArrayComprehension,
             Rule::IndexSetMismatch
         ]
     );
@@ -528,9 +545,18 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
         .resolve()
         .unwrap();
     let parsed = parse("int: BadName=1; constraint true;");
-    let warnings = lint_with_options(&parsed, &options).unwrap();
-    assert_eq!(warnings.len(), 1);
-    assert_eq!(warnings[0].rule, Rule::MissingConstraintLabel);
+    let result = zincite_lint::analyze_file(&parsed, "buffer.mzn", 0, &options);
+    assert_eq!(result.findings.len(), 1);
+    assert_eq!(result.findings[0].rule, Rule::MissingConstraintLabel);
+    assert!(matches!(
+        result
+            .rules
+            .iter()
+            .find(|r| r.rule == Rule::PreferArrayComprehension)
+            .unwrap()
+            .outcome,
+        zincite_lint::RuleOutcome::Limited { .. }
+    ));
 }
 
 #[test]
@@ -604,7 +630,10 @@ fn personal_presets_merge_typed_options_and_reject_ambiguous_or_invalid_settings
         );
     }
     let exclusions = LintSettings::from_toml("[lint]\nselect=['default']\nignore=['preset:a','preset:b']\n[lint.presets.a]\nselect=['naming']\n[lint.presets.b]\nselect=['missing-constraint-label']").unwrap();
-    assert!(exclusions.resolve().unwrap().rules.is_empty());
+    assert_eq!(
+        exclusions.resolve().unwrap().rules,
+        [Rule::PreferArrayComprehension]
+    );
     let bundles = LintSettings::from_toml("[lint]\nselect=['preset:a']\n[lint.presets.a]\nselect=['naming']\n[lint.presets.a.options.suspicious-shadowing]\nignore-names=['a']\n[lint.presets.b]\nselect=['naming']\n[lint.presets.b.options.suspicious-shadowing]\nignore-names=['b']").unwrap();
     assert_eq!(
         bundles

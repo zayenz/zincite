@@ -291,11 +291,11 @@ path and source location where applicable.
   inputs that are rejected and large inputs that time out. See the
   [syntax reference](docs/reference.md#syntax-support) and
   [corpus checkpoint](scripts/formatter-corpus-checkpoint.md).
-- Parsing checks syntax. Formatting and the two default lint rules do not load
-  includes, resolve names, type-check models or assess solver performance.
-- Naming conventions (`naming`) and constraint labels (`missing-constraint-label`)
-  are enabled by default. The `thesis` preset selects fourteen modelling rules;
-  `all` selects all 26 implemented rules. Semantic rules use an explicit model
+- Parsing checks syntax. Formatting preserves source tokens and does not load includes or assess solver
+  performance. The default linter loads model context for bounded comprehension advice.
+- Naming conventions (`naming`), constraint labels (`missing-constraint-label`)
+  and direct comprehensions (`prefer-array-comprehension`) are enabled by default. The `thesis` preset selects fourteen modelling rules;
+  `all` selects all 27 implemented rules. Semantic rules use an explicit model
   and include context. Unsupported required facts produce located limitations;
   rule availability does not promise complete coverage of every input.
 - Files must be UTF-8. Data files accept top-level assignments. JSON data and

@@ -60,7 +60,8 @@ Rule entries report availability, implemented fix support and current options.
 
 -I DIR adds an ordered include directory for rules requiring model analysis.
 --stdlib-dir DIR supplies the MiniZinc library root, overriding MZN_STDLIB_DIR.
-Current default rules do not load includes or the standard library.
+Default model analysis loads includes and standard callable signatures for comprehension advice.
+Select naming,missing-constraint-label for source-local analysis.
 Stdin has no model context: selected semantic analysis reports a limitation;
 standalone .dzn inputs mark semantic rules inapplicable.
 

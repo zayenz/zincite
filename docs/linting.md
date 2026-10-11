@@ -13,8 +13,8 @@ cargo build --release -p zincite-lint
 ./target/release/zincite-lint --rules family:suspicious,partial-expression model.mzn
 ```
 
-The default selects `naming` and `missing-constraint-label`. `thesis` keeps its
-fourteen original rules; `all` selects all 26 currently available rules. IDs,
+The default selects `naming`, `missing-constraint-label` and `prefer-array-comprehension`. `thesis` keeps its
+fourteen original rules; `all` selects all 27 currently available rules. IDs,
 `family:NAME` and `preset:NAME` can be combined with commas. Expansion keeps the
 first occurrence of each ID. `default`, `thesis` and `all` remain accepted legacy
 selectors. `--list-rules` gives family, availability, fix support and membership.
@@ -39,7 +39,9 @@ that matches the model:
 ```
 
 `--stdlib-dir` overrides `MZN_STDLIB_DIR`; `-I` adds ordered include directories.
-Default source-local rules do not load includes or the standard library.
+The default loads model context for `prefer-array-comprehension`, using source and
+callable signatures without expanding selected standard bodies. Selecting only
+`naming,missing-constraint-label` keeps analysis local to the source.
 Standalone `.dzn` files use assignment-only syntax and mark semantic rules
 inapplicable. Plain stdin lacks model context; semantic selections report a
 limitation. `--stdin-filepath PATH` sets language mode, diagnostic path and the
@@ -90,10 +92,11 @@ validating the configuration. It retains effective typed options and fix
 restrictions. Choosing a personal preset selects its option bundle. `fixable`
 and `unfixable` restrict edits independently of diagnostics; exclusions win.
 
-## The ten added rules
+## Additional rules
 
 | ID | Family | Supported advice and important boundary |
 | --- | --- | --- |
+| `prefer-array-comprehension` | style | Standard `array1d`, `array2d` and `array3d` wrappers around matching independent comprehensions. Safe explicit fixes preserve body text and Cartesian axis order. Plain 1D requires proved contiguous `1..n`; other 1D keeps its key and 2D/3D keep ordered tuple keys, with every axis proved nonempty. Filters, dependent generators, annotations and unknown callable/set identity stay unchanged. Comments in removed wrapper text withhold a fix. |
 | `index-set-mismatch` | correctness | Written index ranges, offsets and enum/dimension identities incompatible with declared index sets. Candidate traversal is distinct from an exact bad index; no executed-value or runtime-error claim. |
 | `hidden-optionality` | suspicious | Core length comparisons consuming a decision-filtered/membership comprehension, including supported aliases, where slot capacity can differ from present values. Capacity use and all-present/empty/inactive cases stay quiet. |
 | `partial-expression` | suspicious | Proved failed nonzero/index/nonempty/presence obligations or demonstrated incompatible candidate indices. Unknown-only requirements stay quiet; guards, assertions, defaults and nearest Boolean context retain their distinct meanings. |

@@ -1,4 +1,4 @@
-//! MiniZinc modelling advice with syntax-only defaults and explicit model loading.
+//! MiniZinc modelling advice with bounded model-backed defaults and explicit model loading.
 
 use std::ops::Range;
 use zincite_syntax::{Diagnostic, NodeKind, ParsedFile, SyntaxElement, SyntaxNode, TokenKind};
@@ -40,6 +40,7 @@ mod model;
 mod naming;
 mod optional;
 mod partial_expression;
+mod prefer_array_comprehension;
 mod rules;
 mod search;
 mod search_coverage;
@@ -139,11 +140,14 @@ pub struct LintDiagnostic {
     pub message: String,
 }
 
-/// Lint a complete parsed file. Syntax or suppression errors omit all warnings.
+/// Lint the source-local default rules in a parsed file. Model-backed defaults
+/// require analyze_model. Syntax or suppression errors omit all warnings.
 /// Suppressions apply independently throughout the next top-level item. Naming
 /// checks declared syntax roles; missing-label warnings are modelling advice.
 pub fn lint(parsed: &ParsedFile) -> Result<Vec<LintDiagnostic>, Vec<Diagnostic>> {
-    lint_with_options(parsed, &LintOptions::default())
+    let mut options = LintOptions::default();
+    options.rules.retain(|rule| !rule.requires_model());
+    lint_with_options(parsed, &options)
 }
 
 /// Lint selected rules. Syntax, suppression or unavailable-rule errors omit all

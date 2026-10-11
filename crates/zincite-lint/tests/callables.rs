@@ -528,7 +528,7 @@ fn lattice_minima_unknown_candidates_and_rule_local_limits_do_not_guess() {
         RuleOutcome::Inapplicable { .. }
     ));
     assert!(Rule::ElementPredicate.is_available());
-    assert_eq!(Rule::DEFAULT.len(), 2);
+    assert_eq!(Rule::DEFAULT.len(), 3);
     let source = concat!(
         "predicate set_cross(array[int] of int:x,var int:y)=true; predicate set_cross(array[int] of var int:x,int:y)=true; constraint set_cross({1,2},1);\n",
         "predicate set_uncertain(array[int] of int:x)=true; predicate set_uncertain(MissingType:x)=true; constraint set_uncertain({1,2});\n",

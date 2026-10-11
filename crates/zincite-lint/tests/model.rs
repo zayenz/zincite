@@ -407,12 +407,13 @@ fn incomplete_context_and_shared_reporter_keep_rule_execution_and_status_distinc
     let defaults = LintOptions::default();
     let result = analyze_model(&context, &defaults);
     assert!(result.findings.is_empty() && result.errors.is_empty());
-    assert!(
-        result
-            .rules
-            .iter()
-            .all(|rule| rule.outcome == RuleOutcome::Completed)
-    );
+    assert!(result.rules.iter().all(|rule| {
+        if rule.rule == zincite_lint::Rule::PreferArrayComprehension {
+            matches!(rule.outcome, RuleOutcome::Limited { .. })
+        } else {
+            rule.outcome == RuleOutcome::Completed
+        }
+    }));
     let mut stderr = Vec::new();
     assert_eq!(write_analysis(&result, &mut stderr).unwrap(), 0);
     let message = String::from_utf8(stderr).unwrap();

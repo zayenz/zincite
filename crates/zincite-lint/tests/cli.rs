@@ -34,7 +34,7 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     let list = run(&["--list-rules"], "not valid MiniZinc");
     assert!(list.status.success() && list.stderr.is_empty());
     let list = String::from_utf8(list.stdout).unwrap();
-    assert_eq!(list.lines().count(), 27);
+    assert_eq!(list.lines().count(), 28);
     assert!(list.contains("naming\tstyle\tavailable\tnone\tdefault"));
     assert!(list.contains("search-coverage\tmodelling\tavailable\tnone\tthesis"));
     assert!(list.contains("index-set-mismatch\tcorrectness\tavailable\tnone\topt-in"));
@@ -73,12 +73,24 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
 }
 
 #[test]
-fn model_configuration_keeps_syntax_defaults_independent_and_loads_semantic_inputs() {
+fn source_only_selection_stays_independent_and_semantic_selection_loads_inputs() {
     let source = "include \"missing_dependency.mzn\"; int: good_name = 1;";
     for arguments in [
-        vec![],
-        vec!["-I", "missing_first", "-I", "missing_second"],
-        vec!["--stdlib-dir", "missing_explicit_library"],
+        vec!["--rules", "naming,missing-constraint-label"],
+        vec![
+            "--rules",
+            "naming,missing-constraint-label",
+            "-I",
+            "missing_first",
+            "-I",
+            "missing_second",
+        ],
+        vec![
+            "--rules",
+            "naming,missing-constraint-label",
+            "--stdlib-dir",
+            "missing_explicit_library",
+        ],
     ] {
         let output = run_with_library(&arguments, source, Some("missing_environment_library"));
         assert_eq!(output.status.code(), Some(0));
@@ -129,7 +141,11 @@ fn cli_reports_located_advice_errors_and_processes_independent_files_without_wri
     ] {
         let output = run(&[], source);
         assert!(output.status.success());
-        assert!(output.stdout.is_empty() && output.stderr.is_empty());
+        assert!(
+            output.stdout.is_empty()
+                && String::from_utf8_lossy(&output.stderr)
+                    .contains("prefer-array-comprehension requires a ModelContext")
+        );
     }
     let data = run(&["--stdin-filepath", "data.dzn"], "BAD_TARGET=1;");
     assert!(data.status.success());
@@ -159,7 +175,10 @@ fn cli_reports_located_advice_errors_and_processes_independent_files_without_wri
             .unwrap()
             .contains("bytes 5..12: warning [naming]")
     );
-    let naming = run(&[], "% zincite-lint: ignore naming\nint: BadName = 1;");
+    let naming = run(
+        &["--rules", "naming,missing-constraint-label"],
+        "% zincite-lint: ignore naming\nint: BadName = 1;",
+    );
     assert!(naming.status.success());
     assert!(naming.stdout.is_empty() && naming.stderr.is_empty());
     let directory = std::env::temp_dir().join(format!("zincite-lint-{}", std::process::id()));
@@ -208,6 +227,8 @@ fn directory_inputs_include_hidden_ignored_files_and_continue_after_errors() {
     #[cfg(unix)]
     std::os::unix::fs::symlink(&root, nested.join("cycle")).unwrap();
     let arguments = [
+        "--rules",
+        "naming,missing-constraint-label",
         root.to_str().unwrap(),
         nested.to_str().unwrap(),
         hidden.to_str().unwrap(),
@@ -230,6 +251,8 @@ fn directory_inputs_include_hidden_ignored_files_and_continue_after_errors() {
     let missing = root.join("absent.mzn");
     let output = run(
         &[
+            "--rules",
+            "naming,missing-constraint-label",
             missing.to_str().unwrap(),
             root.to_str().unwrap(),
             invalid.to_str().unwrap(),
@@ -261,7 +284,10 @@ fn rule_selection_preserves_defaults_and_runs_available_catalogue_rules() {
     let source = "int: BadName = 1; constraint true;";
     let default = run(&[], source);
     assert_eq!(default.status.code(), Some(1));
-    for selection in ["default", "naming,missing-constraint-label"] {
+    for selection in [
+        "default",
+        "naming,missing-constraint-label,prefer-array-comprehension",
+    ] {
         let output = run(&["--rules", selection], source);
         assert_eq!(output.status.code(), Some(1));
         assert_eq!(output.stderr, default.stderr);
@@ -348,7 +374,18 @@ fn capture_selection_loads_model_roots_and_keeps_stdin_data_and_error_precedence
     );
     assert!(!stderr.contains("analysis limitation"));
     let capture_stderr = stderr.clone();
-    assert!(run(&[root.to_str().unwrap()], "").status.success());
+    assert!(
+        run(
+            &[
+                "--rules",
+                "naming,missing-constraint-label",
+                root.to_str().unwrap()
+            ],
+            ""
+        )
+        .status
+        .success()
+    );
     let failed = directory.join("failed.mzn");
     std::fs::write(&failed, "include \"missing.mzn\";").unwrap();
     let mut independent = arguments.to_vec();
@@ -1191,7 +1228,7 @@ fn personal_settings_inspect_effective_options_and_keep_cli_replacement_read_onl
     let output = run(&args, "invalid input");
     assert_eq!(output.status.code(), Some(0));
     let text = String::from_utf8(output.stdout).unwrap();
-    assert!(text.contains("Rules: missing-constraint-label,compact-if"));
+    assert!(text.contains("Rules: missing-constraint-label,prefer-array-comprehension,compact-if"));
     let names = text
         .lines()
         .find_map(|line| line.strip_prefix("suspicious-shadowing.ignore-names: "))
@@ -2200,7 +2237,7 @@ fn fix_modes_validate_all_explicit_paths_and_settings_before_analysis() {
     assert_eq!(settings.status.code(), Some(0));
     let text = String::from_utf8(settings.stdout).unwrap();
     assert!(text.contains("Rules: naming\n"));
-    assert!(text.contains("fixable: naming,missing-constraint-label\n"));
+    assert!(text.contains("fixable: naming,missing-constraint-label,prefer-array-comprehension\n"));
     assert!(text.contains("unfixable: naming\n"));
     let result = run(&["--fix", "--rules", "naming", a], "");
     assert_eq!(result.status.code(), Some(1));

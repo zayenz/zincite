@@ -752,13 +752,13 @@ would otherwise change them.
 
 ## Lint library
 
-Use the library independently with `zincite_lint::lint(&parsed)`. It returns
+Use `zincite_lint::lint(&parsed)` for the source-local default rules. It returns
 warnings with rule, severity, message and byte range, or owned syntax/suppression
 diagnostics without partial warnings. `LintOptions::from_selection` resolves
 presets and explicit IDs; `lint_with_options(&parsed, &options)` runs a selected
 set. `Rule::DEFAULT` and `Rule::THESIS` expose preset membership. The default
-selects naming and constraint labels; `thesis` selects fourteen rules and `all`
-selects all 26 implemented rules. Semantic selections require the explicit model
+selects naming, constraint labels and model-backed direct-comprehension advice;
+`thesis` selects fourteen rules and `all` selects all 27 implemented rules. Semantic selections require the explicit model
 API below; `lint_with_options` rejects them without that context.
 
 Explicit model analysis uses `load_model(root_path, &ModelOptions)` and

@@ -107,10 +107,15 @@ pub enum Rule {
     GlobalConstraintOpportunity,
     MissingInputPrecondition,
     SuspiciousDomain,
+    PreferArrayComprehension,
 }
 
 impl Rule {
-    pub const DEFAULT: [Self; 2] = [Self::Naming, Self::MissingConstraintLabel];
+    pub const DEFAULT: [Self; 3] = [
+        Self::Naming,
+        Self::MissingConstraintLabel,
+        Self::PreferArrayComprehension,
+    ];
     pub const THESIS: [Self; 14] = [
         Self::ArrayIndexStart,
         Self::CompactIf,
@@ -313,6 +318,13 @@ impl Rule {
                 "Lexical scopes and binding identities.",
                 "Parameters, let declarations and generators are checked against visible enclosing value bindings. Disjoint scopes, field labels, underscore-prefixed names and exact ignore-names exceptions stay quiet. Ambiguous outer bindings report a limitation; types and callable names are not value bindings. Findings identify both declarations; no renaming or fix is offered.",
             ),
+            Self::PreferArrayComprehension => (
+                "prefer-array-comprehension",
+                RuleFamily::Style,
+                "Prefer direct comprehensions that preserve the wrapper's index axes.",
+                "Standard source/signature callable identity, fixed set domains and independent ordered generator bindings.",
+                "Supports standard array1d/array2d/array3d wrappers with matching Cartesian membership generators. Plain 1D requires proven 1..n indices; other 1D and all multidimensional cases retain keys. Multidimensional axes must be proven nonempty. Filters, dependencies, unknown/shadowed calls and annotations stay unchanged. Removed wrapper comments withhold a fix; body and generator text are copied exactly.",
+            ),
             Self::SuspiciousDomain => (
                 "suspicious-domain",
                 RuleFamily::Suspicious,
@@ -341,9 +353,14 @@ impl Rule {
             purpose,
             requirements,
             limitations,
-            requires_model: !Self::DEFAULT.contains(&self),
+            requires_model: !matches!(self, Self::Naming | Self::MissingConstraintLabel),
             available: true,
-            fix_support: if matches!(self, Self::ElementPredicate | Self::UnusedGeneratorBinding) {
+            fix_support: if matches!(
+                self,
+                Self::ElementPredicate
+                    | Self::UnusedGeneratorBinding
+                    | Self::PreferArrayComprehension
+            ) {
                 FixSupport::Sometimes
             } else {
                 FixSupport::None
@@ -377,7 +394,7 @@ impl Rule {
     }
 }
 
-/// Selected rules. The default keeps Zincite's original two syntax rules.
+/// Selected rules. The default includes syntax rules and bounded model-backed style advice.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LintOptions {
     pub rules: Vec<Rule>,

@@ -260,3 +260,43 @@ fn query_subcommand_shares_semantic_context_stdin_and_status_contracts() {
     assert_eq!(syntax.stdout, b"3\n");
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn default_lint_previews_and_applies_direct_comprehensions() {
+    let dir =
+        std::env::temp_dir().join(format!("zincite-root-comprehension-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(dir.join("library/std/stdlib.mzn"), "function set of int: '..'(int:a,int:b); function array[int] of int: array1d(set of int:s,array[int] of int:a);").unwrap();
+    let source = "array[int] of int:values=array1d(1..3,[i | i in 1..3]); solve satisfy;\n";
+    let root = dir.join("root.mzn");
+    let library = dir.join("library");
+    std::fs::write(&root, source).unwrap();
+    let args = [
+        "lint",
+        "--isolated",
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+    ];
+    let preview = run(
+        &[args.as_slice(), &["--diff", root.to_str().unwrap()]].concat(),
+        "",
+    );
+    assert_eq!(preview.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&preview.stdout).contains("values=[i | i in 1..3]"));
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    let fixed = run(
+        &[args.as_slice(), &["--fix", root.to_str().unwrap()]].concat(),
+        "",
+    );
+    assert_eq!(
+        fixed.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&fixed.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&root).unwrap(),
+        source.replace("array1d(1..3,[i | i in 1..3])", "[i | i in 1..3]")
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
