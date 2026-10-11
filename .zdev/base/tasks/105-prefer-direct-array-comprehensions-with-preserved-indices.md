@@ -28,6 +28,8 @@ The user requested plain comprehensions when the default 1..n index set suffices
 - Use a plain comprehension only when existing facts prove a contiguous integer set starting at 1, including its empty case; otherwise preserve keys with the generator binding. Do not infer index identity from cardinality alone.
 - In 1D, use a plain comprehension only when existing facts prove a contiguous integer set starting at 1, including its empty case; otherwise preserve the generator key. In 2D/3D retain the complete ordered index tuple even for one-based axes, and require every axis to be proven nonempty; empty or possibly empty axes can lose other axes and stay unchanged. Never infer index identity from cardinality alone.
 
+- Preserve body evaluation, comments, source spelling and annotations. Withhold a fix when removed wrapper text contains comments or annotations that cannot be retained exactly. Formatting remains token preserving.
+
 ## Done when
 
 - [ ] The style rule prefer-array-comprehension is registered, documented and enabled in default/base lint selection; existing explicit selections and suppressions continue to work. Semantic requirements are independent of default membership; default invocation performs the bounded model-backed analysis, and standalone selection uses source/signature facts while mixed selections retain existing consumers.
