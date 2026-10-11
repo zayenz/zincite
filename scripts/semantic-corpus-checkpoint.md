@@ -8055,3 +8055,44 @@ No original V2 owner was replayed or closed. Its parameter-valued upper
 reflection and transitive sources remain separate obligations. Base-083 still
 needs the remaining support mappings and final stable thesis14/current-all28
 corpus accounting described above.
+
+### Base-083: integer reshape range-axis sources
+
+The public control replaces the first named axis in `array2d(Axis,Axis,flat)`
+with its written `1..n` initializer, retaining the same bare integer backing and
+symbolic parameter. Both calls select the same instantiated types. The named
+form admitted Unknown source safety; the range form failed at the bare-axis
+gate. Independent reproduction confirmed this ordinary source admission gap.
+
+`SourceInspector::set_axis_integer_reshape_arguments` now accepts a selected
+native present parameter integer range axis on its existing bare-backing branch.
+The range endpoints and result retain exact selected types and pass the existing
+`prefix_primitive` check. The reshape also passes that written-primitive check:
+a resolved standard `array2d` overload with a written `[|1 div 0|]` body was
+previously admitted as Unknown and is now refused. This is native admission,
+without interpreting the changed body or calculating its error. An inline
+comprehension still requires named top-level axes before the existing generator
+identity comparison; missing references cannot match each other. Exact reshape
+types, annotations and backing identity retain their checks. The existing source
+reader initializes every argument and returns Unknown cardinality, granting no
+extent, membership, complete definition, output or search-coverage proof.
+
+The grouped public regression
+`integer_reshape_range_axes_inspect_sources_without_shape_proof` checks named
+and range axes, range and backing source errors, written reshape and range
+bodies, and an inline range-axis comprehension. The bare positive forms retain
+Unknown source safety and matrix coverage, empty callable outputs and
+definitions, and Completed unbounded-variable, constant-variable and search
+analysis without findings or limitations. Source errors and changed bodies keep
+all three rules Limited. The inline comprehension retains direct Unsupported
+safety and Limited unbounded-variable and constant-variable analysis. Search
+still completes through its existing `rhs_safety` recheck and separate inline
+reshape reader, with coverage Unknown; this does not open the shared named-axis
+identity gate. `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings` and
+`cargo test --workspace` passed.
+
+No original A, D, E or V1 owner was replayed or closed. Their transitive sources,
+bodies and whole-owner checks remain separate obligations. Base-083 still needs
+the remaining support mappings and final stable thesis14/current-all28 corpus
+accounting described above.

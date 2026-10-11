@@ -1048,6 +1048,161 @@ predicate abort_value(bool: condition) = assert(condition, "literal actual", fal
 }
 
 #[test]
+fn integer_reshape_range_axes_inspect_sources_without_shape_proof() {
+    use zincite_lint::CallOutcome;
+
+    let source = concat!(
+        "int: n; set of int: Axis = 1..n;\n",
+        "array[int] of int: flat = [n];\n",
+        "array[Axis,Axis] of var int: matrix = array2d(Axis,Axis,flat);\n",
+        "solve satisfy;\n",
+    );
+    let primitive = "function array[$$E,$$F] of any $V: array2d(set of $$E: S1,set of $$F: S2,array[$U] of any $V: x);\n";
+    let library = format!("{CORE}{primitive}function int: 'div'(int: left,int: right);\n");
+    let written_reshape = library.replace(
+        primitive,
+        "function array[int,int] of int: array2d(set of int: rows,set of int: columns,array[int] of int: values) = [|1 div 0|];\n",
+    );
+    let written_range = library.replace(
+        "'..'(int: left,int: right);",
+        "'..'(int: left,int: right) = {1 div 0};",
+    );
+    let range = source.replace("array2d(Axis,Axis,flat)", "array2d(1..n,Axis,flat)");
+    for (name, source, library, reason) in [
+        ("named", source.to_owned(), library.as_str(), None),
+        (
+            "written-reshape",
+            source.to_owned(),
+            written_reshape.as_str(),
+            Some("arbitrary calls do not establish definition value safety"),
+        ),
+        ("range", range.clone(), library.as_str(), None),
+        (
+            "range-error",
+            range.replace("array2d(1..n,", "array2d(1..(1 div 0),"),
+            library.as_str(),
+            Some("division by zero"),
+        ),
+        (
+            "backing-error",
+            range.replace("flat = [n]", "flat = [1 div 0]"),
+            library.as_str(),
+            Some("division by zero"),
+        ),
+        (
+            "written-range",
+            range.clone(),
+            written_range.as_str(),
+            Some("arbitrary calls do not establish definition value safety"),
+        ),
+        (
+            "inline-range",
+            range.replace(
+                "array2d(1..n,Axis,flat)",
+                "array2d(1..n,Axis,[n | i in 1..n,j in Axis])",
+            ),
+            library.as_str(),
+            Some("arbitrary calls do not establish definition value safety"),
+        ),
+    ] {
+        let (dir, _) = model(
+            &format!("integer-reshape-axis-{name}"),
+            "solve satisfy;",
+            "",
+        );
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        std::fs::write(dir.join("library/std/stdlib.mzn"), library).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == 0)
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let instantiations = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions =
+            resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        let matrix = bindings
+            .declarations
+            .iter()
+            .find(|declaration| declaration.name == "matrix")
+            .unwrap()
+            .id;
+        let safety = &definitions
+            .definitions
+            .iter()
+            .find(|definition| definition.target == matrix)
+            .unwrap()
+            .safety;
+        let callable =
+            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+        assert!(
+            callable.outputs.is_empty() && callable.definitions.is_empty(),
+            "{name}: {callable:?}"
+        );
+        let search = resolve_search_coverage(
+            &context,
+            &bindings,
+            &calls,
+            &instantiations,
+            &domains,
+            &definitions,
+        );
+        assert_eq!(
+            search.declarations[matrix.0].coverage,
+            SearchCoverage::Unknown,
+            "{name}"
+        );
+        if let Some(reason) = reason {
+            assert!(
+                matches!(safety, DefinitionSafety::Unsupported(actual) if actual.contains(reason)),
+                "{name}: {safety:?}"
+            );
+        } else {
+            assert!(
+                matches!(safety, DefinitionSafety::Unknown(_)),
+                "{name}: {safety:?}"
+            );
+        }
+        for rule in ["unbounded-variable", "constant-variable", "search-coverage"] {
+            let result = analyze_model(&context, &LintOptions::from_selection(rule).unwrap());
+            assert!(result.errors.is_empty(), "{name}/{rule}: {result:?}");
+            if reason.is_some() && !(name == "inline-range" && rule == "search-coverage") {
+                assert!(
+                    matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                    "{name}/{rule}: {result:?}"
+                );
+                assert!(!result.limitations.is_empty(), "{name}/{rule}: {result:?}");
+            } else {
+                assert_eq!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Completed,
+                    "{name}/{rule}: {result:?}"
+                );
+                assert!(
+                    result.findings.is_empty() && result.limitations.is_empty(),
+                    "{name}/{rule}: {result:?}"
+                );
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
 fn parameter_set_reshape_conditionals_remain_unknown_without_outputs() {
     use zincite_lint::{
         BindingResolution, CallOutcome, DeclarationRole, Domain, Instantiation, SourceKind,

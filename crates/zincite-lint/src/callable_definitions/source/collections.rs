@@ -784,11 +784,7 @@ impl<'a> SourceInspector<'a> {
                 })
         };
         let inline = unwrap(values);
-        if arguments[..2]
-            .iter()
-            .any(|argument| unsupported_bare_value(argument))
-            || unsupported_bare_value(values) && inline.kind() != NodeKind::ArrayComprehension
-        {
+        if unsupported_bare_value(values) && inline.kind() != NodeKind::ArrayComprehension {
             return None;
         }
         let facts = self.view(file, node, view);
@@ -815,9 +811,27 @@ impl<'a> SourceInspector<'a> {
             || !self.operation_fact(facts, file, node).is_some_and(|call| {
                 matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
                     if parameters.len() == 3 && parameters.iter().zip(actual).all(|(formal, actual)| formal == actual)
-                        && return_type == result)
+                        && return_type == result
+                        && self.prefix_primitive(file, node, facts, "array2d", parameters, return_type))
             })
         {
+            return None;
+        }
+        if arguments[..2].iter().any(|argument| {
+            if !unsupported_bare_value(argument) {
+                return false;
+            }
+            let axis = unwrap(argument);
+            let axis_facts = self.view(file, axis, view);
+            inline.kind() == NodeKind::ArrayComprehension
+                || axis.kind() != NodeKind::RangeExpression
+                || !self.operation_fact(axis_facts, file, axis).is_some_and(|call| {
+                    matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                        if parameters.as_slice() == [TypeInst::par(TypeKind::Int), TypeInst::par(TypeKind::Int)]
+                            && Some(return_type) == typed(argument)
+                            && self.prefix_primitive(file, axis, axis_facts, "..", parameters, return_type))
+                })
+        }) {
             return None;
         }
         if inline.kind() == NodeKind::ArrayComprehension {
