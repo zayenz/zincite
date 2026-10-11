@@ -540,6 +540,123 @@ fn parameter_set_local_alias_keeps_inspected_source_unknown() {
 }
 
 #[test]
+fn local_integer_concatenation_inspects_conditional_sources_without_outputs() {
+    use zincite_lint::CallOutcome;
+
+    let direct = concat!(
+        "int: n; array[1..n] of var 0..10: left; array[1..n] of var 0..10: right;\n",
+        "bool: enabled;\n",
+        "constraint if enabled then let { int: count = length(left ++ right); } in true else true endif;\n",
+        "solve :: int_search(left ++ right, input_order, indomain_min, complete) satisfy;\n",
+    );
+    let local = direct
+        .replace(
+            "let { int: count",
+            "let { array[int] of var int: joined = left ++ right; int: count",
+        )
+        .replace("length(left ++ right)", "length(joined)");
+    let library = format!(
+        "{CORE}{}",
+        concat!(
+            "function int: length(array[$X] of any $V: xs);\n",
+            "function int: 'div'(int: x,int: y); function int: card(set of int: xs);\n",
+            "function bool: '>'(int: x,int: y);\n",
+        )
+    );
+    for (name, source, refused, inspected, completed) in [
+        ("direct", direct.to_owned(), false, false, true),
+        ("local", local.clone(), false, true, true),
+        (
+            "unknown-guard",
+            local.replace(
+                "bool: enabled;",
+                "set of int: Input; bool: enabled = card(Input)>0;",
+            ),
+            false,
+            true,
+            true,
+        ),
+        (
+            "failed-local-guard",
+            local.replace("bool: enabled;", "bool: enabled = 1 div 0 = 0;"),
+            true,
+            false,
+            false,
+        ),
+        (
+            "failed-direct-guard",
+            direct.replace("bool: enabled;", "bool: enabled = 1 div 0 = 0;"),
+            true,
+            false,
+            true,
+        ),
+    ] {
+        let (dir, _) = model(
+            &format!("local-concat-conditional-{name}"),
+            "solve satisfy;",
+            "",
+        );
+        std::fs::write(dir.join("root.mzn"), source).unwrap();
+        std::fs::write(dir.join("library/std/stdlib.mzn"), &library).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == 0)
+                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+            "{name}"
+        );
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        let result = analyze_model(&context, &selected());
+        assert!(
+            callable.outputs.is_empty() && callable.definitions.is_empty(),
+            "{name}"
+        );
+        assert!(
+            result.findings.is_empty() && result.errors.is_empty(),
+            "{name}"
+        );
+        assert_eq!(callable.inspected_locals.is_empty(), !inspected, "{name}");
+        if refused {
+            assert!(
+                callable
+                    .unavailable
+                    .iter()
+                    .any(|failure| failure.reason == "integer division by zero"),
+                "{name}"
+            );
+        } else {
+            assert!(callable.unavailable.is_empty(), "{name}: {callable:?}");
+        }
+        if completed {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {result:?}"
+            );
+        } else {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {result:?}"
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
 fn local_integer_concatenation_inspects_sources_without_outputs() {
     use zincite_lint::{CallOutcome, DeclarationRole};
 

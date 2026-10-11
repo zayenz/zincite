@@ -8454,3 +8454,28 @@ checks the successful scalar/array caller context and retains initializer-error
 and failed-sibling refusals. The inspected marker stays Unknown, with no callable
 output, definition or searched seed. Decision, multidimensional and optional
 arrays remain outside this correction; no callee body family is added.
+
+### Conditional concatenation source increment
+
+After the caller-array commit `8584fdd`, a public parameter-conditional control
+is Completed when `length` reads a direct concatenation, but Limited when the
+same concatenation is first assigned to a scoped decision-array local. The
+existing source reader used an unconditional-output scope check. The correction
+checks the actual local's lexical ownership in its User constraint instead; the
+shared output-enforcement scope check remains unchanged. Inspected locals supply
+no callable output, definition, extent, membership or totality proof.
+
+Ordinary conditional guards now reuse the existing initialized-source check
+before branches contribute facts. A referenced parameter guard containing
+division by zero stays visibly unsupported and withholds branch locals. A
+symbolic parameter guard remains Unknown. An independently searched top-level
+array can still complete search coverage when it needs no refused local proof.
+The public regression checks these distinct outcomes; existing source, header,
+annotation and failed-sibling controls remain relevant.
+
+Current MiniZinc 2.10.1 accepts the positive control in source checking and Gecode
+compile-only mode; no solver runs. The Boolean division-zero control also
+compiles, with a warning that the undefined result becomes false. It is retained
+as a relational-partiality control, not classified as invalid input or a
+semantic exclusion. Original owner outcomes after this correction remain
+unobserved, and all five whole-task conditions remain unchecked.

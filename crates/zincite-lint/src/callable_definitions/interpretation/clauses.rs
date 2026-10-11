@@ -305,22 +305,20 @@ impl<'a> BodyInterpreter<'a, '_> {
                     );
                     return;
                 }
-                let checked_guard = invocation.as_ref().map(|_| {
-                    self.initialized_source_safety(
-                        clause.file,
-                        nodes[0],
-                        view,
-                        &clause.generators,
-                        &mut Vec::new(),
-                    )
-                });
-                if let Some(DefinitionSafety::Unsupported(reason)) = &checked_guard {
+                let checked_guard = self.initialized_source_safety(
+                    clause.file,
+                    nodes[0],
+                    view,
+                    &clause.generators,
+                    &mut Vec::new(),
+                );
+                if let DefinitionSafety::Unsupported(reason) = &checked_guard {
                     self.unavailable(clause, reason, unavailable);
                     return;
                 }
                 match self.dependencies(clause.file, nodes[0], view, &clause.generators) {
                     Ok(ids) => extend(&mut guards, ids),
-                    Err(_) if matches!(checked_guard, Some(DefinitionSafety::Unknown(_))) => {}
+                    Err(_) if matches!(checked_guard, DefinitionSafety::Unknown(_)) => {}
                     Err(reason) => {
                         self.unavailable(clause, &reason, unavailable);
                         return;
@@ -637,9 +635,16 @@ impl<'a> BodyInterpreter<'a, '_> {
                             self.unavailable(clause, "local concatenation selected written primitive is unsupported", unavailable);
                             return;
                         }
-                        if !self
-                            .source
-                            .scoped_local(clause, declaration.id, view, ty.kind.clone())
+                        // Source inspection needs lexical ownership, not unconditional enforcement.
+                        if declaration.item != clause.item
+                            || self.source.context.files[clause.file].kind != SourceKind::User
+                            || clause.node.kind() != NodeKind::LetExpression
+                            || self.source.context.files[clause.file]
+                                .parsed
+                                .tree()
+                                .child_nodes()
+                                .nth(clause.item)
+                                .is_none_or(|owner| owner.kind() != NodeKind::Constraint)
                             || !self
                                 .source
                                 .source_annotations_safe(clause.file, initializer)
