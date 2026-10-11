@@ -446,6 +446,13 @@ fn local_integer_concatenation_inspects_sources_without_outputs() {
             "constraint let { array[int] of var int: joined = left ++ right;",
         )
         .replace("length(left ++ right)", "length(joined)");
+    let comprehension = alias
+        .replace("int: n;", "int: n; set of int: Input = 1..n;")
+        .replace("left ++ right;", "left ++ [right[i] | i in Input];");
+    let standalone = comprehension.replace(
+        "array[int] of var int: joined = left ++ [right[i] | i in Input]",
+        "array[Input] of var int: joined = [right[i] | i in Input]",
+    );
     let library = format!(
         "{CORE}{}",
         concat!(
@@ -462,6 +469,47 @@ fn local_integer_concatenation_inspects_sources_without_outputs() {
         ("direct", direct.to_owned(), library.as_str(), None),
         ("local", alias.clone(), library.as_str(), None),
         (
+            "standalone-comprehension",
+            standalone,
+            library.as_str(),
+            None,
+        ),
+        (
+            "composed-comprehension",
+            comprehension.clone(),
+            library.as_str(),
+            None,
+        ),
+        (
+            "first-comprehension",
+            comprehension.replace(
+                "left ++ [right[i] | i in Input]",
+                "[right[i] | i in Input] ++ left",
+            ),
+            library.as_str(),
+            None,
+        ),
+        (
+            "comprehension-header-error",
+            comprehension.replace("Input = 1..n", "Input = 1..(1 div 0)"),
+            library.as_str(),
+            Some("integer division by zero"),
+        ),
+        (
+            "comprehension-body-error",
+            comprehension.replace("[right[i] |", "[right[i] + (1 div 0) |"),
+            library.as_str(),
+            Some("integer division by zero"),
+        ),
+        (
+            "unsupported-operand-shape",
+            comprehension.replace("[right[i] | i in Input]", "[right[1]]"),
+            library.as_str(),
+            Some(
+                "local concatenation requires bare top-level arrays or checked integer comprehensions",
+            ),
+        ),
+        (
             "source-error",
             alias.replace("int: n;", "int: n = 1 div 0;"),
             library.as_str(),
@@ -469,7 +517,7 @@ fn local_integer_concatenation_inspects_sources_without_outputs() {
         ),
         (
             "written-concat",
-            alias.clone(),
+            comprehension.clone(),
             changed.as_str(),
             Some("selected written primitive"),
         ),
@@ -484,7 +532,7 @@ fn local_integer_concatenation_inspects_sources_without_outputs() {
         ),
         (
             "failed-sibling",
-            alias.replace("marker <-> gate;", "(marker <-> gate) /\\ (1 div 0 = 0);"),
+            comprehension.replace("marker <-> gate;", "(marker <-> gate) /\\ (1 div 0 = 0);"),
             library.as_str(),
             Some("integer division by zero"),
         ),
@@ -556,6 +604,22 @@ fn local_integer_concatenation_inspects_sources_without_outputs() {
             );
         } else {
             assert!(callable.unavailable.is_empty(), "{name}: {callable:?}");
+            if name != "direct" {
+                let joined = bindings
+                    .declarations
+                    .iter()
+                    .find(|declaration| {
+                        declaration.file == 0
+                            && declaration.role == DeclarationRole::Local
+                            && declaration.name == "joined"
+                    })
+                    .unwrap()
+                    .id;
+                assert!(
+                    callable.inspected_locals.contains(&joined),
+                    "{name}: {callable:?}"
+                );
+            }
             assert!(
                 callable.inspected_locals.contains(&marker),
                 "{name}: {callable:?}"

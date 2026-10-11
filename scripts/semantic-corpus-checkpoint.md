@@ -8215,3 +8215,39 @@ Compiler inputs and outputs remain private.
 No original G owner was replayed or closed. Its transitive sources and complete
 owner disposition remain separate obligations, along with the remaining support
 mappings and final stable thesis14/current-all28 corpus accounting.
+
+### Base-083: Local integer concat with an inspected comprehension
+
+The public differential admits `[right[i] | i in Input]` as a standalone Local
+initializer, but the same source in `left ++ [right[i] | i in Input]` failed the
+bare-array operand gate. Both forms retain present rank-one integer array types
+and a resolved native concat tuple. The regression reproduced that refusal
+before repair.
+
+The existing Local concat branch now checks each operand as either an eligible
+bare top-level array or an integer comprehension through
+`integer_comprehension_safety`, retaining the ambient generators. Native tuple
+and written-body checks, the unbounded Local axis, scope, annotations and type
+dependencies remain required. Bare sources retain initialized-source inspection;
+comprehensions retain their existing binder, header, body and source-error checks.
+Every Unsupported operand or failed sibling vetoes publication. Successful
+inspection stays uncertain and supplies no extent, cardinality, membership,
+value, totality, output, definition, dependency or coverage proof.
+
+The existing concat group retains direct and bare Local positives and adds the
+standalone comprehension and its use in either concat position. Local positives
+inspect `joined` and `marker`, keep outputs and definitions empty, and complete
+search without findings or limitations. Header/body division errors, an
+unsupported literal operand, a changed native concat body, an incompatible Local
+axis and a failed sibling withhold inspected Locals and remain Limited. The
+direct marker's existing independent scalar definition remains unchanged.
+`cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo test --workspace`, `zdev check base --format json` and
+`git diff --check` passed.
+MiniZinc 2.10.1 compiled the positive with `n = 2` to Gecode FlatZinc without
+solving, with empty diagnostics. Compiler inputs and outputs remain private.
+
+No original F owner was replayed or closed. Its transitive sources and complete
+owner disposition remain separate obligations, along with the remaining support
+mappings and final stable thesis14/current-all28 corpus accounting.

@@ -643,15 +643,12 @@ impl<'a> BodyInterpreter<'a, '_> {
                             || !self
                                 .source
                                 .source_annotations_safe(clause.file, initializer)
-                            || arguments.iter().any(|argument| {
-                                let argument = unwrap(argument);
-                                argument.kind() != NodeKind::Expression
-                                    || self.source.reference(clause.file, argument).is_none_or(
-                                        |id| !self.source.bindings.declarations[id.0].top_level,
-                                    )
-                            })
                         {
-                            self.unavailable(clause, "local concatenation requires checked scope and bare top-level array sources", unavailable);
+                            self.unavailable(
+                                clause,
+                                "local concatenation scope or annotations are unsupported",
+                                unavailable,
+                            );
                             return;
                         }
                         if let Err(reason) =
@@ -660,16 +657,33 @@ impl<'a> BodyInterpreter<'a, '_> {
                             self.unavailable(clause, &reason, unavailable);
                             return;
                         }
-                        if let DefinitionSafety::Unsupported(reason) = self
-                            .initialized_children_safety(
-                                clause.file,
-                                &arguments,
-                                view,
-                                &clause.generators,
-                            )
-                        {
-                            self.unavailable(clause, &reason, unavailable);
-                            return;
+                        for argument in arguments {
+                            let argument = unwrap(argument);
+                            let safety = match argument.kind() {
+                                NodeKind::ArrayComprehension => self.integer_comprehension_safety(
+                                    clause.file,
+                                    argument,
+                                    view,
+                                    &clause.generators,
+                                ),
+                                NodeKind::Expression
+                                    if self.source.reference(clause.file, argument).is_some_and(
+                                        |id| self.source.bindings.declarations[id.0].top_level,
+                                    ) => self.initialized_source_safety(
+                                        clause.file,
+                                        argument,
+                                        view,
+                                        &clause.generators,
+                                        &mut Vec::new(),
+                                    ),
+                                _ => DefinitionSafety::Unsupported(
+                                    "local concatenation requires bare top-level arrays or checked integer comprehensions".into(),
+                                ),
+                            };
+                            if let DefinitionSafety::Unsupported(reason) = safety {
+                                self.unavailable(clause, &reason, unavailable);
+                                return;
+                            }
                         }
                         // Inspected sources do not prove this Local's extent or outputs.
                         uncertain_initialization = true;
