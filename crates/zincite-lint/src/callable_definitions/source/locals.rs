@@ -203,20 +203,20 @@ impl<'a> BodyInterpreter<'a, '_> {
                         .filter(|part| part.kind() != NodeKind::Annotation)
                         .collect();
                     let [written_type, initializer] = parts.as_slice() else {
-                        return Err(
-                            "user integer caller requires initialized parameter locals".into()
-                        );
+                        return Err("user integer caller requires initialized locals".into());
                     };
                     if entry.kind() != NodeKind::Declaration
                         || !ty.known()
                         || optional(ty)
-                        || ty.instantiation != Instantiation::Parameter
-                        || !(ty.kind == TypeKind::Int
-                            || matches!(&ty.kind, TypeKind::Set(element)
-                            if **element == TypeInst::par(TypeKind::Int))
-                            || matches!(&ty.kind, TypeKind::Array { indices, element }
-                            if indices.as_slice() == [TypeInst::par(TypeKind::Int)]
-                                && **element == TypeInst::par(TypeKind::Int)))
+                        || !(ty.instantiation == Instantiation::Parameter
+                            && (ty.kind == TypeKind::Int
+                                || matches!(&ty.kind, TypeKind::Set(element)
+                                if **element == TypeInst::par(TypeKind::Int))
+                                || matches!(&ty.kind, TypeKind::Array { indices, element }
+                                if indices.as_slice() == [TypeInst::par(TypeKind::Int)]
+                                    && **element == TypeInst::par(TypeKind::Int)))
+                            || ty.instantiation == Instantiation::Decision
+                                && ty.kind == TypeKind::Int)
                         || !matches!(
                             written_type.kind(),
                             NodeKind::ScalarType | NodeKind::SetType | NodeKind::ArrayType

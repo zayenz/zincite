@@ -290,6 +290,173 @@ fn finite_integer_tests_inspect_invoked_sources_without_truth_or_outputs() {
 }
 
 #[test]
+fn finite_integer_tests_inspect_earlier_decision_integer_sources() {
+    use zincite_lint::{CallOutcome, DeclarationRole, Instantiation, TypeInst, TypeKind};
+
+    let source = concat!(
+        "test within_limit(var int: value) = ub(value)<10;\n",
+        "array[1..2] of var 0..9: inputs; var bool: gate;\n",
+        "array[int] of int: flat = [1,2,3,4,5,6,7,8];\n",
+        "array[int,int,int] of int: matrix = array3d(1..2,1..2,1..2,flat);\n",
+        "constraint forall(i in 1..2) (let {\n",
+        "  var int: prior = matrix[i,inputs[i],i];\n",
+        "  int: count = if within_limit(inputs[i]) then 1 else 0 endif;\n",
+        "  var bool: marker;\n",
+        "} in marker <-> gate);\n",
+        "solve :: seq_search([int_search(inputs,input_order,indomain_min,complete),\n",
+        "  bool_search([gate],input_order,indomain_min,complete)]) satisfy;\n",
+    );
+    let library = format!(
+        "{CORE}{}",
+        concat!(
+            "function int: ub(var int: value); function bool: '<'(int: left,int: right);\n",
+            "function int: 'div'(int: left,int: right); function int: '+'(int: left,int: right);\n",
+            "function array[int,int,int] of int: array3d(set of int: a,set of int: b,\n",
+            "  set of int: c,array[int] of int: values);\n",
+            "function var bool: '<->'(var bool: left,var bool: right);\n",
+        )
+    );
+    for (name, source, invokes_test, fails) in [
+        ("invoked", source.to_owned(), true, false),
+        (
+            "without-test",
+            source.replace("if within_limit(inputs[i]) then 1 else 0 endif", "0"),
+            false,
+            false,
+        ),
+        (
+            "source-error",
+            source.replace("matrix[i,", "matrix[i+(1 div 0),"),
+            true,
+            true,
+        ),
+    ] {
+        let (dir, _) = model(
+            &format!("finite-integer-decision-caller-{name}"),
+            &source,
+            "",
+        );
+        std::fs::write(dir.join("library/std/stdlib.mzn"), &library).unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(context.errors.is_empty() && context.limitations.is_empty());
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == 0)
+                .all(|call| { matches!(call.outcome, CallOutcome::Resolved { .. }) }),
+            "{name}: {:?}",
+            calls.calls
+        );
+        let named = |name: &str| {
+            bindings
+                .declarations
+                .iter()
+                .find(|d| d.file == 0 && d.name == name)
+                .unwrap()
+                .id
+        };
+        let prior = named("prior");
+        let marker = named("marker");
+        let decision_int = TypeInst {
+            instantiation: Instantiation::Decision,
+            optional: false,
+            kind: TypeKind::Int,
+        };
+        assert_eq!(bindings.declarations[prior.0].role, DeclarationRole::Local);
+        assert_eq!(calls.declarations[prior.0].ty, decision_int);
+        let invoked = calls
+            .calls
+            .iter()
+            .find(|call| call.file == 0 && call.name == "within_limit");
+        assert_eq!(invoked.is_some(), invokes_test);
+        if let Some(call) = invoked {
+            assert!(matches!(&call.outcome,
+            CallOutcome::Resolved { declaration, parameters, return_type }
+                if *declaration == named("within_limit")
+                    && parameters.as_slice() == [decision_int]
+                    && *return_type == TypeInst {
+                        instantiation: Instantiation::Parameter,
+                        optional: false,
+                        kind: TypeKind::Bool,
+                    }));
+        }
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+        let search =
+            resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
+        assert!(callable.outputs.is_empty() && callable.definitions.is_empty());
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        for local in [prior, marker] {
+            assert_eq!(
+                search.declarations[local.0].coverage,
+                SearchCoverage::Unknown
+            );
+        }
+        assert_eq!(
+            search
+                .searched
+                .iter()
+                .map(|v| v.declaration)
+                .collect::<Vec<_>>(),
+            [Some(named("inputs")), Some(named("gate"))]
+        );
+        assert!(
+            matches!(&definitions.definitions.iter().find(|d| d.target == prior).unwrap().safety,
+            DefinitionSafety::Unsupported(reason) if reason.contains("index-membership proof"))
+        );
+        assert!(matches!(
+            definitions
+                .definitions
+                .iter()
+                .find(|d| d.target == named("matrix"))
+                .unwrap()
+                .safety,
+            DefinitionSafety::Unknown(_)
+        ));
+        for rule in ["search-coverage", "unbounded-variable"] {
+            let analysis = analyze_model(&context, &LintOptions::from_selection(rule).unwrap());
+            assert!(analysis.errors.is_empty() && analysis.findings.is_empty());
+            if fails {
+                assert!(callable.inspected_locals.is_empty(), "{name}: {callable:?}");
+                assert!(matches!(
+                    analysis.rules[0].outcome,
+                    RuleOutcome::Limited { .. }
+                ));
+                if rule == "search-coverage" {
+                    assert!(
+                        analysis
+                            .limitations
+                            .iter()
+                            .any(|l| l.message.contains("integer division by zero")),
+                        "{name}: {analysis:?}"
+                    );
+                }
+            } else {
+                assert_eq!(callable.inspected_locals, [prior, marker]);
+                assert_eq!(
+                    analysis.rules[0].outcome,
+                    RuleOutcome::Completed,
+                    "{name}: {analysis:?}"
+                );
+                assert!(analysis.limitations.is_empty());
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
 fn finite_integer_tests_inspect_earlier_parameter_array_sources() {
     use zincite_lint::{CallOutcome, DeclarationRole};
 

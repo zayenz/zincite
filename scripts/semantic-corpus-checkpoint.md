@@ -8533,3 +8533,24 @@ optional and nominal mismatch controls remain relevant. Current MiniZinc source
 checking and Gecode compile-only accept the positive set control without a
 solver run. Original E outcomes after the correction remain unobserved, and all
 five whole-task conditions remain unchecked.
+
+### Initialized decision-integer caller source increment
+
+After `5e1f309`, a public native parameter `array3d` cell source is inspected
+without a Test call, but the same initialized decision-integer local is refused
+when it precedes an existing finite Test. The caller guard required every earlier
+local to be a parameter. The correction also permits initialized present
+decision Int locals; existing parameter families and all written-type, identity,
+order, annotation, source-error and generator checks remain.
+
+The three public cases retain the no-Test reference and a closed division-zero
+source refusal. Successful inspection leaves both locals' search coverage
+Unknown, preserves searched seeds and creates no callable outputs or
+definitions. The native cell's raw membership-dependent definition remains
+unsupported. Private optional, forward-reference, failed-sibling, annotation,
+uninitialized, decision-array and computed User-array refusals remain relevant.
+Current MiniZinc source/instance checks and Gecode compile-only accept the
+positive controls without solving. Conditional selectors and the original
+mixed-comparator/computed-array siblings are separate obligations. Original B/C
+outcomes after this correction remain unobserved; all five whole-task
+conditions remain unchecked.
