@@ -26,7 +26,9 @@
 //! original inspection. Source inspection supplies no value, nonemptiness,
 //! membership, output or search-coverage proof. Lookup indexes retain original-row
 //! selection and physical ranges; substituted callable views use the linear fallback.
-//! No source checker rebuilds indexes or caches semantic results.
+//! No source checker rebuilds indexes or retains semantic caches. A completed
+//! reference walk lends its exact canonical contributions only to its current
+//! direct dispatch; physical reference and callable-view identity gate reuse.
 use std::collections::HashMap;
 
 use crate::callables::{

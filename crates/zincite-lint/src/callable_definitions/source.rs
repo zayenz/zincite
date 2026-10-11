@@ -1,4 +1,5 @@
 //! Retained source facts and checked inspection; body-aware coordination uses the interpreter.
+use super::interpretation::CheckedSourceGraph;
 use super::*;
 mod arithmetic;
 mod collections;
@@ -548,6 +549,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         active: &mut Vec<DeclarationId>,
     ) -> DefinitionSafety {
         let mut safety = DefinitionSafety::Supported;
+        let mut contributions = Vec::new();
         let mut nodes = vec![node];
         while let Some(current) = nodes.pop() {
             if !self.source.source_annotations_safe(file, current) {
@@ -626,6 +628,30 @@ impl<'a> BodyInterpreter<'a, '_> {
                     "initialized source type or optionality is unsupported".into(),
                 );
             }
+            if !local_boolean
+                && let Some(graph) = &self.checked_source_graph
+                && graph.file == file
+                && std::ptr::eq(graph.view, view)
+                && graph.node.range().start <= current.range().start
+                && current.range().end <= graph.node.range().end
+                && let Some((_, contribution)) = graph
+                    .contributions
+                    .binary_search_by_key(&std::ptr::from_ref(current), |(reference, _)| {
+                        std::ptr::from_ref(*reference)
+                    })
+                    .ok()
+                    .map(|position| &graph.contributions[position])
+            {
+                // Preserve this physical reference's exact canonical contribution.
+                // Local scopes, new source trees and substituted views inspect fully.
+                match contribution {
+                    unsupported @ DefinitionSafety::Unsupported(_) => return unsupported.clone(),
+                    unknown @ DefinitionSafety::Unknown(_) => safety = unknown.clone(),
+                    DefinitionSafety::Supported => {}
+                }
+                contributions.push((current, contribution.clone()));
+                continue;
+            }
             let Some(written) = find_node(
                 self.source.context.files[declaration.file].parsed.tree(),
                 &declaration.syntax_range,
@@ -635,6 +661,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                     "initialized source declaration unavailable".into(),
                 );
             };
+            let mut contribution = DefinitionSafety::Supported;
             if local_boolean {
                 let initializers: Vec<_> = written
                     .child_nodes()
@@ -663,6 +690,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                     "scoped Boolean array values and extent are unproved".into(),
                 );
             }
+
             active.push(id);
             let mut expressions: Vec<_> = written
                 .child_nodes()
@@ -724,8 +752,9 @@ impl<'a> BodyInterpreter<'a, '_> {
                             unsupported = Some("anonymous enum count is negative".into());
                         }
                         expressions.push(count);
-                        safety =
+                        contribution =
                             DefinitionSafety::Unknown("enum constructor extent is unproved".into());
+                        safety = contribution.clone();
                     } else {
                         parts.extend(part.child_nodes());
                     }
@@ -762,7 +791,10 @@ impl<'a> BodyInterpreter<'a, '_> {
                     active,
                 ) {
                     DefinitionSafety::Unsupported(reason) => unsupported = Some(reason),
-                    unknown @ DefinitionSafety::Unknown(_) => safety = unknown,
+                    unknown @ DefinitionSafety::Unknown(_) => {
+                        contribution = unknown.clone();
+                        safety = unknown;
+                    }
                     DefinitionSafety::Supported => {}
                 }
             }
@@ -770,9 +802,25 @@ impl<'a> BodyInterpreter<'a, '_> {
             if let Some(reason) = unsupported {
                 return DefinitionSafety::Unsupported(reason);
             }
+            if !local_boolean {
+                contributions.push((current, contribution));
+            }
         }
         // Check the reference graph first: aggregate inspection can recursively
         // visit a source, so its written cycle must already have been rejected.
+        // This table is lookup-only; the source walk above retains its reduction order.
+        contributions.sort_unstable_by_key(|(reference, _)| std::ptr::from_ref(*reference));
+        let inspected = BodyInterpreter {
+            source: self.source,
+            instances: self.instances,
+            boundaries: self.boundaries,
+            checked_source_graph: Some(CheckedSourceGraph {
+                file,
+                node,
+                view,
+                contributions: &contributions,
+            }),
+        };
         let selected = unwrap(node);
         let strict_set = self
             .source
@@ -783,7 +831,8 @@ impl<'a> BodyInterpreter<'a, '_> {
                 || selected.kind() == NodeKind::BinaryExpression
                     && self.source.core(file, selected, view, "intersect"));
         let checked = if strict_set {
-            self.decision_set_source_safety(file, node, view, generators, active)
+            inspected
+                .decision_set_source_safety(file, node, view, generators, active)
                 .unwrap_or_else(|| {
                     DefinitionSafety::Unsupported("decision set source type is unsupported".into())
                 })
@@ -798,7 +847,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                 unwrap(node),
             )
         } else {
-            self.direct_safety(file, node, view, generators)
+            inspected.direct_safety(file, node, view, generators)
         };
         match checked {
             DefinitionSafety::Supported => safety,

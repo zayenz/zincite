@@ -8320,3 +8320,83 @@ invalid, unavailable, resource-cutoff and Unobserved accounting. Historical
 suppression, shared-include and save/batch contracts on final source. All five
 whole-task done conditions remain unchecked. This documentation increment ran
 no original capture, corpus sweep, inventory, compiler or Rust validation.
+
+### Base-083: repeated initialized source traversal
+
+The private Connect stack sample and admitted depth-three/depth-six controls
+confirmed repeated canonical declaration inspection: the completed reference
+walk followed initializers, then nested direct inspection followed them again.
+The first skip-only prototype was rejected because a nested Unknown could become
+Supported even when the outer result stayed Unknown. The adopted change carries
+each physical reference's exact Supported/Unknown contribution instead.
+
+`initialized_source_safety` still checks the reference graph before aggregate
+recursion. Annotation, declaration, active-cycle and canonical type checks run
+before reuse. A successful canonical Value/Enum reference records its own
+initializer/domain contribution, including enum-extent Unknown. Failed walks
+return before direct dispatch. Local sources keep full scope-aware inspection.
+Only the current direct dispatch borrows the completed contributions; reuse
+requires the same file, enclosing physical range, exact syntax-node pointer and
+exact callable-view pointer. Recreated or substituted views inspect fully.
+Contributions fold at the same reference in the original order, preserving
+Unknown and refusal reasons. The pointer-sorted transient vector changes lookup
+only and is dropped when the current dispatch returns. No value, nonempty,
+membership, totality, dependency, output or coverage proof changes.
+
+All seventeen private controls retain identical ordered records, including
+layered and scoped sources, errors, annotations, cycles, reversed source order
+and fan-out. Twenty existing finite Test substitution/rule records also match.
+Depth-three/depth-six callable expansions fall
+from 148/1268 to 38/68; repeated `pools` expansions fall from 16/128 to 2/2.
+Analysis expansions fall from 203/1868 to 68/173. The admitted eight/sixteen-source
+fan-out control exposed 320/1152 linear lookup comparisons. Binary lookup uses
+224/512, retaining 38/70 expansions and the original safety reduction order.
+Counting switches, instrumentation and expanded private fixtures are excluded
+from the adopted patch; existing public suites supply the permanent checks.
+
+The unchanged `profile-phases` harness compared the original source with the
+clean prototype on the two admitted controls. Root analysis, empty diagnostics,
+Completed search outcome, root/drop/complete order and final status match.
+
+| Depth | Analyze allocation calls, before → after | Requested bytes, before → after | Analyze milliseconds, before → after |
+| --- | --- | --- | --- |
+| 3 | 7,317 → 5,773 | 491,811 → 450,494 | 4.570 → 5.374 |
+| 6 | 31,102 → 8,612 | 1,336,875 → 612,914 | 21.134 → 5.346 |
+
+Load allocation counts and requested/retained/peak bytes match exactly.
+Analysis retains 424 bytes in both versions; peak deltas are 101,825 → 101,844
+and 122,565 → 122,185 bytes. Every root drops back to its 2,239-byte baseline.
+The exact child `wait4` receipts retain four successful reaped processes without
+timeouts. Native CPU totals are 8.818 → 12.176 ms and 25.601 → 9.590 ms;
+RSS varies between 7,307,264 and 7,503,872 bytes. These single interleaved debug
+companions include allocator overhead, filesystem cache and uncontrolled host
+scheduling. The small case became slower; no controlled-cold, release or original
+Connect speedup is established. The initial `time -l` wrapper's sandbox
+`kern.clockrate` failure is retained separately from the successful final
+`wait4` receipts. Exact private evidence is indexed by
+`/tmp/zincite083-connect-cost-prototype.json`; independent stream checks are in
+`/tmp/zincite083-connect-cost-root-native-check.json`.
+
+The original `17e322d` Connect thesis run remains a resource cutoff: 1,800.015
+seconds, exit -9 and reaped, 1,791.798 CPU seconds, 106.797 MiB high-water RSS,
+with no stdout or diagnostics. Remaining observations were cancelled. The
+companion retained only manifest/begin(load)/begin(analyze), with no root or
+complete record and no terminal status inferred. The outer process was reaped
+with -15; its sandbox group-check error is preserved, and an independent check
+confirmed the group empty. Receipts and all twelve stream hashes remain under
+`target/benchmarks/base083/resume-connect-17e322d-outer`. Its post-capture pin
+check found no changes in 189,667 retained files/assets or 795 configuration
+candidates. No cutoff, cancellation or partial phase becomes a semantic
+exclusion, completed observation or acceptance result.
+
+The adopted main source passed `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo test --workspace`, `zdev check base --format json` and
+`git diff --check`. Main validation receipts are retained under
+`/tmp/zincite083-connect-cost-main-validation`.
+
+The nineteen-site/ten-owner reconciliation above remains pending original
+observations and complete owner/property checks. Final thesis14/current-all28
+accounting and all five whole-task done conditions remain open. No original has
+been replayed on the revised source yet; no corpus sweep or compiler run was
+added.

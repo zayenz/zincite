@@ -4,10 +4,19 @@ mod clauses;
 mod invocation;
 mod outputs;
 
+pub(super) struct CheckedSourceGraph<'a, 's> {
+    pub(super) file: FileId,
+    pub(super) node: &'a SyntaxNode,
+    pub(super) view: &'s CallableFacts,
+    pub(super) contributions: &'s [(&'a SyntaxNode, DefinitionSafety)],
+}
+
 pub(super) struct BodyInterpreter<'a, 's> {
     pub(super) source: &'s SourceInspector<'a>,
     pub(super) instances: &'s [Instance<'a>],
     pub(super) boundaries: &'s [Boundary],
+    // Borrow completed reference contributions only for this direct dispatch.
+    pub(super) checked_source_graph: Option<CheckedSourceGraph<'a, 's>>,
 }
 impl<'a, 's> BodyInterpreter<'a, 's> {
     pub(super) fn new(
@@ -19,6 +28,7 @@ impl<'a, 's> BodyInterpreter<'a, 's> {
             source,
             instances,
             boundaries,
+            checked_source_graph: None,
         }
     }
     pub(super) fn without_bodies(source: &'s SourceInspector<'a>) -> Self {
