@@ -8674,3 +8674,41 @@ Retained MiniZinc source checking and Gecode compile-only accept the small flat
 alias witness without solving; the chained regression is Rust-tested. The
 original PITS consumers after this correction remain unobserved. All five
 whole-task conditions stay unchecked.
+
+### Current Connect observation at `34ca502`
+
+The one-root native and companion capture completed for the exact thesis14 and
+current-all28 selections. Full diagnostic streams and statuses match; record
+order, phase completion and scope drops are verified. Neither selection has an
+Unobserved root. Original, loaded-source, asset, settings and build pins remain
+unchanged. These receipts establish capture integrity, not semantic acceptance.
+
+Warnings remain 2,507 for thesis and 5,285 for all. Limitations are now 71/283,
+compared with 68/384 at `56d0d9c`. Rule partitions remain 12 Completed/2 Limited
+for thesis and 18 Completed/10 Limited for all. Neither selection completes
+every rule.
+
+All-only limitations fall from 316 to 212: 104 occurrences cleared, comprising
+96 from the earlier named-set domain group and eight generator-scope rows.
+The remaining 212 occurrences form 28 exactly located groups. Clearing a source
+refusal does not prove computed membership or certify a complete owner.
+
+The four reshape guards now reach the retained mixed parameter-comparison body
+exclusion. Selection and types are known; interpreting the selected written
+library body would require another specialized inspector, which remains frozen.
+F also reaches two named boundaries: a computed User cost body and an initialized
+scalar decision-Boolean body outside the retained inspectors. Both require
+source/body inspection, not output proof. Current F inner-primitive facts remain
+Unobserved, and the complete F owner remains Limited.
+
+A bounded observation of the remaining 17 locations finds Supported or Unknown
+source-helper outcomes while retaining separate raw membership refusals. It
+corrects the five immediate targets to the nSLACK_PIPESYMMGRB array and its
+PIPESYMGRP axis. The actual optional-aware guard run retains five Unsupported
+nonempty obligations and twelve Unknown access expressions with Unsupported
+index candidates or axes. These 17 rows are not yet classified as promised gaps
+or accepted exclusions. Source admission supplies no members, nonemptiness,
+values or bounds.
+
+No full corpus run or whole-task acceptance follows from this one-root capture.
+All five completion conditions remain unchecked.
