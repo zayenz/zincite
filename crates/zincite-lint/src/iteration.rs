@@ -641,6 +641,35 @@ impl Producer<'_> {
             .as_ref()
             .map(|(_, _, d)| d.clone())
             .or_else(|| {
+                if node.kind() != NodeKind::CallExpression {
+                    return None;
+                }
+                let (generators, scope_error) = self.source_headers(file, node, known);
+                let domain = crate::domains::inspected_set_index_domain(
+                    self.context,
+                    self.bindings,
+                    self.calls,
+                    self.instantiations,
+                    self.domains,
+                    (file, written, &generators),
+                )?;
+                if let Some(reason) = scope_error {
+                    return Some(Domain::Unsupported(reason));
+                }
+                let Some(evaluated) = self.guarded.expression(file, &self.location(file, written))
+                else {
+                    return Some(Domain::Unsupported(
+                        "native set index evaluated source is unavailable".into(),
+                    ));
+                };
+                for outcome in [&evaluated.raw_definedness, &evaluated.definedness] {
+                    if let GuardedOutcome::Unsupported(reason) = outcome {
+                        return Some(Domain::Unsupported(reason.clone()));
+                    }
+                }
+                Some(domain)
+            })
+            .or_else(|| {
                 let (generators, scope_error) = self.source_headers(file, node, known);
                 let global = self
                     .resolved_reference(file, node)

@@ -1160,3 +1160,214 @@ fn inspected_parameter_ranges_keep_source_vetoes() {
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
+
+#[test]
+fn inspected_parameter_ranges_preserve_conditional_prefix_safety() {
+    let core = format!("{CORE}function int: length(array[int] of int: values);");
+    let source = concat!(
+        "array[int,1..2] of int: rows; array[int] of int: inputs;\n",
+        "constraint forall(a in index_set_1of2(rows))(\n",
+        "  let { int: start = if a==1 then 1 else rows[a-1,2]+1 endif; }\n",
+        "  in forall(j in 1..(length(inputs) div 2))(inputs[j]>0)\n",
+        "); solve satisfy;\n",
+    );
+    for (name, source, refused) in [
+        ("safe", source.to_owned(), false),
+        (
+            "then-zero",
+            source.replace("then 1", "then (1 div 0)"),
+            true,
+        ),
+        (
+            "else-overflow",
+            source.replace("rows[a-1,2]+1", "rows[a-1,2]+(9223372036854775807+1)"),
+            true,
+        ),
+        (
+            "inactive-zero",
+            source
+                .replace("if a==1", "if true")
+                .replace("rows[a-1,2]+1", "1 div 0"),
+            true,
+        ),
+        (
+            "annotation-error",
+            source.replace("int: start =", "int: start :: mark(1 div 0) ="),
+            true,
+        ),
+        (
+            "type-error",
+            source.replace("int: start =", "1..(1 div 0): start ="),
+            true,
+        ),
+        (
+            "initialized-source-error",
+            source.replace("of int: rows;", "of int: rows=[|1 div 0,2|];"),
+            true,
+        ),
+    ] {
+        let (directory, context, _, facts) =
+            model_with_core(&format!("conditional-range-prefix-{name}"), &source, &core);
+        let result = analyze_model(
+            &context,
+            &LintOptions::from_selection("expensive-comprehension").unwrap(),
+        );
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        if refused {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                result
+            );
+        } else {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{result:?}"
+            );
+            assert!(result.findings.is_empty(), "{:?}", result.findings);
+            let inner = facts
+                .iterations
+                .iter()
+                .find(|fact| text(&context, fact.file, &fact.location).starts_with("forall(j"))
+                .unwrap();
+            assert!(
+                matches!(inner.candidates, CandidateCount::Unknown),
+                "{inner:?}"
+            );
+            assert!(
+                matches!(inner.selected, CandidateCount::Unknown),
+                "{inner:?}"
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(directory.join("root.mzn")).unwrap(),
+            source
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+#[test]
+fn native_set_index_sources_keep_anonymous_unknown_axes() {
+    let positive = concat!(
+        "int: N; array[1..N] of int: a; set of int: S={a[i] | i in index_set(a)};\n",
+        "constraint forall(k in index_set(S))(k > 0);\n",
+        "constraint forall(k in index_set(a))(k > 0); solve satisfy;\n",
+    );
+    let source_error = positive.replace("{a[i] | i in index_set(a)}", "{1 div 0}");
+    let optional = positive.replace(
+        "set of int: S={a[i] | i in index_set(a)}",
+        "opt set of int: S",
+    );
+    let user =
+        format!("function set of int: index_set(array[int] of int: values)={{1}};\n{positive}");
+    let annotated = positive.replace("index_set(S)", "(index_set(S) :: mark(1 div 0))");
+    let let_source = positive.replace(
+        "constraint forall(k in index_set(S))",
+        "constraint let { int: marker=0; } in forall(k in index_set(S))",
+    );
+    let prefix_error = positive.replace(
+        "constraint forall(k in index_set(S))",
+        "constraint let { int: marker=1 div 0; } in forall(k in index_set(S))",
+    );
+    let changed_native = CORE.replace(
+        "function set of $I: index_set(array[$I] of $T:a);",
+        "function set of $I: index_set(array[$I] of $T:a)={1};",
+    );
+    let rules = LintOptions::from_selection("expensive-comprehension,vacuous-constraint").unwrap();
+    for (name, source, core, supported) in [
+        ("set-index-source", positive, CORE, true),
+        ("set-index-let-source", let_source.as_str(), CORE, true),
+        ("set-index-source-zero", source_error.as_str(), CORE, false),
+        ("set-index-optional", optional.as_str(), CORE, false),
+        ("set-index-user", user.as_str(), CORE, false),
+        ("set-index-annotation", annotated.as_str(), CORE, false),
+        ("set-index-let-prefix", prefix_error.as_str(), CORE, false),
+        (
+            "set-index-native-body",
+            positive,
+            changed_native.as_str(),
+            false,
+        ),
+    ] {
+        let (directory, context, bindings, facts) = model_with_core(name, source, core);
+        assert!(
+            context.limitations.is_empty(),
+            "{name}: {:?}",
+            context.limitations
+        );
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let result = analyze_model(&context, &rules);
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        let axis = &facts
+            .iterations
+            .iter()
+            .flat_map(|fact| &fact.generators)
+            .find(|generator| {
+                text(&context, context.root_file.unwrap(), &generator.source)
+                    .contains("index_set(S)")
+            })
+            .expect("iteration over the native set matching view")
+            .index_set;
+        if supported {
+            assert!(matches!(axis.domain, Domain::Unknown), "{:?}", axis.domain);
+            assert_eq!(axis.cardinality, Cardinality::Unknown);
+            assert!(axis.array_dimension.is_none());
+            assert!(axis.universe.is_none());
+            assert_eq!(axis.equal_members(axis), GuardedOutcome::Unknown);
+            assert_eq!(axis.coverage_of(axis), IterationCoverage::Unknown);
+            let array_axis = set(&context, &facts, "index_set(a)");
+            assert!(array_axis.array_dimension.is_some());
+            assert_eq!(array_axis.cardinality, Cardinality::Unknown);
+            assert_eq!(axis.equal_members(array_axis), GuardedOutcome::Unknown);
+            let calls = resolve_callables(&context, &bindings);
+            let inst = resolve_instantiations(&context, &bindings, &calls);
+            let domains = resolve_domains(&context, &bindings);
+            let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+            let numeric =
+                resolve_numeric_facts(&context, &bindings, &calls, &inst, &domains, &definitions);
+            let guarded =
+                resolve_guarded_facts(&context, &bindings, &calls, &inst, &domains, &numeric);
+            let evaluated = guarded
+                .expression(context.root_file.unwrap(), &axis.location)
+                .unwrap();
+            assert_eq!(evaluated.raw_definedness, GuardedOutcome::Unknown);
+            assert_eq!(evaluated.definedness, GuardedOutcome::Unknown);
+            assert!(
+                result
+                    .rules
+                    .iter()
+                    .all(|rule| rule.outcome == RuleOutcome::Completed),
+                "{name}: {:?}; {:?}",
+                result.rules,
+                result.limitations
+            );
+            assert!(result.limitations.is_empty());
+        } else {
+            assert!(
+                matches!(axis.domain, Domain::Unsupported(_)),
+                "{name}: {:?}",
+                axis.domain
+            );
+            assert!(
+                result
+                    .rules
+                    .iter()
+                    .any(|rule| matches!(rule.outcome, RuleOutcome::Limited { .. })),
+                "{name}: {:?}",
+                result.rules
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(directory.join("root.mzn")).unwrap(),
+            source
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}

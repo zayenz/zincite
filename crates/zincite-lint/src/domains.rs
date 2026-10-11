@@ -1796,6 +1796,97 @@ pub(super) fn native_index_set_domain(
     .index_set_domain(file, node)
 }
 
+// Inspect the written set used by a native array matching view. It supplies no
+// declared array axis, member, extent, nonempty or totality fact.
+pub(super) fn inspected_set_index_domain<'a>(
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    calls: &'a crate::CallableFacts,
+    instantiations: &'a crate::InstantiationFacts,
+    domains: &'a DomainFacts,
+    source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
+) -> Option<Domain> {
+    let (file, written, generators) = source;
+    let mut node = written;
+    while matches!(
+        node.kind(),
+        NodeKind::ParenthesizedExpression | NodeKind::AnnotatedExpression
+    ) {
+        node = node.child_nodes().next()?;
+    }
+    if node.kind() != NodeKind::CallExpression {
+        return None;
+    }
+    let fact = crate::callables::operation_fact(context, calls, file, node)?;
+    if fact.name != "index_set" {
+        return None;
+    }
+    let crate::CallOutcome::Resolved {
+        parameters,
+        return_type,
+        ..
+    } = &fact.outcome
+    else {
+        return None;
+    };
+    let arguments: Vec<_> = node.child_nodes().collect();
+    let [argument] = arguments.as_slice() else {
+        return None;
+    };
+    let integer = crate::TypeInst::par(crate::TypeKind::Int);
+    let set = crate::TypeInst::par(crate::TypeKind::Set(Box::new(integer.clone())));
+    let array = crate::TypeInst::par(crate::TypeKind::Array {
+        indices: vec![integer.clone()],
+        element: Box::new(integer),
+    });
+    let typed = |value: &SyntaxNode| {
+        let range = context.files[file].location(value.range()).range;
+        calls
+            .expressions
+            .iter()
+            .find(|fact| fact.file == file && fact.location.range == range)
+            .map(|fact| &fact.ty)
+    };
+    if parameters.as_slice() != [array]
+        || return_type != &set
+        || typed(node) != Some(&set)
+        || typed(argument) != Some(&set)
+        || !crate::callable_definitions::native_operation_source_safe(
+            context,
+            bindings,
+            calls,
+            instantiations,
+            domains,
+            (file, node),
+        )
+    {
+        return None;
+    }
+    if let crate::DefinitionSafety::Unsupported(reason) =
+        crate::callable_definitions::initialized_integer_set_source_safety(
+            context,
+            bindings,
+            (calls, calls),
+            instantiations,
+            domains,
+            (file, written, generators),
+        )
+    {
+        return Some(Domain::Unsupported(reason));
+    }
+    if let Some(reason) = local_source_prefix_error(
+        context,
+        bindings,
+        calls,
+        instantiations,
+        domains,
+        (file, written),
+    ) {
+        return Some(Domain::Unsupported(reason));
+    }
+    Some(Domain::Unknown)
+}
+
 // Raw domains remain unchanged. This late query carries inspected parameter
 // range uncertainty through direct sources and their initialized set aliases.
 pub(super) fn inspected_parameter_extremum_range_domain<'a>(
@@ -2004,57 +2095,15 @@ pub(super) fn inspected_parameter_range_domain<'a>(
     {
         return Some(Domain::Unsupported(reason));
     }
-    let root = context.files[source_file].parsed.tree();
-    let Some(predecessors) = local_source_predecessors(root, written) else {
-        return Some(Domain::Unsupported(
-            "range source owning source is unavailable".into(),
-        ));
-    };
-    // Inspect the evaluated let prefix at this use after source qualification.
-    // Each initializer retains its declaration's original lexical headers.
-    for predecessor in predecessors {
-        let Some(headers) = crate::callable_definitions::local_source_scope(root, predecessor)
-        else {
-            return Some(Domain::Unsupported(
-                "range source predecessor scope is unavailable".into(),
-            ));
-        };
-        if !crate::definitions::annotations_safe(context, source_file, predecessor) {
-            return Some(Domain::Unsupported(
-                "range source predecessor annotation is unsupported".into(),
-            ));
-        }
-        if let Err(reason) = core_arithmetic(context, bindings, calls, source_file, predecessor) {
-            return Some(Domain::Unsupported(reason));
-        }
-        if let Some(reason) = crate::callable_definitions::closed_integer_type_source_error(
-            context,
-            bindings,
-            calls,
-            instantiations,
-            domains,
-            (source_file, predecessor),
-        ) {
-            return Some(Domain::Unsupported(reason));
-        }
-        for initializer in predecessor
-            .child_nodes()
-            .filter(|part| crate::callables::is_expression(part.kind()))
-        {
-            if let crate::DefinitionSafety::Unsupported(reason) =
-                crate::callable_definitions::initialized_expression_safety(
-                    context,
-                    bindings,
-                    calls,
-                    instantiations,
-                    domains,
-                    (source_file, initializer, &headers, true),
-                    None,
-                )
-            {
-                return Some(Domain::Unsupported(reason));
-            }
-        }
+    if let Some(reason) = local_source_prefix_error(
+        context,
+        bindings,
+        calls,
+        instantiations,
+        domains,
+        (source_file, written),
+    ) {
+        return Some(Domain::Unsupported(reason));
     }
     // This source inspection proves neither endpoints, membership nor count.
     let mut domain = Domain::Unknown;
@@ -2065,6 +2114,73 @@ pub(super) fn inspected_parameter_range_domain<'a>(
         };
     }
     Some(domain)
+}
+
+fn local_source_prefix_error<'a>(
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    calls: &'a crate::CallableFacts,
+    instantiations: &'a crate::InstantiationFacts,
+    domains: &'a DomainFacts,
+    source: (FileId, &'a SyntaxNode),
+) -> Option<String> {
+    let (file, written) = source;
+    let root = context.files[file].parsed.tree();
+    let Some(predecessors) = local_source_predecessors(root, written) else {
+        return Some("source owning item is unavailable".into());
+    };
+    // Inspect the evaluated let prefix at this use after source qualification.
+    // Each initializer retains its declaration's original lexical headers.
+    for predecessor in predecessors {
+        let Some(headers) = crate::callable_definitions::local_source_scope(root, predecessor)
+        else {
+            return Some("source predecessor scope is unavailable".into());
+        };
+        if !crate::definitions::annotations_safe(context, file, predecessor) {
+            return Some("source predecessor annotation is unsupported".into());
+        }
+        if let Err(reason) = core_arithmetic(context, bindings, calls, file, predecessor) {
+            return Some(reason);
+        }
+        if let Some(reason) = crate::callable_definitions::closed_integer_type_source_error(
+            context,
+            bindings,
+            calls,
+            instantiations,
+            domains,
+            (file, predecessor),
+        ) {
+            return Some(reason);
+        }
+        for initializer in predecessor
+            .child_nodes()
+            .filter(|part| crate::callables::is_expression(part.kind()))
+        {
+            let safety = crate::callable_definitions::initialized_conditional_bound_safety(
+                context,
+                bindings,
+                calls,
+                instantiations,
+                domains,
+                (file, initializer, &headers),
+            )
+            .unwrap_or_else(|| {
+                crate::callable_definitions::initialized_expression_safety(
+                    context,
+                    bindings,
+                    calls,
+                    instantiations,
+                    domains,
+                    (file, initializer, &headers, true),
+                    None,
+                )
+            });
+            if let crate::DefinitionSafety::Unsupported(reason) = safety {
+                return Some(reason);
+            }
+        }
+    }
+    None
 }
 
 // Recover evaluated let items along this source's actual owning path.

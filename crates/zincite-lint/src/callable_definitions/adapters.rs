@@ -637,16 +637,16 @@ pub(crate) fn native_operation_source_safe<'a>(
         )
 }
 // A checked parameter conditional supplies an unknown bound, never its value.
-// The caller owns the local declaration and formal-source correspondence.
+// The caller owns the local declaration and any formal-source correspondence.
 pub(crate) fn initialized_conditional_bound_safety<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
     calls: &'a CallableFacts,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
-    source: (FileId, &'a SyntaxNode),
+    source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
 ) -> Option<DefinitionSafety> {
-    let (file, node) = source;
+    let (file, node, generators) = source;
     let inspector = SourceInspector {
         context,
         bindings,
@@ -671,7 +671,8 @@ pub(crate) fn initialized_conditional_bound_safety<'a>(
     {
         return None;
     }
-    let safety = interpreter.initialized_source_safety(file, node, calls, &[], &mut Vec::new());
+    let safety =
+        interpreter.initialized_source_safety(file, node, calls, generators, &mut Vec::new());
     if let unsupported @ DefinitionSafety::Unsupported(_) = safety {
         return Some(unsupported);
     }

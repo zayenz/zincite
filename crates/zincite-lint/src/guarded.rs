@@ -2014,6 +2014,29 @@ impl<'a> Producer<'a> {
         if self.index_domain(file, node).is_some() {
             return result;
         }
+        if self.core_call(file, node, "index_set") {
+            let (generators, scope_error) = self.source_headers(file, scope);
+            if let Some(domain) = crate::domains::inspected_set_index_domain(
+                self.context,
+                self.bindings,
+                self.calls,
+                self.instantiations,
+                self.domains,
+                (file, node, &generators),
+            ) {
+                let inspected = match scope_error {
+                    Some(reason) => self.unsupported(file, node, reason).definedness,
+                    None => match domain {
+                        Domain::Unsupported(reason) => {
+                            self.unsupported(file, node, reason).definedness
+                        }
+                        _ => GuardedOutcome::Unknown,
+                    },
+                };
+                result.definedness = conjoin(&result.definedness, &inspected);
+                return result;
+            }
+        }
         if self.ty(file, node).is_some_and(|ty| {
             ty.known()
                 && !ty.optional
@@ -3272,6 +3295,22 @@ impl<'a> Producer<'a> {
             (file, node, if global { &[] } else { &generators }),
         ) {
             if !global && let Some(reason) = scope_error {
+                return Domain::Unsupported(reason);
+            }
+            if let GuardedOutcome::Unsupported(reason) = &evaluated.definedness {
+                return Domain::Unsupported(reason.clone());
+            }
+            return domain;
+        }
+        if let Some(domain) = crate::domains::inspected_set_index_domain(
+            self.context,
+            self.bindings,
+            self.calls,
+            self.instantiations,
+            self.domains,
+            (file, node, &generators),
+        ) {
+            if let Some(reason) = scope_error {
                 return Domain::Unsupported(reason);
             }
             if let GuardedOutcome::Unsupported(reason) = &evaluated.definedness {

@@ -340,7 +340,7 @@ fn inspected_local_selection_bound(
                 calls,
                 instantiations,
                 domains,
-                (file, value),
+                (file, value, &[]),
             ),
             Some(DefinitionSafety::Unknown(_))
         );

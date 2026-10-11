@@ -8808,3 +8808,34 @@ Formatting, clippy and 375 workspace tests pass. Five MiniZinc 2.10.1 source-onl
 checks and one small complete Gecode compilation pass without solving. Original
 post-change outcomes and final corpus acceptance remain unobserved. All five
 base-083 completion conditions remain unchecked.
+
+### Qualified native set axes and conditional prefixes
+
+A pinned post-range Connect replay at `d488c2f` retains 71 thesis limitations
+and records 256 current-all limitations, with diagnostic counts unchanged.
+Compared with the preceding replay, 14 limitation locations disappear and 22
+appear as later source gates become reachable. This observation identifies
+source-handoff gaps; it does not establish whole-owner support or final corpus
+acceptance.
+
+The late domain and guarded consumers now reuse existing qualification for
+native `index_set` over a parameter integer set viewed as an array. They retain
+an anonymous Unknown axis and Unknown evaluation, supplying no array identity,
+member, extent, count, nonemptiness or totality proof. Set access and shifted
+membership retain their separate barriers. Evaluated let predecessors reuse
+the existing source checker, including unrelated erroneous predecessor items.
+
+That checker now uses the existing conditional-bound reader for present
+parameter-integer conditional initializers, retaining their original lexical
+headers. It checks both branches and closed fragments without selecting a
+branch. The existing array-index caller retains its empty headers and original
+formal-source gates. Other initializers retain ordinary eager source checking.
+
+Combined formatting, clippy and 377 workspace tests pass. Public checks retain
+Unknown counts and axes, both conditional branches and inactive-branch errors,
+source/type/annotation failures, native body and User overrides, and erroneous
+let predecessors. Existing pinned MiniZinc 2.10.1 source checks and the Gecode
+compile-only range control remain applicable; no solving was performed. Those
+receipts do not compile the new conditional-prefix regression. Original
+post-change outcomes and final corpus acceptance remain unobserved; all five
+base-083 completion conditions remain unchecked.
