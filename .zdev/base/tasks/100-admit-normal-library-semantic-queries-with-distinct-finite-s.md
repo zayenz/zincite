@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-100"
 key = "semantic-query-model-admission"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -27,11 +27,21 @@ Read brief Query and data transformation expansion and Testing, scripts/query-ac
 
 ## Done when
 
-- [ ] The model scan and result/expansion guards have distinct documented meanings and finite enforcement. Normal library source size no longer exhausts the result collection allowance before a small semantic result is computed.
-- [ ] One small declaration/use/type inspection with the installed normal 2.10.1 library passes in both command forms, with identical complete results and recorded library/version/settings. An oversized model admission and oversized query result each fail explicitly, retain located errors and emit no partial stdout.
-- [ ] Existing low-budget/unknown-predicate and reduction refusal behavior remains intact. A representative command's fresh-process latency and peak RSS are recorded without claiming a broad performance or corpus result. Base-092 remains responsible for its separate final acceptance checks.
+- [x] The model scan and result/expansion guards have distinct documented meanings and finite enforcement. Normal library source size no longer exhausts the result collection allowance before a small semantic result is computed.
+- [x] One small declaration/use/type inspection with the installed normal 2.10.1 library passes in both command forms, with identical complete results and recorded library/version/settings. An oversized model admission and oversized query result each fail explicitly, retain located errors and emit no partial stdout.
+- [x] Existing low-budget/unknown-predicate and reduction refusal behavior remains intact. A representative command's fresh-process latency and peak RSS are recorded without claiming a broad performance or corpus result. Base-092 remains responsible for its separate final acceptance checks.
 
 ## Validation
 
 - Reuse current semantic and budget public tests; add only focused regressions for the demonstrated model/result conflation and finite rejection. Run the small real-library queries in both command forms and check matching output/status. Exercise an explicit small budget for failure rather than building a huge fixture. Keep compiler/solver execution out of ordinary query validation.
 - Record the representative release command, library/version/input context, latency/RSS and terminal status; no timing assertions or broad benchmark campaign. Run cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, cargo test --workspace and git diff --check.
+
+## Result
+
+Separated finite model admission from result collection; normal-library declaration/type queries succeed through both commands with unchanged defaults.
+
+Validation:
+
+- Independent verifier PASS at W7f6982a2df7a191e with equal snapshot comparison; five task-owned files only.
+- fmt, clippy, workspace tests and diff checks passed; paired normal-library complete JSON, located refusals and fresh-process latency/RSS checked.
+- Retained uses-stage work cutoff remains a separate base-092 acceptance gap; no semantic exclusion or completion claim.

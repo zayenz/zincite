@@ -424,7 +424,7 @@ pub(crate) fn evaluate<'a>(
         let stream = std::mem::replace(&mut report.stream, SemanticStream::Entities(Vec::new()));
         report.stream = match &stage.kind {
             StageKind::References => {
-                report.ensure_bindings(&mut work, stage, limits)?;
+                report.ensure_bindings(&mut work, stage)?;
                 let subjects = subjects(stream, model, stage, limits, &mut work)?;
                 SemanticStream::Entities(report.references(
                     &subjects,
@@ -435,18 +435,18 @@ pub(crate) fn evaluate<'a>(
                 )?)
             }
             StageKind::Declarations => {
-                report.ensure_bindings(&mut work, stage, limits)?;
+                report.ensure_bindings(&mut work, stage)?;
                 let subjects = subjects(stream, model, stage, limits, &mut work)?;
                 SemanticStream::Entities(report.declarations(&subjects, &mut work, stage, limits)?)
             }
             StageKind::Uses => {
-                report.ensure_bindings(&mut work, stage, limits)?;
+                report.ensure_bindings(&mut work, stage)?;
                 let subjects = subjects(stream, model, stage, limits, &mut work)?;
                 let declarations = report.declarations(&subjects, &mut work, stage, limits)?;
                 SemanticStream::Entities(report.uses(&declarations, &mut work, stage, limits)?)
             }
             StageKind::TransitiveReferences(depth) => {
-                report.ensure_bindings(&mut work, stage, limits)?;
+                report.ensure_bindings(&mut work, stage)?;
                 let subjects = subjects(stream, model, stage, limits, &mut work)?;
                 let declarations = report.declarations(&subjects, &mut work, stage, limits)?;
                 SemanticStream::Entities(report.transitive(
@@ -626,58 +626,32 @@ fn subjects<'a>(
 }
 
 impl SemanticResult<'_> {
-    // Public producers operate on a whole context. Bound that scan before asking
-    // them to allocate facts; no second resolver or partial producer is introduced.
-    fn fact_scan(&self, work: &mut Work, stage: &Stage, limits: Limits) -> Result<(), QueryError> {
-        let mut entries = 0usize;
+    // Admit the whole context once before any producer allocates facts. Charge
+    // nodes before queueing them so the scan frontier is bounded by work too.
+    fn fact_scan(&self, work: &mut Work, stage: &Stage) -> Result<(), QueryError> {
         for source in &self.model.files {
             work.spend(source.parsed.tokens().len(), &stage.range)?;
-            entries = entries.saturating_add(source.parsed.tokens().len());
-            if entries >= limits.collection {
-                return Err(type_error(
-                    &stage.range,
-                    "query collection limit exceeded while scanning model facts",
-                ));
-            }
+            work.visit(&stage.range)?;
             let mut pending = vec![source.parsed.tree()];
             while let Some(node) = pending.pop() {
-                work.visit(&stage.range)?;
-                entries = entries.saturating_add(1);
-                if entries > limits.collection {
-                    return Err(type_error(
-                        &stage.range,
-                        "query collection limit exceeded while scanning model facts",
-                    ));
-                }
                 for child in node.child_nodes() {
-                    check_collection(pending.len(), limits.collection, &stage.range)?;
+                    work.visit(&stage.range)?;
                     pending.push(child);
                 }
             }
         }
         Ok(())
     }
-    fn ensure_bindings(
-        &mut self,
-        work: &mut Work,
-        stage: &Stage,
-        limits: Limits,
-    ) -> Result<(), QueryError> {
+    fn ensure_bindings(&mut self, work: &mut Work, stage: &Stage) -> Result<(), QueryError> {
         if self.bindings.is_none() {
-            self.fact_scan(work, stage, limits)?;
+            self.fact_scan(work, stage)?;
             self.bindings = Some(resolve_bindings(self.model));
         }
         Ok(())
     }
-    fn ensure_callables(
-        &mut self,
-        work: &mut Work,
-        stage: &Stage,
-        limits: Limits,
-    ) -> Result<(), QueryError> {
-        self.ensure_bindings(work, stage, limits)?;
+    fn ensure_callables(&mut self, work: &mut Work, stage: &Stage) -> Result<(), QueryError> {
+        self.ensure_bindings(work, stage)?;
         if self.callables.is_none() {
-            self.fact_scan(work, stage, limits)?;
             self.callables = Some(resolve_callables(
                 self.model,
                 self.bindings.as_ref().unwrap(),
@@ -685,15 +659,9 @@ impl SemanticResult<'_> {
         }
         Ok(())
     }
-    fn ensure_instantiations(
-        &mut self,
-        work: &mut Work,
-        stage: &Stage,
-        limits: Limits,
-    ) -> Result<(), QueryError> {
-        self.ensure_callables(work, stage, limits)?;
+    fn ensure_instantiations(&mut self, work: &mut Work, stage: &Stage) -> Result<(), QueryError> {
+        self.ensure_callables(work, stage)?;
         if self.instantiations.is_none() {
-            self.fact_scan(work, stage, limits)?;
             self.instantiations = Some(resolve_instantiations(
                 self.model,
                 self.bindings.as_ref().unwrap(),
@@ -841,7 +809,7 @@ impl SemanticResult<'_> {
     ) -> Result<Option<DeclarationId>, QueryError> {
         work.visit(&stage.range)?;
         if self.bindings.as_ref().unwrap().references[id].kind == ReferenceKind::Callable {
-            self.ensure_callables(work, stage, limits)?;
+            self.ensure_callables(work, stage)?;
         }
         let reference = &self.bindings.as_ref().unwrap().references[id];
         let location = reference.location.clone();
@@ -998,7 +966,7 @@ impl SemanticResult<'_> {
         stage: &Stage,
         limits: Limits,
     ) -> Result<Vec<SemanticSubject<'a>>, QueryError> {
-        self.ensure_bindings(work, stage, limits)?;
+        self.ensure_bindings(work, stage)?;
         let mut rows = Vec::new();
         for subject in subjects {
             let before = rows.len();
@@ -1028,7 +996,7 @@ impl SemanticResult<'_> {
         stage: &Stage,
         limits: Limits,
     ) -> Result<Option<TypeInst>, QueryError> {
-        self.ensure_callables(work, stage, limits)?;
+        self.ensure_callables(work, stage)?;
         let declaration = self.declared_subject(subject, work, stage)?;
         let facts = self.callables.as_ref().unwrap();
         let mut ty = None;
@@ -1114,7 +1082,7 @@ impl SemanticResult<'_> {
             Instantiation::Unknown,
             Some("instantiation fact unavailable for this exact occurrence".to_owned()),
         );
-        self.ensure_bindings(work, stage, limits)?;
+        self.ensure_bindings(work, stage)?;
         if let Some(id) = self.declared_subject(subject, work, stage)? {
             work.visit(&stage.range)?;
             let instantiation = self.bindings.as_ref().unwrap().declarations[id.0].instantiation;
@@ -1124,7 +1092,7 @@ impl SemanticResult<'_> {
                     .then(|| "declared instantiation is unknown".to_owned()),
             );
         } else {
-            self.ensure_instantiations(work, stage, limits)?;
+            self.ensure_instantiations(work, stage)?;
             let location = self.subject_location(subject);
             let file = self.subject_file(subject);
             for fact in &self.instantiations.as_ref().unwrap().expressions {

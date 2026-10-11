@@ -1455,7 +1455,7 @@ fn semantic_traversal_is_bounded_deterministic_and_reports_limit_errors() {
             ..Limits::default()
         },
         Limits {
-            collection: 5,
+            collection: 3,
             ..Limits::default()
         },
     ] {
@@ -1465,6 +1465,71 @@ fn semantic_traversal_is_bounded_deterministic_and_reports_limit_errors() {
         assert_eq!(error.location, ErrorLocation::Query);
         assert!(error.message.contains("limit exceeded"));
     }
+}
+
+#[test]
+fn semantic_model_admission_is_distinct_from_result_limits() {
+    let source = b"int: capacity = 2;";
+    let core: String = (0..20).map(|i| format!("int: unused_{i} = 1; ")).collect();
+    let model = semantic_model("admission", source, b"", &core);
+    let input = Input::parse(source.to_vec(), FileMode::Model).unwrap();
+    let query = Query::parse("declarations | types | instantiations", Limits::default()).unwrap();
+    let result = query
+        .evaluate_with_model(
+            &input,
+            Some(&model),
+            Limits {
+                collection: 1,
+                work: 500,
+                ..Limits::default()
+            },
+        )
+        .unwrap();
+    let QueryResult::Semantic(report) = result else {
+        panic!()
+    };
+    assert!(report.is_complete());
+    assert!(report.bindings().is_some());
+    assert!(report.callables().is_some());
+    let zincite_query::SemanticStream::Instantiations(rows) = report.stream() else {
+        panic!()
+    };
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0].instantiation,
+        zincite_lint::Instantiation::Parameter
+    );
+    let error = query
+        .evaluate_with_model(
+            &input,
+            Some(&model),
+            Limits {
+                work: 100,
+                ..Limits::default()
+            },
+        )
+        .unwrap_err();
+    assert_eq!(error.location, ErrorLocation::Query);
+    assert_eq!(error.range, 0..12);
+    assert!(error.message.contains("work limit exceeded"));
+
+    let source = b"int: x = (a, a, a);";
+    let model = semantic_model("result-limit", source, b"", "int: a = 1;");
+    let input = Input::parse(source.to_vec(), FileMode::Model).unwrap();
+    let error = Query::parse("references | json", Limits::default())
+        .unwrap()
+        .evaluate_with_model(
+            &input,
+            Some(&model),
+            Limits {
+                collection: 2,
+                ..Limits::default()
+            },
+        )
+        .unwrap_err();
+    assert_eq!(error.location, ErrorLocation::Query);
+    assert_eq!(error.range, 0..10);
+    assert!(error.message.contains("collection limit exceeded"));
 }
 
 #[test]

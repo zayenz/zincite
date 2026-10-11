@@ -131,3 +131,79 @@ Required validation passed: `cargo fmt --all -- --check`,
 `cargo clippy --workspace --all-targets -- -D warnings`, and
 `cargo test --workspace`. No new test was added because these checks demonstrated
 supported behavior and explicit limitations rather than an integration defect.
+
+## Finite semantic model admission, 2026-10-11
+
+Base-100 corrects the source/result conflation above. The release binaries were
+built from `e0dc7bf058b426f16ecf81bdb880213aad724e61` plus the base-100 query
+changes, with Rust 1.98.1 on the same M1 Max. The library is MiniZinc 2.10.1 build
+33348285743 at
+`/Applications/MiniZincIDE.app/Contents/Resources/share/minizinc`. No compiler
+acceptance or solver run was performed for these queries.
+
+Limits retain their public fields and finite defaults: nesting 64, work
+1,000,000 and collection 100,000. Before the first semantic fact producer
+allocates, the complete retained context charges each source token and CST node
+once to work. Each node is charged before entering the scan frontier, bounding
+that allocation too. Binding, callable and instantiation facts share this
+admission; demanding another fact family does not charge the same source scan
+again. Actual query-stage scans and output costs still consume work. This is a
+source-size admission bound, not a timer or an accounting of every instruction
+inside the fact producers. Collection continues to bound produced selections,
+results, limitations and expansion frontiers; model source size does not consume
+that result allowance.
+
+The retained 88-byte `/tmp/zincite092/recipes.mzn` loads 179 files with 122,661
+tokens and 40,420 CST nodes: 163,081 admission work units. The unchanged work
+default is sufficient for this small declaration/type inspection:
+
+```sh
+stdlib=/Applications/MiniZincIDE.app/Contents/Resources/share/minizinc
+zincite-query --stdlib-dir "$stdlib" \
+    'filter(name("capacity")) | declarations | types | json' \
+    /tmp/zincite092/recipes.mzn
+zincite query --stdlib-dir "$stdlib" \
+    'filter(name("capacity")) | declarations | types | json' \
+    /tmp/zincite092/recipes.mzn
+```
+
+Both forms exited **0**, with byte-identical complete JSON and empty stderr.
+The single result identifies `capacity` at bytes 5..13, owning syntax bytes
+0..18, with parameter `int` type. The focused public API regression also admits
+20 unrelated library declarations with collection 1 and work 500 while
+requesting declaration, type and instantiation facts. With work 100 the same
+model is refused before fact allocation, at query bytes 0..12. A separate tiny
+model producing three references under collection 2 is refused at query bytes
+0..10. Both failures are explicit located errors and return no candidate. CLI
+evaluation propagates these errors before rendering or writing stdout; its
+limits remain fixed defaults, without a new override option.
+
+The retained declaration-uses recipe now passes model admission but still exits
+**2** at its actual `uses` stage, query bytes 41..46, with empty stdout and equal
+stderr through both forms. `uses` currently resolves every retained reference,
+including unrelated library references. A temporary public API probe with work
+32,000,000 still hit that stage cutoff; with work 64,000,000 it returned an
+incomplete result with unrelated library callable limitations. Those probes do
+not justify raising the default or claiming complete declaration-use acceptance.
+That consumer behavior remains a separate acceptance gap for base-092.
+
+The existing 100,000-element synthetic filter rejection was rechecked through
+both forms: status **2**, empty stdout and the same collection error at query
+bytes 25..48. Low-budget and unknown-predicate regressions and reduction refusal
+checks passed with the workspace tests.
+
+Ten sequential fresh-process declaration/type samples per form reused `invoke`
+from `scripts/bench-save.py`, with ordinary warm filesystem caches. Standalone
+median was **80.11 ms** (79.07–86.10); umbrella median was **80.69 ms**
+(79.51–87.16). First invocations were 86.10/87.16 ms; these are not controlled
+cold-cache results. A separate macOS `/usr/bin/time -l` standalone probe exited
+0 with peak child RSS **28.55 MiB** (29,933,568 bytes). Before the correction, the
+retained declaration-uses command exited 2 during admission with empty stdout;
+its first invocation was 50.67 ms and separate RSS probe was 11.78 MiB. That
+rejection is not a successful-query performance baseline. Measurements and
+complete streams remain in `/tmp/zincite100/`; this is one representative query,
+not a broad performance or corpus result.
+
+Required validation passed: `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo test --workspace` and `git diff --check`.

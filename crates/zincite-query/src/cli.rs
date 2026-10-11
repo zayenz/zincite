@@ -107,7 +107,8 @@ Options:
     -h, --help              Show this help
 
 Limits: 1048576 query bytes, 64 nested parentheses/not operators,
-        100000 collected entries and 1000000 evaluation work units.
+        100000 result/expansion entries and 1000000 evaluation work units.
+Model tokens/CST nodes consume work once before fact allocation, not result entries.
 Exit codes: 0 complete, 1 incomplete semantic report/candidate, 2 query/input/model/usage/I/O errors.
 Incomplete previews emit source/diff with stderr dependencies; --write refuses them.
 Query, input and usage errors leave stdout empty.

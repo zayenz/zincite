@@ -37,7 +37,11 @@ pub use structured::{
 
 use language::{Predicate, PredicateKind, Stage, StageKind};
 
-/// Bounds checked before collecting items, visiting stages or expanding edits.
+/// Finite bounds for query evaluation and expansion.
+/// `work` counts stage visits and scans, including model tokens and CST nodes
+/// admitted once before semantic fact allocation. It is not a wall-clock bound.
+/// `collection` bounds produced selections, results and expansion frontiers;
+/// loaded model source tokens/nodes do not consume this result allowance.
 /// `nesting` lowers the ceiling of 64 query parentheses/`not` operators and
 /// recursive literal levels.
 #[derive(Clone, Copy, Debug)]
