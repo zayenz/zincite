@@ -23,6 +23,7 @@ Read the adopted brief/support plan, thesis mapping, base-083 and scripts/semant
 
 - Use supported-but-unproved, documented exclusion, promised-support gap, and actual input/dependency failure dispositions. Name the semantic operation, required fact and affected rules; complexity or compiler validity alone is not a classification. Do not disguise unimplemented common projections/selected-call facts as ordinary Unknown or accept a new exclusion not present in the adopted contract.
 - Documentation and read-only source/capture inspection only. Preserve private originals and publish relative locations and concise conclusions only. No Rust repair, task import, resource optimization, fresh original replay or corpus sweep. Use a small bounded control only when retained evidence cannot settle one named uncertainty; compiler no-solve checking is needed only if validity remains undecided.
+- User-approved exception, 2026-10-11: run bounded observations of only the ten owning items identified in the retained nineteen-site inventory. Temporary observation instrumentation may record current owner verdicts, first refused inner expressions, selected-call types and sibling results; it must not change semantics or committed Rust. Preserve the complete original model context and source coordinates, keep originals read-only and raw private captures temporary, and retain finite observation limits. No full-model rule replay, semantic repair, additional original, corpus sweep or solver run is authorized.
 - Keep successful inspection separate from bounds, totality, output, definition and search proof. Preserve complete-owner publication and sibling failure, declaration/overload identities, optionality, original/view scopes and strict dependency barriers. No universal evaluator, metadata transport or independent fact taxonomy framework.
 
 ## Done when
@@ -62,8 +63,9 @@ in `/tmp/zincite098-append.md`, `/tmp/zincite098-inventory.json` and
 classification. Nineteen sites remain open. Existing base-083 diagnostic scaling,
 cost and complete 14/26 accounting obligations remain separate.
 
-The approved boundary forbids fresh original replay. A question is pending to
-permit observation of only these ten owning items, with no semantic repair or
-corpus sweep. Keep this task open and base-083 parked until that decision and
-the missing evidence are available; do not classify missing observations as
-documented exclusions or promised-support success.
+The user subsequently approved bounded observations of only these ten owning
+items, under the exception above, and continuation of the zdev loop. No semantic
+repairs or corpus sweeps are authorized. Keep this task open and base-083 parked
+until the missing evidence is classified and independently reviewed; do not
+classify missing observations as documented exclusions or promised-support
+success.

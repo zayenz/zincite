@@ -7560,3 +7560,334 @@ Original Local-source closure and final corpus acceptance remain pending.
 Main formatting, Clippy and all 298 workspace tests pass for this increment,
 with all complete streams and 108 integrated source pins checked. Base-083
 remains open.
+
+### Base-098: retained local sites and approved owning-item observations
+
+The ten approved owning items have now been observed against current source at
+`f950541`, using the complete unchanged Connect model and installed library
+context. Every owner still refuses complete local publication. The nineteen
+historical sites remain open for a justified whole-owner support disposition:
+the observations identify their current gates, but a missing bounded source
+reader is neither a common-fact defect nor a documented exclusion merely because
+its fallback asks for stronger dependencies. Known identity/type/call facts are
+available. This report proposes no semantic repair and claims no completed
+base-098 classification or final acceptance.
+
+The historical inventory comes from
+`target/benchmarks/base083/semantic79-combined-repairs-originals-v17/root-audit.json`
+and `connect/s0-0.stderr`, through `7482f51`. It contains nineteen distinct
+`search-coverage` local-prerequisite ranges: sixteen Constraint locals in seven
+items and three Value locals in three items. The unchanged original is
+`2021/problem-set/mznc2021_probs/MZNC_connect/connect__0041_02.mzn`, 383,920 bytes,
+SHA-256 `ee18c7aba532ca441e8bfbfb55e0873c75a1c934ced935f949bfe056e3e13eb8`.
+V17 recorded Connect's 12 Completed / 2 Limited thesis rules, 77 limitations and
+2,507 warnings; all recorded 17 Completed / 9 Limited, 388 limitations and
+5,285 warnings. Those are historical rule outcomes, not this observation's
+execution counts. V17 had no input errors and a complete include closure.
+The original and matching data also have retained MiniZinc 2.10.1/Gecode
+compile-only acceptance at `semantic76-connect-instance-compile-v1`; this says
+nothing about the missing lint operation.
+
+The user-approved observation exception allowed exactly these ten owners. Raw
+private captures remain temporary under `/tmp/zincite098-approved/v4/`; published
+material below contains locations, types and refusal summaries, with no copied
+private source text. Preparation loaded 179 files and collected 8,911
+declarations, 7,752 calls and 36,899 expression types. It ran bindings, callable
+selection, instantiations and raw callable-aware domain collection. That
+metadata stage is not an owner result. The observer filtered Constraint roots
+before discovery/inference/interpretation, and used the existing
+`model_value_fresh_locals` entry for the three Value items. It ran no
+`analyze_model`, selected rule, full-root proof pass, compiler, solver or corpus
+sweep. Repository Rust and originals remained unchanged.
+
+All ten final captures exited 0, were reaped with empty process groups, and
+finished within their individual 240-second caps (0.26–20.48 seconds). Every
+recorded call in each owning item resolved. Demanded body instances and every
+attempted discovery edge, including rejected/deduplicated targets, were retained;
+all instance ancestries were empty, all recursive flags were false, and no
+attempted edge repeated a declaration in its ancestry. Thus omitted roots add
+no demanded recursive path in these observations. Claims concern selected-owner
+source inspection and semantic result contents, not incidental output-origin or
+boundary ordering, final whole-model cycles, search coverage or fresh 14/26
+outcomes. Value inspection uses `without_bodies` and has no omitted-root
+inference dependency.
+
+The private instrumentation preserved method bodies and returned each original
+result. It recorded raw/substituted expression and selected-call tuples, ordered
+adopted refusals and sibling results. Identical raw events used the one immutable
+raw fact view; substituted events were deduplicated by their complete recorded
+method/node/type/call/scope/result contents. Per-owner duplicate counts and full
+streams remain retained. A first instrumentation attempt was stopped after
+157.03 seconds for excessive trace volume, before A returned a verdict; its
+329,237,362-byte stderr, both complete streams and the -15/empty-group receipt
+remain under `v1/` as a failed capture, not owner evidence. V2 and V3 refinement
+captures also remain available. The final binary SHA-256 is
+`581e75276e485a4714abe4da43ef2c1be9089addeb8b7f380151fb78a22988c8`.
+`source-pins.json`, `instrumented-pins.json`, `instrumentation.patch`,
+`observe098-v4.rs`, `run-v4.py`, and `v4/observations.json` retain the exact private
+observation entry, wrappers, input/source checks and complete-owner results.
+These observations are not performance measurements or semantic repairs.
+
+The existing publication barriers explain what the reported local limitation
+means. `callable_definitions/model_roots.rs::interpret_model_roots` publishes
+Constraint local identities only after all relevant clauses, owning iterations
+and inspection-only equality/Boolean siblings succeed.
+`interpretation/clauses.rs::interpret_local_clause` preserves ordered types,
+optionality, sources and body checks. A checked child cannot certify a failed
+owner. `adapters.rs::indexed_model_value_fresh_locals` and
+`source/locals.rs::model_value_fresh_locals` inspect a complete Value initializer
+and written domains before returning ephemeral fresh-local identities.
+`search.rs::Producer::close` consumes those identities separately from complete
+definitions: neither identity nor source inspection establishes coverage.
+`unbounded_variable.rs` separately needs declared domains, checked safety and
+enforced complete definitions. `analysis.rs` supplies the body-aware route for
+search, unbounded-variable and constant-variable. V17's constant-variable,
+unused-declaration and three decision-use rules completed; the nineteen local
+messages do not establish failures in those independent consumers.
+
+In the table, all entries require complete owning-source inspection for
+search-coverage. UV denotes the additional v17 unbounded-variable demand named
+in that row. All nineteen heads have observed known present decision types,
+lexical declaration identity and source ownership. “Open” is an unresolved
+classification, not a fifth accepted disposition or a successful owner.
+
+| Historical site: line:column, bytes | Complete owning item | Required fact beyond common metadata | Current disposition |
+| --- | --- | --- | --- |
+| `np`, 2741:29, 355577..355579 | Value 2552, 355284..355756, V1 | Whole initializer/domain inspection; UV safe initializer/definition | Open: transitive reshape source refuses; V1 below |
+| `fSep`, 2901:21, 360184..360188 | Constraint 2564, 359600..360855, A | Whole Constraint inspection, including earlier sources and tests | Open: earlier decision reshape source refuses; A below |
+| `attPos`, 3061:18, 364686..364692 | Constraint 2574, 363991..365912, B | Whole inspection; UV traversal membership/safe definition | Open: earlier conditional-set source refuses; B below |
+| `Xoff`, 3075:32, 365048..365052 | Constraint 2574, 363991..365912, B | Whole inspection; UV complete array definition | Open: same owner failure, then computed User array access; B below |
+| `attPos`, 3117:18, 366584..366590 | Constraint 2575, 365913..368214, C | Whole inspection; UV traversal membership/safe definition | Open: distinct earlier conditional-set source refusal; C below |
+| `Xoff`, 3138:32, 367116..367120 | Constraint 2575, 365913..368214, C | Whole inspection; UV complete array definition | Open: same owner failure, then computed User array access; C below |
+| `pos`, 3246:40, 370758..370761 | Constraint 2585, 370093..371727, D | Whole inspection of fresh domain, inequalities and siblings | Open: earlier backing reshape refuses; D below |
+| `nzAP`, 3243:29, 370659..370663 | Constraint 2585, 370093..371727, D | Whole inspection; UV safe complete array definition | Open: same owner failure; reflected bounds also refuse; D below |
+| `nDiff`, 3252:29, 371070..371075 | Constraint 2585, 370093..371727, D | Whole inspection; UV safe complete array definition | Open: same owner failure and transitive initializer; D below |
+| `nLen`, 3262:38, 371479..371483 | Constraint 2585, 370093..371727, D | Whole inspection of domain and inequalities | Open: same owner failure; nonempty bound proof also absent; D below |
+| `aLen`, 3258:29, 371379..371383 | Constraint 2585, 370093..371727, D | Whole inspection; UV safe complete array definition | Open: same owner failure; scoped nonempty bound proof absent; D below |
+| `twoabsdiff`, 3331:26, 374107..374117 | Constraint 2594, 373039..374479, E | Whole inspection; UV selected-body safety | Open: earlier transitive source refuses; E below |
+| `nHSupport`, 3364:31, 374902..374911 | Constraint 2599, 374816..376091, F | Whole inspection; UV operator partiality/safe array definition | Open: initialized Local concat shape rejected before source fallback; F below |
+| `sp_is`, 3381:25, 375638..375643 | Constraint 2599, 374816..376091, F | Whole inspection including failed earlier array | Open: child source Supported, owner failed; F below |
+| `p`, 3429:71, 377113..377114 | Value 2606, 376996..377137, V2 | Whole initializer/domain inspection; UV reflected-domain safety | Open: rank-three decision-array reflection source refuses; V2 below |
+| `nn`, 3468:64, 378397..378399 | Constraint 2608, 377404..378797, G | Whole inspection of Float domain, equality and siblings | Open: earlier native-call dependency sibling refuses; G below |
+| `fpSzU`, 3466:34, 378306..378311 | Constraint 2608, 377404..378797, G | Whole inspection; UV safe complete array definition | Open: failed sibling and fresh-let operator/partiality; G below |
+| `fpAreaU`, 3471:20, 378521..378528 | Constraint 2608, 377404..378797, G | Whole inspection; UV membership/safe product definition | Open: product child Unknown, owner failed; G below |
+| `b`, 3543:27, 380532..380533 | Value 2614, 380295..380613, V3 | Whole conditional/guard inspection | Open: fresh child inspected, earlier selected Test source refuses; V3 below |
+
+A's owner still refuses at 359612..360854 for arbitrary value-call output
+dependencies. The model-root source path reaches decision `array2d` at
+357460..357526 before publishing `fSep`. Its exact implicit-standard declaration
+3294 selects `(par set int, par set int, array[int] of var int) ->
+array[int,int] of var int`. The written axes are ranges and the backing source
+is a bare reference. `source/collections.rs::set_axis_integer_reshape_arguments`
+requires bare top-level axes; `inline_reshape_safety` requires its bounded inline
+source shape. These gates do not admit this invocation, and `direct_safety`
+falls back to `dependencies/traversal.rs::call_dependencies`, which refuses a
+computed output dependency. The `fSep` initializer at 360192..360208 separately
+refuses transitive source inspection; its Boolean identity/type is still known.
+The demanded User tests resolve independently: declaration 2550 receives three
+par integers and a par rank-one integer array and returns par Bool; declaration
+2539 receives var Int and returns par Bool. Their substituted views retain these
+types, not test truth. Body refusals include reflection of a decision operand.
+Existing initialized Boolean-comprehension and fresh-choice controls demonstrate
+successful bounded families, not this initialized scalar alias's complete owner.
+The remaining classification question is whether the missing range-axis/bare
+reshape source family is promised bounded inspection or requires an excluded
+computed dependency/totality operation. Available common metadata settles
+neither alternative; no current public promised-scope failure is identified.
+
+B and C retain distinct owner refusals at 364069..365893 and 365967..368211:
+local initializer/domain inspection reaches an access without exact traversal
+membership. Earlier scalar selections return Unknown, filtered collections
+return Unknown, and other earlier sources return Supported. The first failed
+conditional-set source is 364516..364582 in B and 366414..366480 in C; its
+`card` operand is an indexed parameter set at 364527..364534 or
+366425..366432. The strict dependency path requires exact access membership.
+That is stronger than the observed par Set Int result and known binder identity.
+Independent `attPos` source inspection then refuses lazy initialized arithmetic;
+its present var Int result and rank-three array/decision selector types are known.
+Each `Xoff` source refuses computed-array-subject dependencies. The actual User
+`hFindLFCorner` declaration 2555 selects `(array[int] of int, var int) ->
+array[int] of var int` at 365118..365177 and 367186..367245. Those selections
+establish no computed array cells or outputs. The source reader does not execute
+that arbitrary array result, and the scalar fresh-User family is inapplicable.
+`model_local_decision_selectors_remain_unknown_without_membership_or_outputs`
+is counterevidence to excluding every decision selector. Complete source
+inspection of the earlier indexed-set/cardinality conditional remains the
+unresolved bounded-family question; arbitrary membership theorems and User
+array output inversion would be excluded if that were the actual demanded
+operation. One cannot turn this stronger fallback into a blanket exclusion of
+ordinary aliases or use B's returned relation to certify C.
+
+D's old scalar-only conditional refusal has changed. Its current owner still
+refuses at 370173..371678, now because the earlier parameter-array source
+reaches the parameter `array2d` at 350556..350594. That selects standard
+3294 `(par set int, par set int, array[int] of int) -> array[int,int] of int`,
+with bare/range/bare arguments. The first conditional backing source at
+370216..370322 and the later source at 370370..370610 both refuse transitive
+source inspection. Thus the later repaired conditional-array/minimum operations
+cannot certify this original owner. The raw `length` actual remains a present
+par rank-three integer array; selected standard 3266 uses the established rank-one
+matching view and returns par Int. Both selected minima (3037) are
+`array[int] of int -> int`, and conversions (3158) are `bool -> int`.
+No overload/type uncertainty explains the source failure. Independent fresh
+`pos` inspection refuses decision-array reflection; fresh `nLen` and `aLen`
+inspection require a scoped nonempty bound proof. `nDiff` also reaches an
+unsupported transitive source. Existing controls supply Unknown after successful
+bounded source checks, never a functional definition from two inequalities.
+As for A, a current public witness for the actual missing reshape source family
+and its required property is needed before proposing a promised-scope repair.
+No original minimum success or whole-item success is claimed.
+
+E first records the forwarded source refusal at 373253..374476 and the whole-let
+failure at 373096..374476. Its earlier filtered set is Supported; its extremum
+is Unknown because nonemptiness/value remains unproved. Source inspection then
+reaches the same parameter reshape at 350556..350594 through the rank-three
+Value initializer at 355332..355755, and later the reshape at
+369085..369188. The current `TwoAbsDiff` selection is User declaration 2568,
+`(var int, var int) -> var int`, at 374120..374204. Its independent source
+reader reaches that failed transitive backing source. Existing
+`user_integer_fresh_let_sources_preserve_unknown_and_refusals` proves that this
+selected scalar family can return Unknown when all actual/body sources pass;
+it does not certify this invocation. Generic initialized Local and conditional
+ancestry restrictions also remain separate. Neither a new general User evaluator
+nor arbitrary relation inversion is justified by a known signature. The same
+reshape-source support question remains open before assigning this owner an
+accepted disposition.
+
+F's actual first owner failure is the Local array gate at 374866..376008.
+`interpret_local_clause` admits its checked literal/comprehension families and
+rejects the concatenated initializer at 374927..375032 before its ordinary
+source/dependency fallback. Standard concatenation 3218 is already selected with
+both formals and result `array[int] of var int`; common structural type,
+instantiation and call identity are available. Independent source inspection
+of `nHSupport` instead reaches rank-three decision-array reflection and refuses.
+The later selected User call 2540 has `(var int, par float, par float,
+par float) -> var int`; this proves no cost computation or totality.
+The `sp_is` initializer at 375646..375670 is Supported. This is a direct
+counterexample to treating every initialized Boolean alias as uninspectable,
+but the earlier failed sibling prevents publication of either historical local.
+A source-only concat shape restriction is not itself an adopted exclusion, and
+known concat metadata is not a promise of complete source/definition inspection.
+No existing public failed promised-scope witness establishes that mapping. F
+therefore remains open rather than being classified as arbitrary computation
+solely from the separate reflection refusal.
+
+G retains the failed sibling at 377808..377878 and the enclosing failure at
+377449..378725. The sibling's actual call at 377831..377878 selects implicit
+standard `ceil` declaration 3152, `par float -> par int`; strict output
+dependencies reject it. Native Float source inspection is already a supported
+bounded operation and can return Unknown. The first parameter-cost local is
+Supported. Later domain sources refuse reflection and unproved extrema;
+`ceil` sources at 378233..378271 and 378355..378395 retain the selected native
+identity and do not supply bounds. Independent fresh `nn`/`fpSzU` inspection
+refuses output-operator identity/partiality. The `fpAreaU` product source returns
+Unknown for unproved scalar-selection membership. These children neither define
+`fpSzU` nor waive the earlier failed equality. Existing Float source controls and length-equality
+countercontrols preserve the distinction between source inspection and output
+dependency. Arbitrary value evaluation, inversion and whole-array output
+proofs are excluded operations, but that does not automatically classify a
+source-only native `ceil` or its complete owning item. No new ceil evaluator or
+current common-fact defect is established; the remaining source/strict-sibling
+support boundary stays open.
+
+V1's complete Value reader returns an error for arbitrary value-call dependencies,
+first reaching the parameter reshape at 350556..350594 through its actual
+rank-three initializer at 355332..355755. The owner result type is present
+`array[int,int,int] of var int`; standard `array3d` selection 3302 retains three
+par Set Int axes and a var rank-one integer backing array. The independent fresh
+`np` let also refuses the same source, with its real owning generator headers.
+V2's complete Value reader and fresh `p` let both refuse reflected bounds:
+`lb_array` at 355786..355804 selects a known par Int result from a present
+rank-three decision integer array, outside the existing rank-one decision-array
+source family; `ub_array` at 355855..355872 also reaches the stricter parameter
+operand/nonempty proof gate. Its reflected domain source at 376667..376856
+therefore remains unavailable. These are bound/source demands, not unresolved
+array type or declaration identity. They cannot be called input failures or
+ordinary missing data. As with the other initialized sources, admitting more
+reflection/reshape inspection is not justified without tying the actual bounded
+property to a promised family/public witness.
+
+V3 now fails for a different operation than the historical scalar-only
+conditional result gate. The current first inner refusal is User Test 2539
+`UB_AT_0` at 380378..380402: selected `(var int) -> par bool`, no default and
+no observed recursion. `source/numeric.rs::parameter_test_safety` deliberately
+requires a par Int formal/actual for its bounded selected-body reader; the
+written decision formal fails that check. A parameter Boolean result is not
+truth or a totality certificate for reflection of a decision operand.
+`model_value_fresh_locals` consequently returns the Test-specialization error
+for the whole conditional at 380336..380612. In contrast, the independently
+checked fresh `b` let at 380516..380540 returns `Ok(4510)` under its actual
+generator. This successful child cannot account for `b` after the owning guard
+fails. The generic specialization restriction alone does not show either a
+promised ordinary selected-call omission or an excluded truth/body operation.
+The missing classification evidence is the supported bounded property that this
+consumer needs from that selected Test; current metadata and child success do
+not supply it. V3 remains open.
+
+The later public controls remain supported-but-unproved suboperations, with their
+stronger proof refusals preserved. The retained
+`semantic79-connect-array-conditional-focused-v3/root-audit.json` checks complete
+par rank-one integer-array conditionals and backing/guard errors. The retained
+`semantic79-multidimensional-length-focused-v2/root-audit.json` checks the exact
+implicit-standard length declaration, raw rank-three actual and matching view,
+plus backing/axis/changed-body errors and refusal of output proof. The retained
+`semantic79-connect-conditional-min-focused-v3/root-audit.json` checks symbolic
+minimum/conversion sources and refuses backing errors, guard errors, decision
+guards, empty branches and changed selected bodies. Current public definitions
+examples preserve these cases. The new actual D result reconciles the missing
+original Local qualification: its earlier transitive backing source still
+refuses. Success of those bounded primitives supplies no original whole-owner
+closure, extent, value, membership, definition or search certificate.
+
+The retained Workforce evidence concerns a different consumer.
+`semantic76-workforce-guarded-observer-v1/classification.json` records resolved
+standard tuples, normalized enum axes, Boolean-to-integer coercion and an
+optional matrix. Its public domain/guarded route does not expose analysis's
+private callable-aware source/body facts. It records seven child refusals and
+five vacuous-constraint limitations: 14/14 thesis and 25/26 expanded rules
+Completed at that earlier state. Scalar comparisons and the inner quantifier
+have proved definedness and Unknown truth. Selected GCC/regular/sliding_sum/
+array2d identities alone establish neither assertion/regex truth, totality,
+output nor coverage. Later v17 actually completes Workforce's 14/26 rules with
+zero limitations and two/nine warnings; those later complete outcomes supersede
+the historical limitation counts, without retroactively exposing private child
+facts. Its compiler qualification remains source-only. Neither record proves
+Connect owners or arbitrary body truth, and old public refusals are not current
+Workforce failures.
+
+The justified observations now cover all ten owners and all nineteen distinct
+historical ranges. The current common facts and successful child inspections
+are useful supported-but-unproved operations. None is a full-owner success.
+No owner is classified as an actual input/dependency failure: the unchanged
+complete model loads, parses and resolves its recorded owning-item calls, and
+retained compiler acceptance counters an input-invalidity explanation. Some
+stronger required output/bound/membership operations can be outside the adopted
+bounded contract; source-family shape restrictions alone do not establish that
+mapping. All nineteen whole-owner dispositions consequently remain open and
+excluded from justified-disposition and promised-support success totals.
+
+The remaining evidence is specific to that support mapping, not another absent
+whole-owner runtime result: range-axis/bare-source reshape inspection in
+A/D/E/V1; indexed parameter-set/cardinality conditional inspection in B/C;
+initialized Local integer concat inspection in F; native-call/equality and
+fresh-domain source obligations in G/V2; and decision-formal parameter-Test
+inspection in V3. A future bounded repair proposal needs an existing public
+promised-scope witness, the precise consumer and source family, and checks that
+retain Unknown/closed-error/sibling/output barriers. No such proposal is imported
+or implemented here. Arbitrary evaluation, relation inversion, exhaustive body
+interpretation and general computed dependency proofs remain excluded; ordinary
+aliases, projections and selected-call facts do not become exclusions by
+association. This report does not conclude that only documented exclusions
+remain or that semantic acceptance is complete.
+
+Base-083 retains its independent diagnostic scaling review, including the
+65,694 decision-variable-operator warnings at distinct ranges in the 3.87 MB
+already-generated Project Planning model. Confirmed expanded-analysis cost still
+needs matched diagnostics/outcomes and bounded growth/allocation/native evidence.
+Final complete 14-ID thesis and 26-ID all accounting must retain every original
+root, exact selections, Completed/Limited/Inapplicable/NotRun partitions and
+explicit invalid/unavailable/Unobserved rows. Accepted exclusions stay Limited;
+missing observations, resource cutoffs and promised gaps cannot become success.
+Base-050's compiler pre-checks, source preservation and final performance and
+integration obligations remain separate. The current no-repair/no-sweep scope
+leaves those acceptance obligations open.
