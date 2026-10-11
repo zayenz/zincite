@@ -7936,3 +7936,40 @@ the remaining support mappings and final stable thesis14/current-all28 corpus
 accounting with every original root, exact IDs, pins, complete outcomes and
 explicit unavailable or Unobserved results. Historical all26 captures remain
 separate. Base-083 remains open.
+
+### Base-083: Local integer concatenation source inspection
+
+The public control compares `length(left ++ right)` with `length(joined)` after
+an earlier `array[int] of var int: joined = left ++ right` in the same mixed let.
+Both operands are bare top-level rank-one integer arrays with symbolic written
+axes and present decision elements. All owning calls resolve. The direct form
+completed source inspection, while the Local form failed at the literal-only
+initializer gate. Independent reproduction confirmed this ordinary source
+admission gap.
+
+`interpretation/clauses.rs::interpret_local_clause` admits that bounded Local
+concat through the existing selected concat recognizer and primitive check. It
+requires a written unbounded Int axis, bare top-level operands, the checked Local
+scope and annotations, safe written type sources, and initialized child source
+inspection. It retains uncertain initialization and records inspected locals
+without outputs or definitions. Operand axes, concat extent, membership and
+values remain unproved. Written bounded Local axes remain Limited because this
+source path has no compatibility proof; the closed `2..3` Local initialized
+from two singleton operands is refused. Strict dependency proofs and whole-owner
+sibling checks retain their existing behavior.
+
+The grouped public regression
+`local_integer_concatenation_inspects_sources_without_outputs` checks the direct
+and Local forms, an initialized source error, a changed written concat body, a
+failed Boolean sibling and the incompatible Local axis. Both positive forms
+complete search analysis without findings or limitations. The direct form
+retains its existing marker scalar definition; the Local form has no outputs or
+definitions. All four refusal cases remain located and Limited with no inspected
+locals. `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings` and
+`cargo test --workspace` passed.
+
+No original F owner was replayed. Its transitive reflection and selected User
+sources remain separate obligations, and this bare-source control does not
+settle its whole-owner disposition. Base-083 still needs the remaining support
+mappings and final stable thesis14/current-all28 accounting described above.

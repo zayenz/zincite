@@ -612,6 +612,71 @@ impl<'a> BodyInterpreter<'a, '_> {
                         private.push(declaration.id);
                         continue;
                     }
+                    if let Some(arguments) = array_concatenation(
+                        self.source.context,
+                        self.source.bindings,
+                        self.source.view(clause.file, initializer, view),
+                        clause.file,
+                        initializer,
+                    ) {
+                        if !matches!(&self.source.domains.declarations[declaration.id.0].domain,
+                            Domain::Array { indices, .. } if matches!(indices.as_slice(), [Domain::UnconstrainedInt]))
+                        {
+                            self.unavailable(
+                                clause,
+                                "local concatenation requires an unbounded written integer axis",
+                                unavailable,
+                            );
+                            return;
+                        }
+                        if self.source.operation_fact(self.source.view(clause.file, initializer, view), clause.file, initializer).is_none_or(|call| {
+                            !matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                                if self.source.prefix_primitive(clause.file, initializer,
+                                    self.source.view(clause.file, initializer, view), "++", parameters, return_type))
+                        }) {
+                            self.unavailable(clause, "local concatenation selected written primitive is unsupported", unavailable);
+                            return;
+                        }
+                        if !self
+                            .source
+                            .scoped_local(clause, declaration.id, view, ty.kind.clone())
+                            || !self
+                                .source
+                                .source_annotations_safe(clause.file, initializer)
+                            || arguments.iter().any(|argument| {
+                                let argument = unwrap(argument);
+                                argument.kind() != NodeKind::Expression
+                                    || self.source.reference(clause.file, argument).is_none_or(
+                                        |id| !self.source.bindings.declarations[id.0].top_level,
+                                    )
+                            })
+                        {
+                            self.unavailable(clause, "local concatenation requires checked scope and bare top-level array sources", unavailable);
+                            return;
+                        }
+                        if let Err(reason) =
+                            self.type_dependencies(clause.file, local, view, &clause.generators)
+                        {
+                            self.unavailable(clause, &reason, unavailable);
+                            return;
+                        }
+                        if let DefinitionSafety::Unsupported(reason) = self
+                            .initialized_children_safety(
+                                clause.file,
+                                &arguments,
+                                view,
+                                &clause.generators,
+                            )
+                        {
+                            self.unavailable(clause, &reason, unavailable);
+                            return;
+                        }
+                        // Inspected sources do not prove this Local's extent or outputs.
+                        uncertain_initialization = true;
+                        uncertain_locals.push(declaration.id);
+                        private.push(declaration.id);
+                        continue;
+                    }
                     let cells: Vec<_> = initializer.child_nodes().collect();
                     let range = self.source.context.files[clause.file]
                         .location(initializer.range())
