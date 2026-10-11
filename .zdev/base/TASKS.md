@@ -2,8 +2,8 @@
 
 # Tasks: base
 
-- Total: 105
-- Ready: 1
+- Total: 106
+- Ready: 2
 - Blocked: 1
 - Done: 103
 
@@ -114,3 +114,4 @@
 | [base-103](tasks/103-keep-fitting-conditional-array-comprehensions-compact.md) | Keep fitting conditional array comprehensions compact | done | — |
 | [base-104](tasks/104-indent-expanded-conditional-headers-consistently.md) | Indent expanded conditional headers consistently | done | — |
 | [base-105](tasks/105-prefer-direct-array-comprehensions-with-preserved-indices.md) | Prefer direct array comprehensions with preserved indices | done | — |
+| [base-106](tasks/106-suggest-enums-for-integer-sets-used-only-as-identities.md) | Suggest enums for integer sets used only as identities | ready | base-099 |

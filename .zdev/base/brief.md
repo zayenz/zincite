@@ -506,6 +506,18 @@ generators without filters; multidimensional axes must be proven nonempty so an
 empty product cannot lose another axis. Unresolved or excluded forms stay unchanged. Reuse existing semantic facts and source-edit safety; this does not
 change automatic formatting or resume parked semantic-completeness work.
 
+The opt-in style rule `prefer-enum` advises when a named finite integer set's
+members appear to serve as identities. Require a supported categorical member or
+index use and check affected uses throughout the complete model, including
+initializers, calls, objectives, output and annotations. Numeric or
+representation-sensitive member uses withhold advice; count arithmetic and
+numeric payloads retrieved through identity indices are distinct. Unknown or
+unsupported affected propagation withholds advice with the existing honest
+analysis outcomes. The initial task defines its bounded operations and exclusions.
+Keep this diagnostic-only, outside defaults and thesis; do not claim an equivalent
+conversion or compatibility with external data consumers. This rule owns its
+narrow member-use analysis and does not require or resume base-083.
+
 ### Configuration, personal presets and parameters
 
 Use `zincite.toml` with a `[lint]` table. For each positional root, use the nearest
