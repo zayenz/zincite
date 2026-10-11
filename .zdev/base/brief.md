@@ -335,6 +335,24 @@ selection, configuration and fixes; a plugin system and JSON output remain defer
 
 ### Semantic analysis
 
+Adopt the [bounded semantic processing policy](../../docs/semantic-processing-plan.md).
+Promise scoped declaration/reference identity, include/source ownership, common
+structural scalar/set/array/tuple/record types, nominal enums, `par`/`var`,
+optionality and supported first-order overload/coercion/substitution facts.
+Retain unique-selection and ambiguity/unknown-candidate vetoes. Array index types
+are not index sets/extents, and enum types do not prove computed membership.
+Preserve the existing bounded numeric, guarded, option, iteration, definition,
+callable-output and search owners and their successful cases.
+
+Deliberately exclude arbitrary model/parameter evaluation, recursive execution
+or termination proofs, arbitrary relation inversion, general theorem proving,
+exhaustive library-body interpretation, whole-program computed dependency/value
+evaluation, unrestricted higher-order interpretation and recursively changing
+type instantiations. Freeze new specialized relation-body inspectors; preserve
+existing useful ones. Flattening, solving and whole-language validation remain
+outside scope. Valid syntax does not require unrestricted semantic interpretation;
+complete target syntax and source-preserving processing remain required.
+
 Keep the parser and formatter independent of semantic linting. Retain
 `lint(&ParsedFile)` with its current defaults; expose selected rules and model
 analysis through library APIs used by the CLI. Start with direct traversal and
@@ -359,8 +377,15 @@ must never become guessed parameter values, fabricated domains or safe rewrite
 claims. Implement the necessary subset of typing, not a second validating compiler.
 A rule skipped because required facts are unavailable must be distinguishable
 from a completed rule with no findings in the library result and corpus report;
-report a concise CLI analysis limitation. It does not constitute full semantic
-coverage at the final acceptance gate. Selected-analysis results separate findings,
+report a concise CLI analysis limitation. A documented excluded operation that
+blocks a selected rule remains a located limitation and Limited. Acceptance may
+accept that named boundary without counting it as Completed. Distinguish a
+supported analysis with an unproved property (ordinary Unknown), a documented
+exclusion, missing/incorrect promised support, and actual input/dependency
+failure. Promised gaps block acceptance; complexity is not an exclusion. Resource
+cutoffs, missing observations, crashes and unsupported valid target syntax
+cannot be reclassified as exclusions to improve totals. Selected-analysis results
+separate findings,
 per-rule execution/applicability/limitations, and actual errors. Render limitations
 on stderr; retain exit 0 with no warnings, 1 with unsuppressed warnings, and 2
 for input, parse, directive, usage or dependency errors, with 2 taking precedence.
@@ -393,10 +418,17 @@ Add only regressions that expose a real corpus failure, using minimal synthetic
 examples where possible. Run the whole external corpus at integration milestones
 and final acceptance, not in every `cargo test`. Report totals, failure categories,
 rule coverage and analysis limitations separately. Final acceptance requires no
-unresolved Zincite failures on valid target syntax, formatter stability and
-preservation on all valid inputs, and execution of all applicable thesis rules on
-complete model roots with resolved dependencies. All exclusions need a reason;
-missing corpora or unavailable model dependencies prevent a full-coverage claim.
+unresolved Zincite processing failures on valid target syntax or semantic failures
+within promised support, formatter stability and preservation on all valid inputs,
+and complete per-root/per-rule accounting on complete model roots. Every selected
+rule retains its outcome; accepted semantic exclusions stay located and Limited,
+not Completed. Keep exact selected IDs, Completed/Limited/Inapplicable/NotRun
+partitions, source/dependency/availability classifications and explicit
+invalid/unavailable/Unobserved rows. All exclusions name an operation and affected
+rules; missing observations and resource cutoffs remain failures or unobserved
+results, never exclusions. Diagnostic scaling/grouping and confirmed measured-cost
+obligations remain, including matched outcomes and bounded growth/allocation/native
+evidence. Missing corpora or unavailable model dependencies prevent a full-coverage claim.
 
 ## Linter expansion: semantic facts, rule families and fixes
 
@@ -425,7 +457,14 @@ Each has named rule consumers below and can be exercised without enabling a lint
 Known, disproven, unknown and unsupported conclusions remain distinguishable.
 Missing parameter data is ordinary uncertainty, not a fabricated value; unsupported
 analysis remains an explicit limitation. Analyse only facts required by selected
-rules or fixes, once per model context. Rule parameters never change semantic
+rules or fixes, once per model context. Source signatures, selected declarations,
+types and instantiations need not prove selected bodies' bounds, totality or outputs.
+Retain written user-body references/local types and any typing needed by signatures.
+Inspect deeper selected bodies only for a named bound, definedness, traversal,
+definition or search consumer. Mixed selections retain the existing body-aware
+proof route and compute one appropriate fact result. Known errors stay visible
+and veto dependent proofs; signature facts never upgrade constant-variable advice
+or safe-fix eligibility. Rule parameters never change semantic
 truth or turn an unknown precondition into a proved one.
 
 Guards follow MiniZinc relational partiality and conditional semantics, not an
@@ -700,6 +739,11 @@ queries may expose reference-to-declaration navigation, declaration uses, bounde
 transitive reference traversal and available type/instantiation facts. Reuse
 binding identity, overload resolution and unknown/unsupported outcomes from the
 linter; a negated unknown predicate must not turn uncertainty into a match.
+Model scan/fact-construction admission and query result collection/expansion
+have distinct finite bounds. Retain pre-allocation protection and actual stage-work
+accounting; normal installed-library navigation must not exhaust a result allowance
+merely because all loaded source tokens were counted as result entries. The retained
+normal-library resource failure requires repair, not a semantic exclusion.
 These are static source relationships, not MiniZinc flattening/data-dependency
 instrumentation. Ordinary linting does not require data values or query execution.
 
@@ -737,6 +781,15 @@ actual commands on the two known model/data pairs and check originals and reduce
 candidates with `minizinc --instance-check-only`; solving is unnecessary. Inspect
 removed-member absence, key coverage, retained values and ordering directly:
 compiler acceptance alone does not establish the requested transformation.
+For these two named real instances, accept documented incomplete best-effort
+previews while computed dependencies remain unresolved; retain status 1, located
+unresolved dependencies and refusal of in-place writes. General computed enum-index
+expression evaluation is excluded, not required to complete these previews. Check
+both originals and previews with the compiler and direct data inspection. Separately
+require a small complete structured-reduction example through both command forms,
+including the complete write path and compiler/direct data checks. This policy does
+not mark base-092 complete. Normal-library semantic navigation and its resource
+repair remain acceptance requirements.
 Reuse existing performance scripts for representative growing data and repeat
 the existing save checks only when shared syntax/layout code changes. No broad
 test matrix, full query corpus campaign or new benchmark platform is required.

@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-097"
 key = "bounded-semantic-support-contract"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "high"
@@ -28,12 +28,21 @@ The user requested research on Clippy, Ruff/ty and Shackle, then a bounded MiniZ
 
 ## Done when
 
-- [ ] The brief and durable policy state the supported core, proof-specific consumers and named stop lines. All fourteen thesis rules retain useful implemented paths and positive cases; valid syntax does not imply unrestricted semantic interpretation. docs/callable-analysis-plan.md remains a historical/current-implementation map, with its universal-repair resumption assumption explicitly superseded by the new policy.
-- [ ] The thesis mapping and base-083/base-050 acceptance wording require complete per-root/per-rule accounting and no unresolved failures within promised scope, while explicitly reporting accepted exclusions as Limited. Existing diagnostic-scaling, measured-cost, source-preservation, compiler pre-check and final integration obligations remain. No task is marked complete by adopting policy.
-- [ ] Base-092 explicitly accepts the two named real reductions as incomplete best-effort previews, retains unresolved dependency reporting and write refusal, and requires a small complete structured-reduction/write-path control plus normal-library semantic navigation. Existing compiler/data/privacy/performance requirements remain.
-- [ ] Coordinator adds the new retained-family classification and simple-consumer demand tasks as base-083 prerequisites, retaining base-080/base-082/base-094 and all evidence. Coordinator adds the query resource-admission task as a base-092 prerequisite. Other completed/unrelated tasks and base-050's existing dependency on base-083 remain intact.
+- [x] The brief and durable policy state the supported core, proof-specific consumers and named stop lines. All fourteen thesis rules retain useful implemented paths and positive cases; valid syntax does not imply unrestricted semantic interpretation. docs/callable-analysis-plan.md remains a historical/current-implementation map, with its universal-repair resumption assumption explicitly superseded by the new policy.
+- [x] The thesis mapping and base-083/base-050 acceptance wording require complete per-root/per-rule accounting and no unresolved failures within promised scope, while explicitly reporting accepted exclusions as Limited. Existing diagnostic-scaling, measured-cost, source-preservation, compiler pre-check and final integration obligations remain. No task is marked complete by adopting policy.
+- [x] Base-092 explicitly accepts the two named real reductions as incomplete best-effort previews, retains unresolved dependency reporting and write refusal, and requires a small complete structured-reduction/write-path control plus normal-library semantic navigation. Existing compiler/data/privacy/performance requirements remain.
+- [x] Coordinator adds the new retained-family classification and simple-consumer demand tasks as base-083 prerequisites, retaining base-080/base-082/base-094 and all evidence. Coordinator adds the query resource-admission task as a base-092 prerequisite. Other completed/unrelated tasks and base-050's existing dependency on base-083 remain intact.
 
 ## Validation
 
 - Compare every changed acceptance clause against the approved task contract and existing brief. Check all fourteen rule rows, precise exclusions, honest Limited accounting, preserved processing/performance/fix obligations and the separate complete versus incomplete reduction examples. No new tests are expected.
 - The coordinator owns task/lifecycle mutations and generated index updates; an independent verifier reviews the final document and record diffs together. Run zdev check base --format json and git diff --check after record changes. Confirm no production code, originals or completed outcomes changed.
+
+## Result
+
+Adopted bounded semantic support and honest acceptance contracts, preserving Limited outcomes and incomplete write refusal.
+
+Validation:
+
+- Independent whole-task verifier PASS at W9eef9d2bd689abc6; unchanged snapshot comparison.
+- zdev check base and git diff --check passed; documentation only, no new tests or sweeps.

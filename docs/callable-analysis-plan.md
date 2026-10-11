@@ -14,6 +14,21 @@ fact API, semantic behavior, brief policy or task graph. The
 remain authoritative. In source references below, `src/` and `tests/` mean
 `crates/zincite-lint/src/` and `crates/zincite-lint/tests/`.
 
+## Superseding support policy
+
+The approved [bounded semantic processing policy](semantic-processing-plan.md)
+supersedes this document's universal-repair assumption in the classification
+and base-083 resumption sections, including the assertion that no product-scope
+change is proposed. This document remains the historical/current-implementation
+map for base-093/base-094 and their checked contracts. Missing promised support
+still requires a witnessed bounded repair; a documented semantic exclusion may
+remain a located limitation and Limited at acceptance. It never becomes
+Completed. Preserve current proof barriers and successful cases. The
+initializer-adaptation query and whole-owner extraction remain deferred, not
+prerequisites. Base-098 classifies retained families, base-099 checks simple
+consumer demand, and base-100 repairs query resource admission; policy adoption
+does not complete base-083, base-050 or base-092 or authorize a corpus sweep.
+
 ## Current responsibilities
 
 All collaborating facts must come from the same retained `ModelContext`.
