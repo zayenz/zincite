@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-102"
 key = "format-quantified-condition-chain"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -25,10 +25,19 @@ Found with local zincite-fmt at f950541 while revising Gecode's gecode_nooverlap
 
 ## Done when
 
-- [ ] A fitting if or elseif header containing a conjunction of short forall conditions stays compact.
-- [ ] Comments, genuinely multiline bodies and headers exceeding the configured width retain readable expanded layout.
+- [x] A fitting if or elseif header containing a conjunction of short forall conditions stays compact.
+- [x] Comments, genuinely multiline bodies and headers exceeding the configured width retain readable expanded layout.
 
 ## Validation
 
 - Add focused two/four-space formatter examples at fitting and non-fitting widths; check parsing, token/comment preservation and second-pass stability.
 - Run the existing formatter tests and required Cargo checks.
+
+## Result
+
+Fitting if/elseif conjunctions of short forall conditions stay compact with preserved grouping and complete-header width checks.
+
+Validation:
+
+- Independent verifier passed at We32044bc151cf9c7; two/four-space exact-width regression, parsing, token/comment preservation and idempotence passed.
+- cargo fmt --all -- --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace passed.

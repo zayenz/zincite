@@ -843,6 +843,78 @@ fn expanded_conjunctions_align_operands_and_measure_calls_on_their_own_lines() {
 }
 
 #[test]
+fn quantified_condition_chains_fit_complete_headers_and_preserve_expanded_bodies() {
+    use zincite_fmt::{FormatOptions, format_with_options};
+    let source = r#"predicate fixed() = if enabled then
+if forall (w in width) (is_fixed(w)) /\ forall (h in height) (is_fixed(h)) then true
+elseif (forall (w in width) (is_fixed(w)) /\ 'forall' (h in height) (is_fixed(h))) then true
+elseif forall (w in width) (/* Keep  body comment */ is_fixed(w)) /\ forall (h in height) (is_fixed(h)) then true
+elseif forall (w in width) (is_fixed(w) /\
+  w > 0) /\ forall (h in height) (is_fixed(h)) then true
+elseif forall (w in width) (is_fixed(w)) /\ % Keep  chain comment
+  forall (h in height) (is_fixed(h)) then true
+else false endif
+else false endif;
+"#;
+    let header = "if forall (w in width) (is_fixed(w)) /\\ forall (h in height) (is_fixed(h)) then";
+    let grouped_header =
+        "elseif (forall (w in width) (is_fixed(w)) /\\ 'forall' (h in height) (is_fixed(h))) then";
+    for indent_size in [2, 4] {
+        let indent = " ".repeat(2 * indent_size);
+        let fitting_width = indent.len() + header.len();
+        for width in [fitting_width - 1, fitting_width, 120] {
+            let options = FormatOptions {
+                indent_size: std::num::NonZeroUsize::new(indent_size).unwrap(),
+                max_line_length: std::num::NonZeroUsize::new(width),
+                ..FormatOptions::default()
+            };
+            let parsed = parse(source);
+            assert!(parsed.diagnostics().is_empty());
+            let formatted = format_with_options(&parsed, &options).unwrap();
+            assert_eq!(
+                formatted
+                    .lines()
+                    .any(|line| line == format!("{indent}{header}")),
+                width >= fitting_width,
+                "{formatted}"
+            );
+            assert_eq!(
+                formatted
+                    .lines()
+                    .any(|line| line == format!("{indent}{grouped_header}")),
+                width >= indent.len() + grouped_header.len(),
+                "{formatted}"
+            );
+            assert!(
+                formatted.contains("/* Keep  body comment */\n"),
+                "{formatted}"
+            );
+            assert!(formatted.contains("is_fixed(w) /\\\n"), "{formatted}");
+            assert!(formatted.contains("% Keep  chain comment\n"));
+            assert!(
+                formatted.lines().all(|line| line.chars().count() <= width),
+                "{formatted}"
+            );
+            let reparsed = parse(formatted.clone());
+            assert!(reparsed.diagnostics().is_empty(), "{formatted}");
+            let spellings = |file: &zincite_syntax::ParsedFile| {
+                file.tokens()
+                    .iter()
+                    .filter(|token| token.kind != TokenKind::Whitespace)
+                    .map(|token| file.source()[token.range.clone()].to_owned())
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(spellings(&parsed), spellings(&reparsed));
+            assert_eq!(
+                structure(parsed.tree(), &parsed),
+                structure(reparsed.tree(), &reparsed)
+            );
+            assert_eq!(format_with_options(&reparsed, &options).unwrap(), formatted);
+        }
+    }
+}
+
+#[test]
 fn short_forall_conditions_fit_inline_without_collapsing_multiline_bodies() {
     use zincite_fmt::{FormatOptions, format_with_options};
     let source = r#"predicate bounded(array[int] of var int: xs) =

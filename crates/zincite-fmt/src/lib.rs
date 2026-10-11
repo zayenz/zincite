@@ -771,7 +771,7 @@ impl<'a> Formatter<'a> {
                                 if compact {
                                     let previous = self.suffix_columns;
                                     self.suffix_columns = suffix;
-                                    self.generator_expression(expression, true, true);
+                                    self.compact_generator_condition(expression, true);
                                     self.suffix_columns = previous;
                                 } else {
                                     self.expression_before(expression, true, suffix);
@@ -855,6 +855,32 @@ impl<'a> Formatter<'a> {
     }
 
     fn generator_condition_fits_inline(&self, node: &SyntaxNode, suffix: usize) -> bool {
+        if !self.generator_condition_can_inline(node) {
+            return false;
+        }
+        let mut preview = self.preview();
+        preview.suffix_columns = suffix;
+        let start = preview.output.len();
+        preview.compact_generator_condition(node, true);
+        !preview.output[start..].contains('\n')
+            && !preview.exceeds_width(self.current_columns(), suffix)
+    }
+
+    fn generator_condition_can_inline(&self, node: &SyntaxNode) -> bool {
+        if self.is_conjunction(node) || node.kind() == NodeKind::ParenthesizedExpression {
+            return !self.has_delimited_line_break(
+                node,
+                TokenKind::LeftParen,
+                TokenKind::RightParen,
+            ) && node
+                .child_nodes()
+                .all(|child| self.generator_condition_can_inline(child))
+                && node.children().iter().all(|child| {
+                    !matches!(child, SyntaxElement::Token(index)
+                        if matches!(self.parsed.tokens()[*index].kind,
+                            TokenKind::LineComment | TokenKind::BlockComment))
+                });
+        }
         if node.kind() != NodeKind::GeneratorCallExpression {
             return false;
         }
@@ -888,12 +914,34 @@ impl<'a> Formatter<'a> {
         {
             return false;
         }
-        let mut preview = self.preview();
-        preview.suffix_columns = suffix;
-        let start = preview.output.len();
-        preview.generator_expression(node, true, true);
-        !preview.output[start..].contains('\n')
-            && !preview.exceeds_width(self.current_columns(), suffix)
+        true
+    }
+
+    fn compact_generator_condition(&mut self, node: &SyntaxNode, leading_space: bool) {
+        if node.kind() == NodeKind::GeneratorCallExpression {
+            self.generator_expression(node, leading_space, true);
+            return;
+        }
+        let parenthesized = node.kind() == NodeKind::ParenthesizedExpression;
+        let mut first = true;
+        for child in node.children() {
+            match child {
+                SyntaxElement::Node(child) => {
+                    self.compact_generator_condition(
+                        child,
+                        first && leading_space || !first && !parenthesized,
+                    );
+                    first = false;
+                }
+                SyntaxElement::Token(index) => {
+                    let kind = self.parsed.tokens()[*index].kind;
+                    self.token_with_space(*index, first && leading_space || kind == TokenKind::And);
+                    if !is_trivia(kind) {
+                        first = false;
+                    }
+                }
+            }
+        }
     }
 
     fn generator_expression(&mut self, node: &SyntaxNode, leading_space: bool, compact_body: bool) {
