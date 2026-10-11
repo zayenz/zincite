@@ -915,6 +915,125 @@ else false endif;
 }
 
 #[test]
+fn expanded_conditional_headers_align_operands_and_nested_branch_bodies() {
+    use std::num::NonZeroUsize;
+    use zincite_fmt::{FormatOptions, IndentStyle, format_with_options};
+
+    let nested = r#"predicate hook() = if enabled then
+if length(c) = 2 /\ index_sets_agree(c, x) /\ (if is_fixed(c[max(index_set(c))]) then fix(c[max(index_set(c))]) /* Keep  condition comment */ else false endif) then true
+elseif length(c) = 2 /\ index_sets_agree(c, x) /\ (if is_fixed(c[max(index_set(c))]) then fix(c[max(index_set(c))]) else false endif) then false
+else false endif
+else false endif;
+"#;
+    let simple = r#"predicate hook() = if enabled then
+if length(c) = 2 /\ index_sets_agree(c, x) then true
+elseif length(c) = 2 /\ index_sets_agree(c, x) then false
+else false endif
+else false endif;
+"#;
+    for indent_size in [2, 4] {
+        for indent_style in [IndentStyle::Space, IndentStyle::Tab] {
+            let indent = |columns| match indent_style {
+                IndentStyle::Space => " ".repeat(columns),
+                IndentStyle::Tab => {
+                    format!("{}{}", "\t".repeat(columns / 4), " ".repeat(columns % 4))
+                }
+            };
+            let outer = 2 * indent_size;
+            let if_header = "if length(c) = 2 /\\ index_sets_agree(c, x) then";
+            let elseif_header = "elseif length(c) = 2 /\\ index_sets_agree(c, x) then";
+            let fitting_width = outer + if_header.len();
+            for width in [fitting_width - 1, fitting_width, 120] {
+                let options = FormatOptions {
+                    indent_size: NonZeroUsize::new(indent_size).unwrap(),
+                    indent_style,
+                    tab_width: NonZeroUsize::new(4).unwrap(),
+                    max_line_length: NonZeroUsize::new(width),
+                    ..FormatOptions::default()
+                };
+                for source in [nested, simple] {
+                    let parsed = parse(source);
+                    assert!(parsed.diagnostics().is_empty());
+                    let formatted = format_with_options(&parsed, &options).unwrap();
+                    if source == nested {
+                        for (keyword, offset) in [("if", 3), ("elseif", 7)] {
+                            let condition = indent(outer + offset);
+                            assert!(
+                                formatted.contains(&format!(
+                                    "{}{} length(c) = 2 /\\\n{}index_sets_agree(c, x) /\\",
+                                    indent(outer),
+                                    keyword,
+                                    condition
+                                )),
+                                "{formatted}"
+                            );
+                            assert!(
+                                formatted.contains(&format!("\n{condition}(if is_fixed(")),
+                                "{formatted}"
+                            );
+                            assert!(
+                                formatted.contains(&format!(
+                                    "\n{}fix(c[",
+                                    indent(outer + offset + indent_size)
+                                )),
+                                "{formatted}"
+                            );
+                            assert!(
+                                formatted.contains(&format!(
+                                    "\n{condition}else\n{}false\n{condition}endif) then",
+                                    indent(outer + offset + indent_size)
+                                )),
+                                "{formatted}"
+                            );
+                        }
+                        assert!(formatted.contains("/* Keep  condition comment */"));
+                    } else {
+                        for (header, offset) in [(if_header, 3), (elseif_header, 7)] {
+                            let fits = width >= outer + header.len();
+                            assert_eq!(
+                                formatted
+                                    .lines()
+                                    .any(|line| line == format!("{}{header}", indent(outer))),
+                                fits,
+                                "{formatted}"
+                            );
+                            if !fits {
+                                assert!(
+                                    formatted.contains(&format!(
+                                        "\n{}index_sets_agree(c, x) then",
+                                        indent(outer + offset)
+                                    )),
+                                    "{formatted}"
+                                );
+                            }
+                        }
+                    }
+                    assert!(
+                        formatted.contains(&format!(" then\n{}true", indent(outer + indent_size))),
+                        "{formatted}"
+                    );
+                    let reparsed = parse(&formatted);
+                    assert!(reparsed.diagnostics().is_empty(), "{formatted}");
+                    let spellings = |file: &zincite_syntax::ParsedFile| {
+                        file.tokens()
+                            .iter()
+                            .filter(|token| token.kind != TokenKind::Whitespace)
+                            .map(|token| file.source()[token.range.clone()].to_owned())
+                            .collect::<Vec<_>>()
+                    };
+                    assert_eq!(spellings(&parsed), spellings(&reparsed));
+                    assert_eq!(
+                        structure(parsed.tree(), &parsed),
+                        structure(reparsed.tree(), &reparsed)
+                    );
+                    assert_eq!(format_with_options(&reparsed, &options).unwrap(), formatted);
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn conditional_array_comprehensions_fit_complete_lines_and_indent_expanded_heads() {
     use std::num::NonZeroUsize;
     use zincite_fmt::{FormatOptions, format_with_options};

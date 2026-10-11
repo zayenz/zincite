@@ -108,6 +108,7 @@ fn format_output(
         last_was_comment: false,
         between_items: false,
         indent: 0,
+        condition_offset: 0,
         options: *options,
         measuring: false,
         measuring_prefix: false,
@@ -181,6 +182,7 @@ struct Formatter<'a> {
     last_was_comment: bool,
     between_items: bool,
     indent: usize,
+    condition_offset: usize,
     options: FormatOptions,
     measuring: bool,
     measuring_prefix: bool,
@@ -385,18 +387,7 @@ impl<'a> Formatter<'a> {
 
     fn expression_contents(&mut self, node: &SyntaxNode, leading_space: bool) {
         if is_binary(node.kind()) {
-            let conjunction = self.is_conjunction(node);
-            let mut expanded = self.measuring_prefix
-                || conjunction && self.parsed.source()[node.range()].contains(['\r', '\n']);
-            if conjunction && !expanded && !self.measuring {
-                let mut preview = self.preview();
-                let start = preview.output.len();
-                preview.binary_expression(node, leading_space, false, self.indent + 1);
-                expanded = preview.output[start..].contains('\n')
-                    || preview.exceeds_width(self.current_columns(), self.suffix_columns);
-            }
-            let continuation_indent = self.indent + usize::from(!conjunction || !expanded);
-            self.binary_expression(node, leading_space, expanded, continuation_indent);
+            self.binary_expression_layout(node, leading_space, false);
             return;
         }
         if node.kind() == NodeKind::InterpolatedString {
@@ -544,6 +535,27 @@ impl<'a> Formatter<'a> {
         if continuation {
             self.indent -= 1;
         }
+    }
+
+    fn binary_expression_layout(
+        &mut self,
+        node: &SyntaxNode,
+        leading_space: bool,
+        condition: bool,
+    ) {
+        let conjunction = self.is_conjunction(node);
+        let mut expanded = self.measuring_prefix
+            || conjunction && self.parsed.source()[node.range()].contains(['\r', '\n']);
+        if conjunction && !expanded && !self.measuring {
+            let mut preview = self.preview();
+            let start = preview.output.len();
+            preview.binary_expression(node, leading_space, false, self.indent + 1);
+            expanded = preview.output[start..].contains('\n')
+                || preview.exceeds_width(self.current_columns(), self.suffix_columns);
+        }
+        let continuation_indent =
+            self.indent + usize::from(!condition && (!conjunction || !expanded));
+        self.binary_expression(node, leading_space, expanded, continuation_indent);
     }
 
     // Traverse the written binary tree without regrouping operands. Chain
@@ -745,6 +757,7 @@ impl<'a> Formatter<'a> {
                         self.newlines(self.pending_breaks.max(1));
                     }
                     let mut body = false;
+                    let mut condition_column = self.indent_columns();
                     for (position, part) in branch.children().iter().enumerate() {
                         if self.prefix_finished() {
                             break;
@@ -761,24 +774,28 @@ impl<'a> Formatter<'a> {
                                 };
                                 let compact_condition = !body
                                     && self.generator_condition_fits_inline(expression, suffix);
-                                let continuation = !body
-                                    && !compact_condition
-                                    && self.prefix_exceeds_width(expression, true, suffix);
-                                if continuation {
-                                    self.indent += 1;
-                                    self.newlines(self.pending_breaks.max(1));
+                                let previous_offset = self.condition_offset;
+                                if !body {
+                                    // Keep the first operand after the keyword. Nested
+                                    // layouts retain their block levels from this column.
+                                    self.condition_offset = condition_column.saturating_sub(
+                                        self.indent * self.options.indent_size.get(),
+                                    );
                                 }
                                 if compact_condition {
                                     let previous = self.suffix_columns;
                                     self.suffix_columns = suffix;
                                     self.compact_generator_condition(expression, true);
                                     self.suffix_columns = previous;
+                                } else if !body && is_binary(expression.kind()) {
+                                    let previous = self.suffix_columns;
+                                    self.suffix_columns = suffix;
+                                    self.binary_expression_layout(expression, true, true);
+                                    self.suffix_columns = previous;
                                 } else {
                                     self.expression_before(expression, true, suffix);
                                 }
-                                if continuation {
-                                    self.indent -= 1;
-                                }
+                                self.condition_offset = previous_offset;
                             }
                             SyntaxElement::Token(index) => {
                                 let kind = self.parsed.tokens()[*index].kind;
@@ -788,6 +805,9 @@ impl<'a> Formatter<'a> {
                                     self.break_before_code = true;
                                 }
                                 self.token_with_space(*index, !first || leading_space);
+                                if matches!(kind, TokenKind::If | TokenKind::ElseIf) {
+                                    condition_column = self.current_columns() + 1;
+                                }
                                 if !is_trivia(kind) {
                                     first = false;
                                 }
@@ -1291,6 +1311,7 @@ impl<'a> Formatter<'a> {
             last_was_comment: self.last_was_comment,
             between_items: self.between_items,
             indent: self.indent,
+            condition_offset: self.condition_offset,
             options: self.options,
             measuring: true,
             measuring_prefix: false,
@@ -1337,8 +1358,7 @@ impl<'a> Formatter<'a> {
                 || self.columns(last) + suffix_columns > width.get()
         } else {
             let columns = if prefix_columns > width.get() {
-                self.columns(first).saturating_sub(prefix_columns)
-                    + self.indent * self.options.indent_size.get()
+                self.columns(first).saturating_sub(prefix_columns) + self.indent_columns()
             } else {
                 self.columns(first)
             };
@@ -1450,8 +1470,7 @@ impl<'a> Formatter<'a> {
         let (first, remaining) = text.split_once('\n').unwrap_or((text, ""));
         let prefix = self.current_columns();
         let columns = if prefix > width.get() {
-            self.columns(first).saturating_sub(prefix)
-                + self.indent * self.options.indent_size.get()
+            self.columns(first).saturating_sub(prefix) + self.indent_columns()
         } else {
             self.columns(first)
         };
@@ -1537,7 +1556,7 @@ impl<'a> Formatter<'a> {
     // breaks. A nested multiline cell therefore keeps its ordinary layout even
     // when neighboring columns move on the next formatting pass.
     fn matrix_layout(&self, node: &SyntaxNode) -> MatrixLayout {
-        let indent = (self.indent + 1) * self.options.indent_size.get();
+        let indent = self.indent_columns() + self.options.indent_size.get();
         let matrix_rows: Vec<_> = node
             .child_nodes()
             .map(|row| (row, self.matrix_row_has_index(row)))
@@ -1801,7 +1820,7 @@ impl<'a> Formatter<'a> {
                         self.pending_breaks = 0;
                     }
                     let start = if is_index {
-                        self.indent * self.options.indent_size.get() + 2
+                        self.indent_columns() + 2
                     } else {
                         layout.starts[column]
                     };
@@ -1863,6 +1882,7 @@ impl<'a> Formatter<'a> {
                 .indent
                 .checked_add(1)
                 .and_then(|indent| indent.checked_mul(self.options.indent_size.get()))
+                .and_then(|indent| indent.checked_add(self.condition_offset))
                 .and_then(|indent| indent.checked_add(1))
                 .and_then(|per_entry| per_entry.checked_mul(entries))
                 .and_then(|layout| layout.checked_add(columns))
@@ -2038,9 +2058,13 @@ impl<'a> Formatter<'a> {
         self.last_was_comment = false;
     }
 
+    fn indent_columns(&self) -> usize {
+        self.indent * self.options.indent_size.get() + self.condition_offset
+    }
+
     fn indent_line(&mut self) {
         if self.output.ends_with('\n') {
-            let columns = self.indent * self.options.indent_size.get();
+            let columns = self.indent_columns();
             let tab_width = self.options.tab_width.get();
             if self.options.indent_style == IndentStyle::Tab {
                 for _ in 0..columns / tab_width {
