@@ -36,3 +36,34 @@ Read the adopted brief/support plan, thesis mapping, base-083 and scripts/semant
 
 - Reconcile the nineteen-site inventory and each family disposition against retained captures, actual consumer code, the adopted support contract and existing public examples. Independently challenge each proposed gap or exclusion with counterevidence. Documentation requires reference/diff checks, not new tests.
 - For a necessary bounded control, retain complete relevant facts and ordered rule outcomes/diagnostics/limitations; keep all originals read-only and avoid solving. Run git diff --check; run zdev check only for coordinator-owned record changes.
+
+## Parked checkpoint, 2026-10-11
+
+Read-only inspection reconciled all nineteen historical sites against the v17
+audit, stderr and unchanged original source: sixteen Constraint locals across
+seven owning items and three Value locals across three owning items. No current
+whole-owner disposition is justified. Later public controls establish narrower
+supported operations; they cannot establish closure of these ten original owners
+or waive failed siblings. Independent blocker review confirmed this at snapshot
+Wb984d24100337ee2. No original replay, semantic repair or corpus sweep ran.
+
+Missing observations are each owner's current source verdict, first refused inner
+expression, original/substituted selected-call types and relevant sibling results.
+The owning families cover initialized Boolean aliases, cell membership and user
+array results, local minimum/conversion chains, user scalar results, concatenation
+with subsequent user calls, float bounds/array products, conditional reshape,
+reflected domains and decision-controlled conditionals. The retained capture is
+`target/benchmarks/base083/semantic79-combined-repairs-originals-v17/`.
+
+The exact inventory, family analysis and missing-observation list are preserved
+in `/tmp/zincite098-append.md`, `/tmp/zincite098-inventory.json` and
+`/tmp/zincite098-manifest.json`. The full checkpoint candidate is
+`/tmp/zincite098-candidate.md`; it is an unfinished draft, not a completed
+classification. Nineteen sites remain open. Existing base-083 diagnostic scaling,
+cost and complete 14/26 accounting obligations remain separate.
+
+The approved boundary forbids fresh original replay. A question is pending to
+permit observation of only these ten owning items, with no semantic repair or
+corpus sweep. Keep this task open and base-083 parked until that decision and
+the missing evidence are available; do not classify missing observations as
+documented exclusions or promised-support success.
