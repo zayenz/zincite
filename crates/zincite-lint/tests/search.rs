@@ -306,6 +306,16 @@ fn finite_integer_tests_inspect_earlier_decision_integer_sources() {
         "solve :: seq_search([int_search(inputs,input_order,indomain_min,complete),\n",
         "  bool_search([gate],input_order,indomain_min,complete)]) satisfy;\n",
     );
+    let conditional_source = source
+        .replace("if within_limit(inputs[i]) then 1 else 0 endif", "0")
+        .replace(
+            "array[1..2] of var 0..9: inputs;",
+            "array[1..2] of int: flags;\narray[1..2] of var 0..9: inputs;",
+        )
+        .replace(
+            "matrix[i,inputs[i],i]",
+            "matrix[i,if flags[i]==0 then inputs[i] else inputs[1] endif,i]",
+        );
     let library = format!(
         "{CORE}{}",
         concat!(
@@ -328,6 +338,13 @@ fn finite_integer_tests_inspect_earlier_decision_integer_sources() {
             "source-error",
             source.replace("matrix[i,", "matrix[i+(1 div 0),"),
             true,
+            true,
+        ),
+        ("conditional", conditional_source.clone(), false, false),
+        (
+            "conditional-source-error",
+            conditional_source.replace("else inputs[1] endif", "else inputs[1]+(1 div 0) endif"),
+            false,
             true,
         ),
     ] {

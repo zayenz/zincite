@@ -8554,3 +8554,29 @@ positive controls without solving. Conditional selectors and the original
 mixed-comparator/computed-array siblings are separate obligations. Original B/C
 outcomes after this correction remain unobserved; all five whole-task
 conditions remain unchecked.
+
+### Native conditional-selector source increment
+
+After `35be74e`, the existing native rank-three/rank-four parameter integer cell
+reader rejects a parameter-guarded conditional selector before its supported
+branch inspection can run. The correction uses the existing branch-aware closed
+error scan in that cell reader, then retains the existing initialized-child
+and conditional-source checks. The eager helper and other consumers are
+unchanged.
+
+Two added cases reuse the caller regression: a symbolic parameter guard over
+two decision cells and an error in one possible branch. Successful inspection
+leaves local coverage Unknown and raw membership-dependent definitions
+unsupported, with unchanged searched seeds and no callable outputs or
+definitions. A closed branch error remains Limited. Existing checks still
+refuse unsupported annotations, optional/decision guards, computed User-array
+subjects and closed selections outside explicitly declared index domains.
+Literal inactive errors remain conservatively refused by ordinary branch
+inspection; the correction proves no branch truth, totality or short-circuit
+behavior. Constructor extent alone supplies no declared membership proof.
+
+Retained current MiniZinc source/instance checks and Gecode compile-only accept
+the positive controls without solving; supplied flags validate compiler input,
+while Zincite's source check retains symbolic flags. Original B/C outcomes
+after this correction remain unobserved. All five whole-task conditions remain
+unchecked, and final capture waits for stable operation accounting.

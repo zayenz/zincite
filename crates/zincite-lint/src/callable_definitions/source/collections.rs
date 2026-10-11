@@ -4723,7 +4723,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             }
             if let Some(reason) = self
                 .source
-                .closed_integer_source_error(file, written, true, true)
+                .closed_integer_source_error_with_branches(file, written, false, true, true)
             {
                 return Err(reason);
             }
