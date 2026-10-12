@@ -139,7 +139,7 @@ support documentation and located limitations.
 | Inapplicable context | Use Inapplicable for actual context restrictions, such as export reachability in a fragment or model analysis on standalone data. Difficult complete models are not inapplicable. |
 | Resource cutoff or missing observation | Retain the resource failure or Unobserved report row. Neither is Completed or a semantic exclusion. |
 
-Keep exact selected IDs and every original root, with per-root/per-rule
+Keep exact selected IDs and every selected control root, with per-root/per-rule
 Completed, Limited, Inapplicable and NotRun partitions and explicit invalid,
 unavailable and Unobserved rows. Report accepted exclusions separately from
 promised gaps without renaming or removing Limited rows. Acceptance requires no
@@ -180,8 +180,13 @@ Do not merely raise a collection limit or add a budget subsystem.
 
 Base-083 retains diagnostic scaling/grouping review, including the retained
 generated Project Planning case, confirmed expanded-analysis cost with matched
-outcomes and bounded growth/allocation/native evidence, and final complete
-14/current-all accounting (now 28 IDs), preserving historical 26-ID evidence.
+outcomes and bounded growth/allocation/native evidence, and final bounded named
+14/current-all controls (now 28 IDs), preserving historical 26-ID evidence.
+Cover known repair witnesses and representative distinct model/include
+configurations, with focused public positive/negative rule checks. Do not replay
+every instance or require another full semantic corpus capture to finish this
+task. Preserve existing full captures at their recorded revisions; use full
+instance semantic runs for benchmarks or witnessed data-dependent regressions.
 Base-050 retains full corpus inventory, compiler pre-checks,
 source preservation and final release performance/integration requirements.
 Neither classifications nor bounded controls substitute for final acceptance.

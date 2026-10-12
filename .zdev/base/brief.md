@@ -430,6 +430,16 @@ results, never exclusions. Diagnostic scaling/grouping and confirmed measured-co
 obligations remain, including matched outcomes and bounded growth/allocation/native
 evidence. Missing corpora or unavailable model dependencies prevent a full-coverage claim.
 
+For base-083 semantic acceptance, use a bounded named set of original models and
+public controls covering all fourteen thesis rules, current all (28 IDs), known
+repair witnesses and representative model/include configurations. Select by
+source and constructs; use representative data where it affects the checked
+operation. Replaying every instance or the full semantic corpus after repairs is
+not required. Preserve prior full captures with their actual revision and scope,
+and report selected controls and exclusions honestly. Full original parsing,
+formatting and source-preservation compatibility remains base-050 work; full
+instance semantic runs serve benchmarks or specific data-dependent regressions.
+
 ## Linter expansion: semantic facts, rule families and fixes
 
 Requested on 2026-09-30. Add the ten proposed detection families: index-set
