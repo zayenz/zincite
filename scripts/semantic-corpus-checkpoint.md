@@ -8839,3 +8839,48 @@ compile-only range control remain applicable; no solving was performed. Those
 receipts do not compile the new conditional-prefix regression. Original
 post-change outcomes and final corpus acceptance remain unobserved; all five
 base-083 completion conditions remain unchecked.
+
+### Bounded acceptance and the three reviewed repairs
+
+The user revised base-083 acceptance to use a bounded named original/public
+control set, rather than another full corpus or every-instance semantic replay.
+The task, brief and semantic plan record that decision in `1b37220`. Full
+parsing/formatting compatibility remains separate base-050 work. The completed
+6,417-root thesis14/all28 capture at `87fcfc3` passed independent integrity
+review; it is historical evidence and does not describe the later repairs.
+
+Three independently reviewed corrections are committed and pushed:
+
+- `eafadf3`: operation calls use the existing global declaration lookup while
+  arguments, values and types retain lexical lookup.
+- `d368c35`: resolved body-demand types survive independent reachability
+  uncertainty; generic demands, uncertain edges and recursion limits remain.
+- `11dc52a`: direct native `length` axes and one earlier local alias use checked
+  source facts. Numeric bounds remain unsupported; no count, minimum,
+  nonemptiness, membership or whole-owner proof is inferred.
+
+Focused regressions fail against their unfixed source and pass after correction.
+Combined fmt, clippy with warnings denied and all 381 workspace tests pass.
+Three installed MiniZinc 2.10.1 model-only controls accept ordinary/quoted
+same-name calls and values and reject invalid arity. They use the explicit
+Gecode configuration and standard library without solving.
+
+The named original controls are neighbours-rect, mondoku-gcc-model-balance and
+globals_all_equal_int. They exercise formal/local length sources, callable-name
+collisions in a standard closure and ambiguous versus concrete generic demands.
+Both current presets retain exact 14/28 IDs and three complete resolved root
+rows, with no timeout or input errors and byte-identical native/companion
+diagnostics. Originals and tools remain unchanged. Thesis limitations change
+from 11 to 9 in neighbours, 76 to 25 in Mondoku and remain 13 in all_equal.
+Only the two witnessed neighbours axis locations disappear; Mondoku's
+unused-declaration rule completes after 51 limitations disappear. Ambiguous
+all_equal and its generic routes remain Limited. Those remaining limitations
+still require bounded contract reconciliation; these controls do not establish
+whole-task acceptance.
+
+The batch report names base commit `1b37220` with the repaired working-tree
+source; its exact source and binary pins bind that run to the code subsequently
+committed through `11dc52a`. One native process per preset is a behavior check,
+not an isolated speedup measurement. All four local commands match their
+reviewed release binaries and pass help checks. Private evidence remains local
+under `target/benchmarks/base083/three-repair-original-controls` and `/tmp`.

@@ -4,8 +4,8 @@
 
 - Total: 106
 - Ready: 1
-- Blocked: 1
-- Done: 104
+- Blocked: 0
+- Done: 105
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -58,7 +58,7 @@
 | [base-047](tasks/047-reduce-the-live-syntax-and-formatting-working-set.md) | Reduce the live syntax and formatting working set | done | base-022 |
 | [base-048](tasks/048-verify-and-document-an-unobtrusive-save-command.md) | Verify and document an unobtrusive save command | done | base-046, base-047, base-077 |
 | [base-049](tasks/049-measure-batch-and-semantic-lint-speed-and-memory.md) | Measure batch and semantic-lint speed and memory | done | base-022, base-029, base-045 |
-| [base-050](tasks/050-verify-corpus-processing-and-full-thesis-lint-coverage.md) | Verify corpus processing and full thesis lint coverage | blocked | base-026, base-028, base-029, base-045, base-048, base-049, base-075, base-076, base-078, base-079, base-080, base-081, base-082, base-083 |
+| [base-050](tasks/050-verify-corpus-processing-and-full-thesis-lint-coverage.md) | Verify corpus processing and full thesis lint coverage | ready | base-026, base-028, base-029, base-045, base-048, base-049, base-075, base-076, base-078, base-079, base-080, base-081, base-082, base-083 |
 | [base-051](tasks/051-reduce-measured-punctuation-dispatch-cost-in-the-lexer.md) | Reduce measured punctuation dispatch cost in the lexer | done | — |
 | [base-052](tasks/052-accept-compiler-supported-form-feed-layout-and-escaped-singl.md) | Accept compiler-supported form-feed layout and escaped single quotes | done | — |
 | [base-053](tasks/053-accept-the-four-remaining-compiler-supported-item-and-callab.md) | Accept the four remaining compiler-supported item and callable families | done | — |
@@ -91,7 +91,7 @@
 | [base-080](tasks/080-resolve-and-classify-the-remaining-corpus-processing-gaps.md) | Resolve and classify the remaining corpus processing gaps | done | — |
 | [base-081](tasks/081-meet-the-public-wide-matrix-save-budget-with-a-measured-loca.md) | Meet the public wide-matrix save budget with a measured local repair | done | base-080 |
 | [base-082](tasks/082-attribute-the-remaining-full-batch-rss-and-expanded-lint-cut.md) | Attribute the remaining full-batch RSS and expanded-lint cutoffs | done | base-080 |
-| [base-083](tasks/083-complete-supported-semantic-facts-and-thesis-execution-cover.md) | Establish bounded thesis support and honest execution accounting | ready | base-080, base-082, base-094, base-098, base-099 |
+| [base-083](tasks/083-complete-supported-semantic-facts-and-thesis-execution-cover.md) | Establish bounded thesis support and honest execution accounting | done | base-080, base-082, base-094, base-098, base-099 |
 | [base-084](tasks/084-add-the-root-zincite-command-with-shared-fmt-and-lint-entry.md) | Add the root zincite command with shared fmt and lint entry points | done | — |
 | [base-085](tasks/085-deliver-source-preserving-item-queries-through-library-and-b.md) | Deliver source-preserving item queries through library and both commands | done | base-084 |
 | [base-086](tasks/086-replace-and-remove-selected-data-assignments-with-source-pre.md) | Replace and remove selected data assignments with source-preserving previews | done | base-085 |

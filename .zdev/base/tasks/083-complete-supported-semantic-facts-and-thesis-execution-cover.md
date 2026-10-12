@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-083"
 key = "complete-thesis-execution"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -46,11 +46,11 @@ Use the retained `ProjectPlannertest_16_7.mzn` capture as a concrete review case
 
 ## Done when
 
-- [ ] Diagnostic scaling and repetitive advice have been reviewed against original source constructs, including the retained large generated model; the findings and any grouping decision are recorded.
-- [ ] The retained standard-body/control reductions have checked compiler-supported expectations and current full rule outcomes; concrete promised-scope gaps needed by applicable thesis rules are repaired through existing modules with sound unknown behavior; documented excluded operations remain located limitations and Limited, with their affected rules and retained positive support stated.
-- [ ] Located limitations in the retained classification controls and selected complete resolved original models are reconciled to supported-but-unproved facts, documented exclusions, concrete promised-support gaps or actual unavailable prerequisites. Ordinary symbolic parameters can complete and decline unprovable candidates when the promised operation ran; accepted exclusions remain Limited and witnessed missing/incorrect promised support remains an acceptance blocker. Retain base-098 dispositions and any explicitly unobserved original behavior. Historical corpus counts remain evidence of that capture, without requiring every repeated instance or diagnostic to become a new investigation.
-- [ ] Confirmed expanded-analysis performance repairs have matched before/after diagnostics/outcomes, bounded growth and allocation/native measurements; unexplained cutoffs cannot be hidden by relaxing deadlines or dropping roots.
-- [ ] After the final changes, a bounded named acceptance set covers all fourteen thesis rules and current all (28 IDs), the retained witnessed repair cases and representative distinct model/include configurations. Use focused public positive/negative checks where private originals do not exercise a rule. Record the selected roots, selection rationale, exact rule IDs, per-rule outcomes and invalid/unavailable/Unobserved results; documented exclusions stay Limited. Acceptance requires no unresolved witnessed valid-processing or promised-scope failures and does not require every outcome to be Completed. Preserve the completed full-corpus capture and historical 26-ID evidence with their actual revisions and scope; do not claim that they describe post-repair behavior. A fresh full-corpus or every-instance semantic replay is not required to finish base-083.
+- [x] Diagnostic scaling and repetitive advice have been reviewed against original source constructs, including the retained large generated model; the findings and any grouping decision are recorded.
+- [x] The retained standard-body/control reductions have checked compiler-supported expectations and current full rule outcomes; concrete promised-scope gaps needed by applicable thesis rules are repaired through existing modules with sound unknown behavior; documented excluded operations remain located limitations and Limited, with their affected rules and retained positive support stated.
+- [x] Located limitations in the retained classification controls and selected complete resolved original models are reconciled to supported-but-unproved facts, documented exclusions, concrete promised-support gaps or actual unavailable prerequisites. Ordinary symbolic parameters can complete and decline unprovable candidates when the promised operation ran; accepted exclusions remain Limited and witnessed missing/incorrect promised support remains an acceptance blocker. Retain base-098 dispositions and any explicitly unobserved original behavior. Historical corpus counts remain evidence of that capture, without requiring every repeated instance or diagnostic to become a new investigation.
+- [x] Confirmed expanded-analysis performance repairs have matched before/after diagnostics/outcomes, bounded growth and allocation/native measurements; unexplained cutoffs cannot be hidden by relaxing deadlines or dropping roots.
+- [x] After the final changes, a bounded named acceptance set covers all fourteen thesis rules and current all (28 IDs), the retained witnessed repair cases and representative distinct model/include configurations. Use focused public positive/negative checks where private originals do not exercise a rule. Record the selected roots, selection rationale, exact rule IDs, per-rule outcomes and invalid/unavailable/Unobserved results; documented exclusions stay Limited. Acceptance requires no unresolved witnessed valid-processing or promised-scope failures and does not require every outcome to be Completed. Preserve the completed full-corpus capture and historical 26-ID evidence with their actual revisions and scope; do not claim that they describe post-repair behavior. A fresh full-corpus or every-instance semantic replay is not required to finish base-083.
 
 ## Validation
 
@@ -58,3 +58,13 @@ Use the retained `ProjectPlannertest_16_7.mzn` capture as a concrete review case
 - Reuse current bounded compiler no-solve controls, standard closures and full outcome comparisons, with a few focused public positive/negative soundness regressions only for actual repairs.
 - Pin/recheck the selected user/standard/imported originals before and after controls; retain finite deadlines and no missing selected rows or fabricated completion counts. Retain unselected inventory and previous captures as historical evidence, without claiming new semantic observations. Do not publish private sources.
 - Run workspace fmt/clippy/tests for Rust changes; recheck relevant source-preservation, default behavior, shared includes, semantic findings/limitations and existing save/batch contracts after the final changes. No broad timing/test matrix.
+
+## Result
+
+Established bounded thesis support with reviewed semantic repairs and honest Limited/Unobserved outcomes.
+
+Validation:
+
+- Independent verifier PASS at W4f4536d5aa0b0aca: all five conditions under user-revised bounded acceptance; no unresolved witnessed promised-support failure.
+- Workspace fmt, clippy and 381 tests pass; named three-root thesis14/all28 controls retain native/companion diagnostic parity and pinned originals.
+- MiniZinc 2.10.1 no-solve namespace controls pass; all four local commands installed and hash-match reviewed release binaries.
