@@ -17,11 +17,34 @@ One query program produces several related results and structured feature report
 
 ## Context
 
-Shared execution is owned by the Zirql base task bundle: base-002 supplies the initial native pipeline adapter, base-004 supplies programs/bindings, and base-005/base-007 supply positional/keyed report comprehensions. Check the live integration and its pinned Zirql revision before implementation. The prior standalone evaluator plan is superseded; retain Zincite frontend, native result and acceptance obligations, and do not complete this task merely because a core feature exists.
+Shared execution is owned by the Zirql base task bundle: base-002 supplies the native
+pipeline adapter, base-004 supplies programs/bindings, and base-005 supplies positional
+report comprehensions. Keyed/enum/multidimensional report obligations remain for
+base-007 integration. Check the live integration and pinned Zirql revision before
+implementation. Retain Zincite frontend, native result and acceptance obligations; a
+core feature alone does not complete this task.
 
-Zirql base-004 now supplies the verified consumer program checkpoint: both CLI forms and Program::parse/evaluate/evaluate_with_model/evaluate_with_facts accept read-only source bindings, ordered statements, terminal emitters and native count/histogram/selection records. Shared execution uses Zirql 4e4baf38e7c8566781f069dccea110383d6c0d24 with exact registry fallback =0.1.0-alpha.3. The canonical source checkpoint is 48c3f6a1c5b211779a5af92dcc519a141cb9985d, from source transport 18095e960adbe1b861e298949c0b0008dbb53f2a. Existing Query/edit APIs, ModelFacts/source/proof ownership, exact-root/BOM and Unknown/negation behavior remain host-owned. Program limits add aggregate native/report admission; CLI output is buffered through evaluation and rendering. Base-126 remains open: the MiniZinc positional/keyed comprehension, generator and key obligations belong to later base-005/base-007 integration. Keep task outcome, boundaries and completion conditions unchanged; reconcile only superseded current-behavior context after acceptance.
+The verified positional consumer checkpoint accepts read-only source bindings, source
+literal helpers, immutable let bindings and bounded MiniZinc positional comprehensions
+through both CLI forms and Program library APIs. Zincite lowers its CST and projects
+supported native values; Zirql owns checked scalar expressions, scope and generator
+evaluation. Pure reports use tagged scalar/set/tuple/record/positional-array output;
+native reports preserve their existing shape. Shared execution uses Zirql
+be8bd8b07d5e7e4fb148f8f2e032ffe0f5e226b9 with exact registry fallback =0.1.0-alpha.4.
+The canonical source checkpoint is c4a3e568eaca852d2df4e7cae3bd7033218438e6, from source
+transport 02ca8d7e881b64666daa8845306f9372cb7bbf73. Existing Query/edit APIs,
+ModelFacts/source/proof ownership, original input/BOM locations and Unknown/negation
+behavior remain host-owned. Parsing, evaluation, projection, copying and rendering use
+aggregate allowances; CLI output remains buffered. Base-126 stays open for the remaining
+base-007 report obligations. Keep outcome, boundaries, completion conditions and
+validation unchanged.
 
-Read crates/zincite-query/src/program.rs, language.rs, lib.rs, pipeline.rs, semantic.rs and cli.rs, docs/reference.md and Zirium docs/query-language.md as a design reference. Read the shared comprehension contract from literal-mapping-contract before the remaining integrations; report construction must use its MiniZinc-style generators and bounded operations. The implemented read-only program checkpoint does not complete those constructor obligations.
+Read crates/zincite-query/src/program.rs, comprehension.rs, language.rs, lib.rs,
+pipeline.rs, semantic.rs and cli.rs, docs/reference.md and Zirium docs/query-language.md
+as a design reference. Read the shared comprehension contract from
+literal-mapping-contract before the remaining integrations; report construction must use
+its MiniZinc-style generators and bounded operations. The accepted positional checkpoint
+does not complete the remaining keyed constructor obligations.
 
 For human-facing documentation and website prose, apply unslop (/Users/zayenz/.agents/skills/unslop/SKILL.md) and zayenz-writing-style (/Users/zayenz/.agents/skills/zayenz-writing-style/SKILL.md). Read their applicable guidance; use the professional-informal/code-documentation register for explanatory docs. Preserve exact commands, code, schemas, quotations and machine-oriented reference text.
 

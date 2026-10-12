@@ -755,12 +755,16 @@ for the existing tools. `--model PATH` supplies optional model declarations for
 data interpretation; use the existing `-I`/`--stdlib-dir` include rules when a
 query requires semantic context. Syntax queries require no library installation.
 Model/include files supply facts and are never implicit transformation targets.
-Read-only query programs accept -f/--program-file, immutable earlier-result source
-bindings, ordered query/report statements and native record reports. Both CLI forms and
-Program library APIs retain one input/context, demanded public ModelFacts owner and
-budget across statements. Counts, histograms and native selections retain
-completion/limitations through explicit JSON rendering; later runtime/rendering errors
-leave CLI stdout empty. Multiple input files and directory inputs remain deferred.
+Read-only query programs accept -f/--program-file, immutable source and let bindings,
+ordered query/report statements and native or constructed positional reports. Literal
+sources read one original assignment; query sources use supported native projections.
+Zincite lowers its MiniZinc CST into Zirql for checked scalar expressions, scopes and
+generators. Pure values use tagged scalar, set, tuple, record and positional-array
+output; native reports keep their existing shapes. Both CLI forms and Program library
+APIs retain one input/context, demanded public ModelFacts owner and aggregate
+work/result/nesting budget across parsing, evaluation, copying and rendering. Reports
+retain completion/limitations; later runtime/rendering errors leave CLI stdout empty.
+Multiple input files and directory inputs remain deferred.
 
 ### Initial query language
 
@@ -791,14 +795,14 @@ unchanged. Directives must not become attached to a different surviving item:
 remove next-item directives with their target and diagnose transformations that
 would unbalance paired formatter directives.
 
-Keep results native in the library until rendering. Query errors identify query
-byte ranges; input/semantic limitations identify source file/ranges. Bound query
-nesting, evaluation work and collection expansion, report exceeded limits, and
-never silently truncate results. Reuse Zirium's limit approach without importing
-its entire language. Read-only source bindings and record reports are implemented
-through the shared Zirql program runner. Positional/keyed comprehensions, arbitrary
-callbacks, fixed-point programs, semantic diff, Markdown reports and general expression
-evaluation remain deferred.
+Keep results native in the library until rendering. Query errors identify query byte
+ranges; input/semantic limitations identify source file/ranges. Bound query nesting,
+evaluation work and collection expansion, report exceeded limits, and never silently
+truncate results. Reuse Zirium's limit approach without importing its entire language.
+Read-only source/let bindings, native reports and bounded positional comprehensions use
+shared Zirql execution. Keyed/enum/multidimensional reports remain for Zirql base-007
+integration. Arbitrary callbacks, fixed-point programs, semantic diff, Markdown reports
+and general MiniZinc expression evaluation remain deferred.
 
 ### Data edits and structured values
 
