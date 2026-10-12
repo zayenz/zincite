@@ -713,6 +713,8 @@ tasks retain their original boundary and do not acquire query acceptance work.
 
 ### Commands and ownership
 
+Zirql owns shared pipeline execution, program/binding rules and bounded report/data comprehension evaluation under its approved base task bundle. Zincite retains its syntax frontend, native CST/literal/semantic values, ModelFacts demand, rendering and edit safety. Zirql base-002 migrates existing read-only pipelines; base-004, base-005 and base-007 supply the program and report integrations needed by Zincite base-126. The consumer task remains open until its own library/CLI behavior and validation are accepted. Coordinate query source and dependency changes with the Zirql chat; do not develop a second program or comprehension evaluator.
+
 Add a package named `zincite` at the Cargo workspace root. Its binary dispatches
 `fmt`, `lint`, and, when implemented, `query` directly to callable CLI entry points.
 Retain `zincite-fmt`, `zincite-lint`, and add `zincite-query`; both invocation forms
@@ -725,7 +727,7 @@ Use a reusable `zincite-query` library with a thin binary and root subcommand.
 Traverse the existing CST and consume existing semantic APIs. Depending on
 `zincite-lint` for its public model/fact APIs is sufficient initially. Move shared
 code only when the new consumer actually needs it; keep lint-fix safety policy
-separate from general source-edit validation. No generic backend interface,
+separate from general source-edit validation. Keep host operations concrete; no
 plugin system, second parser, compiler or permanent mutable query document.
 
 The query command accepts one query argument and one input file or `-`; omitted

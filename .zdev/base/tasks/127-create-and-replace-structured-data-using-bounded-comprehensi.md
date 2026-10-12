@@ -16,6 +16,8 @@ Shared comprehension syntax constructs new data and atomically replaces existing
 
 ## Context
 
+Zirql base-008 owns the shared-comprehension data integration after this task's exact attended contract gate has been resolved. Consume the verified report evaluator and keep candidate validation, target identity, comment policy and atomic replacement in Zincite. Coordinate implementation ownership with the Zirql chat; this note neither approves the data contract nor completes the consumer task.
+
 Read the contract produced by literal-mapping-contract and obtain explicit approval for its grammar, operation subset and comment/key policy before editing. This attended gate resolves those choices; existing set_value source insertion remains separate. The user also requires creation of data and a double-instance example, not only element filtering or numeric scaling. Use the shared bounded comprehension contract for reports and data; do not create a separate data evaluator. Begin with structured.rs, language.rs, lib.rs, CLI edit handling and established query tests.
 
 For human-facing documentation and website prose, apply unslop (/Users/zayenz/.agents/skills/unslop/SKILL.md) and zayenz-writing-style (/Users/zayenz/.agents/skills/zayenz-writing-style/SKILL.md). Read their applicable guidance; use the professional-informal/code-documentation register for explanatory docs. Preserve exact commands, code, schemas, quotations and machine-oriented reference text.

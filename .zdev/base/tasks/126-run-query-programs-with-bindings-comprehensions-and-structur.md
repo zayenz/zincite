@@ -17,6 +17,8 @@ One query program produces several related results and structured feature report
 
 ## Context
 
+Shared execution is owned by the Zirql base task bundle: base-002 supplies the initial native pipeline adapter, base-004 supplies programs/bindings, and base-005/base-007 supply positional/keyed report comprehensions. Check the live integration and its pinned Zirql revision before implementation. The prior standalone evaluator plan is superseded; retain Zincite frontend, native result and acceptance obligations, and do not complete this task merely because a core feature exists.
+
 Zincite currently accepts one fixed pipeline and rejects semicolon statements and bindings. Read crates/zincite-query/src/language.rs, lib.rs, semantic.rs and cli.rs, docs/reference.md and Zirium docs/query-language.md as a design reference. Read the shared comprehension contract from literal-mapping-contract; report construction must use its MiniZinc-style generators and bounded operations. This user-approved follow-up extends the initial single-pipeline boundary; update the brief and query reference with the implemented program contract.
 
 For human-facing documentation and website prose, apply unslop (/Users/zayenz/.agents/skills/unslop/SKILL.md) and zayenz-writing-style (/Users/zayenz/.agents/skills/zayenz-writing-style/SKILL.md). Read their applicable guidance; use the professional-informal/code-documentation register for explanatory docs. Preserve exact commands, code, schemas, quotations and machine-oriented reference text.

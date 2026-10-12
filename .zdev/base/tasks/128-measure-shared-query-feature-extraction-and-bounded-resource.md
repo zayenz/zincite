@@ -17,6 +17,8 @@ Measured evidence establishes the cost and reuse of practical multi-feature repo
 
 ## Context
 
+Coordinate this consumer acceptance work with Zirql base-010's adoption and reuse measurement so each named case is measured once. Record both consumer and Zirql source pins; retain this task's successful/incomplete distinction and validation obligations.
+
 scripts/query-acceptance.md has fresh-process measurements, including a resource-limit rejection that is not successful throughput. Reuse established measurement helpers and the shared semantic owner. Include a comprehension-built report in the named workload. Measure one small syntax report, one installed-library semantic report and a moderately sized literal-data report; compare one program with equivalent separate invocations.
 
 For human-facing documentation and website prose, apply unslop (/Users/zayenz/.agents/skills/unslop/SKILL.md) and zayenz-writing-style (/Users/zayenz/.agents/skills/zayenz-writing-style/SKILL.md). Read their applicable guidance; use the professional-informal/code-documentation register for explanatory docs. Preserve exact commands, code, schemas, quotations and machine-oriented reference text.
