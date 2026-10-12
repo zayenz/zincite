@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-132"
 key = "publish-zincite-site"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 priority = "low"
 blocked_by = ["base-131"]
@@ -29,13 +29,21 @@ For human-facing documentation and website prose, apply unslop (/Users/zayenz/.a
 
 ## Done when
 
-- [ ] Canonical URL, host and necessary publication authority are recorded before deployment.
-- [ ] The deployed landing/docs/search/assets work over HTTPS with correct base paths, canonical metadata, sitemap and any approved redirects.
-- [ ] Mobile/keyboard smoke checks and representative copyable commands match the shipped version; support/performance claims match current evidence.
-- [ ] The update, verification and rollback procedure is documented without storing secrets.
+- [x] Canonical URL, host and necessary publication authority are recorded before deployment.
+- [x] The deployed landing/docs/search/assets work over HTTPS with correct base paths, canonical metadata, sitemap and any approved redirects.
+- [x] Mobile/keyboard smoke checks and representative copyable commands match the shipped version; support/performance claims match current evidence.
+- [x] The update, verification and rollback procedure is documented without storing secrets.
 
 ## Validation
 
 - Verify the actual deployed URL and links/assets/search, canonical metadata and sitemap; retain publication evidence and relevant limitations.
 - Run site build before publication, git diff --check and zdev check base --format json for changed records.
 - Review the final human-facing prose against both writing skills: concrete openings, proportionate claims, direct explanations and Zayenz voice; remove generic or promotional wording without flattening useful context.
+
+## Result
+
+Published https://zayenz.se/zincite/ through existing Netlify Git deployment 6acd19408cf0713fa404653e from personal-site commit 7ab46199c1511ccc95172b61de41cbed87e73414 (Zincite source77e5a91). Preserved prior deploy and unrelated unpublished personal-site commits; documented update and Git-revert recovery.
+
+Validation:
+
+- Fresh whole-task PASS Wff00a8d819b60359: all57 hosted files exact,12 canonicals/sitemap,377 links/anchors,actual search/result navigation,mobile/menu/local scroll,keyboard/focus/Escape,clipboard commands and installed CLI parity. Personal root/About and prior immutable deploy verified. Source sitecheck/build and Node24 releasecheck pass; diff/zdev checks pass. Generated Pagefind template-string whitespace retained with independently reviewed exact-file exception. Chromium desktop/mobile-width smoke; rollback inspected, not executed.

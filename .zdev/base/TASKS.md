@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 132
-- Ready: 3
+- Ready: 2
 - Blocked: 3
-- Done: 126
+- Done: 127
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -140,4 +140,4 @@
 | [base-129](tasks/129-publish-the-formatting-style-and-refresh-bounded-acceptance.md) | Publish the formatting style and refresh bounded acceptance evidence | done | — |
 | [base-130](tasks/130-organize-zincite-documentation-around-user-workflows.md) | Organize Zincite documentation around user workflows | done | — |
 | [base-131](tasks/131-build-an-astro-documentation-site-with-zincite-branding.md) | Build an Astro documentation site with Zincite branding | done | base-130 |
-| [base-132](tasks/132-publish-and-verify-the-approved-zincite-documentation-site.md) | Publish and verify the approved Zincite documentation site | ready | base-131 |
+| [base-132](tasks/132-publish-and-verify-the-approved-zincite-documentation-site.md) | Publish and verify the approved Zincite documentation site | done | base-131 |

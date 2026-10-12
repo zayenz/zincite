@@ -68,3 +68,9 @@ tables should scroll within the content, without widening the page.
 
 No site build is wired into Rust checks. Build the website explicitly when its
 content, configuration or appearance changes.
+
+## Publication
+
+The chosen canonical URL is `https://zayenz.se/zincite/`. Follow
+[the publication procedure](PUBLISHING.md) to import a reviewed build into the
+existing personal-site deployment, verify it over HTTPS and retain a rollback.
