@@ -54,7 +54,11 @@ impl AnalysisResult {
         if !self.errors.is_empty() {
             2
         } else {
-            u8::from(!self.findings.is_empty())
+            u8::from(
+                self.findings
+                    .iter()
+                    .any(|finding| finding.severity == Severity::Warning),
+            )
         }
     }
 }
@@ -867,10 +871,14 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
 /// limitations alone retain status 0/1; actual errors take precedence with 2.
 pub fn write_analysis(result: &AnalysisResult, output: &mut impl Write) -> io::Result<u8> {
     for finding in &result.findings {
+        let severity = match finding.severity {
+            Severity::Informational => "info",
+            Severity::Warning => "warning",
+        };
         write_diagnostic(
             output,
             &finding.location,
-            &format!("warning [{}]: {}", finding.rule.id(), finding.message),
+            &format!("{severity} [{}]: {}", finding.rule.id(), finding.message),
         )?;
     }
     for limitation in &result.limitations {

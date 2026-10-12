@@ -116,10 +116,12 @@ fn checked_thresholds_symbolic_dimensions_and_optional_capacity_remain_distinct(
         result
             .findings
             .iter()
-            .any(|f| f.message.contains("1002001 exceeds max-candidates 1000000"))
+            .any(|f| f.severity == Severity::Warning
+                && f.message.contains("1002001 exceeds max-candidates 1000000"))
     );
     assert!(result.findings.iter().any(|f| {
-        f.message.contains("symbolic Cartesian")
+        f.severity == Severity::Informational
+            && f.message.contains("symbolic Cartesian")
             && f.message
                 .contains("no numeric count or threshold exceedance")
     }));
@@ -132,11 +134,9 @@ fn checked_thresholds_symbolic_dimensions_and_optional_capacity_remain_distinct(
     );
     let mut report = vec![];
     assert_eq!(write_analysis(&result, &mut report).unwrap(), 1);
-    assert!(
-        String::from_utf8(report)
-            .unwrap()
-            .contains("potential expansion")
-    );
+    let report = String::from_utf8(report).unwrap();
+    assert!(report.contains("warning [expensive-comprehension]: pre-filter Cartesian"));
+    assert!(report.contains("info [expensive-comprehension]: symbolic Cartesian"));
     std::fs::remove_dir_all(dir).unwrap();
     let mut bounded = options();
     bounded.parameters.comprehension_max_candidates = std::num::NonZeroU64::new(19).unwrap();
@@ -146,6 +146,13 @@ fn checked_thresholds_symbolic_dimensions_and_optional_capacity_remain_distinct(
         &bounded,
     );
     assert_eq!(result.findings.len(), 2, "{result:?}");
+    assert!(
+        result
+            .findings
+            .iter()
+            .all(|f| f.severity == Severity::Warning)
+    );
+    assert_eq!(result.status(), 1);
     assert!(
         result
             .findings
@@ -167,6 +174,25 @@ fn checked_thresholds_symbolic_dimensions_and_optional_capacity_remain_distinct(
         result.findings[0]
             .message
             .contains("count 12 exceeds max-candidates 9")
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+#[test]
+fn symbolic_cartesian_advice_alone_is_informational() {
+    let (dir, _, _, _, result) = model(
+        "informational",
+        "int:N; int:K; array[int] of int:a=[1 | i in 1..N,j in 1..K]; solve satisfy;",
+        &options(),
+    );
+    assert_eq!(result.findings.len(), 1, "{result:?}");
+    assert_eq!(result.findings[0].severity, Severity::Informational);
+    assert_eq!(result.status(), 0);
+    let mut report = vec![];
+    assert_eq!(write_analysis(&result, &mut report).unwrap(), 0);
+    assert!(
+        String::from_utf8(report)
+            .unwrap()
+            .contains("info [expensive-comprehension]")
     );
     std::fs::remove_dir_all(dir).unwrap();
 }

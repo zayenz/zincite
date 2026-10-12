@@ -66,8 +66,10 @@ Stdin has no model context: selected semantic analysis reports a limitation;
 standalone .dzn inputs mark semantic rules inapplicable.
 
 Prefer-enum is opt-in advisory advice and offers no automatic fix.
-Default rules are naming, missing-constraint-label and prefer-array-comprehension;
-all rules remain warnings.
+Default rules are naming, missing-constraint-label and prefer-array-comprehension.
+Symbolic Cartesian advice from expensive-comprehension is informational when no numeric
+count or threshold exceedance is established. Numeric threshold and proven placement
+advice remain warnings. Informational advice alone does not fail lint.
 Use --explain for each rule's naming exemptions, label syntax or analysis limits.
 Standalone suppressions apply throughout the next top-level item:
     % zincite-lint: ignore missing-constraint-label
@@ -81,7 +83,7 @@ variant_record and case syntax is unsupported. Full semantic validity and solver
 performance are not checked.
 Code and literals use UTF-8; opaque comment bytes are preserved by fixes.
 Syntax errors omit lint rules for that file. Independent files are processed.
-Exit codes: 0 clean, 1 unsuppressed warnings, 2 input/parse/directive/configuration/usage/dependency errors.
+Exit codes: 0 no warnings/errors, 1 unsuppressed warnings, 2 input/parse/directive/configuration/usage/dependency errors.
 Analysis limitations alone retain status 0 or 1.
 -h, --help shows this help.
 ";

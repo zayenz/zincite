@@ -534,7 +534,12 @@ pub(super) fn check_comprehensions(
             _ => None,
         };
         if let Some(message) = message {
-            findings.push(finding(&f.location, message));
+            let severity = if matches!(f.candidates, CandidateCount::Symbolic { .. }) {
+                Severity::Informational
+            } else {
+                Severity::Warning
+            };
+            findings.push(finding(&f.location, severity, message));
         }
         for p in &f.placements {
             match &p.safety {
@@ -551,6 +556,7 @@ pub(super) fn check_comprehensions(
                         .join(", ");
                     findings.push(finding(
                         &p.location,
+                        Severity::Warning,
                         format!(
                             "{kind} uses [{}] and is invariant across repeated generator sources [{sources}] with crossed bindings [{}]; raw evaluation is proved total after generator prefix {} under retained enclosing/prefix assumptions; consider that earlier scope",
                             names(bindings, &p.dependencies),
@@ -604,12 +610,12 @@ fn names(bindings: &BindingFacts, ids: &[DeclarationId]) -> String {
         names
     }
 }
-fn finding(location: &SourceLocation, message: String) -> FileFinding {
+fn finding(location: &SourceLocation, severity: Severity, message: String) -> FileFinding {
     FileFinding {
         fix: None,
         location: location.clone(),
         rule: Rule::ExpensiveComprehension,
-        severity: Severity::Warning,
+        severity,
         message: format!(
             "{message}; the compiler may already optimize this structure; this is not a measured enumeration, runtime or speedup claim and supplies no source edit"
         ),

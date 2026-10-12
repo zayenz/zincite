@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-111"
 key = "symbolic-comprehension-info"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -26,12 +26,20 @@ Read brief.md Rule catalogue severity policy. Start at crates/zincite-lint/src/e
 
 ## Done when
 
-- [ ] Symbolic-only Cartesian advice is represented and rendered as informational, with exit zero when no warnings/errors exist.
-- [ ] Existing stronger numeric expense evidence retains warning behavior; mixed findings and errors preserve exit precedence.
-- [ ] CLI help and rule explanation describe the distinction.
+- [x] Symbolic-only Cartesian advice is represented and rendered as informational, with exit zero when no warnings/errors exist.
+- [x] Existing stronger numeric expense evidence retains warning behavior; mixed findings and errors preserve exit precedence.
+- [x] CLI help and rule explanation describe the distinction.
 
 ## Validation
 
 - Add focused informational-only and mixed-severity public checks; retain existing numeric threshold tests.
 - Run cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, and cargo test --workspace.
 - Run zdev check base --format json; install the changed local commands after verification.
+
+## Result
+
+Render symbolic Cartesian advice as informational with zero status alone; retain numeric and placement warnings, mixed/error precedence, selection and suppression.
+
+Validation:
+
+- Independent PASS Wc49c7abeff0379f9; fmt, Clippy, workspace tests, focused info/mixed/error/suppression/help/explain and zdev check passed. Updated local zincite and zincite-lint match reviewed release binaries; installed info-only checks exit 0 and mixed checks exit 1.

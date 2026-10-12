@@ -128,6 +128,7 @@ pub use value_safety::expression_safety;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Severity {
+    Informational,
     Warning,
 }
 

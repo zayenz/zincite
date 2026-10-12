@@ -2008,6 +2008,71 @@ fn expensive_comprehension_threshold_selection_and_source_are_explicit() {
 }
 
 #[test]
+fn symbolic_comprehension_info_preserves_warning_error_and_suppression_status() {
+    let dir =
+        std::env::temp_dir().join(format!("zincite-expansion-info-cli-{}", std::process::id()));
+    let library = dir.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(
+        library.join("std/stdlib.mzn"),
+        "function set of int:'..'(int:a,int:b);",
+    )
+    .unwrap();
+    let root = dir.join("root.mzn");
+    let symbolic = "array[int] of int:a=[1 | i in 1..N,j in 1..K]; solve satisfy;";
+    for (prefix, status, info, warning) in [
+        ("", 0, true, false),
+        ("array[int] of int:b=[1 | _,_ in 1..1001];", 1, true, true),
+        ("include \"missing.mzn\";", 2, true, false),
+        (
+            "% zincite-lint: ignore expensive-comprehension\n",
+            0,
+            false,
+            false,
+        ),
+    ] {
+        let source = format!("int:N; int:K;\n{prefix}{symbolic}");
+        std::fs::write(&root, &source).unwrap();
+        let output = run(
+            &[
+                "--isolated",
+                "--rules",
+                "expensive-comprehension",
+                "--stdlib-dir",
+                library.to_str().unwrap(),
+                root.to_str().unwrap(),
+            ],
+            "",
+        );
+        let text = String::from_utf8(output.stderr).unwrap();
+        assert_eq!(output.status.code(), Some(status), "{text}");
+        assert!(output.stdout.is_empty());
+        assert_eq!(
+            text.contains("info [expensive-comprehension]"),
+            info,
+            "{text}"
+        );
+        assert_eq!(
+            text.contains("warning [expensive-comprehension]"),
+            warning,
+            "{text}"
+        );
+        assert_eq!(text.contains("error:"), status == 2, "{text}");
+        assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    }
+    for args in [vec!["--help"], vec!["--explain", "expensive-comprehension"]] {
+        let output = run(&args, "");
+        assert!(output.status.success());
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert!(
+            text.contains("informational") && text.contains("alone does not fail lint"),
+            "{text}"
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn callable_input_contract_selection_locations_and_suppression_are_read_only() {
     let dir = std::env::temp_dir().join(format!("zincite-input-cli-{}", std::process::id()));
     std::fs::create_dir_all(dir.join("library/std")).unwrap();
