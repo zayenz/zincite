@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-118"
 key = "source-facts-consumers"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -27,11 +27,11 @@ Read .zdev/base/brief.md Semantic analysis, Interpretation before policy, Testin
 
 ## Done when
 
-- [ ] Identify and migrate every existing lint/query consumer whose required facts are source identities, signatures, structural types, instantiation or static references rather than body-computed values. Document any retained body demand with the concrete property it supplies.
-- [ ] Type/instantiation/navigation queries use source facts and retain existing finite scan/result limits. An irrelevant standard implementation does not block a query or simple lint that has sufficient source facts.
-- [ ] Unused-declaration walks the relevant possible-reference graph without output interpretation; unresolved potentially relevant edges veto unused conclusions, while opaque values alone do not make static-reference analysis incomplete.
-- [ ] Unresolved/ambiguous selection, shadowing, nominal enum identity, option qualifiers, tuple/record projections and include ownership remain unchanged on supported source facts.
-- [ ] Standalone and mixed rule selections report the same source facts and findings for these consumers; enabling a deep rule cannot change a simple rule's conclusion.
+- [x] Identify and migrate every existing lint/query consumer whose required facts are source identities, signatures, structural types, instantiation or static references rather than body-computed values. Document any retained body demand with the concrete property it supplies.
+- [x] Type/instantiation/navigation queries use source facts and retain existing finite scan/result limits. An irrelevant standard implementation does not block a query or simple lint that has sufficient source facts.
+- [x] Unused-declaration walks the relevant possible-reference graph without output interpretation; unresolved potentially relevant edges veto unused conclusions, while opaque values alone do not make static-reference analysis incomplete.
+- [x] Unresolved/ambiguous selection, shadowing, nominal enum identity, option qualifiers, tuple/record projections and include ownership remain unchanged on supported source facts.
+- [x] Standalone and mixed rule selections report the same source facts and findings for these consumers; enabling a deep rule cannot change a simple rule's conclusion.
 
 ## Validation
 
@@ -39,3 +39,11 @@ Read .zdev/base/brief.md Semantic analysis, Interpretation before policy, Testin
 - Check unused declarations in complete roots and fragments, implicit output, annotations, reachable uncertain references and unreachable cycles using existing controls.
 - Check both query commands and selected lint entry points with installed-library navigation; no broad corpus replay or new type-combination matrix.
 - Use the brief's focused testing level and run its required Rust validation (cargo fmt --all -- --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace), plus git diff --check. Run zdev check base --format json for changed zdev records.
+
+## Result
+
+Use source callable facts for structural lint and query consumers, preserving demanded body reference typing and conservative unused reachability.
+
+Validation:
+
+- Independent PASS at Wff6731e0262e653f; fmt, clippy, workspace tests and diff checks passed. Fourteen installed query/lint checks agree, preserve source bytes and match release binary hashes.

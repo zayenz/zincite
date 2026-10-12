@@ -233,6 +233,36 @@ Inspect the existing prepared-definition path and mixed simple/deep selections
 before changing scheduling. Keep current public fact APIs and direct functions;
 no new IR, registry, general fixed point or cache framework is required.
 
+Base-118 routes decision-use, standard symmetry/global recognition, unused
+reachability, element advice, comprehension advice and enum advice through
+`resolve_source_callables`. Mixed selections keep that source view separate from
+the optional proof view. Captures and shadowing use bindings directly. Source
+facts retain signature/default dependencies, written user-body references and
+local typing. `resolve_callables` retains its public body-aware behavior.
+
+Query types, instantiations and reference targets also start with source facts.
+When a query explicitly reaches a standard body occurrence, or unused reachability
+needs a raw uncertain body, `resolve_source_callable_body` adds that body's
+written reference/local typing through the same callable engine. It follows no
+transitive implementation bodies and supplies no value or output proof. Unused
+reachability still follows relevant possible edges, defaults, captures, implicit
+output and annotations; unresolved relevant edges veto unused conclusions.
+Data reduction uses source types for static model accesses and retains its
+computed enum-access refusals and edit vetoes. Query scan and result limits
+remain in force.
+
+The retained proof route serves concrete properties:
+
+| Producer | Property requiring stronger facts |
+| --- | --- |
+| `domains`, numeric producers | Checked bounds, endpoints and offsets for numeric and index advice |
+| `optional`, `guarded`, `compact_if` | Presence, truth, raw/effective definedness and possible assertion barriers |
+| `iteration`, comprehension and global-pattern producers | Index membership, complete traversal, cardinality, multiplicity and raw operand totality |
+| `definitions`, `value_safety` | Safe initializers, enforced equalities and complete anchored definitions |
+| `callable_definitions`, `search` | Finite output dependencies and complete search closure/views |
+| `input_preconditions` | Located formal-input definedness obligations and proved default/empty-iteration capture |
+| `element` rewrite producer | The concrete indexing-equality relation, raw operand definedness and index membership; selected standard identity alone still supports advice |
+
 Salsa is a conditional later choice, replacing the blanket rejection. Production
 adoption is outside this bundle. It needs measured repeated-edit/recomputation
 cost after ordinary demand/reuse, a concrete invalidation/identity design and a

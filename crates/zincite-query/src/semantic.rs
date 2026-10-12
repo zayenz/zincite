@@ -6,8 +6,8 @@ use serde_json::{Value, json};
 use zincite_lint::{
     BindingFacts, BindingResolution, CallOutcome, CallableFacts, DeclarationId, FileId,
     Instantiation, InstantiationFacts, ModelContext, ReferenceKind, SourceDiagnostic, SourceKind,
-    SourceLocation, TypeInst, TypeKind, resolve_bindings, resolve_callables,
-    resolve_instantiations,
+    SourceLocation, TypeInst, TypeKind, resolve_bindings, resolve_instantiations,
+    resolve_source_callable_body, resolve_source_callables,
 };
 use zincite_syntax::{FileMode, SyntaxNode};
 
@@ -652,9 +652,70 @@ impl SemanticResult<'_> {
     fn ensure_callables(&mut self, work: &mut Work, stage: &Stage) -> Result<(), QueryError> {
         self.ensure_bindings(work, stage)?;
         if self.callables.is_none() {
-            self.callables = Some(resolve_callables(
+            self.callables = Some(resolve_source_callables(
                 self.model,
                 self.bindings.as_ref().unwrap(),
+            ));
+        }
+        Ok(())
+    }
+    fn ensure_occurrence_callables(
+        &mut self,
+        subject: &SemanticSubject<'_>,
+        work: &mut Work,
+        stage: &Stage,
+    ) -> Result<(), QueryError> {
+        self.ensure_callables(work, stage)?;
+        let file = self.subject_file(subject);
+        if self.model.files[file].kind != SourceKind::StandardLibrary
+            || self.declared_subject(subject, work, stage)?.is_some()
+        {
+            return Ok(());
+        }
+        let location = self.subject_location(subject);
+        let facts = self.callables.as_ref().unwrap();
+        for fact in &facts.expressions {
+            work.visit(&stage.range)?;
+            if fact.file == file && fact.location.range == location.range {
+                return Ok(());
+            }
+        }
+        if let SemanticSubject::Entity(SemanticEntity::Reference(id)) = subject {
+            let reference = &self.bindings.as_ref().unwrap().references[*id];
+            if reference.kind == ReferenceKind::Callable {
+                for call in &facts.calls {
+                    work.visit(&stage.range)?;
+                    if call.file == file && call.location.range.start == location.range.start {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        let offset = self.model.files[file].byte_offset;
+        let mut owner = None;
+        for declaration in &self.bindings.as_ref().unwrap().declarations {
+            work.visit(&stage.range)?;
+            if declaration.file == file
+                && matches!(
+                    declaration.role,
+                    zincite_lint::DeclarationRole::Function
+                        | zincite_lint::DeclarationRole::Predicate
+                        | zincite_lint::DeclarationRole::Test
+                        | zincite_lint::DeclarationRole::Annotation
+                )
+                && declaration.syntax_range.start + offset <= location.range.start
+                && location.range.end <= declaration.syntax_range.end + offset
+            {
+                owner = Some(declaration.id);
+                break;
+            }
+        }
+        if let Some(owner) = owner {
+            self.callables = Some(resolve_source_callable_body(
+                self.model,
+                self.bindings.as_ref().unwrap(),
+                facts,
+                owner,
             ));
         }
         Ok(())
@@ -809,7 +870,11 @@ impl SemanticResult<'_> {
     ) -> Result<Option<DeclarationId>, QueryError> {
         work.visit(&stage.range)?;
         if self.bindings.as_ref().unwrap().references[id].kind == ReferenceKind::Callable {
-            self.ensure_callables(work, stage)?;
+            self.ensure_occurrence_callables(
+                &SemanticSubject::Entity(SemanticEntity::Reference(id)),
+                work,
+                stage,
+            )?;
         }
         let reference = &self.bindings.as_ref().unwrap().references[id];
         let location = reference.location.clone();
@@ -1030,7 +1095,7 @@ impl SemanticResult<'_> {
         stage: &Stage,
         limits: Limits,
     ) -> Result<Option<TypeInst>, QueryError> {
-        self.ensure_callables(work, stage)?;
+        self.ensure_occurrence_callables(subject, work, stage)?;
         let declaration = self.declared_subject(subject, work, stage)?;
         let facts = self.callables.as_ref().unwrap();
         let mut ty = None;
@@ -1126,6 +1191,7 @@ impl SemanticResult<'_> {
                     .then(|| "declared instantiation is unknown".to_owned()),
             );
         } else {
+            self.ensure_occurrence_callables(subject, work, stage)?;
             self.ensure_instantiations(work, stage)?;
             let location = self.subject_location(subject);
             let file = self.subject_file(subject);
@@ -1134,6 +1200,22 @@ impl SemanticResult<'_> {
                 if fact.file == file && fact.location.range == location.range {
                     outcome = (fact.instantiation, fact.reason.clone());
                     break;
+                }
+            }
+            if outcome.0 == Instantiation::Unknown
+                && self.model.files[file].kind == SourceKind::StandardLibrary
+            {
+                // The ordinary instantiation producer walks user sources. An
+                // explicitly navigated library occurrence uses its source type.
+                for fact in &self.callables.as_ref().unwrap().expressions {
+                    work.visit(&stage.range)?;
+                    if fact.file == file
+                        && fact.location.range == location.range
+                        && fact.ty.instantiation != Instantiation::Unknown
+                    {
+                        outcome = (fact.ty.instantiation, None);
+                        break;
+                    }
                 }
             }
             if outcome.0 == Instantiation::Unknown

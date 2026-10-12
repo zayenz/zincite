@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use zincite_lint::{
     BindingFacts, BindingResolution, DeclarationId, DeclarationRole, Domain, DomainFacts, EditPart,
     ExpressionType, ModelContext, SourceLocation, TextEdit, TypeInst, TypeKind, resolve_bindings,
-    resolve_callables, resolve_domains,
+    resolve_domains, resolve_source_callables,
 };
 use zincite_syntax::{FileMode, NodeKind, ParsedFile, SyntaxNode, TokenKind};
 
@@ -363,7 +363,7 @@ pub(crate) fn reduce(
             range,
         )?;
         let bindings = resolve_bindings(model);
-        let calls = resolve_callables(model, &bindings);
+        let calls = resolve_source_callables(model, &bindings);
         let domains = resolve_domains(model, &bindings);
         reducer.full_domain_names = bindings
             .declarations

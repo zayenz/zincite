@@ -1236,6 +1236,68 @@ fn semantic<'a>(
 }
 
 #[test]
+fn semantic_source_facts_type_demanded_library_references_without_transitive_bodies() {
+    use zincite_lint::{Instantiation, TypeKind};
+    use zincite_query::SemanticStream;
+    let source = b"var int: chosen = outer(); solve satisfy;";
+    let model = semantic_model(
+        "source-body-demand",
+        source,
+        b"",
+        concat!(
+            "function var int: outer(int: x = leaf(0)) = inner(x);\n",
+            "function var int: inner(int: x) = leaf(x);\n",
+            "function int: leaf(int: x) = missing(x);\n"
+        ),
+    );
+    let input = Input::parse(source.to_vec(), FileMode::Model).unwrap();
+    let outer = "filter(name(\"chosen\")) | references | filter(name(\"outer\"))";
+    for projection in ["types", "declarations | types"] {
+        let report = semantic(&input, &model, &format!("{outer} | {projection}"));
+        assert!(report.is_complete(), "{:?}", report.limitations());
+        let SemanticStream::Types(rows) = report.stream() else {
+            panic!()
+        };
+        assert_eq!(rows[0].ty.as_ref().unwrap().kind, TypeKind::Int);
+        assert_eq!(
+            rows[0].ty.as_ref().unwrap().instantiation,
+            Instantiation::Decision
+        );
+        let calls = &report.callables().unwrap().calls;
+        assert!(calls.iter().any(|call| call.name == "leaf")); // signature default
+        assert!(
+            !calls
+                .iter()
+                .any(|call| call.name == "inner" || call.name == "missing")
+        );
+    }
+
+    let inner = format!("{outer} | declarations | references | filter(name(\"inner\"))");
+    for projection in ["types", "instantiations", "declarations"] {
+        let report = semantic(&input, &model, &format!("{inner} | {projection}"));
+        assert!(report.is_complete(), "{:?}", report.limitations());
+        match report.stream() {
+            SemanticStream::Types(rows) => {
+                assert_eq!(rows[0].ty.as_ref().unwrap().kind, TypeKind::Int);
+            }
+            SemanticStream::Instantiations(rows) => {
+                assert_eq!(rows[0].instantiation, Instantiation::Decision);
+            }
+            SemanticStream::Entities(rows) => {
+                let zincite_query::SemanticEntity::Declaration(id) = rows[0] else {
+                    panic!()
+                };
+                assert_eq!(report.bindings().unwrap().declarations[id.0].name, "inner");
+            }
+            _ => panic!(),
+        }
+        let calls = &report.callables().unwrap().calls;
+        assert!(calls.iter().any(|call| call.name == "inner"));
+        assert!(!calls.iter().any(|call| call.name == "missing"));
+    }
+}
+
+#[test]
 fn semantic_navigation_keeps_shadowing_overloads_shared_nodes_and_actual_source_owners() {
     use zincite_lint::{
         BindingResolution, CallOutcome, DeclarationRole, SourceKind, TypeKind, resolve_bindings,

@@ -360,18 +360,17 @@ impl Producer<'_> {
             }) {
                 continue;
             }
-            let view = demand.parameters.as_ref().map(|types| {
-                crate::callables::instantiated_body(
+            let view = match demand.parameters.as_ref() {
+                Some(types) => crate::callables::instantiated_body(
                     self.context,
                     self.bindings,
                     self.calls,
                     id,
                     types,
-                )
-            });
-            let (view, call_indices) = match view.as_ref() {
-                Some(view) => (view, None),
-                None => (self.calls, Some(self.main_call_indices)),
+                ),
+                None => {
+                    crate::resolve_source_callable_body(self.context, self.bindings, self.calls, id)
+                }
             };
             demand.ancestry.push(id);
             for reference in self
@@ -381,7 +380,7 @@ impl Producer<'_> {
                 .filter(|r| r.callable == Some(id))
             {
                 for changed in self
-                    .collect_reference(reference, view, call_indices, &demand.ancestry)
+                    .collect_reference(reference, &view, None, &demand.ancestry)
                     .into_iter()
                     .flatten()
                 {

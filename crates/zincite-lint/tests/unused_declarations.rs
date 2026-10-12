@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use zincite_lint::{
     BindingFacts, DeclarationRole, LintOptions, ModelContext, ModelOptions, ModelRootState, Rule,
     RuleOutcome, UsageFacts, UsageOutcome, analyze_model, load_model, resolve_bindings,
-    resolve_callables, resolve_unused_declarations,
+    resolve_callables, resolve_source_callables, resolve_unused_declarations,
 };
 const CORE: &str = concat!(
     "function set of int: anon_enum(int: count);\n",
@@ -35,7 +35,7 @@ fn selected() -> LintOptions {
 }
 fn facts(context: &ModelContext) -> (BindingFacts, UsageFacts) {
     let bindings = resolve_bindings(context);
-    let calls = resolve_callables(context, &bindings);
+    let calls = resolve_source_callables(context, &bindings);
     let usage = resolve_unused_declarations(context, &bindings, &calls);
     (bindings, usage)
 }
@@ -370,7 +370,11 @@ fn selected_generic_bodies_keep_concrete_optional_dependencies_and_raw_unknowns(
     let calls = resolve_callables(&context, &bindings);
     assert!(calls.calls.iter().any(|call| call.name == "occurs"
         && matches!(call.outcome, zincite_lint::CallOutcome::Unsupported { .. })));
-    let usage = resolve_unused_declarations(&context, &bindings, &calls);
+    let usage = resolve_unused_declarations(
+        &context,
+        &bindings,
+        &resolve_source_callables(&context, &bindings),
+    );
     assert!(usage.limitations.is_empty(), "{:?}", usage.limitations);
     assert_eq!(outcome(&bindings, &usage, "value"), UsageOutcome::Reachable);
     assert!(matches!(
@@ -428,7 +432,11 @@ fn uncertain_generic_routes_keep_concrete_body_dependencies() {
     );
     let bindings = resolve_bindings(&context);
     let calls = resolve_callables(&context, &bindings);
-    let usage = resolve_unused_declarations(&context, &bindings, &calls);
+    let usage = resolve_unused_declarations(
+        &context,
+        &bindings,
+        &resolve_source_callables(&context, &bindings),
+    );
     assert_eq!(
         outcome(&bindings, &usage, "int_dependency"),
         UsageOutcome::Reachable
@@ -516,7 +524,11 @@ fn full_axis_slices_preserve_usage_without_callable_demands() {
         "{:?}",
         calls.calls
     );
-    let usage = resolve_unused_declarations(&context, &bindings, &calls);
+    let usage = resolve_unused_declarations(
+        &context,
+        &bindings,
+        &resolve_source_callables(&context, &bindings),
+    );
     assert_eq!(usage.root_state, ModelRootState::Complete);
     assert!(
         usage.limitations.is_empty(),

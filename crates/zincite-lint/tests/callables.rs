@@ -143,6 +143,51 @@ fn source_call_facts_skip_selected_standard_bodies_and_retain_written_user_calls
         ),
         format!("{:?}", resolve_instantiations(&context, &bindings, &full))
     );
+    for selection in [
+        "decision-variable-operator,decision-variable-generator,decision-variable-condition",
+        "unmarked-symmetry-breaking",
+        "reified-global",
+        "unused-declaration",
+        "element-predicate",
+        "prefer-array-comprehension",
+        "prefer-enum",
+    ] {
+        let options = LintOptions::from_selection(selection).unwrap();
+        let standalone = analyze_model(&context, &options);
+        let mixed = analyze_model(
+            &context,
+            &LintOptions::from_selection(&format!("{selection},search-coverage")).unwrap(),
+        );
+        for execution in &standalone.rules {
+            assert_eq!(
+                execution.outcome,
+                mixed
+                    .rules
+                    .iter()
+                    .find(|r| r.rule == execution.rule)
+                    .unwrap()
+                    .outcome
+            );
+        }
+        let findings = |result: &zincite_lint::AnalysisResult| {
+            result
+                .findings
+                .iter()
+                .filter(|f| options.rules.contains(&f.rule))
+                .map(|f| format!("{f:?}"))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(findings(&standalone), findings(&mixed), "{selection}");
+        assert_eq!(
+            standalone.limitations,
+            mixed
+                .limitations
+                .into_iter()
+                .filter(|l| !l.message.starts_with("search-coverage:"))
+                .collect::<Vec<_>>(),
+            "{selection}"
+        );
+    }
     std::fs::remove_dir_all(directory).unwrap();
 }
 

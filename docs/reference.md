@@ -528,9 +528,12 @@ compiler type validity.
 ### Semantic inspection
 
 Semantic stages consume the public `load_model`, `resolve_bindings`,
-`resolve_callables` and `resolve_instantiations` APIs. They do not enable lint
-rules. An explicit model-mode input file is its own root by default; `--model`
-supplies another retained root. Semantic input must be in model mode and match
+`resolve_source_callables` and `resolve_instantiations` APIs. Explicit navigation
+into a standard callable body requests its source occurrence typing through
+`resolve_source_callable_body`, without expanding transitive implementations for
+proofs. The public `resolve_callables` API retains its body-aware behavior.
+Semantic stages do not enable lint rules. An explicit model-mode input file is
+its own root by default; `--model` supplies another retained root. Semantic input must be in model mode and match
 that root's original bytes exactly, including the BOM and opaque comments.
 Stdin needs explicit `--model`; a matching `--stdin-filepath` label alone does
 not load a model. The library requires a `ModelContext` with a retained root.
@@ -791,8 +794,8 @@ explicit limitations; analysis does not guess missing parameter values.
 `Rule::PreferEnum` is opt-in style advice with `FixSupport::None`. It consumes
 bindings, source callable signatures and raw domains, without demanding
 instantiations, definitions or selected standard-body proofs. Mixed selections
-retain the body-aware callable route required by other rules. The private member
-classifier keeps nominal candidate sets, scalar members and array axes separate;
+keep its source facts separate from the body-aware proof route required by other
+rules. The private member classifier keeps nominal candidate sets, scalar members and array axes separate;
 its findings never carry fixes. See [the supported identity-use and output
 boundary](linting.md#integer-identity-sets-and-enums). Fix support distinguishes
 available automatic edits from diagnostic-only rules; advisory wording remains

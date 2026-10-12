@@ -195,28 +195,7 @@ fn resolve_callable_facts(
             }
         }
     }
-    CallableFacts {
-        declarations: engine
-            .declared
-            .into_iter()
-            .enumerate()
-            .map(|(id, ty)| DeclarationType {
-                declaration: DeclarationId(id),
-                ty: ty.unwrap(),
-            })
-            .collect(),
-        signatures: engine.signatures.into_values().flatten().collect(),
-        expressions: engine
-            .expressions
-            .into_iter()
-            .map(|((file, start, end), ty)| ExpressionType {
-                file,
-                location: context.files[file].location(start..end),
-                ty,
-            })
-            .collect(),
-        calls: engine.calls.into_values().collect(),
-    }
+    engine.into_facts()
 }
 
 pub(super) fn find_node<'a>(
@@ -269,6 +248,31 @@ struct Engine<'a> {
 }
 
 impl<'a> Engine<'a> {
+    fn into_facts(self) -> CallableFacts {
+        CallableFacts {
+            declarations: self
+                .declared
+                .into_iter()
+                .enumerate()
+                .map(|(id, ty)| DeclarationType {
+                    declaration: DeclarationId(id),
+                    ty: ty
+                        .unwrap_or_else(|| TypeInst::unknown("body declaration type unavailable")),
+                })
+                .collect(),
+            signatures: self.signatures.into_values().flatten().collect(),
+            expressions: self
+                .expressions
+                .into_iter()
+                .map(|((file, start, end), ty)| ExpressionType {
+                    file,
+                    location: self.context.files[file].location(start..end),
+                    ty,
+                })
+                .collect(),
+            calls: self.calls.into_values().collect(),
+        }
+    }
     fn tokens(
         &self,
         file: FileId,
@@ -2231,6 +2235,44 @@ fn engine_from_facts<'a>(
     }
 }
 
+/// Add source typing for one written callable body and its defaults. Preserve
+/// existing facts and raw generic uncertainty; do not follow calls into further
+/// implementations or establish any value/output proof. All inputs must belong
+/// to the same retained context.
+pub fn resolve_source_callable_body(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    facts: &CallableFacts,
+    id: DeclarationId,
+) -> CallableFacts {
+    let declaration = &bindings.declarations[id.0];
+    let mut engine = engine_from_facts(context, bindings, facts);
+    for expression in &facts.expressions {
+        let offset = context.files[expression.file].byte_offset;
+        engine.expressions.insert(
+            (
+                expression.file,
+                expression.location.range.start - offset,
+                expression.location.range.end - offset,
+            ),
+            expression.ty.clone(),
+        );
+    }
+    for call in &facts.calls {
+        engine.calls.insert(
+            (
+                call.file,
+                call.location.range.start - context.files[call.file].byte_offset,
+            ),
+            call.clone(),
+        );
+    }
+    if let Some(node) = engine.nodes[id.0] {
+        engine.inspect(declaration.file, declaration.item, node);
+    }
+    engine.into_facts()
+}
+
 /// Interpret one actually selected body with its concrete formal types. The
 /// original context-free facts remain unchanged, including unknown candidates.
 pub(super) fn instantiated_body(
@@ -2287,28 +2329,7 @@ pub(super) fn instantiated_body(
     for id in body_declarations {
         engine.declared_type(id);
     }
-    CallableFacts {
-        declarations: engine
-            .declared
-            .into_iter()
-            .enumerate()
-            .map(|(i, ty)| DeclarationType {
-                declaration: DeclarationId(i),
-                ty: ty.unwrap_or_else(|| TypeInst::unknown("body declaration type unavailable")),
-            })
-            .collect(),
-        signatures: engine.signatures.into_values().flatten().collect(),
-        expressions: engine
-            .expressions
-            .into_iter()
-            .map(|((file, start, end), ty)| ExpressionType {
-                file,
-                location: context.files[file].location(start..end),
-                ty,
-            })
-            .collect(),
-        calls: engine.calls.into_values().collect(),
-    }
+    engine.into_facts()
 }
 pub(super) fn formal_parameter(
     context: &ModelContext,
