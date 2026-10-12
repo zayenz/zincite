@@ -771,6 +771,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                             context,
                             &facts,
                             &calls,
+                            &instantiations,
                             domains.as_ref().unwrap(),
                             &complete,
                             &callable_definitions.as_ref().unwrap().inspected_locals,

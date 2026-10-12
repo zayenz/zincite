@@ -10,7 +10,13 @@ fn model(name: &str, source: &str) -> (PathBuf, zincite_lint::ModelContext) {
     std::fs::create_dir_all(directory.join("library/std")).unwrap();
     std::fs::write(
         directory.join("library/std/stdlib.mzn"),
-        "function var bool: forall(array[int] of var opt bool: body);",
+        concat!(
+            "function var bool: forall(array[int] of var opt bool: body);\n",
+            "function var bool: '/\\'(var bool: a, var bool: b);\n",
+            "function var bool: 'in'(var int: a, set of int: b);\n",
+            "function set of int: '..'(int: a, int: b);\n",
+            "function var bool: '>='(var int: a, var int: b);\n",
+        ),
     )
     .unwrap();
     let root = directory.join("root.mzn");
@@ -224,4 +230,105 @@ fn symbolic_enum_subset_domains_complete_without_inventing_bounds() {
         }
         std::fs::remove_dir_all(directory).unwrap();
     }
+}
+
+#[test]
+fn full_index_range_membership_under_let_and_conjunction_supplies_bounds() {
+    let source = concat!(
+        "enum Objects = {first, second};\n",
+        "array[Objects] of int: object_bound;\n",
+        "array[Objects] of var int: object_size;\n",
+        "constraint forall(object in Objects)(let { int: lower = 0; } in\n",
+        "  object_size[object] in 0..object_bound[object] /\\ object_size[object] >= lower);\n",
+        "solve satisfy;\n",
+    );
+    let (directory, context) = model("element-ranges", source);
+    let result = analyze_model(&context, &selected());
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert_eq!(
+        result.rules[0].outcome,
+        RuleOutcome::Completed,
+        "{:?}",
+        result.limitations
+    );
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    assert!(result.findings.is_empty(), "{:?}", result.findings);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn partial_and_conditional_ranges_keep_domain_advice() {
+    for (name, constraint) in [
+        (
+            "filter",
+            "forall(object in Objects where object != first)(size[object] in 0..10)",
+        ),
+        ("subset", "forall(object in {first})(size[object] in 0..10)"),
+        ("single", "size[first] in 0..10"),
+        (
+            "implication",
+            "forall(object in Objects)(gate -> size[object] in 0..10)",
+        ),
+        (
+            "branch",
+            "forall(object in Objects)(if gate then size[object] in 0..10 else true endif)",
+        ),
+    ] {
+        let source = format!(
+            "enum Objects = {{first, second}}; var bool: gate;\n\
+             array[Objects] of var int: size; constraint {constraint}; solve satisfy;\n"
+        );
+        let (directory, context) = model(name, &source);
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        assert_eq!(
+            result.rules[0].outcome,
+            RuleOutcome::Completed,
+            "{name}: {:?}",
+            result.limitations
+        );
+        assert!(
+            result.limitations.is_empty(),
+            "{name}: {:?}",
+            result.limitations
+        );
+        let names: Vec<_> = result
+            .findings
+            .iter()
+            .map(|f| &source[f.location.range.clone()])
+            .collect();
+        assert_eq!(names, ["size"], "{name}");
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+#[test]
+fn unsupported_range_source_limits_only_its_array() {
+    let source = concat!(
+        "enum Objects = {first, second};\n",
+        "array[Objects] of record(int: cap): object_bound;\n",
+        "array[Objects] of var int: size; var int: unrelated;\n",
+        "constraint forall(object in Objects)(let { int: upper = object_bound[object].cap; } in size[object] in 0..upper);\n",
+        "solve satisfy;\n",
+    );
+    let (directory, context) = model("limited-range-source", source);
+    let result = analyze_model(&context, &selected());
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(
+        matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+        "{:?}",
+        result
+    );
+    assert_eq!(result.limitations.len(), 1, "{:?}", result.limitations);
+    assert_eq!(
+        &source[result.limitations[0].location.range.clone()],
+        "upper"
+    );
+    let names: Vec<_> = result
+        .findings
+        .iter()
+        .map(|f| &source[f.location.range.clone()])
+        .collect();
+    assert_eq!(names, ["unrelated"]);
+    std::fs::remove_dir_all(directory).unwrap();
 }
