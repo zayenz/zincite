@@ -337,6 +337,103 @@ fn selected_generic_bodies_keep_concrete_optional_dependencies_and_raw_unknowns(
 }
 
 #[test]
+fn uncertain_generic_routes_keep_concrete_body_dependencies() {
+    let source = concat!(
+        "int: int_dependency=1; int: float_dependency=2; int: unused_value=3;\n",
+        "constraint all_equal([]); constraint all_equal([1]); solve satisfy; output [];\n"
+    );
+    let (dir, _) = model("uncertain-concrete-body", source, "");
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!(
+            "{CORE}\n{}",
+            concat!(
+                "predicate all_equal(array[$I] of var $$E: xs)=inner(xs);\n",
+                "predicate all_equal(array[$I] of var set of $$E: xs)=true;\n",
+                "predicate inner(array[$I] of var $$E: xs)=leaf(xs);\n",
+                "predicate leaf(array[int] of var int: xs)=int_dependency=1;\n",
+                "predicate leaf(array[int] of var float: xs)=float_dependency=2;\n"
+            )
+        ),
+    )
+    .unwrap();
+    let context = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let usage = resolve_unused_declarations(&context, &bindings, &calls);
+    assert_eq!(
+        outcome(&bindings, &usage, "int_dependency"),
+        UsageOutcome::Reachable
+    );
+    assert_eq!(
+        outcome(&bindings, &usage, "float_dependency"),
+        UsageOutcome::Uncertain
+    );
+    assert_eq!(
+        outcome(&bindings, &usage, "unused_value"),
+        UsageOutcome::Unreachable
+    );
+    let empty_call = calls
+        .calls
+        .iter()
+        .find(|call| {
+            Some(call.file) == context.root_file
+                && call.location.range.start == source.find("all_equal([])").unwrap()
+        })
+        .unwrap();
+    assert!(matches!(
+        empty_call.outcome,
+        zincite_lint::CallOutcome::Ambiguous { .. } | zincite_lint::CallOutcome::Unsupported { .. }
+    ));
+    assert!(
+        usage
+            .limitations
+            .iter()
+            .any(|diagnostic| { diagnostic.location == empty_call.location })
+    );
+    assert!(matches!(
+        analyze_model(&context, &selected()).rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    assert_eq!(warnings(&context), ["unused_value"]);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn uncertain_routes_retain_changing_recursive_type_limits() {
+    let source = concat!(
+        "test recur($T: value)=recur([value]);\n",
+        "constraint recur(<>); constraint recur(1); solve satisfy; output [];\n"
+    );
+    let (dir, context) = model("uncertain-recursive-body", source, "");
+    let (bindings, usage) = facts(&context);
+    let recursive = bindings
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "recur" && declaration.top_level)
+        .unwrap();
+    assert_eq!(
+        usage.declarations[recursive.id.0].outcome,
+        UsageOutcome::Reachable
+    );
+    assert!(usage.limitations.iter().any(|diagnostic| {
+        diagnostic.location == recursive.location
+            && diagnostic.message.contains("changing recursive body types")
+    }));
+    assert!(matches!(
+        analyze_model(&context, &selected()).rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn full_axis_slices_preserve_usage_without_callable_demands() {
     let source = concat!(
         "enum Rows; enum Cols; array[Rows,Cols] of var bool: offer;\n",

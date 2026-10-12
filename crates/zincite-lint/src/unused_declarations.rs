@@ -320,7 +320,6 @@ impl Producer<'_> {
     fn body_dependencies(
         &mut self,
         owner: Option<DeclarationId>,
-        state: UsageOutcome,
         pending: &mut Vec<(DeclarationId, UsageOutcome)>,
     ) {
         while let Some(mut demand) = self
@@ -328,9 +327,6 @@ impl Producer<'_> {
             .get_mut(&owner.map(|id| id.0))
             .and_then(VecDeque::pop_front)
         {
-            if state == UsageOutcome::Uncertain {
-                demand.parameters = None;
-            }
             let id = demand.declaration;
             if self.bodies.contains(&(id, demand.parameters.clone())) {
                 continue;
@@ -593,7 +589,7 @@ impl Producer<'_> {
             return;
         }
         let mut pending = Vec::new();
-        self.body_dependencies(None, UsageOutcome::Reachable, &mut pending);
+        self.body_dependencies(None, &mut pending);
         pending.extend(
             self.facts
                 .roots
@@ -608,7 +604,7 @@ impl Producer<'_> {
         );
         let mut unbounded = false;
         while let Some((id, state)) = pending.pop() {
-            self.body_dependencies(Some(id), state, &mut pending);
+            self.body_dependencies(Some(id), &mut pending);
             let usage = &mut self.facts.declarations[id.0];
             if usage.outcome == UsageOutcome::Reachable || usage.outcome == state {
                 continue;
