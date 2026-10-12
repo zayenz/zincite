@@ -1,0 +1,52 @@
+---
+title: MiniZinc tools for everyday modelling
+description: Format, lint and query MiniZinc model and data files with Zincite.
+template: splash
+hero:
+  title: MiniZinc source, easier to work with.
+  tagline: Format models, check modelling advice and ask questions about your data. Zincite works directly on .mzn and .dzn files.
+  image:
+    file: ../../../../assets/zincite-mark.svg
+  actions:
+    - text: Install Zincite
+      link: ./guides/getting-started/
+      icon: right-arrow
+    - text: Read the reference
+      link: ./guides/cli/
+      variant: minimal
+---
+
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+
+<div className="project-note">Rust tools · MiniZinc 2.10.1 · Under development</div>
+
+## Work with the model you have
+
+Zincite shares a source-preserving parser across its commands. Formatting keeps
+comments and identifier spelling. Linting reports rules with source locations.
+Queries inspect declarations and data without running a solver.
+
+<CardGrid>
+  <LinkCard title="Format" description="Write consistent layouts, check a project or format an editor buffer." href="./guides/formatting/" />
+  <LinkCard title="Lint" description="Check naming, constraint labels and selected modelling rules. Review advice and explicit fixes." href="./guides/linting/" />
+  <LinkCard title="Query" description="Select source items, count literal values and make bounded data edits." href="./guides/queries/" />
+</CardGrid>
+
+## Install from source
+
+Use a current stable Rust toolchain. The packages on crates.io are name
+reservations; install the working commands from a checkout.
+
+<!-- install-commands -->
+
+## Try a small input
+
+These commands read stdin and need no model files or standard library.
+
+<!-- example-commands -->
+
+Formatting may change before a stable release. Semantic inspection has explicit
+limits and can return Unknown. Read the [support guide](./guides/support/) before
+applying the tools to a whole project.
+
+<div className="site-footer">Built by <a href="https://zayenz.se">Mikael Zayenz Lagerkvist</a> · <a href="https://github.com/zayenz/zincite">Source on GitHub</a></div>

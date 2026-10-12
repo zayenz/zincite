@@ -85,9 +85,9 @@ cargo test --workspace
 The [developer scripts](scripts/README.md) document corpus checks and performance
 measurements. The [semantic processing plan](docs/semantic-processing-plan.md)
 is developer material; it does not establish completed support. Reader
-documentation lives in this README and `docs/*.md`. A future Astro site can
-render these same files without maintaining another copy of the guides or
-contracts.
+documentation lives in this README and `docs/*.md`. The
+[Astro documentation site](site/README.md) renders these same guides.
+Website build commands are separate from the Rust workspace checks.
 
 ## License
 

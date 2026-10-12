@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-131"
 key = "astro-doc-site"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -29,14 +29,23 @@ For human-facing documentation and website prose, apply unslop (/Users/zayenz/.a
 
 ## Done when
 
-- [ ] A landing page explains fmt, lint and query with working installation/examples and links to the documentation.
-- [ ] Docs have clear navigation, working search, MiniZinc code highlighting, light/dark themes and Zincite branding consistent with zayenz.se.
-- [ ] Keyboard focus, contrast, mobile navigation and readable code/tables pass focused visual checks.
-- [ ] Documented clean build/preview commands work; root and /zincite base-path builds retain valid links/assets/canonical configuration.
-- [ ] Documentation ownership and build integration are recorded; the repository remains usable for Rust-only contributors.
+- [x] A landing page explains fmt, lint and query with working installation/examples and links to the documentation.
+- [x] Docs have clear navigation, working search, MiniZinc code highlighting, light/dark themes and Zincite branding consistent with zayenz.se.
+- [x] Keyboard focus, contrast, mobile navigation and readable code/tables pass focused visual checks.
+- [x] Documented clean build/preview commands work; root and /zincite base-path builds retain valid links/assets/canonical configuration.
+- [x] Documentation ownership and build integration are recorded; the repository remains usable for Rust-only contributors.
 
 ## Validation
 
 - Run site build and available type/content checks, inspect desktop/mobile and keyboard navigation, and validate local links/search/assets under both base paths. No broad browser test suite.
 - Run git diff --check and zdev check base --format json for changed records.
 - Review the final human-facing prose against both writing skills: concrete openings, proportionate claims, direct explanations and Zayenz voice; remove generic or promotional wording without flattening useful context.
+
+## Result
+
+Built a branded Astro/Starlight site from authoritative Markdown, with shared landing commands, search, MiniZinc highlighting, responsive themes and configurable root/subpath builds.
+
+Validation:
+
+- Independent verifier PASS at W98ad1b553039fdb1; clean npm ci/check and root plus /zincite builds passed with complete local link, anchor, asset and canonical checks.
+- Independent desktop/mobile, search, keyboard focus, contrast, highlighting and installed-command checks passed; diff checks and zdev check passed.
