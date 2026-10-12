@@ -7,6 +7,8 @@
 //! comment bytes. Literal comparisons are bounded; computed expressions and
 //! includes are never evaluated.
 
+#![forbid(unsafe_code)]
+
 use std::collections::BTreeMap;
 use std::ops::Range;
 
@@ -21,6 +23,7 @@ use zincite_syntax::{
 pub mod cli;
 mod inspection;
 mod language;
+mod pipeline;
 mod reduction;
 mod semantic;
 mod structured;
@@ -378,6 +381,7 @@ impl QueryResult<'_> {
 pub struct Query {
     stages: Vec<Stage>,
     range: Range<usize>,
+    nesting_limit: usize,
 }
 
 impl Query {
@@ -419,7 +423,9 @@ impl Query {
         facts: std::rc::Rc<zincite_lint::ModelFacts<'a>>,
         limits: Limits,
     ) -> Result<QueryResult<'a>, QueryError> {
-        if self.stages.iter().any(semantic::requests_facts) {
+        if !self.is_editing() {
+            pipeline::evaluate_read_only(self, input, Some(facts), limits)
+        } else if self.stages.iter().any(semantic::requests_facts) {
             semantic::evaluate_with_facts(self, input, facts, limits)
         } else {
             self.evaluate_with_model(input, Some(facts.model()), limits)
@@ -434,11 +440,20 @@ impl Query {
         model: Option<&'a ModelContext>,
         limits: Limits,
     ) -> Result<QueryResult<'a>, QueryError> {
+        if !self.is_editing() {
+            let facts = if self.requires_model_facts() {
+                model.map(|model| std::rc::Rc::new(zincite_lint::ModelFacts::new(model)))
+            } else {
+                None
+            };
+            return pipeline::evaluate_read_only(self, input, facts, limits);
+        }
         if self.stages.iter().any(semantic::requests_facts) {
             return semantic::evaluate(self, input, model, limits);
         }
+        let mut budget = pipeline::budget(limits);
         let mut work = Work {
-            remaining: limits.work,
+            budget: &mut budget,
         };
         let mut result = QueryResult::Selection(Selection {
             input,
@@ -914,21 +929,20 @@ fn validate_document_directives(
     Ok(())
 }
 
-struct Work {
-    remaining: usize,
+// Host scans and the shared evaluator spend the same request allowance.
+struct Work<'a> {
+    budget: &'a mut zirql::Budget,
 }
 
-impl Work {
+impl Work<'_> {
     fn visit(&mut self, range: &Range<usize>) -> Result<(), QueryError> {
         self.spend(1, range)
     }
 
     fn spend(&mut self, amount: usize, range: &Range<usize>) -> Result<(), QueryError> {
-        self.remaining = self
-            .remaining
-            .checked_sub(amount)
-            .ok_or_else(|| QueryError::query(range.clone(), "query work limit exceeded"))?;
-        Ok(())
+        self.budget
+            .charge(amount, zirql::Location::Query(range.clone()))
+            .map_err(pipeline::core_error)
     }
 }
 

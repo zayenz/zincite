@@ -75,16 +75,16 @@ fn declaration_node<'a>(
         .nth(declaration.item)
 }
 
-struct ShapeReader<'a, 'w> {
+struct ShapeReader<'a, 'w, 'b> {
     model: &'a ModelContext,
     bindings: &'a BindingFacts,
     domains: &'a DomainFacts,
-    work: &'w mut Work,
+    work: &'w mut Work<'b>,
     range: &'w Range<usize>,
     limits: Limits,
 }
 
-impl ShapeReader<'_, '_> {
+impl ShapeReader<'_, '_, '_> {
     fn shape(
         &mut self,
         ty: &TypeInst,
@@ -574,7 +574,7 @@ fn target_keyed(
     Ok(false)
 }
 
-struct Reducer<'a, 'w> {
+struct Reducer<'a, 'w, 'b> {
     input: &'a Input,
     name: &'a str,
     members: Vec<&'a str>,
@@ -590,7 +590,7 @@ struct Reducer<'a, 'w> {
     discovering: bool,
     dependent_names: HashSet<String>,
     unresolved: Vec<UnresolvedDependency>,
-    work: &'w mut Work,
+    work: &'w mut Work<'b>,
     range: &'w Range<usize>,
     limits: Limits,
     visited: usize,
@@ -612,7 +612,7 @@ enum PathStep {
     Index(Vec<Key>),
 }
 
-impl<'a> Reducer<'a, '_> {
+impl<'a> Reducer<'a, '_, '_> {
     fn model_accesses(
         &mut self,
         model: &ModelContext,

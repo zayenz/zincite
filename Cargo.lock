@@ -206,11 +206,17 @@ dependencies = [
  "serde_json",
  "zincite-lint",
  "zincite-syntax",
+ "zirql",
 ]
 
 [[package]]
 name = "zincite-syntax"
 version = "0.1.0"
+
+[[package]]
+name = "zirql"
+version = "0.1.0"
+source = "git+https://github.com/zayenz/zirql?rev=8a2c11a602affe41bcc87b70a8aaad5b33aa0d2c#8a2c11a602affe41bcc87b70a8aaad5b33aa0d2c"
 
 [[package]]
 name = "zmij"

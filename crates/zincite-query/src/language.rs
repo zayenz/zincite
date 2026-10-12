@@ -273,6 +273,7 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
     Ok(Query {
         stages,
         range: 0..source.len(),
+        nesting_limit: parser.nesting_limit,
     })
 }
 

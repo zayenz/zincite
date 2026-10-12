@@ -205,6 +205,48 @@ fn query_errors_and_limits_are_located_without_silent_truncation() {
 }
 
 #[test]
+fn predicate_nesting_counts_written_groups_and_not_only() {
+    let input = Input::parse(b"x = 1; y = 2;".to_vec(), FileMode::Data).unwrap();
+    let nested = format!(
+        "filter({}{}name(\"x\"){}) | count",
+        "(".repeat(32),
+        "not ".repeat(32),
+        ")".repeat(32),
+    );
+    let parsed = Query::parse(&nested, Limits::default()).unwrap();
+    assert_eq!(
+        parsed.evaluate(&input, Limits::default()).unwrap().render(),
+        b"1\n"
+    );
+    let lower_limits = Limits {
+        nesting: 63,
+        ..Limits::default()
+    };
+    assert_eq!(
+        parsed.evaluate(&input, lower_limits).unwrap().render(),
+        b"1\n"
+    );
+    let error = Query::parse(&nested, lower_limits).unwrap_err();
+    assert_eq!(error.location, ErrorLocation::Query);
+    assert!(error.range.start >= "filter(".len());
+    assert!(error.message.contains("nesting limit"));
+
+    let flat = "filter(name(\"missing\") or name(\"x\") and kind(\"assignment\")) | count";
+    let limits = Limits {
+        nesting: 0,
+        ..Limits::default()
+    };
+    assert_eq!(
+        Query::parse(flat, limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .unwrap()
+            .render(),
+        b"1\n"
+    );
+}
+
+#[test]
 fn fragments_keep_next_item_directives_and_reject_unbalanced_formatter_pairs() {
     let source = b"% zincite-fmt: skip\n\nx = 1;\ny = 2;\n";
     let input = Input::parse(source.to_vec(), FileMode::Data).unwrap();

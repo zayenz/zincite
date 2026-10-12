@@ -77,8 +77,8 @@ pub struct LiteralRow<'a> {
 
 #[derive(Debug)]
 pub struct LiteralSelection<'a> {
-    input: &'a Input,
-    values: Vec<LiteralValue<'a>>,
+    pub(crate) input: &'a Input,
+    pub(crate) values: Vec<LiteralValue<'a>>,
 }
 
 impl<'a> LiteralSelection<'a> {
@@ -285,15 +285,15 @@ pub(crate) fn project<'a>(
     Ok(QueryResult::Nodes(NodeSelection { input, nodes }))
 }
 
-struct LiteralReader<'a, 'w> {
+struct LiteralReader<'a, 'w, 'b> {
     input: &'a Input,
-    work: &'w mut Work,
+    work: &'w mut Work<'b>,
     range: &'w Range<usize>,
     limits: Limits,
     entries: usize,
 }
 
-impl<'a> LiteralReader<'a, '_> {
+impl<'a> LiteralReader<'a, '_, '_> {
     fn read(&mut self, node: &'a SyntaxNode, depth: usize) -> Result<LiteralValue<'a>, QueryError> {
         if depth >= self.limits.nesting.min(64) {
             return Err(QueryError::query(

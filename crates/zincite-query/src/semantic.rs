@@ -68,7 +68,7 @@ pub struct SemanticResult<'a> {
     callables_requested: bool,
     instantiations_requested: bool,
     body_callables: Option<CallableFacts>,
-    stream: SemanticStream<'a>,
+    pub(crate) stream: SemanticStream<'a>,
     limitations: Vec<SourceDiagnostic>,
     json: bool,
 }
@@ -343,7 +343,7 @@ pub(crate) fn requests_facts(stage: &Stage) -> bool {
             | StageKind::Instantiations
     ) || matches!(&stage.kind, StageKind::Filter(predicate) if predicate_facts(predicate))
 }
-fn predicate_facts(predicate: &Predicate) -> bool {
+pub(crate) fn predicate_facts(predicate: &Predicate) -> bool {
     match &predicate.kind {
         PredicateKind::Type(_) | PredicateKind::Instantiation(_) | PredicateKind::SourceKind(_) => {
             true
@@ -376,6 +376,48 @@ pub(crate) fn evaluate_with_facts<'a>(
     facts: Rc<ModelFacts<'a>>,
     limits: Limits,
 ) -> Result<QueryResult<'a>, QueryError> {
+    let mut budget = crate::pipeline::budget(limits);
+    let mut work = Work {
+        budget: &mut budget,
+    };
+    let mut report = prepare(query, input, facts, &mut work, limits)?;
+    let requesting = query.stages.iter().find(|s| requests_facts(s)).unwrap();
+    let mut callable_references = Vec::new();
+    for stage in &query.stages {
+        work.visit(&stage.range)?;
+        let stream = std::mem::replace(&mut report.stream, SemanticStream::Entities(Vec::new()));
+        report.stream = report.evaluate_stage(
+            input,
+            stream,
+            stage,
+            &mut work,
+            limits,
+            &mut callable_references,
+        )?;
+    }
+    if let SemanticStream::Inspection(result) = &report.stream
+        && let QueryResult::Selection(selection) = result.as_ref()
+        && !selection.document
+    {
+        crate::validate_fragment_directives(input, &selection.items)?;
+    }
+    report.finish(
+        callable_references,
+        &mut work,
+        requesting,
+        &query.range,
+        limits,
+    )?;
+    Ok(QueryResult::Semantic(report))
+}
+
+pub(crate) fn prepare<'a>(
+    query: &Query,
+    input: &'a Input,
+    facts: Rc<ModelFacts<'a>>,
+    work: &mut Work,
+    limits: Limits,
+) -> Result<SemanticResult<'a>, QueryError> {
     let model = facts.model();
     let requesting = query.stages.iter().find(|s| requests_facts(s)).unwrap();
     if let Some(error) = model.errors.first() {
@@ -404,12 +446,9 @@ pub(crate) fn evaluate_with_facts<'a>(
             "semantic input must exactly match the retained model root's original bytes, including its BOM",
         ));
     }
-    let mut work = Work {
-        remaining: limits.work,
-    };
     let selection = Selection {
         input,
-        items: crate::collect_items(input, limits.collection, &mut work, &query.range, true)?,
+        items: crate::collect_items(input, limits.collection, work, &query.range, true)?,
         document: true,
     };
     let mut report = SemanticResult {
@@ -423,73 +462,83 @@ pub(crate) fn evaluate_with_facts<'a>(
         limitations: Vec::new(),
         json: false,
     };
-    let mut callable_references = Vec::new();
     for limitation in &model.limitations {
         report.limit(
             limitation.location.clone(),
             &limitation.message,
-            &mut work,
+            work,
             requesting,
             limits,
         )?;
     }
-    for stage in &query.stages {
-        work.visit(&stage.range)?;
-        let stream = std::mem::replace(&mut report.stream, SemanticStream::Entities(Vec::new()));
-        report.stream = match &stage.kind {
+    Ok(report)
+}
+
+impl<'a> SemanticResult<'a> {
+    pub(crate) fn evaluate_stage(
+        &mut self,
+        input: &'a Input,
+        stream: SemanticStream<'a>,
+        stage: &Stage,
+        work: &mut Work,
+        limits: Limits,
+        callable_references: &mut Vec<usize>,
+    ) -> Result<SemanticStream<'a>, QueryError> {
+        let model = self.model;
+        Ok(match &stage.kind {
             StageKind::References => {
-                report.ensure_bindings(&mut work, stage)?;
-                let subjects = subjects(stream, model, stage, limits, &mut work)?;
-                SemanticStream::Entities(report.references(
+                self.ensure_bindings(work, stage)?;
+                let subjects = subjects(stream, model, stage, limits, work)?;
+                SemanticStream::Entities(self.references(
                     &subjects,
-                    &mut work,
+                    work,
                     stage,
                     limits,
-                    &mut callable_references,
+                    callable_references,
                 )?)
             }
             StageKind::Declarations => {
-                report.ensure_bindings(&mut work, stage)?;
-                let subjects = subjects(stream, model, stage, limits, &mut work)?;
-                SemanticStream::Entities(report.declarations(&subjects, &mut work, stage, limits)?)
+                self.ensure_bindings(work, stage)?;
+                let subjects = subjects(stream, model, stage, limits, work)?;
+                SemanticStream::Entities(self.declarations(&subjects, work, stage, limits)?)
             }
             StageKind::Uses => {
-                report.ensure_bindings(&mut work, stage)?;
-                let subjects = subjects(stream, model, stage, limits, &mut work)?;
-                let declarations = report.declarations(&subjects, &mut work, stage, limits)?;
-                SemanticStream::Entities(report.uses(&declarations, &mut work, stage, limits)?)
+                self.ensure_bindings(work, stage)?;
+                let subjects = subjects(stream, model, stage, limits, work)?;
+                let declarations = self.declarations(&subjects, work, stage, limits)?;
+                SemanticStream::Entities(self.uses(&declarations, work, stage, limits)?)
             }
             StageKind::TransitiveReferences(depth) => {
-                report.ensure_bindings(&mut work, stage)?;
-                let subjects = subjects(stream, model, stage, limits, &mut work)?;
-                let declarations = report.declarations(&subjects, &mut work, stage, limits)?;
-                SemanticStream::Entities(report.transitive(
+                self.ensure_bindings(work, stage)?;
+                let subjects = subjects(stream, model, stage, limits, work)?;
+                let declarations = self.declarations(&subjects, work, stage, limits)?;
+                SemanticStream::Entities(self.transitive(
                     &declarations,
                     *depth,
-                    &mut work,
+                    work,
                     stage,
                     limits,
                 )?)
             }
             StageKind::Types => {
-                let subjects = subjects(stream, model, stage, limits, &mut work)?;
-                let subjects = report.typed_subjects(subjects, &mut work, stage, limits)?;
+                let subjects = subjects(stream, model, stage, limits, work)?;
+                let subjects = self.typed_subjects(subjects, work, stage, limits)?;
                 let mut rows = Vec::new();
                 for subject in subjects {
                     check_collection(rows.len(), limits.collection, &stage.range)?;
-                    let ty = report.type_of(&subject, &mut work, stage, limits)?;
+                    let ty = self.type_of(&subject, work, stage, limits)?;
                     rows.push(SemanticType { subject, ty });
                 }
                 SemanticStream::Types(rows)
             }
             StageKind::Instantiations => {
-                let subjects = subjects(stream, model, stage, limits, &mut work)?;
-                let subjects = report.typed_subjects(subjects, &mut work, stage, limits)?;
+                let subjects = subjects(stream, model, stage, limits, work)?;
+                let subjects = self.typed_subjects(subjects, work, stage, limits)?;
                 let mut rows = Vec::new();
                 for subject in subjects {
                     check_collection(rows.len(), limits.collection, &stage.range)?;
                     let (instantiation, reason) =
-                        report.instantiation_of(&subject, &mut work, stage, limits)?;
+                        self.instantiation_of(&subject, work, stage, limits)?;
                     rows.push(SemanticInstantiation {
                         subject,
                         instantiation,
@@ -502,7 +551,7 @@ pub(crate) fn evaluate_with_facts<'a>(
                 if predicate_facts(predicate)
                     || !matches!(stream, SemanticStream::Inspection(_)) =>
             {
-                report.filter(stream, predicate, &mut work, stage, limits)?
+                self.filter(stream, predicate, work, stage, limits)?
             }
             StageKind::Head(count) => match stream {
                 SemanticStream::Entities(mut rows) => {
@@ -518,36 +567,36 @@ pub(crate) fn evaluate_with_facts<'a>(
                     SemanticStream::Instantiations(rows)
                 }
                 SemanticStream::Inspection(result) => SemanticStream::Inspection(Box::new(
-                    crate::evaluate_stage(input, Some(model), *result, stage, &mut work, limits)?,
+                    crate::evaluate_stage(input, Some(model), *result, stage, work, limits)?,
                 )),
             },
             StageKind::Count => match stream {
                 SemanticStream::Inspection(result) => SemanticStream::Inspection(Box::new(
-                    crate::evaluate_stage(input, Some(model), *result, stage, &mut work, limits)?,
+                    crate::evaluate_stage(input, Some(model), *result, stage, work, limits)?,
                 )),
                 other => {
                     SemanticStream::Inspection(Box::new(QueryResult::Count(stream_len(&other))))
                 }
             },
             StageKind::Unique if !matches!(stream, SemanticStream::Inspection(_)) => {
-                unique(stream, &mut work, stage)?
+                unique(stream, work, stage)?
             }
             StageKind::Names | StageKind::Text
                 if !matches!(stream, SemanticStream::Inspection(_)) =>
             {
-                let subjects = subjects(stream, model, stage, limits, &mut work)?;
+                let subjects = subjects(stream, model, stage, limits, work)?;
                 let mut values = Vec::new();
                 for subject in subjects {
                     let names = if matches!(stage.kind, StageKind::Text) {
-                        let location = report.subject_location(&subject);
+                        let location = self.subject_location(&subject);
                         vec![
-                            std::str::from_utf8(report.subject_bytes(&subject)).map_err(|_| {
+                            std::str::from_utf8(self.subject_bytes(&subject)).map_err(|_| {
                                 model_error(location, "text inspection requires UTF-8 source text")
                             })?,
                         ]
                     } else {
                         match &subject {
-                            SemanticSubject::Entity(entity) => vec![report.name(*entity)],
+                            SemanticSubject::Entity(entity) => vec![self.name(*entity)],
                             SemanticSubject::Node { file, node, .. } => {
                                 work.spend(node.children().len(), &stage.range)?;
                                 crate::inspection::direct_names(&model.files[*file].parsed, node)
@@ -564,12 +613,12 @@ pub(crate) fn evaluate_with_facts<'a>(
             }
             StageKind::Emit if !matches!(stream, SemanticStream::Inspection(_)) => stream,
             StageKind::Json => {
-                report.json = true;
+                self.json = true;
                 stream
             }
             _ => match stream {
                 SemanticStream::Inspection(result) => SemanticStream::Inspection(Box::new(
-                    crate::evaluate_stage(input, Some(model), *result, stage, &mut work, limits)?,
+                    crate::evaluate_stage(input, Some(model), *result, stage, work, limits)?,
                 )),
                 _ => {
                     return Err(type_error(
@@ -578,21 +627,24 @@ pub(crate) fn evaluate_with_facts<'a>(
                     ));
                 }
             },
-        };
+        })
     }
-    if let SemanticStream::Inspection(result) = &report.stream
-        && let QueryResult::Selection(selection) = result.as_ref()
-        && !selection.document
-    {
-        crate::validate_fragment_directives(input, &selection.items)?;
+
+    pub(crate) fn finish(
+        &mut self,
+        callable_references: Vec<usize>,
+        work: &mut Work,
+        requesting: &Stage,
+        range: &Range<usize>,
+        limits: Limits,
+    ) -> Result<(), QueryError> {
+        self.finish_reference_limitations(callable_references, work, requesting, limits)?;
+        self.charge_output(work, range, limits)?;
+        if self.json {
+            self.validate_json(work, range)?;
+        }
+        Ok(())
     }
-    report.finish_reference_limitations(callable_references, &mut work, requesting, limits)?;
-    // Charge text/JSON output before constructing the rendered value.
-    report.charge_output(&mut work, &query.range, limits)?;
-    if report.json {
-        report.validate_json(&mut work, &query.range)?;
-    }
-    Ok(QueryResult::Semantic(report))
 }
 
 fn subjects<'a>(
@@ -1280,6 +1332,18 @@ impl SemanticResult<'_> {
                     Truth::from(conjunction)
                 }
             }
+            _ => self.predicate_leaf(predicate, subject, work, stage, limits)?,
+        })
+    }
+    pub(crate) fn predicate_leaf(
+        &mut self,
+        predicate: &Predicate,
+        subject: &SemanticSubject<'_>,
+        work: &mut Work,
+        stage: &Stage,
+        limits: Limits,
+    ) -> Result<Truth, QueryError> {
+        Ok(match &predicate.kind {
             PredicateKind::Type(expected) => match self.type_of(subject, work, stage, limits)? {
                 Some(ty) if type_unknown(&ty, work, &predicate.range, limits)?.is_none() => {
                     Truth::from(type_kind(&ty.kind) == expected)
@@ -1324,6 +1388,12 @@ impl SemanticResult<'_> {
                             .is_some_and(|kind| kind.as_str() == item_kind_name(node.kind())),
                 ),
             },
+            PredicateKind::Group(_)
+            | PredicateKind::Not(_)
+            | PredicateKind::And(_)
+            | PredicateKind::Or(_) => {
+                unreachable!("Boolean predicates are evaluated by the pipeline")
+            }
         })
     }
     fn filter<'a>(
@@ -1539,7 +1609,7 @@ impl SemanticResult<'_> {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Truth {
+pub(crate) enum Truth {
     True,
     False,
     Unknown,
