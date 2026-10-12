@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 113
-- Ready: 6
+- Ready: 5
 - Blocked: 0
-- Done: 107
+- Done: 108
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -116,7 +116,7 @@
 | [base-105](tasks/105-prefer-direct-array-comprehensions-with-preserved-indices.md) | Prefer direct array comprehensions with preserved indices | done | — |
 | [base-106](tasks/106-suggest-enums-for-integer-sets-used-only-as-identities.md) | Suggest enums for integer sets used only as identities | done | base-099 |
 | [base-107](tasks/107-align-explicit-and-implicit-expanded-comprehension-layouts.md) | Align explicit and implicit expanded comprehension layouts | done | — |
-| [base-108](tasks/108-stop-treating-anonymous-enum-initializer-calls-as-declaratio.md) | Stop treating anonymous enum initializer calls as declarations | ready | — |
+| [base-108](tasks/108-stop-treating-anonymous-enum-initializer-calls-as-declaratio.md) | Stop treating anonymous enum initializer calls as declarations | done | — |
 | [base-109](tasks/109-respect-explicit-per-element-range-constraints-in-unbounded.md) | Respect explicit per-element range constraints in unbounded advice | ready | — |
 | [base-110](tasks/110-recognize-complete-enum2int-search-projections.md) | Recognize complete enum2int search projections | ready | — |
 | [base-111](tasks/111-render-unproven-cartesian-expense-as-informational-advice.md) | Render unproven Cartesian expense as informational advice | ready | — |

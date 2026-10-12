@@ -705,7 +705,10 @@ impl<'a> BodyInterpreter<'a, '_> {
                     if !self.source.source_annotations_safe(declaration.file, part) {
                         unsupported = Some("enum source annotation is unsupported".into());
                     }
-                    if part.kind() == NodeKind::EnumConstructor {
+                    if matches!(
+                        part.kind(),
+                        NodeKind::EnumConstructor | NodeKind::CallExpression
+                    ) {
                         let tokens = crate::domains::tokens(
                             &self.source.context.files[declaration.file].parsed,
                             part,

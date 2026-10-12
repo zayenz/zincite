@@ -5,6 +5,7 @@ use zincite_lint::{
     resolve_callables, resolve_unused_declarations,
 };
 const CORE: &str = concat!(
+    "function set of int: anon_enum(int: count);\n",
     "function bool: '='($T: left,$T: right); function var bool: '='(any $T: left,any $T: right);\n",
     "function int: '+'(int: left,int: right); function int: '-'(int: left,int: right); function set of int: '..'(int: left,int: right);\n",
     "function string: show(any $T: value); annotation no_output; annotation add_to_output;\n",
@@ -63,6 +64,67 @@ fn warnings(context: &ModelContext) -> Vec<String> {
                 .to_owned()
         })
         .collect()
+}
+#[test]
+fn anonymous_enum_initializer_is_a_call_not_an_unused_constructor() {
+    let source = "enum Position = anon_enum(2); var Position: position; solve satisfy;";
+    let (dir, context) = model("anonymous-enum", source, "");
+    let (bindings, usage) = facts(&context);
+    assert_eq!(usage.root_state, ModelRootState::Complete);
+    assert!(usage.limitations.is_empty(), "{:?}", usage.limitations);
+    assert_eq!(
+        outcome(&bindings, &usage, "Position"),
+        UsageOutcome::Reachable
+    );
+    let result = analyze_model(
+        &context,
+        &LintOptions::from_selection("naming,unused-declaration").unwrap(),
+    );
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(result.findings.is_empty(), "{:?}", result.findings);
+    assert!(
+        result
+            .rules
+            .iter()
+            .all(|rule| rule.outcome == RuleOutcome::Completed),
+        "{:?}",
+        result.rules
+    );
+    assert!(
+        !bindings.declarations.iter().any(|d| {
+            d.name == "anon_enum" && context.files[d.file].path == dir.join("root.mzn")
+        })
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn named_enum_constructors_keep_declaration_roles_and_warnings() {
+    let source = "enum Position = bad_constructor({1,2}); var Position: position; solve satisfy;";
+    let (dir, context) = model("named-enum-constructor", source, "");
+    let (bindings, usage) = facts(&context);
+    let constructor = bindings
+        .declarations
+        .iter()
+        .find(|d| d.name == "bad_constructor")
+        .unwrap();
+    assert_eq!(constructor.role, DeclarationRole::EnumConstructor);
+    assert_eq!(
+        &source[constructor.location.range.clone()],
+        "bad_constructor"
+    );
+    assert_eq!(
+        usage.declarations[constructor.id.0].outcome,
+        UsageOutcome::Unreachable
+    );
+    assert_eq!(warnings(&context), ["bad_constructor"]);
+    let result = analyze_model(&context, &LintOptions::from_selection("naming").unwrap());
+    assert_eq!(result.findings.len(), 1);
+    assert_eq!(
+        &source[result.findings[0].location.range.clone()],
+        "bad_constructor"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
 }
 #[test]
 fn complete_roots_follow_selected_dependencies_without_conflating_containment() {

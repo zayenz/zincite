@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-108"
 key = "anonymous-enum-call-role"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "high"
@@ -26,12 +26,22 @@ Read brief.md Initial lint contract and Adopted Atlas feedback. enum Position = 
 
 ## Done when
 
-- [ ] A complete anonymous-enum root with solve satisfy and required standard-call facts checks Position without treating anon_enum as a model declaration; unused-declaration analysis is Completed with no relevant limitation or false warning.
-- [ ] Genuine named enum constructors retain naming, binding and unused-declaration behavior.
-- [ ] The unused-declaration observation is independently tested and its actual current status recorded.
+- [x] A complete anonymous-enum root with solve satisfy and required standard-call facts checks Position without treating anon_enum as a model declaration; unused-declaration analysis is Completed with no relevant limitation or false warning.
+- [x] Genuine named enum constructors retain naming, binding and unused-declaration behavior.
+- [x] The unused-declaration observation is independently tested and its actual current status recorded.
 
 ## Validation
 
 - Add a focused public-behavior regression for the reproduced false positive and a genuine constructor counterexample; reuse parser source-preservation checks.
 - Run cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, and cargo test --workspace.
 - Run zdev check base --format json; install the changed local commands after verification.
+
+## Result
+
+Anonymous enum initializer calls retain call identity instead of declaring constructors; naming and unused-declaration no longer warn on anon_enum.
+
+Validation:
+
+- Independent review passed against W7d2e88adf534d7ce; post-review and pre-completion comparisons equal.
+- Both original false warnings independently reproduced on clean HEAD; completed-rule positive, genuine-constructor counterexample and exact source-preservation checks passed.
+- cargo fmt, clippy, workspace tests, zdev check passed. All four commands installed and match release binaries; both installed lint commands pass the complete-root smoke check.

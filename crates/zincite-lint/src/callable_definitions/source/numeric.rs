@@ -360,7 +360,7 @@ impl<'a> SourceInspector<'a> {
         {
             return i64::try_from(part.child_nodes().count()).ok();
         }
-        if part.kind() != NodeKind::EnumConstructor {
+        if part.kind() != NodeKind::CallExpression {
             return None;
         }
         let tokens = crate::domains::tokens(&self.context.files[declaration.file].parsed, part);

@@ -243,6 +243,19 @@ impl Parser<'_> {
                 "expected ',' or '}' after enum case",
             )?;
             NodeKind::EnumCases
+        } else if self.significant(self.position).is_some_and(|index| {
+            matches!(self.tokens[index].kind, Identifier | QuotedIdentifier)
+                && self.source[self.tokens[index].range.clone()].trim_matches('\'') == "anon_enum"
+        }) {
+            self.name(&mut children)?;
+            self.expect(LeftParen, &mut children, "expected '(' after anon_enum")?;
+            self.expression(&mut children)?;
+            self.expect(
+                RightParen,
+                &mut children,
+                "expected ')' after anonymous enum count",
+            )?;
+            NodeKind::CallExpression
         } else {
             if self.peek() == Some(Anonymous) {
                 self.bump(&mut children);

@@ -1308,6 +1308,34 @@ fn enums_and_aliases_expose_only_written_declaration_names_losslessly() {
     let deferred = parse("enum Pending :: tag; Pending: value; any: reference=Pending;");
     assert!(deferred.diagnostics().is_empty());
     assert_eq!(items(&deferred)[0].child_nodes().count(), 1);
+
+    let source =
+        "enum Position = /* count */ anon_enum (2) ++ FromColour(Colour) ++ 'anon_enum'(3);\r\n";
+    let anonymous = parse(source);
+    assert!(
+        anonymous.diagnostics().is_empty(),
+        "{:?}",
+        anonymous.diagnostics()
+    );
+    let definition = items(&anonymous)[0].child_nodes().next().unwrap();
+    let parts: Vec<_> = definition.child_nodes().collect();
+    assert_eq!(
+        parts.iter().map(|part| part.kind()).collect::<Vec<_>>(),
+        [
+            NodeKind::CallExpression,
+            NodeKind::EnumConstructor,
+            NodeKind::CallExpression,
+        ]
+    );
+    assert_eq!(&source[parts[0].range()], "anon_enum (2)");
+    let mut leaves = Vec::new();
+    collect_leaves(anonymous.tree(), &anonymous, &mut leaves);
+    assert_eq!(leaves, (0..anonymous.tokens().len()).collect::<Vec<_>>());
+    let reconstructed: String = leaves
+        .iter()
+        .map(|&i| &source[anonymous.tokens()[i].range.clone()])
+        .collect();
+    assert_eq!(reconstructed, source);
 }
 
 #[test]
