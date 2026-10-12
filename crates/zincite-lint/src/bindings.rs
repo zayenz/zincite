@@ -402,7 +402,14 @@ impl<'a> Builder<'a> {
         let name = symbolic_operator(token.kind)
             .map(str::to_owned)
             .unwrap_or_else(|| identity(&source.parsed.source()[token.range.clone()]));
-        let resolution = match self.lookup(&name, scopes) {
+        // Operation calls look up global declarations; their arguments
+        // still resolve lexical values through the normal expression walk.
+        let resolution = if kind == ReferenceKind::Callable {
+            self.lookup(&name, &[])
+        } else {
+            self.lookup(&name, scopes)
+        };
+        let resolution = match resolution {
             BindingResolution::Ambiguous(ids) if kind == ReferenceKind::Value => {
                 // A value and a callable may share a name. Prefer the unique
                 // non-callable in value context; keep bare callable/annotation

@@ -476,10 +476,10 @@ fn lattice_minima_unknown_candidates_and_rule_local_limits_do_not_guess() {
         outcome(&facts, &root, source, "missing(1)"),
         CallOutcome::Unresolved { .. }
     ));
-    assert!(matches!(
-        outcome(&facts, &root, source, "'element'(1,xs,value)"),
-        CallOutcome::NoMatch { .. }
-    ));
+    assert_eq!(
+        resolved(&facts, &bindings, &root, source, "'element'(1,xs,value)").file,
+        context.root_file.unwrap()
+    );
     assert!(matches!(
         outcome(&facts, &root, source, "consume(fixed[1..2])"),
         CallOutcome::NoMatch { .. }
@@ -557,11 +557,11 @@ fn lattice_minima_unknown_candidates_and_rule_local_limits_do_not_guess() {
         "array[1..1] of int: crossing = [0];\n",
         "function int: crossing(int: x, var int: y) = 1;\n",
         "function int: crossing(var int: x, int: y) = 2;\n",
-        "int: ambiguous = crossing(1,1);\n",
+        "int: ambiguous = let { int: crossing = 0; } in crossing(1,1);\n",
         "array[1..1] of int: uncertain = [0];\n",
         "function int: uncertain(int: x) = 1;\n",
         "function int: uncertain(MissingType: x) = 2;\n",
-        "int: unavailable = uncertain(1);\n",
+        "int: unavailable = let { int: uncertain = 0; } in uncertain(1);\n",
         "int: shadowed = let { int: f = 0; } in 'f'(1);\n",
         "solve satisfy;\n",
     );
@@ -611,9 +611,9 @@ fn lattice_minima_unknown_candidates_and_rule_local_limits_do_not_guess() {
     ));
     assert!(matches!(
         outcome(&facts, &root, source, "'f'(1)"),
-        CallOutcome::NoMatch { .. }
+        CallOutcome::Resolved { declaration, .. } if *declaration == selected.id
     ));
-    let local_reference = bindings
+    let call_reference = bindings
         .references
         .iter()
         .find(|reference| {
@@ -621,11 +621,12 @@ fn lattice_minima_unknown_candidates_and_rule_local_limits_do_not_guess() {
                 && reference.location.range.start == source.find("'f'(1)").unwrap()
         })
         .unwrap();
-    assert_eq!(local_reference.kind, zincite_lint::ReferenceKind::Callable);
+    assert_eq!(call_reference.kind, zincite_lint::ReferenceKind::Callable);
     assert!(matches!(
-        &local_reference.resolution,
-        zincite_lint::BindingResolution::Resolved(id)
-            if bindings.declarations[id.0].role == DeclarationRole::Local
+        &call_reference.resolution,
+        zincite_lint::BindingResolution::Overloads(ids)
+            if ids.len() == 2
+                && ids.iter().all(|id| bindings.declarations[id.0].role == DeclarationRole::Function)
     ));
     std::fs::remove_dir_all(directory).unwrap();
 }
@@ -1604,5 +1605,85 @@ fn explicit_array_slices_retain_matching_axes_and_preserve_selector_refusals() {
             ty(name)
         );
     }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn operation_calls_keep_global_identity_and_lexical_values() {
+    let (directory, options) = setup("call-head-values");
+    let root = directory.join("root.mzn");
+    let source = concat!(
+        "function string: shared_name(int: argument)=\"callable\";\n",
+        "function string: through_formal(int: shared_name)=shared_name(shared_name);\n",
+        "string: formal_result=through_formal(7);\n",
+        "string: local_result=let { int: shared_name=11; } in shared_name(shared_name);\n",
+        "function string: 'shared name'(int: argument)=\"quoted\";\n",
+        "function string: quoted_formal(int: 'shared name')='shared name'('shared name');\n",
+        "string: quoted_result=quoted_formal(7);\n",
+        "string: invalid_result=let { int: shared_name=11; } in shared_name(shared_name,true);\n",
+        "int: unavailable=let { int: missing_call=11; } in missing_call(missing_call);\n",
+        "solve satisfy;\n",
+    );
+    write(&root, source);
+    let context = load_model(&root, &options);
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let bindings = resolve_bindings(&context);
+    let facts = resolve_callables(&context, &bindings);
+    for (marker, role) in [
+        ("shared_name(shared_name);", DeclarationRole::Parameter),
+        ("in shared_name(shared_name)", DeclarationRole::Local),
+        ("'shared name'('shared name')", DeclarationRole::Parameter),
+    ] {
+        let start = source.find(marker).unwrap() + if marker.starts_with("in ") { 3 } else { 0 };
+        let call = bindings
+            .references
+            .iter()
+            .find(|r| r.location.path == root && r.location.range.start == start)
+            .unwrap();
+        assert_eq!(call.kind, zincite_lint::ReferenceKind::Callable);
+        let zincite_lint::BindingResolution::Resolved(target) = call.resolution else {
+            panic!("{call:?}");
+        };
+        assert_eq!(
+            bindings.declarations[target.0].role,
+            DeclarationRole::Function
+        );
+        assert!(
+            matches!(facts.calls.iter().find(|c| c.location.path == root && c.location.range.start == start).unwrap().outcome,
+            CallOutcome::Resolved { declaration, .. } if declaration == target)
+        );
+        let argument_start = start + source[start..].find('(').unwrap() + 1;
+        let value = bindings
+            .references
+            .iter()
+            .find(|r| r.location.path == root && r.location.range.start == argument_start)
+            .unwrap();
+        assert_eq!(value.kind, zincite_lint::ReferenceKind::Value);
+        let zincite_lint::BindingResolution::Resolved(value) = value.resolution else {
+            panic!("{value:?}");
+        };
+        assert_eq!(bindings.declarations[value.0].role, role);
+        assert_ne!(value, target);
+    }
+    assert!(matches!(
+        outcome(&facts, &root, source, "shared_name(shared_name,true)"),
+        CallOutcome::NoMatch { .. }
+    ));
+    let missing = bindings
+        .references
+        .iter()
+        .find(|r| {
+            r.location.path == root
+                && r.location.range.start == source.find("missing_call(missing_call)").unwrap()
+        })
+        .unwrap();
+    assert_eq!(
+        missing.resolution,
+        zincite_lint::BindingResolution::Unresolved
+    );
+    assert!(matches!(
+        outcome(&facts, &root, source, "missing_call(missing_call)"),
+        CallOutcome::Unresolved { .. }
+    ));
     std::fs::remove_dir_all(directory).unwrap();
 }
