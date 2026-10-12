@@ -76,7 +76,7 @@ fn arrays_keep_source_dimension_identity_and_explicit_matching_guards() {
     assert!(
         facts
             .iter()
-            .all(|fact| matches!(fact.obligation.outcome, GuardedOutcome::Unsupported(_)))
+            .all(|fact| fact.obligation.outcome == GuardedOutcome::Unknown)
     );
     assert_eq!(
         facts
@@ -88,12 +88,12 @@ fn arrays_keep_source_dimension_identity_and_explicit_matching_guards() {
             .collect::<Vec<_>>(),
         [1, 2]
     );
-    assert_eq!(result.limitations.len(), 1, "{result:?}");
-    assert!(result.findings.is_empty(), "{result:?}");
-    assert!(matches!(
-        result.rules[0].outcome,
-        RuleOutcome::Limited { .. }
-    ));
+    // The opaque array establishes no index membership, but indexing still
+    // supplies its two known input obligations. Neither permits a fix.
+    assert!(result.limitations.is_empty(), "{result:?}");
+    assert_eq!(result.findings.len(), 2, "{result:?}");
+    assert!(result.findings.iter().all(|finding| finding.fix.is_none()));
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
     std::fs::remove_dir_all(dir).unwrap();
     let source = concat!(
         "function int:cross(array[int] of int:a,array[int] of int:b)=sum(i in index_set(a))(b[i]);\n",
@@ -173,23 +173,22 @@ fn numeric_and_nonempty_contracts_are_local_general_and_operation_specific() {
             "optional",
             "conditional",
             "self",
-            "strict"
+            "strict",
+            "unsupported",
+            "hidden"
         ],
         "{facts:?}"
     );
-    assert_eq!(result.findings.len(), 10, "{result:?}");
+    assert_eq!(result.findings.len(), 12, "{result:?}");
     assert!(
         result
             .limitations
             .iter()
             .any(|l| l.message.contains("logarithm"))
     );
-    assert!(
-        result
-            .limitations
-            .iter()
-            .any(|l| l.message.contains("opaque"))
-    );
+    // Opacity supplies no requirement itself. The written divisions still
+    // require their unknown denominator to be nonzero.
+    assert!(result.findings.iter().all(|finding| finding.fix.is_none()));
     assert!(
         result
             .limitations

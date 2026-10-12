@@ -101,7 +101,7 @@ pub(super) fn resolve_domains_with_callables<'a>(
         bindings,
         calls,
         initialized_facts: None,
-        inspected_extremum: false,
+        uncertain_call_bound: false,
         active: Vec::new(),
     };
     let declarations = bindings
@@ -249,7 +249,7 @@ struct Walker<'a> {
         &'a DomainFacts,
         &'a [&'a SyntaxNode],
     )>,
-    inspected_extremum: bool,
+    uncertain_call_bound: bool,
     active: Vec<DeclarationId>,
 }
 impl<'a> Walker<'a> {
@@ -1398,7 +1398,7 @@ impl<'a> Walker<'a> {
                             None,
                         )
                 {
-                    self.inspected_extremum = true;
+                    self.uncertain_call_bound = true;
                     return match safety {
                         crate::DefinitionSafety::Supported
                         | crate::DefinitionSafety::Unknown(_) => Unknown,
@@ -1407,6 +1407,71 @@ impl<'a> Walker<'a> {
                 }
                 if self.parameter_set_cardinality(file, node) {
                     Unknown
+                } else if self.calls.is_some_and(|calls| {
+                    ["length", "min", "max"].iter().any(|name| {
+                        crate::callables::core_operation(
+                            self.context,
+                            self.bindings,
+                            calls,
+                            file,
+                            node,
+                            name,
+                        ) == Ok(true)
+                    })
+                }) {
+                    // These retained source families are inspected by their
+                    // consumer with the actual lexical and initialized context.
+                    Unsupported("numeric expression requires retained source inspection".into())
+                } else if let Some(calls) = self.calls {
+                    let range = self.context.files[file].location(node.range()).range;
+                    let ty = calls
+                        .expressions
+                        .iter()
+                        .find(|e| e.file == file && e.location.range == range)
+                        .map(|e| &e.ty);
+                    match crate::callables::selected_call_type(
+                        crate::callables::operation_fact(self.context, calls, file, node),
+                        ty,
+                    ) {
+                        Ok(ty) if !ty.optional && ty.kind == crate::TypeKind::Int => {
+                            if let Some((calls, instantiations, domains, _)) =
+                                self.initialized_facts
+                                && let Some(retained) = expression_node(
+                                    self.context.files[file].parsed.tree(),
+                                    &node.range(),
+                                )
+                                && let Some(reason) =
+                                    crate::callable_definitions::opaque_source_error(
+                                        self.context,
+                                        self.bindings,
+                                        calls,
+                                        instantiations,
+                                        domains,
+                                        file,
+                                        retained,
+                                    )
+                            {
+                                return Unsupported(reason);
+                            }
+                            for child in &children {
+                                let range = self.context.files[file].location(child.range()).range;
+                                if calls.expressions.iter().any(|e| {
+                                    e.file == file
+                                        && e.location.range == range
+                                        && e.ty.kind == crate::TypeKind::Int
+                                }) && let Unsupported(reason) = self.bound(file, child)
+                                {
+                                    return Unsupported(reason);
+                                }
+                            }
+                            self.uncertain_call_bound = true;
+                            Unknown
+                        }
+                        Ok(_) => {
+                            Unsupported("numeric call requires a present integer result".into())
+                        }
+                        Err(reason) => Unsupported(reason),
+                    }
                 } else {
                     Unsupported("numeric expression is outside bounded integer arithmetic".into())
                 }
@@ -1768,7 +1833,7 @@ pub(super) fn expression_domain(
         bindings,
         calls: None,
         initialized_facts: None,
-        inspected_extremum: false,
+        uncertain_call_bound: false,
         active: Vec::new(),
     }
     .domain(file, node)
@@ -1790,7 +1855,7 @@ pub(super) fn native_index_set_domain(
         bindings,
         calls: Some(calls),
         initialized_facts: None,
-        inspected_extremum: false,
+        uncertain_call_bound: false,
         active: Vec::new(),
     }
     .index_set_domain(file, node)
@@ -1955,7 +2020,7 @@ pub(super) fn inspected_parameter_range_domain<'a>(
         bindings,
         calls: Some(view),
         initialized_facts: Some((calls, instantiations, domains, generators)),
-        inspected_extremum: false,
+        uncertain_call_bound: false,
         active: Vec::new(),
     };
     let mut aliases = Vec::new();
@@ -2033,7 +2098,7 @@ pub(super) fn inspected_parameter_range_domain<'a>(
     else {
         return None;
     };
-    let mut inspected = walker.inspected_extremum;
+    let mut inspected = walker.uncertain_call_bound;
     for (endpoint, bound) in endpoints.iter().zip([&mut lower, &mut upper]) {
         let range = context.files[file].location(endpoint.range()).range;
         if integer(bound).is_err()
@@ -2347,7 +2412,7 @@ pub(super) fn symbolic_floor_sum_bound(
         bindings,
         calls: Some(calls),
         initialized_facts: None,
-        inspected_extremum: false,
+        uncertain_call_bound: false,
         active: Vec::new(),
     }
     .symbolic_floor_sum_bound(file, node)
@@ -2366,7 +2431,7 @@ pub(super) fn expression_integer(
         bindings,
         calls: None,
         initialized_facts: None,
-        inspected_extremum: false,
+        uncertain_call_bound: false,
         active: Vec::new(),
     }
     .bound(file, node);
@@ -2384,7 +2449,7 @@ pub(super) fn invariant_expression_integer(
         bindings,
         calls: None,
         initialized_facts: None,
-        inspected_extremum: false,
+        uncertain_call_bound: false,
         active: Vec::new(),
     }
     .bound(file, node);
@@ -2592,13 +2657,14 @@ pub struct NumericFacts {
 /// parameter domains still bound arithmetic. A cycle cannot establish its own
 /// value; independent domain or definition anchors remain usable.
 ///
-/// Float, option, array-access, arbitrary call and control/iteration expressions
-/// are outside this integer subset. Unsupported integer expressions and unsafe
+/// Selected typed integer calls outside the proof families retain Unknown.
+/// Float, option, array-access and control/iteration expressions are outside this
+/// integer subset. Unsupported integer expressions and unsafe
 /// definitions retain located limitations separately from facts and lint findings.
 /// Ordinary uncertainty (missing data, cycles, conditional definitions, interval
 /// division) is not an unsupported-operation finding. Sparse sets use hulls for
 /// arithmetic; no correlation reasoning, solver or symbolic algebra is performed.
-/// This producer does not change resolve_integer_bounds or selected-rule behavior.
+/// Callable signatures never certify a body's numeric value or definition safety.
 pub fn resolve_numeric_facts(
     context: &ModelContext,
     bindings: &BindingFacts,
@@ -3329,7 +3395,7 @@ impl<'a> Bounds<'a> {
                         bindings: self.bindings,
                         calls: None,
                         initialized_facts: None,
-                        inspected_extremum: false,
+                        uncertain_call_bound: false,
                         active: Vec::new(),
                     }
                     .bound(file, node);
@@ -3495,7 +3561,7 @@ impl<'a> Bounds<'a> {
                                 )
                             }))
                 {
-                    return Unsupported("integer call is outside numeric interpretation".into());
+                    return self.opaque_call(file, node);
                 }
                 let mut nodes = vec![node];
                 while let Some(value) = nodes.pop() {
@@ -3549,11 +3615,68 @@ impl<'a> Bounds<'a> {
                 let values: Vec<_> = children.iter().map(|n| self.expression(file, n)).collect();
                 numeric_arithmetic(operator, &values, self.definitions.is_none())
             }
-            NodeKind::CallExpression => self.length(file, node).unwrap_or_else(|| {
-                Unsupported("integer expression is outside bounded interpretation".into())
-            }),
+            NodeKind::CallExpression => self
+                .length(file, node)
+                .unwrap_or_else(|| self.opaque_call(file, node)),
             _ => Unsupported("integer expression is outside bounded interpretation".into()),
         }
+    }
+    fn opaque_call(&mut self, file: FileId, node: &SyntaxNode) -> NumericOutcome {
+        let range = self.context.files[file].location(node.range()).range;
+        let ty = self
+            .expression_indices
+            .get(&(file, range.start, range.end))
+            .map(|&index| &self.calls.expressions[index].ty);
+        match crate::callables::selected_call_type(
+            crate::callables::operation_fact(self.context, self.calls, file, node),
+            ty,
+        ) {
+            Ok(ty) if !ty.optional && ty.kind == crate::TypeKind::Int => {}
+            Ok(_) => {
+                return NumericOutcome::Unsupported(
+                    "numeric call requires a present integer result".into(),
+                );
+            }
+            Err(reason) => return NumericOutcome::Unsupported(reason),
+        }
+        if let Some(instantiations) = self.instantiations
+            && let Some(retained) =
+                expression_node(self.context.files[file].parsed.tree(), &node.range())
+            && let Some(reason) = crate::callable_definitions::opaque_source_error(
+                self.context,
+                self.bindings,
+                self.calls,
+                instantiations,
+                self.domains,
+                file,
+                retained,
+            )
+        {
+            return NumericOutcome::Unsupported(reason);
+        }
+        // Noninteger actuals need no integer value proof. Inspect the arithmetic
+        // fragments inside them for applicable operand errors.
+        let mut pending: Vec<_> = node.child_nodes().collect();
+        while let Some(argument) = pending.pop() {
+            if matches!(
+                argument.kind(),
+                NodeKind::UnaryExpression | NodeKind::BinaryExpression | NodeKind::CallExpression
+            ) {
+                let range = self.context.files[file].location(argument.range()).range;
+                if self
+                    .expression_indices
+                    .get(&(file, range.start, range.end))
+                    .is_some_and(|&index| {
+                        self.calls.expressions[index].ty.kind == crate::TypeKind::Int
+                    })
+                    && let NumericOutcome::Unsupported(reason) = self.expression(file, argument)
+                {
+                    return NumericOutcome::Unsupported(reason);
+                }
+            }
+            pending.extend(argument.child_nodes());
+        }
+        NumericOutcome::Unknown("opaque integer call has no value proof".into())
     }
     fn requirement(&self, id: DeclarationId) -> NumericOutcome {
         let ty = &self.calls.declarations[id.0].ty;
@@ -3665,10 +3788,8 @@ impl<'a> Bounds<'a> {
         if definition.coverage != crate::DefinitionCoverage::Scalar {
             return Unsupported("numeric interpretation supports scalar definitions only".into());
         }
-        match &definition.safety {
-            crate::DefinitionSafety::Unsupported(reason) => return Unsupported(reason.clone()),
-            crate::DefinitionSafety::Unknown(reason) => return Unknown(reason.clone()),
-            crate::DefinitionSafety::Supported => {}
+        if let crate::DefinitionSafety::Unknown(reason) = &definition.safety {
+            return Unknown(reason.clone());
         }
         if definition.cyclic
             && definition
@@ -3684,7 +3805,36 @@ impl<'a> Bounds<'a> {
         let Some(node) = expression_node(source.parsed.tree(), &range) else {
             return Unsupported("definition value syntax is unavailable".into());
         };
-        self.expression(definition.file, node)
+        let value = self.expression(definition.file, node);
+        if matches!(value, Unknown(_)) {
+            if let Some(instantiations) = self.instantiations
+                && let Some(reason) = crate::callable_definitions::opaque_source_error(
+                    self.context,
+                    self.bindings,
+                    self.calls,
+                    instantiations,
+                    self.domains,
+                    definition.file,
+                    node,
+                )
+            {
+                return Unsupported(reason);
+            }
+            let mut pending = vec![node];
+            while let Some(source) = pending.pop() {
+                if source.kind() == NodeKind::CallExpression
+                    && matches!(self.opaque_call(definition.file, source), Unknown(_))
+                {
+                    return value;
+                }
+                pending.extend(source.child_nodes());
+            }
+        }
+        match &definition.safety {
+            crate::DefinitionSafety::Unsupported(reason) => Unsupported(reason.clone()),
+            crate::DefinitionSafety::Unknown(reason) => Unknown(reason.clone()),
+            crate::DefinitionSafety::Supported => value,
+        }
     }
     fn type_operations(&self, id: DeclarationId) -> Result<(), String> {
         let d = &self.bindings.declarations[id.0];

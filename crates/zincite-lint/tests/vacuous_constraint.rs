@@ -198,16 +198,7 @@ fn assumptions_inactivity_unknowns_and_item_suppression_preserve_boundaries() {
         result.findings[1].message.contains("local condition")
             && result.findings[1].message.contains("conditional")
     );
-    assert!(
-        result
-            .limitations
-            .iter()
-            .any(|l| l.message.contains("opaque")),
-        "{result:?}"
-    );
-    assert!(matches!(
-        result.rules[0].outcome,
-        RuleOutcome::Limited { .. }
-    ));
+    assert!(result.limitations.is_empty(), "{result:?}");
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
     std::fs::remove_dir_all(dir).unwrap();
 }

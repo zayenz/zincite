@@ -1973,6 +1973,40 @@ pub(super) fn operation_fact<'a>(
         .iter()
         .find(|fact| fact.file == file && fact.location.range.start == start)
 }
+/// A selected, concretely typed call supplies identity and type, never a body proof.
+pub(super) fn selected_call_type<'a>(
+    fact: Option<&'a CallFact>,
+    expression: Option<&TypeInst>,
+) -> Result<&'a TypeInst, String> {
+    let fact = fact.ok_or("call identity is unavailable")?;
+    let (parameters, return_type) = match &fact.outcome {
+        CallOutcome::Resolved {
+            parameters,
+            return_type,
+            ..
+        } => (parameters, return_type),
+        CallOutcome::NoMatch { reason }
+        | CallOutcome::Unresolved { reason }
+        | CallOutcome::Unsupported { reason, .. } => {
+            return Err(format!("call {}: {reason}", fact.name));
+        }
+        CallOutcome::Ambiguous { .. } => return Err(format!("call {} is ambiguous", fact.name)),
+        CallOutcome::Intrinsic { .. } => return Err("call has no selected declaration".into()),
+    };
+    if !parameters.iter().all(TypeInst::known) || !return_type.known() {
+        return Err(format!(
+            "call {} instantiated typing is unavailable",
+            fact.name
+        ));
+    }
+    if expression != Some(return_type) {
+        return Err(format!(
+            "call {} expression typing is unavailable or inconsistent",
+            fact.name
+        ));
+    }
+    Ok(return_type)
+}
 /// Selected integer or parameter integer-set array concat shape, not an evaluation proof.
 pub(super) fn array_concatenation<'a>(
     context: &ModelContext,

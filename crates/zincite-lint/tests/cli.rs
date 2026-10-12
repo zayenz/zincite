@@ -996,11 +996,7 @@ fn effective_zero_one_selection_preserves_facts_limits_and_status_precedence() {
     std::fs::write(&root,"var 0..1: a; var 0..1: b; function int: opaque()=1; constraint a=opaque() -> b=1; solve satisfy;").unwrap();
     let output = run(&args, "");
     assert_eq!(output.status.code(), Some(0));
-    assert!(
-        String::from_utf8(output.stderr)
-            .unwrap()
-            .contains("analysis limitation: effective-zero-one")
-    );
+    assert!(output.stdout.is_empty() && output.stderr.is_empty());
     let output = run(&["--rules", "effective-zero-one"], source);
     assert_eq!(output.status.code(), Some(0));
     assert!(
@@ -1707,6 +1703,24 @@ fn partial_expression_cli_reports_scoped_hazards_and_keeps_status_precedence() {
             .unwrap()
             .contains("analysis limitation: partial-expression")
     );
+    let opaque = "function int:opaque(int:x); int:v=opaque(1); solve satisfy;";
+    std::fs::write(&root, opaque).unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stdout.is_empty() && output.stderr.is_empty());
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), opaque);
+    std::fs::write(
+        &root,
+        "function int:opaque(int:x); int:v=opaque(1 div 0); solve satisfy;",
+    )
+    .unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("divisor must be nonzero")
+    );
     let stdin = run(
         &["--show-limitations", "--rules", "partial-expression"],
         source,
@@ -1852,6 +1866,26 @@ fn vacuity_cli_keeps_opt_in_selection_suppression_and_statuses() {
     std::fs::write(
         &root,
         "function bool:opaque(); constraint opaque(); solve satisfy;",
+    )
+    .unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stdout.is_empty() && output.stderr.is_empty());
+    assert_eq!(
+        std::fs::read_to_string(&root).unwrap(),
+        "function bool:opaque(); constraint opaque(); solve satisfy;"
+    );
+    std::fs::write(&root, "constraint missing(); solve satisfy;").unwrap();
+    let output = run(&args, "");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("analysis limitation: vacuous-constraint")
+    );
+    std::fs::write(
+        &root,
+        "function bool:opaque()=missing(); constraint opaque(); solve satisfy;",
     )
     .unwrap();
     let output = run(&args, "");

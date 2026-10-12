@@ -245,8 +245,9 @@ impl<'a> SourceInspector<'a> {
                 }
                 _ => false,
             };
-            if literal
-                && node.kind() == NodeKind::BinaryExpression
+            if node.kind() == NodeKind::BinaryExpression
+                && children.len() == 2
+                && children[1].1
                 && matches!(
                     operator(context, file, node),
                     Some(TokenKind::Div | TokenKind::Mod)
@@ -313,12 +314,12 @@ impl<'a> SourceInspector<'a> {
                 {
                     let declaration = &self.bindings.declarations[id.0];
                     let ty = &self.calls.declarations[id.0].ty;
-                    if declaration.top_level
-                        && declaration.role == DeclarationRole::Value
+                    if (declaration.top_level && declaration.role == DeclarationRole::Value
+                        || follow_collections && declaration.role == DeclarationRole::Local)
                         && ty.known()
-                        && !optional(ty)
-                        && ty.instantiation == Instantiation::Parameter
-                        && (ty.kind == TypeKind::Int
+                        && (!optional(ty)
+                            && ty.instantiation == Instantiation::Parameter
+                            && ty.kind == TypeKind::Int
                             || follow_collections
                                 && matches!(ty.kind, TypeKind::Set(_) | TypeKind::Array { .. }))
                         && let Some(written) = find_node(

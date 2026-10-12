@@ -190,9 +190,10 @@ impl GuardedFacts {
 /// membership/comparison guards. Exact membership differs from a numeric hull.
 /// No option presence, general cardinality, arbitrary function bodies or solver
 /// reasoning is added.
-/// Opaque calls, unresolved/user operators, unsupported controls and unavailable
-/// types retain located limitations. These facts never issue warnings or edits
-/// and do not change existing definition or selected-lint safety behavior.
+/// Selected typed opaque calls retain Unknown and a possible abort barrier.
+/// Unresolved/user operators, unsupported controls and unavailable types retain
+/// located limitations. These facts issue no warnings or edits and cannot
+/// certify definition safety or safe rewrites.
 pub fn resolve_guarded_facts(
     context: &ModelContext,
     bindings: &BindingFacts,
@@ -1890,11 +1891,7 @@ impl<'a> Producer<'a> {
                     .ty(file, node)
                     .is_some_and(|t| !t.optional && t.kind == TypeKind::Int)
             {
-                return self.unsupported(
-                    file,
-                    node,
-                    "only scalar nonoptional bool2int is interpreted",
-                );
+                return self.opaque_call(file, node, result);
             }
             // Boolean relational totality belongs to this argument. Its raw
             // numeric obligations remain separate in the argument's facts.
@@ -2037,161 +2034,44 @@ impl<'a> Producer<'a> {
                 return result;
             }
         }
-        if self.ty(file, node).is_some_and(|ty| {
-            ty.known()
-                && !ty.optional
-                && ty.instantiation == Instantiation::Parameter
-                && matches!(&ty.kind, TypeKind::Array { indices, element }
-                    if indices.len() == 2 && element.optional && element.kind == TypeKind::Int
-                        && element.instantiation == Instantiation::Parameter)
-        }) {
-            let (generators, scope_error) = self.source_headers(file, scope);
-            if let Some(safety) =
-                crate::callable_definitions::optional_parameter_matrix_initializer_safety(
-                    self.context,
-                    self.bindings,
-                    self.calls,
-                    self.instantiations,
-                    self.domains,
-                    (file, node, &generators),
-                )
-            {
-                let inspected = match scope_error {
-                    Some(reason) => self.unsupported(file, node, reason).definedness,
-                    None => match safety {
-                        crate::DefinitionSafety::Unsupported(reason) => {
-                            self.unsupported(file, node, reason).definedness
-                        }
-                        _ => GuardedOutcome::Unknown,
-                    },
-                };
-                result.definedness = conjoin(&result.definedness, &inspected);
-                result.truth = None;
-                result.numeric = None;
-                return result;
-            }
-        }
-        if self.ty(file, node).is_some_and(|ty| {
-            ty.known()
-                && !ty.optional
-                && ty.instantiation == Instantiation::Decision
-                && ty.kind == TypeKind::Bool
-        }) && self
-            .operation_fact(file, node)
-            .is_some_and(|fact| fact.name == "regular")
-        {
-            let (generators, scope_error) = self.source_headers(file, scope);
-            if let Some(safety) = crate::callable_definitions::regular_four_source_safety(
-                self.context,
-                self.bindings,
-                self.calls,
-                self.instantiations,
-                self.domains,
-                (file, node, &generators),
-            )
-            .or_else(|| {
-                crate::callable_definitions::literal_regular_source_safety(
-                    self.context,
-                    self.bindings,
-                    self.calls,
-                    self.instantiations,
-                    self.domains,
-                    (file, node, &generators),
-                )
-            }) {
-                let inspected = match scope_error {
-                    Some(reason) => self.unsupported(file, node, reason).definedness,
-                    None => match safety {
-                        crate::DefinitionSafety::Unsupported(reason) => {
-                            self.unsupported(file, node, reason).definedness
-                        }
-                        _ => GuardedOutcome::Unknown,
-                    },
-                };
-                result.definedness = conjoin(&result.definedness, &inspected);
-                result.truth = None;
-                result.numeric = None;
-                // Unproved extrema and selections may abort. Source inspection
-                // cannot promote this Boolean relation to proven definedness.
-                result.assertion = true;
-                return result;
-            }
-        }
-        if self.ty(file, node).is_some_and(|ty| {
-            ty.known()
-                && !ty.optional
-                && ty.instantiation == Instantiation::Decision
-                && ty.kind == TypeKind::Bool
-        }) && self
-            .operation_fact(file, node)
-            .is_some_and(|fact| fact.name == "sliding_sum")
-        {
-            let (generators, scope_error) = self.source_headers(file, scope);
-            if let Some(safety) = crate::callable_definitions::sliding_sum_source_safety(
-                self.context,
-                self.bindings,
-                self.calls,
-                self.instantiations,
-                self.domains,
-                (file, node, &generators),
-            ) {
-                let inspected = match scope_error {
-                    Some(reason) => self.unsupported(file, node, reason).definedness,
-                    None => match safety {
-                        crate::DefinitionSafety::Unsupported(reason) => {
-                            self.unsupported(file, node, reason).definedness
-                        }
-                        _ => GuardedOutcome::Unknown,
-                    },
-                };
-                result.definedness = conjoin(&result.definedness, &inspected);
-                result.truth = None;
-                result.numeric = None;
-                // Extrema and window selections may abort; source inspection
-                // supplies neither totality nor Boolean relation truth.
-                result.assertion = true;
-                return result;
-            }
-        }
-        if self.ty(file, node).is_some_and(|ty| {
-            ty.known()
-                && !ty.optional
-                && ty.instantiation == Instantiation::Decision
-                && ty.kind == TypeKind::Bool
-        }) && self
-            .operation_fact(file, node)
-            .is_some_and(|fact| fact.name == "global_cardinality")
-        {
-            let (generators, scope_error) = self.source_headers(file, scope);
-            if let Some(safety) = crate::callable_definitions::gcc_source_safety(
-                self.context,
-                self.bindings,
-                self.calls,
-                self.instantiations,
-                self.domains,
-                (file, node, &generators),
-            ) {
-                let inspected = match scope_error {
-                    Some(reason) => self.unsupported(file, node, reason).definedness,
-                    None => match safety {
-                        crate::DefinitionSafety::Unsupported(reason) => {
-                            self.unsupported(file, node, reason).definedness
-                        }
-                        _ => GuardedOutcome::Unknown,
-                    },
-                };
-                result.definedness = conjoin(&result.definedness, &inspected);
-                result.truth = None;
-                result.numeric = None;
-                result.assertion = true;
-                return result;
-            }
-        }
-        self.unsupported(
+        self.opaque_call(file, node, result)
+    }
+    fn opaque_call(
+        &mut self,
+        file: FileId,
+        node: &'a SyntaxNode,
+        mut result: Evaluation,
+    ) -> Evaluation {
+        if let Err(reason) = crate::callables::selected_call_type(
+            self.operation_fact(file, node),
+            self.ty(file, node),
+        ) {
+            result.definedness = conjoin(
+                &result.definedness,
+                &self.unsupported(file, node, reason).definedness,
+            );
+        } else if let Some(reason) = crate::callable_definitions::opaque_source_error(
+            self.context,
+            self.bindings,
+            self.calls,
+            self.instantiations,
+            self.domains,
             file,
             node,
-            "opaque or unresolved callable is outside guarded interpretation",
-        )
+        ) {
+            result.definedness = conjoin(
+                &result.definedness,
+                &self.unsupported(file, node, reason).definedness,
+            );
+        } else {
+            result.definedness = conjoin(&result.definedness, &GuardedOutcome::Unknown);
+        }
+        result.truth = None;
+        result.numeric = None;
+        // Uninspected calls may abort; Boolean relational partiality and default
+        // capture cannot erase that possibility.
+        result.assertion = true;
+        result
     }
     fn generated(
         &mut self,
@@ -2313,7 +2193,9 @@ impl<'a> Producer<'a> {
             } else {
                 bodies.clone()
             };
-            result.definedness = conjoin(&result.definedness, &combine(&body).definedness);
+            let evaluated = combine(&body);
+            result.definedness = conjoin(&result.definedness, &evaluated.definedness);
+            result.assertion |= evaluated.assertion;
         }
         if node.kind() == NodeKind::GeneratorCallExpression {
             let present_nonempty = self.collection_nonempty(file, node, "sum");
@@ -2367,11 +2249,7 @@ impl<'a> Producer<'a> {
                 .iter()
                 .any(|name| self.core_call(file, node, name))
             {
-                return self.unsupported(
-                    file,
-                    node,
-                    "opaque generator call is outside guarded interpretation",
-                );
+                return self.opaque_call(file, node, result);
             }
         }
         result
@@ -3400,6 +3278,21 @@ impl<'a> Producer<'a> {
             })
         })();
         let Some(domain) = typed_source else {
+            if let Some(domain) = self.index_domain(file, source) {
+                return domain;
+            }
+            if source.kind() == NodeKind::CallExpression
+                && crate::callables::selected_call_type(
+                    self.operation_fact(file, source),
+                    self.ty(file, source),
+                )
+                .is_ok_and(|ty| matches!(ty.kind, TypeKind::Set(_) | TypeKind::Array { .. }))
+            {
+                return match &evaluated.definedness {
+                    GuardedOutcome::Unsupported(reason) => Domain::Unsupported(reason.clone()),
+                    _ => Domain::Unknown,
+                };
+            }
             return self.domain(file, node);
         };
         // The source resolves to a top-level value, so enclosing binders cannot

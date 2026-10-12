@@ -22,17 +22,17 @@ pub(crate) fn direct_expression_safety<'a>(
     };
     BodyInterpreter::without_bodies(&inspector).direct_safety(source.0, source.1, calls, generators)
 }
-// Inspect only the selected standard regular/4 relation and its nested bodies.
-// Discovery supplies concrete views, never outputs or model-wide certificates.
-pub(crate) fn regular_four_source_safety<'a>(
+/// Retain closed source errors in arguments and already selected dependencies.
+/// This scan supplies no value, safety or body-admission certificate.
+pub(crate) fn opaque_source_error<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
     calls: &'a CallableFacts,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
-    source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
-) -> Option<DefinitionSafety> {
-    let (file, node, generators) = source;
+    file: FileId,
+    node: &'a SyntaxNode,
+) -> Option<String> {
     let inspector = SourceInspector {
         context,
         bindings,
@@ -43,516 +43,198 @@ pub(crate) fn regular_four_source_safety<'a>(
         selected_set_source: false,
         inactive_integer_body: None,
     };
-    let interpreter = BodyInterpreter::without_bodies(&inspector);
-    if node.kind() != NodeKind::CallExpression {
-        return None;
-    }
-    let fact = interpreter.source.operation_fact(calls, file, node)?;
-    let CallOutcome::Resolved {
-        declaration,
-        parameters,
-        return_type,
-    } = &fact.outcome
-    else {
-        return None;
-    };
-    let owner = &bindings.declarations[declaration.0];
-    if owner.name != "regular"
-        || owner.role != DeclarationRole::Predicate
-        || context.files[owner.file].kind != SourceKind::StandardLibrary
-        || !interpreter.source.regular_four_tuple(parameters)
-        || *return_type != TypeInst::par(TypeKind::Bool).with_inst(Instantiation::Decision)
-        || interpreter
-            .source
-            .expression_type(calls, file, node)
-            .is_none_or(|actual| actual.ty != *return_type)
-    {
-        return None;
-    }
-    let id = *declaration;
-    let parameters = parameters.clone();
-    let clause = Clause {
-        file,
-        item: fact.item,
-        node,
-        generators: generators.to_vec(),
-        kind: ClauseKind::Call,
-    };
-    let instances = discovery::discover_instances(&inspector, std::slice::from_ref(&clause));
-    let interpreter = BodyInterpreter::new(&inspector, &instances, &[]);
-    Some(
-        match interpreter.inspect_regular_four(&clause, calls, id, &parameters, None)? {
-            Ok(()) => DefinitionSafety::Unknown(
-                "regular4 relation values, partiality and membership are unproved".into(),
-            ),
-            Err(reason) => DefinitionSafety::Unsupported(reason),
-        },
-    )
+    opaque_dependency_error(&inspector, file, node, calls, &[], &mut Vec::new())
 }
-// Inspect the selected bound-GCC relation and its complete count source family.
-// Concrete body views retain identities but supply no count or output proof.
-pub(crate) fn gcc_source_safety<'a>(
-    context: &'a ModelContext,
-    bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
-    instantiations: &'a InstantiationFacts,
-    domains: &'a DomainFacts,
-    source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
-) -> Option<DefinitionSafety> {
-    let (file, node, generators) = source;
-    if node.kind() != NodeKind::CallExpression {
-        return None;
-    }
-    let inspector = SourceInspector {
-        context,
-        bindings,
-        calls,
-        instantiations,
-        domains,
-        lookups: None,
-        selected_set_source: false,
-        inactive_integer_body: None,
-    };
-    let interpreter = BodyInterpreter::without_bodies(&inspector);
-    let fact = interpreter.source.operation_fact(calls, file, node)?;
-    let CallOutcome::Resolved {
-        declaration,
-        parameters,
-        return_type,
-    } = &fact.outcome
-    else {
-        return None;
-    };
-    let owner = &bindings.declarations[declaration.0];
-    if owner.name != "global_cardinality"
-        || owner.role != DeclarationRole::Predicate
-        || context.files[owner.file].kind != SourceKind::StandardLibrary
-        || context.files[owner.file].implicit
-        || !interpreter.source.gcc_tuple(parameters)
-        || *return_type != TypeInst::par(TypeKind::Bool).with_inst(Instantiation::Decision)
-        || interpreter
-            .source
-            .expression_type(calls, file, node)
-            .is_none_or(|actual| actual.ty != *return_type)
+fn opaque_dependency_error<'a>(
+    inspector: &SourceInspector<'a>,
+    file: FileId,
+    source: &'a SyntaxNode,
+    view: &CallableFacts,
+    actuals: &[InvocationActual<'a, '_>],
+    active: &mut Vec<DeclarationId>,
+) -> Option<String> {
+    if let Some(reason) =
+        inspector.closed_integer_source_error_with_branches(file, source, false, true, true)
     {
-        return None;
+        return Some(reason);
     }
-    Some(
-        match (|| {
-            if !crate::definitions::annotations_safe(context, file, node) {
-                return Err("GCC actual annotation is unsupported".into());
-            }
-            let clause = Clause {
+    let interpreter = BodyInterpreter::without_bodies(inspector);
+    let invocation = Invocation {
+        actuals: actuals.to_vec(),
+        reachable: None,
+    };
+    let mut strict = vec![source];
+    while let Some(value) = strict.pop() {
+        if parameter_index_extremum(inspector.context, inspector.bindings, view, file, value)
+            .is_some()
+            && let Some(subject) = unwrap(value)
+                .child_nodes()
+                .next()
+                .and_then(|set| unwrap(set).child_nodes().next())
+            && interpreter.invocation_array_empty(
                 file,
-                item: fact.item,
-                node,
-                generators: generators.to_vec(),
-                kind: ClauseKind::Call,
-            };
-            let instance = Instance {
-                id: *declaration,
-                parameters: parameters.clone(),
-                ancestry: Vec::new(),
-                view: instantiated_body(context, bindings, calls, *declaration, parameters),
-                clauses: Vec::new(),
-                recursive: false,
-            };
-            let mut invocation = Invocation {
-                actuals: Vec::new(),
-                reachable: Some(true),
-            };
-            interpreter.invocation_actuals(&clause, calls, &instance, &mut invocation)?;
-            interpreter
-                .source
-                .gcc_source_body(*declaration, parameters, &mut Vec::new())
-        })() {
-            Ok(()) => DefinitionSafety::Unknown(
-                "GCC counts, index agreement and partiality are unproved".into(),
-            ),
-            Err(reason) => DefinitionSafety::Unsupported(reason),
-        },
-    )
-}
-// Inspect the selected literal-regexp wrapper without proving the relation total.
-pub(crate) fn literal_regular_source_safety<'a>(
-    context: &'a ModelContext,
-    bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
-    instantiations: &'a InstantiationFacts,
-    domains: &'a DomainFacts,
-    source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
-) -> Option<DefinitionSafety> {
-    let (file, node, generators) = source;
-    let inspector = SourceInspector {
-        context,
-        bindings,
-        calls,
-        instantiations,
-        domains,
-        lookups: None,
-        selected_set_source: false,
-        inactive_integer_body: None,
-    };
-    let interpreter = BodyInterpreter::without_bodies(&inspector);
-    if node.kind() != NodeKind::CallExpression {
-        return None;
-    }
-    let fact = interpreter.source.operation_fact(calls, file, node)?;
-    let CallOutcome::Resolved {
-        declaration,
-        parameters,
-        return_type,
-    } = &fact.outcome
-    else {
-        return None;
-    };
-    let owner = &bindings.declarations[declaration.0];
-    let boolean = TypeInst::par(TypeKind::Bool).with_inst(Instantiation::Decision);
-    if owner.name != "regular"
-        || owner.role != DeclarationRole::Predicate
-        || context.files[owner.file].kind != SourceKind::StandardLibrary
-        || context.files[owner.file].implicit
-        || !matches!(parameters.as_slice(), [array, pattern]
-            if array.known() && !optional(array) && array.instantiation == Instantiation::Decision
-                && matches!(&array.kind, TypeKind::Array { indices, element }
-                    if indices.as_slice() == [TypeInst::par(TypeKind::Int)]
-                        && element.instantiation == Instantiation::Decision
-                        && matches!(element.kind, TypeKind::Enum(_)))
-                && *pattern == TypeInst::par(TypeKind::String))
-        || *return_type != boolean
-        || interpreter
-            .source
-            .expression_type(calls, file, node)
-            .is_none_or(|actual| actual.ty != boolean)
-    {
-        return None;
-    }
-    let id = *declaration;
-    let parameters = parameters.clone();
-    let clause = Clause {
-        file,
-        item: fact.item,
-        node,
-        generators: generators.to_vec(),
-        kind: ClauseKind::Call,
-    };
-    let instances = discovery::discover_instances(&inspector, std::slice::from_ref(&clause));
-    let interpreter = BodyInterpreter::new(&inspector, &instances, &[]);
-    let checked: Result<(), String> = (|| {
-        if !crate::definitions::annotations_safe(context, file, node) {
-            return Err("literal regexp wrapper actual annotation is unsupported".into());
+                subject,
+                view,
+                &invocation,
+                &mut Vec::new(),
+                true,
+            ) == Ok(Some(true))
+        {
+            return Some("strict index extremum has a known empty actual array".into());
         }
+        // A strict guard still evaluates, but an unproved branch is no witness
+        // that its extremum executes. This check never admits the enclosing body.
+        if value.kind() == NodeKind::ConditionalExpression {
+            strict.extend(
+                value
+                    .child_nodes()
+                    .filter(|branch| branch.kind() == NodeKind::ConditionalBranch)
+                    .filter_map(|branch| branch.child_nodes().next()),
+            );
+        } else {
+            strict.extend(value.child_nodes());
+        }
+    }
+    let mut nodes = vec![source];
+    while let Some(node) = nodes.pop() {
+        nodes.extend(node.child_nodes());
+        if !matches!(
+            node.kind(),
+            NodeKind::CallExpression | NodeKind::GeneratorCallExpression
+        ) {
+            continue;
+        }
+        let Some(call) = operation_fact(inspector.context, view, file, node) else {
+            continue;
+        };
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            ..
+        } = &call.outcome
+        else {
+            continue;
+        };
+        if active.contains(declaration) {
+            continue;
+        }
+        let owner = &inspector.bindings.declarations[declaration.0];
         let written = find_node(
-            context.files[owner.file].parsed.tree(),
+            inspector.context.files[owner.file].parsed.tree(),
             &owner.syntax_range,
             owner.role,
-        )
-        .ok_or("literal regexp wrapper source is unavailable")?;
-        if let Some(reason) = interpreter
-            .source
-            .closed_integer_source_error(owner.file, written, false, true)
-        {
-            return Err(reason);
-        }
-        if !interpreter
-            .source
-            .callable_annotations_safe(owner.file, written)
-        {
-            return Err("literal regexp wrapper metadata is unsupported".into());
-        }
-        let mut signatures = calls
-            .signatures
-            .iter()
-            .filter(|signature| signature.declaration == id);
-        let signature = signatures
-            .next()
-            .ok_or("literal regexp wrapper signature is unavailable")?;
-        if signatures.next().is_some()
-            || signature.parameters.len() != 2
-            || signature
-                .parameters
-                .iter()
-                .any(|parameter| parameter.has_default)
-            || signature.return_type != boolean
-        {
-            return Err("literal regexp wrapper signature or defaults are unsupported".into());
-        }
-        let bodies: Vec<_> = written
-            .child_nodes()
-            .filter(|child| is_expression(child.kind()))
-            .collect();
-        let [body] = bodies.as_slice() else {
-            return Err("literal regexp wrapper requires its complete owning body".into());
-        };
-        // Validated declaration hints are separate from formal/type metadata.
-        let mut types: Vec<_> = written
-            .child_nodes()
-            .filter(|child| !is_expression(child.kind()) && child.kind() != NodeKind::Annotation)
-            .collect();
-        while let Some(ty) = types.pop() {
-            if is_expression(ty.kind())
-                || !crate::definitions::annotations_safe(context, owner.file, ty)
+        )?;
+        if !written.child_nodes().any(|node| is_expression(node.kind())) {
+            if let Some(reason) = inspector
+                .closed_integer_source_error_with_branches(owner.file, written, false, true, true)
             {
-                return Err("literal regexp wrapper written type or default is unsupported".into());
+                return Some(reason);
             }
-            types.extend(ty.child_nodes());
+            continue;
         }
-        let instance = interpreter
-            .instances
-            .iter()
-            .find(|instance| {
-                instance.id == id && instance.parameters == parameters && !instance.recursive
-            })
-            .ok_or("literal regexp wrapper nonrecursive body view is unavailable")?;
-        let body = unwrap(body);
-        let view = &instance.view;
-        if body.kind() != NodeKind::CallExpression
-            || interpreter
-                .source
-                .expression_type(view, owner.file, body)
-                .is_none_or(|expression| expression.ty != boolean)
-        {
-            return Err("literal regexp wrapper body form or type is unsupported".into());
-        }
-        let native = interpreter
-            .source
-            .operation_fact(view, owner.file, body)
-            .ok_or("literal regexp wrapper native selection is unavailable")?;
-        let CallOutcome::Resolved {
-            declaration: native_id,
-            parameters: native_parameters,
-            ..
-        } = &native.outcome
-        else {
-            return Err("literal regexp wrapper native selection is unsupported".into());
-        };
-        let native_argument = |position| {
-            call_argument(
-                context, bindings, view, owner.file, body, *native_id, position,
-            )
-            .ok_or("literal regexp wrapper native actual is unavailable")
-        };
-        let (conversion_file, conversion) = native_argument(0)?;
-        let input = interpreter
-            .source
-            .array_conversion_argument(conversion_file, conversion, view)
-            .ok_or("literal regexp wrapper requires its checked enum conversion")?;
-        let (pattern_file, pattern) = native_argument(1)?;
-        for (position, source_file, actual) in
-            [(0, conversion_file, input), (1, pattern_file, pattern)]
-        {
-            let formal = formal_parameter(context, bindings, id, position)
-                .ok_or("literal regexp wrapper formal identity is unavailable")?;
-            if source_file != owner.file
-                || unwrap(actual).kind() != NodeKind::Expression
-                || interpreter.source.reference(source_file, unwrap(actual)) != Some(formal)
-            {
-                return Err("literal regexp wrapper must forward its exact owning formals".into());
-            }
-        }
-        let mut invocation = Invocation {
-            actuals: Vec::new(),
-            reachable: Some(true),
-        };
-        interpreter.invocation_actuals(&clause, calls, instance, &mut invocation)?;
-        let native_clause = Clause {
-            file: owner.file,
-            item: owner.item,
-            node: body,
-            generators: Vec::new(),
-            kind: ClauseKind::Call,
-        };
-        interpreter
-            .inspect_literal_regular(
-                &native_clause,
+        let mut actuals = invocation.actuals.clone();
+        for position in 0..parameters.len() {
+            if let Some(formal) = formal_parameter(
+                inspector.context,
+                inspector.bindings,
+                *declaration,
+                position,
+            ) && let Some((argument_file, argument)) = call_argument(
+                inspector.context,
+                inspector.bindings,
                 view,
-                *native_id,
-                native_parameters,
-                Some(&invocation),
-            )
-            .ok_or("literal regexp wrapper native declaration or tuple is unsupported")?
-    })();
-    Some(match checked {
-        Ok(()) => DefinitionSafety::Unknown(
-            "literal regexp relation values, partiality and membership are unproved".into(),
-        ),
-        Err(reason) => DefinitionSafety::Unsupported(reason),
-    })
-}
-// Source inspection of the selected standard sliding recurrence, without
-// assuming array extent, window membership, relation truth or output guarantees.
-pub(crate) fn sliding_sum_source_safety<'a>(
-    context: &'a ModelContext,
-    bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
-    instantiations: &'a InstantiationFacts,
-    domains: &'a DomainFacts,
-    source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
-) -> Option<DefinitionSafety> {
-    let (file, node, generators) = source;
-    if node.kind() != NodeKind::CallExpression {
-        return None;
-    }
-    let inspector = SourceInspector {
-        context,
-        bindings,
-        calls,
-        instantiations,
-        domains,
-        lookups: None,
-        selected_set_source: false,
-        inactive_integer_body: None,
-    };
-    let interpreter = BodyInterpreter::without_bodies(&inspector);
-    let fact = interpreter.source.operation_fact(calls, file, node)?;
-    let CallOutcome::Resolved {
-        declaration,
-        parameters,
-        return_type,
-    } = &fact.outcome
-    else {
-        return None;
-    };
-    let owner = &bindings.declarations[declaration.0];
-    if owner.name != "sliding_sum"
-        || owner.role != DeclarationRole::Predicate
-        || context.files[owner.file].kind != SourceKind::StandardLibrary
-        || !interpreter.source.sliding_sum_tuple(parameters)
-        || *return_type != TypeInst::par(TypeKind::Bool).with_inst(Instantiation::Decision)
-        || interpreter
-            .source
-            .expression_type(calls, file, node)
-            .is_none_or(|e| e.ty != *return_type)
-    {
-        return None;
-    }
-    let id = *declaration;
-    let parameters = parameters.clone();
-    let clause = Clause {
-        file,
-        item: fact.item,
-        node,
-        generators: generators.to_vec(),
-        kind: ClauseKind::Call,
-    };
-    let instances = discovery::discover_instances(&inspector, std::slice::from_ref(&clause));
-    let interpreter = BodyInterpreter::new(&inspector, &instances, &[]);
-    Some(
-        match interpreter.inspect_sliding_sum(&clause, calls, id, &parameters) {
-            Ok(()) => DefinitionSafety::Unknown(
-                "sliding relation, extent and window membership are unproved".into(),
-            ),
-            Err(reason) => DefinitionSafety::Unsupported(reason),
-        },
-    )
-}
-
-// Inspect only an optional matrix's whole owning lexical initializer.
-// This shares constructor checks with model lets and supplies no value proof.
-pub(crate) fn optional_parameter_matrix_initializer_safety<'a>(
-    context: &'a ModelContext,
-    bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
-    instantiations: &'a InstantiationFacts,
-    domains: &'a DomainFacts,
-    source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
-) -> Option<DefinitionSafety> {
-    let (file, node, generators) = source;
-    let inspector = SourceInspector {
-        context,
-        bindings,
-        calls,
-        instantiations,
-        domains,
-        lookups: None,
-        selected_set_source: false,
-        inactive_integer_body: None,
-    };
-    let interpreter = BodyInterpreter::without_bodies(&inspector);
-    let ty = &interpreter.source.expression_type(calls, file, node)?.ty;
-    if node.kind() != NodeKind::CallExpression
-        || !ty.known()
-        || ty.optional
-        || ty.instantiation != Instantiation::Parameter
-        || !matches!(&ty.kind, TypeKind::Array { indices, element }
-            if indices.len() == 2 && element.optional
-                && element.instantiation == Instantiation::Parameter
-                && element.kind == TypeKind::Int)
-        || interpreter.source.operation_fact(calls, file, node)?.name != "array2d"
-    {
-        return None;
-    }
-    let mut pending = vec![context.files[file].parsed.tree()];
-    let local = 'owner: loop {
-        let parent = pending.pop()?;
-        if parent.kind() == NodeKind::LetExpression {
-            for block in parent
+                file,
+                node,
+                *declaration,
+                position,
+            ) {
+                actuals.push(InvocationActual {
+                    formal,
+                    file: argument_file,
+                    node: argument,
+                    view,
+                    generators: Vec::new(),
+                    collection: false,
+                });
+            }
+        }
+        let selected_view = instantiated_body(
+            inspector.context,
+            inspector.bindings,
+            inspector.calls,
+            *declaration,
+            parameters,
+        );
+        if inspector.context.files[owner.file].warnings_enabled() {
+            let range = inspector.context.files[owner.file]
+                .location(written.range())
+                .range;
+            if let Some(reference) = inspector.bindings.references.iter().find(|reference| {
+                reference.file == owner.file
+                    && range.start <= reference.location.range.start
+                    && reference.location.range.end <= range.end
+                    && matches!(
+                        reference.resolution,
+                        BindingResolution::Unresolved | BindingResolution::Ambiguous(_)
+                    )
+            }) {
+                return Some(format!(
+                    "opaque body reference {} is unresolved or ambiguous",
+                    reference.name
+                ));
+            }
+            if selected_view.declarations.iter().any(|typed| {
+                let local = &inspector.bindings.declarations[typed.declaration.0];
+                local.file == owner.file
+                    && written.range().start <= local.syntax_range.start
+                    && local.syntax_range.end <= written.range().end
+                    && matches!(
+                        local.role,
+                        DeclarationRole::Local
+                            | DeclarationRole::Parameter
+                            | DeclarationRole::Generator
+                    )
+                    && !typed.ty.known()
+            }) {
+                return Some("opaque body local or parameter typing is unavailable".into());
+            }
+            if let Some(body) = written
                 .child_nodes()
-                .filter(|part| part.kind() == NodeKind::LetBlock)
+                .filter(|node| is_expression(node.kind()))
+                .last()
             {
-                for local in block
-                    .child_nodes()
-                    .filter(|part| part.kind() == NodeKind::Declaration)
-                {
-                    if local
-                        .child_nodes()
-                        .find(|part| is_expression(part.kind()))
-                        .is_some_and(|initializer| std::ptr::eq(unwrap(initializer), node))
-                    {
-                        break 'owner local;
-                    }
+                let range = inspector.context.files[owner.file]
+                    .location(body.range())
+                    .range;
+                let typed = selected_view.expressions.iter().find(|expression| {
+                    expression.file == owner.file && expression.location.range == range
+                });
+                let CallOutcome::Resolved { return_type, .. } = &call.outcome else {
+                    unreachable!()
+                };
+                if typed.is_none_or(|expression| {
+                    !expression.ty.known() || !crate::types::coerces(&expression.ty, return_type)
+                }) {
+                    return Some("opaque body result typing is unavailable or inconsistent".into());
                 }
             }
         }
-        pending.extend(parent.child_nodes().filter(|part| {
-            part.range().start <= node.range().start && node.range().end <= part.range().end
-        }));
-    };
-    let owner = bindings.declarations.iter().find(|owner| {
-        owner.file == file
-            && owner.role == DeclarationRole::Local
-            && owner.syntax_range == local.range()
-    })?;
-    if !crate::definitions::annotations_safe(context, file, local) {
-        return Some(DefinitionSafety::Unsupported(
-            "optional parameter matrix owning Local annotation is unsupported".into(),
-        ));
-    }
-    for (position, generator) in generators.iter().enumerate() {
-        if generator.kind() != NodeKind::Generator
-            || generator.range().end > local.range().start
-            || position > 0 && generators[position - 1].range().end > generator.range().start
-        {
-            return Some(DefinitionSafety::Unsupported(
-                "optional parameter matrix preceding header order is unsupported".into(),
-            ));
-        }
-        for source in generator.child_nodes() {
-            let filter = source.kind() == NodeKind::WhereFilter;
-            let value = if filter {
-                let Some(value) = source.child_nodes().next() else {
-                    return Some(DefinitionSafety::Unsupported(
-                        "optional parameter matrix preceding filter is unavailable".into(),
-                    ));
-                };
-                value
-            } else {
-                source
-            };
-            let visible = position + usize::from(filter);
-            if let Err(reason) = interpreter.optional_matrix_source_safety(
-                (file, value, value.range().start),
-                calls,
-                &generators[..visible],
-                &mut vec![owner.id],
-            ) {
-                return Some(DefinitionSafety::Unsupported(reason));
-            }
+        active.push(*declaration);
+        let error = opaque_dependency_error(
+            inspector,
+            owner.file,
+            written,
+            &selected_view,
+            &actuals,
+            active,
+        );
+        active.pop();
+        if error.is_some() {
+            return error;
         }
     }
-    interpreter.optional_parameter_matrix_safety(file, local, owner.id, calls, generators)
+    None
 }
-// Numeric inspection must check initialized references, not only dependencies.
 pub(crate) fn initialized_expression_safety<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,

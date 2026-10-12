@@ -275,5 +275,21 @@ For semantic simplification, separately record exactly which admission-only
 Limited cases become Completed with Unknown, retaining warning/query/fix vetoes.
 Do not rewrite old rows. Any lost useful positive proof/finding needs explicit
 review; Unknown-only body admission shapes need not remain shape-specific tests.
+
+Base-115 changes only admission-related outcomes. Typed opaque integer calls
+(such as `custom(1)`), Boolean calls and filters, optional calls, and opaque
+collection sources now retain Unknown. Selected user/native `index_set` bodies,
+written optional-matrix constructors, literal regular native bodies, sliding-sum
+primitive bodies, and changed GCC count/equality bodies no longer require their
+former admission shapes. Their selected bounded analyses may complete without a
+finding. Unknown supplies no value, presence, extent, coverage or fix proof;
+opaque Boolean calls and evaluated generator bodies retain a possible abort
+barrier. Default cannot capture that barrier. Ambiguity, unavailable required
+typing, closed argument/source errors and known-empty strict extrema still veto
+completion or dependent proofs. Numeric chains, scoped guards, capacity/presence,
+and definition/search guarantees keep their existing controls. Known enclosing
+index/division obligations remain reportable, while opaque unused-generator
+bodies acquire no fix eligibility. Historical captures above remain unchanged.
+
 This baseline is a small bundle control set, not a substitute for the existing
 full catalogue and parsing/formatting acceptance evidence.

@@ -155,7 +155,7 @@ fn unused_name_facts_retain_unknown_refuted_and_unsupported_evaluation_safety() 
         usage[2]
             .evaluation_definedness
             .iter()
-            .any(|(_, d)| matches!(d, GuardedOutcome::Unsupported(_)))
+            .any(|(_, d)| *d == GuardedOutcome::Unknown)
     );
     let result = analyze_model(
         &context,
@@ -172,10 +172,8 @@ fn unused_name_facts_retain_unknown_refuted_and_unsupported_evaluation_safety() 
             .message
             .contains("without proving that the operation is evaluated")
     );
-    assert!(matches!(
-        result.rules[0].outcome,
-        RuleOutcome::Limited { .. }
-    ));
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+    assert!(result.limitations.is_empty(), "{result:?}");
     assert_eq!(result.status(), 1);
     std::fs::remove_dir_all(dir).unwrap();
 }

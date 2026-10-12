@@ -759,6 +759,30 @@ impl Producer<'_> {
                     _ => Domain::Unknown,
                 })
             })
+            .or_else(|| {
+                if node.kind() != NodeKind::CallExpression {
+                    return None;
+                }
+                let ty = crate::callables::selected_call_type(
+                    crate::callables::operation_fact(self.context, self.calls, file, node),
+                    self.calls
+                        .expressions
+                        .iter()
+                        .find(|e| {
+                            e.file == file && e.location.range == self.location(file, node).range
+                        })
+                        .map(|e| &e.ty),
+                )
+                .ok()?;
+                if !matches!(ty.kind, TypeKind::Set(_) | TypeKind::Array { .. }) {
+                    return None;
+                }
+                let evaluated = self.guarded.expression(file, &self.location(file, node))?;
+                Some(match &evaluated.definedness {
+                    GuardedOutcome::Unsupported(reason) => Domain::Unsupported(reason.clone()),
+                    _ => Domain::Unknown,
+                })
+            })
             .unwrap_or_else(|| expression_domain(self.context, self.bindings, file, node));
         if node.kind() == NodeKind::Expression {
             if let Some(id) = self.resolved_reference(file, node)
@@ -1143,6 +1167,16 @@ impl Producer<'_> {
                     .collect();
                 let slots = generator_slots(&self.context.files[file].parsed, generator);
                 let mut index_set = self.source_set(file, source, &known);
+                if coverage == IterationCoverage::Full
+                    && matches!(index_set.domain, Domain::Unknown)
+                    && unwrap(source).kind() == NodeKind::CallExpression
+                    && self
+                        .guarded
+                        .expression(file, &self.location(file, source))
+                        .is_some_and(|value| value.definedness != GuardedOutcome::Proven)
+                {
+                    coverage = IterationCoverage::Unknown;
+                }
                 if !membership {
                     index_set.domain = self.assignment_domain(file, source);
                     index_set.cardinality = Cardinality::Exact(1);

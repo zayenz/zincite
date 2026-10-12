@@ -409,7 +409,7 @@ fn rejecting_filters_do_not_relabel_inherited_emptiness() {
     );
     assert!(matches!(
         iteration(&context, &facts, "[i | i in 1..3 where opaque(i)]").filters[0].definedness,
-        GuardedOutcome::Unsupported(_)
+        GuardedOutcome::Unknown
     ));
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -1281,14 +1281,14 @@ fn native_set_index_sources_keep_anonymous_unknown_axes() {
         ("set-index-let-source", let_source.as_str(), CORE, true),
         ("set-index-source-zero", source_error.as_str(), CORE, false),
         ("set-index-optional", optional.as_str(), CORE, false),
-        ("set-index-user", user.as_str(), CORE, false),
+        ("set-index-user", user.as_str(), CORE, true),
         ("set-index-annotation", annotated.as_str(), CORE, false),
         ("set-index-let-prefix", prefix_error.as_str(), CORE, false),
         (
             "set-index-native-body",
             positive,
             changed_native.as_str(),
-            false,
+            true,
         ),
     ] {
         let (directory, context, bindings, facts) = model_with_core(name, source, core);
@@ -1323,7 +1323,10 @@ fn native_set_index_sources_keep_anonymous_unknown_axes() {
             assert_eq!(axis.equal_members(axis), GuardedOutcome::Unknown);
             assert_eq!(axis.coverage_of(axis), IterationCoverage::Unknown);
             let array_axis = set(&context, &facts, "index_set(a)");
-            assert!(array_axis.array_dimension.is_some());
+            assert_eq!(
+                array_axis.array_dimension.is_some(),
+                name != "set-index-user"
+            );
             assert_eq!(array_axis.cardinality, Cardinality::Unknown);
             assert_eq!(axis.equal_members(array_axis), GuardedOutcome::Unknown);
             let calls = resolve_callables(&context, &bindings);

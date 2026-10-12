@@ -1,9 +1,7 @@
 //! Selected standard bodies retain written shape, metadata, owning scopes and primitives.
 use super::*;
-mod cardinality;
 mod optional;
 mod regular;
-mod sliding_sum;
 mod union;
 
 impl<'a> SourceInspector<'a> {

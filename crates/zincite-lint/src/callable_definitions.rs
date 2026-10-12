@@ -20,7 +20,6 @@
 //! - `dependencies` returns strict ordered declaration dependencies or a refusal.
 //!   Checked Unknown inspection cannot satisfy a proof-sensitive dependency path.
 //! - `adapters` preserves the consumer entry points and their Some/None lookup choices.
-//!   Selected regular and sliding bodies use isolated discovery without inference.
 //!
 //! Invocation actuals and the active forwarding stack exist only during their
 //! original inspection. Source inspection supplies no value, nonemptiness,
@@ -129,14 +128,12 @@ use source::SourceInspector;
 
 pub(super) use adapters::{
     DirectSafetyLookups, closed_integer_type_source_error, decision_prefix_source_safety,
-    direct_expression_safety, gcc_source_safety, indexed_expression_safety,
-    indexed_model_value_fresh_locals, indexed_set_axis_integer_reshape,
-    initialized_conditional_bound_safety, initialized_expression_safety,
-    initialized_integer_set_source_safety, initialized_parameter_set_extremum_safety,
-    length_argument, literal_regular_source_safety, native_operation_source_safe,
-    optional_parameter_matrix_initializer_safety, parameter_index_extremum,
-    regular_four_source_safety, selected_integer_set_source_safety,
-    set_axis_integer_reshape_source, sliding_sum_source_safety,
+    direct_expression_safety, indexed_expression_safety, indexed_model_value_fresh_locals,
+    indexed_set_axis_integer_reshape, initialized_conditional_bound_safety,
+    initialized_expression_safety, initialized_integer_set_source_safety,
+    initialized_parameter_set_extremum_safety, length_argument, native_operation_source_safe,
+    opaque_source_error, parameter_index_extremum, selected_integer_set_source_safety,
+    set_axis_integer_reshape_source,
 };
 
 #[derive(Clone)]
@@ -190,6 +187,7 @@ struct ConstructedArray {
 }
 // Exists only while one zero-output root invocation is inspected. These are
 // written sources, never value assumptions or cached callable boundaries.
+#[derive(Clone)]
 struct InvocationActual<'a, 'b> {
     formal: DeclarationId,
     file: FileId,

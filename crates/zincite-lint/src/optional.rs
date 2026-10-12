@@ -138,9 +138,10 @@ impl OptionalFacts {
 /// do not enumerate parameter filters or dependent generators. Replaceable
 /// parameter defaults and omitted optional data remain unknown. Decision-set
 /// membership and filters retain optional gates separately from index capacity.
-/// Arbitrary optional callable bodies, weak arithmetic and unsupported count
-/// arithmetic retain located limitations. Structured projections use only their
-/// known type's presence; their contents and general iteration are not evaluated.
+/// Selected typed optional calls retain unknown presence. Weak arithmetic and
+/// unsupported count arithmetic retain located limitations. Structured projections
+/// use only their known type's presence; their contents and general iteration are
+/// not evaluated.
 ///
 /// Follows [MiniZinc 2.10.1 option types](https://docs.minizinc.dev/en/stable/optiontypes.html)
 /// and [default](https://docs.minizinc.dev/en/2.10.1/spec.html#coercion-operations).
@@ -530,14 +531,15 @@ impl Producer<'_> {
                     core_optional_call(self.context, self.bindings, self.calls, file, node, name)
                 }) {
                     Value::scalar(Presence::Present)
-                } else if self.ty(file, node).is_some_and(|t| t.optional) {
-                    self.unsupported(
-                        file,
-                        node,
-                        "opaque optional callable presence is unsupported",
-                    )
                 } else {
-                    self.typed(file, node)
+                    match crate::callables::selected_call_type(
+                        crate::callables::operation_fact(self.context, self.calls, file, node),
+                        self.ty(file, node),
+                    ) {
+                        Ok(ty) if ty.optional => Value::scalar(Presence::Unknown),
+                        Ok(_) => self.typed(file, node),
+                        Err(reason) => self.unsupported(file, node, reason),
+                    }
                 }
             }
             _ => self.typed(file, node),

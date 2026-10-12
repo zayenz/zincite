@@ -238,11 +238,21 @@ fn missing_data_distinct_defaults_and_unsupported_math_retain_identity_and_locat
         NumericOutcome::Exact(2).domain_relation(declaration(&facts, &bindings, "dependent")),
         NumericDomainRelation::Inconclusive
     );
+    assert!(
+        facts
+            .expressions
+            .iter()
+            .any(|e| text(&context, e.file, &e.location) == "custom(1)"
+                && matches!(e.outcome, NumericOutcome::Unknown(_)))
+    );
+    assert!(matches!(
+        declaration(&facts, &bindings, "opaque").value,
+        NumericOutcome::Unknown(_)
+    ));
     for fragment in [
         "9223372036854775807+1",
         "missing div 0",
         "high+1",
-        "custom(1)",
         "1*2",
         "1.5",
     ] {

@@ -442,11 +442,9 @@ fn aggregate_preconditions_and_missing_interpretation_remain_explicit() {
         expression(&context, &facts, "length(a)=length(b)").truth,
         Some(GuardedOutcome::Unknown)
     );
-    assert!(
-        facts
-            .limitations
-            .iter()
-            .any(|l| text(&context, l.file, &l.location) == "opaque(1)")
+    assert_eq!(
+        expression(&context, &facts, "opaque(1)").definedness,
+        GuardedOutcome::Unknown
     );
     for overflow in [
         "(-9223372036854775807-1) div -1",
@@ -657,11 +655,9 @@ fn optional_guards_default_and_aggregates_keep_presence_separate_from_totality()
         obligation(&context, &facts, "deopt(q)").outcome,
         GuardedOutcome::Proven
     );
-    assert!(
-        facts
-            .limitations
-            .iter()
-            .any(|l| text(&context, l.file, &l.location) == "opaque(q)")
+    assert_eq!(
+        expression(&context, &facts, "opaque(q)").definedness,
+        GuardedOutcome::Unknown
     );
     assert!(matches!(
         expression(
@@ -672,11 +668,9 @@ fn optional_guards_default_and_aggregates_keep_presence_separate_from_totality()
         .definedness,
         GuardedOutcome::Unsupported(_)
     ));
-    assert!(
-        facts
-            .limitations
-            .iter()
-            .any(|l| text(&context, l.file, &l.location) == "occurs(\"shadow\")")
+    assert_eq!(
+        expression(&context, &facts, "occurs(\"shadow\")").definedness,
+        GuardedOutcome::Unknown
     );
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -744,22 +738,34 @@ fn scalar_bool2int_retains_boolean_and_raw_partiality_boundaries() {
             expression(&context, &facts, "show(assert(false,\"abort\",true))").definedness,
             GuardedOutcome::Proven
         );
-        for shown in ["show(opaque())", "show(o)", "show(p)::unsafe"] {
+        assert_eq!(
+            expression(&context, &facts, "show(opaque())").definedness,
+            GuardedOutcome::Unknown
+        );
+        if options {
+            assert_eq!(
+                expression(&context, &facts, "show(o)").definedness,
+                GuardedOutcome::Unknown
+            );
+        } else {
             assert!(matches!(
-                expression(&context, &facts, shown).definedness,
+                expression(&context, &facts, "show(o)").definedness,
                 GuardedOutcome::Unsupported(_)
             ));
         }
+        assert!(matches!(
+            expression(&context, &facts, "show(p)::unsafe").definedness,
+            GuardedOutcome::Unsupported(_)
+        ));
         std::fs::remove_dir_all(dir).unwrap();
     }
     let (dir, context, facts) = model(
         "user-show",
         "function string:show(bool:x)=\"yes\"; string:s=show(true); solve satisfy;",
     );
-    assert!(matches!(
-        expression(&context, &facts, "show(true)").definedness,
-        GuardedOutcome::Unsupported(_)
-    ));
+    assert!(
+        matches!(expression(&context, &facts, "show(true)").definedness, GuardedOutcome::Unsupported(ref reason) if reason.contains("ambiguous"))
+    );
     std::fs::remove_dir_all(dir).unwrap();
     let source = concat!(
         "bool:p; int:d; function bool:opaque();\n",
@@ -799,25 +805,28 @@ fn scalar_bool2int_retains_boolean_and_raw_partiality_boundaries() {
         expression(&context, &facts, "bool2int(assert(false,\"abort\",true))").definedness,
         GuardedOutcome::Proven
     );
-    assert!(matches!(
+    assert_eq!(
         expression(&context, &facts, "bool2int(opaque())").definedness,
+        GuardedOutcome::Unknown
+    );
+    assert!(matches!(
+        expression(&context, &facts, "bool2int(q)").definedness,
         GuardedOutcome::Unsupported(_)
     ));
-    for conversion in ["bool2int(q)", "bool2int([true])", "bool2int({true})"] {
-        assert!(matches!(
+    for conversion in ["bool2int([true])", "bool2int({true})"] {
+        assert_eq!(
             expression(&context, &facts, conversion).definedness,
-            GuardedOutcome::Unsupported(_)
-        ));
+            GuardedOutcome::Unknown
+        );
     }
     std::fs::remove_dir_all(dir).unwrap();
     let (dir, context, facts) = model(
         "user-bool2int",
         "function int:bool2int(bool:x)=7; int:v=bool2int(true); solve satisfy;",
     );
-    assert!(matches!(
-        expression(&context, &facts, "bool2int(true)").definedness,
-        GuardedOutcome::Unsupported(_)
-    ));
+    assert!(
+        matches!(expression(&context, &facts, "bool2int(true)").definedness, GuardedOutcome::Unsupported(ref reason) if reason.contains("ambiguous"))
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -1013,12 +1022,7 @@ fn optional_parameter_matrix_initializers_inspect_sources_without_proving_values
             primitive,
             Some("division by zero"),
         ),
-        (
-            "written-body",
-            "value - 1",
-            changed_body.as_str(),
-            Some("body, default or type expression"),
-        ),
+        ("written-body", "value - 1", changed_body.as_str(), None),
     ] {
         let input = if name == "written-body" {
             format!("[1,<>,<>,{cell}]")
@@ -1427,12 +1431,7 @@ fn literal_regular_relations_inspect_sources_without_totality_proof() {
             native,
             Some("division by zero"),
         ),
-        (
-            "written-native",
-            positive,
-            written_native.as_str(),
-            Some("native declaration"),
-        ),
+        ("written-native", positive, written_native.as_str(), None),
     ] {
         let dir = std::env::temp_dir().join(format!(
             "zincite-literal-regular-guarded-{name}-{}",
@@ -1675,13 +1674,7 @@ fn sliding_sum_relations_inspect_sources_without_proving_windows_or_totality() {
             core,
             Some("known empty actual array"),
         ),
-        (
-            "written-native",
-            plain,
-            body,
-            written_native.as_str(),
-            Some("written primitive"),
-        ),
+        ("written-native", plain, body, written_native.as_str(), None),
     ] {
         let dir = std::env::temp_dir().join(format!(
             "zincite-sliding-source-{name}-{}",
@@ -2027,7 +2020,7 @@ predicate global_cardinality(
             "changed-count",
             positive,
             changed_count.as_str(),
-            Some("complete written body"),
+            None,
             true,
             core.as_str(),
         ),
@@ -2043,7 +2036,7 @@ predicate global_cardinality(
             "changed-mixed-equality",
             integer_positive.as_str(),
             count,
-            Some("primitive written declaration"),
+            None,
             false,
             changed_mixed_core.as_str(),
         ),
@@ -2273,4 +2266,148 @@ fn nested_generator_sources_keep_enclosing_membership_and_source_errors() {
         }
         std::fs::remove_dir_all(dir).unwrap();
     }
+}
+
+#[test]
+fn typed_opaque_calls_keep_unknown_parents_hazards_and_abort_barriers() {
+    use zincite_lint::{
+        Cardinality, IterationCoverage, LintOptions, RuleOutcome, analyze_model,
+        resolve_iteration_facts,
+    };
+    let source = concat!(
+        "function int:opaque_int(string:x)=7; function var bool:opaque_bool(var bool:x); ",
+        "function opt int:opaque_option(); function set of int:opaque_set(); ",
+        "function var bool:opaque_many(array[int] of var bool:x); var bool:p; ",
+        "var 0..1:bounded=opaque_int(\"x\"); int:n=opaque_int(\"x\")+2; ",
+        "array[int] of int:a=[i | i in opaque_set()]; ",
+        "constraint true \\/ opaque_bool(p); constraint if opaque_bool(p) then true else false endif; ",
+        "constraint forall(i in 1..2)(opaque_bool(p)); ",
+        "constraint opaque_many(i in 1..2)(opaque_bool(p)); ",
+        "constraint (opaque_bool(p) default true); opt int:o=opaque_option(); ",
+        "int:bad=opaque_int(show(1 div 0=0)); constraint 2>1; solve satisfy;"
+    );
+    let (dir, context, guarded) = model_using_options("opaque-parents", source, true);
+    for call in [
+        "opaque_int(\"x\")",
+        "opaque_bool(p)",
+        "opaque_option()",
+        "opaque_many(i in 1..2)(opaque_bool(p))",
+    ] {
+        let value = expression(&context, &guarded, call);
+        assert_eq!(
+            value.raw_definedness,
+            GuardedOutcome::Unknown,
+            "{call}: {value:?}"
+        );
+        assert_eq!(
+            value.definedness,
+            GuardedOutcome::Unknown,
+            "{call}: {value:?}"
+        );
+        assert_eq!(value.numeric, None);
+    }
+    for parent in [
+        "true \\/ opaque_bool(p)",
+        "if opaque_bool(p) then true else false endif",
+        "forall(i in 1..2)(opaque_bool(p))",
+        "opaque_bool(p) default true",
+    ] {
+        let value = expression(&context, &guarded, parent);
+        assert_ne!(
+            value.definedness,
+            GuardedOutcome::Proven,
+            "{parent}: {value:?}"
+        );
+    }
+    assert_eq!(
+        expression(&context, &guarded, "2>1").truth,
+        Some(GuardedOutcome::Proven)
+    );
+    assert!(guarded.obligations.iter().any(|obligation| matches!(
+        obligation.kind,
+        GuardObligationKind::Nonzero
+    ) && obligation.outcome
+        == GuardedOutcome::Refuted));
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let inst = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+    let numeric = resolve_numeric_facts(&context, &bindings, &calls, &inst, &domains, &definitions);
+    for fragment in ["opaque_int(\"x\")", "opaque_int(\"x\")+2"] {
+        assert!(numeric.expressions.iter().any(|value| text(
+            &context,
+            value.file,
+            &value.location
+        ) == fragment
+            && matches!(value.outcome, NumericOutcome::Unknown(_))));
+    }
+    let bounded = bindings
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "bounded")
+        .unwrap()
+        .id;
+    assert_eq!(
+        numeric
+            .declarations
+            .iter()
+            .find(|value| value.declaration == bounded)
+            .unwrap()
+            .required,
+        NumericOutcome::Interval { lower: 0, upper: 1 }
+    );
+    let optional = resolve_optional_facts(
+        &context,
+        &bindings,
+        &calls,
+        &inst,
+        &domains,
+        &numeric,
+        &definitions,
+    );
+    let value = expression(&context, &guarded, "opaque_option()");
+    assert_eq!(
+        optional
+            .expression(value.file, &value.location)
+            .unwrap()
+            .presence,
+        Presence::Unknown
+    );
+    let iteration = resolve_iteration_facts(
+        &context, &bindings, &calls, &inst, &domains, &numeric, &optional, &guarded,
+    );
+    let collection = iteration
+        .iterations
+        .iter()
+        .find(|value| text(&context, value.file, &value.location) == "[i | i in opaque_set()]")
+        .unwrap();
+    assert_eq!(
+        collection.generators[0].index_set.cardinality,
+        Cardinality::Unknown
+    );
+    assert_eq!(collection.coverage, IterationCoverage::Unknown);
+    let result = analyze_model(
+        &context,
+        &LintOptions::from_selection("partial-expression,vacuous-constraint,compact-if").unwrap(),
+    );
+    assert!(result.errors.is_empty());
+    assert!(result.findings.iter().all(|finding| finding.fix.is_none()));
+    assert!(
+        result
+            .findings
+            .iter()
+            .all(|finding| !text(&context, 0, &finding.location).contains("opaque"))
+    );
+    assert!(
+        result
+            .rules
+            .iter()
+            .any(|rule| rule.outcome == RuleOutcome::Completed)
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join("root.mzn")).unwrap(),
+        source
+    );
+    std::fs::remove_dir_all(dir).unwrap();
 }

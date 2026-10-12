@@ -4,8 +4,8 @@
 
 - Total: 123
 - Ready: 2
-- Blocked: 7
-- Done: 114
+- Blocked: 6
+- Done: 115
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -123,8 +123,8 @@
 | [base-112](tasks/112-show-lint-roots-and-summarize-analysis-limitations.md) | Show lint roots and summarize analysis limitations | done | — |
 | [base-113](tasks/113-report-the-build-version-and-suggest-standard-library-setup.md) | Report the build version and suggest standard-library setup | done | — |
 | [base-114](tasks/114-adopt-deliberate-semantic-opacity-and-the-retained-proof-con.md) | Adopt deliberate semantic opacity and the retained proof contract | done | — |
-| [base-115](tasks/115-treat-opaque-calls-conservatively-in-numeric-and-guarded-ana.md) | Treat opaque calls conservatively in numeric and guarded analysis | ready | base-114 |
-| [base-116](tasks/116-move-definition-uncertainty-into-its-owner-and-remove-consum.md) | Move definition uncertainty into its owner and remove consumer exceptions | blocked | base-115 |
+| [base-115](tasks/115-treat-opaque-calls-conservatively-in-numeric-and-guarded-ana.md) | Treat opaque calls conservatively in numeric and guarded analysis | done | base-114 |
+| [base-116](tasks/116-move-definition-uncertainty-into-its-owner-and-remove-consum.md) | Move definition uncertainty into its owner and remove consumer exceptions | ready | base-115 |
 | [base-117](tasks/117-separate-possible-dependencies-from-proven-definitions-in-se.md) | Separate possible dependencies from proven definitions in search coverage | blocked | base-116 |
 | [base-118](tasks/118-use-source-facts-for-structural-lints-and-reference-queries.md) | Use source facts for structural lints and reference queries | ready | base-114 |
 | [base-119](tasks/119-share-lazily-computed-semantic-facts-within-a-model-analysis.md) | Share lazily computed semantic facts within a model analysis | blocked | base-115, base-116, base-117, base-118 |
