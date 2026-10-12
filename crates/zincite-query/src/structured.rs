@@ -770,7 +770,7 @@ fn scalar(
     }
 }
 
-fn decode_string(text: &str) -> Result<String, &'static str> {
+pub(crate) fn decode_string(text: &str) -> Result<String, &'static str> {
     let mut result = String::new();
     let mut characters = text[1..text.len() - 1].chars();
     while let Some(character) = characters.next() {

@@ -3,12 +3,19 @@
 `set_value("EXPRESSION")` inserts MiniZinc expression source into an existing
 assignment. `values` reads written literals, but does not evaluate a computed
 right-hand side. Neither operation constructs a new value from query results.
-Read-only [query programs](reference.md#query-programs) now support immutable
-`source` bindings, ordered query statements and native record reports. They do
-not evaluate the comprehensions described here. This document proposes the
-remaining bounded constructor and explicit `.dzn` edits. Its `let`, literal-source
-helpers, generators and edit batches remain proposals, not current commands or
-approval to implement them.
+Read-only [query programs](reference.md#query-programs) support immutable `source`
+and `let` bindings, ordered query statements, native record reports and the
+positional scalar/comprehension subset below. The report adapter uses Zirql for
+checked expressions, scopes and generators. Keyed/enum arrays and explicit
+`.dzn` edit batches remain proposals subject to their existing approval gate.
+
+The implemented subset accepts positional arrays, tuples, ordered records and
+homogeneous Boolean/integer/float sets. Sources may use existing query projections
+or one unique original literal assignment. Nested positional arrays stay nested.
+Explicit/starting-key arrays, matrices, member identities, multidimensional
+access and `enum_member` are refused. `index_set` returns a positional array's
+`1..n` positions. Native-only reports keep their existing untagged result; pure
+reports use the tagged schema in this contract.
 
 The expression syntax follows the [MiniZinc 2.10.1 comprehension and generator
 grammar](https://docs.minizinc.dev/en/2.10.1/spec.html#set-comprehensions).
@@ -199,9 +206,9 @@ complete object (shown with line breaks for readability):
 
 ## Proposed report and edit requests
 
-These blocks show proposed request syntax. They are not accepted by today's
-`zincite query` command. The two reports use the current `names` projection
-as a source of strings; the keyed report preserves explicit positions.
+The first report is an implemented positional request. The second proposes a
+keyed report and remains unsupported. Both use the current `names` projection
+as a source of strings; the keyed proposal preserves explicit positions.
 
 ```text
 source names = query("filter(kind(\"assignment\")) | names");
@@ -392,20 +399,20 @@ Incomplete candidates may be previewed only where the existing best-effort
 contract permits them; in-place write requires completeness. Any actual error
 buffers away the whole report or candidate.
 
-The natural owner is one small bounded module in `zincite-query`, using the
-existing CST and native query/literal results:
+Zincite lowers its existing CST and projects native query/literal results into
+Zirql's bounded evaluator:
 
 ```rust
-evaluate_comprehension(expression, bindings, shared_budget)
+zirql::evaluate_value(expression, bindings, shared_budget)
     -> Result<ConstructedValue, QueryError>
 ```
 
 The report adapter supplies typed query results and renders the native value.
 The data adapter supplies literal RHS values, checks model ownership and target
 shape, serializes constructed MiniZinc literals, then calls the existing atomic
-edit preparation and complete-candidate reparse. Both adapters use the same
-expression rules and budget. This needs no second parser, separate evaluators,
-new crate or production dependency. It does not run a model, compiler or solver.
+edit preparation and complete-candidate reparse. The proposed data adapter must use the same
+expression rules and budget. Zincite has one CST frontend and uses the existing
+Zirql dependency for shared evaluation. It does not run a model, compiler or solver.
 
 Before base-127 implements data construction, the user needs to approve the
 host `source`/`let`/`report`/`create`/`replace` grammar and batch shape; the

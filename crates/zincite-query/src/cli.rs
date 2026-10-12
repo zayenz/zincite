@@ -13,7 +13,8 @@ use crate::{ErrorLocation, Input, Limits, Query, QueryError, QueryResult};
 
 const HELP: &str = "Usage: zincite-query [--stdin-filepath PATH] [--model PATH] [-I DIR] [--stdlib-dir DIR] [--diff|--write] QUERY [FILE|-]
 
-Use -f PROGRAM [FILE|-] for an ordered read-only query program.
+Use -f PROGRAM [FILE|-] for read-only sources, let bindings and reports.
+Programs construct positional arrays/sets with MiniZinc-style comprehensions.
 Inspect MiniZinc source or change data assignments and enum membership.
 No input or '-' reads stdin; .dzn paths select assignment-only data syntax.
 Syntax queries do not load includes or require a MiniZinc library or solver.
@@ -98,7 +99,7 @@ attached comments. Separated section comments and a BOM stay in document output.
 Fragment selections that unbalance paired formatter markers fail.
 
 Options:
-    -f, --program-file PATH Read immutable source bindings and record reports
+    -f, --program-file PATH Read source/let bindings and native or positional reports
     --max-work N           Program work allowance (default 1000000)
     --max-results N        Program aggregate entries (default 100000)
     --max-items N          Program stream ceiling (default 100000)

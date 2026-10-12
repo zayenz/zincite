@@ -398,8 +398,49 @@ are not scalar comprehension values.
 with their existing `emit` or `json` stage. An explicit emitter suppresses the
 statement's implicit emission. Bindings and record fields cannot emit. Program
 parsing checks names, emitters and supported result transitions before execution.
-Programs do not support transformations, `let`, literal-source helpers,
-comprehensions or arithmetic; the existing single `Query` API retains edit routes.
+Programs accept `source name = literal("assignment");`, immutable `let` bindings
+and pure positional reports. For input `zeta = [3, 5]; alpha = 2;`, this request
+constructs records in source order:
+
+```text
+source labels = query("names");
+source numbers = literal("zeta");
+let rows = [(name: labels[i], doubled: numbers[i] * 2)
+  | i in index_set(numbers)];
+report rows;
+```
+
+Zirql evaluates scalar expressions, scopes and generators after Zincite lowers
+its existing MiniZinc CST. Later generators see earlier bindings. Multiple
+binders share one source, with the last binder varying fastest; `x = expression`
+binds one value per preceding environment. `_` discards its binding. Filters
+require fixed Booleans and charge each candidate before filtering.
+
+Pure values include signed 64-bit integers, finite binary64 floats, Booleans,
+strings, positional arrays, tuples, ordered records and homogeneous Boolean,
+integer or float sets. Supported operations include checked arithmetic, exact
+numeric promotion, comparison, equality, membership, concatenation, access,
+finite inclusive integer ranges, `index_set` and `if`/`elseif` with mandatory
+`else`. Unsupported forms and known incompatible types fail before evaluation,
+including in skipped branches. Skipped runtime branches perform no arithmetic
+or missing-access work. Overflow, zero division, inexact promotion, nonfinite
+results and nonzero floating results rounded to zero are located errors.
+
+`query` sources project `Strings`, `Count` and `Literals` into pure values.
+Selections need an explicit `names`, `count` or `values` query projection.
+`literal` requires one original assignment and a supported written RHS; computed
+values and unresolved members fail at their original input ranges. Native
+report expressions retain their existing result shape. `let` always constructs
+pure data: `let r = (count: n); report r;` produces a tagged record. A bare native
+binding or a record containing only native leaves uses the complete native
+grammar and its existing validation. Pure reports use the tagged
+[constructed-value schema](query-comprehension-contract.md#constructed-shape-and-result),
+including explicit `1..n` axes and keys for positional arrays. Generated values
+have no input-source ranges.
+
+Programs remain read-only. Keyed arrays, enum identities, multidimensional
+access, model calls and data construction/edit batches remain deferred. The
+existing single `Query` API retains its edit routes.
 
 Use `zincite-query -f PROGRAM [FILE|-]` or `zincite query --program-file PROGRAM
 [FILE|-]`. Input, stdin and model options have their existing meanings. Programs
@@ -421,9 +462,15 @@ syntax-only reports. Repeated rendering spends the same remaining allowance agai
 `ProgramLimits` defaults to 1,000,000 work units, 100,000 aggregate result units,
 100,000 items per stream and 64 nesting levels. CLI programs accept `--max-work`,
 `--max-results`, `--max-items` and `--max-nesting`. Aggregate units cover produced
-and copied native entries, nested containers/fields, emission snapshots and JSON
-storage. JSON metadata reserves a bounded amount before construction. Work also
-covers copied strings/source text and encoded output bytes. Raw model tokens and
+and copied native or constructed entries, generator candidates before filters,
+nested containers/fields, emission snapshots and JSON storage. Pure-expression
+lowering, validation and free-name discovery share the parse allowance across
+statements; evaluation admits those costs before input/fact preparation, and
+repeated evaluation pays them again. Before building the CST, parsing applies
+the nesting allowance conservatively to enclosed expression segments and their
+operator chains; sibling values and conditional branches reset local counts.
+JSON metadata reserves a bounded amount before construction. Work also covers
+copied strings/source text and encoded output bytes. Raw model tokens and
 CST nodes consume work when facts are first demanded; they do not consume result
 units. A warm fact owner still pays the current request's admission. These bounds
 refuse an entire request rather than truncate individual streams.

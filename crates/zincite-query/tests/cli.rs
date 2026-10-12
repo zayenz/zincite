@@ -477,3 +477,77 @@ fn program_files_report_native_results_and_buffer_later_failures() {
     assert!(String::from_utf8_lossy(&output.stderr).contains(path.to_str().unwrap()));
     std::fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn positional_program_files_share_order_and_buffer_value_failures() {
+    let path = std::env::temp_dir().join(format!(
+        "zincite-query-positional-{}.zq",
+        std::process::id()
+    ));
+    std::fs::write(
+        &path,
+        r#"source labels = query("names");
+source numbers = literal("zeta");
+source n = query("count");
+let rows = [(name: label, pair: (i,j), value: numbers[i] + k, total: n)
+  | i,j in index_set(numbers), label in [labels[i]], k = i+(i,j).2,
+    _ in 1..1 where j <= i];
+report rows;"#,
+    )
+    .unwrap();
+    let args = ["--stdin-filepath", "data.dzn", "-f", path.to_str().unwrap()];
+    let output = run(&args, b"zeta = [3, 5]; alpha = 2;");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        json["result"]["entries"][0]["value"]["fields"][0]["value"]["value"],
+        "zeta"
+    );
+    assert_eq!(
+        json["result"]["entries"][2]["value"]["fields"][2]["value"]["value"],
+        9
+    );
+    for source in [
+        "report 7; report 1 div 0;",
+        "report if true then 1 else sum([1]) endif;",
+    ] {
+        std::fs::write(&path, source).unwrap();
+        let output = run(&args, b"a = 1;");
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains(path.to_str().unwrap()));
+    }
+    std::fs::write(&path, "report [i | i in 1..1000 where false];").unwrap();
+    let output = run(
+        &[
+            "--stdin-filepath",
+            "data.dzn",
+            "--max-results",
+            "50",
+            "-f",
+            path.to_str().unwrap(),
+        ],
+        b"a = 1;",
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    std::fs::write(&path, "report [i | i in 1..20];").unwrap();
+    let output = run(
+        &[
+            "--stdin-filepath",
+            "data.dzn",
+            "--max-results",
+            "200",
+            "-f",
+            path.to_str().unwrap(),
+        ],
+        b"a = 1;",
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    std::fs::remove_file(path).unwrap();
+}

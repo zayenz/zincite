@@ -2059,3 +2059,209 @@ fn program_frontend_and_aggregate_refuse_invalid_requests() {
         .unwrap_err();
     assert!(error.message.contains("result limit"), "{error:?}");
 }
+
+#[test]
+fn positional_programs_keep_constructed_order_and_native_projections() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    use zirql::ConstructedValue as V;
+    let input = Input::parse(
+        b"zeta = [3, /*\xff*/ 5]; alpha = 2;".to_vec(),
+        FileMode::Data,
+    )
+    .unwrap();
+    let source = r#"source labels = query("names");
+        source numbers = literal("zeta");
+        source n = query("count");
+        let rows = [(name: label, pair: (i,j), value: numbers[i] + k, total: n)
+            | i,j in index_set(numbers), label in [labels[i]], k = i+(i,j).2, _ in 1..1 where j <= i];
+        report rows;"#;
+    let program = Program::parse(source, ProgramLimits::default()).unwrap();
+    let mut result = program.evaluate(&input, ProgramLimits::default()).unwrap();
+    let ReportValue::Constructed(V::Array(rows)) = result.emissions()[0].value() else {
+        panic!("constructed positional array")
+    };
+    let values: Vec<_> = rows
+        .iter()
+        .map(|row| {
+            let V::Record(fields) = row else { panic!() };
+            assert_eq!(
+                fields.iter().map(|f| f.0.as_str()).collect::<Vec<_>>(),
+                ["name", "pair", "value", "total"]
+            );
+            let V::String(name) = &fields[0].1 else {
+                panic!()
+            };
+            let V::Tuple(pair) = &fields[1].1 else {
+                panic!()
+            };
+            assert_eq!(fields[3].1, V::Integer(2));
+            (name.as_str(), &pair[0], &pair[1], &fields[2].1)
+        })
+        .collect();
+    assert_eq!(
+        values,
+        [
+            ("zeta", &V::Integer(1), &V::Integer(1), &V::Integer(5)),
+            ("alpha", &V::Integer(2), &V::Integer(1), &V::Integer(8)),
+            ("alpha", &V::Integer(2), &V::Integer(2), &V::Integer(9))
+        ]
+    );
+    let bytes = result.render().unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["complete"], true);
+    assert_eq!(json["limitations"], serde_json::json!([]));
+    assert_eq!(
+        json["result"]["axes"][0][2],
+        serde_json::json!({"kind":"integer","value":3})
+    );
+    assert_eq!(
+        json["result"]["entries"][2]["value"]["fields"][1]["value"]["kind"],
+        "tuple"
+    );
+    assert_eq!(result.render().unwrap(), bytes);
+    let mut limited = program
+        .evaluate(
+            &input,
+            ProgramLimits {
+                work: 20000,
+                ..ProgramLimits::default()
+            },
+        )
+        .unwrap();
+    let mut renders = 0;
+    while limited.render().is_ok() {
+        renders += 1;
+    }
+    assert!(renders > 0);
+
+    // An explicit let constructs a tagged record even in the legacy overlap.
+    let explicit = Program::parse(
+        r#"source n = query("count"); let r = (count: n); report r;"#,
+        ProgramLimits::default(),
+    )
+    .unwrap();
+    let mut explicit = explicit.evaluate(&input, ProgramLimits::default()).unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&explicit.render().unwrap()).unwrap();
+    assert_eq!(json["result"]["kind"], "record");
+    assert_eq!(
+        json["result"]["fields"][0]["value"],
+        serde_json::json!({"kind":"integer","value":2})
+    );
+
+    // Literal inspection projects nested positional values from the same CST.
+    let inspected = Program::parse(
+        r#"source written = query("values"); let r = written; report r;"#,
+        ProgramLimits::default(),
+    )
+    .unwrap()
+    .evaluate(&input, ProgramLimits::default())
+    .unwrap();
+    assert!(matches!(
+        inspected.emissions()[0].value(),
+        ReportValue::Constructed(V::Array(values))
+            if values == &[V::Array(vec![V::Integer(3), V::Integer(5)]), V::Integer(2)]
+    ));
+}
+
+#[test]
+fn positional_programs_validate_branches_and_preserve_failure_locations() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    use zirql::ConstructedValue as V;
+    let limits = ProgramLimits::default();
+    let input = Input::parse(b"a = [1];".to_vec(), FileMode::Data).unwrap();
+    let skipped = Program::parse(
+        "let r = (value: 7); report if true then r.value else [1][8] div 0 endif;",
+        limits,
+    )
+    .unwrap();
+    let result = skipped.evaluate(&input, limits).unwrap();
+    assert!(matches!(
+        result.emissions()[0].value(),
+        ReportValue::Constructed(V::Integer(7))
+    ));
+    for expression in [
+        "[i | i in i]",
+        "if true then 1 else sum([1]) endif",
+        "if true then 1 else 1 + false endif",
+        "if true then 1 else 1e-999 endif",
+        "[1: 3]",
+        "if 1 then 2 else 3 endif",
+    ] {
+        let source = format!("report {expression};");
+        let error = Program::parse(&source, limits).unwrap_err();
+        assert_eq!(error.location, ErrorLocation::Query);
+        assert!(
+            error.range.start >= 7 && error.range.end <= source.len(),
+            "{error:?}"
+        );
+    }
+    for expression in [
+        "9223372036854775807 + 1",
+        "-9223372036854775808 div -1",
+        "-9223372036854775808 mod -1",
+        "1 div 0",
+        "9007199254740993 + 1.0",
+        "1e-300 * 1e-300",
+    ] {
+        let source = format!("report {expression};");
+        let program = Program::parse(&source, limits).unwrap();
+        let error = program.evaluate(&input, limits).unwrap_err();
+        assert_eq!(error.location, ErrorLocation::Query);
+        assert_eq!(&source[error.range], expression);
+    }
+    let source = "report [i | i in 1..1000 where false];";
+    let program = Program::parse(source, limits).unwrap();
+    let error = program
+        .evaluate(
+            &input,
+            ProgramLimits {
+                results: 50,
+                ..limits
+            },
+        )
+        .unwrap_err();
+    assert!(error.message.contains("result limit"), "{error:?}");
+    let bom = Input::parse(b"\xef\xbb\xbfa = 1 + 2;".to_vec(), FileMode::Data).unwrap();
+    let program = Program::parse(r#"source x = literal("a"); report x;"#, limits).unwrap();
+    let error = program.evaluate(&bom, limits).unwrap_err();
+    assert_eq!(error.location, ErrorLocation::Input);
+    assert_eq!(error.range, 7..12);
+
+    let mut bytes = b"\xef\xbb\xbfa = ".to_vec();
+    bytes.extend_from_slice("0".repeat(10_000).as_bytes());
+    bytes.extend_from_slice(b"1;");
+    let input = Input::parse(bytes, FileMode::Data).unwrap();
+    let error = program
+        .evaluate(
+            &input,
+            ProgramLimits {
+                work: 1000,
+                ..limits
+            },
+        )
+        .unwrap_err();
+    assert_eq!(error.location, ErrorLocation::Input);
+    assert_eq!(error.range, 7..10008);
+    assert!(error.message.contains("work limit"), "{error:?}");
+}
+
+#[test]
+fn constructed_reports_retain_semantic_limitations() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    let source = b"int: value = missing; solve satisfy;";
+    let model = semantic_model("constructed-incomplete", source, b"", "");
+    let input = Input::parse(source.to_vec(), FileMode::Model).unwrap();
+    let program = Program::parse(r#"source n = query("references | declarations | names | count"); let r = (count: n); report r;"#, ProgramLimits::default()).unwrap();
+    let mut result = program
+        .evaluate_with_model(&input, Some(&model), ProgramLimits::default())
+        .unwrap();
+    assert!(matches!(
+        result.emissions()[0].value(),
+        ReportValue::Constructed(_)
+    ));
+    assert!(!result.is_complete());
+    let json: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
+    assert_eq!(json["complete"], false);
+    assert!(!json["limitations"].as_array().unwrap().is_empty());
+    assert_eq!(json["result"]["fields"][0]["value"]["kind"], "integer");
+}

@@ -3,9 +3,9 @@
 //! [`Input`] owns original bytes and the CST. [`Query`] parses a fixed pipeline
 //! for navigating nodes, inspecting literals or editing data collections/assignments.
 //! Results stay native until source or JSON rendering. Source rendering retains
-//! original bytes, including opaque
-//! comment bytes. Literal comparisons are bounded; computed expressions and
-//! includes are never evaluated.
+//! original bytes, including opaque comment bytes. Literal inspection and
+//! comparisons are bounded and never evaluate computed input expressions or
+//! includes. [`Program`] also constructs positional report values through Zirql.
 
 #![forbid(unsafe_code)]
 
@@ -21,6 +21,7 @@ use zincite_syntax::{
 };
 
 pub mod cli;
+mod comprehension;
 mod inspection;
 mod language;
 mod pipeline;
