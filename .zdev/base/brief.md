@@ -95,6 +95,37 @@ indentation. This intentionally allows compact and expanded layouts for equivale
 lists. Other generator calls, including `exists` and numeric `sum`, may stay
 inline when short; retain their explicitly expanded bodies.
 
+For expanded array comprehensions, keep an explicit scalar or tuple index prefix
+immediately after the opening bracket. Explicit and implicit positions differ
+only by that prefix; use the same body and generator indentation for both.
+Put the separator `|` at the start of the generator line, with the generator
+text aligned with the body. Do not leave a trailing generator comma. With the
+default four-space indentation, use these paired layouts:
+
+```minizinc
+array[Position] of var int: shards = [ p:
+    let {
+        var 0 .. max([0] ++ [choices[c].count | c in menus[p]]): value;
+    } in
+    value
+  | p in Position
+];
+
+array[Position] of var int: shards = [
+    let {
+        var 0 .. max([0] ++ [choices[c].count | c in menus[p]]): value;
+    } in
+    value
+  | p in Position
+];
+```
+
+Apply the same layout to tuple prefixes such as `[ (p, q):`. Keep short, simple
+comprehensions compact when they fit. Respect configured indentation, comments,
+width and formatting directives. This is layout only: never add, remove or
+change index expressions. The comprehension separator is not a binary operator
+and does not follow the trailing binary-operator rule below.
+
 Preserve comment text, existing line breaks, and internal spacing, including
 diagrams and section dividers; adjust surrounding indentation without reflowing
 prose. Wrap surrounding code where possible, but allow unavoidable width overruns
@@ -491,7 +522,10 @@ primary family, a short explanation, required semantic facts, availability and
 fix capability (none, sometimes or always). Families are `correctness`,
 `suspicious`, `modelling`, `performance`, and `style`; families classify purpose,
 not severity or fix safety. Assign a rule once, and document the membership.
-Keep current warning severity and exit status policy. Broad heuristic advice stays
+Keep the exit status policy: unsuppressed warnings fail; informational advice
+alone does not. For `expensive-comprehension`, symbolic Cartesian structure
+without a proven count or threshold exceedance is informational advice; reserve
+warnings for stronger evidence. Broad heuristic advice stays
 opt-in; the `default` preset includes naming, missing-constraint-label and
 prefer-array-comprehension. Preserve the fourteen-rule `thesis` preset.
 `all` expands to every registered rule and still diagnoses unavailable selections.
@@ -908,6 +942,42 @@ Parser algorithms, tree representation, dependencies and module boundaries are
 implementation choices. Choose the simplest design that meets exact source
 coverage, useful traversal and recovery. No further product choice is needed to
 draft this bundle.
+
+## Adopted Atlas feedback
+
+The Atlas CP feedback from 2026-10-11 supplies focused follow-up requirements,
+not evidence of full language coverage. Its expanded comprehension layout is
+specified above. Distinguish reported observations from independently reproduced
+bugs; obtain small complete models before changing semantic rules. No broad
+corpus sweep is needed for these follow-ups.
+
+- Treat `anon_enum(...)` in an enum initializer as a call, not a declared
+  constructor. Naming and unused-declaration checks must not diagnose the called
+  name as a declaration. The naming false positive reproduces on the current
+  build; the unused-declaration report still needs independent reproduction.
+- Recognize unconditional per-element range constraints over a complete array
+  index set where supported by the bounded analysis contract. If surrounding
+  local declarations or record projections block the required proof, report a
+  located limitation rather than categorical advice to add already-present
+  bounds. Do not infer numeric bounds or add a general callable-body interpreter.
+- Recognize a complete comprehension of a trusted standard `enum2int` projection
+  as search coverage of the source decision array. Preserve conservative refusal
+  for shadowed or user-defined calls, optional values, filters, partial coverage
+  and unsupported expressions. The reported entry-point differences require
+  focused reproduction; exit zero does not establish complete analysis.
+- Show the analysis root alongside include diagnostics so repeated shared-file
+  locations have context. Keep root-dependent conclusions distinct. Prefer this
+  simple labeling over a new diagnostic grouping system.
+- Show a compact default analysis-limitation summary with opt-in located detail.
+  Preserve located library results and Limited outcomes; summarization must not
+  imply successful analysis of unsupported cases.
+- Treat the decision-dependent implication rule's table suggestion as modelling
+  advice, not a correctness failure or an automatic rewrite. Preserve its domain
+  size qualification.
+- Provide `zincite --version`, including the build revision when available.
+  Reduce standard-library setup friction by detecting an installation on `PATH`
+  or suggesting its library path. Preserve explicit configuration precedence and
+  avoid compiler or solver execution for ordinary lint results.
 
 ## Testing
 
