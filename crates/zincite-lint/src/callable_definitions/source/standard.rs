@@ -193,8 +193,14 @@ impl<'a> BodyInterpreter<'a, '_> {
                     && matches!(crate::domains::tokens(&source.parsed, body).as_slice(),
                         [name] if matches!(name.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
                     && self.source.reference(declaration.file, body) == Some(formal)
-                    && self.source.expression_type(self.source.calls, declaration.file, body)
-                        .is_some_and(|expression| expression.ty == *declared)
+                    && {
+                        let body_facts = requested_body(
+                            self.source.context, self.source.bindings, self.source.calls,
+                            BodyProperty::Definedness, id, parameters,
+                        );
+                        self.source.expression_type(&body_facts.view(), declaration.file, body)
+                            .is_some_and(|expression| expression.ty == *declared)
+                    }
             } else {
                 false
             };
@@ -1255,10 +1261,11 @@ impl<'a> BodyInterpreter<'a, '_> {
             }
             let formal = formal_parameter(self.source.context, self.source.bindings, id, 0)
                 .ok_or_else(error)?;
-            let view = instantiated_body(
+            let view = requested_body(
                 self.source.context,
                 self.source.bindings,
                 self.source.calls,
+                BodyProperty::Definedness,
                 id,
                 std::slice::from_ref(array),
             );

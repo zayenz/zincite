@@ -31,8 +31,8 @@
 use std::collections::HashMap;
 
 use crate::callables::{
-    array_concatenation, call_argument, core_operation, find_node, formal_parameter,
-    instantiated_body, is_expression, operation_fact,
+    BodyProperty, array_concatenation, call_argument, core_operation, find_node, formal_parameter,
+    is_expression, operation_fact, requested_body,
 };
 use crate::definitions::complete_array_coverage;
 use crate::domains::{NumericBound, expression_domain};
@@ -164,7 +164,7 @@ struct Instance<'a> {
     id: DeclarationId,
     parameters: Vec<TypeInst>,
     ancestry: Vec<DeclarationId>,
-    view: crate::CallableFacts,
+    view: std::rc::Rc<crate::CallableFacts>,
     clauses: Vec<Clause<'a>>,
     recursive: bool,
 }

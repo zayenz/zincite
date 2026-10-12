@@ -297,6 +297,28 @@ fn opaque_dependency_error<'a>(
             &owner.syntax_range,
             owner.role,
         )?;
+        // Required user typing and already inspected proof bodies retain their
+        // errors. Unrequested library implementations supply no admission check.
+        let observed_body = written
+            .child_nodes()
+            .filter(|node| is_expression(node.kind()))
+            .last()
+            .is_some_and(|body| {
+                let range = inspector.context.files[owner.file]
+                    .location(body.range())
+                    .range;
+                view.expressions
+                    .iter()
+                    .chain(inspector.calls.expressions.iter())
+                    .any(|expression| {
+                        expression.file == owner.file
+                            && range.start <= expression.location.range.start
+                            && expression.location.range.end <= range.end
+                    })
+            });
+        if !inspector.context.files[owner.file].warnings_enabled() && !observed_body {
+            continue;
+        }
         if !written.child_nodes().any(|node| is_expression(node.kind())) {
             if let Some(reason) = inspector
                 .closed_integer_source_error_with_branches(owner.file, written, false, true, true)
@@ -331,10 +353,11 @@ fn opaque_dependency_error<'a>(
                 });
             }
         }
-        let selected_view = instantiated_body(
+        let selected_view = requested_body(
             inspector.context,
             inspector.bindings,
             inspector.calls,
+            BodyProperty::Definedness,
             *declaration,
             parameters,
         );

@@ -614,10 +614,11 @@ impl<'a> BodyInterpreter<'a, '_> {
                         id: *id,
                         parameters: parameters.clone(),
                         ancestry: Vec::new(),
-                        view: instantiated_body(
+                        view: requested_body(
                             self.source.context,
                             self.source.bindings,
                             self.source.calls,
+                            BodyProperty::Bounds,
                             *id,
                             parameters,
                         ),

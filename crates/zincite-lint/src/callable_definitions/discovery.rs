@@ -41,6 +41,106 @@ struct Discovery<'a, 's> {
     instances: Vec<Instance<'a>>,
 }
 impl<'a> Discovery<'a, '_> {
+    // Inspect source forms and forwarding identities before concrete typing.
+    // This finite walk selects possible retained outputs; it proves none of them.
+    fn output_candidate(&self, id: DeclarationId, active: &mut Vec<DeclarationId>) -> bool {
+        if active.contains(&id) {
+            return false;
+        }
+        let declaration = &self.source.bindings.declarations[id.0];
+        let Some(written) = find_node(
+            self.source.context.files[declaration.file].parsed.tree(),
+            &declaration.syntax_range,
+            declaration.role,
+        ) else {
+            return false;
+        };
+        let Some(body) = written
+            .child_nodes()
+            .filter(|node| is_expression(node.kind()))
+            .last()
+        else {
+            return false;
+        };
+        active.push(id);
+        let value = unwrap(body);
+        let constant_boolean = value.kind() == NodeKind::Expression
+            && matches!(crate::domains::tokens(&self.source.context.files[declaration.file].parsed, value).as_slice(), [token] if matches!(token.kind, TokenKind::True | TokenKind::False));
+        let candidate = constant_boolean || self.output_form(declaration.file, body, active);
+        active.pop();
+        candidate
+    }
+    fn output_form(
+        &self,
+        file: FileId,
+        node: &'a SyntaxNode,
+        active: &mut Vec<DeclarationId>,
+    ) -> bool {
+        match node.kind() {
+            NodeKind::BinaryExpression
+                if matches!(
+                    operator(self.source.context, file, node),
+                    Some(TokenKind::Equal | TokenKind::DoubleEqual)
+                ) =>
+            {
+                true
+            }
+            NodeKind::Expression => self.source.reference(file, node).is_some_and(|id| {
+                self.source.bindings.declarations[id.0].role == DeclarationRole::Parameter
+                    && self.source.calls.declarations[id.0].ty.kind == TypeKind::Bool
+            }),
+            NodeKind::CallExpression | NodeKind::GeneratorCallExpression => {
+                // Include all possible forwarding declarations when source-level
+                // overload selection still requires concrete body types.
+                let head = crate::callables::operation_head_start(self.source.context, file, node);
+                let reference = head.and_then(|start| {
+                    self.source.bindings.references.iter().find(|reference| {
+                        reference.file == file && reference.location.range.start == start
+                    })
+                });
+                let forwards = reference.is_some_and(|reference| match &reference.resolution {
+                    BindingResolution::Resolved(id) => self.output_candidate(*id, active),
+                    BindingResolution::Overloads(ids) | BindingResolution::Ambiguous(ids) => {
+                        ids.iter().any(|id| self.output_candidate(*id, active))
+                    }
+                    BindingResolution::Unresolved => false,
+                });
+                forwards
+                    || reference.is_some_and(|reference| {
+                        let ids = match &reference.resolution {
+                            BindingResolution::Resolved(id) => std::slice::from_ref(id),
+                            BindingResolution::Overloads(ids)
+                            | BindingResolution::Ambiguous(ids) => ids.as_slice(),
+                            BindingResolution::Unresolved => &[],
+                        };
+                        ids.iter().any(|id| {
+                            let name = &self.source.bindings.declarations[id.0].name;
+                            matches!(name.as_str(), "assert" | "forall")
+                                && crate::definitions::core_callable(
+                                    self.source.context,
+                                    self.source.bindings,
+                                    *id,
+                                    name,
+                                )
+                                && (name == "assert"
+                                    || node.child_nodes().next().is_some_and(|actual| {
+                                        actual.kind() == NodeKind::ArrayComprehension
+                                            && self.output_form(file, actual, active)
+                                    }))
+                        })
+                    })
+                    || node.kind() == NodeKind::GeneratorCallExpression
+                        && node
+                            .child_nodes()
+                            .any(|child| self.output_form(file, child, active))
+            }
+            // Keeping all siblings of an admitted owner is essential: a source
+            // failure beside an equality still vetoes that owner's publication.
+            _ => node
+                .child_nodes()
+                .any(|child| self.output_form(file, child, active)),
+        }
+    }
     fn discover_nested_bodies(&mut self) {
         let mut cursor = 0;
         while cursor < self.instances.len() {
@@ -114,13 +214,16 @@ impl<'a> Discovery<'a, '_> {
         else {
             return;
         };
-        if !self.source.callable_annotations_safe(d.file, node) {
+        if !self.output_candidate(id, &mut Vec::new())
+            || !self.source.callable_annotations_safe(d.file, node)
+        {
             return;
         }
-        let body_view = instantiated_body(
+        let body_view = requested_body(
             self.source.context,
             self.source.bindings,
             self.source.calls,
+            BodyProperty::Outputs,
             id,
             &parameters,
         );

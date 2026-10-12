@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-120"
 key = "demand-callable-summaries"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -27,12 +27,12 @@ Read .zdev/base/brief.md Semantic analysis, Interpretation before policy, Testin
 
 ## Done when
 
-- [ ] A consumer requesting a selected-call property names the property and the selected call context. Unrelated selected library bodies are not expanded solely because some deep rule is enabled.
-- [ ] Summary dependencies reuse the source layer and existing summaries within the model session. Different concrete substitutions or relevant lexical/guard contexts never share an invalid cached result.
-- [ ] Retained numeric/definedness and output/search guarantees have identifiable owners and explicit prerequisites; unsupported or recursive requests terminate conservatively.
-- [ ] Known relevant source/argument errors and sibling failures still veto dependent publication. Opacity does not hide errors already discovered by required source inspection, but there is no promise to discover arbitrary errors in an uninspected excluded library body.
-- [ ] Public body-aware producer compatibility is documented and implemented through the new machinery. Any explicit bulk compatibility entry point may request all its documented facts, but normal lint/query paths no longer invoke bulk expansion incidentally.
-- [ ] All retained positive summary controls agree with the prior task baseline; intended reductions are limited to admission-only inspection and documented opacity.
+- [x] A consumer requesting a selected-call property names the property and the selected call context. Unrelated selected library bodies are not expanded solely because some deep rule is enabled.
+- [x] Summary dependencies reuse the source layer and existing summaries within the model session. Different concrete substitutions or relevant lexical/guard contexts never share an invalid cached result.
+- [x] Retained numeric/definedness and output/search guarantees have identifiable owners and explicit prerequisites; unsupported or recursive requests terminate conservatively.
+- [x] Known relevant source/argument errors and sibling failures still veto dependent publication. Opacity does not hide errors already discovered by required source inspection, but there is no promise to discover arbitrary errors in an uninspected excluded library body.
+- [x] Public body-aware producer compatibility is documented and implemented through the new machinery. Any explicit bulk compatibility entry point may request all its documented facts, but normal lint/query paths no longer invoke bulk expansion incidentally.
+- [x] All retained positive summary controls agree with the prior task baseline; intended reductions are limited to admission-only inspection and documented opacity.
 
 ## Validation
 
@@ -40,3 +40,13 @@ Read .zdev/base/brief.md Semantic analysis, Interpretation before policy, Testin
 - Reuse distinct-instantiation, recursive-call, sibling-failure and whole-array proof controls. Compare relevant facts and diagnostics across request orders and standalone/mixed rule sets.
 - Use temporary tracing or profiling to confirm the unrelated body is not expanded. Reuse the small performance cases from the fact-session task and check peak RSS as well as time.
 - Use the brief's focused testing level and run its required Rust validation (cargo fmt --all -- --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace), plus git diff --check. Run zdev check base --format json for changed zdev records.
+
+## Result
+
+Selected-call proof consumers request retained body properties and reuse concrete typing within the model session; unrelated library bodies remain opaque. Retained ordinary forall whole-array proofs and explicit bulk compatibility are preserved.
+
+Validation:
+
+- Independent whole-task PASS at Wdad91b7b84d3bfb1 with equal snapshot comparison; all six completion conditions checked.
+- cargo fmt --all -- --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace; git diff --check and git diff --cached --check pass. Search 75/75; public whole-array control fails before and passes after correction.
+- 932-row retained parity, mixed demand trace, contextual and sibling veto controls checked; three paired samples per retained small case show lower observed CPU/RSS, without a general speedup claim.

@@ -4,8 +4,8 @@
 
 - Total: 132
 - Ready: 3
-- Blocked: 5
-- Done: 124
+- Blocked: 4
+- Done: 125
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -128,8 +128,8 @@
 | [base-117](tasks/117-separate-possible-dependencies-from-proven-definitions-in-se.md) | Separate possible dependencies from proven definitions in search coverage | done | base-116 |
 | [base-118](tasks/118-use-source-facts-for-structural-lints-and-reference-queries.md) | Use source facts for structural lints and reference queries | done | base-114 |
 | [base-119](tasks/119-share-lazily-computed-semantic-facts-within-a-model-analysis.md) | Share lazily computed semantic facts within a model analysis | done | base-115, base-116, base-117, base-118 |
-| [base-120](tasks/120-limit-selected-body-interpretation-to-requested-retained-pro.md) | Limit selected-body interpretation to requested retained proofs | ready | base-119 |
-| [base-121](tasks/121-remove-superseded-admission-inspectors-and-their-compatibili.md) | Remove superseded admission inspectors and their compatibility bridges | blocked | base-120 |
+| [base-120](tasks/120-limit-selected-body-interpretation-to-requested-retained-pro.md) | Limit selected-body interpretation to requested retained proofs | done | base-119 |
+| [base-121](tasks/121-remove-superseded-admission-inspectors-and-their-compatibili.md) | Remove superseded admission inspectors and their compatibility bridges | ready | base-120 |
 | [base-122](tasks/122-evaluate-salsa-against-the-simplified-demand-driven-analysis.md) | Evaluate Salsa against the simplified demand-driven analysis | blocked | base-121 |
 | [base-123](tasks/123-verify-the-smaller-semantic-contract-across-lints-and-querie.md) | Verify the smaller semantic contract across lints and queries | blocked | base-122, base-111, base-112 |
 | [base-124](tasks/124-document-reproducible-minizinc-feature-extraction-recipes.md) | Document reproducible MiniZinc feature-extraction recipes | done | — |

@@ -388,10 +388,11 @@ impl<'a> SourceInspector<'a> {
                 element: Box::new(boolean.clone()),
             },
         };
-        let view = instantiated_body(
+        let view = requested_body(
             self.context,
             self.bindings,
             self.calls,
+            BodyProperty::Definedness,
             id,
             &[decision.clone(), decision.clone()],
         );
@@ -652,10 +653,11 @@ impl<'a> BodyInterpreter<'a, '_> {
             if formal_node.child_nodes().any(|n| is_expression(n.kind())) {
                 return Err("selected decision set union formal default is unsupported".into());
             }
-            let body_view = instantiated_body(
+            let body_view = requested_body(
                 self.source.context,
                 self.source.bindings,
                 self.source.calls,
+                BodyProperty::Definedness,
                 *id,
                 parameters,
             );
@@ -1911,10 +1913,11 @@ impl<'a> BodyInterpreter<'a, '_> {
             }
             active.push(*id);
             entered = true;
-            let body_view = instantiated_body(
+            let body_view = requested_body(
                 self.source.context,
                 self.source.bindings,
                 self.source.calls,
+                BodyProperty::Definedness,
                 *id,
                 parameters,
             );
@@ -2126,10 +2129,11 @@ impl<'a> BodyInterpreter<'a, '_> {
         {
             return Err(error());
         }
-        let view = instantiated_body(
+        let view = requested_body(
             self.source.context,
             self.source.bindings,
             self.source.calls,
+            BodyProperty::Definedness,
             id,
             parameters,
         );

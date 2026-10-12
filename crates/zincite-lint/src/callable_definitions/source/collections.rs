@@ -5368,10 +5368,11 @@ impl<'a> BodyInterpreter<'a, '_> {
             {
                 return Err("reverse array formal default or annotation is unsupported".into());
             }
-            let body_view = instantiated_body(
+            let body_view = requested_body(
                 self.source.context,
                 self.source.bindings,
                 self.source.calls,
+                BodyProperty::Definedness,
                 *id,
                 parameters,
             );

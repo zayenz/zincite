@@ -108,8 +108,8 @@ pub(crate) fn resolve_element_rewrites_view(
     guarded: &crate::GuardedFacts,
 ) -> Vec<ElementRewrite> {
     use crate::callables::{
-        core_operation, formal_parameter, instantiated_body, is_expression, operation_fact,
-        prospective_core_equality,
+        BodyProperty, core_operation, formal_parameter, is_expression, operation_fact,
+        prospective_core_equality, requested_body,
     };
     use crate::definitions::resolved_reference;
     use crate::{GuardedOutcome, TypeKind};
@@ -269,7 +269,14 @@ pub(crate) fn resolve_element_rewrites_view(
         {
             continue;
         }
-        let body_facts = instantiated_body(context, bindings, calls, *declaration, parameters);
+        let body_facts = requested_body(
+            context,
+            bindings,
+            calls,
+            BodyProperty::Definedness,
+            *declaration,
+            parameters,
+        );
         if core_operation(context, bindings, &body_facts.view(), d.file, body, "=") != Ok(true) {
             continue;
         }

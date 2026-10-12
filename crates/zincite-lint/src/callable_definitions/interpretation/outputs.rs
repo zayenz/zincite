@@ -247,10 +247,11 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         clause: &Clause<'a>,
         view: &crate::callables::CallableView<'_>,
-        instance: &Instance<'a>,
+        id: DeclarationId,
+        parameters: &[TypeInst],
         out: &mut Vec<UnavailableCallableDefinition>,
     ) {
-        let declaration = &self.source.bindings.declarations[instance.id.0];
+        let declaration = &self.source.bindings.declarations[id.0];
         let Some(node) = find_node(
             self.source.context.files[declaration.file].parsed.tree(),
             &declaration.syntax_range,
@@ -279,8 +280,8 @@ impl<'a> BodyInterpreter<'a, '_> {
         let boundaries: Vec<_> = unavailable
             .into_iter()
             .map(|unavailable| Boundary {
-                callable: instance.id,
-                parameters: instance.parameters.clone(),
+                callable: id,
+                parameters: parameters.to_vec(),
                 unavailable,
             })
             .collect();

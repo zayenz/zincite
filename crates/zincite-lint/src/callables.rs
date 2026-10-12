@@ -1,6 +1,8 @@
 //! Bounded callable facts over retained lexical identities, independent of lint.
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
+use std::rc::Rc;
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
 use crate::bindings::symbolic_operator;
@@ -90,6 +92,8 @@ pub struct CallableFacts {
 /// belong to this context. Supported types retain enum identity, qualifiers,
 /// array indices and structured fields. Unknown domains, alias cycles and
 /// unsupported operations stay explicit; no parameter data is evaluated.
+/// This is an explicit bulk compatibility request: transitively inspect selected
+/// standard bodies. Normal consumers request their selected retained property.
 /// Every inspected user call has an outcome. Matching uses component coercions
 /// and a unique lowest signature, never a summed specificity score.
 pub fn resolve_callables(context: &ModelContext, bindings: &BindingFacts) -> CallableFacts {
@@ -115,6 +119,7 @@ pub struct CallableView<'a> {
     pub calls: &'a [CallFact],
     nodes: Option<&'a [Option<&'a SyntaxNode>]>,
     reference_index: Option<&'a HashMap<(FileId, usize), usize>>,
+    preparation: Option<&'a CallablePreparation<'a>>,
 }
 impl CallableFacts {
     pub fn view(&self) -> CallableView<'_> {
@@ -125,6 +130,7 @@ impl CallableFacts {
             calls: &self.calls,
             nodes: None,
             reference_index: None,
+            preparation: None,
         }
     }
 }
@@ -150,6 +156,7 @@ pub(crate) struct CallablePreparation<'a> {
     nodes: Vec<Option<&'a SyntaxNode>>,
     reference_index: HashMap<(FileId, usize), usize>,
     pub source: CallableFacts,
+    bodies: RefCell<Vec<ConcreteBody>>,
 }
 #[derive(Debug)]
 pub(crate) struct CallableBodies {
@@ -161,6 +168,7 @@ impl CallablePreparation<'_> {
         CallableView {
             nodes: Some(&self.nodes),
             reference_index: Some(&self.reference_index),
+            preparation: Some(self),
             ..self.source.view()
         }
     }
@@ -263,6 +271,7 @@ impl CallablePreparation<'_> {
             calls: &bodies.calls,
             nodes: Some(&self.nodes),
             reference_index: Some(&self.reference_index),
+            preparation: Some(self),
         }
     }
 }
@@ -340,6 +349,7 @@ pub(crate) fn prepare_callables<'a>(
         nodes,
         reference_index,
         source: engine.into_facts(),
+        bodies: RefCell::new(Vec::new()),
     }
 }
 
@@ -2459,6 +2469,57 @@ pub(crate) fn resolve_source_callable_body_view(
         engine.inspect(declaration.file, declaration.item, node);
     }
     engine.into_facts()
+}
+
+/// The consumer owns contextual proof checks; this request shares only concrete typing.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum BodyProperty {
+    Bounds,
+    Definedness,
+    Outputs,
+}
+#[derive(Debug)]
+struct ConcreteBody {
+    declaration: DeclarationId,
+    parameters: Vec<TypeInst>,
+    facts: Rc<CallableFacts>,
+}
+
+pub(crate) fn requested_body(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    facts: &CallableView<'_>,
+    _property: BodyProperty,
+    id: DeclarationId,
+    parameters: &[TypeInst],
+) -> Rc<CallableFacts> {
+    // All properties use the same typing. Invocation actuals, lexical guards and
+    // output mapping stay with the requesting proof owner and are never cached.
+    if let Some(prepared) = facts.preparation {
+        if let Some(body) = prepared
+            .bodies
+            .borrow()
+            .iter()
+            .find(|body| body.declaration == id && body.parameters == parameters)
+        {
+            return Rc::clone(&body.facts);
+        }
+        let body = Rc::new(instantiated_body(
+            context,
+            bindings,
+            &prepared.source_view(),
+            id,
+            parameters,
+        ));
+        prepared.bodies.borrow_mut().push(ConcreteBody {
+            declaration: id,
+            parameters: parameters.to_vec(),
+            facts: Rc::clone(&body),
+        });
+        body
+    } else {
+        Rc::new(instantiated_body(context, bindings, facts, id, parameters))
+    }
 }
 
 /// Interpret one actually selected body with its concrete formal types. The

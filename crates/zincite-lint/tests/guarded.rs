@@ -1847,7 +1847,9 @@ fn sliding_sum_relations_inspect_sources_without_proving_windows_or_totality() {
             &zincite_lint::LintOptions::from_selection("vacuous-constraint").unwrap(),
         );
         assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
-        if failure.is_some() {
+        // Bulk facts keep inspected-body errors. Normal lint leaves the
+        // primitive implementation opaque when it supplies no retained proof.
+        if failure.is_some() && !matches!(name, "body-zero" | "known-empty") {
             assert!(
                 matches!(
                     result.rules[0].outcome,

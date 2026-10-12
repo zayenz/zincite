@@ -26,7 +26,6 @@ pub struct ModelFacts<'model> {
     proof: OnceCell<CallableBodies>,
     instantiations: OnceCell<InstantiationFacts>,
     source_domains: OnceCell<DomainFacts>,
-    domains: OnceCell<DomainFacts>,
     definitions: OnceCell<DefinitionFacts>,
     numeric: OnceCell<NumericFacts>,
     optional: OnceCell<OptionalFacts>,
@@ -58,7 +57,6 @@ impl<'model> ModelFacts<'model> {
             proof: OnceCell::new(),
             instantiations: OnceCell::new(),
             source_domains: OnceCell::new(),
-            domains: OnceCell::new(),
             definitions: OnceCell::new(),
             numeric: OnceCell::new(),
             optional: OnceCell::new(),
@@ -97,6 +95,8 @@ impl<'model> ModelFacts<'model> {
     pub fn source_view(&self) -> CallableView<'_> {
         self.preparation().source_view()
     }
+    /// Explicit compatibility request for all transitively selected standard bodies.
+    /// Normal fact consumers request their retained properties from source facts.
     pub fn proof_callables(&self) -> CallableView<'_> {
         let prepared = self.preparation();
         prepared.view(
@@ -128,20 +128,14 @@ impl<'model> ModelFacts<'model> {
         })
     }
     pub fn domains(&self) -> &DomainFacts {
-        self.domains.get_or_init(|| {
-            domains::resolve_domains_with_callables(
-                self.context,
-                self.bindings(),
-                Some(&self.proof_callables()),
-            )
-        })
+        self.source_domains()
     }
     pub fn definitions(&self) -> &DefinitionFacts {
         self.definitions.get_or_init(|| {
             resolve_definitions_view(
                 self.context,
                 self.bindings(),
-                &self.proof_callables(),
+                &self.source_view(),
                 self.instantiations(),
                 self.domains(),
             )
@@ -152,7 +146,7 @@ impl<'model> ModelFacts<'model> {
             resolve_numeric_facts_view(
                 self.context,
                 self.bindings(),
-                &self.proof_callables(),
+                &self.source_view(),
                 self.instantiations(),
                 self.domains(),
                 self.definitions(),
@@ -164,7 +158,7 @@ impl<'model> ModelFacts<'model> {
             resolve_optional_facts_view(
                 self.context,
                 self.bindings(),
-                &self.proof_callables(),
+                &self.source_view(),
                 self.instantiations(),
                 self.domains(),
                 self.numeric(),
@@ -177,7 +171,7 @@ impl<'model> ModelFacts<'model> {
             resolve_guarded_facts_with_options_view(
                 self.context,
                 self.bindings(),
-                &self.proof_callables(),
+                &self.source_view(),
                 self.instantiations(),
                 self.domains(),
                 self.numeric(),
@@ -190,7 +184,7 @@ impl<'model> ModelFacts<'model> {
             resolve_iteration_facts_view(
                 self.context,
                 self.bindings(),
-                &self.proof_callables(),
+                &self.source_view(),
                 self.instantiations(),
                 self.domains(),
                 self.numeric(),
@@ -204,7 +198,7 @@ impl<'model> ModelFacts<'model> {
             resolve_integer_bounds_view(
                 self.context,
                 self.bindings(),
-                &self.proof_callables(),
+                &self.source_view(),
                 self.domains(),
             )
         })
@@ -214,7 +208,7 @@ impl<'model> ModelFacts<'model> {
             resolve_callable_definitions_view(
                 self.context,
                 self.bindings(),
-                &self.proof_callables(),
+                &self.source_view(),
                 self.instantiations(),
                 self.domains(),
             )
@@ -240,7 +234,7 @@ impl<'model> ModelFacts<'model> {
             search::resolve_search_with_callable(
                 self.context,
                 self.bindings(),
-                &self.proof_callables(),
+                &self.source_view(),
                 self.instantiations(),
                 self.domains(),
                 self.definitions(),
@@ -253,7 +247,7 @@ impl<'model> ModelFacts<'model> {
             resolve_compact_ifs_view(
                 self.context,
                 self.bindings(),
-                &self.proof_callables(),
+                &self.source_view(),
                 self.instantiations(),
             )
         })
@@ -263,7 +257,7 @@ impl<'model> ModelFacts<'model> {
             resolve_effective_zero_one_view(
                 self.context,
                 self.bindings(),
-                &self.proof_callables(),
+                &self.source_view(),
                 self.instantiations(),
                 self.domains(),
                 self.integer_bounds(),
@@ -299,7 +293,7 @@ impl<'model> ModelFacts<'model> {
             resolve_element_rewrites_view(
                 self.context,
                 self.bindings(),
-                &self.proof_callables(),
+                &self.source_view(),
                 self.instantiations(),
                 self.domains(),
                 self.numeric(),
@@ -313,7 +307,7 @@ impl<'model> ModelFacts<'model> {
             resolve_global_patterns_view(
                 self.context,
                 self.bindings(),
-                &self.proof_callables(),
+                &self.source_view(),
                 self.optional(),
                 self.guarded(),
                 self.iteration(),
@@ -325,7 +319,7 @@ impl<'model> ModelFacts<'model> {
             resolve_comprehension_structure_view(
                 self.context,
                 self.bindings(),
-                &self.proof_callables(),
+                &self.source_view(),
                 self.instantiations(),
                 self.domains(),
                 self.numeric(),
@@ -340,7 +334,7 @@ impl<'model> ModelFacts<'model> {
             resolve_callable_input_facts_view(
                 self.context,
                 self.bindings(),
-                &self.proof_callables(),
+                &self.source_view(),
                 self.guarded(),
                 self.iteration(),
             )

@@ -568,7 +568,14 @@ impl<'a> SourceInspector<'a> {
                 "optional Float selected body, annotation or recursion is unsupported".into(),
             );
         }
-        let body_view = instantiated_body(self.context, self.bindings, self.calls, *id, parameters);
+        let body_view = requested_body(
+            self.context,
+            self.bindings,
+            self.calls,
+            BodyProperty::Definedness,
+            *id,
+            parameters,
+        );
         let mut formals = Vec::new();
         let mut types = vec![
             declaration
@@ -1210,7 +1217,14 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         id: DeclarationId,
         parameter: &TypeInst,
-    ) -> Result<(DeclarationId, &'a SyntaxNode, crate::CallableFacts), String> {
+    ) -> Result<
+        (
+            DeclarationId,
+            &'a SyntaxNode,
+            std::rc::Rc<crate::CallableFacts>,
+        ),
+        String,
+    > {
         let owner = &self.source.bindings.declarations[id.0];
         let written = find_node(
             self.source.context.files[owner.file].parsed.tree(),
@@ -1295,10 +1309,11 @@ impl<'a> BodyInterpreter<'a, '_> {
             })
             .map(|instance| instance.view.clone())
             .unwrap_or_else(|| {
-                instantiated_body(
+                requested_body(
                     self.source.context,
                     self.source.bindings,
                     self.source.calls,
+                    BodyProperty::Definedness,
                     id,
                     std::slice::from_ref(parameter),
                 )

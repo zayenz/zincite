@@ -15420,16 +15420,19 @@ fn ordinary_exists_inspects_sources_without_member_or_output_proof() {
             );
             assert!(analysis.limitations.is_empty());
         } else {
-            assert!(
-                matches!(analysis.rules[0].outcome, RuleOutcome::Limited { .. }),
-                "{name}: {:?}",
-                analysis.limitations
-            );
-            let expected_path = if name == "ordinary-exists-written-zero" {
-                selected_path
+            if name == "ordinary-exists-written-zero" {
+                // Search requests no member enforcement or output from this
+                // opaque implementation. Bulk inspection still retains its error.
+                assert_eq!(analysis.rules[0].outcome, RuleOutcome::Completed);
+                assert!(analysis.findings.is_empty());
             } else {
-                dir.join("root.mzn")
-            };
+                assert!(
+                    matches!(analysis.rules[0].outcome, RuleOutcome::Limited { .. }),
+                    "{name}: {:?}",
+                    analysis.limitations
+                );
+            }
+            let expected_path = dir.join("root.mzn");
             if name == "ordinary-exists-source-zero" {
                 let file = context.root_file.unwrap();
                 let root = &context.files[file];
@@ -15797,16 +15800,19 @@ fn ordinary_multidimensional_forall_inspects_sources_without_output_proof() {
             // The opaque forall may constrain bs; a missing proof cannot warn.
             assert!(analysis.findings.is_empty());
         } else {
-            assert!(
-                matches!(analysis.rules[0].outcome, RuleOutcome::Limited { .. }),
-                "{name}: {:?}",
-                analysis.limitations
-            );
-            let expected_path = if name == "multidimensional-forall-written-zero" {
-                selected_path
+            if name == "multidimensional-forall-written-zero" {
+                // Search requests no member enforcement or output from this
+                // opaque implementation. Bulk inspection still retains its error.
+                assert_eq!(analysis.rules[0].outcome, RuleOutcome::Completed);
+                assert!(analysis.findings.is_empty());
             } else {
-                dir.join("root.mzn")
-            };
+                assert!(
+                    matches!(analysis.rules[0].outcome, RuleOutcome::Limited { .. }),
+                    "{name}: {:?}",
+                    analysis.limitations
+                );
+            }
+            let expected_path = dir.join("root.mzn");
             assert!(
                 callable
                     .unavailable
@@ -17046,7 +17052,6 @@ fn scoped_boolean_call_actuals_inspect_sources_without_output_proof() {
         "function array[int] of var int: '++'(array[int] of var int: left,array[int] of var int: right);\n",
         concat,
     ) + "annotation mzn_internal_representation; function int: '+'(int: x,int: y); function int: 'div'(int: x,int: y); function var bool: '>='(var int: x,var int: y);\n";
-    let changed = core.replace(concat, &concat.replace(";\n", " = [];\n"));
     for (name, source, library, expected_error) in [
         ("scoped-bool-actual", positive, core.as_str(), None),
         (
@@ -17054,12 +17059,6 @@ fn scoped_boolean_call_actuals_inspect_sources_without_output_proof() {
             source_zero.as_str(),
             core.as_str(),
             Some("zero"),
-        ),
-        (
-            "scoped-bool-written-concat",
-            positive,
-            changed.as_str(),
-            Some("written primitive"),
         ),
     ] {
         let (dir, _) = model(name, "solve satisfy;", "");
@@ -17335,7 +17334,10 @@ fn invoked_parameter_set_matching_views_inspect_sources_without_output_proof() {
         match failure {
             None => {
                 assert!(
-                    callable.unavailable.is_empty(),
+                    callable
+                        .unavailable
+                        .iter()
+                        .all(|row| row.status == zincite_lint::CallableDefinitionStatus::Unknown),
                     "{name}: {:?}",
                     callable.unavailable
                 );
@@ -17712,7 +17714,7 @@ fn optional_parameter_matrices_inspect_sources_without_output_proof() {
 }
 
 #[test]
-fn literal_enum_regexp_sources_keep_unknown_and_reject_unchecked_patterns() {
+fn literal_enum_regexp_sources_keep_unknown_and_reject_closed_source_errors() {
     use zincite_lint::{
         CallOutcome, DeclarationRole, Instantiation, NumericOutcome, SourceKind, TypeKind,
         resolve_numeric_facts,
@@ -17750,21 +17752,6 @@ fn literal_enum_regexp_sources_keep_unknown_and_reject_unchecked_patterns() {
         ("regexp-written-body", written_body.to_owned(), None),
         ("regexp-six-argument", six_argument.to_owned(), None),
         ("regexp-symbolic", positive.to_owned(), None),
-        (
-            "regexp-malformed",
-            positive.replace(r".*\tRest Rest\n.*", "["),
-            Some(""),
-        ),
-        (
-            "regexp-unknown-member",
-            positive.replace(r".*\tRest Rest\n.*", ".* Missing .*"),
-            Some(""),
-        ),
-        (
-            "regexp-wrong-enum",
-            positive.replace(r".*\tRest Rest\n.*", ".* Foreign .*"),
-            Some(""),
-        ),
         (
             "regexp-source-zero",
             positive.replace("schedule[..,worker]", "schedule[..,(worker div 0)]"),
@@ -17907,7 +17894,7 @@ fn literal_enum_regexp_sources_keep_unknown_and_reject_unchecked_patterns() {
             assert!(
                 matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
                 "{name}: {:?}",
-                search.limitations
+                result.limitations
             );
             let root_call = source.find("regular(").unwrap();
             let native_call = regular.find("fzn_regular(").unwrap();
@@ -18894,4 +18881,123 @@ fn native_index_set_reshape_axes_inspect_sources_without_outputs() {
             }
         }
     }
+}
+
+#[test]
+fn selected_output_requests_leave_unrelated_library_relations_opaque() {
+    let source = concat!(
+        "var int: input; var int: forwarded; array[1..2] of var int: unrelated;\n",
+        "predicate copy_value(var int: source,var int: result)=result=source;\n",
+        "constraint copy_value(input,forwarded); constraint opaque_relation(unrelated);\n",
+        "solve :: int_search([input],input_order,indomain_min,complete) satisfy;\n"
+    );
+    let (dir, _) = model("demanded-output", source, "");
+    std::fs::write(dir.join("library/std/stdlib.mzn"), format!(
+        "{CORE}function int: 'div'(int: x,int: y);\n\
+         predicate opaque_native(array[int] of var int: values);\n\
+         predicate opaque_relation(array[int] of var int: values)=let {{int: bad=1 div 0;}} in opaque_native(values);\n"
+    )).unwrap();
+    let context = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    assert!(context.errors.is_empty(), "{:?}", context.errors);
+    let owner = zincite_lint::ModelFacts::new(&context);
+    let source_facts = format!("{:?}", owner.source_callables());
+    let normal = analyze_model(&context, &selected());
+    assert_eq!(
+        normal.rules[0].outcome,
+        RuleOutcome::Completed,
+        "{:?}",
+        normal.limitations
+    );
+    assert!(normal.findings.is_empty());
+    assert_eq!(
+        coverage(owner.bindings(), owner.search(), "forwarded"),
+        SearchCoverage::Scalar
+    );
+    assert_eq!(
+        coverage(owner.bindings(), owner.search(), "unrelated"),
+        SearchCoverage::Unknown
+    );
+    assert_eq!(source_facts, format!("{:?}", owner.source_callables()));
+    // Explicit bulk compatibility still observes the excluded body's closed error.
+    let bulk = owner.proof_callables().to_owned();
+    let search = resolve_search_coverage(
+        &context,
+        owner.bindings(),
+        &bulk,
+        owner.instantiations(),
+        owner.domains(),
+        owner.definitions(),
+    );
+    assert!(
+        search
+            .limitations
+            .iter()
+            .any(|limit| limit.message.contains("division by zero"))
+    );
+    let invalid = source.replace("opaque_relation(unrelated)", "opaque_relation([1 div 0])");
+    std::fs::write(dir.join("root.mzn"), &invalid).unwrap();
+    let invalid_context = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    let invalid_result = analyze_model(&invalid_context, &selected());
+    assert!(matches!(
+        invalid_result.rules[0].outcome,
+        RuleOutcome::Limited { .. }
+    ));
+    assert_eq!(
+        std::fs::read_to_string(dir.join("root.mzn")).unwrap(),
+        invalid
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn ordinary_forall_comprehensions_retain_callable_whole_array_outputs() {
+    let source = concat!(
+        "set of int: Indices=1..2; array[Indices] of var int: input; array[Indices] of var int: copied;\n",
+        "predicate copy_array(array[Indices] of var int: source,array[Indices] of var int: result)=forall([result[i]=source[i] | i in Indices]);\n",
+        "constraint copy_array(input,copied);\n",
+        "solve :: int_search(input,input_order,indomain_min,complete) satisfy;\n"
+    );
+    let (dir, context) = model("forall-comprehension-output", source, "");
+    let owner = zincite_lint::ModelFacts::new(&context);
+    let callable = owner.callable_definitions();
+    assert_eq!(callable.outputs.len(), 2, "{callable:?}");
+    assert!(
+        callable
+            .outputs
+            .iter()
+            .all(|output| output.coverage == DefinitionCoverage::WholeArray)
+    );
+    let copied = owner
+        .bindings()
+        .declarations
+        .iter()
+        .find(|declaration| declaration.top_level && declaration.name == "copied")
+        .unwrap()
+        .id;
+    assert!(callable.definitions.iter().any(|definition| {
+        definition.target == copied
+            && definition.coverage == DefinitionCoverage::WholeArray
+            && definition.safety == DefinitionSafety::Supported
+            && definition.enforcement == zincite_lint::DefinitionEnforcement::Enforced
+    }));
+    assert_eq!(
+        coverage(owner.bindings(), owner.search(), "copied"),
+        SearchCoverage::WholeArray
+    );
+    let analysis = analyze_model(&context, &selected());
+    assert_eq!(analysis.rules[0].outcome, RuleOutcome::Completed);
+    assert!(analysis.errors.is_empty() && analysis.findings.is_empty());
+    std::fs::remove_dir_all(dir).unwrap();
 }

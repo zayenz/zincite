@@ -263,25 +263,54 @@ The retained proof route serves concrete properties:
 | `input_preconditions` | Located formal-input definedness obligations and proved default/empty-iteration capture |
 | `element` rewrite producer | The concrete indexing-equality relation, raw operand definedness and index membership; selected standard identity alone still supports advice |
 
-Base-119 gives each immutable `ModelContext` a `ModelFacts` owner. Named requests
-cache their results within that owner: bindings and callable preparation precede
-source instantiations; proof-call additions and domains precede direct definitions,
-numeric, optional, guarded and iteration facts. Callable definitions retain their
-finite discovery and output algorithms; search requests those summaries and direct
-definitions. Unbounded advice requests a separate combined definition result with
-cycle marking, leaving cached direct definitions unchanged. Source and proof domains
-remain separate because their callable inputs differ.
+Each immutable `ModelContext` has a `ModelFacts` owner. Named requests reuse
+bindings, callable preparation, source instantiations and domains before direct
+definitions, numeric, optional, guarded and iteration facts. Normal lint and query
+consumers start with the source view. They do not request a transitive selected-body
+closure merely because a deep rule is enabled. Unbounded advice requests a separate
+combined definition result with cycle marking, leaving direct definitions unchanged.
 
-Callable preparation shares declaration types, signatures, node lookup and reference
-indexing. Borrowed source/proof views retain separate expression and call observations;
-raw library-body navigation never changes canonical source facts or starts proof
-closure from navigated bodies. Public owned producers remain compatibility entry
-points into the same algorithms. `analyze_model_with_facts` runs fresh diagnostic
+A selected-body request names bounds, definedness or outputs, the selected
+declaration and its exact concrete formal types. `CallablePreparation` shares that
+body's concrete typing within the model owner. The cache uses only canonical source
+facts and the concrete formal tuple. Actual arguments, defaults mapped at an
+invocation, lexical generators, guards, membership checks and output publication
+remain with their existing proof owners. Those contextual conclusions are evaluated
+for each invocation; declaration identity alone cannot reuse them.
+
+Callable output discovery checks written output forms and forwarding declaration
+identities before requesting concrete typing. It retains possible scalar and array
+equalities, enforced Boolean formals, transparent forwarding, returning assertions
+and their reachable summary dependencies. Admitted owners retain every sibling,
+finite instance deduplication, concrete-instantiation recursion barriers and the
+existing output-then-boundary fixed points. Whole-array extent and complete-owner
+checks still govern publication. An excluded relation retains written references
+mapped through actuals, defaults and captures as localized Unknown boundaries.
+
+The opaque-source error adapter checks actuals, written user sources and bodies
+already inspected by required work. It does not recursively expand an unrequested
+library implementation for admission. Known argument/initializer errors, strict
+empty extrema and errors discovered in demanded bodies still veto dependent proofs.
+There is no promise to discover arbitrary errors inside an excluded uninspected body.
+This retires admission-only library walks, without replacing retained useful bounds,
+definedness, traversal, definition or search proofs with Unknown.
+
+`resolve_callables` and `ModelFacts::proof_callables` remain explicit bulk compatibility
+requests for all transitively selected standard bodies. Body typing for both bulk and
+selected-property requests belongs to `callables::Engine::inspect` and `Engine::infer`.
+The bulk traversal retains generic declaration types and accumulates selected-body
+observations. `requested_body` uses `instantiated_body` to bind concrete formals and
+retype local bindings before calling the same engine. These distinct contexts preserve
+the bulk result's generic observations without merging concrete substitutions into
+canonical source facts.
+
+Raw library-body navigation retains written source typing and never changes canonical
+source selections or starts the bulk closure. Public owned producers and borrowed model
+views use the same proof algorithms. `analyze_model_with_facts` runs fresh diagnostic
 policy through an existing owner. Queries can retain an `Rc<ModelFacts>` through
 `evaluate_with_facts`; each evaluation charges its own fact scan and result work,
 including a warm owner, and checks the exact root bytes and BOM. The last session or
-result owner releases the cached facts. Scoped guards and concrete instantiated
-bodies retain their existing uncached evaluation contracts.
+result owner releases the cached facts.
 
 Salsa is a conditional later choice, replacing the blanket rejection. Production
 adoption is outside this bundle. It needs measured repeated-edit/recomputation

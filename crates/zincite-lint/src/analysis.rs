@@ -255,7 +255,7 @@ pub fn analyze_model_with_facts(
             let checked = check_array_indices(
                 context,
                 bindings,
-                &facts.proof_callables(),
+                &facts.source_view(),
                 facts.domains(),
                 facts.definitions(),
                 facts.instantiations(),
@@ -374,7 +374,7 @@ pub fn analyze_model_with_facts(
             let (findings, limitations) = crate::hidden_optionality::check_hidden_optionality(
                 context,
                 bindings,
-                &facts.proof_callables(),
+                &facts.source_view(),
                 facts.instantiations(),
                 facts.optional(),
                 facts.guarded(),
@@ -443,7 +443,7 @@ pub fn analyze_model_with_facts(
             let (findings, limitations) = crate::partial_expression::check_partial_expressions(
                 context,
                 bindings,
-                &facts.proof_callables(),
+                &facts.source_view(),
                 facts.guarded(),
                 facts.iteration(),
                 &result.findings,
@@ -457,7 +457,7 @@ pub fn analyze_model_with_facts(
             let (findings, limitations) = crate::vacuous_constraint::check_vacuous_constraints(
                 context,
                 bindings,
-                &facts.proof_callables(),
+                &facts.source_view(),
                 facts.guarded(),
                 facts.optional(),
                 facts.iteration(),
@@ -482,7 +482,7 @@ pub fn analyze_model_with_facts(
             let checked = check_unbounded_variables(
                 context,
                 bindings,
-                &facts.proof_callables(),
+                &facts.source_view(),
                 facts.instantiations(),
                 facts.domains(),
                 facts.complete_definitions(),
@@ -496,7 +496,7 @@ pub fn analyze_model_with_facts(
             let checked = check_constant_variables(
                 context,
                 bindings,
-                &facts.proof_callables(),
+                &facts.source_view(),
                 facts.definitions(),
             );
             constant_incomplete = !checked.limitations.is_empty();

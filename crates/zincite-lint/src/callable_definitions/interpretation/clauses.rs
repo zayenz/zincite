@@ -1839,6 +1839,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                     unavailable,
                 ),
             }
+            self.unknown_call_outputs(clause, view, id, &parameters, unavailable);
             return;
         };
         let selected: Vec<_> = known
@@ -1846,7 +1847,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             .filter(|g| g.callable == id && g.parameters == parameters)
             .collect();
         if selected.is_empty() {
-            self.unknown_call_outputs(clause, view, instance, unavailable);
+            self.unknown_call_outputs(clause, view, id, &parameters, unavailable);
         }
         if selected.is_empty() && instance.recursive {
             self.unavailable(clause,"callable output guarantees are unsupported or have no independent recursive anchor",unavailable);

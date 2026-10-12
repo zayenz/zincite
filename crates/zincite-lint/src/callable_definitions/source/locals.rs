@@ -95,10 +95,11 @@ impl<'a> BodyInterpreter<'a, '_> {
                     id: *declaration,
                     parameters: parameters.clone(),
                     ancestry: Vec::new(),
-                    view: instantiated_body(
+                    view: requested_body(
                         self.source.context,
                         self.source.bindings,
                         self.source.calls,
+                        BodyProperty::Definedness,
                         *declaration,
                         parameters,
                     ),
