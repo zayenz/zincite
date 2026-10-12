@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 113
-- Ready: 4
+- Ready: 3
 - Blocked: 0
-- Done: 109
+- Done: 110
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -118,7 +118,7 @@
 | [base-107](tasks/107-align-explicit-and-implicit-expanded-comprehension-layouts.md) | Align explicit and implicit expanded comprehension layouts | done | — |
 | [base-108](tasks/108-stop-treating-anonymous-enum-initializer-calls-as-declaratio.md) | Stop treating anonymous enum initializer calls as declarations | done | — |
 | [base-109](tasks/109-respect-explicit-per-element-range-constraints-in-unbounded.md) | Respect explicit per-element range constraints in unbounded advice | done | — |
-| [base-110](tasks/110-recognize-complete-enum2int-search-projections.md) | Recognize complete enum2int search projections | ready | — |
+| [base-110](tasks/110-recognize-complete-enum2int-search-projections.md) | Recognize complete enum2int search projections | done | — |
 | [base-111](tasks/111-render-unproven-cartesian-expense-as-informational-advice.md) | Render unproven Cartesian expense as informational advice | ready | — |
 | [base-112](tasks/112-show-lint-roots-and-summarize-analysis-limitations.md) | Show lint roots and summarize analysis limitations | ready | — |
 | [base-113](tasks/113-report-the-build-version-and-suggest-standard-library-setup.md) | Report the build version and suggest standard-library setup | ready | — |

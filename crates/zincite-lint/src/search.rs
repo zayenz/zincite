@@ -1212,6 +1212,93 @@ impl<'a> Producer<'a> {
         }
         safety
     }
+    fn scalar_enum2int_access(
+        &self,
+        file: FileId,
+        node: &'a SyntaxNode,
+    ) -> Result<Option<&'a SyntaxNode>, String> {
+        if node.kind() != NodeKind::CallExpression {
+            return Ok(None);
+        }
+        let fact = operation_fact(self.context, self.calls, file, node)
+            .ok_or("search projection callable selection is unavailable")?;
+        if fact.name != "enum2int"
+            || !core_operation(
+                self.context,
+                self.bindings,
+                self.calls,
+                file,
+                node,
+                "enum2int",
+            )?
+        {
+            return Ok(None);
+        }
+        let CallOutcome::Resolved {
+            declaration,
+            parameters,
+            return_type,
+        } = &fact.outcome
+        else {
+            return Err("enum2int search projection selection is unavailable".into());
+        };
+        let arguments: Vec<_> = node.child_nodes().collect();
+        let ([argument], [parameter]) = (arguments.as_slice(), parameters.as_slice()) else {
+            return Err("enum2int search projection requires one scalar argument".into());
+        };
+        let typed = |value: &SyntaxNode| {
+            let range = self.context.files[file].location(value.range()).range;
+            self.calls
+                .expressions
+                .iter()
+                .find(|e| e.file == file && e.location.range == range)
+                .map(|e| &e.ty)
+        };
+        let actual =
+            typed(argument).ok_or("enum2int search projection argument type is unavailable")?;
+        let mut expected_result = actual.clone();
+        expected_result.kind = TypeKind::Int;
+        if argument.kind() == NodeKind::NamedArgument
+            || !actual.known()
+            || optional(actual)
+            || !matches!(actual.kind, TypeKind::Enum(_))
+            || actual != parameter
+            || *return_type != expected_result
+            || typed(node) != Some(return_type)
+        {
+            return Err(
+                "enum2int search projection scalar type or qualifiers are unsupported".into(),
+            );
+        }
+        let owner = &self.bindings.declarations[declaration.0];
+        let written = find_node(
+            self.context.files[owner.file].parsed.tree(),
+            &owner.syntax_range,
+            owner.role,
+        )
+        .ok_or("enum2int search projection primitive source is unavailable")?;
+        if written
+            .child_nodes()
+            .any(|part| is_expression(part.kind()) || part.kind() == NodeKind::Error)
+            || self
+                .calls
+                .signatures
+                .iter()
+                .find(|signature| signature.declaration == *declaration)
+                .is_none_or(|signature| {
+                    signature.parameters.len() != 1 || signature.parameters[0].has_default
+                })
+        {
+            return Err(
+                "enum2int search projection requires a bodyless primitive without defaults".into(),
+            );
+        }
+        let access = unwrap(argument);
+        if access.kind() != NodeKind::ArrayAccessExpression {
+            return Err("enum2int search projection argument access is unsupported".into());
+        }
+        Ok(Some(access))
+    }
     fn values(&mut self, file: FileId, node: &'a SyntaxNode, mapping: &[Argument<'a>]) {
         let node = unwrap(node);
         let location = self.context.files[file].location(node.range());
@@ -1320,6 +1407,14 @@ impl<'a> Producer<'a> {
                 }
             }
             let body = unwrap(body);
+            let body = match self.scalar_enum2int_access(file, body) {
+                Ok(Some(access)) => access,
+                Ok(None) => body,
+                Err(reason) => {
+                    self.uncertain(file, body, &reason);
+                    return;
+                }
+            };
             let children: Vec<_> = body.child_nodes().collect();
             if strict_traversal
                 && body.kind() == NodeKind::ArrayAccessExpression

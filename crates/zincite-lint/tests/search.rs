@@ -3024,6 +3024,247 @@ solve satisfy;
     std::fs::remove_dir_all(dir).unwrap();
 }
 #[test]
+fn complete_enum2int_search_projection_keeps_shared_include_roots_distinct() {
+    let included = concat!(
+        "enum Position = {Left, Right}; enum Choice = {First, Second};\n",
+        "array[Position] of var Choice: selected; array[Position] of var int: other;\n",
+    );
+    let (dir, _) = model("enum2int-projection-roots", "solve satisfy;", included);
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}annotation first_fail;\n"),
+    )
+    .unwrap();
+    let options = ModelOptions {
+        stdlib_dir: Some(dir.join("library")),
+        ..Default::default()
+    };
+    for (name, annotation, selected_coverage, other_coverage, warnings) in [
+        (
+            "projected",
+            ":: int_search([enum2int(selected[p]) | p in Position],first_fail,indomain_min,complete)",
+            SearchCoverage::WholeArray,
+            SearchCoverage::Uncovered,
+            vec!["other"],
+        ),
+        (
+            "no-search",
+            "",
+            SearchCoverage::Uncovered,
+            SearchCoverage::Uncovered,
+            vec!["other", "selected"],
+        ),
+        (
+            "other-search",
+            ":: int_search([other[p] | p in Position],first_fail,indomain_min,complete)",
+            SearchCoverage::Uncovered,
+            SearchCoverage::WholeArray,
+            vec!["selected"],
+        ),
+    ] {
+        let root = dir.join(format!("{name}.mzn"));
+        std::fs::write(
+            &root,
+            format!("include \"included.mzn\"; solve {annotation} satisfy;\n"),
+        )
+        .unwrap();
+        let context = load_model(&root, &options);
+        assert!(context.errors.is_empty() && context.limitations.is_empty());
+        let (bindings, search) = facts(&context);
+        if name == "projected" {
+            let calls = resolve_callables(&context, &bindings);
+            let call = calls
+                .calls
+                .iter()
+                .find(|call| call.name == "enum2int")
+                .unwrap();
+            let zincite_lint::CallOutcome::Resolved {
+                declaration,
+                parameters,
+                return_type,
+            } = &call.outcome
+            else {
+                panic!("{:?}", call.outcome);
+            };
+            let owner = &bindings.declarations[declaration.0];
+            let source = &context.files[owner.file];
+            assert!(source.implicit && source.kind == zincite_lint::SourceKind::StandardLibrary);
+            assert!(matches!(parameters.as_slice(), [parameter]
+                if matches!(parameter.kind, zincite_lint::TypeKind::Enum(_))
+                    && !parameter.optional && parameter.instantiation == return_type.instantiation));
+            assert_eq!(return_type.kind, zincite_lint::TypeKind::Int);
+        }
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        assert_eq!(
+            coverage(&bindings, &search, "selected"),
+            selected_coverage,
+            "{name}"
+        );
+        assert_eq!(
+            coverage(&bindings, &search, "other"),
+            other_coverage,
+            "{name}"
+        );
+        assert!(
+            search.limitations.is_empty(),
+            "{name}: {:?}",
+            search.limitations
+        );
+        let result = analyze_model(&context, &selected());
+        assert_eq!(result.rules[0].outcome, RuleOutcome::Completed, "{name}");
+        assert!(
+            result.limitations.is_empty(),
+            "{name}: {:?}",
+            result.limitations
+        );
+        let mut found: Vec<_> = result
+            .findings
+            .iter()
+            .map(|finding| {
+                assert_eq!(finding.location.path, dir.join("included.mzn"));
+                &included[finding.location.range.clone()]
+            })
+            .collect();
+        found.sort_unstable();
+        assert_eq!(found, warnings, "{name}");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn enum2int_search_projection_refuses_user_partial_filtered_and_unsupported_values() {
+    let source = concat!(
+        "enum Position = {Left, Right}; enum Choice = {First, Second};\n",
+        "array[Position] of var Choice: selected;\n",
+        "solve :: int_search([enum2int(selected[p]) | p in Position],first_fail,indomain_min,complete) satisfy;\n",
+    );
+    let scalar = "function var int: enum2int(var $$E: x);";
+    for (name, source, library, limited_at) in [
+        (
+            "user-overload",
+            format!("function var int: enum2int(var Choice: x)=0;\n{source}"),
+            CORE.to_owned(),
+            None,
+        ),
+        (
+            "user-shadow",
+            format!("function var int: enum2int(var $$E: x)=0;\n{source}"),
+            CORE.replace(scalar, ""),
+            None,
+        ),
+        (
+            "partial",
+            source.replace("p in Position", "p in {Left}"),
+            CORE.to_owned(),
+            None,
+        ),
+        (
+            "filtered",
+            source.replace("p in Position", "p in Position where true"),
+            CORE.to_owned(),
+            None,
+        ),
+        (
+            "computed",
+            source.replace(
+                "enum2int(selected[p])",
+                "enum2int(if true then selected[p] else selected[p] endif)",
+            ),
+            CORE.to_owned(),
+            Some("enum2int(if true then selected[p] else selected[p] endif)"),
+        ),
+        (
+            "written-primitive",
+            source.to_owned(),
+            CORE.replace(scalar, "function var int: enum2int(var $$E: x)=0;"),
+            Some("enum2int(selected[p])"),
+        ),
+        (
+            "optional",
+            source.replace("var Choice", "var opt Choice"),
+            CORE.replace(scalar, "function var opt int: enum2int(var opt $$E: x);")
+                .replace(
+                    "array[int] of var int: x,ann: select",
+                    "array[int] of var opt int: x,ann: select",
+                ),
+            Some("[enum2int(selected[p]) | p in Position]"),
+        ),
+    ] {
+        let (dir, _) = model(&format!("enum2int-projection-{name}"), &source, "");
+        std::fs::write(
+            dir.join("library/std/stdlib.mzn"),
+            format!("{library}annotation first_fail;\n"),
+        )
+        .unwrap();
+        let context = load_model(
+            dir.join("root.mzn"),
+            &ModelOptions {
+                stdlib_dir: Some(dir.join("library")),
+                ..Default::default()
+            },
+        );
+        assert!(
+            context.errors.is_empty() && context.limitations.is_empty(),
+            "{name}"
+        );
+        let (bindings, search) = facts(&context);
+        let calls = resolve_callables(&context, &bindings);
+        assert!(
+            calls
+                .calls
+                .iter()
+                .filter(|call| call.file == context.root_file.unwrap())
+                .all(|call| matches!(call.outcome, zincite_lint::CallOutcome::Resolved { .. })),
+            "{name}: {:?}",
+            calls.calls
+        );
+        assert_eq!(search.root_state, ModelRootState::Complete);
+        assert_eq!(
+            coverage(&bindings, &search, "selected"),
+            if limited_at.is_some() {
+                SearchCoverage::Unknown
+            } else {
+                SearchCoverage::Uncovered
+            },
+            "{name}"
+        );
+        let result = analyze_model(&context, &selected());
+        assert_eq!(
+            matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+            limited_at.is_some(),
+            "{name}: {:?}",
+            result.limitations
+        );
+        if let Some(expression) = limited_at {
+            let start = source.find(expression).unwrap();
+            assert!(
+                search
+                    .limitations
+                    .iter()
+                    .any(|limit| limit.location.path == context.root
+                        && limit.location.range == (start..start + expression.len())),
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert!(result.findings.is_empty(), "{name}: {:?}", result.findings);
+        } else {
+            assert!(
+                search.limitations.is_empty(),
+                "{name}: {:?}",
+                search.limitations
+            );
+            assert_eq!(result.findings.len(), 1, "{name}");
+            assert_eq!(
+                &source[result.findings[0].location.range.clone()],
+                "selected",
+                "{name}"
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
 fn typed_searches_aliases_and_direct_closure_preserve_whole_array_and_cycle_boundaries() {
     let source = concat!(
         "\u{feff}% é\r\ninclude \"included.mzn\"; int: parameter_value; var 0..9: seed; var int: constant_value=parameter_value;\n",

@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-110"
 key = "enum-projection-search-coverage"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "high"
@@ -26,12 +26,20 @@ Read brief.md Adopted Atlas feedback and existing search contracts. Start at cra
 
 ## Done when
 
-- [ ] The supported complete projection has search-coverage outcome Completed, no relevant limitation and no false search-coverage warning.
-- [ ] Shadowed/user overloads and partial or filtered projections retain conservative coverage; unsupported required facts produce a located limitation and selected-rule outcome Limited.
-- [ ] Independent root conclusions stay distinct, including a root with no search and roots with different search annotations.
+- [x] The supported complete projection has search-coverage outcome Completed, no relevant limitation and no false search-coverage warning.
+- [x] Shadowed/user overloads and partial or filtered projections retain conservative coverage; unsupported required facts produce a located limitation and selected-rule outcome Limited.
+- [x] Independent root conclusions stay distinct, including a root with no search and roots with different search annotations.
 
 ## Validation
 
 - Add one complete projected-search regression with focused shadowing/partial counterexamples and root checks using existing fixtures.
 - Run cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, and cargo test --workspace.
 - Run zdev check base --format json; install the changed local commands after verification.
+
+## Result
+
+Recognize trusted scalar enum2int projections through existing complete-array search coverage checks while preserving conservative refusals and independent roots.
+
+Validation:
+
+- Independent PASS against W77794901dfb1c681; fmt, Clippy, workspace tests, all 72 search tests, zdev check and diff check passed. Updated local zincite and zincite-lint match reviewed release binaries and both installed projection smoke checks exit 0 without diagnostics.
