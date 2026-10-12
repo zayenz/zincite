@@ -60,6 +60,9 @@ Rule entries report availability, implemented fix support and current options.
 
 -I DIR adds an ordered include directory for rules requiring model analysis.
 --stdlib-dir DIR supplies the MiniZinc library root, overriding MZN_STDLIB_DIR.
+The root must contain std/stdlib.mzn. Missing library dependencies suggest this setup.
+On macOS, MiniZincIDE commonly uses /Applications/MiniZincIDE.app/Contents/Resources/share/minizinc.
+Zincite does not discover installations or run a MiniZinc compiler or solver.
 Default model analysis loads includes and standard callable signatures for comprehension advice.
 Select naming,missing-constraint-label for source-local analysis.
 Stdin has no model context: selected semantic analysis reports a limitation;

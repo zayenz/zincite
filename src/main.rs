@@ -11,6 +11,7 @@ Commands:
     query   Inspect source, report JSON/counts or explicitly edit data assignments
 
 Use zincite <COMMAND> --help for command options.
+--version shows the package version and build revision when available.
 ";
 
 fn main() -> ExitCode {
@@ -23,6 +24,13 @@ fn main() -> ExitCode {
         Some("lint") => zincite_lint::cli::run(arguments.collect(), "zincite lint"),
         Some("query") => zincite_query::cli::run(arguments.collect(), "zincite query"),
         Some("-h" | "--help") => print_help(),
+        Some("--version") => {
+            let version = match option_env!("ZINCITE_BUILD_REVISION") {
+                Some(revision) => format!("zincite {} ({revision})\n", env!("CARGO_PKG_VERSION")),
+                None => format!("zincite {}\n", env!("CARGO_PKG_VERSION")),
+            };
+            print_stdout(&version)
+        }
         _ => {
             let _ = writeln!(
                 io::stderr(),
@@ -35,7 +43,11 @@ fn main() -> ExitCode {
 }
 
 fn print_help() -> ExitCode {
-    match io::stdout().write_all(HELP.as_bytes()) {
+    print_stdout(HELP)
+}
+
+fn print_stdout(text: &str) -> ExitCode {
+    match io::stdout().write_all(text.as_bytes()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             let _ = writeln!(io::stderr(), "stdout: {error}");

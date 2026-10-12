@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-113"
 key = "report-version-and-library-hint"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -26,12 +26,20 @@ Read brief.md Adopted Atlas feedback and Language and command-line contract. Sta
 
 ## Done when
 
-- [ ] zincite --version succeeds and shows the package version plus build revision when available.
-- [ ] An unresolved standard-library dependency gives an actionable --stdlib-dir/MZN_STDLIB_DIR hint, including the common MiniZincIDE library path when relevant.
-- [ ] Help and usage documentation describe version reporting and the setup hint.
+- [x] zincite --version succeeds and shows the package version plus build revision when available.
+- [x] An unresolved standard-library dependency gives an actionable --stdlib-dir/MZN_STDLIB_DIR hint, including the common MiniZincIDE library path when relevant.
+- [x] Help and usage documentation describe version reporting and the setup hint.
 
 ## Validation
 
 - Use focused root CLI version and missing-library diagnostic checks; verify building without an available revision remains supported.
 - Run cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, and cargo test --workspace.
 - Run zdev check base --format json; install the changed local commands after verification.
+
+## Result
+
+Report package version and optional build revision; suggest standard-library setup through explicit flags/environment and the common MiniZincIDE library path, preserving configuration precedence without discovery or MiniZinc execution.
+
+Validation:
+
+- Independent PASS Wb8d912199f9ba378; fmt, Clippy, workspace tests, zdev check, focused version/missing-library/precedence checks and independent offline no-Git build passed. Updated local zincite and zincite-lint match release binaries; installed version succeeds and both missing-library command forms preserve error status 2 with actionable hints.

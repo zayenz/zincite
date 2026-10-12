@@ -19,6 +19,68 @@ fn run(arguments: &[&str], source: &str) -> Output {
 }
 
 #[test]
+fn version_reports_the_package_and_available_build_revision() {
+    let output = run(&["--version"], "");
+    assert!(output.status.success() && output.stderr.is_empty());
+    let expected = match option_env!("ZINCITE_BUILD_REVISION") {
+        Some(revision) => format!("zincite {} ({revision})\n", env!("CARGO_PKG_VERSION")),
+        None => format!("zincite {}\n", env!("CARGO_PKG_VERSION")),
+    };
+    assert_eq!(output.stdout, expected.as_bytes());
+}
+
+#[test]
+fn missing_library_dependencies_suggest_explicit_setup() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-root-library-hint-{}", std::process::id()));
+    std::fs::create_dir(&directory).unwrap();
+    let model = directory.join("model.mzn");
+    let library = directory.join("library");
+    std::fs::write(&model, "include \"globals.mzn\"; solve satisfy;\n").unwrap();
+
+    for configured in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_zincite"));
+        command
+            .args(["lint", "--isolated"])
+            .env_remove("MZN_STDLIB_DIR");
+        if configured {
+            command.arg("--stdlib-dir").arg(&library);
+        }
+        let output = command.arg(&model).output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let diagnostics = String::from_utf8(output.stderr).unwrap();
+        assert!(diagnostics.contains("cannot resolve include 'globals.mzn'"));
+        assert!(diagnostics.contains("--stdlib-dir DIR or MZN_STDLIB_DIR"));
+        assert!(diagnostics.contains("containing std/stdlib.mzn"));
+        if cfg!(target_os = "macos") {
+            assert!(
+                diagnostics
+                    .contains("/Applications/MiniZincIDE.app/Contents/Resources/share/minizinc")
+            );
+        }
+    }
+
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(library.join("std/stdlib.mzn"), "").unwrap();
+    std::fs::write(library.join("std/globals.mzn"), "").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_zincite"))
+        .args(["lint", "--isolated", "--stdlib-dir"])
+        .arg(&library)
+        .arg(&model)
+        .env("MZN_STDLIB_DIR", directory.join("wrong-library"))
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(
+        !String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("--stdlib-dir")
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn formatter_stdout_and_check_keep_standalone_defaults() {
     let source = "int: value=1;";
     let formatted = "int: value = 1;\n";

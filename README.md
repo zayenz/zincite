@@ -42,6 +42,8 @@ cargo install --locked --path crates/zincite-query
 
 Both invocation forms use the same options, defaults and exit codes. Run
 `zincite --help` for the command list.
+Run `zincite --version` to report the package version and the build's Git revision
+when available. Builds from source without Git still report the package version.
 
 The `0.0.0-pre` packages on crates.io are empty name reservations. Install from
 source to use the tools.
@@ -143,6 +145,19 @@ Use `--diff` to preview eligible fixes or `--fix` to apply them. See the
 [linting guide](docs/linting.md) for fix selection and restrictions.
 It accepts files, directories or stdin, with the same directory discovery and
 `.dzn` selection as the formatter. Run `zincite lint --help` (or `zincite-lint --help`) for details.
+
+Model analysis uses the MiniZinc standard library for builtin declarations and
+standard includes. Supply the library root containing `std/stdlib.mzn` with
+`--stdlib-dir DIR` or `MZN_STDLIB_DIR`; the explicit option takes precedence.
+Missing library dependencies report a setup hint. With MiniZincIDE on macOS,
+the usual path is:
+
+```sh
+zincite lint --stdlib-dir /Applications/MiniZincIDE.app/Contents/Resources/share/minizinc model.mzn
+```
+
+Use your installation's library root if it differs. Zincite does not discover
+installations or run the MiniZinc compiler or solver during linting.
 
 ## Querying items
 

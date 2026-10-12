@@ -240,11 +240,21 @@ pub fn load_model(root: impl AsRef<Path>, options: &ModelOptions) -> ModelContex
     } else {
         loader.context.limitations.push(SourceDiagnostic {
             location: SourceLocation::at_path(&root),
-            message: "standard library is not configured; builtin declarations are unavailable"
-                .into(),
+            message: format!(
+                "standard library is not configured; builtin declarations are unavailable; {}",
+                stdlib_setup_hint()
+            ),
         });
     }
     loader.context
+}
+
+fn stdlib_setup_hint() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "set --stdlib-dir DIR or MZN_STDLIB_DIR to the MiniZinc library root containing std/stdlib.mzn; for MiniZincIDE on macOS, try /Applications/MiniZincIDE.app/Contents/Resources/share/minizinc"
+    } else {
+        "set --stdlib-dir DIR or MZN_STDLIB_DIR to the MiniZinc library root containing std/stdlib.mzn"
+    }
 }
 
 struct Loader<'a> {
@@ -273,9 +283,14 @@ impl Loader<'_> {
         let canonical = match path.canonicalize() {
             Ok(path) => path,
             Err(error) => {
+                let hint = if implicit {
+                    format!("; {}", stdlib_setup_hint())
+                } else {
+                    String::new()
+                };
                 self.error(
                     location,
-                    format!("cannot load '{}': {error}", path.display()),
+                    format!("cannot load '{}': {error}{hint}", path.display()),
                 );
                 return None;
             }
@@ -478,9 +493,14 @@ impl Loader<'_> {
                 }
             }
         }
+        let hint = if self.options.stdlib_dir.is_none() {
+            format!("; for standard-library includes, {}", stdlib_setup_hint())
+        } else {
+            String::new()
+        };
         self.error(
             location,
-            format!("cannot resolve include '{}'", requested.display()),
+            format!("cannot resolve include '{}'{hint}", requested.display()),
         );
         None
     }
