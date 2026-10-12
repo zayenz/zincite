@@ -755,7 +755,12 @@ for the existing tools. `--model PATH` supplies optional model declarations for
 data interpretation; use the existing `-I`/`--stdlib-dir` include rules when a
 query requires semantic context. Syntax queries require no library installation.
 Model/include files supply facts and are never implicit transformation targets.
-Multiple input files, directory inputs and query-program files are deferred.
+Read-only query programs accept -f/--program-file, immutable earlier-result source
+bindings, ordered query/report statements and native record reports. Both CLI forms and
+Program library APIs retain one input/context, demanded public ModelFacts owner and
+budget across statements. Counts, histograms and native selections retain
+completion/limitations through explicit JSON rendering; later runtime/rendering errors
+leave CLI stdout empty. Multiple input files and directory inputs remain deferred.
 
 ### Initial query language
 
@@ -790,8 +795,10 @@ Keep results native in the library until rendering. Query errors identify query
 byte ranges; input/semantic limitations identify source file/ranges. Bound query
 nesting, evaluation work and collection expansion, report exceeded limits, and
 never silently truncate results. Reuse Zirium's limit approach without importing
-its entire language. Bindings, arbitrary callbacks, fixed-point programs, semantic
-diff, Markdown reports and general expression evaluation are deferred.
+its entire language. Read-only source bindings and record reports are implemented
+through the shared Zirql program runner. Positional/keyed comprehensions, arbitrary
+callbacks, fixed-point programs, semantic diff, Markdown reports and general expression
+evaluation remain deferred.
 
 ### Data edits and structured values
 
