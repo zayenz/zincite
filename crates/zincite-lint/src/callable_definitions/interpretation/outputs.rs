@@ -4,7 +4,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn uncertain_integer_equality(
         &self,
         clause: &Clause<'a>,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Result<bool, String> {
         let file = clause.file;
         let node = clause.node;
@@ -246,7 +246,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn unknown_call_outputs(
         &self,
         clause: &Clause<'a>,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         instance: &Instance<'a>,
         out: &mut Vec<UnavailableCallableDefinition>,
     ) {
@@ -289,7 +289,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn map_boundaries(
         &self,
         clause: &Clause<'a>,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         boundaries: &[Boundary],
         out: &mut Vec<UnavailableCallableDefinition>,
     ) {
@@ -370,7 +370,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn literal_call_outputs(
         &self,
         clause: &Clause<'a>,
-        caller: &CallableFacts,
+        caller: &crate::callables::CallableView<'_>,
         instance: &Instance<'a>,
     ) -> Option<Result<Vec<Output>, String>> {
         if instance.recursive {
@@ -392,8 +392,8 @@ impl<'a> BodyInterpreter<'a, '_> {
                 .filter(|n| is_expression(n.kind()))
                 .last()?,
         );
-        let view = &instance.view;
-        let type_of = |file, node: &SyntaxNode, view: &CallableFacts| {
+        let view = &instance.view.view();
+        let type_of = |file, node: &SyntaxNode, view: &crate::callables::CallableView<'_>| {
             self.source
                 .view(file, node, view)
                 .expressions
@@ -876,7 +876,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         quantified: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Option<(DeclarationId, &'a SyntaxNode, Vec<&'a SyntaxNode>)> {
         let present = |ty: &TypeInst, kind, instantiation| {
             ty.known() && !optional(ty) && ty.kind == kind && ty.instantiation == instantiation
@@ -949,7 +949,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         assertion: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Option<(DeclarationId, [DeclarationId; 2])> {
         let arrays = self.asserted_index_pair(file, assertion, view)?;
         let args = self.source.assertion_arguments(file, assertion, view)?;
@@ -960,7 +960,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         assertion: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Option<(Output, [DeclarationId; 2])> {
         let arrays = self.asserted_index_pair(file, assertion, view)?;
         let args = self.source.assertion_arguments(file, assertion, view)?;
@@ -1133,8 +1133,8 @@ impl<'a> BodyInterpreter<'a, '_> {
                     let node = unwrap(node);
                     let sides: Vec<_> = node.child_nodes().collect();
                     (node.kind() == NodeKind::BinaryExpression && sides.len() == 2
-                        && self.source.core(child.file, node, &instance.view, "/\\")
-                        && self.source.operation_fact(&instance.view, child.file, node)
+                        && self.source.core(child.file, node, &instance.view.view(), "/\\")
+                        && self.source.operation_fact(&instance.view.view(), child.file, node)
                             .is_some_and(|fact| matches!(&fact.outcome,
                                 CallOutcome::Resolved { parameters, return_type, .. }
                                 if parameters.as_slice() == [TypeInst::par(TypeKind::Bool).with_inst(Instantiation::Decision), TypeInst::par(TypeKind::Bool).with_inst(Instantiation::Decision)]
@@ -1155,8 +1155,8 @@ impl<'a> BodyInterpreter<'a, '_> {
                 let bound_sides = conjunction(bound_body)?;
                 if unwrap(first[0]).range() != total.node.range() || !total.generators.is_empty()
                     || bounds.kind() != NodeKind::GeneratorCallExpression || parts.len() != 2
-                    || !self.source.core(child.file, bounds, &instance.view, "forall")
-                    || self.source.operation_fact(&instance.view, child.file, bounds)
+                    || !self.source.core(child.file, bounds, &instance.view.view(), "forall")
+                    || self.source.operation_fact(&instance.view.view(), child.file, bounds)
                         .is_none_or(|fact| !matches!(&fact.outcome,
                             CallOutcome::Resolved { parameters, return_type, .. }
                             if parameters.len() == 1 && parameters[0].known() && !optional(&parameters[0])
@@ -1179,7 +1179,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             _ => return None,
         };
         let (output, equality, generators) =
-            self.direct_forall_equality(child.file, quantified, &instance.view)?;
+            self.direct_forall_equality(child.file, quantified, &instance.view.view())?;
         if equality.range() != equality_clause.node.range()
             || equality_clause.generators.len() != generators.len()
             || equality_clause
@@ -1281,7 +1281,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                 .type_dependencies(file, parameter_node, view, &[])
                 .is_err()
                 || self
-                    .type_dependencies(child.file, formal_node, &instance.view, &[])
+                    .type_dependencies(child.file, formal_node, &instance.view.view(), &[])
                     .is_err()
                 || self
                     .source
@@ -1349,7 +1349,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                     child.file,
                     &instance.clauses[..3],
                     formals,
-                    &instance.view,
+                    &instance.view.view(),
                 )
             {
                 return None;
@@ -1363,7 +1363,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             output,
             &generators,
             child_pair,
-            &instance.view,
+            &instance.view.view(),
         )?;
         let dependencies = dependencies
             .into_iter()
@@ -1391,7 +1391,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         file: FileId,
         clauses: &[Clause<'a>],
         [load, bin, weight]: [DeclarationId; 3],
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> bool {
         let [total, lower, upper] = clauses else {
             return false;
@@ -1526,7 +1526,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         output: DeclarationId,
         generators: &[&'a SyntaxNode],
         pair: [DeclarationId; 2],
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Option<Vec<DeclarationId>> {
         let present = |node: &SyntaxNode, kind, instantiation| {
             self.source
@@ -1717,9 +1717,9 @@ impl<'a> BodyInterpreter<'a, '_> {
         if !matches!(body.kind, ClauseKind::Assertion) {
             return None;
         }
-        self.direct_asserted_forall(body.file, body.node, &instance.view)
+        self.direct_asserted_forall(body.file, body.node, &instance.view.view())
             .or_else(|| {
-                self.nested_asserted_forall(body.file, body.node, &instance.view)
+                self.nested_asserted_forall(body.file, body.node, &instance.view.view())
                     .map(|(output, arrays)| (output.target, arrays))
             })
     }
@@ -1727,7 +1727,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         node: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         lexical: &[&'a SyntaxNode],
     ) -> Result<Option<ConstructedArray>, String> {
         let written_actual = node;
@@ -2079,7 +2079,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn constructed_call_row(
         &self,
         clause: &Clause<'a>,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         instance: &Instance<'a>,
         formal: DeclarationId,
     ) -> Result<Option<ConstructedArray>, String> {
@@ -2114,7 +2114,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn complete_constructed_call_output(
         &self,
         clause: &Clause<'a>,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         known: &[CallableOutput],
         target: DeclarationId,
     ) -> bool {
@@ -2145,7 +2145,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn asserted_call_indices(
         &self,
         clause: &Clause<'a>,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         instance: &Instance<'a>,
         allow_constructed: bool,
     ) -> Result<(), String> {
@@ -2341,7 +2341,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         source: &SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> bool {
         let numeric = |domain: Domain| {
             let mut domains = vec![domain];
@@ -2617,7 +2617,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         clause: &Clause<'a>,
         target: DeclarationId,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         kind: TypeKind,
     ) -> bool {
         let declaration = &self.bindings.declarations[target.0];
@@ -2708,7 +2708,7 @@ impl<'a> SourceInspector<'a> {
         clause: &Clause<'a>,
         id: DeclarationId,
         formal: DeclarationId,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Option<(FileId, &'a SyntaxNode)> {
         let d = &self.bindings.declarations[formal.0];
         if d.role == DeclarationRole::Parameter {
@@ -2739,7 +2739,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         node: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<(DeclarationId, DefinitionCoverage)> {
         let node = unwrap(node);
@@ -2793,7 +2793,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         node: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Option<DeclarationId> {
         let node = unwrap(node);
         if let Some(argument) = self.array_conversion_argument(file, node, view) {

@@ -5,7 +5,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
@@ -120,7 +120,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                 self.fresh_integer_let_safety(
                     owner.file,
                     body,
-                    &instance.view,
+                    &instance.view.view(),
                     &[],
                     Some(&invocation),
                 )
@@ -135,7 +135,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         call: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Result<(), String> {
         let written_operation = |source: &SyntaxNode| -> Result<(), String> {
@@ -308,7 +308,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         source: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         invocation: &Invocation<'a, '_>,
     ) -> Result<(), String> {
         let integer = TypeInst::par(TypeKind::Int);
@@ -398,7 +398,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                         .decision_scalar_bound_operand_safety(
                             actual.file,
                             actual.node,
-                            actual.view,
+                            &actual.view,
                             &actual.generators,
                         )
                     {
@@ -442,7 +442,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
         invocation: Option<&Invocation<'a, '_>>,
     ) -> Option<DefinitionSafety> {
@@ -458,7 +458,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
         invocation: Option<&Invocation<'a, '_>>,
     ) -> Option<Result<DeclarationId, String>> {
@@ -762,7 +762,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
@@ -965,7 +965,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
         inspected_locals: &[DeclarationId],
     ) -> Option<DefinitionSafety> {
@@ -1470,7 +1470,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
@@ -1686,7 +1686,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
@@ -1797,7 +1797,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         file: FileId,
         local: &'a SyntaxNode,
         id: DeclarationId,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         let ty = &view.declarations[id.0].ty;
@@ -2100,7 +2100,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn optional_matrix_source_safety(
         &self,
         source: (FileId, &'a SyntaxNode, usize),
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
         active: &mut Vec<DeclarationId>,
     ) -> Result<(), String> {

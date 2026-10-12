@@ -1,9 +1,8 @@
 //! Numeric array-index advice over domain facts, without domain resolution policy.
 use crate::{
-    ArrayIndexSet, BindingFacts, CallableFacts, DeclarationRole, DefinitionCoverage,
-    DefinitionEnforcement, DefinitionFacts, DefinitionSafety, Domain, DomainFacts, FileFinding,
-    Instantiation, InstantiationFacts, ModelContext, NumericBound, Rule, Severity,
-    SourceDiagnostic, TypeKind,
+    ArrayIndexSet, BindingFacts, DeclarationRole, DefinitionCoverage, DefinitionEnforcement,
+    DefinitionFacts, DefinitionSafety, Domain, DomainFacts, FileFinding, Instantiation,
+    InstantiationFacts, ModelContext, NumericBound, Rule, Severity, SourceDiagnostic, TypeKind,
 };
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 pub(super) struct IndexResult {
@@ -13,7 +12,7 @@ pub(super) struct IndexResult {
 pub(super) fn check_array_indices(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     facts: &DomainFacts,
     definitions: &DefinitionFacts,
     instantiations: &InstantiationFacts,
@@ -55,7 +54,7 @@ pub(super) fn check_array_indices(
 fn inspected_source_bound(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
     definitions: &DefinitionFacts,
@@ -564,7 +563,7 @@ fn inspected_source_bound(
 fn inspected_length_source<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     source: (
@@ -719,7 +718,7 @@ fn inspected_length_source<'a>(
 fn inspected_count_bound(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
     definitions: &DefinitionFacts,
@@ -828,7 +827,7 @@ fn inspected_count_bound(
 fn inspected_count_expression(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     file: crate::FileId,
     node: &SyntaxNode,
 ) -> Option<bool> {
@@ -918,7 +917,7 @@ fn inspected_count_expression(
 fn inspected_initialized_axis_source(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
     definitions: &DefinitionFacts,
@@ -1144,7 +1143,7 @@ fn inspected_initialized_axis_source(
 fn initialized_native_integer_set_source_safe<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     file: crate::FileId,

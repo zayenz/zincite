@@ -1,7 +1,7 @@
 //! Readability advice for resolved standard element predicates.
 use crate::{
-    BindingFacts, CallOutcome, CallableFacts, DeclarationRole, FileFinding, ModelContext, Rule,
-    Severity, SourceDiagnostic, SourceKind,
+    BindingFacts, CallOutcome, DeclarationRole, FileFinding, ModelContext, Rule, Severity,
+    SourceDiagnostic, SourceKind,
 };
 
 pub(super) struct ElementResult {
@@ -12,7 +12,7 @@ pub(super) struct ElementResult {
 pub(super) fn check_element(
     context: &ModelContext,
     bindings: &BindingFacts,
-    facts: &CallableFacts,
+    facts: &crate::callables::CallableView<'_>,
     rewrites: &[ElementRewrite],
     snapshots: &mut std::collections::BTreeMap<crate::FileId, crate::SourceSnapshot>,
 ) -> ElementResult {
@@ -20,7 +20,7 @@ pub(super) fn check_element(
         findings: Vec::new(),
         limitations: Vec::new(),
     };
-    for call in &facts.calls {
+    for call in facts.calls.iter() {
         if call.symbolic_operator {
             continue;
         }
@@ -96,17 +96,11 @@ pub struct ElementRewrite {
     close: usize,
 }
 
-/// Prove the supported standard relation and prospective indexing precondition
-/// from same-context prerequisites. No CST is fabricated, parameter defaults are
-/// not substituted, and relational Boolean totality does not prove raw operands.
-/// Only a declared one-dimensional array and nonoptional scalar types are
-/// supported. Unknown/unsupported operands, overloads or annotation effects
-/// withhold edits; existing advice/resolution limitations remain independent.
 #[allow(clippy::too_many_arguments)]
-pub fn resolve_element_rewrites(
+pub(crate) fn resolve_element_rewrites_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &crate::InstantiationFacts,
     domains: &crate::DomainFacts,
     numeric: &crate::NumericFacts,
@@ -121,7 +115,7 @@ pub fn resolve_element_rewrites(
     use crate::{GuardedOutcome, TypeKind};
     use zincite_syntax::{NodeKind, SyntaxElement, TokenKind};
     let mut result = Vec::new();
-    for call in &calls.calls {
+    for call in calls.calls.iter() {
         let crate::CallOutcome::Resolved {
             declaration,
             parameters,
@@ -276,7 +270,7 @@ pub fn resolve_element_rewrites(
             continue;
         }
         let body_facts = instantiated_body(context, bindings, calls, *declaration, parameters);
-        if core_operation(context, bindings, &body_facts, d.file, body, "=") != Ok(true) {
+        if core_operation(context, bindings, &body_facts.view(), d.file, body, "=") != Ok(true) {
             continue;
         }
         let delimiters: Vec<_> = node
@@ -334,13 +328,13 @@ fn unwrap(mut node: &zincite_syntax::SyntaxNode) -> &zincite_syntax::SyntaxNode 
 }
 fn call_node<'a>(
     context: &'a ModelContext,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     file: crate::FileId,
     head: &crate::SourceLocation,
 ) -> Option<&'a zincite_syntax::SyntaxNode> {
     fn find<'a>(
         context: &ModelContext,
-        calls: &CallableFacts,
+        calls: &crate::callables::CallableView<'_>,
         file: crate::FileId,
         node: &'a zincite_syntax::SyntaxNode,
         head: &crate::SourceLocation,
@@ -385,4 +379,33 @@ fn annotation_path_safe(
         && node
             .child_nodes()
             .all(|c| annotation_path_safe(context, file, c, target))
+}
+
+/// Prove the supported standard relation and prospective indexing precondition
+/// from same-context prerequisites. No CST is fabricated, parameter defaults are
+/// not substituted, and relational Boolean totality does not prove raw operands.
+/// Only a declared one-dimensional array and nonoptional scalar types are
+/// supported. Unknown/unsupported operands, overloads or annotation effects
+/// withhold edits; existing advice/resolution limitations remain independent.
+#[allow(clippy::too_many_arguments)]
+pub fn resolve_element_rewrites(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    instantiations: &crate::InstantiationFacts,
+    domains: &crate::DomainFacts,
+    numeric: &crate::NumericFacts,
+    optional: &crate::OptionalFacts,
+    guarded: &crate::GuardedFacts,
+) -> Vec<ElementRewrite> {
+    resolve_element_rewrites_view(
+        context,
+        bindings,
+        &calls.view(),
+        instantiations,
+        domains,
+        numeric,
+        optional,
+        guarded,
+    )
 }

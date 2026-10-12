@@ -4,9 +4,9 @@ use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
 use crate::callables::{is_expression, operation_head_start};
 use crate::{
-    BindingFacts, CallFact, CallOutcome, CallableFacts, DeclarationId, FileFinding, FileId,
-    Instantiation, InstantiationFacts, ModelContext, Rule, Severity, SourceDiagnostic, SourceKind,
-    SourceLocation, TypeKind,
+    BindingFacts, CallFact, CallOutcome, DeclarationId, FileFinding, FileId, Instantiation,
+    InstantiationFacts, ModelContext, Rule, Severity, SourceDiagnostic, SourceKind, SourceLocation,
+    TypeKind,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,16 +32,10 @@ pub struct GlobalUseFacts {
     pub uses: Vec<GlobalUse>,
 }
 
-/// Interpret Boolean call contexts without lint policy. All supplied facts must
-/// belong to this retained ModelContext. Included standard Boolean callables are
-/// globals; core implicit declarations and user declarations are distinct.
-/// An uncertain selection retains no declaration ID and an Unsupported outcome.
-/// Parameter-only actual arguments do not become decisions merely because a
-/// predicate's declared return is var bool. This does not evaluate parameter data.
-pub fn resolve_global_uses(
+pub(crate) fn resolve_global_uses_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &InstantiationFacts,
 ) -> GlobalUseFacts {
     let mut expression_indices = HashMap::with_capacity(calls.expressions.len());
@@ -83,7 +77,7 @@ pub fn resolve_global_uses(
 struct Walker<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     expression_indices: HashMap<(FileId, usize, usize), usize>,
     call_indices: HashMap<(FileId, usize), usize>,
@@ -486,4 +480,19 @@ pub(super) fn check_global_uses(
         }
     }
     (findings, limitations)
+}
+
+/// Interpret Boolean call contexts without lint policy. All supplied facts must
+/// belong to this retained ModelContext. Included standard Boolean callables are
+/// globals; core implicit declarations and user declarations are distinct.
+/// An uncertain selection retains no declaration ID and an Unsupported outcome.
+/// Parameter-only actual arguments do not become decisions merely because a
+/// predicate's declared return is var bool. This does not evaluate parameter data.
+pub fn resolve_global_uses(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    instantiations: &InstantiationFacts,
+) -> GlobalUseFacts {
+    resolve_global_uses_view(context, bindings, &calls.view(), instantiations)
 }

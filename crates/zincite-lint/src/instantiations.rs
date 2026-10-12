@@ -1,8 +1,8 @@
 //! Expression instantiation without lint policy or parameter-data evaluation.
 use crate::callables::is_expression;
 use crate::{
-    BindingFacts, BindingResolution, CallOutcome, CallableFacts, DeclarationRole, FileId,
-    Instantiation, ModelContext, SourceLocation, TypeInst, TypeKind,
+    BindingFacts, BindingResolution, CallOutcome, DeclarationRole, FileId, Instantiation,
+    ModelContext, SourceLocation, TypeInst, TypeKind,
 };
 use std::collections::BTreeMap;
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
@@ -21,14 +21,10 @@ pub struct InstantiationFacts {
     pub expressions: Vec<ExpressionInstantiation>,
 }
 
-/// Produce facts for every expression in readable user/explicit input files.
-/// The bindings and callable facts must belong to this retained context. Calls
-/// use resolved returns; projections use the selected component. Known par/var
-/// conclusions do not require a fully supported type or supplied parameter data.
-pub fn resolve_instantiations(
+pub(crate) fn resolve_instantiations_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    callables: &CallableFacts,
+    callables: &crate::callables::CallableView<'_>,
 ) -> InstantiationFacts {
     let mut producer = Producer {
         context,
@@ -96,7 +92,7 @@ fn combine(values: impl IntoIterator<Item = Conclusion>) -> Conclusion {
 struct Producer<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    callables: &'a CallableFacts,
+    callables: &'a crate::callables::CallableView<'a>,
     types: BTreeMap<(FileId, usize, usize), &'a TypeInst>,
     facts: BTreeMap<(FileId, usize, usize), ExpressionInstantiation>,
     generators: BTreeMap<usize, Conclusion>,
@@ -387,4 +383,16 @@ impl Producer<'_> {
             _ => Conclusion::unknown("expression propagation is unsupported"),
         }
     }
+}
+
+/// Produce facts for every expression in readable user/explicit input files.
+/// The bindings and callable facts must belong to this retained context. Calls
+/// use resolved returns; projections use the selected component. Known par/var
+/// conclusions do not require a fully supported type or supplied parameter data.
+pub fn resolve_instantiations(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    callables: &crate::CallableFacts,
+) -> InstantiationFacts {
+    resolve_instantiations_view(context, bindings, &callables.view())
 }

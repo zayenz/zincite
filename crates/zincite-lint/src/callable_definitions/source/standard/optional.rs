@@ -5,7 +5,7 @@ impl<'a> SourceInspector<'a> {
     pub(in crate::callable_definitions) fn optional_float_weak_equality_safety(
         &self,
         clause: &Clause<'a>,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Option<Result<(), UnavailableCallableDefinition>> {
         let node = unwrap(clause.node);
         if node.kind() != NodeKind::BinaryExpression
@@ -78,7 +78,7 @@ impl<'a> SourceInspector<'a> {
     // No ordinary expression fallback may lose this selected-body active stack.
     pub(in crate::callable_definitions) fn optional_float_body_source_safety(
         &self,
-        source: (FileId, &'a SyntaxNode, &CallableFacts),
+        source: (FileId, &'a SyntaxNode, &crate::callables::CallableView<'_>),
         visible: &[DeclarationId],
         active: &mut Vec<DeclarationId>,
         location: &mut SourceLocation,
@@ -607,14 +607,14 @@ impl<'a> SourceInspector<'a> {
             types.extend(part.child_nodes());
         }
         if self
-            .expression_type(&body_view, owner.file, bodies[0])
+            .expression_type(&body_view.view(), owner.file, bodies[0])
             .is_none_or(|value| value.ty != *return_type)
         {
             return Err("optional Float selected body result type is unsupported".into());
         }
         active.push(*id);
         let checked = self.optional_float_body_source_safety(
-            (owner.file, bodies[0], &body_view),
+            (owner.file, bodies[0], &body_view.view()),
             &formals,
             active,
             location,
@@ -630,15 +630,17 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn optional_increasing_body_safety(
         &self,
         clause: &Clause<'a>,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Option<DefinitionSafety> {
         if !matches!(clause.kind, ClauseKind::Local) || !clause.generators.is_empty() {
             return None;
         }
         let instance = self.instances.iter().find(|instance| {
             let owner = &self.source.bindings.declarations[instance.id.0];
-            std::ptr::eq(&instance.view, view)
-                && owner.file == clause.file
+            std::ptr::eq(
+                instance.view.expressions.as_ptr(),
+                view.expressions.as_ptr(),
+            ) && owner.file == clause.file
                 && owner.name == "fzn_increasing_int_opt"
                 && owner.role == DeclarationRole::Predicate
                 && self.source.context.files[owner.file].kind == SourceKind::StandardLibrary
@@ -1015,7 +1017,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         node: &SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         name: &str,
         parameters: &[TypeInst],
         result: &TypeInst,
@@ -1096,7 +1098,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         let file = owner.file;
         if self
             .source
-            .expression_type(&view, file, body)
+            .expression_type(&view.view(), file, body)
             .is_none_or(|value| value.ty != *result)
         {
             return Err("optional increasing scalar wrapper result type is unsupported".into());
@@ -1112,10 +1114,10 @@ impl<'a> BodyInterpreter<'a, '_> {
             Ok(node.child_nodes().next().unwrap())
         };
         let boundary = |node: &SyntaxNode, name| -> Result<(), String> {
-            if !crate::optional::core_optional_call(self.source.context, self.source.bindings, &view, file, node, name)
-                || self.source.operation_fact(&view, file, node).is_none_or(|fact| !matches!(&fact.outcome,
+            if !crate::optional::core_optional_call(self.source.context, self.source.bindings, &view.view(), file, node, name)
+                || self.source.operation_fact(&view.view(), file, node).is_none_or(|fact| !matches!(&fact.outcome,
                     CallOutcome::Resolved { parameters, return_type, .. } if parameters.as_slice() == [parameter.clone()] && return_type == result))
-                || self.source.expression_type(&view, file, node).is_none_or(|value| value.ty != *result)
+                || self.source.expression_type(&view.view(), file, node).is_none_or(|value| value.ty != *result)
             { return Err("optional increasing core optional boundary is unsupported".into()); }
             Ok(())
         };
@@ -1130,7 +1132,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             self.optional_increasing_operation(
                 file,
                 occurs,
-                &view,
+                &view.view(),
                 "occurs",
                 std::slice::from_ref(parameter),
                 result,
@@ -1138,7 +1140,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             return self.optional_increasing_operation(
                 file,
                 body,
-                &view,
+                &view.view(),
                 "not",
                 std::slice::from_ref(result),
                 result,
@@ -1167,7 +1169,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             self.optional_increasing_operation(
                 file,
                 node,
-                &view,
+                &view.view(),
                 "enum2int",
                 std::slice::from_ref(parameter),
                 parameter,
@@ -1188,7 +1190,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         self.optional_increasing_operation(
             file,
             enum_type,
-            &view,
+            &view.view(),
             "enum_of",
             std::slice::from_ref(parameter),
             &set,
@@ -1198,7 +1200,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         self.optional_increasing_operation(
             file,
             body,
-            &view,
+            &view.view(),
             "to_enum_internal",
             &[set, decision_integer],
             result,
@@ -1208,7 +1210,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         id: DeclarationId,
         parameter: &TypeInst,
-    ) -> Result<(DeclarationId, &'a SyntaxNode, CallableFacts), String> {
+    ) -> Result<(DeclarationId, &'a SyntaxNode, crate::CallableFacts), String> {
         let owner = &self.source.bindings.declarations[id.0];
         let written = find_node(
             self.source.context.files[owner.file].parsed.tree(),
@@ -1382,7 +1384,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         self.optional_increasing_operation(
             file,
             index_set,
-            &view,
+            &view.view(),
             "index_set",
             std::slice::from_ref(parameter),
             &set,
@@ -1409,7 +1411,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             self.optional_increasing_operation(
                 file,
                 node,
-                &view,
+                &view.view(),
                 name,
                 std::slice::from_ref(&optional_boolean),
                 &boolean,
@@ -1418,26 +1420,26 @@ impl<'a> BodyInterpreter<'a, '_> {
         self.optional_increasing_operation(
             file,
             disjunction,
-            &view,
+            &view.view(),
             "\\/",
             &[boolean.clone(), boolean.clone()],
             &boolean,
         )?;
         if self
             .source
-            .expression_type(&view, file, comprehension)
+            .expression_type(&view.view(), file, comprehension)
             .is_none_or(|value| value.ty != present)
         {
             return Err("optional increasing forall collection type is unsupported".into());
         }
-        self.optional_increasing_operation(file, body, &view, "forall", &[present], &boolean)
+        self.optional_increasing_operation(file, body, &view.view(), "forall", &[present], &boolean)
     }
     // Refusal only: stored body boundaries do not carry the initialized actual
     // through the compiler-switchable symmetry wrapper's Boolean output.
     pub(in crate::callable_definitions) fn optional_decreasing_actual_safety(
         &self,
         clause: &Clause<'a>,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         id: DeclarationId,
         parameters: &[TypeInst],
     ) -> Option<DefinitionSafety> {

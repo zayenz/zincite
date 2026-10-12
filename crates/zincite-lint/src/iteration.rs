@@ -8,11 +8,11 @@ use crate::domains::{
     same_members, shift_index_domain as shifted, tokens,
 };
 use crate::{
-    BindingFacts, BindingResolution, CallableFacts, Cardinality, CollectionCardinality,
-    DeclarationId, DeclarationRole, Domain, DomainFacts, FileId, GuardObligation,
-    GuardObligationKind, GuardedExpression, GuardedFacts, GuardedOutcome, Instantiation,
-    InstantiationFacts, ModelContext, NumericBound, NumericFacts, NumericOutcome, OptionalFacts,
-    SourceLocation, TypeKind,
+    BindingFacts, BindingResolution, Cardinality, CollectionCardinality, DeclarationId,
+    DeclarationRole, Domain, DomainFacts, FileId, GuardObligation, GuardObligationKind,
+    GuardedExpression, GuardedFacts, GuardedOutcome, Instantiation, InstantiationFacts,
+    ModelContext, NumericBound, NumericFacts, NumericOutcome, OptionalFacts, SourceLocation,
+    TypeKind,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
@@ -290,10 +290,10 @@ impl IterationFacts {
 /// facts authorize neither filter movement nor removal of repeated iterations.
 /// Follows [MiniZinc 2.10.1 generator scope and comprehensions](https://docs.minizinc.dev/en/2.10.1/spec.html#simple-array-comprehensions).
 #[allow(clippy::too_many_arguments)] // Explicit same-context prerequisites, like the existing producers.
-pub fn resolve_iteration_facts(
+pub(crate) fn resolve_iteration_facts_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
     numeric: &NumericFacts,
@@ -409,7 +409,7 @@ pub fn resolve_iteration_facts(
 struct Producer<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     numeric: &'a NumericFacts,
@@ -1874,4 +1874,27 @@ fn symbolic_domain(d: &Domain) -> bool {
         Domain::LiteralSet(values) => values.iter().any(symbolic),
         _ => false,
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn resolve_iteration_facts(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    instantiations: &InstantiationFacts,
+    domains: &DomainFacts,
+    numeric: &NumericFacts,
+    optional: &OptionalFacts,
+    guarded: &GuardedFacts,
+) -> IterationFacts {
+    resolve_iteration_facts_view(
+        context,
+        bindings,
+        &calls.view(),
+        instantiations,
+        domains,
+        numeric,
+        optional,
+        guarded,
+    )
 }

@@ -5,10 +5,9 @@ use crate::callables::core_operation;
 use crate::definitions::{annotations_safe, resolved_reference};
 use crate::domains::tokens;
 use crate::{
-    BindingFacts, CallableFacts, DeclarationId, DefinitionEnforcement, FileFinding, FileId,
-    GuardActivation, GuardedFacts, GuardedOutcome, Instantiation, IterationFacts,
-    IterationIndexSet, ModelContext, OptionalFacts, Rule, Severity, SourceDiagnostic,
-    SourceLocation, TypeInst, TypeKind,
+    BindingFacts, DeclarationId, DefinitionEnforcement, FileFinding, FileId, GuardActivation,
+    GuardedFacts, GuardedOutcome, Instantiation, IterationFacts, IterationIndexSet, ModelContext,
+    OptionalFacts, Rule, Severity, SourceDiagnostic, SourceLocation, TypeInst, TypeKind,
 };
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 
@@ -45,15 +44,10 @@ pub struct GlobalPatternFact {
     pub outcome: GlobalPatternOutcome,
 }
 
-/// Inspect the supported generator-forall forms using prerequisites from the
-/// same ModelContext. Conditional/reified contexts, semantic annotations,
-/// optional equality and unknown evaluation safety do not prove a decomposition.
-/// String labels and all original source locations are retained. No global call
-/// is executed and no solver, generic pattern search or source rewrite is used.
-pub fn resolve_global_patterns(
+pub(crate) fn resolve_global_patterns_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     optional: &OptionalFacts,
     guarded: &GuardedFacts,
     iteration: &IterationFacts,
@@ -77,7 +71,7 @@ pub fn resolve_global_patterns(
 struct Producer<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     optional: &'a OptionalFacts,
     guarded: &'a GuardedFacts,
     iteration: &'a IterationFacts,
@@ -630,4 +624,27 @@ pub(super) fn check_global_patterns(
         });
     }
     (findings, limitations)
+}
+
+/// Inspect the supported generator-forall forms using prerequisites from the
+/// same ModelContext. Conditional/reified contexts, semantic annotations,
+/// optional equality and unknown evaluation safety do not prove a decomposition.
+/// String labels and all original source locations are retained. No global call
+/// is executed and no solver, generic pattern search or source rewrite is used.
+pub fn resolve_global_patterns(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    optional: &OptionalFacts,
+    guarded: &GuardedFacts,
+    iteration: &IterationFacts,
+) -> Vec<GlobalPatternFact> {
+    resolve_global_patterns_view(
+        context,
+        bindings,
+        &calls.view(),
+        optional,
+        guarded,
+        iteration,
+    )
 }

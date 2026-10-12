@@ -40,8 +40,8 @@ pub struct JsonResult<'a> {
     result: Box<QueryResult<'a>>,
 }
 
-impl JsonResult<'_> {
-    pub fn result(&self) -> &QueryResult<'_> {
+impl<'a> JsonResult<'a> {
+    pub fn result(&self) -> &QueryResult<'a> {
         &self.result
     }
     pub(crate) fn render(&self) -> Vec<u8> {

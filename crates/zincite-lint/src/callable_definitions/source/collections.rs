@@ -5,7 +5,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         node: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Option<&'a SyntaxNode> {
         let node = unwrap(node);
         if node.kind() != NodeKind::CallExpression {
@@ -91,7 +91,7 @@ impl<'a> SourceInspector<'a> {
         guard: &SyntaxNode,
         array: DeclarationId,
         value: i64,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> bool {
         let guard = unwrap(guard);
         let facts = self.view(file, guard, view);
@@ -133,7 +133,7 @@ impl<'a> SourceInspector<'a> {
         file: FileId,
         array: DeclarationId,
         index: &SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> bool {
         let index = unwrap(index);
         let facts = self.view(file, index, view);
@@ -182,7 +182,7 @@ impl<'a> SourceInspector<'a> {
         file: FileId,
         operation: &SyntaxNode,
         array: DeclarationId,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> bool {
         let contains = |node: &SyntaxNode| {
             node.range().start <= operation.range().start
@@ -274,7 +274,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         call: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Option<Vec<(FileId, &'a SyntaxNode)>> {
         // MiniZinc 2.10.1 rejects named arguments for this builtin.
         if call
@@ -317,7 +317,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         call: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Result<Vec<(FileId, &'a SyntaxNode)>, String> {
         let args = self
             .assertion_arguments(file, call, view)
@@ -361,7 +361,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         node: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Result<Vec<&'a SyntaxNode>, String> {
         let mut values = Vec::new();
         let mut has_else = false;
@@ -415,7 +415,7 @@ impl<'a> SourceInspector<'a> {
         file: FileId,
         operation: &'a SyntaxNode,
         operand: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> bool {
         let present_integer = |node: &SyntaxNode| {
             let range = self.context.files[file].location(node.range()).range;
@@ -478,7 +478,7 @@ impl<'a> SourceInspector<'a> {
         file: FileId,
         operation: &SyntaxNode,
         array: DeclarationId,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> bool {
         let range = operation.range();
         let mut containing = vec![self.context.files[file].parsed.tree()];
@@ -546,7 +546,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         node: &SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Option<DeclarationId> {
         let node = unwrap(node);
         let facts = self.view(file, node, view);
@@ -628,7 +628,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         header: &SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         preceding: &[&SyntaxNode],
     ) -> bool {
         let Some(source) = header.child_nodes().next().map(unwrap) else {
@@ -721,7 +721,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         written: &SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         operands: &[&SyntaxNode],
     ) -> bool {
         let node = unwrap(written);
@@ -758,7 +758,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         inspect_index_set_axes: bool,
     ) -> Option<[&'a SyntaxNode; 3]> {
         let node = unwrap(written);
@@ -906,7 +906,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         file: FileId,
         operation: &SyntaxNode,
         array: DeclarationId,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> bool {
         if self
             .source
@@ -1087,7 +1087,11 @@ impl<'a> BodyInterpreter<'a, '_> {
     // This inspection-only branch never changes strict dependencies or outputs.
     pub(in crate::callable_definitions) fn inspect_private_index_conditional<'b>(
         &'b self,
-        inputs: (&Clause<'a>, &'b CallableFacts, &[CallableOutput]),
+        inputs: (
+            &Clause<'a>,
+            &crate::callables::CallableView<'b>,
+            &[CallableOutput],
+        ),
         unavailable: &mut Vec<UnavailableCallableDefinition>,
         active: &mut Vec<(FileId, std::ops::Range<usize>)>,
         mut invocation: Option<&mut Invocation<'a, 'b>>,
@@ -1463,7 +1467,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn inspect_uncertain_index_let<'b>(
         &'b self,
         clause: &Clause<'a>,
-        view: &'b CallableFacts,
+        view: &crate::callables::CallableView<'b>,
         private: Option<&[DeclarationId; 5]>,
         relations: &[&'a SyntaxNode],
         invocation: Option<&Invocation<'a, 'b>>,
@@ -1772,7 +1776,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &'b self,
         file: FileId,
         locals: &[&'a SyntaxNode],
-        view: &'b CallableFacts,
+        view: &crate::callables::CallableView<'b>,
         invocation: Option<&Invocation<'a, 'b>>,
     ) -> Result<(), String> {
         let mut values: Vec<_> = locals
@@ -1849,7 +1853,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         file: FileId,
         written: &'a SyntaxNode,
         value: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
         checked_locals: &[DeclarationId],
     ) -> Result<(), String> {
@@ -1980,7 +1984,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         node: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
         checked_locals: &[DeclarationId],
         private: Option<&[DeclarationId; 5]>,
@@ -2545,7 +2549,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         node: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Result<(Vec<DeclarationId>, &'a SyntaxNode, Vec<&'a SyntaxNode>), String> {
         let node = unwrap(node);
@@ -2680,7 +2684,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         node: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> DefinitionSafety {
         let checked = (|| -> Result<(), String> {
@@ -3368,7 +3372,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         node: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> DefinitionSafety {
         let checked = (|| -> Result<(), String> {
@@ -3468,7 +3472,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         file: FileId,
         local: &'a SyntaxNode,
         initializer: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Result<(), String> {
         let written = local
@@ -3711,7 +3715,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
@@ -4119,7 +4123,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
         active: &mut Vec<DeclarationId>,
     ) -> Option<DefinitionSafety> {
@@ -4289,7 +4293,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
@@ -4423,7 +4427,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn integer_source_headers_safety(
         &self,
         file: FileId,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Result<(), String> {
         let integer = TypeInst::par(TypeKind::Int);
@@ -4503,7 +4507,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
         let integer = TypeInst::par(TypeKind::Int);
@@ -4666,7 +4670,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
@@ -4818,7 +4822,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
@@ -4938,7 +4942,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
@@ -5067,7 +5071,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
@@ -5143,7 +5147,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         node: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Result<(), String> {
         let node = unwrap(node);
@@ -5246,7 +5250,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
         matching_set: bool,
     ) -> Option<DefinitionSafety> {
@@ -5393,9 +5397,9 @@ impl<'a> BodyInterpreter<'a, '_> {
                     nodes.extend(node.child_nodes());
                 }
             }
-            self.type_dependencies(owner.file, declaration, &body_view, &[])?;
-            self.type_dependencies(owner.file, formal_node, &body_view, &[])?;
-            self.reverse_parameter_array_body(owner.file, body, formal, &body_view, &array)
+            self.type_dependencies(owner.file, declaration, &body_view.view(), &[])?;
+            self.type_dependencies(owner.file, formal_node, &body_view.view(), &[])?;
+            self.reverse_parameter_array_body(owner.file, body, formal, &body_view.view(), &array)
         })();
         Some(match checked {
             Ok(()) => {

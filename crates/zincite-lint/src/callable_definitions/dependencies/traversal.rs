@@ -6,7 +6,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Result<Vec<DeclarationId>, String> {
         let node = unwrap(written);
@@ -50,7 +50,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
         children: Vec<&'a SyntaxNode>,
     ) -> Result<Vec<DeclarationId>, String> {
@@ -185,7 +185,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
         children: Vec<&'a SyntaxNode>,
     ) -> Result<Vec<DeclarationId>, String> {
@@ -310,7 +310,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
         children: Vec<&'a SyntaxNode>,
     ) -> Result<Vec<DeclarationId>, String> {
@@ -670,7 +670,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Result<Vec<DeclarationId>, String> {
         let node = unwrap(written);
@@ -816,7 +816,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
         children: Vec<&'a SyntaxNode>,
     ) -> Result<Vec<DeclarationId>, String> {

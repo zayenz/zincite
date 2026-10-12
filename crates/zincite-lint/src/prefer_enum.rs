@@ -2,9 +2,9 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    BindingFacts, CallOutcome, CallableFacts, DeclarationId, DeclarationRole, Domain, DomainFacts,
-    FileFinding, FileId, Instantiation, ModelContext, ModelRootState, Rule, Severity,
-    SourceDiagnostic, SourceKind, TypeKind,
+    BindingFacts, CallOutcome, DeclarationId, DeclarationRole, Domain, DomainFacts, FileFinding,
+    FileId, Instantiation, ModelContext, ModelRootState, Rule, Severity, SourceDiagnostic,
+    SourceKind, TypeKind,
 };
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 
@@ -17,7 +17,7 @@ pub(super) struct CheckResult {
 pub(super) fn check(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     domains: &DomainFacts,
 ) -> CheckResult {
     let solves: Vec<_> = context
@@ -152,7 +152,7 @@ type Frame = BTreeMap<usize, Value>;
 struct Uses<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     domains: &'a DomainFacts,
     candidates: Vec<Candidate>,
     roots: Vec<Option<usize>>,
@@ -343,7 +343,12 @@ impl<'a> Uses<'a> {
             self.candidates[f].used = true;
         }
     }
-    fn declaration(&mut self, id: DeclarationId, frame: &mut Frame, view: &CallableFacts) -> Value {
+    fn declaration(
+        &mut self,
+        id: DeclarationId,
+        frame: &mut Frame,
+        view: &crate::callables::CallableView<'_>,
+    ) -> Value {
         if let Some(value) = frame.get(&id.0) {
             return value.clone();
         }
@@ -446,7 +451,7 @@ impl<'a> Uses<'a> {
         file: FileId,
         ty: &SyntaxNode,
         frame: &mut Frame,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         stored_members: bool,
     ) {
         if matches!(ty.kind(), NodeKind::DomainType | NodeKind::ScalarType) {
@@ -498,7 +503,7 @@ impl<'a> Uses<'a> {
         file: FileId,
         node: &SyntaxNode,
         frame: &mut Frame,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Value {
         use NodeKind as N;
         match node.kind() {
@@ -790,7 +795,7 @@ impl<'a> Uses<'a> {
         file: FileId,
         node: &SyntaxNode,
         frame: &Frame,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Value {
         let mut local = frame.clone();
         if let Some(list) = node
@@ -870,7 +875,7 @@ impl<'a> Uses<'a> {
         node: &SyntaxNode,
         values: Vec<Value>,
         frame: &mut Frame,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Value {
         let fact = crate::callables::operation_fact(self.context, view, file, node);
         let core = fact.is_some_and(|f| {
@@ -1102,7 +1107,7 @@ impl<'a> Uses<'a> {
         parameters: &[crate::TypeInst],
         values: Vec<Value>,
         frame: &mut Frame,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Value {
         let (file, call) = site;
         let d = &self.bindings.declarations[id.0];
@@ -1167,10 +1172,10 @@ impl<'a> Uses<'a> {
             .child_nodes()
             .filter(|n| n.kind() == NodeKind::Annotation)
         {
-            self.inspect(d.file, annotation, &mut local, &typed);
+            self.inspect(d.file, annotation, &mut local, &typed.view());
         }
         let body = body.unwrap();
-        let result = self.inspect(d.file, body, &mut local, &typed);
+        let result = self.inspect(d.file, body, &mut local, &typed.view());
         let result = self.check_result_contract(d.file, node, body, result);
         self.active_calls.pop();
         match result {

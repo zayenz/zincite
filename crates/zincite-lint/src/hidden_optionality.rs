@@ -4,8 +4,8 @@ use crate::callables::core_operation;
 use crate::definitions::resolved_reference;
 use crate::domains::tokens;
 use crate::{
-    BindingFacts, CallableFacts, Cardinality, CollectionCardinality, FileFinding, FileId,
-    GuardActivation, GuardedFacts, GuardedOutcome, Instantiation, InstantiationFacts, ModelContext,
+    BindingFacts, Cardinality, CollectionCardinality, FileFinding, FileId, GuardActivation,
+    GuardedFacts, GuardedOutcome, Instantiation, InstantiationFacts, ModelContext,
     OptionalConditionKind, OptionalFacts, Presence, Rule, Severity, SourceDiagnostic, TypeKind,
 };
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
@@ -13,7 +13,7 @@ use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 pub(super) fn check_hidden_optionality(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &InstantiationFacts,
     optional: &OptionalFacts,
     guarded: &GuardedFacts,

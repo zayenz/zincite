@@ -11,7 +11,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         node: &SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         name: &str,
         parameters: &[TypeInst],
         result: &TypeInst,
@@ -90,7 +90,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn inspect_ignored_constraint(
         &self,
         clause: &Clause<'a>,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         id: DeclarationId,
         parameters: &[TypeInst],
         known: &[CallableOutput],
@@ -546,7 +546,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn inspect_bodyless_boolean_aggregate(
         &self,
         clause: &Clause<'a>,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         id: DeclarationId,
         parameters: &[TypeInst],
     ) -> Option<Result<(), String>> {
@@ -685,7 +685,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn inspect_bodyless_integer_maximum(
         &self,
         clause: &Clause<'a>,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         id: DeclarationId,
         parameters: &[TypeInst],
     ) -> Option<Result<(), String>> {
@@ -846,7 +846,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         file: FileId,
         body: &'a SyntaxNode,
         formal: DeclarationId,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         array: &TypeInst,
     ) -> Result<(), String> {
         let integer = TypeInst::par(TypeKind::Int);
@@ -1140,7 +1140,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         header: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         preceding: &[&'a SyntaxNode],
     ) -> Option<Result<(), String>> {
         let source = header.child_nodes().next()?;
@@ -1265,12 +1265,12 @@ impl<'a> BodyInterpreter<'a, '_> {
             if view.declarations[formal.0].ty != *array
                 || self
                     .source
-                    .expression_type(&view, owner.file, body)
+                    .expression_type(&view.view(), owner.file, body)
                     .is_none_or(|value| value.ty != *result)
             {
                 return Err(error());
             }
-            self.type_dependencies(owner.file, written, &view, &[])?;
+            self.type_dependencies(owner.file, written, &view.view(), &[])?;
             let mut nodes = vec![*body];
             while let Some(node) = nodes.pop() {
                 if node.kind() == NodeKind::Error
@@ -1278,7 +1278,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                 {
                     return Err(error());
                 }
-                if let Some(call) = self.source.operation_fact(&view, owner.file, node)
+                if let Some(call) = self.source.operation_fact(&view.view(), owner.file, node)
                     && let CallOutcome::Resolved { declaration, .. } = &call.outcome
                 {
                     if *declaration == id || (*declaration == product && id != product) {
@@ -1312,14 +1312,14 @@ impl<'a> BodyInterpreter<'a, '_> {
         if forwarding.kind() != NodeKind::CallExpression
             || !self
                 .source
-                .core(outer_file, forwarding, &outer, "product_rec")
+                .core(outer_file, forwarding, &outer.view(), "product_rec")
             || flatten.kind() != NodeKind::CallExpression
             || !matches!(inputs.as_slice(), [input] if unwrap(input).kind() == NodeKind::Expression
                 && unwrap(input).child_nodes().next().is_none() && self.source.reference(outer_file, unwrap(input)) == Some(outer_formal))
             || !self.source.prefix_primitive(
                 outer_file,
                 flatten,
-                &outer,
+                &outer.view(),
                 "array1d",
                 std::slice::from_ref(array),
                 array,
@@ -1333,7 +1333,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             return_type,
         } = &self
             .source
-            .operation_fact(&outer, outer_file, forwarding)
+            .operation_fact(&outer.view(), outer_file, forwarding)
             .ok_or_else(error)?
             .outcome
         else {
@@ -1354,7 +1354,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         .with_inst(Instantiation::Decision);
         let typed = |node: &SyntaxNode| {
             self.source
-                .expression_type(&view, file, node)
+                .expression_type(&view.view(), file, node)
                 .map(|value| &value.ty)
         };
         let reference = |node: &SyntaxNode| {
@@ -1376,10 +1376,14 @@ impl<'a> BodyInterpreter<'a, '_> {
                 ) == Ok(Some(expected))
         };
         let primitive = |node: &SyntaxNode, name, parameters: &[TypeInst], output: &TypeInst| {
-            if self
-                .source
-                .prefix_primitive(file, unwrap(node), &view, name, parameters, output)
-            {
+            if self.source.prefix_primitive(
+                file,
+                unwrap(node),
+                &view.view(),
+                name,
+                parameters,
+                output,
+            ) {
                 Ok(())
             } else {
                 Err(error())
@@ -1441,7 +1445,9 @@ impl<'a> BodyInterpreter<'a, '_> {
         if singleton.kind() != NodeKind::ArrayAccessExpression
             || typed(singleton) != Some(result)
             || reference(subject) != Some(formal)
-            || !self.source.array_bound_index(file, formal, minimum, &view)
+            || !self
+                .source
+                .array_bound_index(file, formal, minimum, &view.view())
         {
             return Err(error());
         }
@@ -1500,7 +1506,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         {
             return Err(error());
         }
-        self.type_dependencies(file, cells, &view, &[])?;
+        self.type_dependencies(file, cells, &view.view(), &[])?;
         unary(flatten, "array1d", formal, array)?;
         let types: Vec<_> = products.child_nodes().collect();
         let [array_type] = types.as_slice() else {
@@ -1521,7 +1527,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             return Err(error());
         }
         unary(axis, "index_set", cells_id, &set)?;
-        self.type_dependencies(file, products, &view, &[])?;
+        self.type_dependencies(file, products, &view.view(), &[])?;
         let base_parts: Vec<_> = base.child_nodes().collect();
         let recurrence_parts: Vec<_> = recurrence.child_nodes().collect();
         let ([base], [quantified]) = (base_parts.as_slice(), recurrence_parts.as_slice()) else {

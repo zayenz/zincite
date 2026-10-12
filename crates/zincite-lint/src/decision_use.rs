@@ -1,8 +1,8 @@
 //! Conditional modelling advice over independent expression facts.
 use crate::{
-    BindingFacts, CallOutcome, CallableFacts, DeclarationRole, ExpressionInstantiation,
-    FileFinding, FileId, Instantiation, InstantiationFacts, ModelContext, Rule, Severity,
-    SourceDiagnostic, SourceKind, SourceLocation,
+    BindingFacts, CallOutcome, DeclarationRole, ExpressionInstantiation, FileFinding, FileId,
+    Instantiation, InstantiationFacts, ModelContext, Rule, Severity, SourceDiagnostic, SourceKind,
+    SourceLocation,
 };
 use std::collections::BTreeMap;
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
@@ -15,7 +15,7 @@ pub(super) struct DecisionUseResult {
 pub(super) fn check_decision_use(
     context: &ModelContext,
     bindings: &BindingFacts,
-    callables: &CallableFacts,
+    callables: &crate::callables::CallableView<'_>,
     facts: &InstantiationFacts,
     rule: Rule,
 ) -> DecisionUseResult {
@@ -53,7 +53,7 @@ pub(super) fn check_decision_use(
 struct Checker<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    callables: &'a CallableFacts,
+    callables: &'a crate::callables::CallableView<'a>,
     rule: Rule,
     facts: BTreeMap<(FileId, usize, usize), &'a ExpressionInstantiation>,
     result: DecisionUseResult,

@@ -37,6 +37,8 @@ mod input_preconditions;
 mod instantiations;
 mod iteration;
 mod model;
+mod model_facts;
+pub use model_facts::ModelFacts;
 mod naming;
 mod optional;
 mod partial_expression;
@@ -58,7 +60,7 @@ mod vacuous_constraint;
 mod value_safety;
 pub use analysis::{
     AnalysisResult, FileFinding, RuleExecution, RuleOutcome, analyze_file, analyze_model,
-    write_analysis,
+    analyze_model_with_facts, write_analysis,
 };
 pub use bindings::{
     BindingFacts, BindingResolution, Declaration, DeclarationId, DeclarationRole, Instantiation,
@@ -69,8 +71,9 @@ pub use callable_definitions::{
     UnavailableCallableDefinition, resolve_callable_definitions,
 };
 pub use callables::{
-    CallFact, CallOutcome, CallableFacts, CallableParameter, CallableSignature, DeclarationType,
-    ExpressionType, resolve_callables, resolve_source_callable_body, resolve_source_callables,
+    CallFact, CallOutcome, CallableFacts, CallableParameter, CallableSignature, CallableView,
+    DeclarationType, ExpressionType, resolve_callables, resolve_source_callable_body,
+    resolve_source_callables,
 };
 pub use compact_if::{CompactIfFact, CompactIfFacts, CompactIfOutcome, resolve_compact_ifs};
 pub use definitions::{
@@ -292,3 +295,18 @@ pub use input_preconditions::{
     CallableInputFact, InputObligationKey, InputRequirement, resolve_callable_input_facts,
 };
 pub use suspicious_domain::{NumericContract, NumericContractRelation, resolve_numeric_contracts};
+
+pub(crate) use callable_definitions::resolve_callable_definitions_view;
+pub(crate) use compact_if::resolve_compact_ifs_view;
+pub(crate) use definitions::resolve_definitions_view;
+pub(crate) use domains::resolve_integer_bounds_view;
+pub(crate) use domains::resolve_numeric_facts_view;
+pub(crate) use effective_zero_one::resolve_effective_zero_one_view;
+pub(crate) use element::resolve_element_rewrites_view;
+pub(crate) use expensive_comprehension::resolve_comprehension_structure_view;
+pub(crate) use global_patterns::resolve_global_patterns_view;
+pub(crate) use guarded::resolve_guarded_facts_with_options_view;
+pub(crate) use input_preconditions::resolve_callable_input_facts_view;
+pub(crate) use iteration::resolve_iteration_facts_view;
+pub(crate) use optional::resolve_optional_facts_view;
+pub(crate) use value_safety::expression_safety_view;

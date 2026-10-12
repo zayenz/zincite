@@ -1,4 +1,5 @@
 //! Bounded callable facts over retained lexical identities, independent of lint.
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
@@ -104,64 +105,108 @@ pub fn resolve_source_callables(context: &ModelContext, bindings: &BindingFacts)
     resolve_callable_facts(context, bindings, false)
 }
 
-fn resolve_callable_facts(
-    context: &ModelContext,
-    bindings: &BindingFacts,
-    inspect_selected_bodies: bool,
-) -> CallableFacts {
-    let mut reference_index = HashMap::with_capacity(bindings.references.len());
-    for (row, reference) in bindings.references.iter().enumerate() {
-        reference_index
-            .entry((reference.file, reference.location.range.start))
-            .or_insert(row);
-    }
-    let mut engine = Engine {
-        context,
-        bindings,
-        reference_index: Some(reference_index),
-        nodes: Vec::new(),
-        declared: vec![None; bindings.declarations.len()],
-        active: Vec::new(),
-        signatures: BTreeMap::new(),
-        expressions: BTreeMap::new(),
-        calls: BTreeMap::new(),
-        active_calls: Vec::new(),
-    };
-    for declaration in &bindings.declarations {
-        engine.nodes.push(find_node(
-            context.files[declaration.file].parsed.tree(),
-            &declaration.syntax_range,
-            declaration.role,
-        ));
-    }
-    for declaration in &bindings.declarations {
-        engine.declared_type(declaration.id);
-    }
-    for declaration in &bindings.declarations {
-        engine.signature(declaration.id);
-    }
-    for (file, source) in context.files.iter().enumerate() {
-        if !source.parsed.diagnostics().is_empty() {
-            continue;
-        }
-        for (item, node) in source.parsed.tree().child_nodes().enumerate() {
-            if source.warnings_enabled()
-                || matches!(
-                    node.kind(),
-                    NodeKind::Constraint
-                        | NodeKind::Solve
-                        | NodeKind::SolveMinimize
-                        | NodeKind::SolveMaximize
-                        | NodeKind::Output
-                )
-            {
-                engine.inspect(file, item, node);
-            }
+/// A borrowed source/proof view shares declarations and signatures while each
+/// body view keeps its own expression observations and selected calls.
+#[derive(Clone, Copy, Debug)]
+pub struct CallableView<'a> {
+    pub declarations: &'a [DeclarationType],
+    pub signatures: &'a [CallableSignature],
+    pub expressions: &'a [ExpressionType],
+    pub calls: &'a [CallFact],
+    nodes: Option<&'a [Option<&'a SyntaxNode>]>,
+    reference_index: Option<&'a HashMap<(FileId, usize), usize>>,
+}
+impl CallableFacts {
+    pub fn view(&self) -> CallableView<'_> {
+        CallableView {
+            declarations: &self.declarations,
+            signatures: &self.signatures,
+            expressions: &self.expressions,
+            calls: &self.calls,
+            nodes: None,
+            reference_index: None,
         }
     }
-    // Retain interpretation inside selected standard implementations as well.
-    // Native declarations are endpoints; this follows only demanded bodies.
-    if inspect_selected_bodies {
+}
+impl CallableView<'_> {
+    pub(crate) fn same_observations(&self, other: &Self) -> bool {
+        std::ptr::eq(self.declarations, other.declarations)
+            && std::ptr::eq(self.signatures, other.signatures)
+            && std::ptr::eq(self.expressions, other.expressions)
+            && std::ptr::eq(self.calls, other.calls)
+    }
+
+    pub fn to_owned(self) -> CallableFacts {
+        CallableFacts {
+            declarations: self.declarations.to_vec(),
+            signatures: self.signatures.to_vec(),
+            expressions: self.expressions.to_vec(),
+            calls: self.calls.to_vec(),
+        }
+    }
+}
+#[derive(Debug)]
+pub(crate) struct CallablePreparation<'a> {
+    nodes: Vec<Option<&'a SyntaxNode>>,
+    reference_index: HashMap<(FileId, usize), usize>,
+    pub source: CallableFacts,
+}
+#[derive(Debug)]
+pub(crate) struct CallableBodies {
+    expressions: Vec<ExpressionType>,
+    calls: Vec<CallFact>,
+}
+impl CallablePreparation<'_> {
+    pub(crate) fn source_view(&self) -> CallableView<'_> {
+        CallableView {
+            nodes: Some(&self.nodes),
+            reference_index: Some(&self.reference_index),
+            ..self.source.view()
+        }
+    }
+    fn engine<'a>(
+        &'a self,
+        context: &'a ModelContext,
+        bindings: &'a BindingFacts,
+        facts: CallableView<'_>,
+    ) -> Engine<'a, 'a> {
+        let mut engine = Engine {
+            context,
+            bindings,
+            reference_index: Some(Cow::Borrowed(&self.reference_index)),
+            nodes: Cow::Borrowed(&self.nodes),
+            prepared: Some(&self.source),
+            declared: vec![None; bindings.declarations.len()],
+            active: Vec::new(),
+            signatures: BTreeMap::new(),
+            expressions: BTreeMap::new(),
+            calls: BTreeMap::new(),
+            active_calls: Vec::new(),
+        };
+        for expression in facts.expressions.iter() {
+            let offset = context.files[expression.file].byte_offset;
+            engine.expressions.insert(
+                (
+                    expression.file,
+                    expression.location.range.start - offset,
+                    expression.location.range.end - offset,
+                ),
+                expression.ty.clone(),
+            );
+        }
+        for call in facts.calls.iter() {
+            engine.calls.insert(
+                (
+                    call.file,
+                    call.location.range.start - context.files[call.file].byte_offset,
+                ),
+                call.clone(),
+            );
+        }
+        engine
+    }
+    pub(crate) fn proof(&self, context: &ModelContext, bindings: &BindingFacts) -> CallableBodies {
+        let mut engine = self.engine(context, bindings, self.source.view());
         let mut inspected = vec![false; bindings.declarations.len()];
         loop {
             let selected: Vec<_> = engine
@@ -194,8 +239,108 @@ fn resolve_callable_facts(
                 }
             }
         }
+        engine.into_bodies()
     }
-    engine.into_facts()
+    pub(crate) fn body(
+        &self,
+        context: &ModelContext,
+        bindings: &BindingFacts,
+        facts: CallableView<'_>,
+        id: DeclarationId,
+    ) -> CallableBodies {
+        let mut engine = self.engine(context, bindings, facts);
+        let declaration = &bindings.declarations[id.0];
+        if let Some(node) = engine.nodes[id.0] {
+            engine.inspect(declaration.file, declaration.item, node);
+        }
+        engine.into_bodies()
+    }
+    pub(crate) fn view<'a>(&'a self, bodies: &'a CallableBodies) -> CallableView<'a> {
+        CallableView {
+            declarations: &self.source.declarations,
+            signatures: &self.source.signatures,
+            expressions: &bodies.expressions,
+            calls: &bodies.calls,
+            nodes: Some(&self.nodes),
+            reference_index: Some(&self.reference_index),
+        }
+    }
+}
+fn resolve_callable_facts(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    inspect_selected_bodies: bool,
+) -> CallableFacts {
+    let prepared = prepare_callables(context, bindings);
+    if inspect_selected_bodies {
+        prepared.view(&prepared.proof(context, bindings)).to_owned()
+    } else {
+        prepared.source
+    }
+}
+
+pub(crate) fn prepare_callables<'a>(
+    context: &'a ModelContext,
+    bindings: &BindingFacts,
+) -> CallablePreparation<'a> {
+    let mut reference_index = HashMap::with_capacity(bindings.references.len());
+    for (row, reference) in bindings.references.iter().enumerate() {
+        reference_index
+            .entry((reference.file, reference.location.range.start))
+            .or_insert(row);
+    }
+    let mut engine = Engine {
+        context,
+        bindings,
+        reference_index: Some(Cow::Owned(reference_index)),
+        prepared: None,
+        nodes: Cow::Owned(Vec::new()),
+        declared: vec![None; bindings.declarations.len()],
+        active: Vec::new(),
+        signatures: BTreeMap::new(),
+        expressions: BTreeMap::new(),
+        calls: BTreeMap::new(),
+        active_calls: Vec::new(),
+    };
+    for declaration in &bindings.declarations {
+        engine.nodes.to_mut().push(find_node(
+            context.files[declaration.file].parsed.tree(),
+            &declaration.syntax_range,
+            declaration.role,
+        ));
+    }
+    for declaration in &bindings.declarations {
+        engine.declared_type(declaration.id);
+    }
+    for declaration in &bindings.declarations {
+        engine.signature(declaration.id);
+    }
+    for (file, source) in context.files.iter().enumerate() {
+        if !source.parsed.diagnostics().is_empty() {
+            continue;
+        }
+        for (item, node) in source.parsed.tree().child_nodes().enumerate() {
+            if source.warnings_enabled()
+                || matches!(
+                    node.kind(),
+                    NodeKind::Constraint
+                        | NodeKind::Solve
+                        | NodeKind::SolveMinimize
+                        | NodeKind::SolveMaximize
+                        | NodeKind::Output
+                )
+            {
+                engine.inspect(file, item, node);
+            }
+        }
+    }
+    let nodes = std::mem::take(engine.nodes.to_mut());
+    let reference_index = engine.reference_index.take().unwrap().into_owned();
+    CallablePreparation {
+        nodes,
+        reference_index,
+        source: engine.into_facts(),
+    }
 }
 
 pub(super) fn find_node<'a>(
@@ -234,11 +379,12 @@ fn identity(text: &str) -> String {
     text.trim_matches(['\'', '`']).to_owned()
 }
 
-struct Engine<'a> {
+struct Engine<'a, 'b> {
     context: &'a ModelContext,
-    bindings: &'a BindingFacts,
-    reference_index: Option<HashMap<(FileId, usize), usize>>,
-    nodes: Vec<Option<&'a SyntaxNode>>,
+    bindings: &'b BindingFacts,
+    reference_index: Option<Cow<'b, HashMap<(FileId, usize), usize>>>,
+    prepared: Option<&'b CallableFacts>,
+    nodes: Cow<'b, [Option<&'a SyntaxNode>]>,
     declared: Vec<Option<TypeInst>>,
     active: Vec<DeclarationId>,
     signatures: BTreeMap<usize, Option<CallableSignature>>,
@@ -247,7 +393,33 @@ struct Engine<'a> {
     active_calls: Vec<(FileId, usize)>,
 }
 
-impl<'a> Engine<'a> {
+impl<'a> Engine<'a, '_> {
+    fn known_signature(&self, id: DeclarationId) -> Option<&CallableSignature> {
+        if let Some(prepared) = self.prepared {
+            prepared
+                .signatures
+                .binary_search_by_key(&id.0, |s| s.declaration.0)
+                .ok()
+                .map(|i| &prepared.signatures[i])
+        } else {
+            self.signatures.get(&id.0).and_then(Option::as_ref)
+        }
+    }
+    fn into_bodies(self) -> CallableBodies {
+        CallableBodies {
+            expressions: self
+                .expressions
+                .into_iter()
+                .map(|((file, start, end), ty)| ExpressionType {
+                    file,
+                    location: self.context.files[file].location(start..end),
+                    ty,
+                })
+                .collect(),
+            calls: self.calls.into_values().collect(),
+        }
+    }
+
     fn into_facts(self) -> CallableFacts {
         CallableFacts {
             declarations: self
@@ -340,6 +512,9 @@ impl<'a> Engine<'a> {
     fn declared_type(&mut self, id: DeclarationId) -> TypeInst {
         if let Some(ty) = &self.declared[id.0] {
             return ty.clone();
+        }
+        if let Some(prepared) = self.prepared {
+            return prepared.declarations[id.0].ty.clone();
         }
         if self.active.contains(&id) {
             return TypeInst::unknown("cyclic declaration type");
@@ -556,6 +731,13 @@ impl<'a> Engine<'a> {
         ty
     }
     fn signature(&mut self, id: DeclarationId) -> Option<CallableSignature> {
+        if let Some(prepared) = self.prepared {
+            return prepared
+                .signatures
+                .binary_search_by_key(&id.0, |s| s.declaration.0)
+                .ok()
+                .map(|i| prepared.signatures[i].clone());
+        }
         if let Some(signature) = self.signatures.get(&id.0) {
             return signature.clone();
         }
@@ -1723,7 +1905,7 @@ impl<'a> Engine<'a> {
             .iter()
             .filter_map(|candidate| {
                 let declaration = &self.bindings.declarations[candidate.0.0];
-                let signature = self.signatures.get(&candidate.0.0)?.as_ref()?;
+                let signature = self.known_signature(candidate.0)?;
                 let has_body = |id: DeclarationId| {
                     self.nodes[id.0]
                         .is_some_and(|n| n.child_nodes().any(|c| is_expression(c.kind())))
@@ -1738,8 +1920,7 @@ impl<'a> Engine<'a> {
                     .iter()
                     .filter(|other| {
                         let d = &self.bindings.declarations[other.0.0];
-                        let Some(s) = self.signatures.get(&other.0.0).and_then(Option::as_ref)
-                        else {
+                        let Some(s) = self.known_signature(other.0) else {
                             return false;
                         };
                         d.top_level
@@ -1967,7 +2148,7 @@ pub(super) fn operation_head_start(
 }
 pub(super) fn operation_fact<'a>(
     context: &ModelContext,
-    calls: &'a CallableFacts,
+    calls: &CallableView<'a>,
     file: FileId,
     node: &SyntaxNode,
 ) -> Option<&'a CallFact> {
@@ -2015,7 +2196,7 @@ pub(super) fn selected_call_type<'a>(
 pub(super) fn array_concatenation<'a>(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &CallableView<'_>,
     file: FileId,
     node: &'a SyntaxNode,
 ) -> Option<[&'a SyntaxNode; 2]> {
@@ -2127,7 +2308,7 @@ pub(super) fn array_concatenation<'a>(
 pub(super) fn core_operation(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &CallableView<'_>,
     file: FileId,
     node: &SyntaxNode,
     name: &str,
@@ -2173,7 +2354,7 @@ pub(super) fn core_operation_outcome(
 pub(super) fn prospective_core_equality(
     context: &ModelContext,
     bindings: &BindingFacts,
-    facts: &CallableFacts,
+    facts: &CallableView<'_>,
     file: FileId,
     operands: &[TypeInst],
 ) -> bool {
@@ -2207,17 +2388,24 @@ pub(super) fn prospective_core_equality(
 fn engine_from_facts<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    facts: &CallableFacts,
-) -> Engine<'a> {
+    facts: &CallableView<'a>,
+) -> Engine<'a, 'a> {
     Engine {
         context,
         bindings,
-        reference_index: None,
-        nodes: bindings
-            .declarations
-            .iter()
-            .map(|d| find_node(context.files[d.file].parsed.tree(), &d.syntax_range, d.role))
-            .collect(),
+        reference_index: facts.reference_index.map(Cow::Borrowed),
+        prepared: None,
+        nodes: facts.nodes.map(Cow::Borrowed).unwrap_or_else(|| {
+            Cow::Owned(
+                bindings
+                    .declarations
+                    .iter()
+                    .map(|d| {
+                        find_node(context.files[d.file].parsed.tree(), &d.syntax_range, d.role)
+                    })
+                    .collect(),
+            )
+        }),
         declared: facts
             .declarations
             .iter()
@@ -2239,15 +2427,15 @@ fn engine_from_facts<'a>(
 /// existing facts and raw generic uncertainty; do not follow calls into further
 /// implementations or establish any value/output proof. All inputs must belong
 /// to the same retained context.
-pub fn resolve_source_callable_body(
+pub(crate) fn resolve_source_callable_body_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    facts: &CallableFacts,
+    facts: &CallableView<'_>,
     id: DeclarationId,
 ) -> CallableFacts {
     let declaration = &bindings.declarations[id.0];
     let mut engine = engine_from_facts(context, bindings, facts);
-    for expression in &facts.expressions {
+    for expression in facts.expressions.iter() {
         let offset = context.files[expression.file].byte_offset;
         engine.expressions.insert(
             (
@@ -2258,7 +2446,7 @@ pub fn resolve_source_callable_body(
             expression.ty.clone(),
         );
     }
-    for call in &facts.calls {
+    for call in facts.calls.iter() {
         engine.calls.insert(
             (
                 call.file,
@@ -2278,7 +2466,7 @@ pub fn resolve_source_callable_body(
 pub(super) fn instantiated_body(
     context: &ModelContext,
     bindings: &BindingFacts,
-    facts: &CallableFacts,
+    facts: &CallableView<'_>,
     id: DeclarationId,
     parameters: &[TypeInst],
 ) -> CallableFacts {
@@ -2360,7 +2548,7 @@ pub(super) fn formal_parameter(
 pub(super) fn call_argument<'a>(
     context: &'a ModelContext,
     bindings: &BindingFacts,
-    facts: &CallableFacts,
+    facts: &CallableView<'_>,
     file: FileId,
     call: &'a SyntaxNode,
     id: DeclarationId,
@@ -2408,4 +2596,13 @@ pub(super) fn call_argument<'a>(
         .child_nodes()
         .find(|n| is_expression(n.kind()))
         .map(|n| (d.file, n))
+}
+
+pub fn resolve_source_callable_body(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    facts: &CallableFacts,
+    id: DeclarationId,
+) -> CallableFacts {
+    resolve_source_callable_body_view(context, bindings, &facts.view(), id)
 }

@@ -3,9 +3,8 @@ use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 
 use crate::callables::operation_fact;
 use crate::{
-    BindingFacts, CallOutcome, CallableFacts, DeclarationId, DeclarationRole, FileFinding, FileId,
-    Instantiation, ModelContext, Rule, Severity, SourceDiagnostic, SourceKind, SourceLocation,
-    TypeKind,
+    BindingFacts, CallOutcome, DeclarationId, DeclarationRole, FileFinding, FileId, Instantiation,
+    ModelContext, Rule, Severity, SourceDiagnostic, SourceKind, SourceLocation, TypeKind,
 };
 
 const FAMILY: [&str; 11] = [
@@ -44,13 +43,10 @@ pub struct SymmetryFacts {
     pub uses: Vec<SymmetryUse>,
 }
 
-/// Interpret the finite predicate family and core symmetry wrapper without
-/// inferring actual model symmetries. Bindings and callables must belong to the
-/// same retained ModelContext. User lookalikes retain their own identities.
-pub fn resolve_symmetry_uses(
+pub(crate) fn resolve_symmetry_uses_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
 ) -> SymmetryFacts {
     let mut walker = Walker {
         context,
@@ -72,7 +68,7 @@ pub fn resolve_symmetry_uses(
 struct Walker<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     facts: SymmetryFacts,
 }
 impl Walker<'_> {
@@ -216,4 +212,15 @@ pub(super) fn check_symmetry_uses(
         }
     }
     (findings, limitations)
+}
+
+/// Interpret the finite predicate family and core symmetry wrapper without
+/// inferring actual model symmetries. Bindings and callables must belong to the
+/// same retained ModelContext. User lookalikes retain their own identities.
+pub fn resolve_symmetry_uses(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+) -> SymmetryFacts {
+    resolve_symmetry_uses_view(context, bindings, &calls.view())
 }

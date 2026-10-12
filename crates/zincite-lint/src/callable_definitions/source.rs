@@ -11,7 +11,7 @@ mod standard;
 pub(super) struct SourceInspector<'a> {
     pub(super) context: &'a ModelContext,
     pub(super) bindings: &'a BindingFacts,
-    pub(super) calls: &'a CallableFacts,
+    pub(super) calls: &'a crate::callables::CallableView<'a>,
     pub(super) instantiations: &'a InstantiationFacts,
     pub(super) domains: &'a DomainFacts,
     pub(super) lookups: Option<DirectSafetyLookups<'a>>,
@@ -22,7 +22,7 @@ impl<'a> SourceInspector<'a> {
     pub(super) fn new(
         context: &'a ModelContext,
         bindings: &'a BindingFacts,
-        calls: &'a CallableFacts,
+        calls: &'a crate::callables::CallableView<'a>,
         instantiations: &'a InstantiationFacts,
         domains: &'a DomainFacts,
         lookups: Option<DirectSafetyLookups<'a>>,
@@ -49,7 +49,7 @@ impl LookupIndexes {
     pub(super) fn new(
         context: &ModelContext,
         bindings: &BindingFacts,
-        calls: &CallableFacts,
+        calls: &crate::callables::CallableView<'_>,
     ) -> Self {
         let mut call_indices = HashMap::with_capacity(calls.calls.len());
         for (row, call) in calls.calls.iter().enumerate() {
@@ -127,14 +127,14 @@ impl<'a> SourceInspector<'a> {
     }
     pub(in crate::callable_definitions) fn expression_type<'b>(
         &'b self,
-        facts: &'b CallableFacts,
+        facts: &crate::callables::CallableView<'b>,
         file: FileId,
         node: &SyntaxNode,
     ) -> Option<&'b ExpressionType> {
         let range = node.range();
         let offset = self.context.files[file].byte_offset;
         let range = range.start + offset..range.end + offset;
-        if std::ptr::eq(facts, self.calls)
+        if facts.same_observations(self.calls)
             && let Some(lookups) = &self.lookups
         {
             return lookups
@@ -149,11 +149,11 @@ impl<'a> SourceInspector<'a> {
     }
     pub(in crate::callable_definitions) fn operation_fact<'b>(
         &'b self,
-        facts: &'b CallableFacts,
+        facts: &crate::callables::CallableView<'b>,
         file: FileId,
         node: &SyntaxNode,
     ) -> Option<&'b CallFact> {
-        if std::ptr::eq(facts, self.calls)
+        if facts.same_observations(self.calls)
             && let Some(lookups) = &self.lookups
         {
             let start = crate::callables::operation_head_start(self.context, file, node)?;
@@ -164,13 +164,13 @@ impl<'a> SourceInspector<'a> {
         }
         operation_fact(self.context, facts, file, node)
     }
-    pub(in crate::callable_definitions) fn view<'b>(
+    pub(in crate::callable_definitions) fn view<'b, 'v>(
         &'b self,
         file: FileId,
         node: &SyntaxNode,
-        view: &'b CallableFacts,
-    ) -> &'b CallableFacts {
-        if std::ptr::eq(view, self.calls) {
+        view: &'v crate::callables::CallableView<'b>,
+    ) -> &'v crate::callables::CallableView<'b> {
+        if view.same_observations(self.calls) {
             return view;
         }
         let range = self.context.files[file].location(node.range()).range;
@@ -188,7 +188,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         node: &SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Option<(DeclarationId, Vec<TypeInst>)> {
         match &self
             .operation_fact(self.view(file, node, view), file, node)?
@@ -262,11 +262,11 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         node: &SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         name: &str,
     ) -> bool {
         let facts = self.view(file, node, view);
-        if std::ptr::eq(facts, self.calls) && self.lookups.is_some() {
+        if facts.same_observations(self.calls) && self.lookups.is_some() {
             return match self
                 .operation_fact(facts, file, node)
                 .map(|fact| &fact.outcome)
@@ -342,7 +342,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         header: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         if self.selected_set_source
@@ -442,7 +442,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         node: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
         active: &mut Vec<DeclarationId>,
     ) -> DefinitionSafety {
@@ -529,7 +529,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             if !local_boolean
                 && let Some(graph) = &self.checked_source_graph
                 && graph.file == file
-                && std::ptr::eq(graph.view, view)
+                && graph.view.same_observations(view)
                 && graph.node.range().start <= current.range().start
                 && current.range().end <= graph.node.range().end
                 && let Some((_, contribution)) = graph
@@ -740,7 +740,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         } else if unwrap(node).kind() == NodeKind::MatrixLiteral {
             // Preserve the existing literal cell checker after transitive source
             // and annotation inspection, without adding a matrix evaluator.
-            crate::expression_safety(
+            crate::expression_safety_view(
                 self.source.context,
                 self.source.bindings,
                 view,
@@ -759,7 +759,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         nodes: &[&'a SyntaxNode],
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> DefinitionSafety {
         let mut safety = DefinitionSafety::Supported;
@@ -776,7 +776,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         node: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> DefinitionSafety {
         if let Some(safety) = self.native_fixed_source_safety(file, node, view, generators) {
@@ -899,7 +899,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         nodes: &[&'a SyntaxNode],
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> DefinitionSafety {
         let mut safety = DefinitionSafety::Supported;

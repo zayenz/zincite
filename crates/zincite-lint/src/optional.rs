@@ -3,7 +3,7 @@ use crate::callables::{is_expression, operation_head_start};
 use crate::definitions::resolved_call;
 use crate::domains::{expression_domain, generator_slots, invariant_integer, tokens};
 use crate::{
-    BindingFacts, BindingResolution, CallOutcome, CallableFacts, DeclarationId, DeclarationRole,
+    BindingFacts, BindingResolution, CallOutcome, DeclarationId, DeclarationRole,
     DefinitionCoverage, DefinitionEnforcement, DefinitionFacts, Domain, DomainFacts, FileId,
     Instantiation, InstantiationFacts, ModelContext, NumericFacts, NumericOutcome, SourceKind,
     SourceLocation, TypeInst, TypeKind,
@@ -128,27 +128,10 @@ impl OptionalFacts {
     }
 }
 
-/// Call after bindings, callables, instantiations, domains, definitions and
-/// numeric facts, all from the same retained ModelContext. GuardedFacts is not
-/// a prerequisite. Use these facts with resolve_guarded_facts_with_options for
-/// local guards and operation definedness; these intrinsic facts issue no lint.
-///
-/// Supports scalar presence, enforced initializers/aliases, closed integer
-/// ranges, literal arrays/sets and independent comprehension generators. Counts
-/// do not enumerate parameter filters or dependent generators. Replaceable
-/// parameter defaults and omitted optional data remain unknown. Decision-set
-/// membership and filters retain optional gates separately from index capacity.
-/// Selected typed optional calls retain unknown presence. Weak arithmetic and
-/// unsupported count arithmetic retain located limitations. Structured projections
-/// use only their known type's presence; their contents and general iteration are
-/// not evaluated.
-///
-/// Follows [MiniZinc 2.10.1 option types](https://docs.minizinc.dev/en/stable/optiontypes.html)
-/// and [default](https://docs.minizinc.dev/en/2.10.1/spec.html#coercion-operations).
-pub fn resolve_optional_facts(
+pub(crate) fn resolve_optional_facts_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
     numeric: &NumericFacts,
@@ -238,7 +221,7 @@ impl Value {
 struct Producer<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     numeric: &'a NumericFacts,
@@ -999,7 +982,7 @@ fn domain_count(domain: &Domain) -> Cardinality {
 pub(super) fn core_optional_call(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     file: FileId,
     node: &SyntaxNode,
     name: &str,
@@ -1033,4 +1016,41 @@ fn node_at(node: &SyntaxNode, start: usize, end: usize) -> Option<&SyntaxNode> {
     }
     node.child_nodes()
         .find_map(|child| node_at(child, start, end))
+}
+
+/// Call after bindings, callables, instantiations, domains, definitions and
+/// numeric facts, all from the same retained ModelContext. GuardedFacts is not
+/// a prerequisite. Use these facts with resolve_guarded_facts_with_options for
+/// local guards and operation definedness; these intrinsic facts issue no lint.
+///
+/// Supports scalar presence, enforced initializers/aliases, closed integer
+/// ranges, literal arrays/sets and independent comprehension generators. Counts
+/// do not enumerate parameter filters or dependent generators. Replaceable
+/// parameter defaults and omitted optional data remain unknown. Decision-set
+/// membership and filters retain optional gates separately from index capacity.
+/// Selected typed optional calls retain unknown presence. Weak arithmetic and
+/// unsupported count arithmetic retain located limitations. Structured projections
+/// use only their known type's presence; their contents and general iteration are
+/// not evaluated.
+///
+/// Follows [MiniZinc 2.10.1 option types](https://docs.minizinc.dev/en/stable/optiontypes.html)
+/// and [default](https://docs.minizinc.dev/en/2.10.1/spec.html#coercion-operations).
+pub fn resolve_optional_facts(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    instantiations: &InstantiationFacts,
+    domains: &DomainFacts,
+    numeric: &NumericFacts,
+    definitions: &DefinitionFacts,
+) -> OptionalFacts {
+    resolve_optional_facts_view(
+        context,
+        bindings,
+        &calls.view(),
+        instantiations,
+        domains,
+        numeric,
+        definitions,
+    )
 }

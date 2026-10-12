@@ -76,7 +76,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         node: &SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         id: DeclarationId,
     ) -> Result<(), String> {
         if !crate::optional::core_optional_call(
@@ -269,7 +269,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn inspect_regular_four(
         &self,
         clause: &Clause<'a>,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         id: DeclarationId,
         parameters: &[TypeInst],
         invocation: Option<&Invocation<'a, '_>>,
@@ -289,29 +289,30 @@ impl<'a> BodyInterpreter<'a, '_> {
                 return Err("regular4 actual annotation is unsupported".into());
             }
             // Every inherited header still evaluates even when no output is inferred.
-            let inspect_headers = |file, facts: &CallableFacts, headers: &[&'a SyntaxNode]| {
-                for (position, header) in headers.iter().enumerate() {
-                    for source in header.child_nodes() {
-                        let filter = source.kind() == NodeKind::WhereFilter;
-                        let source = if filter {
-                            source
-                                .child_nodes()
-                                .next()
-                                .ok_or("regular4 inherited filter is unavailable")?
-                        } else {
-                            source
-                        };
-                        let visible = if filter { position + 1 } else { position };
-                        self.optional_matrix_source_safety(
-                            (file, source, source.range().start),
-                            self.source.view(file, source, facts),
-                            &headers[..visible],
-                            &mut Vec::new(),
-                        )?;
+            let inspect_headers =
+                |file, facts: &crate::callables::CallableView<'_>, headers: &[&'a SyntaxNode]| {
+                    for (position, header) in headers.iter().enumerate() {
+                        for source in header.child_nodes() {
+                            let filter = source.kind() == NodeKind::WhereFilter;
+                            let source = if filter {
+                                source
+                                    .child_nodes()
+                                    .next()
+                                    .ok_or("regular4 inherited filter is unavailable")?
+                            } else {
+                                source
+                            };
+                            let visible = if filter { position + 1 } else { position };
+                            self.optional_matrix_source_safety(
+                                (file, source, source.range().start),
+                                self.source.view(file, source, facts),
+                                &headers[..visible],
+                                &mut Vec::new(),
+                            )?;
+                        }
                     }
-                }
-                Ok::<(), String>(())
-            };
+                    Ok::<(), String>(())
+                };
             inspect_headers(clause.file, view, &clause.generators)?;
             for (position, parameter) in parameters.iter().enumerate() {
                 let (file, node) = call_argument(
@@ -329,7 +330,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                     .transpose()?
                     .flatten();
                 if let Some(actual) = forwarded {
-                    inspect_headers(actual.file, actual.view, &actual.generators)?;
+                    inspect_headers(actual.file, &actual.view, &actual.generators)?;
                 }
                 if forwarded.is_some_and(|actual| actual.collection) {
                     return Err("regular4 generated actual is unsupported".into());
@@ -345,7 +346,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                         (
                             actual.file,
                             actual.node,
-                            actual.view,
+                            &actual.view,
                             &actual.generators[..],
                         )
                     },
@@ -437,7 +438,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn regular_four_owning_body(
         &self,
         clause: &Clause<'a>,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Option<DefinitionSafety> {
         let instance = self.instances.iter().find(|instance| {
             let owner = &self.source.bindings.declarations[instance.id.0];
@@ -567,7 +568,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                 instance.id == id && instance.parameters == parameters && !instance.recursive
             })
             .ok_or("regular source exact nonrecursive body view is unavailable")?;
-        let view = &instance.view;
+        let view = &instance.view.view();
         let bodies: Vec<_> = written
             .child_nodes()
             .filter(|node| is_expression(node.kind()))
@@ -990,7 +991,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn inspect_literal_regular(
         &self,
         clause: &Clause<'a>,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         id: DeclarationId,
         parameters: &[TypeInst],
         invocation: Option<&Invocation<'a, '_>>,
@@ -1162,7 +1163,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                     (
                         source.file,
                         source.node,
-                        source.view,
+                        &source.view,
                         &source.generators[..],
                     )
                 },
@@ -1178,7 +1179,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                     (
                         source.file,
                         source.node,
-                        source.view,
+                        &source.view,
                         &source.generators[..],
                     )
                 },

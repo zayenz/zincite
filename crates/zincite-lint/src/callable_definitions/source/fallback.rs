@@ -6,7 +6,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
         reason: String,
     ) -> DefinitionSafety {
@@ -122,7 +122,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
@@ -267,7 +267,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
@@ -401,7 +401,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
@@ -544,7 +544,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
@@ -738,7 +738,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
@@ -787,7 +787,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
@@ -939,7 +939,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
         let node = unwrap(written);
@@ -985,7 +985,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         written: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
         reason: String,
     ) -> DefinitionSafety {

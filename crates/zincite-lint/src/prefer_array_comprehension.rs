@@ -1,8 +1,7 @@
 //! Direct comprehension advice over standard call signatures and fixed set identity.
 use crate::{
-    BindingFacts, CallableFacts, DeclarationRole, Domain, EditPart, FileFinding, FileId, Fix,
-    FixSafety, Instantiation, ModelContext, NumericBound, Rule, Severity, SourceSnapshot, TextEdit,
-    TypeKind,
+    BindingFacts, DeclarationRole, Domain, EditPart, FileFinding, FileId, Fix, FixSafety,
+    Instantiation, ModelContext, NumericBound, Rule, Severity, SourceSnapshot, TextEdit, TypeKind,
 };
 use std::collections::BTreeMap;
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
@@ -10,7 +9,7 @@ use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 pub(super) fn check(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     snapshots: &mut BTreeMap<FileId, SourceSnapshot>,
 ) -> Vec<FileFinding> {
     let mut findings = Vec::new();
@@ -78,7 +77,7 @@ pub(super) fn check(
 struct Proof<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
 }
 impl Proof<'_> {
     fn candidate<'a>(

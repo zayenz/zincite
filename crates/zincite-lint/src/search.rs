@@ -3,12 +3,12 @@ use std::collections::HashMap;
 
 use crate::callables::{core_operation, find_node, is_expression, operation_fact};
 use crate::definitions::complete_array_coverage;
-use crate::value_safety::{expression_safety, optional, traversal_expression_safety};
+use crate::value_safety::{expression_safety_view, optional, traversal_expression_safety};
 use crate::{
-    BindingFacts, BindingResolution, CallOutcome, CallableDefinitionFacts, CallableFacts,
-    DeclarationId, DeclarationRole, DefinitionCoverage, DefinitionEnforcement, DefinitionFacts,
-    DefinitionSafety, DomainFacts, FileId, Instantiation, InstantiationFacts, ModelContext,
-    ModelRootState, SourceDiagnostic, SourceKind, SourceLocation, TypeKind,
+    BindingFacts, BindingResolution, CallOutcome, CallableDefinitionFacts, DeclarationId,
+    DeclarationRole, DefinitionCoverage, DefinitionEnforcement, DefinitionFacts, DefinitionSafety,
+    DomainFacts, FileId, Instantiation, InstantiationFacts, ModelContext, ModelRootState,
+    SourceDiagnostic, SourceKind, SourceLocation, TypeKind,
 };
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
@@ -39,27 +39,16 @@ pub struct SearchFacts {
     pub declarations: Vec<SearchDeclaration>,
     pub limitations: Vec<SourceDiagnostic>,
 }
-/// Decode retained standard searches and identity-preserving annotation/view
-/// syntax, then close safe direct definitions only when every dependency is
-/// covered. All prerequisites belong to this context. Numeric domains are not
-/// seeds. Partial selections do not cover an entire array, and computed search
-/// values do not seed their inputs. Unknown annotations withhold missing claims.
-/// Exact selected callable bodies contribute bounded output guarantees. Opaque
-/// relations retain possible references that veto affected missing-search advice;
-/// known errors and excluded required operations retain specific limitations.
-/// Advice addresses top-level solve-visible values (thesis 4.9, p.28).
-/// Checked positive model lets contribute functional local definitions. Other
-/// scoped decisions retain Unknown without requiring inspection certificates.
-pub fn resolve_search_coverage(
+pub(crate) fn resolve_search_coverage_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
     definitions: &DefinitionFacts,
 ) -> SearchFacts {
     let callable =
-        crate::resolve_callable_definitions(context, bindings, calls, instantiations, domains);
+        crate::resolve_callable_definitions_view(context, bindings, calls, instantiations, domains);
     resolve_search_with_callable(
         context,
         bindings,
@@ -73,7 +62,7 @@ pub fn resolve_search_coverage(
 pub(super) fn resolve_search_with_callable(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
     definitions: &DefinitionFacts,
@@ -141,7 +130,7 @@ enum AnnotationUse {
 struct Producer<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     facts: SearchFacts,
@@ -1099,7 +1088,7 @@ impl<'a> Producer<'a> {
                 (file, node, generators, true),
                 None,
             ),
-            None => expression_safety(self.context, self.bindings, self.calls, file, node),
+            None => expression_safety_view(self.context, self.bindings, self.calls, file, node),
         };
         if matches!(safety, DefinitionSafety::Unsupported(_))
             || (generators.is_none() && safety != DefinitionSafety::Supported)
@@ -1161,7 +1150,7 @@ impl<'a> Producer<'a> {
                         None,
                     )
                 } else {
-                    expression_safety(
+                    expression_safety_view(
                         self.context,
                         self.bindings,
                         self.calls,
@@ -2059,4 +2048,33 @@ fn collect_generators<'a>(
     for child in node.child_nodes() {
         collect_generators(child, range, out);
     }
+}
+
+/// Decode retained standard searches and identity-preserving annotation/view
+/// syntax, then close safe direct definitions only when every dependency is
+/// covered. All prerequisites belong to this context. Numeric domains are not
+/// seeds. Partial selections do not cover an entire array, and computed search
+/// values do not seed their inputs. Unknown annotations withhold missing claims.
+/// Exact selected callable bodies contribute bounded output guarantees. Opaque
+/// relations retain possible references that veto affected missing-search advice;
+/// known errors and excluded required operations retain specific limitations.
+/// Advice addresses top-level solve-visible values (thesis 4.9, p.28).
+/// Checked positive model lets contribute functional local definitions. Other
+/// scoped decisions retain Unknown without requiring inspection certificates.
+pub fn resolve_search_coverage(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    instantiations: &InstantiationFacts,
+    domains: &DomainFacts,
+    definitions: &DefinitionFacts,
+) -> SearchFacts {
+    resolve_search_coverage_view(
+        context,
+        bindings,
+        &calls.view(),
+        instantiations,
+        domains,
+        definitions,
+    )
 }

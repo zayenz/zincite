@@ -50,12 +50,17 @@ impl<'a> Discovery<'a, '_> {
             let clauses = instance.clauses.clone();
             let view = instance.view.clone();
             for clause in &clauses {
-                self.discover(clause, &view, &ancestry);
+                self.discover(clause, &view.view(), &ancestry);
             }
             cursor += 1;
         }
     }
-    fn discover(&mut self, clause: &Clause<'a>, view: &CallableFacts, ancestry: &[DeclarationId]) {
+    fn discover(
+        &mut self,
+        clause: &Clause<'a>,
+        view: &crate::callables::CallableView<'_>,
+        ancestry: &[DeclarationId],
+    ) {
         for node in clause.node.child_nodes() {
             let nested = Clause {
                 file: clause.file,
@@ -124,7 +129,7 @@ impl<'a> Discovery<'a, '_> {
             d.file,
             d.item,
             body,
-            &body_view,
+            &body_view.view(),
             &[],
             &mut clauses,
         );
@@ -145,7 +150,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         file: FileId,
         item: usize,
         node: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
         out: &mut Vec<Clause<'a>>,
     ) {

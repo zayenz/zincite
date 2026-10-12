@@ -90,7 +90,7 @@ pub fn resolve_domains(context: &ModelContext, bindings: &BindingFacts) -> Domai
 pub(super) fn resolve_domains_with_callables<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: Option<&'a crate::CallableFacts>,
+    calls: Option<&'a crate::callables::CallableView<'a>>,
 ) -> DomainFacts {
     let mut walker = Walker {
         context,
@@ -126,7 +126,7 @@ pub(super) fn resolve_domains_with_callables<'a>(
 pub(super) fn parameter_set_cardinality(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &crate::CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     file: FileId,
     node: &SyntaxNode,
 ) -> Option<DeclarationId> {
@@ -172,7 +172,7 @@ pub(super) fn parameter_set_cardinality(
 pub(super) fn parameter_integer_set_source(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &crate::CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     file: FileId,
     source: &SyntaxNode,
 ) -> Option<DeclarationId> {
@@ -238,9 +238,9 @@ pub(super) fn parameter_integer_set_source(
 struct Walker<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: Option<&'a crate::CallableFacts>,
+    calls: Option<&'a crate::callables::CallableView<'a>>,
     initialized_facts: Option<(
-        &'a crate::CallableFacts,
+        &'a crate::callables::CallableView<'a>,
         &'a crate::InstantiationFacts,
         &'a DomainFacts,
         &'a [&'a SyntaxNode],
@@ -1531,7 +1531,7 @@ pub(super) fn generator_slots(parsed: &zincite_syntax::ParsedFile, node: &Syntax
 pub(super) fn resolved_index_domain(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &crate::CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     domains: &DomainFacts,
     file: FileId,
     node: &SyntaxNode,
@@ -1856,7 +1856,7 @@ pub(super) fn expression_domain(
 pub(super) fn native_index_set_domain(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &crate::CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     file: FileId,
     node: &SyntaxNode,
 ) -> Option<Domain> {
@@ -1879,7 +1879,7 @@ pub(super) fn native_index_set_domain(
 pub(super) fn inspected_set_index_domain<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a crate::CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a crate::InstantiationFacts,
     domains: &'a DomainFacts,
     source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
@@ -1970,7 +1970,10 @@ pub(super) fn inspected_set_index_domain<'a>(
 pub(super) fn inspected_parameter_extremum_range_domain<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    callables: (&'a crate::CallableFacts, &'a crate::CallableFacts),
+    callables: (
+        &'a crate::callables::CallableView<'a>,
+        &'a crate::callables::CallableView<'a>,
+    ),
     instantiations: &'a crate::InstantiationFacts,
     domains: &'a DomainFacts,
     source: (FileId, &'a SyntaxNode, &'a [&'a SyntaxNode]),
@@ -1995,7 +1998,10 @@ pub(super) fn inspected_parameter_extremum_range_domain<'a>(
 pub(super) fn inspected_parameter_range_domain<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    callables: (&'a crate::CallableFacts, &'a crate::CallableFacts),
+    callables: (
+        &'a crate::callables::CallableView<'a>,
+        &'a crate::callables::CallableView<'a>,
+    ),
     instantiations: &'a crate::InstantiationFacts,
     value_facts: (&'a DomainFacts, Option<&'a NumericFacts>),
     source: (FileId, &'a SyntaxNode, &'a [&'a SyntaxNode]),
@@ -2197,7 +2203,7 @@ pub(super) fn inspected_parameter_range_domain<'a>(
 fn local_source_prefix_error<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a crate::CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a crate::InstantiationFacts,
     domains: &'a DomainFacts,
     source: (FileId, &'a SyntaxNode),
@@ -2416,7 +2422,7 @@ pub(super) fn same_members(left: &Domain, right: &Domain) -> Result<Option<bool>
 pub(super) fn symbolic_floor_sum_bound(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &crate::CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     file: FileId,
     node: &SyntaxNode,
 ) -> Option<Result<(), String>> {
@@ -2659,29 +2665,10 @@ pub struct NumericFacts {
     pub limitations: Vec<NumericLimitation>,
 }
 
-/// Interpret scalar integers without enabling lint. All prerequisites must come
-/// from this retained ModelContext; their declaration IDs and locations cannot
-/// be mixed with another model or a changed source.
-///
-/// Supports integer literals, aliases, parentheses/annotations, resolved core
-/// unary +/-, +, -, *, and closed div/mod, plus supported scalar unconditional
-/// definitions. Checked i64 arithmetic never wraps. Parameter defaults retain
-/// identity instead of becoming instance-invariant values; independently known
-/// parameter domains still bound arithmetic. A cycle cannot establish its own
-/// value; independent domain or definition anchors remain usable.
-///
-/// Selected typed integer calls outside the proof families retain Unknown.
-/// Float, option, array-access and control/iteration expressions are outside this
-/// integer subset. Unsupported integer expressions and unsafe
-/// definitions retain located limitations separately from facts and lint findings.
-/// Ordinary uncertainty (missing data, cycles, conditional definitions, interval
-/// division) is not an unsupported-operation finding. Sparse sets use hulls for
-/// arithmetic; no correlation reasoning, solver or symbolic algebra is performed.
-/// Callable signatures never certify a body's numeric value or definition safety.
-pub fn resolve_numeric_facts(
+pub(crate) fn resolve_numeric_facts_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &crate::CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &crate::InstantiationFacts,
     domains: &DomainFacts,
     definitions: &crate::DefinitionFacts,
@@ -2798,7 +2785,7 @@ pub fn resolve_numeric_facts(
     }
     // Only this final pass reuses flat outcomes after declaration interpretation.
     interpreter.expression_memo = Some(vec![None; calls.expressions.len()]);
-    for expression in &calls.expressions {
+    for expression in calls.expressions.iter() {
         let source = &context.files[expression.file];
         if !source.warnings_enabled()
             || !source.parsed.diagnostics().is_empty()
@@ -2993,14 +2980,10 @@ fn numeric_arithmetic(
     Symbolic { lower, upper }
 }
 
-/// Retain nonempty integer intervals independently of lint. Prerequisites must
-/// belong to this context. Numeric parameter definitions remain instance-dependent;
-/// this producer never substitutes their defaults into an invariant bound.
-/// Arithmetic uses resolved core identities, checked intervals and closed div/mod.
-pub fn resolve_integer_bounds(
+pub(crate) fn resolve_integer_bounds_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &crate::CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     domains: &DomainFacts,
 ) -> IntegerBoundsFacts {
     let eligible = calls
@@ -3034,7 +3017,7 @@ struct Bounds<'a> {
     value_reference_indices: Vec<Vec<usize>>,
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a crate::CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     domains: &'a DomainFacts,
     definitions: Option<&'a crate::DefinitionFacts>,
     instantiations: Option<&'a crate::InstantiationFacts>,
@@ -3045,7 +3028,7 @@ impl<'a> Bounds<'a> {
     fn new(
         context: &'a ModelContext,
         bindings: &'a BindingFacts,
-        calls: &'a crate::CallableFacts,
+        calls: &'a crate::callables::CallableView<'a>,
         domains: &'a DomainFacts,
         definitions: Option<&'a crate::DefinitionFacts>,
         instantiations: Option<&'a crate::InstantiationFacts>,
@@ -3942,7 +3925,7 @@ impl<'a> Bounds<'a> {
 pub(super) fn core_arithmetic(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &crate::CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     file: FileId,
     node: &SyntaxNode,
 ) -> Result<(), String> {
@@ -4066,4 +4049,54 @@ pub(super) fn shift_index_domain(d: &Domain, delta: Option<i64>) -> Domain {
         _ if delta == 0 => d.clone(),
         _ => Domain::Unsupported("offset of an opaque index set".into()),
     }
+}
+
+/// Interpret scalar integers without enabling lint. All prerequisites must come
+/// from this retained ModelContext; their declaration IDs and locations cannot
+/// be mixed with another model or a changed source.
+///
+/// Supports integer literals, aliases, parentheses/annotations, resolved core
+/// unary +/-, +, -, *, and closed div/mod, plus supported scalar unconditional
+/// definitions. Checked i64 arithmetic never wraps. Parameter defaults retain
+/// identity instead of becoming instance-invariant values; independently known
+/// parameter domains still bound arithmetic. A cycle cannot establish its own
+/// value; independent domain or definition anchors remain usable.
+///
+/// Selected typed integer calls outside the proof families retain Unknown.
+/// Float, option, array-access and control/iteration expressions are outside this
+/// integer subset. Unsupported integer expressions and unsafe
+/// definitions retain located limitations separately from facts and lint findings.
+/// Ordinary uncertainty (missing data, cycles, conditional definitions, interval
+/// division) is not an unsupported-operation finding. Sparse sets use hulls for
+/// arithmetic; no correlation reasoning, solver or symbolic algebra is performed.
+/// Callable signatures never certify a body's numeric value or definition safety.
+pub fn resolve_numeric_facts(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    instantiations: &crate::InstantiationFacts,
+    domains: &DomainFacts,
+    definitions: &crate::DefinitionFacts,
+) -> NumericFacts {
+    resolve_numeric_facts_view(
+        context,
+        bindings,
+        &calls.view(),
+        instantiations,
+        domains,
+        definitions,
+    )
+}
+
+/// Retain nonempty integer intervals independently of lint. Prerequisites must
+/// belong to this context. Numeric parameter definitions remain instance-dependent;
+/// this producer never substitutes their defaults into an invariant bound.
+/// Arithmetic uses resolved core identities, checked intervals and closed div/mod.
+pub fn resolve_integer_bounds(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    domains: &DomainFacts,
+) -> IntegerBoundsFacts {
+    resolve_integer_bounds_view(context, bindings, &calls.view(), domains)
 }

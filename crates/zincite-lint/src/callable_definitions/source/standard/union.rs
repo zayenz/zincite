@@ -139,7 +139,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         node: &SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         name: &str,
         parameters: &[TypeInst],
         result: &TypeInst,
@@ -410,7 +410,7 @@ impl<'a> SourceInspector<'a> {
             }
         }
         if self
-            .expression_type(&view, owner.file, body)
+            .expression_type(&view.view(), owner.file, body)
             .is_none_or(|e| e.ty != decision_set)
         {
             return Err(error());
@@ -436,7 +436,7 @@ impl<'a> SourceInspector<'a> {
                 if !matches!(token.as_slice(), [token] if token.kind == TokenKind::Identifier
                     && parsed.source()[token.range.clone()] == self.bindings.declarations[id.0].name)
                     || self
-                        .expression_type(&view, owner.file, node)
+                        .expression_type(&view.view(), owner.file, node)
                         .is_none_or(|e| &e.ty != ty)
                 {
                     return Err(error());
@@ -449,7 +449,7 @@ impl<'a> SourceInspector<'a> {
                     | NodeKind::GeneratorCallExpression
             ) {
                 let call = self
-                    .operation_fact(&view, owner.file, node)
+                    .operation_fact(&view.view(), owner.file, node)
                     .ok_or_else(error)?;
                 let (parameters, result) = match call.name.as_str() {
                     "lb" => (vec![decision.clone()], integer.clone()),
@@ -482,8 +482,14 @@ impl<'a> SourceInspector<'a> {
                     "forall" => (vec![array.clone()], boolean.clone()),
                     _ => return Err(error()),
                 };
-                if !self.prefix_primitive(owner.file, node, &view, &call.name, &parameters, &result)
-                {
+                if !self.prefix_primitive(
+                    owner.file,
+                    node,
+                    &view.view(),
+                    &call.name,
+                    &parameters,
+                    &result,
+                ) {
                     return Err(error());
                 }
             }
@@ -502,7 +508,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         node: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
         active: &mut Vec<DeclarationId>,
     ) -> Result<DefinitionSafety, UnavailableCallableDefinition> {
@@ -658,8 +664,8 @@ impl<'a> BodyInterpreter<'a, '_> {
                     "selected decision set union concrete formal type is unsupported".into(),
                 );
             }
-            self.type_dependencies(owner.file, written, &body_view, &[])?;
-            self.type_dependencies(owner.file, formal_node, &body_view, &[])?;
+            self.type_dependencies(owner.file, written, &body_view.view(), &[])?;
+            self.type_dependencies(owner.file, formal_node, &body_view.view(), &[])?;
             let mut nodes = vec![formal_node];
             while let Some(node) = nodes.pop() {
                 if !crate::definitions::annotations_safe(self.source.context, owner.file, node) {
@@ -683,7 +689,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             }
             let value = self
                 .source
-                .expression_type(&body_view, owner.file, body)
+                .expression_type(&body_view.view(), owner.file, body)
                 .ok_or("decision set union value body type is unavailable")?;
             if !value.ty.known()
                 || optional(&value.ty)
@@ -697,7 +703,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             while let Some(node) = nodes.pop() {
                 if let Some(CallOutcome::Resolved { declaration, .. }) = self
                     .source
-                    .operation_fact(&body_view, owner.file, node)
+                    .operation_fact(&body_view.view(), owner.file, node)
                     .map(|call| &call.outcome)
                     && active.contains(declaration)
                     && crate::definitions::core_callable(
@@ -718,7 +724,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             if conditional.kind() == NodeKind::ConditionalExpression {
                 let typed = |node: &SyntaxNode| {
                     self.source
-                        .expression_type(&body_view, owner.file, node)
+                        .expression_type(&body_view.view(), owner.file, node)
                         .map(|value| &value.ty)
                 };
                 let branches: Vec<_> = conditional.child_nodes().collect();
@@ -765,7 +771,13 @@ impl<'a> BodyInterpreter<'a, '_> {
                             };
                         }
                         if let DefinitionSafety::Unsupported(reason) = self
-                            .initialized_source_safety(owner.file, guard, &body_view, &[], active)
+                            .initialized_source_safety(
+                                owner.file,
+                                guard,
+                                &body_view.view(),
+                                &[],
+                                active,
+                            )
                         {
                             return Err(reason);
                         }
@@ -826,7 +838,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                         interpreter.initialized_source_safety(
                             owner.file,
                             branch_body,
-                            &body_view,
+                            &body_view.view(),
                             &[],
                             active,
                         )
@@ -843,9 +855,12 @@ impl<'a> BodyInterpreter<'a, '_> {
                         let parts: Vec<_> = cell.child_nodes().collect();
                         if cell.kind() == NodeKind::ArrayAccessExpression
                             && parts.len() == 2
-                            && self
-                                .source
-                                .core(owner.file, unwrap(parts[0]), &body_view, "array1d")
+                            && self.source.core(
+                                owner.file,
+                                unwrap(parts[0]),
+                                &body_view.view(),
+                                "array1d",
+                            )
                         {
                             let converted = unwrap(parts[0]);
                             let arguments: Vec<_> = converted.child_nodes().collect();
@@ -878,7 +893,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                             }
                             let conversion = self
                                 .source
-                                .operation_fact(&body_view, owner.file, converted)
+                                .operation_fact(&body_view.view(), owner.file, converted)
                                 .ok_or(
                                     "decision set singleton conversion selection is unavailable",
                                 )?;
@@ -943,7 +958,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                                     .initialized_source_safety(
                                         owner.file,
                                         source,
-                                        &body_view,
+                                        &body_view.view(),
                                         &[],
                                         active,
                                     )
@@ -957,15 +972,17 @@ impl<'a> BodyInterpreter<'a, '_> {
                                     return Err(reason);
                                 }
                             }
-                            if !self
-                                .source
-                                .array_nonempty_branch(owner.file, cell, formal, &body_view)
-                                || crate::domains::invariant_expression_integer(
-                                    self.source.context,
-                                    self.source.bindings,
-                                    owner.file,
-                                    selector,
-                                ) != Ok(Some(1))
+                            if !self.source.array_nonempty_branch(
+                                owner.file,
+                                cell,
+                                formal,
+                                &body_view.view(),
+                            ) || crate::domains::invariant_expression_integer(
+                                self.source.context,
+                                self.source.bindings,
+                                owner.file,
+                                selector,
+                            ) != Ok(Some(1))
                             {
                                 return Err("decision set singleton lacks its same-array nonempty branch or first selector".into());
                             }
@@ -974,7 +991,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                             )
                         } else if cell.kind() == NodeKind::LetExpression {
                             self.selected_union_body_source_safety(
-                                (owner.file, branch_body, &body_view),
+                                (owner.file, branch_body, &body_view.view()),
                                 &[formal],
                                 active,
                                 &mut location,
@@ -986,7 +1003,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                             self.initialized_source_safety(
                                 owner.file,
                                 branch_body,
-                                &body_view,
+                                &body_view.view(),
                                 &[],
                                 active,
                             )
@@ -1006,7 +1023,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             }
             if let Some(arguments) =
                 self.source
-                    .assertion_arguments(owner.file, unwrap(body), &body_view)
+                    .assertion_arguments(owner.file, unwrap(body), &body_view.view())
                 && arguments.len() == 3
                 && self
                     .source
@@ -1016,7 +1033,8 @@ impl<'a> BodyInterpreter<'a, '_> {
                 let assertion = self
                     .source
                     .operation_fact(
-                        self.source.view(owner.file, unwrap(body), &body_view),
+                        self.source
+                            .view(owner.file, unwrap(body), &body_view.view()),
                         owner.file,
                         unwrap(body),
                     )
@@ -1042,7 +1060,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                     let ty = self
                         .source
                         .expression_type(
-                            self.source.view(*file, argument, &body_view),
+                            self.source.view(*file, argument, &body_view.view()),
                             *file,
                             argument,
                         )
@@ -1064,9 +1082,13 @@ impl<'a> BodyInterpreter<'a, '_> {
                     {
                         return Err("selected value assertion argument type is unsupported".into());
                     }
-                    if let DefinitionSafety::Unsupported(reason) =
-                        self.initialized_source_safety(*file, argument, &body_view, &[], active)
-                    {
+                    if let DefinitionSafety::Unsupported(reason) = self.initialized_source_safety(
+                        *file,
+                        argument,
+                        &body_view.view(),
+                        &[],
+                        active,
+                    ) {
                         return Err(reason);
                     }
                     if let Some(reason) = self
@@ -1079,7 +1101,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                 return Err("false assertion condition aborts evaluation".into());
             }
             if let DefinitionSafety::Unsupported(reason) =
-                self.initialized_source_safety(owner.file, body, &body_view, &[], active)
+                self.initialized_source_safety(owner.file, body, &body_view.view(), &[], active)
             {
                 return Err(reason);
             }
@@ -1101,7 +1123,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     // they carry neither a known value nor a definition/output guarantee.
     pub(in crate::callable_definitions) fn selected_union_body_source_safety(
         &self,
-        source: (FileId, &'a SyntaxNode, &CallableFacts),
+        source: (FileId, &'a SyntaxNode, &crate::callables::CallableView<'_>),
         visible: &[DeclarationId],
         active: &mut Vec<DeclarationId>,
         location: &mut SourceLocation,
@@ -1812,7 +1834,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         node: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         active: &mut Vec<DeclarationId>,
     ) -> Result<(), UnavailableCallableDefinition> {
         let mut location = self.source.context.files[file].location(node.range());
@@ -1923,7 +1945,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                 {
                     return Err("selected union predicate formal/default is unsupported".into());
                 }
-                self.type_dependencies(owner.file, written_formal, &body_view, &[])?;
+                self.type_dependencies(owner.file, written_formal, &body_view.view(), &[])?;
                 let mut nodes = vec![written_formal];
                 while let Some(node) = nodes.pop() {
                     if !crate::definitions::annotations_safe(self.source.context, owner.file, node)
@@ -1944,7 +1966,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             }
             let value = self
                 .source
-                .expression_type(&body_view, owner.file, body)
+                .expression_type(&body_view.view(), owner.file, body)
                 .ok_or("selected union predicate body type is unavailable")?;
             if !value.ty.known()
                 || optional(&value.ty)
@@ -1958,7 +1980,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             while let Some(node) = nodes.pop() {
                 if let Some(CallOutcome::Resolved { declaration, .. }) = self
                     .source
-                    .operation_fact(&body_view, owner.file, node)
+                    .operation_fact(&body_view.view(), owner.file, node)
                     .map(|call| &call.outcome)
                     && active.contains(declaration)
                     && (crate::definitions::core_callable(
@@ -1974,7 +1996,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             }
             if let Some(arguments) =
                 self.source
-                    .assertion_arguments(owner.file, unwrap(body), &body_view)
+                    .assertion_arguments(owner.file, unwrap(body), &body_view.view())
                 && arguments.len() == 3
                 && self
                     .source
@@ -1987,7 +2009,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                     ..
                 } = &self
                     .source
-                    .operation_fact(&body_view, owner.file, unwrap(body))
+                    .operation_fact(&body_view.view(), owner.file, unwrap(body))
                     .ok_or("selected union predicate assertion selection is unavailable")?
                     .outcome
                 else {
@@ -2005,7 +2027,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                 for (position, (file, argument)) in arguments.iter().enumerate() {
                     let actual = self
                         .source
-                        .expression_type(&body_view, *file, argument)
+                        .expression_type(&body_view.view(), *file, argument)
                         .ok_or("selected union predicate assertion actual type is unavailable")?;
                     if !actual.ty.known()
                         || optional(&actual.ty)
@@ -2027,7 +2049,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                         );
                     }
                     self.selected_union_body_source_safety(
-                        (*file, argument, &body_view),
+                        (*file, argument, &body_view.view()),
                         &formals,
                         active,
                         &mut location,
@@ -2036,7 +2058,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                 return Err("false assertion condition aborts evaluation".into());
             }
             self.selected_union_body_source_safety(
-                (owner.file, body, &body_view),
+                (owner.file, body, &body_view.view()),
                 &formals,
                 active,
                 &mut location,
@@ -2120,7 +2142,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         let parameter_set = parameters[0].clone().with_inst(Instantiation::Parameter);
         let typed = |node: &SyntaxNode| {
             self.source
-                .expression_type(&view, owner.file, node)
+                .expression_type(&view.view(), owner.file, node)
                 .map(|e| &e.ty)
         };
         let reference = |node: &SyntaxNode| {
@@ -2136,18 +2158,18 @@ impl<'a> BodyInterpreter<'a, '_> {
         {
             return Err(error());
         }
-        self.type_dependencies(owner.file, written, &view, &[])?;
+        self.type_dependencies(owner.file, written, &view.view(), &[])?;
         let formal_node = find_node(
             self.source.context.files[owner.file].parsed.tree(),
             &self.source.bindings.declarations[formal.0].syntax_range,
             DeclarationRole::Parameter,
         )
         .ok_or_else(error)?;
-        self.type_dependencies(owner.file, formal_node, &view, &[])?;
+        self.type_dependencies(owner.file, formal_node, &view.view(), &[])?;
         let mut nodes = vec![*body];
         while let Some(node) = nodes.pop() {
             if node.kind() == NodeKind::Error || !self.source.source_annotations_safe(owner.file, node)
-                || self.source.operation_fact(&view, owner.file, node).is_some_and(|call|
+                || self.source.operation_fact(&view.view(), owner.file, node).is_some_and(|call|
                     matches!(call.outcome, CallOutcome::Resolved { declaration, .. } if declaration == id))
             {
                 return Err(error());
@@ -2203,7 +2225,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             || !self.source.prefix_primitive(
                 owner.file,
                 range,
-                &view,
+                &view.view(),
                 "..",
                 &[integer.clone(), integer.clone()],
                 &integer_set,
@@ -2256,7 +2278,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                 || !self.source.prefix_primitive(
                     owner.file,
                     node,
-                    &view,
+                    &view.view(),
                     name,
                     std::slice::from_ref(expected),
                     output,
@@ -2285,7 +2307,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             || !self.source.prefix_primitive(
                 owner.file,
                 convert,
-                &view,
+                &view.view(),
                 "enum2int",
                 parameters,
                 &decision_integer_set,
@@ -2298,7 +2320,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         }
         let call = self
             .source
-            .operation_fact(&view, owner.file, cardinality)
+            .operation_fact(&view.view(), owner.file, cardinality)
             .ok_or_else(error)?;
         let CallOutcome::Resolved {
             declaration,

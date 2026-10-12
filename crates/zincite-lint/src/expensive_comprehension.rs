@@ -3,11 +3,11 @@ use crate::callables::core_operation;
 use crate::definitions::{annotations_safe, resolved_reference};
 use crate::guarded::{evaluate_iteration_prefix, node_at};
 use crate::{
-    BindingFacts, CallableFacts, CandidateCount, DeclarationId, DomainFacts, FileFinding, FileId,
-    GuardActivation, GuardAssumptionKind, GuardObligation, GuardObligationKind, GuardedExpression,
-    GuardedFacts, GuardedOutcome, Instantiation, InstantiationFacts, IterationExpression,
-    IterationFact, IterationFacts, ModelContext, NumericFacts, OptionalFacts, Rule, Severity,
-    SourceDiagnostic, SourceLocation, TypeKind,
+    BindingFacts, CandidateCount, DeclarationId, DomainFacts, FileFinding, FileId, GuardActivation,
+    GuardAssumptionKind, GuardObligation, GuardObligationKind, GuardedExpression, GuardedFacts,
+    GuardedOutcome, Instantiation, InstantiationFacts, IterationExpression, IterationFact,
+    IterationFacts, ModelContext, NumericFacts, OptionalFacts, Rule, Severity, SourceDiagnostic,
+    SourceLocation, TypeKind,
 };
 use std::collections::BTreeSet;
 use std::num::NonZeroU64;
@@ -43,18 +43,11 @@ pub struct ComprehensionStructureFact {
     pub candidates: CandidateCount,
     pub placements: Vec<IterationPlacement>,
 }
-/// Call with the same-model prerequisites, in numeric→optional→guarded→iteration
-/// order. No lint runs. Counts retain written slot multiplicity and symbolic
-/// factors; threshold policy does not change them. Whole par filters and nested
-/// resolved core aggregates have a separate bounded prefix-safety check, using
-/// the existing guarded interpreter for that candidate only. Unknown data does
-/// not prove repetition or safe movement; effects, assertions and semantic
-/// annotations are excluded. No solver, compiler enumeration or edit is used.
 #[allow(clippy::too_many_arguments)]
-pub fn resolve_comprehension_structure(
+pub(crate) fn resolve_comprehension_structure_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
     numeric: &NumericFacts,
@@ -114,7 +107,7 @@ pub fn resolve_comprehension_structure(
                 placements.push(p);
             }
         }
-        for e in &i.expressions {
+        for e in i.expressions.iter() {
             if !contains(&i.body, &e.location)
                 || placed.contains(&(i.file, e.location.range.start, e.location.range.end))
             {
@@ -186,7 +179,7 @@ pub fn resolve_comprehension_structure(
 struct Producer<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     numeric: &'a NumericFacts,
@@ -620,4 +613,36 @@ fn finding(location: &SourceLocation, severity: Severity, message: String) -> Fi
             "{message}; the compiler may already optimize this structure; this is not a measured enumeration, runtime or speedup claim and supplies no source edit"
         ),
     }
+}
+
+/// Call with the same-model prerequisites, in numeric→optional→guarded→iteration
+/// order. No lint runs. Counts retain written slot multiplicity and symbolic
+/// factors; threshold policy does not change them. Whole par filters and nested
+/// resolved core aggregates have a separate bounded prefix-safety check, using
+/// the existing guarded interpreter for that candidate only. Unknown data does
+/// not prove repetition or safe movement; effects, assertions and semantic
+/// annotations are excluded. No solver, compiler enumeration or edit is used.
+#[allow(clippy::too_many_arguments)]
+pub fn resolve_comprehension_structure(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    instantiations: &InstantiationFacts,
+    domains: &DomainFacts,
+    numeric: &NumericFacts,
+    optional: &OptionalFacts,
+    guarded: &GuardedFacts,
+    iteration: &IterationFacts,
+) -> Vec<ComprehensionStructureFact> {
+    resolve_comprehension_structure_view(
+        context,
+        bindings,
+        &calls.view(),
+        instantiations,
+        domains,
+        numeric,
+        optional,
+        guarded,
+        iteration,
+    )
 }

@@ -4,16 +4,16 @@ use crate::callables::{core_operation, is_expression};
 use crate::definitions::resolved_reference;
 use crate::domains::tokens;
 use crate::{
-    BindingFacts, CallableFacts, FileFinding, FileId, GuardActivation, GuardAssumptionKind,
-    GuardContext, GuardObligationKind, GuardedFacts, GuardedOutcome, IterationCoverage,
-    IterationFacts, ModelContext, OptionalFacts, Rule, Severity, SourceDiagnostic, SourceLocation,
+    BindingFacts, FileFinding, FileId, GuardActivation, GuardAssumptionKind, GuardContext,
+    GuardObligationKind, GuardedFacts, GuardedOutcome, IterationCoverage, IterationFacts,
+    ModelContext, OptionalFacts, Rule, Severity, SourceDiagnostic, SourceLocation,
 };
 use zincite_syntax::{NodeKind, SyntaxNode};
 
 pub(super) fn check_vacuous_constraints(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     guarded: &GuardedFacts,
     optional: &OptionalFacts,
     iteration: &IterationFacts,

@@ -7,7 +7,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         generators: &[&SyntaxNode],
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Result<(), String> {
         for generator in generators {
             if generator.child_nodes().any(|n|n.kind()==NodeKind::WhereFilter) || !generator.children().iter().any(|c|matches!(c,SyntaxElement::Token(i) if self.context.files[file].parsed.tokens()[*i].kind==TokenKind::In)){return Err("filtered or assigned iteration does not establish a whole output".into());}
@@ -38,7 +38,7 @@ impl<'a> SourceInspector<'a> {
         array: DeclarationId,
         index: &SyntaxNode,
         generators: &[&SyntaxNode],
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> bool {
         let index = unwrap(index);
         if index.kind() != NodeKind::Expression {
@@ -63,7 +63,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         node: &SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Option<DeclarationId> {
         let node = unwrap(node);
         let facts = self.view(file, node, view);
@@ -114,7 +114,7 @@ impl<'a> SourceInspector<'a> {
         array: DeclarationId,
         index: &SyntaxNode,
         generators: &[&SyntaxNode],
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> bool {
         generators.len() == 1
             && self.iterations(file, generators, view).is_ok()
@@ -126,7 +126,7 @@ impl<'a> SourceInspector<'a> {
         array: DeclarationId,
         axis: usize,
         selector: &SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> bool {
         let selector = unwrap(selector);
         let range = self.context.files[file].location(selector.range()).range;
@@ -245,7 +245,7 @@ impl<'a> SourceInspector<'a> {
         &self,
         file: FileId,
         node: &SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Result<Vec<DeclarationId>, String> {
         let node = unwrap(node);
         let range = self.context.files[file].location(node.range()).range;
@@ -272,7 +272,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         file: FileId,
         generators: &[&'a SyntaxNode],
         first_new: usize,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         decision_arrays: bool,
     ) -> Result<(), String> {
         // Nested collections retain outer binders without re-evaluating their headers.
@@ -340,7 +340,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         assertion: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> Option<[DeclarationId; 2]> {
         let owner = self.source.bindings.declarations.iter().find(|d| {
             d.file == file
@@ -458,7 +458,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         array: DeclarationId,
         index: &'a SyntaxNode,
         generators: &[&'a SyntaxNode],
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> bool {
         let index = unwrap(index);
         let Some(binder) = self
@@ -508,7 +508,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         array: DeclarationId,
         index: &'a SyntaxNode,
         generators: &[&'a SyntaxNode],
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> bool {
         let index = unwrap(index);
         let operands: Vec<_> = index.child_nodes().map(unwrap).collect();
@@ -675,7 +675,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         array: DeclarationId,
         indices: &[&'a SyntaxNode],
         generators: &[&'a SyntaxNode],
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> bool {
         let array_type = &view.declarations[array.0].ty;
         let TypeKind::Array { indices: types, .. } = &array_type.kind else {
@@ -1006,7 +1006,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         declaration: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Result<Vec<DeclarationId>, String> {
         let mut types = vec![
@@ -1035,7 +1035,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         file: FileId,
         array: DeclarationId,
         indices: &[&'a SyntaxNode],
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> bool {
         let selector = unwrap(indices[2]);
@@ -1086,7 +1086,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         file: FileId,
         access: &SyntaxNode,
         array: DeclarationId,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
     ) -> bool {
         let children: Vec<_> = access.child_nodes().collect();
         let [subject, index] = children.as_slice() else {
@@ -1192,7 +1192,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         node: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Result<Vec<DeclarationId>, String> {
         let written = node;
@@ -1263,7 +1263,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         node: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Result<Vec<DeclarationId>, String> {
         if let Ok(ids) = self.dependencies(file, node, view, generators) {
@@ -1362,7 +1362,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         node: &'a SyntaxNode,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Result<Vec<DeclarationId>, String> {
         let node = unwrap(node);
@@ -1504,7 +1504,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &self,
         file: FileId,
         children: &[&'a SyntaxNode],
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Result<Vec<DeclarationId>, String> {
         let mut ids = Vec::new();

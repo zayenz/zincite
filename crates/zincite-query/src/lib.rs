@@ -411,6 +411,21 @@ impl Query {
         self.evaluate_with_model(input, None, limits)
     }
 
+    /// Evaluate against reusable root-local facts. The returned semantic result
+    /// retains the owner; each evaluation still charges its own scan and output.
+    pub fn evaluate_with_facts<'a>(
+        &self,
+        input: &'a Input,
+        facts: std::rc::Rc<zincite_lint::ModelFacts<'a>>,
+        limits: Limits,
+    ) -> Result<QueryResult<'a>, QueryError> {
+        if self.stages.iter().any(semantic::requests_facts) {
+            semantic::evaluate_with_facts(self, input, facts, limits)
+        } else {
+            self.evaluate_with_model(input, Some(facts.model()), limits)
+        }
+    }
+
     /// Semantic inspection borrows the supplied model and requires exact root bytes.
     /// Enum reduction keeps its separate optional data/model interpretation contract.
     pub fn evaluate_with_model<'a>(

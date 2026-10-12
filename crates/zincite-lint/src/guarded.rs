@@ -11,7 +11,7 @@ use crate::domains::{
     invariant_integer, resolved_index_domain, same_members, shift_index_domain, tokens,
 };
 use crate::{
-    BindingFacts, BindingResolution, CallOutcome, CallableFacts, Cardinality, DeclarationId,
+    BindingFacts, BindingResolution, CallOutcome, Cardinality, DeclarationId,
     DefinitionEnforcement, Domain, DomainFacts, FileId, Instantiation, InstantiationFacts,
     ModelContext, NumericFacts, NumericOutcome, OptionalFacts, Presence, SourceLocation, TypeKind,
 };
@@ -169,35 +169,10 @@ impl GuardedFacts {
     }
 }
 
-/// Interpret actual branch/filter/enforced contexts without enabling a lint.
-/// All prerequisites must belong to this retained ModelContext. Parameter data
-/// and defaults are never substituted; source/declaration identity is retained.
-///
-/// Follows MiniZinc 2.10.1 [relational partiality](https://docs.minizinc.dev/en/2.10.1/modelling2.html#partiality-and-relational-semantics)
-/// and [conditional/call semantics](https://docs.minizinc.dev/en/2.10.1/spec.html#if-then-else-expressions).
-/// Boolean operands are strict; implication/disjunction/negation do not enforce
-/// their operands. Undefined numeric values become false at their nearest
-/// Boolean expression, while raw obligations remain visible. Parameter if is
-/// lazy; var-if links definedness to the selected branch. Assert has a lazy
-/// third argument and an aborting condition obligation, not relational false.
-///
-/// Supports core integer arithmetic/comparisons, membership, Boolean operators,
-/// if/elseif/else, generator membership/filters, core forall and transparent
-/// Boolean forwarding, scalar and written closed-range array-index dimensions,
-/// div/mod, assertions and directly known nonoptional min/max/sum/product emptiness.
-/// Index obligations also expose resolved enum types and scoped generator
-/// membership shifted by a checked constant, narrowed by supported closed
-/// membership/comparison guards. Exact membership differs from a numeric hull.
-/// No option presence, general cardinality, arbitrary function bodies or solver
-/// reasoning is added.
-/// Selected typed opaque calls retain Unknown and a possible abort barrier.
-/// Unresolved/user operators, unsupported controls and unavailable types retain
-/// located limitations. These facts issue no warnings or edits and cannot
-/// certify definition safety or safe rewrites.
-pub fn resolve_guarded_facts(
+pub(crate) fn resolve_guarded_facts_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
     numeric: &NumericFacts,
@@ -213,21 +188,10 @@ pub fn resolve_guarded_facts(
     )
 }
 
-/// Apply actual guards to the same-context OptionalFacts prerequisite. Call
-/// bindings/callables/instantiations/domains/definitions/numeric first, then
-/// resolve_optional_facts, then this entry. The original entry remains useful
-/// without option facts and retains its existing subset.
-///
-/// Supports resolved core occurs/absent/deopt, scalar default (absence and
-/// undefinedness capture), integer optional +/* absence identities, and present
-/// counts for min/max/sum/product/forall/exists. Other optional operators and
-/// arbitrary callable bodies remain located limitations. A deopt obligation
-/// retains its invariant outcome even in a locally proven or inactive branch.
-/// Presence always means presence when defined; it is not a totality proof.
-pub fn resolve_guarded_facts_with_options(
+pub(crate) fn resolve_guarded_facts_with_options_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
     numeric: &NumericFacts,
@@ -251,7 +215,7 @@ pub fn resolve_guarded_facts_with_options(
 pub(crate) fn evaluate_iteration_prefix(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
     numeric: &NumericFacts,
@@ -342,7 +306,7 @@ fn retained_scope<'a>(
 pub(crate) fn prospective_index_membership(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
     numeric: &NumericFacts,
@@ -407,7 +371,7 @@ fn contains_range(outer: &std::ops::Range<usize>, inner: &std::ops::Range<usize>
 fn interpret<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     numeric: &'a NumericFacts,
@@ -554,7 +518,7 @@ impl Evaluation {
 struct Producer<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     numeric: &'a NumericFacts,
@@ -4150,4 +4114,78 @@ fn comparison_index_domain(operator: TokenKind, n: i64, expected: bool) -> Optio
         lower: crate::NumericBound::Integer(l),
         upper: crate::NumericBound::Integer(u),
     })
+}
+
+/// Interpret actual branch/filter/enforced contexts without enabling a lint.
+/// All prerequisites must belong to this retained ModelContext. Parameter data
+/// and defaults are never substituted; source/declaration identity is retained.
+///
+/// Follows MiniZinc 2.10.1 [relational partiality](https://docs.minizinc.dev/en/2.10.1/modelling2.html#partiality-and-relational-semantics)
+/// and [conditional/call semantics](https://docs.minizinc.dev/en/2.10.1/spec.html#if-then-else-expressions).
+/// Boolean operands are strict; implication/disjunction/negation do not enforce
+/// their operands. Undefined numeric values become false at their nearest
+/// Boolean expression, while raw obligations remain visible. Parameter if is
+/// lazy; var-if links definedness to the selected branch. Assert has a lazy
+/// third argument and an aborting condition obligation, not relational false.
+///
+/// Supports core integer arithmetic/comparisons, membership, Boolean operators,
+/// if/elseif/else, generator membership/filters, core forall and transparent
+/// Boolean forwarding, scalar and written closed-range array-index dimensions,
+/// div/mod, assertions and directly known nonoptional min/max/sum/product emptiness.
+/// Index obligations also expose resolved enum types and scoped generator
+/// membership shifted by a checked constant, narrowed by supported closed
+/// membership/comparison guards. Exact membership differs from a numeric hull.
+/// No option presence, general cardinality, arbitrary function bodies or solver
+/// reasoning is added.
+/// Selected typed opaque calls retain Unknown and a possible abort barrier.
+/// Unresolved/user operators, unsupported controls and unavailable types retain
+/// located limitations. These facts issue no warnings or edits and cannot
+/// certify definition safety or safe rewrites.
+pub fn resolve_guarded_facts(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    instantiations: &InstantiationFacts,
+    domains: &DomainFacts,
+    numeric: &NumericFacts,
+) -> GuardedFacts {
+    resolve_guarded_facts_view(
+        context,
+        bindings,
+        &calls.view(),
+        instantiations,
+        domains,
+        numeric,
+    )
+}
+
+/// Apply actual guards to the same-context OptionalFacts prerequisite. Call
+/// bindings/callables/instantiations/domains/definitions/numeric first, then
+/// resolve_optional_facts, then this entry. The original entry remains useful
+/// without option facts and retains its existing subset.
+///
+/// Supports resolved core occurs/absent/deopt, scalar default (absence and
+/// undefinedness capture), integer optional +/* absence identities, and present
+/// counts for min/max/sum/product/forall/exists. Other optional operators and
+/// arbitrary callable bodies remain located limitations. A deopt obligation
+/// retains its invariant outcome even in a locally proven or inactive branch.
+/// Presence always means presence when defined; it is not a totality proof.
+pub fn resolve_guarded_facts_with_options(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    instantiations: &InstantiationFacts,
+    domains: &DomainFacts,
+    numeric: &NumericFacts,
+    options: &OptionalFacts,
+) -> GuardedFacts {
+    resolve_guarded_facts_with_options_view(
+        context,
+        bindings,
+        &calls.view(),
+        instantiations,
+        domains,
+        numeric,
+        options,
+    )
 }

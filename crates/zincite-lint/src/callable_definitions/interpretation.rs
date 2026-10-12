@@ -7,7 +7,7 @@ mod outputs;
 pub(super) struct CheckedSourceGraph<'a, 's> {
     pub(super) file: FileId,
     pub(super) node: &'a SyntaxNode,
-    pub(super) view: &'s CallableFacts,
+    pub(super) view: &'s crate::callables::CallableView<'s>,
     pub(super) contributions: &'s [(&'a SyntaxNode, DefinitionSafety)],
 }
 
@@ -119,7 +119,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn interpret(
         &self,
         clause: &Clause<'a>,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         known: &[CallableOutput],
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
@@ -137,7 +137,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn interpret_root(
         &self,
         clause: &Clause<'a>,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         known: &[CallableOutput],
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
@@ -175,7 +175,11 @@ impl<'a> BodyInterpreter<'a, '_> {
     }
     pub(in crate::callable_definitions) fn interpret_forwarded<'b>(
         &'b self,
-        inputs: (&Clause<'a>, &'b CallableFacts, &[CallableOutput]),
+        inputs: (
+            &Clause<'a>,
+            &crate::callables::CallableView<'b>,
+            &[CallableOutput],
+        ),
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
         inspected: &mut Vec<DeclarationId>,
@@ -392,7 +396,11 @@ impl<'a> BodyInterpreter<'a, '_> {
     }
     pub(in crate::callable_definitions) fn interpret_body<'b>(
         &'b self,
-        inputs: (&Clause<'a>, &'b CallableFacts, &[CallableOutput]),
+        inputs: (
+            &Clause<'a>,
+            &crate::callables::CallableView<'b>,
+            &[CallableOutput],
+        ),
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
         inspected: &mut Vec<DeclarationId>,

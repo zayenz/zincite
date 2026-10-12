@@ -1,9 +1,9 @@
 //! Compact conditional candidates and diagnostic policy over existing facts.
 use crate::domains::expression_integer;
 use crate::{
-    BindingFacts, CallableFacts, DefinitionSafety, FileFinding, FileId, Instantiation,
-    InstantiationFacts, ModelContext, Rule, Severity, SourceDiagnostic, SourceLocation, TypeKind,
-    expression_safety,
+    BindingFacts, DefinitionSafety, FileFinding, FileId, Instantiation, InstantiationFacts,
+    ModelContext, Rule, Severity, SourceDiagnostic, SourceLocation, TypeKind,
+    expression_safety_view,
 };
 use zincite_syntax::{NodeKind, SyntaxNode};
 
@@ -26,15 +26,10 @@ pub struct CompactIfFacts {
     pub conditionals: Vec<CompactIfFact>,
 }
 
-/// Interpret two-branch conditionals in readable user/explicit sources without
-/// enabling a rule or editing source.
-/// All prerequisite facts must belong to this same retained ModelContext.
-/// Eligibility requires a decision Boolean guard, nonoptional integer branches,
-/// a proved zero branch and supported safety for both the guard and branch values.
-pub fn resolve_compact_ifs(
+pub(crate) fn resolve_compact_ifs_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &InstantiationFacts,
 ) -> CompactIfFacts {
     let mut facts = CompactIfFacts::default();
@@ -57,7 +52,7 @@ pub fn resolve_compact_ifs(
 struct Interpreter<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
 }
 impl Interpreter<'_> {
@@ -144,7 +139,8 @@ impl Interpreter<'_> {
             return NotApplicable;
         }
         for expression in [condition, then, other] {
-            match expression_safety(self.context, self.bindings, self.calls, file, expression) {
+            match expression_safety_view(self.context, self.bindings, self.calls, file, expression)
+            {
                 DefinitionSafety::Supported => {}
                 DefinitionSafety::Unknown(reason) => return Unknown(reason),
                 DefinitionSafety::Unsupported(reason) => return Unsupported(reason),
@@ -195,4 +191,18 @@ pub(super) fn check_compact_ifs(context: &ModelContext, facts: &CompactIfFacts) 
         }
     }
     result
+}
+
+/// Interpret two-branch conditionals in readable user/explicit sources without
+/// enabling a rule or editing source.
+/// All prerequisite facts must belong to this same retained ModelContext.
+/// Eligibility requires a decision Boolean guard, nonoptional integer branches,
+/// a proved zero branch and supported safety for both the guard and branch values.
+pub fn resolve_compact_ifs(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    instantiations: &InstantiationFacts,
+) -> CompactIfFacts {
+    resolve_compact_ifs_view(context, bindings, &calls.view(), instantiations)
 }

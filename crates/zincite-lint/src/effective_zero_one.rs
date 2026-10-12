@@ -3,10 +3,10 @@ use crate::callables::{core_operation_outcome, operation_head_start};
 use crate::definitions::complete_array_coverage;
 use crate::value_safety::{optional, traversal_expression_safety};
 use crate::{
-    BindingFacts, BindingResolution, CallableFacts, DeclarationId, DefinitionCoverage,
-    DefinitionSafety, DomainFacts, FileFinding, FileId, InstantiationFacts, IntegerBoundsFacts,
-    IntegerBoundsOutcome, ModelContext, Rule, Severity, SourceDiagnostic, SourceLocation, TypeKind,
-    expression_safety,
+    BindingFacts, BindingResolution, DeclarationId, DefinitionCoverage, DefinitionSafety,
+    DomainFacts, FileFinding, FileId, InstantiationFacts, IntegerBoundsFacts, IntegerBoundsOutcome,
+    ModelContext, Rule, Severity, SourceDiagnostic, SourceLocation, TypeKind,
+    expression_safety_view,
 };
 use std::collections::HashMap;
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
@@ -36,14 +36,10 @@ pub struct EffectiveZeroOneFacts {
     pub expressions: Vec<EffectiveZeroOneFact>,
 }
 
-/// Interpret both same-bit implication polarities and whole-array equality sums
-/// without enabling lint or rewriting source. All prerequisites belong to context.
-/// Bounds/constants must hold independently of parameter defaults. A complete
-/// unfiltered traversal supplies membership only for its exact array access.
-pub fn resolve_effective_zero_one(
+pub(crate) fn resolve_effective_zero_one_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
     bounds: &IntegerBoundsFacts,
@@ -77,7 +73,7 @@ pub fn resolve_effective_zero_one(
 struct Interpreter<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     bounds: &'a IntegerBoundsFacts,
@@ -288,7 +284,7 @@ impl Interpreter<'_> {
             }
         }
         for value in [left, right, lc, rc] {
-            match expression_safety(self.context, self.bindings, self.calls, file, value) {
+            match expression_safety_view(self.context, self.bindings, self.calls, file, value) {
                 DefinitionSafety::Supported => {}
                 DefinitionSafety::Unknown(r) => return (Some(lbit), Unknown(r)),
                 DefinitionSafety::Unsupported(r) => return (Some(lbit), Unsupported(r)),
@@ -512,4 +508,26 @@ pub(super) fn check_effective_zero_one(
         }
     }
     result
+}
+
+/// Interpret both same-bit implication polarities and whole-array equality sums
+/// without enabling lint or rewriting source. All prerequisites belong to context.
+/// Bounds/constants must hold independently of parameter defaults. A complete
+/// unfiltered traversal supplies membership only for its exact array access.
+pub fn resolve_effective_zero_one(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    instantiations: &InstantiationFacts,
+    domains: &DomainFacts,
+    bounds: &IntegerBoundsFacts,
+) -> EffectiveZeroOneFacts {
+    resolve_effective_zero_one_view(
+        context,
+        bindings,
+        &calls.view(),
+        instantiations,
+        domains,
+        bounds,
+    )
 }

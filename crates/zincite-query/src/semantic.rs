@@ -1,13 +1,13 @@
 //! Read-only navigation over the existing public model facts.
 use std::collections::HashSet;
 use std::ops::Range;
+use std::rc::Rc;
 
 use serde_json::{Value, json};
 use zincite_lint::{
     BindingFacts, BindingResolution, CallOutcome, CallableFacts, DeclarationId, FileId,
-    Instantiation, InstantiationFacts, ModelContext, ReferenceKind, SourceDiagnostic, SourceKind,
-    SourceLocation, TypeInst, TypeKind, resolve_bindings, resolve_instantiations,
-    resolve_source_callable_body, resolve_source_callables,
+    Instantiation, InstantiationFacts, ModelContext, ModelFacts, ReferenceKind, SourceDiagnostic,
+    SourceKind, SourceLocation, TypeInst, TypeKind,
 };
 use zincite_syntax::{FileMode, SyntaxNode};
 
@@ -63,9 +63,11 @@ pub enum SemanticStream<'a> {
 #[derive(Debug)]
 pub struct SemanticResult<'a> {
     model: &'a ModelContext,
-    bindings: Option<BindingFacts>,
-    callables: Option<CallableFacts>,
-    instantiations: Option<InstantiationFacts>,
+    facts: Rc<ModelFacts<'a>>,
+    bindings_requested: bool,
+    callables_requested: bool,
+    instantiations_requested: bool,
+    body_callables: Option<CallableFacts>,
     stream: SemanticStream<'a>,
     limitations: Vec<SourceDiagnostic>,
     json: bool,
@@ -76,13 +78,18 @@ impl<'a> SemanticResult<'a> {
         self.model
     }
     pub fn bindings(&self) -> Option<&BindingFacts> {
-        self.bindings.as_ref()
+        self.bindings_requested.then(|| self.facts.bindings())
     }
     pub fn callables(&self) -> Option<&CallableFacts> {
-        self.callables.as_ref()
+        self.callables_requested.then(|| {
+            self.body_callables
+                .as_ref()
+                .unwrap_or_else(|| self.facts.source_callables())
+        })
     }
     pub fn instantiation_facts(&self) -> Option<&InstantiationFacts> {
-        self.instantiations.as_ref()
+        self.instantiations_requested
+            .then(|| self.facts.instantiations())
     }
     pub fn stream(&self) -> &SemanticStream<'a> {
         &self.stream
@@ -98,26 +105,22 @@ impl<'a> SemanticResult<'a> {
     pub fn location(&self, entity: SemanticEntity) -> &SourceLocation {
         match entity {
             SemanticEntity::Declaration(id) => {
-                &self.bindings.as_ref().unwrap().declarations[id.0].location
+                &self.bindings().unwrap().declarations[id.0].location
             }
-            SemanticEntity::Reference(id) => {
-                &self.bindings.as_ref().unwrap().references[id].location
-            }
+            SemanticEntity::Reference(id) => &self.bindings().unwrap().references[id].location,
         }
     }
     pub fn file(&self, entity: SemanticEntity) -> FileId {
         match entity {
-            SemanticEntity::Declaration(id) => {
-                self.bindings.as_ref().unwrap().declarations[id.0].file
-            }
-            SemanticEntity::Reference(id) => self.bindings.as_ref().unwrap().references[id].file,
+            SemanticEntity::Declaration(id) => self.bindings().unwrap().declarations[id.0].file,
+            SemanticEntity::Reference(id) => self.bindings().unwrap().references[id].file,
         }
     }
     /// Source of a declaration's owning node, or an exact written reference token.
     pub fn source_bytes(&self, entity: SemanticEntity) -> &[u8] {
         let file = &self.model.files[self.file(entity)];
         let range = match entity {
-            SemanticEntity::Declaration(id) => self.bindings.as_ref().unwrap().declarations[id.0]
+            SemanticEntity::Declaration(id) => self.bindings().unwrap().declarations[id.0]
                 .syntax_range
                 .clone(),
             SemanticEntity::Reference(_) => {
@@ -129,10 +132,8 @@ impl<'a> SemanticResult<'a> {
     }
     fn name(&self, entity: SemanticEntity) -> &str {
         match entity {
-            SemanticEntity::Declaration(id) => {
-                &self.bindings.as_ref().unwrap().declarations[id.0].name
-            }
-            SemanticEntity::Reference(id) => &self.bindings.as_ref().unwrap().references[id].name,
+            SemanticEntity::Declaration(id) => &self.bindings().unwrap().declarations[id.0].name,
+            SemanticEntity::Reference(id) => &self.bindings().unwrap().references[id].name,
         }
     }
     fn subject_location(&self, subject: &SemanticSubject<'_>) -> SourceLocation {
@@ -231,7 +232,7 @@ impl<'a> SemanticResult<'a> {
                 value["name"] = json!(self.name(*entity));
                 match entity {
                     SemanticEntity::Declaration(id) => {
-                        let declaration = &self.bindings.as_ref().unwrap().declarations[id.0];
+                        let declaration = &self.bindings().unwrap().declarations[id.0];
                         value["kind"] = json!("declaration");
                         value["declaration_id"] = json!(id.0);
                         value["role"] =
@@ -242,12 +243,12 @@ impl<'a> SemanticResult<'a> {
                         );
                     }
                     SemanticEntity::Reference(id) => {
-                        let reference = &self.bindings.as_ref().unwrap().references[*id];
+                        let reference = &self.bindings().unwrap().references[*id];
                         value["kind"] = json!("reference");
                         value["reference_id"] = json!(id);
                         value["reference_kind"] = json!(reference_kind(reference.kind));
                         value["binding"] = binding_json(&reference.resolution);
-                        if let Some(callables) = &self.callables
+                        if let Some(callables) = self.callables()
                             && reference.kind == ReferenceKind::Callable
                         {
                             value["call"] = callables
@@ -359,13 +360,24 @@ pub(crate) fn evaluate<'a>(
     model: Option<&'a ModelContext>,
     limits: Limits,
 ) -> Result<QueryResult<'a>, QueryError> {
-    let requesting = query.stages.iter().find(|s| requests_facts(s)).unwrap();
     let model = model.ok_or_else(|| {
+        let requesting = query.stages.iter().find(|s| requests_facts(s)).unwrap();
         QueryError::query(
             requesting.range.clone(),
             "semantic inspection requires a retained model context (--model for stdin)",
         )
     })?;
+    evaluate_with_facts(query, input, Rc::new(ModelFacts::new(model)), limits)
+}
+
+pub(crate) fn evaluate_with_facts<'a>(
+    query: &Query,
+    input: &'a Input,
+    facts: Rc<ModelFacts<'a>>,
+    limits: Limits,
+) -> Result<QueryResult<'a>, QueryError> {
+    let model = facts.model();
+    let requesting = query.stages.iter().find(|s| requests_facts(s)).unwrap();
     if let Some(error) = model.errors.first() {
         return Err(model_error(error.location.clone(), &error.message));
     }
@@ -402,9 +414,11 @@ pub(crate) fn evaluate<'a>(
     };
     let mut report = SemanticResult {
         model,
-        bindings: None,
-        callables: None,
-        instantiations: None,
+        facts,
+        bindings_requested: false,
+        callables_requested: false,
+        instantiations_requested: false,
+        body_callables: None,
         stream: SemanticStream::Inspection(Box::new(QueryResult::Selection(selection))),
         limitations: Vec::new(),
         json: false,
@@ -643,20 +657,18 @@ impl SemanticResult<'_> {
         Ok(())
     }
     fn ensure_bindings(&mut self, work: &mut Work, stage: &Stage) -> Result<(), QueryError> {
-        if self.bindings.is_none() {
+        if !self.bindings_requested {
+            // Admission is charged per evaluation, even when the shared owner is warm.
             self.fact_scan(work, stage)?;
-            self.bindings = Some(resolve_bindings(self.model));
+            self.facts.bindings();
+            self.bindings_requested = true;
         }
         Ok(())
     }
     fn ensure_callables(&mut self, work: &mut Work, stage: &Stage) -> Result<(), QueryError> {
         self.ensure_bindings(work, stage)?;
-        if self.callables.is_none() {
-            self.callables = Some(resolve_source_callables(
-                self.model,
-                self.bindings.as_ref().unwrap(),
-            ));
-        }
+        self.facts.source_callables();
+        self.callables_requested = true;
         Ok(())
     }
     fn ensure_occurrence_callables(
@@ -673,7 +685,7 @@ impl SemanticResult<'_> {
             return Ok(());
         }
         let location = self.subject_location(subject);
-        let facts = self.callables.as_ref().unwrap();
+        let facts = self.callables().unwrap();
         for fact in &facts.expressions {
             work.visit(&stage.range)?;
             if fact.file == file && fact.location.range == location.range {
@@ -681,7 +693,7 @@ impl SemanticResult<'_> {
             }
         }
         if let SemanticSubject::Entity(SemanticEntity::Reference(id)) = subject {
-            let reference = &self.bindings.as_ref().unwrap().references[*id];
+            let reference = &self.bindings().unwrap().references[*id];
             if reference.kind == ReferenceKind::Callable {
                 for call in &facts.calls {
                     work.visit(&stage.range)?;
@@ -693,7 +705,7 @@ impl SemanticResult<'_> {
         }
         let offset = self.model.files[file].byte_offset;
         let mut owner = None;
-        for declaration in &self.bindings.as_ref().unwrap().declarations {
+        for declaration in &self.bindings().unwrap().declarations {
             work.visit(&stage.range)?;
             if declaration.file == file
                 && matches!(
@@ -711,30 +723,20 @@ impl SemanticResult<'_> {
             }
         }
         if let Some(owner) = owner {
-            self.callables = Some(resolve_source_callable_body(
-                self.model,
-                self.bindings.as_ref().unwrap(),
-                facts,
-                owner,
-            ));
+            self.body_callables = Some(self.facts.source_callable_body(facts, owner));
         }
         Ok(())
     }
     fn ensure_instantiations(&mut self, work: &mut Work, stage: &Stage) -> Result<(), QueryError> {
         self.ensure_callables(work, stage)?;
-        if self.instantiations.is_none() {
-            self.instantiations = Some(resolve_instantiations(
-                self.model,
-                self.bindings.as_ref().unwrap(),
-                self.callables.as_ref().unwrap(),
-            ));
-        }
+        self.facts.instantiations();
+        self.instantiations_requested = true;
         Ok(())
     }
     fn owning_range(&self, subject: &SemanticSubject<'_>) -> Range<usize> {
         match subject {
             SemanticSubject::Entity(SemanticEntity::Declaration(id)) => {
-                let declaration = &self.bindings.as_ref().unwrap().declarations[id.0];
+                let declaration = &self.bindings().unwrap().declarations[id.0];
                 let offset = self.model.files[declaration.file].byte_offset;
                 declaration.syntax_range.start + offset..declaration.syntax_range.end + offset
             }
@@ -753,9 +755,9 @@ impl SemanticResult<'_> {
         for subject in subjects {
             let file = self.subject_file(subject);
             let region = self.owning_range(subject);
-            for id in 0..self.bindings.as_ref().unwrap().references.len() {
+            for id in 0..self.bindings().unwrap().references.len() {
                 work.visit(&stage.range)?;
-                let reference = &self.bindings.as_ref().unwrap().references[id];
+                let reference = &self.bindings().unwrap().references[id];
                 if reference.file == file && contains(&region, &reference.location.range) {
                     check_collection(rows.len(), limits.collection, &stage.range)?;
                     rows.push(SemanticEntity::Reference(id));
@@ -801,12 +803,12 @@ impl SemanticResult<'_> {
     ) -> Result<(), QueryError> {
         for id in callable_references {
             work.visit(&stage.range)?;
-            if self.callables.is_some() {
+            if self.callables_requested {
                 // target records actual unknown outcomes and treats resolved
                 // declarations and intrinsics as known endpoints.
                 self.target(id, work, stage, limits)?;
             } else {
-                let reference = &self.bindings.as_ref().unwrap().references[id];
+                let reference = &self.bindings().unwrap().references[id];
                 if matches!(
                     reference.resolution,
                     BindingResolution::Unresolved | BindingResolution::Ambiguous(_)
@@ -849,7 +851,7 @@ impl SemanticResult<'_> {
                     }
                 }
                 SemanticSubject::Node { file, node, .. } => {
-                    for declaration in &self.bindings.as_ref().unwrap().declarations {
+                    for declaration in &self.bindings().unwrap().declarations {
                         work.visit(&stage.range)?;
                         if declaration.file == *file && declaration.syntax_range == node.range() {
                             check_collection(rows.len(), limits.collection, &stage.range)?;
@@ -869,21 +871,21 @@ impl SemanticResult<'_> {
         limits: Limits,
     ) -> Result<Option<DeclarationId>, QueryError> {
         work.visit(&stage.range)?;
-        if self.bindings.as_ref().unwrap().references[id].kind == ReferenceKind::Callable {
+        if self.bindings().unwrap().references[id].kind == ReferenceKind::Callable {
             self.ensure_occurrence_callables(
                 &SemanticSubject::Entity(SemanticEntity::Reference(id)),
                 work,
                 stage,
             )?;
         }
-        let reference = &self.bindings.as_ref().unwrap().references[id];
+        let reference = &self.bindings().unwrap().references[id];
         let location = reference.location.clone();
         let mut reason = format!(
             "reference '{}' has no proven declaration target",
             reference.name
         );
         if reference.kind == ReferenceKind::Callable {
-            for call in &self.callables.as_ref().unwrap().calls {
+            for call in &self.callables().unwrap().calls {
                 work.visit(&stage.range)?;
                 if call.file != reference.file || call.location.range.start != location.range.start
                 {
@@ -924,16 +926,16 @@ impl SemanticResult<'_> {
             work.visit(&stage.range)?;
             check_collection(selected.len(), limits.collection, &stage.range)?;
             selected.insert(id.0);
-            let name = &self.bindings.as_ref().unwrap().declarations[id.0].name;
+            let name = &self.bindings().unwrap().declarations[id.0].name;
             work.spend(name.len(), &stage.range)?;
             check_collection(names.len(), limits.collection, &stage.range)?;
             names.insert(name.clone());
         }
         // Uncertain occurrences matter even when the requested declaration set is empty.
         let mut targets = Vec::new();
-        for id in 0..self.bindings.as_ref().unwrap().references.len() {
+        for id in 0..self.bindings().unwrap().references.len() {
             work.visit(&stage.range)?;
-            let reference = &self.bindings.as_ref().unwrap().references[id];
+            let reference = &self.bindings().unwrap().references[id];
             if !selected.is_empty() {
                 // Binding names are already normalized. Candidate identity also
                 // rules out shadowed declarations with the same written name.
@@ -993,7 +995,7 @@ impl SemanticResult<'_> {
                 frontier.push(*id);
             }
         }
-        let references = &self.bindings.as_ref().unwrap().references;
+        let references = &self.bindings().unwrap().references;
         work.spend(
             references
                 .len()
@@ -1022,14 +1024,14 @@ impl SemanticResult<'_> {
             let mut next = Vec::new();
             for declaration in frontier {
                 work.visit(&stage.range)?;
-                let declaration = &self.bindings.as_ref().unwrap().declarations[declaration.0];
+                let declaration = &self.bindings().unwrap().declarations[declaration.0];
                 let file = declaration.file;
                 let offset = self.model.files[file].byte_offset;
                 let region =
                     declaration.syntax_range.start + offset..declaration.syntax_range.end + offset;
                 for &id in &order {
                     work.visit(&stage.range)?;
-                    let reference = &self.bindings.as_ref().unwrap().references[id];
+                    let reference = &self.bindings().unwrap().references[id];
                     if reference.file != file || !contains(&region, &reference.location.range) {
                         continue;
                     }
@@ -1070,7 +1072,7 @@ impl SemanticResult<'_> {
         for subject in subjects {
             let before = rows.len();
             if let SemanticSubject::Node { file, node, .. } = &subject {
-                for declaration in &self.bindings.as_ref().unwrap().declarations {
+                for declaration in &self.bindings().unwrap().declarations {
                     work.visit(&stage.range)?;
                     if declaration.file == *file && declaration.syntax_range == node.range() {
                         check_collection(rows.len(), limits.collection, &stage.range)?;
@@ -1097,7 +1099,7 @@ impl SemanticResult<'_> {
     ) -> Result<Option<TypeInst>, QueryError> {
         self.ensure_occurrence_callables(subject, work, stage)?;
         let declaration = self.declared_subject(subject, work, stage)?;
-        let facts = self.callables.as_ref().unwrap();
+        let facts = self.callables().unwrap();
         let mut ty = None;
         if let Some(id) = declaration {
             for fact in &facts.declarations {
@@ -1120,7 +1122,7 @@ impl SemanticResult<'_> {
             }
             if ty.is_none()
                 && let SemanticSubject::Entity(SemanticEntity::Reference(id)) = subject
-                && self.bindings.as_ref().unwrap().references[*id].kind == ReferenceKind::Callable
+                && self.bindings().unwrap().references[*id].kind == ReferenceKind::Callable
             {
                 for fact in &facts.calls {
                     work.visit(&stage.range)?;
@@ -1158,7 +1160,7 @@ impl SemanticResult<'_> {
             SemanticSubject::Node { file, node, .. } => {
                 // This is the declaration's own node, never an expression with
                 // a coincident name. Shared nodes are expanded by typed stages.
-                for declaration in &self.bindings.as_ref().unwrap().declarations {
+                for declaration in &self.bindings().unwrap().declarations {
                     work.visit(&stage.range)?;
                     if declaration.file == *file && declaration.syntax_range == node.range() {
                         return Ok(Some(declaration.id));
@@ -1184,7 +1186,7 @@ impl SemanticResult<'_> {
         self.ensure_bindings(work, stage)?;
         if let Some(id) = self.declared_subject(subject, work, stage)? {
             work.visit(&stage.range)?;
-            let instantiation = self.bindings.as_ref().unwrap().declarations[id.0].instantiation;
+            let instantiation = self.bindings().unwrap().declarations[id.0].instantiation;
             outcome = (
                 instantiation,
                 (instantiation == Instantiation::Unknown)
@@ -1195,7 +1197,7 @@ impl SemanticResult<'_> {
             self.ensure_instantiations(work, stage)?;
             let location = self.subject_location(subject);
             let file = self.subject_file(subject);
-            for fact in &self.instantiations.as_ref().unwrap().expressions {
+            for fact in &self.instantiation_facts().unwrap().expressions {
                 work.visit(&stage.range)?;
                 if fact.file == file && fact.location.range == location.range {
                     outcome = (fact.instantiation, fact.reason.clone());
@@ -1207,7 +1209,7 @@ impl SemanticResult<'_> {
             {
                 // The ordinary instantiation producer walks user sources. An
                 // explicitly navigated library occurrence uses its source type.
-                for fact in &self.callables.as_ref().unwrap().expressions {
+                for fact in &self.callables().unwrap().expressions {
                     work.visit(&stage.range)?;
                     if fact.file == file
                         && fact.location.range == location.range
@@ -1220,9 +1222,9 @@ impl SemanticResult<'_> {
             }
             if outcome.0 == Instantiation::Unknown
                 && let SemanticSubject::Entity(SemanticEntity::Reference(id)) = subject
-                && self.bindings.as_ref().unwrap().references[*id].kind == ReferenceKind::Callable
+                && self.bindings().unwrap().references[*id].kind == ReferenceKind::Callable
             {
-                for fact in &self.callables.as_ref().unwrap().calls {
+                for fact in &self.callables().unwrap().calls {
                     work.visit(&stage.range)?;
                     if fact.file == file && fact.location.range.start == location.range.start {
                         match &fact.outcome {
@@ -1424,14 +1426,14 @@ impl SemanticResult<'_> {
         if let SemanticSubject::Entity(entity) = subject {
             work.spend(self.name(*entity).len(), range)?;
             if let SemanticEntity::Reference(id) = entity {
-                let reference = &self.bindings.as_ref().unwrap().references[*id];
+                let reference = &self.bindings().unwrap().references[*id];
                 if let BindingResolution::Overloads(ids) | BindingResolution::Ambiguous(ids) =
                     &reference.resolution
                 {
                     work.spend(ids.len(), range)?;
                 }
                 if reference.kind == ReferenceKind::Callable
-                    && let Some(callables) = &self.callables
+                    && let Some(callables) = self.callables()
                 {
                     for call in &callables.calls {
                         work.visit(range)?;

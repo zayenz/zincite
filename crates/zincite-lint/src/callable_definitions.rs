@@ -38,10 +38,10 @@ use crate::definitions::complete_array_coverage;
 use crate::domains::{NumericBound, expression_domain};
 use crate::value_safety::{operator, optional};
 use crate::{
-    BindingFacts, BindingResolution, CallFact, CallOutcome, CallableFacts, DeclarationId,
-    DeclarationRole, Definition, DefinitionCoverage, DefinitionEnforcement, DefinitionSafety,
-    Domain, DomainFacts, ExpressionType, FileId, Instantiation, InstantiationFacts, ModelContext,
-    ReferenceKind, SourceKind, SourceLocation, TypeInst, TypeKind,
+    BindingFacts, BindingResolution, CallFact, CallOutcome, DeclarationId, DeclarationRole,
+    Definition, DefinitionCoverage, DefinitionEnforcement, DefinitionSafety, Domain, DomainFacts,
+    ExpressionType, FileId, Instantiation, InstantiationFacts, ModelContext, ReferenceKind,
+    SourceKind, SourceLocation, TypeInst, TypeKind,
 };
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
@@ -95,25 +95,10 @@ pub struct CallableDefinitionFacts {
     /// as an admission requirement.
     pub inspected_locals: Vec<DeclarationId>,
 }
-/// Interpret exact selected Boolean bodies and close nested output guarantees
-/// to a least fixed point. All prerequisites belong to this retained context.
-/// Positional/named/default arguments keep their lexical declaration identities.
-/// Core equality/conjunction, matching forall, total parameter branches and
-/// immutable parameter locals are bounded output families. Typed filtered
-/// relations can be interpreted without establishing an output. Finite
-/// sum/count/index_set and nonoptional standard conversions retain input identity.
-/// Parameter presence tests retain optional declaration identity without extracting
-/// a value. Relational scalar comparisons retain raw partiality without treating
-/// uncertain array membership as a value or whole-output guarantee.
-/// Computed outputs are never inverted; partial selections never define owners.
-/// Root constraint lets retain checked integer initializers and functional
-/// Boolean equivalences, without enforcing their inputs or exporting callable-private values.
-/// Changing recursive type instantiations, opaque bodies, optional value evaluation and unproved
-/// operations remain unavailable rather than assumed guarantees (thesis 4.9).
-pub fn resolve_callable_definitions(
+pub(crate) fn resolve_callable_definitions_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
 ) -> CallableDefinitionFacts {
@@ -179,7 +164,7 @@ struct Instance<'a> {
     id: DeclarationId,
     parameters: Vec<TypeInst>,
     ancestry: Vec<DeclarationId>,
-    view: CallableFacts,
+    view: crate::CallableFacts,
     clauses: Vec<Clause<'a>>,
     recursive: bool,
 }
@@ -212,7 +197,7 @@ struct InvocationActual<'a, 'b> {
     formal: DeclarationId,
     file: FileId,
     node: &'a SyntaxNode,
-    view: &'b CallableFacts,
+    view: crate::callables::CallableView<'b>,
     generators: Vec<&'a SyntaxNode>,
     // The node retains a generator call; its expression type is the call result.
     collection: bool,
@@ -378,4 +363,29 @@ fn unwrap(mut node: &SyntaxNode) -> &SyntaxNode {
         node = n;
     }
     node
+}
+
+/// Interpret exact selected Boolean bodies and close nested output guarantees
+/// to a least fixed point. All prerequisites belong to this retained context.
+/// Positional/named/default arguments keep their lexical declaration identities.
+/// Core equality/conjunction, matching forall, total parameter branches and
+/// immutable parameter locals are bounded output families. Typed filtered
+/// relations can be interpreted without establishing an output. Finite
+/// sum/count/index_set and nonoptional standard conversions retain input identity.
+/// Parameter presence tests retain optional declaration identity without extracting
+/// a value. Relational scalar comparisons retain raw partiality without treating
+/// uncertain array membership as a value or whole-output guarantee.
+/// Computed outputs are never inverted; partial selections never define owners.
+/// Root constraint lets retain checked integer initializers and functional
+/// Boolean equivalences, without enforcing their inputs or exporting callable-private values.
+/// Changing recursive type instantiations, opaque bodies, optional value evaluation and unproved
+/// operations remain unavailable rather than assumed guarantees (thesis 4.9).
+pub fn resolve_callable_definitions(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    instantiations: &InstantiationFacts,
+    domains: &DomainFacts,
+) -> CallableDefinitionFacts {
+    resolve_callable_definitions_view(context, bindings, &calls.view(), instantiations, domains)
 }

@@ -1,7 +1,7 @@
 //! Clarity-of-intent advice over independently produced definition facts.
 use crate::{
-    BindingFacts, CallableFacts, DefinitionCoverage, DefinitionEnforcement, DefinitionFacts,
-    DefinitionSafety, FileFinding, Instantiation, ModelContext, Rule, Severity, SourceDiagnostic,
+    BindingFacts, DefinitionCoverage, DefinitionEnforcement, DefinitionFacts, DefinitionSafety,
+    FileFinding, Instantiation, ModelContext, Rule, Severity, SourceDiagnostic,
 };
 
 pub(super) struct ConstantVariableResult {
@@ -12,7 +12,7 @@ pub(super) struct ConstantVariableResult {
 pub(super) fn check_constant_variables(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     facts: &DefinitionFacts,
 ) -> ConstantVariableResult {
     let mut result = ConstantVariableResult {

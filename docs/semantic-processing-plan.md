@@ -263,6 +263,26 @@ The retained proof route serves concrete properties:
 | `input_preconditions` | Located formal-input definedness obligations and proved default/empty-iteration capture |
 | `element` rewrite producer | The concrete indexing-equality relation, raw operand definedness and index membership; selected standard identity alone still supports advice |
 
+Base-119 gives each immutable `ModelContext` a `ModelFacts` owner. Named requests
+cache their results within that owner: bindings and callable preparation precede
+source instantiations; proof-call additions and domains precede direct definitions,
+numeric, optional, guarded and iteration facts. Callable definitions retain their
+finite discovery and output algorithms; search requests those summaries and direct
+definitions. Unbounded advice requests a separate combined definition result with
+cycle marking, leaving cached direct definitions unchanged. Source and proof domains
+remain separate because their callable inputs differ.
+
+Callable preparation shares declaration types, signatures, node lookup and reference
+indexing. Borrowed source/proof views retain separate expression and call observations;
+raw library-body navigation never changes canonical source facts or starts proof
+closure from navigated bodies. Public owned producers remain compatibility entry
+points into the same algorithms. `analyze_model_with_facts` runs fresh diagnostic
+policy through an existing owner. Queries can retain an `Rc<ModelFacts>` through
+`evaluate_with_facts`; each evaluation charges its own fact scan and result work,
+including a warm owner, and checks the exact root bytes and BOM. The last session or
+result owner releases the cached facts. Scoped guards and concrete instantiated
+bodies retain their existing uncached evaluation contracts.
+
 Salsa is a conditional later choice, replacing the blanket rejection. Production
 adoption is outside this bundle. It needs measured repeated-edit/recomputation
 cost after ordinary demand/reuse, a concrete invalidation/identity design and a

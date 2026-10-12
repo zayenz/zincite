@@ -4,10 +4,10 @@
 use crate::callables::{core_operation_outcome, operation_head_start};
 use crate::domains::tokens;
 use crate::{
-    BindingFacts, CallFact, CallableFacts, FileFinding, FileId, GuardActivation,
-    GuardAssumptionKind, GuardContext, GuardEvaluation, GuardObligation, GuardObligationKind,
-    GuardedExpression, GuardedFacts, GuardedOutcome, IterationCoverage, IterationFacts,
-    ModelContext, Presence, Rule, Severity, SourceDiagnostic, SourceLocation,
+    BindingFacts, CallFact, FileFinding, FileId, GuardActivation, GuardAssumptionKind,
+    GuardContext, GuardEvaluation, GuardObligation, GuardObligationKind, GuardedExpression,
+    GuardedFacts, GuardedOutcome, IterationCoverage, IterationFacts, ModelContext, Presence, Rule,
+    Severity, SourceDiagnostic, SourceLocation,
 };
 use std::collections::HashMap;
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
@@ -15,7 +15,7 @@ use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 pub(super) fn check_partial_expressions(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     guarded: &GuardedFacts,
     iteration: &IterationFacts,
     prior_findings: &[FileFinding],

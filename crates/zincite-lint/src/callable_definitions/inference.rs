@@ -14,7 +14,7 @@ pub(super) fn infer_outputs(
             for clause in &instance.clauses {
                 interpreter.interpret(
                     clause,
-                    &instance.view,
+                    &instance.view.view(),
                     &outputs,
                     &mut found,
                     &mut Vec::new(),
@@ -61,7 +61,7 @@ pub(super) fn infer_boundaries(
             for clause in &instance.clauses {
                 interpreter.interpret(
                     clause,
-                    &instance.view,
+                    &instance.view.view(),
                     outputs,
                     &mut Vec::new(),
                     &mut unavailable,
@@ -96,7 +96,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         }
         let declaration = &self.source.bindings.declarations[instance.id.0];
         let file = declaration.file;
-        let view = &instance.view;
+        let view = &instance.view.view();
         let integer = |ty: &TypeInst, instantiation| {
             ty.known()
                 && !optional(ty)

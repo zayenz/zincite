@@ -3,11 +3,10 @@ use crate::callables::{core_operation, find_node, is_expression};
 use crate::definitions::{annotations_safe, complete_array_coverage, resolved_reference};
 use crate::value_safety::optional;
 use crate::{
-    BindingFacts, CallableDefinitionOperation, CallableDefinitionStatus, CallableFacts,
-    DeclarationId, DeclarationRole, DefinitionCoverage, DefinitionEnforcement, DefinitionFacts,
-    DefinitionSafety, Domain, DomainFacts, FileFinding, FileId, Instantiation, InstantiationFacts,
-    ModelContext, Rule, Severity, SourceDiagnostic, TypeInst, TypeKind,
-    UnavailableCallableDefinition,
+    BindingFacts, CallableDefinitionOperation, CallableDefinitionStatus, DeclarationId,
+    DeclarationRole, DefinitionCoverage, DefinitionEnforcement, DefinitionFacts, DefinitionSafety,
+    Domain, DomainFacts, FileFinding, FileId, Instantiation, InstantiationFacts, ModelContext,
+    Rule, Severity, SourceDiagnostic, TypeInst, TypeKind, UnavailableCallableDefinition,
 };
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
@@ -19,7 +18,7 @@ pub(super) struct UnboundedResult {
 pub(super) fn check_unbounded_variables(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
     definitions: &DefinitionFacts,
@@ -170,7 +169,7 @@ pub(super) fn check_unbounded_variables(
 struct RangeConstraints<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
 }
@@ -447,7 +446,7 @@ fn parentheses(mut node: &SyntaxNode) -> &SyntaxNode {
 fn symbolic_parameter_domain(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     domain: &Domain,
 ) -> bool {
     match domain {

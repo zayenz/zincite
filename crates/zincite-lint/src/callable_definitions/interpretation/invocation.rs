@@ -6,7 +6,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn invocation_actuals<'b>(
         &'b self,
         clause: &Clause<'a>,
-        view: &'b CallableFacts,
+        view: &crate::callables::CallableView<'b>,
         instance: &'b Instance<'a>,
         invocation: &mut Invocation<'a, 'b>,
     ) -> Result<(), String> {
@@ -20,7 +20,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         if !self.source.callable_annotations_safe(owner.file, written) {
             return Err("invoked declaration annotation is unsupported".into());
         }
-        self.type_dependencies(owner.file, written, &instance.view, &[])?;
+        self.type_dependencies(owner.file, written, &instance.view.view(), &[])?;
         let first = invocation.actuals.len();
         for (position, parameter) in instance.parameters.iter().enumerate() {
             let formal = formal_parameter(
@@ -36,7 +36,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                 DeclarationRole::Parameter,
             )
             .ok_or("invoked formal declaration unavailable")?;
-            self.type_dependencies(owner.file, formal_node, &instance.view, &[])?;
+            self.type_dependencies(owner.file, formal_node, &instance.view.view(), &[])?;
             let mut nodes = vec![formal_node];
             while let Some(node) = nodes.pop() {
                 if !crate::definitions::annotations_safe(self.source.context, owner.file, node) {
@@ -64,17 +64,17 @@ impl<'a> BodyInterpreter<'a, '_> {
                 && formal_node.range().start <= node.range().start
                 && node.range().end <= formal_node.range().end;
             let facts = if default {
-                &instance.view
+                instance.view.view()
             } else {
-                self.source.view(file, node, view)
+                *self.source.view(file, node, view)
             };
             let ty = if collection {
                 self.source
-                    .operation_fact(facts, file, node)
+                    .operation_fact(&facts, file, node)
                     .and_then(|call| call.generator_argument.as_ref())
             } else {
                 self.source
-                    .expression_type(facts, file, node)
+                    .expression_type(&facts, file, node)
                     .map(|e| &e.ty)
                     .or_else(|| {
                         self.source
@@ -170,13 +170,13 @@ impl<'a> BodyInterpreter<'a, '_> {
             return self.initialized_source_safety(
                 actual.file,
                 actual.node,
-                actual.view,
+                &actual.view,
                 &actual.generators,
                 &mut Vec::new(),
             );
         }
         let file = actual.file;
-        let view = actual.view;
+        let view = &actual.view;
         let mut nodes = vec![actual.node];
         while let Some(node) = nodes.pop() {
             if !crate::definitions::annotations_safe(self.source.context, file, node) {
@@ -309,7 +309,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &'b self,
         file: FileId,
         guard: &'a SyntaxNode,
-        view: &'b CallableFacts,
+        view: &crate::callables::CallableView<'b>,
         invocation: &Invocation<'a, 'b>,
     ) -> Result<Option<bool>, String> {
         let guard = unwrap(guard);
@@ -349,7 +349,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         &'b self,
         file: FileId,
         node: &'a SyntaxNode,
-        view: &'b CallableFacts,
+        view: &crate::callables::CallableView<'b>,
         invocation: &Invocation<'a, 'b>,
         active: &mut Vec<DeclarationId>,
         inspect_adapter: bool,
@@ -359,7 +359,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             return Ok(None);
         }
         let (file, node, view) = actual.map_or((file, node, view), |actual| {
-            (actual.file, actual.node, actual.view)
+            (actual.file, actual.node, &actual.view)
         });
         let actual_generators = actual.map_or(&[][..], |actual| actual.generators.as_slice());
         let node = unwrap(node);

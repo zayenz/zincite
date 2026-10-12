@@ -1,20 +1,16 @@
 //! Bounded expression safety shared by definition and compact-if interpretation.
 use crate::domains::{expression_integer, invariant_expression_integer};
 use crate::{
-    BindingFacts, CallOutcome, CallableFacts, DefinitionSafety, FileId, Instantiation,
-    ModelContext, TypeInst, TypeKind,
+    BindingFacts, CallOutcome, DefinitionSafety, FileId, Instantiation, ModelContext, TypeInst,
+    TypeKind,
 };
 use std::collections::HashMap;
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
-/// Check supported value safety without running lint or evaluating model code.
-/// The node, file and prerequisite facts must belong to this same ModelContext.
-/// Typed integer selections and comprehensions retain Unknown without proving
-/// membership or iteration safety. This is not a general definedness proof.
-pub fn expression_safety(
+pub(crate) fn expression_safety_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     file: FileId,
     node: &SyntaxNode,
 ) -> DefinitionSafety {
@@ -31,7 +27,7 @@ pub fn expression_safety(
 pub(super) fn indexed_expression_safety(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     file: FileId,
     node: &SyntaxNode,
     expression_indices: &HashMap<(FileId, usize, usize), usize>,
@@ -48,7 +44,7 @@ pub(super) fn indexed_expression_safety(
 pub(crate) fn opaque_expression_safety(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     file: FileId,
     node: &SyntaxNode,
 ) -> DefinitionSafety {
@@ -64,7 +60,7 @@ pub(crate) fn opaque_expression_safety(
 struct Safety<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     membership: Option<std::ops::Range<usize>>,
     expression_indices: Option<&'a HashMap<(FileId, usize, usize), usize>>,
 }
@@ -281,7 +277,7 @@ pub(super) fn optional(ty: &TypeInst) -> bool {
 pub(super) fn traversal_expression_safety(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     file: FileId,
     node: &SyntaxNode,
     access: &SyntaxNode,
@@ -300,7 +296,7 @@ pub(super) fn traversal_expression_safety(
 pub(crate) struct ClosedSourceErrors<'a> {
     pub context: &'a ModelContext,
     pub bindings: &'a BindingFacts,
-    pub calls: &'a CallableFacts,
+    pub calls: &'a crate::callables::CallableView<'a>,
     pub selected_set_source: bool,
 }
 impl ClosedSourceErrors<'_> {
@@ -313,13 +309,19 @@ impl ClosedSourceErrors<'_> {
     }
     fn operation_fact<'b>(
         &self,
-        facts: &'b CallableFacts,
+        facts: &'b crate::callables::CallableView<'b>,
         file: FileId,
         node: &SyntaxNode,
     ) -> Option<&'b crate::CallFact> {
         crate::callables::operation_fact(self.context, facts, file, node)
     }
-    fn core(&self, file: FileId, node: &SyntaxNode, facts: &CallableFacts, name: &str) -> bool {
+    fn core(
+        &self,
+        file: FileId,
+        node: &SyntaxNode,
+        facts: &crate::callables::CallableView<'_>,
+        name: &str,
+    ) -> bool {
         crate::callables::core_operation(self.context, self.bindings, facts, file, node, name)
             == Ok(true)
     }
@@ -666,4 +668,18 @@ pub(crate) fn operator(
             None
         }
     })
+}
+
+/// Check supported value safety without running lint or evaluating model code.
+/// The node, file and prerequisite facts must belong to this same ModelContext.
+/// Typed integer selections and comprehensions retain Unknown without proving
+/// membership or iteration safety. This is not a general definedness proof.
+pub fn expression_safety(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    file: FileId,
+    node: &SyntaxNode,
+) -> DefinitionSafety {
+    expression_safety_view(context, bindings, &calls.view(), file, node)
 }

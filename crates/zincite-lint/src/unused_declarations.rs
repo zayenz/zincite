@@ -2,8 +2,8 @@
 use std::collections::{HashMap, VecDeque};
 
 use crate::{
-    BindingFacts, BindingResolution, CallOutcome, CallableFacts, DeclarationId, DeclarationRole,
-    FileFinding, FileId, Instantiation, ModelContext, Reference, ReferenceKind, Rule, Severity,
+    BindingFacts, BindingResolution, CallOutcome, DeclarationId, DeclarationRole, FileFinding,
+    FileId, Instantiation, ModelContext, Reference, ReferenceKind, Rule, Severity,
     SourceDiagnostic, SourceKind, SourceLocation, TypeInst, TypeKind,
 };
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
@@ -40,16 +40,10 @@ pub struct UsageFacts {
     pub limitations: Vec<SourceDiagnostic>,
 }
 
-/// Follow declaration IDs from model-level constraints, solve and output.
-/// Prerequisites belong to the same retained context. Containment never implies
-/// use. Fragments cannot establish export unreachability. Unknown reachable
-/// dependencies stay explicit, including possible overloads and output roots.
-/// Default output follows MiniZinc 2.10.1's confirmed source annotation contract,
-/// without evaluating data or consulting the filesystem after model loading.
-pub fn resolve_unused_declarations(
+pub(crate) fn resolve_unused_declarations_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
 ) -> UsageFacts {
     let mut main_call_indices = HashMap::with_capacity(calls.calls.len());
     for (row, call) in calls.calls.iter().enumerate() {
@@ -91,7 +85,7 @@ struct BodyDemand {
 struct Producer<'a> {
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     main_call_indices: &'a HashMap<(FileId, usize), usize>,
     facts: UsageFacts,
     uncertain: Vec<Uncertainty>,
@@ -142,7 +136,7 @@ impl Producer<'_> {
     fn collect_reference(
         &mut self,
         reference: &Reference,
-        view: &CallableFacts,
+        view: &crate::callables::CallableView<'_>,
         call_indices: Option<&HashMap<(FileId, usize), usize>>,
         ancestry: &[DeclarationId],
     ) -> Vec<Option<DeclarationId>> {
@@ -368,9 +362,12 @@ impl Producer<'_> {
                     id,
                     types,
                 ),
-                None => {
-                    crate::resolve_source_callable_body(self.context, self.bindings, self.calls, id)
-                }
+                None => crate::callables::resolve_source_callable_body_view(
+                    self.context,
+                    self.bindings,
+                    self.calls,
+                    id,
+                ),
             };
             demand.ancestry.push(id);
             for reference in self
@@ -380,7 +377,7 @@ impl Producer<'_> {
                 .filter(|r| r.callable == Some(id))
             {
                 for changed in self
-                    .collect_reference(reference, &view, None, &demand.ancestry)
+                    .collect_reference(reference, &view.view(), None, &demand.ancestry)
                     .into_iter()
                     .flatten()
                 {
@@ -714,7 +711,7 @@ pub(super) fn check_unused_declarations(
 pub(super) fn output_marker(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     file: FileId,
     annotation: &SyntaxNode,
 ) -> Result<&'static str, String> {
@@ -807,4 +804,18 @@ fn is_implicit_native(context: &ModelContext, bindings: &BindingFacts, id: Decla
                     .any(|c| crate::callables::is_expression(c.kind()))
             },
         )
+}
+
+/// Follow declaration IDs from model-level constraints, solve and output.
+/// Prerequisites belong to the same retained context. Containment never implies
+/// use. Fragments cannot establish export unreachability. Unknown reachable
+/// dependencies stay explicit, including possible overloads and output roots.
+/// Default output follows MiniZinc 2.10.1's confirmed source annotation contract,
+/// without evaluating data or consulting the filesystem after model loading.
+pub fn resolve_unused_declarations(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+) -> UsageFacts {
+    resolve_unused_declarations_view(context, bindings, &calls.view())
 }

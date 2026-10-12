@@ -4,7 +4,7 @@ use super::*;
 pub(crate) fn direct_expression_safety<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     source: (FileId, &'a SyntaxNode),
@@ -27,7 +27,7 @@ pub(crate) fn direct_expression_safety<'a>(
 pub(crate) fn opaque_source_error<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     file: FileId,
@@ -49,7 +49,7 @@ fn opaque_dependency_error<'a>(
     inspector: &SourceInspector<'a>,
     file: FileId,
     source: &'a SyntaxNode,
-    view: &CallableFacts,
+    view: &crate::callables::CallableView<'_>,
     actuals: &[InvocationActual<'a, '_>],
     active: &mut Vec<DeclarationId>,
 ) -> Option<String> {
@@ -325,7 +325,7 @@ fn opaque_dependency_error<'a>(
                     formal,
                     file: argument_file,
                     node: argument,
-                    view,
+                    view: *view,
                     generators: Vec::new(),
                     collection: false,
                 });
@@ -397,7 +397,7 @@ fn opaque_dependency_error<'a>(
             inspector,
             owner.file,
             written,
-            &selected_view,
+            &selected_view.view(),
             &actuals,
             active,
         );
@@ -411,7 +411,7 @@ fn opaque_dependency_error<'a>(
 pub(crate) fn initialized_expression_safety<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode], bool),
@@ -435,7 +435,7 @@ pub(crate) fn initialized_expression_safety<'a>(
     // Preserve legacy raw safety; lazy sources supply no new admission.
     if check_eager_integer
         && !matches!(safety, DefinitionSafety::Unsupported(_))
-        && crate::expression_safety(context, bindings, calls, file, node)
+        && crate::expression_safety_view(context, bindings, calls, file, node)
             != DefinitionSafety::Supported
         && let Some(reason) = interpreter
             .source
@@ -450,7 +450,7 @@ pub(crate) fn initialized_expression_safety<'a>(
 pub(crate) fn native_operation_source_safe<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     source: (FileId, &'a SyntaxNode),
@@ -496,7 +496,7 @@ pub(crate) fn native_operation_source_safe<'a>(
 pub(crate) fn initialized_conditional_bound_safety<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
@@ -548,7 +548,7 @@ pub(crate) fn initialized_conditional_bound_safety<'a>(
 pub(crate) fn closed_integer_type_source_error<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     source: (FileId, &'a SyntaxNode),
@@ -573,7 +573,7 @@ pub(crate) fn closed_integer_type_source_error<'a>(
 pub(crate) fn decision_prefix_source_safety<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
@@ -596,7 +596,10 @@ pub(crate) fn decision_prefix_source_safety<'a>(
 pub(crate) fn selected_integer_set_source_safety<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    callables: (&'a CallableFacts, &'a CallableFacts),
+    callables: (
+        &'a crate::callables::CallableView<'a>,
+        &'a crate::callables::CallableView<'a>,
+    ),
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
@@ -710,7 +713,10 @@ pub(crate) fn selected_integer_set_source_safety<'a>(
 pub(crate) fn initialized_integer_set_source_safety<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    callables: (&'a CallableFacts, &'a CallableFacts),
+    callables: (
+        &'a crate::callables::CallableView<'a>,
+        &'a crate::callables::CallableView<'a>,
+    ),
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
@@ -764,7 +770,10 @@ pub(crate) fn initialized_integer_set_source_safety<'a>(
 pub(crate) fn initialized_parameter_set_extremum_safety<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    callables: (&'a CallableFacts, &'a CallableFacts),
+    callables: (
+        &'a crate::callables::CallableView<'a>,
+        &'a crate::callables::CallableView<'a>,
+    ),
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
@@ -813,7 +822,7 @@ pub(crate) fn initialized_parameter_set_extremum_safety<'a>(
 pub(crate) fn length_argument<'a>(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     file: FileId,
     node: &'a SyntaxNode,
 ) -> Option<&'a SyntaxNode> {
@@ -929,7 +938,7 @@ pub(crate) struct DirectSafetyLookups<'a> {
 pub(crate) fn indexed_expression_safety<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     source: (FileId, &'a SyntaxNode, &[&'a SyntaxNode]),
@@ -951,7 +960,7 @@ pub(crate) fn indexed_expression_safety<'a>(
 pub(crate) fn indexed_set_axis_integer_reshape<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     source: (FileId, &'a SyntaxNode),
@@ -972,7 +981,7 @@ pub(crate) fn indexed_set_axis_integer_reshape<'a>(
 pub(crate) fn set_axis_integer_reshape_source<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     source: (FileId, &'a SyntaxNode),
@@ -996,7 +1005,7 @@ pub(crate) fn set_axis_integer_reshape_source<'a>(
 pub(crate) fn parameter_index_extremum(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     file: FileId,
     node: &SyntaxNode,
 ) -> Option<DeclarationId> {

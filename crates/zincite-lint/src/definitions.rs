@@ -3,8 +3,8 @@ use crate::callables::{find_node, is_expression};
 use crate::domains::{expression_domain, same_members};
 use crate::value_safety::optional;
 use crate::{
-    BindingFacts, BindingResolution, CallOutcome, CallableFacts, DeclarationId, DeclarationRole,
-    Domain, DomainFacts, FileId, Instantiation, InstantiationFacts, ModelContext, ReferenceKind,
+    BindingFacts, BindingResolution, CallOutcome, DeclarationId, DeclarationRole, Domain,
+    DomainFacts, FileId, Instantiation, InstantiationFacts, ModelContext, ReferenceKind,
     SourceKind, SourceLocation, TypeKind,
 };
 use std::collections::{HashMap, HashSet};
@@ -103,15 +103,10 @@ impl DefinitionFacts {
     }
 }
 
-/// Retain initializer/equality candidates without enabling lint or evaluating
-/// data. Prerequisite facts must belong to this ModelContext. Enforcement admits
-/// core conjunction/forall and exactly resolved Boolean forwarding bodies only.
-/// Whole-array proof needs every declared index, without filters or extra binders.
-/// Optional/partial/opaque values remain explicit unsupported safety facts.
-pub fn resolve_definitions(
+pub(crate) fn resolve_definitions_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
 ) -> DefinitionFacts {
@@ -277,7 +272,7 @@ struct Producer<'a> {
     instantiation_indices: HashMap<(FileId, usize, usize), usize>,
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
+    calls: &'a crate::callables::CallableView<'a>,
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     definitions: Vec<Definition>,
@@ -810,7 +805,10 @@ fn source_name(parsed: &zincite_syntax::ParsedFile, token: &zincite_syntax::Toke
 pub(super) fn complete_array_coverage<'a>(
     context: &'a ModelContext,
     bindings_facts: &'a BindingFacts,
-    callables: (&'a CallableFacts, &'a CallableFacts),
+    callables: (
+        &'a crate::callables::CallableView<'a>,
+        &'a crate::callables::CallableView<'a>,
+    ),
     instantiations: &'a InstantiationFacts,
     domains: &'a DomainFacts,
     scope: (FileId, DeclarationId),
@@ -1086,7 +1084,7 @@ pub(super) fn core_callable(
 }
 pub(super) fn resolved_call(
     context: &ModelContext,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     file: FileId,
     node: &SyntaxNode,
 ) -> Option<DeclarationId> {
@@ -1133,7 +1131,7 @@ pub(super) fn resolved_reference(
 pub(super) fn transparent_boolean_argument<'a>(
     context: &'a ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     site: (FileId, usize, &'a SyntaxNode),
     id: DeclarationId,
 ) -> Option<(FileId, usize, &'a SyntaxNode)> {
@@ -1217,4 +1215,19 @@ pub(super) fn annotations_safe(context: &ModelContext, file: FileId, node: &Synt
                         .is_some_and(|t| t.kind == TokenKind::StringLiteral)
             })
         })
+}
+
+/// Retain initializer/equality candidates without enabling lint or evaluating
+/// data. Prerequisite facts must belong to this ModelContext. Enforcement admits
+/// core conjunction/forall and exactly resolved Boolean forwarding bodies only.
+/// Whole-array proof needs every declared index, without filters or extra binders.
+/// Optional/partial/opaque values remain explicit unsupported safety facts.
+pub fn resolve_definitions(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    instantiations: &InstantiationFacts,
+    domains: &DomainFacts,
+) -> DefinitionFacts {
+    resolve_definitions_view(context, bindings, &calls.view(), instantiations, domains)
 }

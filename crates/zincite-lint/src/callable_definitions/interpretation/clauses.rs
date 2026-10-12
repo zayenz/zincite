@@ -5,7 +5,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn interpret_unsupported_clause<'b>(
         &'b self,
         clause: &Clause<'a>,
-        view: &'b CallableFacts,
+        view: &crate::callables::CallableView<'b>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
     ) {
         if let Some(checked) = self
@@ -88,7 +88,11 @@ impl<'a> BodyInterpreter<'a, '_> {
     }
     pub(in crate::callable_definitions) fn interpret_relation_clause<'b>(
         &'b self,
-        inputs: (&Clause<'a>, &'b CallableFacts, &[CallableOutput]),
+        inputs: (
+            &Clause<'a>,
+            &crate::callables::CallableView<'b>,
+            &[CallableOutput],
+        ),
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
     ) {
@@ -225,7 +229,11 @@ impl<'a> BodyInterpreter<'a, '_> {
     }
     pub(in crate::callable_definitions) fn interpret_conditional_clause<'b>(
         &'b self,
-        inputs: (&Clause<'a>, &'b CallableFacts, &[CallableOutput]),
+        inputs: (
+            &Clause<'a>,
+            &crate::callables::CallableView<'b>,
+            &[CallableOutput],
+        ),
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
         inspected: &mut Vec<DeclarationId>,
@@ -476,7 +484,11 @@ impl<'a> BodyInterpreter<'a, '_> {
     }
     pub(in crate::callable_definitions) fn interpret_local_clause<'b>(
         &'b self,
-        inputs: (&Clause<'a>, &'b CallableFacts, &[CallableOutput]),
+        inputs: (
+            &Clause<'a>,
+            &crate::callables::CallableView<'b>,
+            &[CallableOutput],
+        ),
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
         inspected: &mut Vec<DeclarationId>,
@@ -606,7 +618,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                         || value.kind() == NodeKind::ArrayComprehension
                             && matches!(&ty.kind, TypeKind::Array { element, .. } if element.kind == TypeKind::Int)
                 }) {
-                    let checked = crate::expression_safety(self.source.context, self.source.bindings,
+                    let checked = crate::expression_safety_view(self.source.context, self.source.bindings,
                         self.source.view(clause.file, value, view), clause.file, value);
                     if let DefinitionSafety::Unsupported(reason) = checked {
                         self.unavailable(clause, &reason, unavailable);
@@ -1208,7 +1220,11 @@ impl<'a> BodyInterpreter<'a, '_> {
     }
     pub(in crate::callable_definitions) fn interpret_assertion_clause<'b>(
         &'b self,
-        inputs: (&Clause<'a>, &'b CallableFacts, &[CallableOutput]),
+        inputs: (
+            &Clause<'a>,
+            &crate::callables::CallableView<'b>,
+            &[CallableOutput],
+        ),
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
         inspected: &mut Vec<DeclarationId>,
@@ -1457,7 +1473,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn interpret_boolean_clause<'b>(
         &'b self,
         clause: &Clause<'a>,
-        view: &'b CallableFacts,
+        view: &crate::callables::CallableView<'b>,
         out: &mut Vec<Output>,
     ) {
         if !clause.generators.is_empty() {
@@ -1477,7 +1493,7 @@ impl<'a> BodyInterpreter<'a, '_> {
     pub(in crate::callable_definitions) fn interpret_equality_clause<'b>(
         &'b self,
         clause: &Clause<'a>,
-        view: &'b CallableFacts,
+        view: &crate::callables::CallableView<'b>,
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
     ) {
@@ -1584,7 +1600,11 @@ impl<'a> BodyInterpreter<'a, '_> {
     }
     pub(in crate::callable_definitions) fn interpret_call_clause<'b>(
         &'b self,
-        inputs: (&Clause<'a>, &'b CallableFacts, &[CallableOutput]),
+        inputs: (
+            &Clause<'a>,
+            &crate::callables::CallableView<'b>,
+            &[CallableOutput],
+        ),
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
         inspected: &mut Vec<DeclarationId>,
@@ -1869,7 +1889,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                     let mut body_unavailable = Vec::new();
                     for body in &instance.clauses {
                         self.interpret_forwarded(
-                            (body, &instance.view, known),
+                            (body, &instance.view.view(), known),
                             &mut Vec::new(),
                             &mut body_unavailable,
                             &mut Vec::new(),

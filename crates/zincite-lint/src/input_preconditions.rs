@@ -3,8 +3,8 @@
 use crate::callables::{find_node, is_expression, operation_fact};
 use crate::partial_expression::{captured_by_default, collect_nodes, empty_iteration};
 use crate::{
-    BindingFacts, BindingResolution, CallableFacts, DeclarationId, DeclarationRole, FileFinding,
-    FileId, GuardActivation, GuardObligation, GuardObligationKind, GuardedFacts, GuardedOutcome,
+    BindingFacts, BindingResolution, DeclarationId, DeclarationRole, FileFinding, FileId,
+    GuardActivation, GuardObligation, GuardObligationKind, GuardedFacts, GuardedOutcome,
     IterationFacts, ModelContext, ReferenceKind, Rule, Severity, SourceDiagnostic,
 };
 use std::collections::BTreeSet;
@@ -56,14 +56,10 @@ pub(super) fn obligation_key(o: &GuardObligation) -> Option<InputObligationKey> 
         requirement,
     })
 }
-/// Supply same-context bindings, callables, guarded and iteration facts. Bodies
-/// use general formals, not selected call instances or replaceable defaults.
-/// Formal dependencies include supported immutable local aliases and generator
-/// sources. Opaque operation meaning produces no guessed input requirement.
-pub fn resolve_callable_input_facts(
+pub(crate) fn resolve_callable_input_facts_view(
     context: &ModelContext,
     bindings: &BindingFacts,
-    calls: &CallableFacts,
+    calls: &crate::callables::CallableView<'_>,
     guarded: &GuardedFacts,
     iteration: &IterationFacts,
 ) -> Vec<CallableInputFact> {
@@ -319,4 +315,18 @@ pub(super) fn check_input_preconditions(
         keys.push(obligation_key(o).unwrap());
     }
     (findings, limits, keys)
+}
+
+/// Supply same-context bindings, callables, guarded and iteration facts. Bodies
+/// use general formals, not selected call instances or replaceable defaults.
+/// Formal dependencies include supported immutable local aliases and generator
+/// sources. Opaque operation meaning produces no guessed input requirement.
+pub fn resolve_callable_input_facts(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::CallableFacts,
+    guarded: &GuardedFacts,
+    iteration: &IterationFacts,
+) -> Vec<CallableInputFact> {
+    resolve_callable_input_facts_view(context, bindings, &calls.view(), guarded, iteration)
 }
