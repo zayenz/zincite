@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-107"
 key = "paired-comprehension-layout"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "high"
@@ -26,9 +26,9 @@ Read brief.md Formatting direction and its paired examples. Start at generator_e
 
 ## Done when
 
-- [ ] Scalar and tuple prefixes stay on the opening bracket line; the same body and generator layout is used without a prefix.
-- [ ] A let-in body stays at the let indentation; the generator separator leads its line and has no trailing generator comma.
-- [ ] Focused paired examples are idempotent, preserve comments and honor spaces/tabs and width.
+- [x] Scalar and tuple prefixes stay on the opening bracket line; the same body and generator layout is used without a prefix.
+- [x] A let-in body stays at the let indentation; the generator separator leads its line and has no trailing generator comma.
+- [x] Focused paired examples are idempotent, preserve comments and honor spaces/tabs and width.
 
 ## Validation
 
@@ -36,3 +36,13 @@ Read brief.md Formatting direction and its paired examples. Start at generator_e
 - Compile a few complete representative before/after models to FlatZinc with Gecode without solving; compare outputs ignoring only invocation-path comments.
 - Run cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, and cargo test --workspace.
 - Run zdev check base --format json; install the changed local commands after verification.
+
+## Result
+
+Expanded explicit and implicit comprehensions share body and generator layouts, with opening-line scalar/tuple prefixes and leading generator pipes.
+
+Validation:
+
+- Independent verification passed against Wbf90a561cc64f438; both post-review and pre-completion comparisons were equal.
+- cargo fmt, clippy, workspace tests, zdev check and four Gecode compile-only before/after comparisons passed.
+- Updated zincite-fmt and zincite were installed locally; both match all four reviewed formatter controls.

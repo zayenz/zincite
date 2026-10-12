@@ -560,9 +560,9 @@ fn generator_layout_keeps_nested_expansion_and_comments_attached() {
     let parsed = parse(source);
     let formatted = format(&parsed).unwrap();
     assert!(formatted.contains("a = sum (i in [\n    1,\n    2,\n]) (f(\n    1,\n    2,\n));"));
-    assert!(formatted.contains("b = [\n    i |\n    i in {1, 2},\n];"));
+    assert!(formatted.contains("b = [\n    i\n  | i in {1, 2}\n];"));
     assert!(formatted.contains("/* Before  binding */ i, % Binding  comment\n    j in {1, 2} % Source  comment\n        where i < j, % Filter  comment\n    k = i + j, % Final  comment\n) ( /* Body  comment */ k);"));
-    assert!(formatted.contains("d = [first_index + second_index |\n    first_index in VeryLongDomainNameWithRepeatedCharacters\n        where first_index > 0,\n    second_index in VeryLongDomainNameWithRepeatedCharacters\n        where second_index > 0,\n];"));
+    assert!(formatted.contains("d = [\n    first_index + second_index\n  | first_index in VeryLongDomainNameWithRepeatedCharacters\n        where first_index > 0,\n    second_index in VeryLongDomainNameWithRepeatedCharacters\n        where second_index > 0\n];"));
     assert!(
         formatted.contains(
             "e = sum (i in {1}) (sum (\n    j in {1, 2}\n        where j > 0,\n) (i + j));"
@@ -1065,7 +1065,10 @@ fn conditional_array_comprehensions_fit_complete_lines_and_indent_expanded_heads
                     "{formatted}"
                 );
                 assert!(
-                    formatted.contains(&format!("\n{indent}endif |\n{indent}si in s,\n];")),
+                    formatted.contains(&format!(
+                        "\n{indent}endif\n{}| si in s\n];",
+                        " ".repeat(indent_size - 2)
+                    )),
                     "{formatted}"
                 );
             } else {
@@ -1093,6 +1096,88 @@ fn conditional_array_comprehensions_fit_complete_lines_and_indent_expanded_heads
                 structure(reparsed.tree(), &reparsed)
             );
             assert_eq!(format_with_options(&reparsed, &options).unwrap(), formatted);
+        }
+    }
+}
+
+#[test]
+fn expanded_array_comprehensions_share_body_and_generator_layouts() {
+    use std::num::NonZeroUsize;
+    use zincite_fmt::{FormatOptions, IndentStyle, format_with_options};
+
+    for (style, size) in [
+        (IndentStyle::Space, 2),
+        (IndentStyle::Space, 4),
+        (IndentStyle::Tab, 4),
+    ] {
+        let indent = if style == IndentStyle::Tab {
+            "\t".to_owned()
+        } else {
+            " ".repeat(size)
+        };
+        let pipe_indent = " ".repeat(size - 2);
+        for width in [40, 120] {
+            let options = FormatOptions {
+                indent_style: style,
+                indent_size: NonZeroUsize::new(size).unwrap(),
+                tab_width: NonZeroUsize::new(4).unwrap(),
+                max_line_length: NonZeroUsize::new(width),
+                ..FormatOptions::default()
+            };
+            for prefix in ["", "p:", "(p, q):"] {
+                let source = format!(
+                    "any: shards = [{prefix}\nlet {{\nvar 0..9: value;\n}} in\nvalue % Body  comment\n| /* Gen  note */ p in Position, % Final  comment\n];"
+                );
+                let parsed = parse(&source);
+                assert!(parsed.diagnostics().is_empty());
+                let formatted = format_with_options(&parsed, &options).unwrap();
+                let opening = if prefix.is_empty() {
+                    "[".to_owned()
+                } else {
+                    format!("[ {prefix}")
+                };
+                assert_eq!(
+                    formatted,
+                    format!(
+                        "any: shards = {opening}\n{indent}let {{\n{indent}{indent}var 0 .. 9: value;\n{indent}}} in\n{indent}value % Body  comment\n{pipe_indent}| /* Gen  note */ p in Position % Final  comment\n];\n"
+                    )
+                );
+                let reparsed = parse(&formatted);
+                assert!(reparsed.diagnostics().is_empty());
+                let spellings = |file: &zincite_syntax::ParsedFile| {
+                    file.tokens()
+                        .iter()
+                        .filter(|token| {
+                            !matches!(token.kind, TokenKind::Whitespace | TokenKind::Comma)
+                        })
+                        .map(|token| file.source()[token.range.clone()].to_owned())
+                        .collect::<Vec<_>>()
+                };
+                assert_eq!(spellings(&parsed), spellings(&reparsed));
+                assert_eq!(
+                    structure(parsed.tree(), &parsed),
+                    structure(reparsed.tree(), &reparsed)
+                );
+                assert_eq!(format_with_options(&reparsed, &options).unwrap(), formatted);
+            }
+            for prefix in ["", "p:", "(p, q):"] {
+                let source =
+                    format!("any: result = [{prefix}p + q | p in Position, q in Position];");
+                let parsed = parse(&source);
+                let formatted = format_with_options(&parsed, &options).unwrap();
+                if width == 120 {
+                    assert!(
+                        !formatted.contains("[\n") && !formatted.contains(":\n"),
+                        "{formatted}"
+                    );
+                } else {
+                    assert!(formatted.contains(&format!("\n{indent}p + q\n{pipe_indent}| p in Position,\n{indent}q in Position\n];")), "{formatted}");
+                }
+                assert_eq!(
+                    format_with_options(&parse(&formatted), &options).unwrap(),
+                    formatted
+                );
+            }
         }
     }
 }
