@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-114"
 key = "semantic-opacity-contract"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -27,16 +27,24 @@ The user approved the architectural review on 2026-10-12: keep structural types,
 
 ## Done when
 
-- [ ] The brief and semantic plan distinguish structural source facts, local abstract facts, optional callable proofs, and lint/fix policy. For each retained family, identify its current owner, named consumers, meaningful guarantees and intentional precision limit in a compact table.
-- [ ] Define deliberate opacity as a supported conservative operation: a selected signature may establish types and identity while its body contributes no bounds, truth, definedness, output or search proof. Preserve argument/reference facts, known relevant errors and possible assertion/partiality barriers. Written user-body references and required local/signature typing remain inspected.
-- [ ] Specify outcomes: Completed means the selected bounded analysis ran, possibly with ordinary Unknown; promised support defects and unavailable prerequisites remain Limited/NotRun or errors as appropriate; resource cutoffs are never Unknown. Document exactly which former admission-only exclusions become supported opacity, leaving other exclusions explicit.
-- [ ] State the warning contract: inability to prove a bound/definition/use absence cannot alone justify an unbounded/search/unused warning. Preserve scoped explicit-domain advice on simple supported cases; uncertain relevant relations veto dependent advice. Unknown cannot enable a semantic query match through negation or a safe fix.
-- [ ] Retain compositional arithmetic/interval, optionality, relational partiality, index identity, direct enforced definition and finite summary guarantees. Define retained callable summaries by semantic operation, including existing useful wrappers and search views, rather than promising every historical source shape. Retiring admission-only inspection is authorized; losing a useful positive proof requires explicit review rather than silently changing its expectation.
-- [ ] Replace the blanket incremental-database rejection with a conditional Salsa decision: ordinary per-analysis demand and reuse are the implementation target; production Salsa adoption is outside this bundle and needs measured justification and a separately scoped decision.
-- [ ] Record a small baseline selection using existing public tests plus the named semantic originals from the latest acceptance record: useful positive findings, uncertainty vetoes, root/rule outcomes, and source preservation. Separate semantic expectation changes from scheduling-only changes. Record the current baseline revision; old capture paths are optional evidence, not hidden prerequisites.
+- [x] The brief and semantic plan distinguish structural source facts, local abstract facts, optional callable proofs, and lint/fix policy. For each retained family, identify its current owner, named consumers, meaningful guarantees and intentional precision limit in a compact table.
+- [x] Define deliberate opacity as a supported conservative operation: a selected signature may establish types and identity while its body contributes no bounds, truth, definedness, output or search proof. Preserve argument/reference facts, known relevant errors and possible assertion/partiality barriers. Written user-body references and required local/signature typing remain inspected.
+- [x] Specify outcomes: Completed means the selected bounded analysis ran, possibly with ordinary Unknown; promised support defects and unavailable prerequisites remain Limited/NotRun or errors as appropriate; resource cutoffs are never Unknown. Document exactly which former admission-only exclusions become supported opacity, leaving other exclusions explicit.
+- [x] State the warning contract: inability to prove a bound/definition/use absence cannot alone justify an unbounded/search/unused warning. Preserve scoped explicit-domain advice on simple supported cases; uncertain relevant relations veto dependent advice. Unknown cannot enable a semantic query match through negation or a safe fix.
+- [x] Retain compositional arithmetic/interval, optionality, relational partiality, index identity, direct enforced definition and finite summary guarantees. Define retained callable summaries by semantic operation, including existing useful wrappers and search views, rather than promising every historical source shape. Retiring admission-only inspection is authorized; losing a useful positive proof requires explicit review rather than silently changing its expectation.
+- [x] Replace the blanket incremental-database rejection with a conditional Salsa decision: ordinary per-analysis demand and reuse are the implementation target; production Salsa adoption is outside this bundle and needs measured justification and a separately scoped decision.
+- [x] Record a small baseline selection using existing public tests plus the named semantic originals from the latest acceptance record: useful positive findings, uncertainty vetoes, root/rule outcomes, and source preservation. Separate semantic expectation changes from scheduling-only changes. Record the current baseline revision; old capture paths are optional evidence, not hidden prerequisites.
 
 ## Validation
 
 - Check every superseded statement about preserving inspectors, source admission, rule completion and caching in the brief and both plans; leave historical task results intact.
 - No new tests. Inspect named existing public controls and current acceptance records to ensure the documented guarantees have concrete witnesses.
 - Run zdev check base --format json and git diff --check.
+
+## Result
+
+Adopt deliberate semantic opacity with retained facts/proofs and conservative warning/query/fix vetoes; supersede admission-only obligations while preserving historical results, record a bounded baseline and target demand/reuse before conditional Salsa.
+
+Validation:
+
+- Independent PASS Wadc9d2dd0eb7982e covers all seven conditions; actual owners/consumers, named existing public controls and latest three-original acceptance record inspected. zdev check and git diff check passed. Documentation only: no new tests, semantic code or corpus runs; installed commands remain current from base-113.

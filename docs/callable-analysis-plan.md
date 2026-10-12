@@ -1,7 +1,7 @@
 # Callable analysis responsibilities and bounded follow-ups
 
-Recommend keeping the stages introduced by base-093 and tightening the two
-existing local-initializer consumer contracts before extending those routes.
+The historical base-094 recommendation kept the stages introduced by base-093
+and proposed tightening two local-initializer consumer contracts before extension.
 Callable analysis should provide bounded output guarantees and checked source
 prerequisites. It should not become a general value evaluator or a certificate
 that every selected analysis completed.
@@ -16,20 +16,38 @@ remain authoritative. In source references below, `src/` and `tests/` mean
 
 ## Superseding support policy
 
-The approved [bounded semantic processing policy](semantic-processing-plan.md)
-supersedes this document's universal-repair assumption in the classification
-and base-083 resumption sections, including the assertion that no product-scope
-change is proposed. This document remains the historical/current-implementation
-map for base-093/base-094 and their checked contracts. Missing promised support
-still requires a witnessed bounded repair; a documented semantic exclusion may
-remain a located limitation and Limited at acceptance. It never becomes
-Completed. Preserve current proof barriers and successful cases. The
-initializer-adaptation query and whole-owner extraction remain deferred, not
-prerequisites. Base-098 classifies retained families, base-099 checks simple
-consumer demand, and base-100 repairs query resource admission; policy adoption
-does not complete base-083, base-050 or base-092 or authorize a corpus sweep.
+The user-approved base-114 [semantic support contract](semantic-processing-plan.md)
+supersedes the universal-repair, whole-source admission, preserve-every-inspector,
+blanket cache exclusion and open-task/resumption requirements below. The remainder is the base-093/base-094 implementation/design
+map at its recorded revision, with historical proposals and review notes; it is
+not a list of current prerequisites. Those tasks and base-083/base-098/base-099/
+base-100/base-050 are completed historical work and are not reopened here.
 
-## Current responsibilities
+Required written user references, local/signature typing, known errors, possible
+assertion/partiality and ambiguity barriers remain. A selected typed callable may
+be deliberately opaque for bounds, truth, definedness, output and search proof.
+Former admission-only adapters and whole-owner walks may retire instead of
+interpreting arbitrary sources solely to turn Unsupported into Unknown. The
+semantic plan defines exactly which exclusions change and which remain Limited;
+its owner/consumer/guarantee/limit table and baseline govern future changes.
+
+Keep useful finite summaries by semantic operation: selected scalar/whole-array
+outputs with complete enforced dependencies; transparent value/enforcement
+wrappers with actual/formal substitution and default/capture scope; established
+matching-index views/reshapes; standard search aliases/views, including trusted
+complete enum2int projections from base-110. Retain sibling, optionality,
+partiality, index-identity, whole-owner and cycle checks where a positive proof
+uses them. These operations need not preserve every historical body shape.
+Removing a useful positive proof requires explicit review; retiring inspection
+that supplied only Unknown is authorized by this policy.
+
+The refusal-text query, whole-owner extraction and classification proposals below
+remain historical/deferred designs, not mandatory steps before simplification.
+No public facts, general evaluator, IR or fixed-point framework are introduced
+by this revision. Use ordinary per-analysis demand/reuse before considering
+Salsa under the semantic plan's separately scoped, measured decision.
+
+## Historical implementation responsibilities
 
 All collaborating facts must come from the same retained `ModelContext`.
 Declaration IDs, selected declarations and concrete type tuples determine
@@ -270,7 +288,7 @@ acceptance (`7506–7562`). These are retained observations, not current corpus
 counts or proof that every retained site is a defect. This task ran no corpus
 sweep, compiler control or solver.
 
-## Proposed follow-up drafts
+## Historical proposed follow-up drafts
 
 These are drafts without task IDs or imported records. Each needs normal review
 and approval. They do not broaden base-083 or change its blockers.
@@ -369,7 +387,7 @@ Preserve Limited for unresolved required support. Documentation needs diff/refer
 checks; a necessary bounded control needs complete public facts/rule outcomes,
 and compiler no-solve checks only when validity remains undecided.
 
-## Base-083 resumption and decisions
+## Historical base-083 resumption and decisions
 
 No brief or product-scope change is proposed. The user decision is whether to
 approve this bounded plan and which proposed contract refactors to adopt. Missing
@@ -402,7 +420,7 @@ per-rule partitions and invalid/unavailable/Unobserved rows. An approved plan,
 bounded controls or two-original replay is not final acceptance. No solver run
 or universal value proof becomes a prerequisite.
 
-## Advanced-design review
+## Historical advanced-design review
 
 The first independent advanced challenge returned rework: the proposed private
 refusal tags lacked a transport contract through public constructible facts,

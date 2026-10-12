@@ -372,17 +372,28 @@ structural scalar/set/array/tuple/record types, nominal enums, `par`/`var`,
 optionality and supported first-order overload/coercion/substitution facts.
 Retain unique-selection and ambiguity/unknown-candidate vetoes. Array index types
 are not index sets/extents, and enum types do not prove computed membership.
-Preserve the existing bounded numeric, guarded, option, iteration, definition,
-callable-output and search owners and their successful cases.
+Separate structural source facts, local abstract facts, optional callable proofs
+and lint/fix policy as specified in the semantic plan's compact owner/consumer/
+guarantee/limit table. Retain compositional arithmetic/interval, optionality,
+relational partiality, index identity, direct enforced definition, finite callable
+summary and useful wrapper/search-view guarantees, including base-110. A lost
+useful positive proof requires explicit review, rather than a silent expectation
+change; preserving every historical body shape is not required.
 
 Deliberately exclude arbitrary model/parameter evaluation, recursive execution
 or termination proofs, arbitrary relation inversion, general theorem proving,
 exhaustive library-body interpretation, whole-program computed dependency/value
 evaluation, unrestricted higher-order interpretation and recursively changing
-type instantiations. Freeze new specialized relation-body inspectors; preserve
-existing useful ones. Flattening, solving and whole-language validation remain
-outside scope. Valid syntax does not require unrestricted semantic interpretation;
-complete target syntax and source-preserving processing remain required.
+type instantiations. Freeze new specialized relation-body inspectors. Deliberate
+opacity is supported: selected signatures retain types/identity while bodies
+supply no bound, truth, definedness, output or search proof. Retain argument and
+reference facts, known relevant errors and possible assertion/partiality barriers.
+Inspect written user-body references and required local/signature typing. The
+semantic plan defines the former admission-only exclusions now handled this way;
+retiring their inspectors is authorized. Other indispensable excluded operations
+remain explicit limitations. Flattening, solving and whole-language validation
+remain outside scope. Valid syntax does not require unrestricted semantic
+interpretation; complete target syntax and source-preserving processing remain required.
 
 Keep the parser and formatter independent of semantic linting. Retain
 `lint(&ParsedFile)` with its current defaults; expose selected rules and model
@@ -396,9 +407,12 @@ its include closure. Resolve relative includes from the including file, then
 ordered `-I` directories, then an explicitly configured `--stdlib-dir` (or
 `MZN_STDLIB_DIR`). Identify builtins and standard-library declarations separately
 from user code. System library files supply facts but receive no user-style
-warnings unless explicitly selected as inputs. Cache within one invocation only
-when this avoids repeated parsing. Includes, diagnostics and suppressions retain
-file identity and byte ranges. Missing/cyclic includes and unreadable dependencies
+warnings unless explicitly selected as inputs. Use ordinary per-analysis demand
+and reuse before considering an incremental database: reuse prepared facts in
+the same context and request body proofs only for named consumers. Production
+Salsa adoption is outside this bundle and needs measured justification plus a
+separately scoped decision. Includes, diagnostics and suppressions retain file
+identity and byte ranges. Missing/cyclic includes and unreadable dependencies
 produce useful errors without aborting unrelated roots. Do not execute a compiler
 or solver to provide ordinary lint results.
 
@@ -411,11 +425,12 @@ from a completed rule with no findings in the library result and corpus report;
 report a concise CLI analysis limitation. A documented excluded operation that
 blocks a selected rule remains a located limitation and Limited. Acceptance may
 accept that named boundary without counting it as Completed. Distinguish a
-supported analysis with an unproved property (ordinary Unknown), a documented
-exclusion, missing/incorrect promised support, and actual input/dependency
-failure. Promised gaps block acceptance; complexity is not an exclusion. Resource
-cutoffs, missing observations, crashes and unsupported valid target syntax
-cannot be reclassified as exclusions to improve totals. Selected-analysis results
+selected bounded analysis that ran, including supported opacity with ordinary
+Unknown (Completed), a remaining documented exclusion, missing/incorrect promised
+support, and actual input/dependency failure (Limited/NotRun or errors as
+appropriate). Resource cutoffs are never Unknown. Promised gaps block acceptance;
+complexity is not an exclusion. Resource cutoffs, missing observations, crashes
+and unsupported valid target syntax cannot be reclassified as exclusions to improve totals. Selected-analysis results
 separate findings,
 per-rule execution/applicability/limitations, and actual errors. Render limitations
 on stderr; retain exit 0 with no warnings, 1 with unsuppressed warnings, and 2
@@ -438,8 +453,12 @@ Read [the rule coverage contract](background/thesis-rule-coverage.md) before
 implementing any thesis rule. All fourteen must have working library/CLI paths,
 source locations, suppressions and focused positive/negative checks. Conservative
 unknown results are allowed where static proof is impossible, but cannot be used
-to leave a rule unimplemented. Advice must explain uncertainty and must not claim
-that fewer constraints or a rewrite guarantees faster solving.
+to leave a rule unimplemented. Inability to prove a bound, definition or use
+absence alone cannot justify unbounded/search/unused advice; uncertain relevant
+relations veto dependent warnings. Retain explicit-domain advice on simple supported numeric declarations.
+Unknown cannot match a semantic query through negation or enable a safe fix.
+Advice must explain uncertainty and must not claim that fewer constraints or a
+rewrite guarantees faster solving.
 
 ### Completion evidence
 
@@ -461,15 +480,21 @@ results, never exclusions. Diagnostic scaling/grouping and confirmed measured-co
 obligations remain, including matched outcomes and bounded growth/allocation/native
 evidence. Missing corpora or unavailable model dependencies prevent a full-coverage claim.
 
-For base-083 semantic acceptance, use a bounded named set of original models and
-public controls covering all fourteen thesis rules, current all (28 IDs), known
-repair witnesses and representative model/include configurations. Select by
-source and constructs; use representative data where it affects the checked
-operation. Replaying every instance or the full semantic corpus after repairs is
-not required. Preserve prior full captures with their actual revision and scope,
-and report selected controls and exclusions honestly. Full original parsing,
-formatting and source-preservation compatibility remains base-050 work; full
-instance semantic runs serve benchmarks or specific data-dependent regressions.
+Base-083 and base-050 are completed historical work. Preserve their bounded
+semantic and full parsing/formatting acceptance records at their checked
+revisions and scopes. Future comparisons retain complete per-root/per-rule
+accounting with exact thesis14/all28 IDs, known repair witnesses and representative
+model/include configurations. Select by source and constructs, using data where
+it affects the checked operation. Neither every-instance nor full semantic corpus
+replay is required after repairs; full instance runs serve benchmarks or specific
+data-dependent regressions. Complete target syntax and source preservation remain
+product obligations without reopening either task.
+The semantic plan records the current revision, a small existing-public-control
+baseline and the latest acceptance's three named semantic originals for this
+simplification bundle. Separate approved semantic expectation changes from
+scheduling-only comparisons; preserve historical rows and captures. Old capture
+paths are optional evidence, not prerequisites, and this docs-only revision
+requires no new tests or corpus run.
 
 ## Linter expansion: semantic facts, rule families and fixes
 
