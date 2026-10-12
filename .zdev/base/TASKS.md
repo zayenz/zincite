@@ -2,9 +2,9 @@
 
 # Tasks: base
 
-- Total: 113
-- Ready: 2
-- Blocked: 0
+- Total: 123
+- Ready: 3
+- Blocked: 9
 - Done: 111
 
 | ID | Task | State | Blocked by |
@@ -122,3 +122,13 @@
 | [base-111](tasks/111-render-unproven-cartesian-expense-as-informational-advice.md) | Render unproven Cartesian expense as informational advice | done | — |
 | [base-112](tasks/112-show-lint-roots-and-summarize-analysis-limitations.md) | Show lint roots and summarize analysis limitations | ready | — |
 | [base-113](tasks/113-report-the-build-version-and-suggest-standard-library-setup.md) | Report the build version and suggest standard-library setup | ready | — |
+| [base-114](tasks/114-adopt-deliberate-semantic-opacity-and-the-retained-proof-con.md) | Adopt deliberate semantic opacity and the retained proof contract | ready | — |
+| [base-115](tasks/115-treat-opaque-calls-conservatively-in-numeric-and-guarded-ana.md) | Treat opaque calls conservatively in numeric and guarded analysis | blocked | base-114 |
+| [base-116](tasks/116-move-definition-uncertainty-into-its-owner-and-remove-consum.md) | Move definition uncertainty into its owner and remove consumer exceptions | blocked | base-115 |
+| [base-117](tasks/117-separate-possible-dependencies-from-proven-definitions-in-se.md) | Separate possible dependencies from proven definitions in search coverage | blocked | base-116 |
+| [base-118](tasks/118-use-source-facts-for-structural-lints-and-reference-queries.md) | Use source facts for structural lints and reference queries | blocked | base-114 |
+| [base-119](tasks/119-share-lazily-computed-semantic-facts-within-a-model-analysis.md) | Share lazily computed semantic facts within a model analysis | blocked | base-115, base-116, base-117, base-118 |
+| [base-120](tasks/120-limit-selected-body-interpretation-to-requested-retained-pro.md) | Limit selected-body interpretation to requested retained proofs | blocked | base-119 |
+| [base-121](tasks/121-remove-superseded-admission-inspectors-and-their-compatibili.md) | Remove superseded admission inspectors and their compatibility bridges | blocked | base-120 |
+| [base-122](tasks/122-evaluate-salsa-against-the-simplified-demand-driven-analysis.md) | Evaluate Salsa against the simplified demand-driven analysis | blocked | base-121 |
+| [base-123](tasks/123-verify-the-smaller-semantic-contract-across-lints-and-querie.md) | Verify the smaller semantic contract across lints and queries | blocked | base-122, base-111, base-112 |
