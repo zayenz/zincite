@@ -1963,3 +1963,99 @@ fn semantic_intrinsic_targets_replace_lexical_uncertainty_without_loading_unused
     assert!(references_only.callables().is_none());
     assert!(!references_only.is_complete());
 }
+
+#[test]
+fn programs_retain_native_reports_and_one_fact_owner() {
+    use std::rc::Rc;
+    use zincite_query::{Program, ProgramLimits, ReportValue, SemanticStream};
+    let source = b"int: x = 1; int: y = x; solve satisfy;";
+    let model = semantic_model("program-report", source, b"", "");
+    let input = Input::parse_named(source.to_vec(), FileMode::Model, "root.mzn").unwrap();
+    let program = Program::parse(
+        r#"
+        source selected = query("declarations");
+        source n = selected | query("count");
+        source histogram = selected | query("names | tally");
+        source references = query("references");
+        report (count: n, histogram: histogram, 'selected rows': selected, references: references);
+    "#,
+        ProgramLimits::default(),
+    )
+    .unwrap();
+    assert!(program.requires_model_facts());
+    let mut result = program
+        .evaluate_with_model(&input, Some(&model), ProgramLimits::default())
+        .unwrap();
+    assert!(result.is_complete());
+    let fields = result.emissions()[0].value().fields().unwrap();
+    let ReportValue::Query(SemanticStream::Inspection(count)) = &fields[0].1 else {
+        panic!("native count");
+    };
+    assert!(matches!(count.as_ref(), QueryResult::Count(2)));
+    let ReportValue::Query(SemanticStream::Inspection(histogram)) = &fields[1].1 else {
+        panic!("native histogram");
+    };
+    let QueryResult::Tally(histogram) = histogram.as_ref() else {
+        panic!("native histogram");
+    };
+    assert_eq!(histogram.get("x"), Some(&1));
+    let ReportValue::Query(SemanticStream::Entities(selected)) = &fields[2].1 else {
+        panic!("native declarations");
+    };
+    let single = semantic(&input, &model, "declarations");
+    let SemanticStream::Entities(expected) = single.stream() else {
+        panic!("native declarations");
+    };
+    assert_eq!(selected, expected);
+    for entity in selected {
+        assert_eq!(
+            result.semantic().unwrap().location(*entity),
+            single.location(*entity)
+        );
+    }
+    let bytes = result.render().unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["complete"], true);
+    assert_eq!(json["result"]["count"], 2);
+    assert_eq!(json["result"]["histogram"]["y"], 1);
+    assert_eq!(json["result"]["selected rows"][0]["text"], "int: x = 1;");
+    let facts = Rc::new(zincite_lint::ModelFacts::new(&model));
+    let mut reused = program
+        .evaluate_with_facts(&input, facts.clone(), ProgramLimits::default())
+        .unwrap();
+    assert!(std::ptr::eq(
+        reused.semantic().unwrap().bindings().unwrap(),
+        facts.bindings()
+    ));
+    assert_eq!(reused.render().unwrap(), bytes);
+}
+
+#[test]
+fn program_frontend_and_aggregate_refuse_invalid_requests() {
+    use zincite_query::{Program, ProgramLimits};
+    for source in [
+        "source a = b; source b = query(\"count\");",
+        "source a = query(\"count\"); source a = query(\"count\");",
+        "report (n: query(\"count\"), n: query(\"count\"));",
+        "query(\"count | items\");",
+    ] {
+        let error = Program::parse(source, ProgramLimits::default()).unwrap_err();
+        assert!(matches!(
+            error.location,
+            zincite_query::ErrorLocation::Query
+        ));
+    }
+    let input = Input::parse_named(b"a = 1; b = 2;".to_vec(), FileMode::Data, "data.dzn").unwrap();
+    let program =
+        Program::parse("source a = query(\"\"); a; a;", ProgramLimits::default()).unwrap();
+    let error = program
+        .evaluate(
+            &input,
+            ProgramLimits {
+                results: 7,
+                ..ProgramLimits::default()
+            },
+        )
+        .unwrap_err();
+    assert!(error.message.contains("result limit"), "{error:?}");
+}

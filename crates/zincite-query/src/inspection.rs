@@ -71,21 +71,25 @@ pub(crate) fn require_nodes(
 pub(crate) fn into_nodes<'a>(
     result: QueryResult<'a>,
     range: &Range<usize>,
+    work: &mut Work,
 ) -> Result<NodeSelection<'a>, QueryError> {
     match result {
         QueryResult::Nodes(nodes) => Ok(nodes),
-        QueryResult::Selection(selection) => Ok(NodeSelection {
-            input: selection.input,
-            nodes: selection
-                .items
-                .into_iter()
-                .map(|item| SelectedNode {
-                    node: item.node,
-                    file: selection.input.file(),
-                    range: item.range,
-                })
-                .collect(),
-        }),
+        QueryResult::Selection(selection) => {
+            work.produce(selection.items.len(), range)?;
+            Ok(NodeSelection {
+                input: selection.input,
+                nodes: selection
+                    .items
+                    .into_iter()
+                    .map(|item| SelectedNode {
+                        node: item.node,
+                        file: selection.input.file(),
+                        range: item.range,
+                    })
+                    .collect(),
+            })
+        }
         _ => Err(type_error(range, "stage requires selected nodes")),
     }
 }
@@ -96,7 +100,7 @@ pub(crate) fn navigate<'a>(
     work: &mut Work,
     limit: usize,
 ) -> Result<QueryResult<'a>, QueryError> {
-    let selection = into_nodes(result, &stage.range)?;
+    let selection = into_nodes(result, &stage.range, work)?;
     let input = selection.input;
     if let StageKind::Range(range) = &stage.kind
         && (range.end > input.bytes.len()
@@ -127,6 +131,7 @@ pub(crate) fn navigate<'a>(
             };
             if retain {
                 check_collection(nodes.len(), limit, &stage.range)?;
+                work.produce(1, &stage.range)?;
                 nodes.push(SelectedNode {
                     node,
                     file: input.file(),
@@ -191,7 +196,7 @@ pub(crate) fn project<'a>(
     work: &mut Work,
     limit: usize,
 ) -> Result<QueryResult<'a>, QueryError> {
-    let selection = into_nodes(result, &stage.range)?;
+    let selection = into_nodes(result, &stage.range, work)?;
     let mut values = Vec::new();
     for selected in selection.nodes {
         work.visit(&stage.range)?;
@@ -215,6 +220,7 @@ pub(crate) fn project<'a>(
             if !matches!(stage.kind, StageKind::Text) {
                 work.spend(name.len(), &stage.range)?;
             }
+            work.produce(1, &stage.range)?;
             values.push(name.to_owned());
         }
     }
@@ -551,3 +557,54 @@ const SYNTAX_KINDS: &[NodeKind] = &[
     NodeKind::RangeExpression,
     NodeKind::Error,
 ];
+
+/// Admit owned inspection JSON before constructing its containers and strings.
+pub(crate) fn admit_json(
+    result: &QueryResult<'_>,
+    work: &mut Work,
+    range: &Range<usize>,
+) -> Result<(), QueryError> {
+    work.produce(1, range)?;
+    let mut node =
+        |input: &Input, node: &SyntaxNode, source: &Range<usize>| -> Result<(), QueryError> {
+            // Includes the temporary direct-name vector and all row metadata fields.
+            work.produce(25 + 2 * node.children().len(), range)?;
+            work.spend(160 + input.file().len() + source.len(), range)?;
+            for name in direct_names(input.syntax(), node)
+                .into_iter()
+                .chain(call_name(input, node))
+                .chain(annotation_name(input, node))
+            {
+                work.spend(name.len(), range)?;
+            }
+            Ok(())
+        };
+    match result {
+        QueryResult::Selection(s) => {
+            for item in &s.items {
+                node(s.input, item.node, &item.range)?;
+            }
+        }
+        QueryResult::Nodes(s) => {
+            for item in &s.nodes {
+                node(s.input, item.node, &item.range)?;
+            }
+        }
+        QueryResult::Strings(values) => {
+            work.produce(values.len(), range)?;
+            for value in values {
+                work.spend(value.len(), range)?;
+            }
+        }
+        QueryResult::Count(_) => {}
+        QueryResult::Tally(values) => {
+            work.produce(2 * values.len(), range)?;
+            for key in values.keys() {
+                work.spend(key.len(), range)?;
+            }
+        }
+        QueryResult::Literals(s) => crate::structured::admit_json(s, work, range)?,
+        _ => unreachable!("read-only inspection leaves"),
+    }
+    Ok(())
+}

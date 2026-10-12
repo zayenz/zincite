@@ -13,6 +13,7 @@ use crate::{ErrorLocation, Input, Limits, Query, QueryError, QueryResult};
 
 const HELP: &str = "Usage: zincite-query [--stdin-filepath PATH] [--model PATH] [-I DIR] [--stdlib-dir DIR] [--diff|--write] QUERY [FILE|-]
 
+Use -f PROGRAM [FILE|-] for an ordered read-only query program.
 Inspect MiniZinc source or change data assignments and enum membership.
 No input or '-' reads stdin; .dzn paths select assignment-only data syntax.
 Syntax queries do not load includes or require a MiniZinc library or solver.
@@ -97,6 +98,11 @@ attached comments. Separated section comments and a BOM stay in document output.
 Fragment selections that unbalance paired formatter markers fail.
 
 Options:
+    -f, --program-file PATH Read immutable source bindings and record reports
+    --max-work N           Program work allowance (default 1000000)
+    --max-results N        Program aggregate entries (default 100000)
+    --max-items N          Program stream ceiling (default 100000)
+    --max-nesting N        Program nesting ceiling (default 64)
     --stdin-filepath PATH   Select stdin language mode and diagnostic path
     --model PATH            Retain a root for semantic queries or data reduction
     -I DIR                  Add an include directory in supplied order
@@ -123,6 +129,8 @@ enum OutputMode {
 
 struct Arguments {
     query: String,
+    program_file: Option<PathBuf>,
+    program_limits: crate::ProgramLimits,
     path: Option<PathBuf>,
     stdin_filepath: Option<PathBuf>,
     output: OutputMode,
@@ -152,9 +160,39 @@ fn execute(arguments: Vec<OsString>, invocation: &str) -> Result<u8, String> {
     let arguments =
         parse_arguments(arguments).map_err(|message| format!("{invocation}: {message}"))?;
     let limits = Limits::default();
-    let query = Query::parse(&arguments.query, limits)
-        .map_err(|error| query_diagnostic(&arguments.query, &error))?;
-    if arguments.output != OutputMode::Source && !query.is_editing() {
+    let program_source = arguments
+        .program_file
+        .as_ref()
+        .map(|path| {
+            fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))
+        })
+        .transpose()?;
+    let program_label = arguments
+        .program_file
+        .as_ref()
+        .map(|path| path.to_string_lossy().into_owned());
+    let program = program_source
+        .as_ref()
+        .map(|source| {
+            crate::Program::parse(source, arguments.program_limits).map_err(|error| {
+                located(
+                    program_label.as_ref().unwrap(),
+                    source.as_bytes(),
+                    &error.range,
+                    &error.message,
+                )
+            })
+        })
+        .transpose()?;
+    let query = if program.is_none() {
+        Some(
+            Query::parse(&arguments.query, limits)
+                .map_err(|error| query_diagnostic(&arguments.query, &error))?,
+        )
+    } else {
+        None
+    };
+    if arguments.output != OutputMode::Source && !query.as_ref().is_some_and(Query::is_editing) {
         return Err(format!(
             "{invocation}: --diff and --write require an editing pipeline"
         ));
@@ -208,7 +246,12 @@ fn execute(arguments: Vec<OsString>, invocation: &str) -> Result<u8, String> {
             .flatten()
     });
     let model = model_path
-        .filter(|_| query.requires_model_facts())
+        .filter(|_| {
+            query.as_ref().is_some_and(Query::requires_model_facts)
+                || program
+                    .as_ref()
+                    .is_some_and(crate::Program::requires_model_facts)
+        })
         .map(|path| load_model(path, &arguments.model_options));
     if let Some(model) = &model
         && !model.errors.is_empty()
@@ -220,6 +263,38 @@ fn execute(arguments: Vec<OsString>, invocation: &str) -> Result<u8, String> {
             .collect::<Vec<_>>()
             .join("\n"));
     }
+    if let Some(program) = program {
+        let source = program_source.as_ref().unwrap();
+        let label = program_label.as_ref().unwrap();
+        let diagnostic = |error: QueryError| match &error.location {
+            ErrorLocation::Query => located(label, source.as_bytes(), &error.range, &error.message),
+            ErrorLocation::Input => located(
+                input.file(),
+                input.source_bytes(),
+                &error.range,
+                &error.message,
+            ),
+            ErrorLocation::Model(location) => model_diagnostic(location, &error.message, "error"),
+        };
+        let mut result = program
+            .evaluate_with_model(&input, model.as_ref(), arguments.program_limits)
+            .map_err(diagnostic)?;
+        let output = result.render().map_err(diagnostic)?;
+        for limitation in result.limitations() {
+            writeln!(
+                io::stderr(),
+                "{}",
+                model_diagnostic(&limitation.location, &limitation.message, "incomplete")
+            )
+            .map_err(|error| format!("stderr: {error}"))?;
+        }
+        let status = u8::from(!result.is_complete());
+        return io::stdout()
+            .write_all(&output)
+            .map(|()| status)
+            .map_err(|error| format!("stdout: {error}"));
+    }
+    let query = query.unwrap();
     let result = query
         .evaluate_with_model(&input, model.as_ref(), limits)
         .map_err(|error| match error.location {
@@ -289,6 +364,9 @@ fn execute(arguments: Vec<OsString>, invocation: &str) -> Result<u8, String> {
 
 fn parse_arguments(arguments: Vec<OsString>) -> Result<Arguments, String> {
     let mut positional = Vec::new();
+    let mut program_file = None;
+    let mut program_limits = crate::ProgramLimits::default();
+    let mut explicit_program_limits = false;
     let mut stdin_filepath = None;
     let mut output = OutputMode::Source;
     let mut model_path = None;
@@ -314,6 +392,30 @@ fn parse_arguments(arguments: Vec<OsString>) -> Result<Arguments, String> {
             } else {
                 OutputMode::Write
             };
+        } else if options && matches!(argument.to_str(), Some("-f" | "--program-file")) {
+            if program_file.is_some() {
+                return Err("repeated --program-file".into());
+            }
+            program_file = Some(PathBuf::from(
+                arguments.next().ok_or("--program-file requires a path")?,
+            ));
+        } else if options
+            && matches!(
+                argument.to_str(),
+                Some("--max-work" | "--max-results" | "--max-items" | "--max-nesting")
+            )
+        {
+            let value = arguments
+                .next()
+                .and_then(|value| value.to_str().and_then(|value| value.parse::<usize>().ok()))
+                .ok_or("program limits require a non-negative integer")?;
+            match argument.to_str().unwrap() {
+                "--max-work" => program_limits.work = value,
+                "--max-results" => program_limits.results = value,
+                "--max-items" => program_limits.stream_items = value,
+                _ => program_limits.nesting = value,
+            }
+            explicit_program_limits = true;
         } else if options && argument == "--model" {
             if model_path.is_some() {
                 return Err("repeated --model".into());
@@ -349,26 +451,49 @@ fn parse_arguments(arguments: Vec<OsString>) -> Result<Arguments, String> {
             positional.push(argument);
         }
     }
-    if positional.is_empty() || positional.len() > 2 {
-        return Err("expected one query and at most one input file or '-'".into());
-    }
-    let path = if positional.len() == 2 {
-        positional
-            .pop()
-            .map(PathBuf::from)
-            .filter(|path| path != Path::new("-"))
+    let (query, path) = if program_file.is_some() {
+        if positional.len() > 1 {
+            return Err("program input accepts at most one input file or '-'".into());
+        }
+        if output != OutputMode::Source {
+            return Err("--diff and --write are unavailable for read-only programs".into());
+        }
+        (
+            String::new(),
+            positional
+                .pop()
+                .map(PathBuf::from)
+                .filter(|path| path != Path::new("-")),
+        )
     } else {
-        None
+        if explicit_program_limits {
+            return Err("program limits require --program-file".into());
+        }
+        if positional.is_empty() || positional.len() > 2 {
+            return Err("expected one query and at most one input file or '-'".into());
+        }
+        let path = if positional.len() == 2 {
+            positional
+                .pop()
+                .map(PathBuf::from)
+                .filter(|path| path != Path::new("-"))
+        } else {
+            None
+        };
+        let query = positional
+            .pop()
+            .unwrap()
+            .into_string()
+            .map_err(|_| "query argument must be UTF-8")?;
+        (query, path)
     };
-    let query = positional.pop().ok_or("expected a query argument")?;
-    let query = query
-        .into_string()
-        .map_err(|_| "query argument must be UTF-8")?;
     if path.is_some() && stdin_filepath.is_some() {
         return Err("--stdin-filepath requires stdin input".into());
     }
     Ok(Arguments {
         query,
+        program_file,
+        program_limits,
         path,
         stdin_filepath,
         output,

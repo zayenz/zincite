@@ -407,3 +407,60 @@ fn prefer_enum_is_advisory_through_the_root_command_and_never_edits() {
     assert!(String::from_utf8_lossy(&explanation.stdout).contains("Fix support: none"));
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn program_files_report_native_results_and_buffer_later_failures() {
+    let path = std::env::temp_dir().join(format!("zincite-root-program-{}.zq", std::process::id()));
+    std::fs::write(&path, r#"source selected = query(""); source n = selected | query("count"); source h = selected | query("names | tally"); report (count: n, histogram: h, selected: selected);"#).unwrap();
+    let output = run(
+        &[
+            "query",
+            "--stdin-filepath",
+            "data.dzn",
+            "-f",
+            path.to_str().unwrap(),
+        ],
+        "a = 1; b = 2;",
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report = String::from_utf8(output.stdout).unwrap();
+    assert!(report.contains("\"complete\":true"));
+    assert!(report.contains("\"count\":2"));
+    assert!(report.contains("\"histogram\":{\"a\":1,\"b\":1}"));
+    assert!(report.contains("\"selected\":["));
+    std::fs::write(&path, r#"query("count | json"); query("values");"#).unwrap();
+    let output = run(
+        &[
+            "query",
+            "--stdin-filepath",
+            "data.dzn",
+            "--program-file",
+            path.to_str().unwrap(),
+        ],
+        "a = 1 + 2;",
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let diagnostic = String::from_utf8_lossy(&output.stderr);
+    assert!(diagnostic.contains("literal"), "{diagnostic}");
+    assert!(diagnostic.contains("data.dzn"), "{diagnostic}");
+    std::fs::write(&path, r#"query("count | json"); query("count | items");"#).unwrap();
+    let output = run(
+        &[
+            "query",
+            "--stdin-filepath",
+            "data.dzn",
+            "-f",
+            path.to_str().unwrap(),
+        ],
+        "a = 1; b = 2;",
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains(path.to_str().unwrap()));
+    std::fs::remove_file(path).unwrap();
+}

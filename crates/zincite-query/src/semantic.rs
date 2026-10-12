@@ -148,7 +148,7 @@ impl<'a> SemanticResult<'a> {
             SemanticSubject::Node { file, .. } => *file,
         }
     }
-    fn subject_bytes(&self, subject: &SemanticSubject<'_>) -> &[u8] {
+    pub(crate) fn subject_bytes(&self, subject: &SemanticSubject<'_>) -> &[u8] {
         match subject {
             SemanticSubject::Entity(entity) => self.source_bytes(*entity),
             SemanticSubject::Node { file, node, .. } => {
@@ -172,6 +172,7 @@ impl<'a> SemanticResult<'a> {
             }
         }
         check_collection(self.limitations.len(), limits.collection, &stage.range)?;
+        work.produce(1, &stage.range)?;
         work.spend(message.len().max(1), &stage.range)?;
         self.limitations
             .push(SourceDiagnostic { location, message });
@@ -189,7 +190,36 @@ impl<'a> SemanticResult<'a> {
             bytes.push(b'\n');
             return bytes;
         }
-        match &self.stream {
+        self.render_stream(&self.stream)
+    }
+
+    pub(crate) fn source_output_bytes(&self, stream: &SemanticStream<'a>) -> usize {
+        match stream {
+            SemanticStream::Entities(rows) => {
+                rows.iter().map(|&row| self.source_bytes(row).len()).sum()
+            }
+            SemanticStream::Types(rows) => rows
+                .iter()
+                .map(|row| {
+                    row.ty
+                        .as_ref()
+                        .map_or("unknown", |ty| type_kind(&ty.kind))
+                        .len()
+                        + 1
+                })
+                .sum(),
+            SemanticStream::Instantiations(rows) => rows
+                .iter()
+                .map(|row| instantiation_name(row.instantiation).len() + 1)
+                .sum(),
+            SemanticStream::Inspection(_) => {
+                unreachable!("inspection renderer accounts its own leaves")
+            }
+        }
+    }
+
+    pub(crate) fn render_stream(&self, stream: &SemanticStream<'a>) -> Vec<u8> {
+        match stream {
             SemanticStream::Inspection(result) => result.render(),
             SemanticStream::Entities(entities) => entities
                 .iter()
@@ -213,6 +243,98 @@ impl<'a> SemanticResult<'a> {
         }
     }
 
+    pub(crate) fn admit_program_json(
+        &self,
+        stream: &SemanticStream<'a>,
+        work: &mut Work,
+        range: &Range<usize>,
+    ) -> Result<(), QueryError> {
+        match stream {
+            SemanticStream::Inspection(value) => crate::inspection::admit_json(value, work, range)?,
+            SemanticStream::Entities(rows) => {
+                work.produce(1, range)?;
+                for &row in rows {
+                    self.admit_subject_program_json(&SemanticSubject::Entity(row), work, range)?;
+                }
+            }
+            SemanticStream::Types(rows) => {
+                work.produce(1, range)?;
+                for row in rows {
+                    let (units, bytes) = row.ty.as_ref().map_or((1, 0), type_allocation);
+                    work.produce(units * 16 + 2, range)?;
+                    work.spend(bytes + units * 64, range)?;
+                    self.admit_subject_program_json(&row.subject, work, range)?;
+                }
+            }
+            SemanticStream::Instantiations(rows) => {
+                work.produce(1, range)?;
+                for row in rows {
+                    self.admit_subject_program_json(&row.subject, work, range)?;
+                    work.produce(4, range)?;
+                    work.spend(row.reason.as_ref().map_or(0, String::len), range)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn admit_subject_program_json(
+        &self,
+        subject: &SemanticSubject<'_>,
+        work: &mut Work,
+        range: &Range<usize>,
+    ) -> Result<(), QueryError> {
+        work.produce(36, range)?;
+        work.spend(
+            256 + self.model.files[self.subject_file(subject)]
+                .path
+                .as_os_str()
+                .len()
+                + self.subject_bytes(subject).len(),
+            range,
+        )?;
+        if let SemanticSubject::Entity(entity) = subject {
+            work.spend(self.name(*entity).len(), range)?;
+            if let SemanticEntity::Reference(id) = entity {
+                let reference = &self.bindings().unwrap().references[*id];
+                if let BindingResolution::Overloads(ids) | BindingResolution::Ambiguous(ids) =
+                    &reference.resolution
+                {
+                    work.produce(ids.len(), range)?;
+                }
+                if reference.kind == ReferenceKind::Callable
+                    && let Some(callables) = self.callables()
+                {
+                    for call in &callables.calls {
+                        work.visit(range)?;
+                        if call.file == reference.file
+                            && call.location.range.start == reference.location.range.start
+                        {
+                            match &call.outcome {
+                                CallOutcome::Ambiguous { candidates } => {
+                                    work.produce(candidates.len(), range)?
+                                }
+                                CallOutcome::Unsupported { candidates, reason } => {
+                                    work.produce(candidates.len(), range)?;
+                                    work.spend(reason.len(), range)?;
+                                }
+                                CallOutcome::NoMatch { reason }
+                                | CallOutcome::Unresolved { reason } => {
+                                    work.spend(reason.len(), range)?
+                                }
+                                CallOutcome::Intrinsic { name, .. } => {
+                                    work.spend(name.len(), range)?
+                                }
+                                _ => {}
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
     fn subject_json(&self, subject: &SemanticSubject<'_>) -> Result<Value, QueryError> {
         let file_id = self.subject_file(subject);
         let file = &self.model.files[file_id];
@@ -302,7 +424,11 @@ impl<'a> SemanticResult<'a> {
     }
 
     fn json_value(&self) -> Result<Value, QueryError> {
-        match &self.stream {
+        self.json_stream(&self.stream)
+    }
+
+    pub(crate) fn json_stream(&self, stream: &SemanticStream<'a>) -> Result<Value, QueryError> {
+        match stream {
             SemanticStream::Inspection(result) => crate::inspection::json_value(result),
             SemanticStream::Entities(entities) => entities
                 .iter()
@@ -526,6 +652,7 @@ impl<'a> SemanticResult<'a> {
                 let mut rows = Vec::new();
                 for subject in subjects {
                     check_collection(rows.len(), limits.collection, &stage.range)?;
+                    work.produce(1, &stage.range)?;
                     let ty = self.type_of(&subject, work, stage, limits)?;
                     rows.push(SemanticType { subject, ty });
                 }
@@ -537,6 +664,7 @@ impl<'a> SemanticResult<'a> {
                 let mut rows = Vec::new();
                 for subject in subjects {
                     check_collection(rows.len(), limits.collection, &stage.range)?;
+                    work.produce(1, &stage.range)?;
                     let (instantiation, reason) =
                         self.instantiation_of(&subject, work, stage, limits)?;
                     rows.push(SemanticInstantiation {
@@ -605,6 +733,7 @@ impl<'a> SemanticResult<'a> {
                     };
                     for name in names {
                         check_collection(values.len(), limits.collection, &stage.range)?;
+                        work.produce(1, &stage.range)?;
                         work.spend(name.len().max(1), &stage.range)?;
                         values.push(name.to_owned());
                     }
@@ -659,6 +788,7 @@ fn subjects<'a>(
         SemanticStream::Entities(rows) => {
             for entity in rows {
                 check_collection(subjects.len(), limits.collection, &stage.range)?;
+                work.produce(1, &stage.range)?;
                 work.visit(&stage.range)?;
                 subjects.push(SemanticSubject::Entity(entity));
             }
@@ -676,10 +806,11 @@ fn subjects<'a>(
             }
         }
         SemanticStream::Inspection(result) => {
-            let nodes = crate::inspection::into_nodes(*result, &stage.range)?;
+            let nodes = crate::inspection::into_nodes(*result, &stage.range, work)?;
             for selected in nodes.nodes {
                 work.visit(&stage.range)?;
                 check_collection(subjects.len(), limits.collection, &stage.range)?;
+                work.produce(1, &stage.range)?;
                 subjects.push(SemanticSubject::Node {
                     file: model.root_file.unwrap(),
                     node: selected.node,
@@ -812,6 +943,7 @@ impl SemanticResult<'_> {
                 let reference = &self.bindings().unwrap().references[id];
                 if reference.file == file && contains(&region, &reference.location.range) {
                     check_collection(rows.len(), limits.collection, &stage.range)?;
+                    work.produce(1, &stage.range)?;
                     rows.push(SemanticEntity::Reference(id));
                     if reference.kind == ReferenceKind::Callable {
                         // Lexical lookup cannot distinguish an unresolved call
@@ -893,12 +1025,14 @@ impl SemanticResult<'_> {
             match subject {
                 SemanticSubject::Entity(SemanticEntity::Declaration(id)) => {
                     check_collection(rows.len(), limits.collection, &stage.range)?;
+                    work.produce(1, &stage.range)?;
                     work.visit(&stage.range)?;
                     rows.push(SemanticEntity::Declaration(*id));
                 }
                 SemanticSubject::Entity(SemanticEntity::Reference(id)) => {
                     if let Some(target) = self.target(*id, work, stage, limits)? {
                         check_collection(rows.len(), limits.collection, &stage.range)?;
+                        work.produce(1, &stage.range)?;
                         rows.push(SemanticEntity::Declaration(target));
                     }
                 }
@@ -907,6 +1041,7 @@ impl SemanticResult<'_> {
                         work.visit(&stage.range)?;
                         if declaration.file == *file && declaration.syntax_range == node.range() {
                             check_collection(rows.len(), limits.collection, &stage.range)?;
+                            work.produce(1, &stage.range)?;
                             rows.push(SemanticEntity::Declaration(declaration.id));
                         }
                     }
@@ -977,10 +1112,12 @@ impl SemanticResult<'_> {
             };
             work.visit(&stage.range)?;
             check_collection(selected.len(), limits.collection, &stage.range)?;
+            work.produce(1, &stage.range)?;
             selected.insert(id.0);
             let name = &self.bindings().unwrap().declarations[id.0].name;
             work.spend(name.len(), &stage.range)?;
             check_collection(names.len(), limits.collection, &stage.range)?;
+            work.produce(1, &stage.range)?;
             names.insert(name.clone());
         }
         // Uncertain occurrences matter even when the requested declaration set is empty.
@@ -1007,6 +1144,7 @@ impl SemanticResult<'_> {
                 }
             }
             check_collection(targets.len(), limits.collection, &stage.range)?;
+            work.produce(1, &stage.range)?;
             targets.push((id, self.target(id, work, stage, limits)?));
         }
         for declaration in declarations {
@@ -1017,6 +1155,7 @@ impl SemanticResult<'_> {
                 work.visit(&stage.range)?;
                 if *target == Some(*declaration) {
                     check_collection(rows.len(), limits.collection, &stage.range)?;
+                    work.produce(1, &stage.range)?;
                     rows.push(SemanticEntity::Reference(*id));
                 }
             }
@@ -1095,6 +1234,7 @@ impl SemanticResult<'_> {
                     );
                     if !emitted.contains(&identity) {
                         check_collection(rows.len(), limits.collection, &stage.range)?;
+                        work.produce(1, &stage.range)?;
                         emitted.insert(identity);
                         rows.push(SemanticEntity::Reference(id));
                     }
@@ -1128,6 +1268,7 @@ impl SemanticResult<'_> {
                     work.visit(&stage.range)?;
                     if declaration.file == *file && declaration.syntax_range == node.range() {
                         check_collection(rows.len(), limits.collection, &stage.range)?;
+                        work.produce(1, &stage.range)?;
                         rows.push(SemanticSubject::Entity(SemanticEntity::Declaration(
                             declaration.id,
                         )));
@@ -1136,6 +1277,7 @@ impl SemanticResult<'_> {
             }
             if rows.len() == before {
                 check_collection(rows.len(), limits.collection, &stage.range)?;
+                work.produce(1, &stage.range)?;
                 rows.push(subject);
             }
         }
@@ -1194,6 +1336,13 @@ impl SemanticResult<'_> {
         } else {
             Some("type fact unavailable for this exact occurrence".to_owned())
         };
+        if work.budget.remaining_results().is_some()
+            && let Some(ty) = ty
+        {
+            let (units, bytes) = type_allocation(ty);
+            work.produce(units, &stage.range)?;
+            work.spend(bytes, &stage.range)?;
+        }
         let ty = ty.cloned();
         if let Some(reason) = reason {
             self.limit(self.subject_location(subject), reason, work, stage, limits)?;
@@ -1895,4 +2044,38 @@ fn type_json(ty: &TypeInst) -> Value {
         _ => {}
     }
     value
+}
+
+/// Size of owned native type components, before cloning retained facts.
+pub(crate) fn type_allocation(ty: &TypeInst) -> (usize, usize) {
+    let mut total = (1, 0);
+    let mut add = |ty| {
+        let (units, bytes) = type_allocation(ty);
+        total.0 += units;
+        total.1 += bytes;
+    };
+    match &ty.kind {
+        TypeKind::Set(element) => add(element),
+        TypeKind::Array { indices, element } => {
+            for index in indices {
+                add(index);
+            }
+            add(element);
+        }
+        TypeKind::Tuple(fields) => {
+            for field in fields {
+                add(field);
+            }
+        }
+        TypeKind::Record(fields) => {
+            for (_, field) in fields {
+                add(field);
+            }
+            total.0 += fields.len();
+            total.1 += fields.iter().map(|(name, _)| name.len()).sum::<usize>();
+        }
+        TypeKind::Variable { name, .. } | TypeKind::Unknown(name) => total.1 += name.len(),
+        _ => {}
+    }
+    total
 }

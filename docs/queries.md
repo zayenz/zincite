@@ -20,6 +20,30 @@ Syntax inspection does not need a standard library. For more substantial
 examples, use the [feature-extraction cookbook](query-cookbook.md), which creates
 its own inputs for counts, histograms, declaration types and literal shapes.
 
+## Reuse results in a report
+
+Save this as `report.zq`:
+
+```text
+source selected = query("filter(kind(\"constraint\"))");
+source n = selected | query("count");
+source histogram = selected | query("expressions | call_names | tally");
+report (count: n, histogram: histogram, selected: selected);
+```
+
+Run `zincite query -f report.zq model.mzn` or
+`zincite-query --program-file report.zq model.mzn`. The JSON envelope contains
+`complete`, `limitations` and a record with the native count, histogram and
+selection. The selected nodes keep their file, byte range and exact source text.
+No model facts are needed for this syntax report. Use `query("declarations")`
+in the source binding to select semantic declaration identities instead.
+
+Statements run in order with immutable earlier bindings. Each starts from the
+same input selection unless it names another native result. A later failure
+leaves stdout empty. [Query programs](reference.md#query-programs) describes
+emitters, the library result and aggregate limits. Positional and keyed
+comprehensions remain future work.
+
 ## Inspect semantic facts
 
 To follow a declaration's uses in that model:

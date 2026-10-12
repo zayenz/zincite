@@ -231,7 +231,7 @@ by the objective expression. Each node retains its precise source range.
 
 `zincite-query` selects top-level items from one model or assignment-only data
 file and explicitly edits data assignments and enum membership. Its reusable
-library and both commands use the same fixed pipeline:
+library and both commands use the same pipeline stages:
 
 | Stage | Result |
 | --- | --- |
@@ -279,8 +279,9 @@ Predicates are `kind("assignment")` and `name("capacity")`, combined with
 parentheses and `not`, `and`, `or` in that precedence order. Query strings are
 double quoted and accept `\"`, `\\`, `\n`, `\r` and `\t` escapes. Other escapes
 and literal control characters are errors; Unicode characters may be written
-directly. Whitespace between query tokens is ignored. Query comments, program
-files and bindings are not implemented.
+directly. Whitespace between query tokens is ignored. Query comments are not
+implemented. Read-only programs add bindings and reports around these pipelines;
+see [query programs](#query-programs).
 
 The accepted kind strings are `assignment`, `declaration`, `enum`, `type_alias`,
 `function`, `predicate`, `test`, `annotation`, `constraint`, `include`, `output`
@@ -368,6 +369,64 @@ Source rendering inserts no separators and changes no line endings. It preserves
 opaque non-UTF-8 comment bytes; code and literals must be UTF-8. Input parsing
 rejects malformed/unsupported syntax and non-assignment data items. It establishes
 syntax only, not compiler acceptance or semantic validity of data expressions.
+
+### Query programs
+
+`Program::parse(source, ProgramLimits)` accepts ordered read-only statements.
+Every statement ends with `;`. A source binding is immutable and can refer only
+to earlier bindings. `query("pipeline")` uses the stages above; its string is
+parsed once and diagnostics retain the original program byte coordinates.
+A bare expression emits its result. `report expression;` emits JSON.
+
+```text
+source selected = query("declarations");
+source n = selected | query("count");
+source histogram = selected | query("names | tally");
+report (count: n, histogram: histogram, selected: selected);
+```
+
+Record fields use identifiers or nonempty single-quoted labels and preserve written order in the native
+`ReportValue::Record`. Duplicate labels fail. Parentheses also group expressions.
+A binding can hold a native selection, count, histogram or nested record. Counts
+render as integers; histograms render as string-to-count objects. Selections
+retain their original nodes or declaration/reference identities, file owners and
+ranges. A constructed record has no input-source range. These inspection leaves
+are not scalar comprehension values.
+
+`expression | query("pipeline")` runs against that expression's native result.
+`| emit` and `| json` are terminal emitters. Query-source strings can also end
+with their existing `emit` or `json` stage. An explicit emitter suppresses the
+statement's implicit emission. Bindings and record fields cannot emit. Program
+parsing checks names, emitters and supported result transitions before execution.
+Programs do not support transformations, `let`, literal-source helpers,
+comprehensions or arithmetic; the existing single `Query` API retains edit routes.
+
+Use `zincite-query -f PROGRAM [FILE|-]` or `zincite query --program-file PROGRAM
+[FILE|-]`. Input, stdin and model options have their existing meanings. Programs
+reject `--diff` and `--write`. Both commands evaluate and render all requested
+outputs before writing stdout. A later runtime or rendering error leaves stdout
+empty. Program-file errors name the actual program file; source errors retain
+the original input or model location. Incomplete semantic reports still carry
+`complete:false` and located `limitations`, and exit 1.
+
+The library provides `evaluate`, `evaluate_with_model` and `evaluate_with_facts`.
+`Program::requires_model_facts()` reports semantic demand. Each evaluation prepares
+one initial selection and retains one context, `Rc<ModelFacts>` and budget across
+statements. `ProgramResult::emissions()` exposes native values; `semantic()` retains
+the public fact owner and `is_complete()`/`limitations()` retain uncertainty.
+Call `render(&mut self)` to obtain one output buffer, then write those bytes only
+after success. Every JSON emission uses `{complete, limitations, result}`, including
+syntax-only reports. Repeated rendering spends the same remaining allowance again.
+
+`ProgramLimits` defaults to 1,000,000 work units, 100,000 aggregate result units,
+100,000 items per stream and 64 nesting levels. CLI programs accept `--max-work`,
+`--max-results`, `--max-items` and `--max-nesting`. Aggregate units cover produced
+and copied native entries, nested containers/fields, emission snapshots and JSON
+storage. JSON metadata reserves a bounded amount before construction. Work also
+covers copied strings/source text and encoded output bytes. Raw model tokens and
+CST nodes consume work when facts are first demanded; they do not consume result
+units. A warm fact owner still pays the current request's admission. These bounds
+refuse an entire request rather than truncate individual streams.
 
 ### Assignment edits
 

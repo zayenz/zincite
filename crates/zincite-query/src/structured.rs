@@ -20,7 +20,7 @@ pub enum ArrayIndexing {
 }
 
 /// One literal with original source spelling and byte coordinates.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LiteralValue<'a> {
     pub file: &'a str,
     pub range: Range<usize>,
@@ -29,7 +29,7 @@ pub struct LiteralValue<'a> {
 }
 
 /// Recursive inspection data, without evaluating computed expressions.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum LiteralKind<'a> {
     Integer,
     Float,
@@ -50,26 +50,26 @@ pub enum LiteralKind<'a> {
 }
 
 /// A field label is distinct from an enum member or string value.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LiteralLabel<'a> {
     pub name: &'a str,
     pub range: Range<usize>,
     pub spelling: &'a [u8],
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LiteralField<'a> {
     pub label: LiteralLabel<'a>,
     pub value: LiteralValue<'a>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LiteralEntry<'a> {
     pub key: Option<LiteralValue<'a>>,
     pub value: LiteralValue<'a>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LiteralRow<'a> {
     pub key: Option<LiteralValue<'a>>,
     pub cells: Vec<LiteralValue<'a>>,
@@ -191,15 +191,16 @@ pub(crate) fn project<'a>(
     work: &mut Work,
     limits: Limits,
 ) -> Result<QueryResult<'a>, QueryError> {
-    let selection = into_nodes(result, &stage.range)?;
+    let selection = into_nodes(result, &stage.range, work)?;
     let input = selection.input;
     let mut nodes = Vec::new();
     for selected in selection.nodes {
         work.visit(&stage.range)?;
         let node = collection_node(selected.node, input, work, &stage.range, limits)?;
         work.spend(node.children().len(), &stage.range)?;
-        let mut push = |node: &'a SyntaxNode| -> Result<(), QueryError> {
+        let mut push = |node: &'a SyntaxNode, work: &mut Work| -> Result<(), QueryError> {
             check_collection(nodes.len(), limits.collection, &stage.range)?;
+            work.produce(1, &stage.range)?;
             nodes.push(SelectedNode {
                 node,
                 file: input.file(),
@@ -210,22 +211,25 @@ pub(crate) fn project<'a>(
         match stage.kind {
             StageKind::Fields if node.kind() == NodeKind::RecordLiteral => {
                 for field in node.child_nodes() {
-                    push(field)?;
+                    push(field, work)?;
                 }
             }
             StageKind::Elements => match node.kind() {
                 NodeKind::SetLiteral | NodeKind::TupleLiteral => {
                     for child in node.child_nodes() {
-                        push(child)?;
+                        push(child, work)?;
                     }
                 }
                 NodeKind::ArrayLiteral => {
                     for entry in node.child_nodes() {
-                        push(if entry.kind() == NodeKind::IndexedArrayEntry {
-                            entry.child_nodes().nth(1).unwrap()
-                        } else {
-                            entry
-                        })?;
+                        push(
+                            if entry.kind() == NodeKind::IndexedArrayEntry {
+                                entry.child_nodes().nth(1).unwrap()
+                            } else {
+                                entry
+                            },
+                            work,
+                        )?;
                     }
                 }
                 NodeKind::MatrixLiteral => {
@@ -235,7 +239,7 @@ pub(crate) fn project<'a>(
                     {
                         work.spend(row.children().len(), &stage.range)?;
                         for cell in row.child_nodes().skip(usize::from(has_colon(input, row))) {
-                            push(cell)?;
+                            push(cell, work)?;
                         }
                     }
                 }
@@ -252,7 +256,7 @@ pub(crate) fn project<'a>(
                         .child_nodes()
                         .filter(|entry| entry.kind() == NodeKind::IndexedArrayEntry)
                     {
-                        push(entry.child_nodes().next().unwrap())?;
+                        push(entry.child_nodes().next().unwrap(), work)?;
                     }
                 }
                 NodeKind::MatrixLiteral => {
@@ -260,10 +264,10 @@ pub(crate) fn project<'a>(
                         work.spend(row.children().len(), &stage.range)?;
                         if row.kind() == NodeKind::MatrixColumnIndices {
                             for key in row.child_nodes() {
-                                push(key)?;
+                                push(key, work)?;
                             }
                         } else if has_colon(input, row) {
-                            push(row.child_nodes().next().unwrap())?;
+                            push(row.child_nodes().next().unwrap(), work)?;
                         }
                     }
                 }
@@ -302,6 +306,7 @@ impl<'a> LiteralReader<'a, '_, '_> {
             ));
         }
         check_collection(self.entries, self.limits.collection, self.range)?;
+        self.work.produce(1, self.range)?;
         self.entries += 1;
         self.work.visit(self.range)?;
         self.work.spend(node.children().len(), self.range)?;
@@ -374,6 +379,7 @@ impl<'a> LiteralReader<'a, '_, '_> {
                     let index = direct_token(self.input, field).unwrap();
                     let label_range = self.input.token_range(index);
                     let spelling = self.input.token_bytes(index);
+                    self.work.produce(1, self.range)?;
                     fields.push(LiteralField {
                         label: LiteralLabel {
                             name: identifier_identity(std::str::from_utf8(spelling).unwrap()),
@@ -420,6 +426,7 @@ impl<'a> LiteralReader<'a, '_, '_> {
                         }
                     } else {
                         check_collection(self.entries, self.limits.collection, self.range)?;
+                        self.work.produce(1, self.range)?;
                         self.entries += 1;
                         let mut cells = row.child_nodes();
                         let key = if has_colon(self.input, row) {
@@ -458,7 +465,7 @@ pub(crate) fn values<'a>(
     work: &mut Work,
     limits: Limits,
 ) -> Result<QueryResult<'a>, QueryError> {
-    let selection = into_nodes(result, &stage.range)?;
+    let selection = into_nodes(result, &stage.range, work)?;
     let mut reader = LiteralReader {
         input: selection.input,
         work,
@@ -996,7 +1003,7 @@ pub(crate) fn transform_elements(
             "collection transformations require data-file mode (.dzn)",
         ));
     }
-    let targets = into_nodes(result, range)?;
+    let targets = into_nodes(result, range, work)?;
     let mut reader = LiteralReader {
         input,
         work,
@@ -1615,4 +1622,67 @@ pub(crate) fn read_key(
     };
     let value = reader.read(node, 0)?;
     key_parts(&value, node, input, reader.work, range)
+}
+
+pub(crate) fn admit_json(
+    selection: &LiteralSelection<'_>,
+    work: &mut Work,
+    range: &Range<usize>,
+) -> Result<(), QueryError> {
+    fn admit_value(
+        value: &LiteralValue<'_>,
+        work: &mut Work,
+        range: &Range<usize>,
+    ) -> Result<(), QueryError> {
+        // Source metadata, kind, content containers and their field storage.
+        work.produce(24, range)?;
+        work.spend(128 + value.file.len() + value.spelling.len(), range)?;
+        match &value.kind {
+            LiteralKind::Member(name) => work.spend(name.len(), range)?,
+            LiteralKind::Set(values) | LiteralKind::Tuple(values) => {
+                for child in values {
+                    admit_value(child, work, range)?;
+                }
+            }
+            LiteralKind::Record(fields) => {
+                for field in fields {
+                    work.produce(14, range)?;
+                    work.spend(
+                        48 + field.label.name.len() + field.label.spelling.len(),
+                        range,
+                    )?;
+                    admit_value(&field.value, work, range)?;
+                }
+            }
+            LiteralKind::Array { entries, .. } => {
+                for entry in entries {
+                    work.produce(5, range)?;
+                    if let Some(key) = &entry.key {
+                        admit_value(key, work, range)?;
+                    }
+                    admit_value(&entry.value, work, range)?;
+                }
+            }
+            LiteralKind::Matrix { column_keys, rows } => {
+                for key in column_keys {
+                    admit_value(key, work, range)?;
+                }
+                for row in rows {
+                    work.produce(5, range)?;
+                    if let Some(key) = &row.key {
+                        admit_value(key, work, range)?;
+                    }
+                    for cell in &row.cells {
+                        admit_value(cell, work, range)?;
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    for v in &selection.values {
+        admit_value(v, work, range)?;
+    }
+    Ok(())
 }

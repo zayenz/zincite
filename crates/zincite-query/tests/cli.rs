@@ -432,3 +432,48 @@ fn semantic_cli_loads_only_requested_models_and_keeps_incomplete_and_error_statu
     assert_eq!(output.stdout, b"3\n");
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn program_files_report_native_results_and_buffer_later_failures() {
+    let path =
+        std::env::temp_dir().join(format!("zincite-query-program-{}.zq", std::process::id()));
+    std::fs::write(&path, r#"source selected = query(""); source n = selected | query("count"); source h = selected | query("names | tally"); report (count: n, histogram: h, selected: selected);"#).unwrap();
+    let output = run(
+        &["--stdin-filepath", "data.dzn", "-f", path.to_str().unwrap()],
+        b"a = 1; b = 2;",
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["complete"], true);
+    assert_eq!(report["result"]["count"], 2);
+    assert_eq!(report["result"]["histogram"]["a"], 1);
+    assert_eq!(report["result"]["selected"][0]["range"]["start"], 0);
+    std::fs::write(&path, r#"query("count | json"); query("values");"#).unwrap();
+    let output = run(
+        &[
+            "--stdin-filepath",
+            "data.dzn",
+            "--program-file",
+            path.to_str().unwrap(),
+        ],
+        b"a = 1 + 2;",
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let diagnostic = String::from_utf8_lossy(&output.stderr);
+    assert!(diagnostic.contains("literal"), "{diagnostic}");
+    assert!(diagnostic.contains("data.dzn"), "{diagnostic}");
+    std::fs::write(&path, r#"query("count | json"); query("count | items");"#).unwrap();
+    let output = run(
+        &["--stdin-filepath", "data.dzn", "-f", path.to_str().unwrap()],
+        b"a = 1; b = 2;",
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains(path.to_str().unwrap()));
+    std::fs::remove_file(path).unwrap();
+}

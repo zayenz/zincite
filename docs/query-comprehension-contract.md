@@ -3,9 +3,12 @@
 `set_value("EXPRESSION")` inserts MiniZinc expression source into an existing
 assignment. `values` reads written literals, but does not evaluate a computed
 right-hand side. Neither operation constructs a new value from query results.
-This document proposes one bounded constructor for reports and explicit `.dzn`
-edits. The host statements and helper calls below are a **proposal**, not
-current Zincite commands or an approval to implement them.
+Read-only [query programs](reference.md#query-programs) now support immutable
+`source` bindings, ordered query statements and native record reports. They do
+not evaluate the comprehensions described here. This document proposes the
+remaining bounded constructor and explicit `.dzn` edits. Its `let`, literal-source
+helpers, generators and edit batches remain proposals, not current commands or
+approval to implement them.
 
 The expression syntax follows the [MiniZinc 2.10.1 comprehension and generator
 grammar](https://docs.minizinc.dev/en/2.10.1/spec.html#set-comprehensions).

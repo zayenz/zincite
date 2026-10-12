@@ -24,6 +24,8 @@ pub mod cli;
 mod inspection;
 mod language;
 mod pipeline;
+mod program;
+pub use program::{Program, ProgramEmission, ProgramLimits, ProgramResult, ReportValue};
 mod reduction;
 mod semantic;
 mod structured;
@@ -935,6 +937,12 @@ struct Work<'a> {
 }
 
 impl Work<'_> {
+    fn produce(&mut self, units: usize, range: &Range<usize>) -> Result<(), QueryError> {
+        self.budget
+            .charge_results(units, zirql::Location::Query(range.clone()))
+            .map_err(pipeline::core_error)
+    }
+
     fn visit(&mut self, range: &Range<usize>) -> Result<(), QueryError> {
         self.spend(1, range)
     }
@@ -1026,6 +1034,7 @@ fn collect_items<'a>(
                 .then(|| identifier_identity(&input.syntax().source()[token.range.clone()]))
             })
         });
+        work.produce(1, range)?;
         let range = input.original_range(node.range());
         items.push(SelectedItem {
             node,

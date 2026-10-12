@@ -17,7 +17,7 @@ type Failure = EvaluationError<QueryError>;
 type Leaf<'a> = (&'a Predicate, &'a Stage);
 
 #[derive(Debug)]
-enum Row<'a> {
+pub(crate) enum Row<'a> {
     Item(SelectedItem<'a>),
     Node(SelectedNode<'a>),
     String(String),
@@ -28,7 +28,7 @@ enum Row<'a> {
 }
 
 #[derive(Clone, Copy, Debug)]
-enum StreamKind {
+pub(crate) enum StreamKind {
     Items,
     Nodes,
     Strings,
@@ -45,13 +45,13 @@ impl StreamKind {
 }
 
 #[derive(Debug)]
-struct Context<'a> {
+pub(crate) struct Context<'a> {
     input: &'a Input,
     limits: Limits,
-    kind: StreamKind,
-    document: bool,
-    report: Option<SemanticResult<'a>>,
-    callable_references: Vec<usize>,
+    pub(crate) kind: StreamKind,
+    pub(crate) document: bool,
+    pub(crate) report: Option<SemanticResult<'a>>,
+    pub(crate) callable_references: Vec<usize>,
     filter_subject: Option<SemanticSubject<'a>>,
     semantic_filter: bool,
     syntax_filter: Option<(String, Option<&'a str>)>,
@@ -77,7 +77,7 @@ pub(crate) fn core_error(error: zirql::QueryError) -> QueryError {
     }
 }
 
-fn evaluation_error(error: Failure) -> QueryError {
+pub(crate) fn evaluation_error(error: Failure) -> QueryError {
     match error {
         EvaluationError::Core(error) => core_error(error),
         EvaluationError::Host(error) => error,
@@ -99,13 +99,23 @@ pub(crate) fn evaluate_read_only<'a>(
         nesting: query.nesting_limit,
         ..limits
     });
-    let input = prepare_input(query, input, facts, limits, &mut budget)?;
+    let (mut context, rows) = prepare_context(query, input, facts, limits, &mut budget)?;
+    let input = NativeInput::from_admitted(
+        &mut context,
+        rows,
+        &budget,
+        zirql::Location::Query(query.range.clone()),
+    )
+    .map_err(core_error)?;
     let result =
         zirql::evaluate(&pipeline, &NativeHost, input, &mut budget).map_err(evaluation_error)?;
-    finish_result(query, result, &mut budget)
+    let value = result.value;
+    finish_result(query, context, value, &mut budget)
 }
 
-fn lower_pipeline(query: &Query) -> Result<zirql::Pipeline<Leaf<'_>, &Stage>, QueryError> {
+pub(crate) fn lower_pipeline(
+    query: &Query,
+) -> Result<zirql::Pipeline<Leaf<'_>, &Stage>, QueryError> {
     let stages = query
         .stages
         .iter()
@@ -153,13 +163,13 @@ fn lower_pipeline(query: &Query) -> Result<zirql::Pipeline<Leaf<'_>, &Stage>, Qu
         .map_err(core_error)
 }
 
-fn prepare_input<'a>(
+pub(crate) fn prepare_context<'a>(
     query: &Query,
     input: &'a Input,
     facts: Option<Rc<ModelFacts<'a>>>,
     limits: Limits,
     budget: &mut Budget,
-) -> Result<NativeInput<Row<'a>, Context<'a>>, QueryError> {
+) -> Result<(Context<'a>, Vec<Row<'a>>), QueryError> {
     let mut work = Work { budget };
     let requesting = query
         .stages
@@ -197,22 +207,16 @@ fn prepare_input<'a>(
         syntax_filter: None,
     };
     let rows = context.take_rows(stream);
-    NativeInput::from_admitted(
-        context,
-        rows,
-        budget,
-        zirql::Location::Query(query.range.clone()),
-    )
-    .map_err(core_error)
+    Ok((context, rows))
 }
 
 fn finish_result<'a>(
     query: &Query,
-    result: zirql::NativeResult<Row<'a>, Context<'a>>,
+    mut context: Context<'a>,
+    value: NativeValue<Row<'a>>,
     budget: &mut Budget,
 ) -> Result<QueryResult<'a>, QueryError> {
-    let mut context = result.context;
-    let mut stream = match result.value {
+    let mut stream = match value {
         NativeValue::Stream(rows) => context.restore_stream(rows),
         NativeValue::Count(count) => {
             SemanticStream::Inspection(Box::new(QueryResult::Count(count)))
@@ -333,7 +337,7 @@ fn filter_stage<'a>(mut predicate: &zirql::Predicate<Leaf<'a>>) -> &'a Stage {
 }
 
 impl<'a> Context<'a> {
-    fn take_rows(&mut self, stream: SemanticStream<'a>) -> Vec<Row<'a>> {
+    pub(crate) fn take_rows(&mut self, stream: SemanticStream<'a>) -> Vec<Row<'a>> {
         match stream {
             SemanticStream::Entities(rows) => {
                 self.kind = StreamKind::Entities;
@@ -375,7 +379,7 @@ impl<'a> Context<'a> {
         }
     }
 
-    fn restore_stream(&self, rows: Vec<Row<'a>>) -> SemanticStream<'a> {
+    pub(crate) fn restore_stream(&self, rows: Vec<Row<'a>>) -> SemanticStream<'a> {
         let result = match self.kind {
             StreamKind::Items => QueryResult::Selection(Selection {
                 input: self.input,
@@ -482,7 +486,7 @@ impl<'a> Context<'a> {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq)]
-enum Identity {
+pub(crate) enum Identity {
     Node(*const SyntaxNode),
     String(String),
     Declaration(usize),
@@ -501,16 +505,16 @@ fn subject_identity(subject: &SemanticSubject<'_>) -> Identity {
 }
 
 #[derive(Debug)]
-struct NativeHost;
+pub(crate) struct NativeHost;
 
-impl<'a, 'q> Host<Row<'a>, Context<'a>, Leaf<'q>, &'q Stage> for NativeHost {
+impl<'a, 'q> Host<Row<'a>, &mut Context<'a>, Leaf<'q>, &'q Stage> for NativeHost {
     type Error = QueryError;
     type Key = Identity;
 
     fn prepare_stage(
         &self,
         stage: &Located<zirql::Stage<Leaf<'q>, &'q Stage>>,
-        context: &mut Context<'a>,
+        context: &mut &mut Context<'a>,
         _budget: &mut Budget,
     ) -> Result<(), Failure> {
         let error = match &stage.value {
@@ -559,7 +563,7 @@ impl<'a, 'q> Host<Row<'a>, Context<'a>, Leaf<'q>, &'q Stage> for NativeHost {
     fn prepare_filter_item(
         &self,
         row: &Row<'a>,
-        context: &mut Context<'a>,
+        context: &mut &mut Context<'a>,
         budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<(), Failure> {
@@ -600,7 +604,7 @@ impl<'a, 'q> Host<Row<'a>, Context<'a>, Leaf<'q>, &'q Stage> for NativeHost {
         &self,
         leaf: &Leaf<'q>,
         _row: &Row<'a>,
-        context: &mut Context<'a>,
+        context: &mut &mut Context<'a>,
         budget: &mut Budget,
         _range: &Range<usize>,
     ) -> Result<Truth, Failure> {
@@ -655,7 +659,7 @@ impl<'a, 'q> Host<Row<'a>, Context<'a>, Leaf<'q>, &'q Stage> for NativeHost {
         &self,
         stage: &&'q Stage,
         rows: Vec<Row<'a>>,
-        context: &mut Context<'a>,
+        context: &mut &mut Context<'a>,
         budget: &mut Budget,
         _range: &Range<usize>,
     ) -> Result<Vec<Row<'a>>, Failure> {
@@ -694,7 +698,7 @@ impl<'a, 'q> Host<Row<'a>, Context<'a>, Leaf<'q>, &'q Stage> for NativeHost {
     fn identity_key(
         &self,
         row: &Row<'a>,
-        _context: &mut Context<'a>,
+        _context: &mut &mut Context<'a>,
         budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<Identity, Failure> {
@@ -717,7 +721,7 @@ impl<'a, 'q> Host<Row<'a>, Context<'a>, Leaf<'q>, &'q Stage> for NativeHost {
     fn tally_key(
         &self,
         row: Row<'a>,
-        _context: &mut Context<'a>,
+        _context: &mut &mut Context<'a>,
         budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<String, Failure> {

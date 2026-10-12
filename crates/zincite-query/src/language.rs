@@ -279,10 +279,10 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
 
 // The cursor keeps located tokens without a second token buffer. Boolean chains
 // are flat vectors; only written groups and `not` consume the nesting budget.
-struct Parser<'a> {
-    source: &'a str,
-    position: usize,
-    nesting_limit: usize,
+pub(crate) struct Parser<'a> {
+    pub(crate) source: &'a str,
+    pub(crate) position: usize,
+    pub(crate) nesting_limit: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -471,7 +471,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn string(&mut self) -> Result<(String, Range<usize>), QueryError> {
+    pub(crate) fn string(&mut self) -> Result<(String, Range<usize>), QueryError> {
         self.space();
         let start = self.position;
         self.punctuation(b'"', "expected a double-quoted argument")?;
@@ -518,7 +518,7 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    fn word(&mut self, message: &str) -> Result<(&'a str, Range<usize>), QueryError> {
+    pub(crate) fn word(&mut self, message: &str) -> Result<(&'a str, Range<usize>), QueryError> {
         self.space();
         let start = self.position;
         if !self
@@ -536,7 +536,7 @@ impl<'a> Parser<'a> {
         Ok((&self.source[start..self.position], start..self.position))
     }
 
-    fn take_word(&mut self, word: &str) -> bool {
+    pub(crate) fn take_word(&mut self, word: &str) -> bool {
         self.space();
         if self.source[self.position..].starts_with(word)
             && !self
@@ -552,7 +552,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn punctuation(&mut self, byte: u8, message: &str) -> Result<(), QueryError> {
+    pub(crate) fn punctuation(&mut self, byte: u8, message: &str) -> Result<(), QueryError> {
         self.space();
         if self.current() != Some(byte) {
             return Err(self.error(message));
@@ -561,7 +561,7 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    fn space(&mut self) {
+    pub(crate) fn space(&mut self) {
         while self
             .current()
             .is_some_and(|byte| byte.is_ascii_whitespace())
@@ -570,11 +570,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn current(&self) -> Option<u8> {
+    pub(crate) fn current(&self) -> Option<u8> {
         self.source.as_bytes().get(self.position).copied()
     }
 
-    fn error(&self, message: &str) -> QueryError {
+    pub(crate) fn error(&self, message: &str) -> QueryError {
         let end = self.source[self.position..]
             .chars()
             .next()
