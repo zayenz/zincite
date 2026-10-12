@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 132
-- Ready: 2
+- Ready: 1
 - Blocked: 2
-- Done: 128
+- Done: 129
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -131,7 +131,7 @@
 | [base-120](tasks/120-limit-selected-body-interpretation-to-requested-retained-pro.md) | Limit selected-body interpretation to requested retained proofs | done | base-119 |
 | [base-121](tasks/121-remove-superseded-admission-inspectors-and-their-compatibili.md) | Remove superseded admission inspectors and their compatibility bridges | done | base-120 |
 | [base-122](tasks/122-evaluate-salsa-against-the-simplified-demand-driven-analysis.md) | Evaluate Salsa against the simplified demand-driven analysis | done | base-121 |
-| [base-123](tasks/123-verify-the-smaller-semantic-contract-across-lints-and-querie.md) | Verify the smaller semantic contract across lints and queries | ready | base-122, base-111, base-112 |
+| [base-123](tasks/123-verify-the-smaller-semantic-contract-across-lints-and-querie.md) | Verify the smaller semantic contract across lints and queries | done | base-122, base-111, base-112 |
 | [base-124](tasks/124-document-reproducible-minizinc-feature-extraction-recipes.md) | Document reproducible MiniZinc feature-extraction recipes | done | — |
 | [base-125](tasks/125-specify-shared-comprehension-syntax-for-reports-and-structur.md) | Specify shared comprehension syntax for reports and structured data | done | — |
 | [base-126](tasks/126-run-query-programs-with-bindings-comprehensions-and-structur.md) | Run query programs with bindings, comprehensions and structured reports | ready | base-119, base-125 |

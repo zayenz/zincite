@@ -10,8 +10,12 @@ base-114 revision adopts deliberate semantic opacity and the retained proof
 contract. It supersedes the base-097 requirement to preserve every
 successful source inspector. Base-083, base-093 through base-100 and base-050 are
 completed historical work; this revision neither reopens them nor changes their
-recorded outcomes. The new bundle changes future support expectations, not code
-or historical execution counts.
+recorded outcomes. Base-115 through base-121 implement this contract through
+owner-produced uncertainty, possible-reference boundaries, selected proof demand,
+shared `ModelFacts` and removal of admission-only inspectors. The
+[2026-10-12 acceptance](../scripts/semantic-corpus-checkpoint.md#base-123-bounded-semantic-acceptance-2026-10-12)
+checks the implemented state at `d7c33659050c03ea1460df13b1fffe42220e6fd7`.
+Historical execution counts remain unchanged.
 
 ## Research basis
 
@@ -225,12 +229,12 @@ now supported opacity. They do not change the fourteen detection families.
 
 ## Demand and reuse before an incremental database
 
-Ordinary per-analysis demand and reuse are the implementation target. `analysis`
+Ordinary per-analysis demand and reuse are implemented. `analysis`
 selects source/signature facts for simple consumers and requests bounded body
 proofs only for consumers that need them. Reuse each prepared fact result within
 the same analysis/context; do not compute a full body result merely to discard it.
 Inspect the existing prepared-definition path and mixed simple/deep selections
-before changing scheduling. Keep current public fact APIs and direct functions;
+when changing scheduling. Keep current public fact APIs and direct functions;
 no new IR, registry, general fixed point or cache framework is required.
 
 Base-118 routes decision-use, standard symmetry/global recognition, unused
@@ -451,7 +455,7 @@ measurement provides no reason to pay that cost now.
 
 ## Small baseline for this bundle
 
-Current documentation baseline: `6b497f9caa46276fd9c62016371350a909a5b08e`
+Historical policy baseline: `6b497f9caa46276fd9c62016371350a909a5b08e`
 (2026-10-12). The following existing public controls were inspected here, not
 rerun. Paths below are under `crates/zincite-lint/tests/`. Reuse them; add no test
 for a documentation or scheduling-only change.
@@ -587,3 +591,10 @@ draft in the callable plan is superseded, and its old evidence remains unchanged
 
 This baseline is a small bundle control set, not a substitute for the existing
 full catalogue and parsing/formatting acceptance evidence.
+
+The [base-123 acceptance](../scripts/semantic-corpus-checkpoint.md#base-123-bounded-semantic-acceptance-2026-10-12)
+runs the retained workspace controls, three originals, public library/native
+comparisons and reordered shared-owner requests. It reuses base-122 measurements
+after checking the unchanged production paths and retained raw/input hashes.
+The dated Salsa deferral above remains in force. Future extensions follow the
+[brief's consumer and evidence rule](../.zdev/base/brief.md#interpretation-before-policy).

@@ -407,11 +407,18 @@ its include closure. Resolve relative includes from the including file, then
 ordered `-I` directories, then an explicitly configured `--stdlib-dir` (or
 `MZN_STDLIB_DIR`). Identify builtins and standard-library declarations separately
 from user code. System library files supply facts but receive no user-style
-warnings unless explicitly selected as inputs. Use ordinary per-analysis demand
-and reuse before considering an incremental database: reuse prepared facts in
-the same context and request body proofs only for named consumers. Production
-Salsa adoption is outside this bundle and needs measured justification plus a
-separately scoped decision. Includes, diagnostics and suppressions retain file
+warnings unless explicitly selected as inputs. Use the implemented `ModelFacts`
+owner for demand and reuse within one immutable root and include closure. `analyze_model_with_facts` runs fresh selected diagnostic
+policy over that owner; `Query::evaluate_with_facts` can share it through `Rc`.
+Source signatures/types remain separate from selected bound, definedness and
+output proofs. Changed source or include configuration requires a new context
+and owner. `resolve_callables` and `ModelFacts::proof_callables` retain explicit
+bulk body-aware compatibility behavior. Warm queries still charge their own
+limits and check exact root bytes/BOM; the last owner/result releases its facts.
+The dated
+[2026-10-12 Salsa decision](../../docs/semantic-processing-plan.md#salsa-decision-2026-10-12)
+defers adoption. A future adoption needs measured justification and a separately
+scoped decision. Includes, diagnostics and suppressions retain file
 identity and byte ranges. Missing/cyclic includes and unreadable dependencies
 produce useful errors without aborting unrelated roots. Do not execute a compiler
 or solver to provide ordinary lint results.
@@ -493,8 +500,14 @@ The semantic plan records the current revision, a small existing-public-control
 baseline and the latest acceptance's three named semantic originals for this
 simplification bundle. Separate approved semantic expectation changes from
 scheduling-only comparisons; preserve historical rows and captures. Old capture
-paths are optional evidence, not prerequisites, and this docs-only revision
-requires no new tests or corpus run.
+paths are optional evidence, not prerequisites. The historical policy adoption
+required no new tests or corpus run. The
+[base-123 acceptance](../../scripts/semantic-corpus-checkpoint.md#base-123-bounded-semantic-acceptance-2026-10-12)
+checks all 28 current rules through existing public controls, three originals,
+both lint/query command forms and reordered shared-owner requests. It preserves
+Limited prerequisite/selection outcomes and historical captures, and reuses the
+verified unchanged base-122 cost evidence. It introduces no semantic family or
+new tests.
 
 ## Linter expansion: semantic facts, rule families and fixes
 
@@ -517,9 +530,10 @@ work (base-032 through base-036 and search analysis) must also keep fact product
 separate from diagnostic policy within its implementation. Preserve those tasks;
 new infrastructure extends their results rather than rebuilding name resolution.
 
-Add separate infrastructure tasks for bounded numeric interpretation, guarded
-truth/definedness, option presence/cardinality, and iteration/dependency facts.
-Each has named rule consumers below and can be exercised without enabling a lint.
+Bounded numeric interpretation, guarded truth/definedness, option
+presence/cardinality and iteration/dependency facts are implemented in their
+existing modules. Each has named rule consumers below and can be exercised
+without enabling a lint.
 Known, disproven, unknown and unsupported conclusions remain distinguishable.
 Missing parameter data is ordinary uncertainty, not a fabricated value; unsupported
 analysis remains an explicit limitation. Analyse only facts required by selected
@@ -539,6 +553,11 @@ intervals; unknown does not mean unsafe. Same-sized arrays need not share indice
 Iteration facts distinguish array capacity from present optional elements and
 quantifier idempotence from arithmetic multiplicity. No rule may remove or reorder
 partial expressions merely because a Boolean identity appears applicable.
+
+A future semantic extension must name a current consumer, the compositional
+guarantee and its prerequisites, and the behavior for uncertainty and known
+errors. Require proportionate positive, refusal and cost evidence for that
+operation. Clearing a limitation alone does not justify more interpretation.
 
 ### Rule catalogue, families and selection
 

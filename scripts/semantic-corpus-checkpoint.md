@@ -8884,3 +8884,206 @@ committed through `11dc52a`. One native process per preset is a behavior check,
 not an isolated speedup measurement. All four local commands match their
 reviewed release binaries and pass help checks. Private evidence remains local
 under `target/benchmarks/base083/three-repair-original-controls` and `/tmp`.
+
+## Base-123 bounded semantic acceptance, 2026-10-12
+
+This acceptance checks production code at
+`d7c33659050c03ea1460df13b1fffe42220e6fd7`. Base-115 through base-121 implement
+supported opacity, owner-produced uncertainty, possible-reference boundaries,
+selected proof demand and immutable-owner reuse. Base-122's dated Salsa decision
+remains a deferral. This section adds current evidence alongside the historical
+captures above; it does not replace their rows or reopen base-050/base-083.
+
+### Catalogue and retained facts
+
+The actual `Rule::THESIS` selection contains the first fourteen rows below.
+`Rule::all()` contains all 28 rows, including `prefer-enum`. Each row names an
+existing useful public behavior control, not catalogue membership alone. The
+workspace run executes these controls and their negative partners. They retain
+located findings, explicit selection and next-item suppression through the
+rule-specific tests and `crates/zincite-lint/tests/cli.rs`. No new test matrix or
+production test was needed.
+
+| Rule ID | Existing public control under `crates/zincite-lint/tests/` | Retained path |
+| --- | --- | --- |
+| `array-index-start` | `domains.rs::named_domains_and_symbolic_bounds_retain_identity_and_precise_advice` | named and symbolic domains; distinct bounds |
+| `compact-if` | `compact_if.rs::both_zero_orders_have_independent_facts_original_ranges_and_suppression` | both zero-branch orders and partiality vetoes |
+| `constant-variable` | `definitions.rs::whole_definitions_retain_identity_ranges_dependencies_and_item_suppression` | safe scalar/whole definitions and dependency anchors |
+| `effective-zero-one` | `effective_zero_one.rs::invariant_bounds_both_polarities_and_whole_sums_have_independent_source_facts` | checked bounds and both polarities |
+| `element-predicate` | `callables.rs::public_callable_facts_preserve_types_and_select_standard_identity_before_advice` | selected standard identity; separate safe-fix obligations |
+| `reified-global` | `global_uses.rs::resolved_globals_keep_context_dependency_identity_ranges_and_suppression` | selected globals and reification context |
+| `global-variable-in-function` | `captures.rs::public_facts_and_capture_policy_share_declared_identity_and_scope_boundaries` | captures and lexical identity |
+| `unbounded-variable` | `unbounded.rs::numeric_aliases_and_complete_anchored_definitions_keep_policy_separate` | bare numeric advice and complete-definition vetoes |
+| `search-coverage` | `search.rs::typed_searches_aliases_and_direct_closure_preserve_whole_array_and_cycle_boundaries` | typed searches, direct closure and cycles |
+| `decision-variable-operator` | `decision_use.rs::operator_families_conditions_and_sources_use_separate_facts_and_suppressions` | operator operand instantiation |
+| `unmarked-symmetry-breaking` | `symmetry.rs::complete_family_markers_user_overloads_suppression_ranges_and_advisory_cli` | markers and selected standard identity |
+| `unused-declaration` | `unused_declarations.rs::complete_roots_follow_selected_dependencies_without_conflating_containment` | complete roots, possible references and unreachable declarations |
+| `decision-variable-generator` | `decision_use.rs::operator_families_conditions_and_sources_use_separate_facts_and_suppressions` | generator domain/assignment instantiation |
+| `decision-variable-condition` | `decision_use.rs::operator_families_conditions_and_sources_use_separate_facts_and_suppressions` | condition/filter instantiation |
+| `naming` | `linting.rs::compiler_item_families_keep_binding_names_labels_and_suppressions` | binding roles and spelling |
+| `missing-constraint-label` | `linting.rs::compiler_item_families_keep_binding_names_labels_and_suppressions` | direct constraint labels |
+| `prefer-array-comprehension` | `prefer_array_comprehension.rs::fixed_sets_preserve_keys_axis_order_and_exact_retained_text` | matching keys/axes and retained edit text |
+| `suspicious-shadowing` | `shadowing.rs::lexical_shadowing_uses_enclosing_identity_and_keeps_scope_exceptions_quiet` | enclosing lexical identity and scope exceptions |
+| `expensive-comprehension` | `expensive_comprehension.rs::checked_thresholds_symbolic_dimensions_and_optional_capacity_remain_distinct` | checked threshold versus symbolic structure |
+| `index-set-mismatch` | `index_set_mismatch.rs::ranges_offsets_and_dimensions_report_actual_membership_not_length` | actual members and dimensions versus length |
+| `hidden-optionality` | `hidden_optionality.rs::direct_length_comparisons_explain_slots_presence_and_supported_aliases` | capacity versus optional presence |
+| `partial-expression` | `partial_expression.rs::exact_requirements_report_locations_and_keep_source_unchanged` | failed obligations and unchanged source |
+| `vacuous-constraint` | `vacuous_constraint.rs::empty_filters_and_constant_truth_report_the_exact_context` | empty filters and proved truth |
+| `unused-generator-binding` | `unused_generator.rs::full_chain_uses_and_repetition_advice_preserve_declaration_identity` | full generator scope and multiplicity |
+| `global-constraint-opportunity` | `global_patterns.rs::both_complete_patterns_preserve_actual_indices_and_source_identities` | complete patterns, indices and totality |
+| `missing-input-precondition` | `input_preconditions.rs::arrays_keep_source_dimension_identity_and_explicit_matching_guards` | formal array requirements and matching guards |
+| `suspicious-domain` | `suspicious_domain.rs::complete_scalar_contracts_keep_actual_members_locals_and_parameter_defaults_distinct` | complete scalar RHS contracts |
+| `prefer-enum` | `prefer_enum.rs::identities_counts_and_indexed_payloads_keep_nominal_families` | nominal member/index uses and numeric vetoes |
+
+`linting::selections_keep_exact_presets_and_disabled_suppressions_independent`
+and `family_selection_and_explicit_settings_keep_order_and_ignore_precedence`
+retain exact preset membership and ordering. The naming/label controls keep
+independent suppressions; direct-comprehension and enum controls also exercise
+standalone CLI selection, suppression and edit refusal.
+
+Structural type/substitution and ambiguity controls remain in `callables.rs`.
+`numeric_facts.rs` and `domains.rs` retain checked chains and independent symbolic
+identities. `guarded.rs` and `optional.rs` keep relational partiality, raw versus
+effective definedness, assertion barriers and capacity versus presence.
+`definitions.rs` distinguishes direct and whole-array definitions from partial,
+conditional, symbolic and cyclic candidates. `search.rs` keeps finite callable
+outputs, defaults/captures, ordinary `forall` outputs, complete enum2int views and
+possible-reference vetoes. `unused_declarations.rs` keeps uncertainty local and
+fragments inapplicable to export-unreachability claims. These positive facts and
+proof barriers were retained, including source locations and BOM/CRLF controls.
+
+The opaque initializer/relation and known-assertion controls in `unbounded.rs`
+keep affected domain advice quiet while independent bare numeric advice works.
+`search::opaque_relation_references_veto_only_affected_missing_search_advice`
+keeps affected coverage Unknown and still warns on an independent known uncovered
+decision. The element and unused-generator controls require actual membership,
+raw totality and Supported safety before a fix. `fixes.rs` keeps invalid/stale
+copy edits and candidate errors visible. No expectation was weakened to reduce a
+Limited count.
+
+### Three originals and operation accounting
+
+Only neighbours-rect, mondoku-gcc-model-balance and globals_all_equal_int were
+replayed. Each root used the installed MiniZinc 2.10.1 library, no extra include
+directories, and the exact thesis/all selections. The existing release
+`profile-phases batch` companion, public `analyze_model_with_facts` renderer,
+`zincite-lint` and `zincite lint` agreed on status and every detailed diagnostic
+byte after removing only the native root prefix. Complete native command forms
+also agreed with each other. All selected IDs and per-rule outcomes/reasons remain
+in the temporary captures.
+
+| Original | Preset | Findings | Located limitations | Completed / Limited |
+| --- | --- | ---: | ---: | ---: |
+| neighbours-rect | thesis | 3 | 3 | 11 / 3 |
+| neighbours-rect | all | 25 | 14 | 21 / 7 |
+| mondoku-gcc-model-balance | thesis | 5 | 11 | 11 / 3 |
+| mondoku-gcc-model-balance | all | 15 | 14 | 23 / 5 |
+| globals_all_equal_int | thesis | 0 | 10 | 11 / 3 |
+| globals_all_equal_int | all | 5 | 11 | 24 / 4 |
+
+All six rows are complete model roots with resolved dependencies and implicit
+core sources. Input/load errors, timeouts, Inapplicable, NotRun and Unobserved
+counts are zero. MiniZinc 2.10.1 build 33348285743 accepted each unchanged original
+with `--solver gecode --model-check-only`. This establishes current model validity,
+not an instance compilation, a Zincite proof or satisfiability. No data-instance
+or solver run was performed. Compiler-rejected inputs and missing dependencies
+would retain their own error/availability classification; none occurred here.
+
+The base-083 thesis limitation counts 9/25/13 at code through `11dc52a` remain
+historical. Current counts are 3/11/10. Supported typed opacity can complete with
+Unknown after removal of admission-only regular/regexp, optional-matrix,
+initializer/union, product, reflection/alias and unrequested-body walks. That
+change supplies no bound, definition, totality, output, coverage or safe edit.
+Source uncertainty and possible-reference vetoes can also remove dependent
+negative advice without proving positive coverage. Lower counts alone establish
+neither a supported operation nor complete analysis.
+
+The remaining rows stay Limited, classified by the required operation:
+
+| Original | Current remaining operations and status |
+| --- | --- |
+| neighbours-rect | Bounded numeric evaluation and rank-two index-source prerequisites; all additionally requests placement evaluation, computed domain/source identity and an aggregate RHS contract. Exact evaluation outside the retained bounded producers remains excluded. Missing source/proof prerequisites remain Limited rather than being converted to opacity or a positive fact. |
+| mondoku-gcc-model-balance | Selected definition partiality, output dependency operator prerequisites, reflection signature/source and definition value safety; all adds guarded/domain evaluation. These are unavailable required proof prerequisites, retained as Limited. No source signature supplies the missing safety/output proof. |
+| globals_all_equal_int | Potentially matching generic argument/signature types are unknown; required callable selection is unresolved or ambiguous. Element, search and unused analysis retain those vetoes; all also retains guarded-call uncertainty. No overload is guessed. |
+
+These captures do not demonstrate a newly lost promised structural projection,
+type, first-order selection or useful positive proof. Such a defect would require
+a bounded witness and correction, and could not be accepted merely as opacity.
+The current unavailable proof/selection operations are not relabelled as
+Completed or claimed repaired. Resource failures would remain failures or
+Unobserved, not semantic exclusions.
+
+All 600 distinct loaded original/dependency files retained their hashes before
+and after the replay. Original SHA256 values remain `a8a9d28b...668f53d`,
+`c1dd890e...a0e2b18` and `37644909...b76611e`, respectively. Exact hashes,
+commands, root/rule partitions, classifications and raw located results stay in
+`/tmp/zincite123-originals/`. No private source, fixture or raw diagnostic text is
+included here.
+
+### Library, command and shared-owner acceptance
+
+The public controls in `/tmp/zincite123-public/` compare both lint forms with
+`write_analysis`, and both query forms with `evaluate_with_model` and
+`evaluate_with_facts`. Informational-only and suppressed Cartesian advice return
+0, warning mixtures return 1, and actual missing-include errors take precedence
+with 2. Shared-include decision/parameter roots preserve different capture
+conclusions and root labels. Default reports give the exact limitation counts;
+`--show-limitations` preserves all located library limitations.
+
+Installed-library capacity declaration/type/instantiation/use navigation is
+complete through both query forms. The public tuple-Unknown negation control
+returns no match and an incomplete report at status 1. Actual model errors
+return 2 with empty stdout. Complete enum reduction produces the exact candidate
+and explicit writes succeed on disposable data. Computed enum accesses keep
+previews incomplete, retain located dependencies, and refuse both explicit write
+forms while preserving the exact original data/model bytes. General computed
+enum-access evaluation remains excluded. Historical private seating inputs were
+not replayed.
+
+The transient `/tmp/zincite123-owner.rs` checks source queries, named source,
+direct/callable definition and search facts, standalone and combined selected
+analysis, then a fresh owner with reversed lint/query request order. Complete
+per-rule findings, fixes, errors, limitations and outcomes agree. Source query
+observations remain unchanged after proof work. Interleaved contexts over the
+same shared include keep distinct global-capture and enum2int search conclusions.
+The wrapper/unrelated opaque relation keeps its useful scalar output and Unknown
+coverage for the opaque relation. The retained base-119 control also checks raw
+body navigation, warm query work/collection limits, exact root/BOM refusal and
+last-result owner release. Both focused transient checks pass; no permanent
+instrumentation, harness or fact API was added.
+
+All four installed commands still match their reviewed `d7c3365` release bytes.
+Current required validation passes: `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings` and
+`cargo test --workspace` (402 tests). The release profiler and native binaries
+also build. Logs are `/tmp/zincite123-{fmt,clippy,test,release,release-bins}.log`;
+public and owner summaries/commands are under `/tmp/zincite123-public/` and
+`/tmp/zincite123-owner-run.log`.
+
+### Reused cost evidence and current documentation
+
+Base-122's [fresh/mixed/repeated-request measurements](batch-performance.md#base-122-demand-and-reuse-observations)
+remain evidence for this implementation. The `0dbc278..d7c3365` delta contains
+only documentation, zdev and site changes. The retained report, every raw stream,
+both exact case hashes and 382 dependency-instance hashes were checked at this
+acceptance; complete first/warm/fresh-owner equality, fact reference reuse and
+allocation-drop observations still agree. Details are
+`/tmp/zincite123-reused-measurements.json` and the original
+`/tmp/zincite122-20261012-wait4/report.json`.
+
+Fresh CLI medians remain 70.274/159.977 ms for the small/mixed cases, with maximum
+child RSS 28.938/41.438 MiB. Warm/fresh-owner medians remain
+0.800/42.236 and 0.363/128.622 ms. Ten warm requests retain no additional live
+allocation bytes; dropping owner/context returns to the allocation baseline.
+This is two-case unchanged-input evidence, not a general corpus memory bound or
+post-drop RSS claim. Initial noisy/no-RSS observations and older measurements
+remain separate. With no production delta, another timed run would restamp the
+same implementation.
+
+The brief, semantic plan, callable map, lint guide and reference describe current
+source/proof ownership, `ModelFacts` lifetime and public shared-owner APIs. The
+callable map's old open-base-083, whole-owner and refusal-text proposals are
+explicitly historical. Severity, root/compact/detail presentation, Unknown
+vetoes, incomplete writes and ordinary analysis without a compiler/solver remain
+part of the current contract. Future extensions follow the
+[brief's consumer and evidence rule](../.zdev/base/brief.md#interpretation-before-policy).

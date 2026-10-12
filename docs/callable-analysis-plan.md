@@ -6,7 +6,7 @@ Callable analysis should provide bounded output guarantees and checked source
 prerequisites. It should not become a general value evaluator or a certificate
 that every selected analysis completed.
 
-This is the base-094 design result, inspected at
+The historical design below was inspected at
 `fda190e27e104538e9cbec236435c985235a573d`. It proposes future work; it changes no
 fact API, semantic behavior, brief policy or task graph. The
 [brief's Semantic analysis and Testing contracts](../.zdev/base/brief.md) and
@@ -48,6 +48,16 @@ by this revision. Use ordinary per-analysis demand/reuse before considering
 Salsa under the semantic plan's separately scoped, measured decision.
 
 ## Current definition and boundary contracts
+
+`ModelFacts` owns demand and reuse for one immutable root and include closure.
+Source callable facts retain written typing and identity. Selected bound,
+definedness and output requests retain their separate proof prerequisites;
+`proof_callables` is an explicit bulk compatibility request. Lint uses
+`analyze_model_with_facts`, while queries can share the owner through
+`Query::evaluate_with_facts`. Actual/default/capture mapping and output
+publication remain invocation work. See the
+[implemented owner contract](semantic-processing-plan.md#demand-and-reuse-before-an-incremental-database)
+and its dated Salsa deferral.
 
 Base-116 implements owner-produced uncertainty under the semantic support
 contract. `value_safety` and `definitions` classify typed nonoptional integer
@@ -111,8 +121,12 @@ selects that data instead of comparing its rendered reason. Unknown/Unsupported
 and Source/Output boundary distinctions continue to govern consumers directly.
 
 The sections below preserve the recorded base-093/base-094 implementation map
-and observations. Their line numbers and consumer descriptions are historical.
-The private refusal-text query is superseded by these owner-produced facts.
+and observations. Every proposal, imperative instruction, line number and
+consumer description below belongs to that historical revision. In particular,
+the open-base-083 resumption, whole-owner extraction and refusal-text query
+proposals are superseded; they do not govern current work. The current
+[semantic acceptance](../scripts/semantic-corpus-checkpoint.md#base-123-bounded-semantic-acceptance-2026-10-12)
+uses the implemented contracts above and the semantic plan.
 
 ## Historical implementation responsibilities
 
@@ -199,7 +213,7 @@ for that view.
 The existing Some/None lookup choices must survive cleanup. There is no measured
 cost defect in this repeated construction and no reason here to add a cache.
 
-## Checked examples and counterevidence
+## Historical checked examples and counterevidence
 
 1. **Refusal text crosses ownership boundaries.** `value_safety.rs:127,176`
    emits the membership and control/iteration refusals. `analysis.rs:444–489`
@@ -259,7 +273,7 @@ fallback (`search.rs:1920–1977`). Its narrower enforcement/closure needs expla
 this recomputation; no checked evidence establishes that it is redundant or a
 performance defect. Whether wider sharing helps remains a hypothesis.
 
-## Alternatives and recommendation
+## Historical alternatives and recommendation
 
 This message-bridge draft is superseded by base-116. It records the earlier
 proposal and is not an instruction to retain safety strings or initializer
@@ -330,7 +344,7 @@ their present owners. Do not add a generic certainty framework, fact registry,
 cache, evaluator, crate or exhaustive standard-library interpretation. Lookup
 or relation scaffolding cleanup is optional and needs a concrete consumer benefit.
 
-## Unknown, missing support and unavailable prerequisites
+## Historical uncertainty and prerequisite classification
 
 Classify completion for the applicable **rule**, not for an entire callable fact
 bundle. A value remaining unproved is not itself an implementation gap.

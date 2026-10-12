@@ -20,12 +20,23 @@ first occurrence of each ID. `default`, `thesis` and `all` remain accepted legac
 selectors. `--list-rules` gives family, availability, fix support and membership.
 
 Families are `correctness`, `suspicious`, `modelling`, `performance` and `style`.
-Selection does not change warnings into errors. Exit status is 0 without warnings
-or errors, 1 with unsuppressed warnings, and 2 for usage, settings, input, syntax,
-directive or dependency errors. Limitations alone retain status 0 or 1.
+Selection does not change severity. Symbolic Cartesian advice from
+`expensive-comprehension` is informational (`info`); a proved threshold
+exceedance is a warning. Informational findings alone retain status 0.
+Unsuppressed warnings produce 1. Usage, settings, input, syntax, directive or
+dependency errors produce 2, taking precedence over warnings and information.
+Limitations alone retain status 0 or 1.
 Independent input files continue after errors. A rule's `Completed`,
 `Inapplicable`, `Limited` or `NotRun` library result describes its analysis;
 command status 0 does not promise complete semantic coverage.
+
+Both `zincite-lint` and `zincite lint` label model diagnostics with
+`[root PATH]` as well as the actual source path and original range. A shared
+include can have different findings under different roots. By default each root
+with limitations reports their exact count and says analysis is incomplete.
+Use `--show-limitations` to see every located limitation. This changes only
+presentation; library findings, limitations and rule outcomes remain available
+in full.
 
 ## Choose a category and inspect fix support
 
@@ -127,9 +138,9 @@ and `unfixable` restrict edits independently of diagnostics; exclusions win.
 | `missing-input-precondition` | modelling | Supported general callable-body operations requiring matching array dimensions/membership, nonempty present values, nonzero division/modulus or positive integer-input logarithms. Defaults/global assumptions do not validate formal inputs; opaque meaning stays unsupported. |
 | `suspicious-domain` | suspicious | Complete integer RHS contracts against explicit scalar destinations. Exact/disjoint contradictions differ from conservative overlapping interval advice. Sparse members, immutable locals and enforced equality retain identity; defaults, unknowns and overflow prove no conflict. |
 
-Rules can report located limitations for unsupported required facts. Zincite does
-not run a solver or infer arbitrary callee meaning, symbolic algebra, feasibility
-or optimization benefit. Current installed-library and corpus limitations are
+Rules can report located limitations for unsupported required facts. Zincite
+invokes neither a compiler nor a solver and does not infer arbitrary callee
+meaning, symbolic algebra, feasibility or optimization benefit. Current installed-library and corpus limitations are
 recorded in [the expansion checkpoint](../scripts/lint-expansion-checkpoint.md).
 
 ## Definitions and domain advice

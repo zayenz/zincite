@@ -611,12 +611,19 @@ its result plus located stderr notes; model/dependency errors are status 2 with
 empty stdout. An unconfigured standard library remains a limitation even when
 some facts are available. This differs from declaration-only data reduction.
 
-Fact families are computed only on demand, once per evaluation. The producers
-scan a whole retained context; before calling them, the query bounds its token
-and CST-node scan by work and collection limits. Reference scans, target lookups,
+Fact families are computed on demand and reused by `ModelFacts` for one immutable
+`ModelContext`. `evaluate_with_model` creates an owner for its evaluation;
+`evaluate_with_facts` accepts an `Rc<ModelFacts>` that lint and query requests can
+share. Changed source or include configuration requires a new context and owner.
+Source typing stays separate from selected bound, definedness and output proofs.
+Explicit `resolve_callables` and `ModelFacts::proof_callables` retain bulk
+body-aware compatibility behavior; ordinary queries do not request that closure.
+The producers scan a whole retained context; before calling them, the query
+bounds its token and CST-node scan by work and collection limits. Reference scans, target lookups,
 expansion, row additions, type components and output bytes are charged too.
-Nested type inspection respects `Limits::nesting`. Exceeded limits are actual
-errors and never silent truncation.
+Each evaluation charges these limits even with a warm owner and checks the exact
+root bytes, including the BOM. Nested type inspection respects `Limits::nesting`.
+Exceeded limits are actual errors and never silent truncation.
 
 Use the library independently:
 
@@ -644,7 +651,9 @@ native until `render`. `JsonResult::result` exposes the native result behind a J
 limits)` uses no model; `evaluate_with_model(input, Option<&ModelContext>, limits)`
 uses optional read-only facts for enum reduction or required retained-root facts
 for semantic inspection, and rejects relevant loader errors. Its signature borrows
-both `Input` and `ModelContext` for the result lifetime. `SemanticResult` exposes
+both `Input` and `ModelContext` for the result lifetime. `evaluate_with_facts(input,
+Rc<ModelFacts>, limits)` retains a shared owner in the result; the last owner or
+result releases its cached facts. `SemanticResult` exposes
 its final `SemanticStream`, completion, located limitations, immutable model and
 only computed fact families. Declaration/reference IDs belong to its `BindingFacts`;
 selected overloads remain in `CallableFacts`. Type and instantiation rows retain
@@ -773,8 +782,13 @@ selects naming, constraint labels and model-backed direct-comprehension advice;
 API below; `lint_with_options` rejects them without that context.
 
 Explicit model analysis uses `load_model(root_path, &ModelOptions)` and
-`analyze_model(&context, &LintOptions)`. The context retains parsed sources,
-canonical file identities, include locations and file-local suppressions. It
+`analyze_model(&context, &LintOptions)`. For repeated or mixed requests, construct
+`ModelFacts::new(&context)` and call `analyze_model_with_facts(&facts, &LintOptions)`.
+The owner reuses requested facts; each call runs diagnostic policy for its own
+selection, options and suppressions. It borrows one immutable root and include
+closure. Source signatures and types establish neither bounds nor output proofs;
+selected proof consumers retain their own prerequisites. The context retains
+parsed sources, canonical file identities, include locations and file-local suppressions. It
 resolves includes from the including file's directory, then the ordered
 `include_dirs`, then `stdlib_dir/std`. A configured library also loads
 `std/stdlib.mzn` and its core closure as implicitly available declarations.
@@ -794,8 +808,14 @@ Selected analysis separates file-aware findings, per-rule execution outcomes,
 model limitations and actual errors. Dynamic include paths produce an explicit
 incomplete-context limitation; missing or cyclic dependencies, invalid UTF-8,
 syntax and suppression failures produce errors. `write_analysis` supplies the
-CLI's stderr renderer: limitations alone keep status 0 or 1, warnings produce 1,
-and errors take precedence with 2. Unsupported required semantics remain
+library's full detailed renderer. Both lint command forms add `[root PATH]` to
+located model diagnostics. Their default presentation gives each root's exact
+limitation count and incomplete-analysis/detail guidance; `--show-limitations`
+renders the located limitations without changing the library result.
+Informational findings (`info`) alone keep status 0; unsuppressed warnings
+produce 1, and errors take precedence with 2. Symbolic Cartesian structure
+advice is informational; proved threshold exceedance remains a warning.
+Limitations alone keep status 0 or 1. Unsupported required semantics remain
 explicit limitations; analysis does not guess missing parameter values.
 
 `Rule::PreferEnum` is opt-in style advice with `FixSupport::None`. It consumes
