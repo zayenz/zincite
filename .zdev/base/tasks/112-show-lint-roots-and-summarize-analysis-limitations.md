@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-112"
 key = "root-aware-compact-lint-report"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -26,12 +26,20 @@ Read brief.md Adopted Atlas feedback and analysis outcome contract. Begin at cra
 
 ## Done when
 
-- [ ] Include diagnostics identify their root and source location.
-- [ ] Default stderr summarizes limitations by root with counts and tells users how to request detail; --show-limitations prints located limitations.
-- [ ] Warning/error exit behavior is unchanged and independent roots with different conclusions remain distinguishable.
+- [x] Include diagnostics identify their root and source location.
+- [x] Default stderr summarizes limitations by root with counts and tells users how to request detail; --show-limitations prints located limitations.
+- [x] Warning/error exit behavior is unchanged and independent roots with different conclusions remain distinguishable.
 
 ## Validation
 
 - Use a small two-root shared-include CLI fixture and default/detail checks; no new semantic analysis or corpus sweep.
 - Run cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, and cargo test --workspace.
 - Run zdev check base --format json; install the changed local commands after verification.
+
+## Result
+
+Label CLI diagnostics with their analysis root and source location; summarize limitations per root with explicit incomplete analysis and opt-in located detail via --show-limitations, preserving library outcomes and exit behavior.
+
+Validation:
+
+- Independent PASS W00cfec650398ef83; fmt, Clippy, workspace tests, 34 CLI checks, zdev check and diff check passed. Updated installed zincite and zincite-lint match release binaries; both command forms preserve distinct shared-root conclusions and compact/detail output with warning status 1.

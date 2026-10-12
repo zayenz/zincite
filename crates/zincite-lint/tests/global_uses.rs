@@ -111,7 +111,7 @@ fn resolved_globals_keep_context_dependency_identity_ranges_and_suppression() {
     assert_eq!(clean.status.code(), Some(0));
     assert!(clean.stderr.is_empty());
     let stdin = std::process::Command::new(env!("CARGO_BIN_EXE_zincite-lint"))
-        .args(["--rules", "reified-global"])
+        .args(["--show-limitations", "--rules", "reified-global"])
         .stdin(std::process::Stdio::null())
         .output()
         .unwrap();

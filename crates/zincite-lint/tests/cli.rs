@@ -30,6 +30,126 @@ fn run_bytes(arguments: &[&str], source: &[u8], library: Option<&str>) -> std::p
 }
 
 #[test]
+fn shared_include_reports_keep_roots_distinct_and_limitations_compact() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-lint-root-reports-{}", std::process::id()));
+    let library = directory.join("library");
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(library.join("std/stdlib.mzn"), "").unwrap();
+    let decision = directory.join("decision.mzn");
+    let parameter = directory.join("parameter.mzn");
+    let shared = directory.join("shared.mzn");
+    std::fs::write(
+        &decision,
+        "include \"shared.mzn\"; var int: global; solve satisfy;",
+    )
+    .unwrap();
+    std::fs::write(
+        &parameter,
+        "include \"shared.mzn\"; int: global=1; solve satisfy;",
+    )
+    .unwrap();
+    let source = "function var int: BadName() = global;\ninclude \"dynamic \\(1).mzn\";\n";
+    std::fs::write(&shared, source).unwrap();
+    let arguments = [
+        "--isolated",
+        "--rules",
+        "naming,global-variable-in-function",
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        decision.to_str().unwrap(),
+        parameter.to_str().unwrap(),
+    ];
+    for detail in [false, true] {
+        let mut arguments = arguments.to_vec();
+        if detail {
+            arguments.push("--show-limitations");
+        }
+        let output = run(&arguments, "");
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8(output.stderr).unwrap();
+        for root in [&decision, &parameter] {
+            assert!(
+                text.contains(&format!(
+                    "[root {}] {}:1:19: bytes 18..25: warning [naming]",
+                    root.display(),
+                    shared.display()
+                )),
+                "{text}"
+            );
+            if detail {
+                assert!(
+                    text.contains(&format!(
+                        "[root {}] {}:2:9: bytes 46..64: analysis limitation:",
+                        root.display(),
+                        shared.display()
+                    )),
+                    "{text}"
+                );
+            } else {
+                assert!(
+                    text.contains(&format!(
+                        "{}: analysis limitation: 1 recorded limitation; analysis is incomplete. Use --show-limitations for details.",
+                        root.display()
+                    )),
+                    "{text}"
+                );
+            }
+        }
+        let capture = text
+            .lines()
+            .find(|line| line.contains("warning [global-variable-in-function]"))
+            .unwrap();
+        assert!(
+            capture.starts_with(&format!("[root {}]", decision.display())),
+            "{text}"
+        );
+        assert_eq!(
+            text.matches("warning [global-variable-in-function]")
+                .count(),
+            1
+        );
+        assert_eq!(text.matches("analysis limitation:").count(), 2);
+        assert_eq!(text.contains("include path requires evaluation"), detail);
+    }
+    let limits_only = run(
+        &[
+            "--isolated",
+            "--rules",
+            "global-variable-in-function",
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            parameter.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(limits_only.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&limits_only.stderr).contains("analysis is incomplete"));
+
+    std::fs::write(&shared, source.replace("dynamic \\(1).mzn", "missing.mzn")).unwrap();
+    let output = run(&arguments, "");
+    assert_eq!(output.status.code(), Some(2));
+    let text = String::from_utf8(output.stderr).unwrap();
+    for root in [&decision, &parameter] {
+        assert!(
+            text.contains(&format!(
+                "[root {}] {}:2:9: bytes 46..59: error: cannot resolve include",
+                root.display(),
+                shared.display()
+            )),
+            "{text}"
+        );
+    }
+    assert_eq!(
+        text.matches("warning [global-variable-in-function]")
+            .count(),
+        1
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     let list = run(&["--list-rules"], "not valid MiniZinc");
     assert!(list.status.success() && list.stderr.is_empty());
@@ -145,7 +265,7 @@ fn cli_reports_located_advice_errors_and_processes_independent_files_without_wri
         "constraint :: \"label\" true;",
         "% zincite-lint: ignore missing-constraint-label\nconstraint true;",
     ] {
-        let output = run(&[], source);
+        let output = run(&["--show-limitations"], source);
         assert!(output.status.success());
         assert!(
             output.stdout.is_empty()
@@ -404,7 +524,11 @@ fn capture_selection_loads_model_roots_and_keeps_stdin_data_and_error_precedence
             && stderr.contains("cannot resolve include")
     );
     let stdin = run(
-        &["--rules", "global-variable-in-function"],
+        &[
+            "--show-limitations",
+            "--rules",
+            "global-variable-in-function",
+        ],
         "var int: global; function var int: capture() = global;",
     );
     assert_eq!(stdin.status.code(), Some(0));
@@ -474,6 +598,7 @@ fn element_selection_reports_advice_limits_and_independent_root_errors() {
         "--stdlib-dir",
         library.to_str().unwrap(),
         root.to_str().unwrap(),
+        "--show-limitations",
     ];
     let warning = run(&arguments, "");
     assert_eq!(warning.status.code(), Some(1));
@@ -518,7 +643,10 @@ fn element_selection_reports_advice_limits_and_independent_root_errors() {
             .unwrap()
             .contains("analysis limitation: element-predicate: callable name is unresolved")
     );
-    let stdin = run(&["--rules", "element-predicate"], source);
+    let stdin = run(
+        &["--show-limitations", "--rules", "element-predicate"],
+        source,
+    );
     assert_eq!(stdin.status.code(), Some(0));
     assert!(
         String::from_utf8(stdin.stderr)
@@ -557,6 +685,7 @@ fn decision_use_selection_preserves_cli_status_context_and_independent_inputs() 
         "--stdlib-dir",
         library.to_str().unwrap(),
         root.to_str().unwrap(),
+        "--show-limitations",
     ];
     let warning = run(&args, "");
     assert_eq!(warning.status.code(), Some(1));
@@ -590,7 +719,7 @@ fn decision_use_selection_preserves_cli_status_context_and_independent_inputs() 
             .unwrap()
             .contains("analysis limitation: decision-variable-condition")
     );
-    let stdin = run(&["--rules", rules], source);
+    let stdin = run(&["--show-limitations", "--rules", rules], source);
     assert_eq!(stdin.status.code(), Some(0));
     assert!(
         String::from_utf8(stdin.stderr)
@@ -694,7 +823,10 @@ fn constant_variable_selection_keeps_context_limits_and_status_precedence() {
         .unwrap();
     assert_eq!(inapplicable.status.code(), Some(0));
     assert!(inapplicable.stdout.is_empty() && inapplicable.stderr.is_empty());
-    let stdin = run(&["--rules", "constant-variable"], original);
+    let stdin = run(
+        &["--show-limitations", "--rules", "constant-variable"],
+        original,
+    );
     assert_eq!(stdin.status.code(), Some(0));
     assert!(String::from_utf8_lossy(&stdin.stderr).contains("requires a ModelContext"));
     std::fs::write(&model, "var opt int: value=<>; solve satisfy;").unwrap();
@@ -791,6 +923,7 @@ fn compact_if_selection_keeps_advice_limits_and_suppression_separate() {
         "--stdlib-dir",
         library.to_str().unwrap(),
         root.to_str().unwrap(),
+        "--show-limitations",
     ];
     let output = run(&args, "");
     assert_eq!(output.status.code(), Some(1));
@@ -832,6 +965,7 @@ fn effective_zero_one_selection_preserves_facts_limits_and_status_precedence() {
         "--stdlib-dir",
         library.to_str().unwrap(),
         root.to_str().unwrap(),
+        "--show-limitations",
     ];
     let output = run(&args, "");
     assert_eq!(output.status.code(), Some(1));
@@ -904,6 +1038,7 @@ fn unused_declaration_selection_respects_complete_roots_limits_and_status_preced
         "--stdlib-dir",
         library.to_str().unwrap(),
         root.to_str().unwrap(),
+        "--show-limitations",
     ];
     let output = run(&args, "");
     assert_eq!(output.status.code(), Some(1));
@@ -1029,7 +1164,10 @@ fn search_selection_keeps_completion_suppression_and_status_precedence() {
     assert_eq!(output.status.code(), Some(2));
     let diagnostics = String::from_utf8(output.stderr).unwrap();
     assert!(diagnostics.contains("warning [search-coverage]") && diagnostics.contains("error:"));
-    let stdin = run(&["--rules", "search-coverage"], source);
+    let stdin = run(
+        &["--show-limitations", "--rules", "search-coverage"],
+        source,
+    );
     assert_eq!(stdin.status.code(), Some(0));
     assert!(String::from_utf8_lossy(&stdin.stderr).contains("requires a ModelContext"));
     let data = run(
@@ -1456,6 +1594,7 @@ fn hidden_optionality_selection_suppression_and_limits_keep_status_and_source_co
         &[
             "--rules",
             "hidden-optionality",
+            "--show-limitations",
             "--stdlib-dir",
             library.to_str().unwrap(),
             unsupported_path.to_str().unwrap(),
@@ -1515,6 +1654,7 @@ fn partial_expression_cli_reports_scoped_hazards_and_keeps_status_precedence() {
         "--stdlib-dir",
         library.to_str().unwrap(),
         root.to_str().unwrap(),
+        "--show-limitations",
     ];
     let output = run(&args, "");
     assert_eq!(output.status.code(), Some(1));
@@ -1567,7 +1707,10 @@ fn partial_expression_cli_reports_scoped_hazards_and_keeps_status_precedence() {
             .unwrap()
             .contains("analysis limitation: partial-expression")
     );
-    let stdin = run(&["--rules", "partial-expression"], source);
+    let stdin = run(
+        &["--show-limitations", "--rules", "partial-expression"],
+        source,
+    );
     assert_eq!(stdin.status.code(), Some(0));
     assert!(
         String::from_utf8(stdin.stderr)
@@ -1647,7 +1790,10 @@ fn shadowing_settings_presets_and_exact_suppression_keep_sources_read_only() {
             && text.contains("ignore-names")
             && text.contains("Fix support: none")
     );
-    let stdin = run(&["--rules", "suspicious-shadowing"], source);
+    let stdin = run(
+        &["--show-limitations", "--rules", "suspicious-shadowing"],
+        source,
+    );
     assert_eq!(stdin.status.code(), Some(0));
     assert!(String::from_utf8_lossy(&stdin.stderr).contains("requires a ModelContext"));
     let data = run(
@@ -1680,6 +1826,7 @@ fn vacuity_cli_keeps_opt_in_selection_suppression_and_statuses() {
         "--stdlib-dir",
         library.to_str().unwrap(),
         root.to_str().unwrap(),
+        "--show-limitations",
     ];
     std::fs::write(&root, "constraint true; solve satisfy;").unwrap();
     let output = run(&args, "");
@@ -1742,7 +1889,7 @@ fn vacuity_cli_keeps_opt_in_selection_suppression_and_statuses() {
             .contains(&zincite_lint::Rule::VacuousConstraint)
     );
     let stdin = run(
-        &["--rules", "vacuous-constraint"],
+        &["--show-limitations", "--rules", "vacuous-constraint"],
         "constraint true; solve satisfy;",
     );
     assert_eq!(stdin.status.code(), Some(0));
@@ -1808,7 +1955,10 @@ fn unused_generator_selection_suppression_and_metadata_preserve_source_and_statu
             && text.contains("Fix support: sometimes")
             && text.contains("Generator-call shorthand")
     );
-    let stdin = run(&["--rules", "unused-generator-binding"], source);
+    let stdin = run(
+        &["--show-limitations", "--rules", "unused-generator-binding"],
+        source,
+    );
     assert_eq!(stdin.status.code(), Some(0));
     assert!(String::from_utf8_lossy(&stdin.stderr).contains("requires a ModelContext"));
     let broken = dir.join("broken.mzn");
@@ -1846,6 +1996,7 @@ fn global_pattern_selection_suppression_and_statuses_remain_read_only() {
         "--stdlib-dir",
         library.to_str().unwrap(),
         root.to_str().unwrap(),
+        "--show-limitations",
     ];
     let output = run(&args, "");
     assert_eq!(output.status.code(), Some(1));

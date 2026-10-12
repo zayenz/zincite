@@ -1,8 +1,8 @@
+use crate::analysis::write_root_analysis;
 use crate::settings::LintSettings;
 use crate::{
     AnalysisResult, FixOptions, LintOptions, ModelOptions, PreparedFixes, Rule, SourceSnapshot,
-    analyze_file, analyze_model, load_model, prepare_fixes, replace_fixed_file, write_analysis,
-    write_fix_diff,
+    analyze_file, analyze_model, load_model, prepare_fixes, replace_fixed_file, write_fix_diff,
 };
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -10,7 +10,7 @@ use std::process::ExitCode;
 use zincite_syntax::{ByteParsedFile, FileMode, parse_bytes_with_mode};
 
 const HELP: &str = "Usage: zincite-lint [--list-rules | --explain RULE]
-       zincite-lint [--rules SELECTION] [--config PATH | --isolated] [--show-settings | --fix | --diff] [--unsafe-fixes] [-I DIR] [--stdlib-dir DIR] [--stdin-filepath PATH] [FILE|DIR...|-]
+       zincite-lint [--rules SELECTION] [--config PATH | --isolated] [--show-settings | --fix | --diff] [--unsafe-fixes] [--show-limitations] [-I DIR] [--stdlib-dir DIR] [--stdin-filepath PATH] [FILE|DIR...|-]
 
 Report MiniZinc modelling advice on stderr. Ordinary linting never rewrites source.
 No input or '-' reads stdin; stdin cannot be mixed with files.
@@ -84,7 +84,9 @@ performance are not checked.
 Code and literals use UTF-8; opaque comment bytes are preserved by fixes.
 Syntax errors omit lint rules for that file. Independent files are processed.
 Exit codes: 0 no warnings/errors, 1 unsuppressed warnings, 2 input/parse/directive/configuration/usage/dependency errors.
-Analysis limitations alone retain status 0 or 1.
+Diagnostics label the analysis root alongside the source location.
+Analysis limitations are counted per root by default; --show-limitations prints their locations and reasons.
+Analysis limitations alone retain status 0 or 1 and do not establish complete analysis.
 -h, --help shows this help.
 ";
 
@@ -121,6 +123,7 @@ fn execute(arguments: Vec<std::ffi::OsString>, invocation: &str) -> Result<u8, S
         cli_selection,
         configuration,
         show_settings,
+        show_limitations,
         model,
         mode,
         unsafe_fixes,
@@ -136,7 +139,7 @@ fn execute(arguments: Vec<std::ffi::OsString>, invocation: &str) -> Result<u8, S
         for settings in &mut settings {
             settings.fixes.unsafe_fixes = unsafe_fixes;
         }
-        return run_fixes(&paths, &settings, &model, mode);
+        return run_fixes(&paths, &settings, &model, mode, show_limitations);
     }
     let inputs = (!paths.is_empty()).then(|| zincite_syntax::inputs::discover_inputs(&paths));
     let anchors = match &inputs {
@@ -174,7 +177,7 @@ fn execute(arguments: Vec<std::ffi::OsString>, invocation: &str) -> Result<u8, S
             |path| path.to_string_lossy().into_owned(),
         );
         let mode = stdin_filepath.map_or(FileMode::Model, FileMode::from_path);
-        return check_source(&label, bytes, mode, &settings[0].options);
+        return check_source(&label, bytes, mode, &settings[0].options, show_limitations);
     };
     let mut status = if inputs.errors.is_empty() { 0 } else { 2 };
     for (path, error) in inputs.errors {
@@ -188,12 +191,25 @@ fn execute(arguments: Vec<std::ffi::OsString>, invocation: &str) -> Result<u8, S
         let label = path.to_string_lossy();
         let result = if options.requires_model() && FileMode::from_path(&path) == FileMode::Model {
             let context = load_model(&path, &model);
-            write_analysis(&analyze_model(&context, &options), &mut io::stderr())
-                .map_err(|error| format!("stderr: {error}"))
+            write_root_analysis(
+                &analyze_model(&context, &options),
+                &path,
+                show_limitations,
+                &mut io::stderr(),
+            )
+            .map_err(|error| format!("stderr: {error}"))
         } else {
             std::fs::read(&path)
                 .map_err(|error| format!("{label}: {error}"))
-                .and_then(|bytes| check_source(&label, bytes, FileMode::from_path(&path), &options))
+                .and_then(|bytes| {
+                    check_source(
+                        &label,
+                        bytes,
+                        FileMode::from_path(&path),
+                        &options,
+                        show_limitations,
+                    )
+                })
         };
         match result {
             Ok(file_status) => status = status.max(file_status),
@@ -292,6 +308,7 @@ fn run_fixes(
     settings: &[ResolvedSettings],
     model: &ModelOptions,
     mode: Mode,
+    show_limitations: bool,
 ) -> Result<u8, String> {
     let mut status = 0;
     let mut prepared: Vec<(SourceSnapshot, PreparedFixes)> = Vec::new();
@@ -305,7 +322,7 @@ fn run_fixes(
             Ok((result, snapshot)) => {
                 if mode == Mode::Diff {
                     status = status.max(
-                        write_analysis(&result, &mut io::stderr())
+                        write_root_analysis(&result, path, show_limitations, &mut io::stderr())
                             .map_err(|error| format!("stderr: {error}"))?,
                     );
                 } else if !result.errors.is_empty() {
@@ -358,7 +375,7 @@ fn run_fixes(
         match analyze_fix_root(path, &settings.options, model, false) {
             Ok((result, _)) => {
                 status = status.max(
-                    write_analysis(&result, &mut io::stderr())
+                    write_root_analysis(&result, path, show_limitations, &mut io::stderr())
                         .map_err(|error| format!("stderr: {error}"))?,
                 )
             }
@@ -474,6 +491,7 @@ struct Arguments {
     cli_selection: Option<Vec<String>>,
     configuration: Configuration,
     show_settings: bool,
+    show_limitations: bool,
     model: ModelOptions,
     mode: Mode,
     unsafe_fixes: bool,
@@ -684,6 +702,7 @@ fn parse_arguments(
     let mut rule_selection = None;
     let mut configuration = Configuration::Discover;
     let mut show_settings = false;
+    let mut show_limitations = false;
     let mut mode = Mode::Ordinary;
     let mut unsafe_fixes = false;
     let mut model = ModelOptions::default();
@@ -730,6 +749,8 @@ fn parse_arguments(
             configuration = Configuration::Isolated;
         } else if argument == "--show-settings" {
             show_settings = true;
+        } else if argument == "--show-limitations" {
+            show_limitations = true;
         } else if argument == "-I" {
             model.include_dirs.push(PathBuf::from(
                 arguments
@@ -783,6 +804,7 @@ fn parse_arguments(
         cli_selection: rule_selection,
         configuration,
         show_settings,
+        show_limitations,
         model,
         mode,
         unsafe_fixes,
@@ -794,10 +816,13 @@ fn check_source(
     bytes: Vec<u8>,
     mode: FileMode,
     options: &LintOptions,
+    show_limitations: bool,
 ) -> Result<u8, String> {
     let (parsed, offset) = parse_source(label, bytes, mode)?;
-    write_analysis(
+    write_root_analysis(
         &analyze_file(parsed.analysis_file(), label, offset, options),
+        Path::new(label),
+        show_limitations,
         &mut io::stderr(),
     )
     .map_err(|error| format!("stderr: {error}"))

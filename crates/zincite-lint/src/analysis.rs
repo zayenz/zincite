@@ -870,6 +870,26 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
 /// Render only to the supplied diagnostic writer (stderr in the CLI). Model
 /// limitations alone retain status 0/1; actual errors take precedence with 2.
 pub fn write_analysis(result: &AnalysisResult, output: &mut impl Write) -> io::Result<u8> {
+    write_report(result, None, true, output)
+}
+
+/// CLI presentation keeps each root's conclusions separate, while retaining
+/// located limitations in the analysis result and the public detailed renderer.
+pub(crate) fn write_root_analysis(
+    result: &AnalysisResult,
+    root: &Path,
+    show_limitations: bool,
+    output: &mut impl Write,
+) -> io::Result<u8> {
+    write_report(result, Some(root), show_limitations, output)
+}
+
+fn write_report(
+    result: &AnalysisResult,
+    root: Option<&Path>,
+    show_limitations: bool,
+    output: &mut impl Write,
+) -> io::Result<u8> {
     for finding in &result.findings {
         let severity = match finding.severity {
             Severity::Informational => "info",
@@ -877,20 +897,37 @@ pub fn write_analysis(result: &AnalysisResult, output: &mut impl Write) -> io::R
         };
         write_diagnostic(
             output,
+            root,
             &finding.location,
             &format!("{severity} [{}]: {}", finding.rule.id(), finding.message),
         )?;
     }
-    for limitation in &result.limitations {
-        write_diagnostic(
+    if show_limitations {
+        for limitation in &result.limitations {
+            write_diagnostic(
+                output,
+                root,
+                &limitation.location,
+                &format!("analysis limitation: {}", limitation.message),
+            )?;
+        }
+    } else if !result.limitations.is_empty() {
+        let plural = if result.limitations.len() == 1 {
+            ""
+        } else {
+            "s"
+        };
+        writeln!(
             output,
-            &limitation.location,
-            &format!("analysis limitation: {}", limitation.message),
+            "{}: analysis limitation: {} recorded limitation{plural}; analysis is incomplete. Use --show-limitations for details.",
+            root.expect("compact reports have a root").display(),
+            result.limitations.len(),
         )?;
     }
     for error in &result.errors {
         write_diagnostic(
             output,
+            root,
             &error.location,
             &format!("error: {}", error.message),
         )?;
@@ -900,9 +937,13 @@ pub fn write_analysis(result: &AnalysisResult, output: &mut impl Write) -> io::R
 
 fn write_diagnostic(
     output: &mut impl Write,
+    root: Option<&Path>,
     location: &SourceLocation,
     message: &str,
 ) -> io::Result<()> {
+    if let Some(root) = root {
+        write!(output, "[root {}] ", root.display())?;
+    }
     writeln!(
         output,
         "{}:{}:{}: bytes {}..{}: {message}",
