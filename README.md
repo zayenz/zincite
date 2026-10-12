@@ -231,7 +231,9 @@ Remaining scalar/computed dependencies and unavailable alignment facts make the
 candidate incomplete.
 Incomplete previews exit 1 with located stderr diagnostics; `--write` refuses them.
 Actual errors exit 2 with empty stdout. See the [query reference](docs/reference.md#query-library)
-for kind strings, comment rules and limits, or run `zincite query --help`.
+for kind strings, comment rules and limits, or run `zincite query --help`. See the
+[feature-extraction cookbook](docs/query-cookbook.md) for reproducible counts,
+histograms, declaration types and literal shapes.
 
 Model queries also inspect existing declaration, reference, type and `par`/`var`
 facts without running lint policy:

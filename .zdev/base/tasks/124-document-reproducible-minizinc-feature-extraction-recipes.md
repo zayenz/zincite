@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-124"
 key = "feature-cookbook"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -27,12 +27,21 @@ For human-facing documentation and website prose, apply unslop (/Users/zayenz/.a
 
 ## Done when
 
-- [ ] Recipes demonstrate constraint counts, call and annotation histograms, decision declaration types and array/matrix literal shape inspection on small public inputs.
-- [ ] Each recipe specifies root/include ownership, duplicate handling, source counts versus flattened or executed counts, and incomplete semantic results where relevant.
-- [ ] Both query command forms reproduce the documented outputs and preserve input bytes.
+- [x] Recipes demonstrate constraint counts, call and annotation histograms, decision declaration types and array/matrix literal shape inspection on small public inputs.
+- [x] Each recipe specifies root/include ownership, duplicate handling, source counts versus flattened or executed counts, and incomplete semantic results where relevant.
+- [x] Both query command forms reproduce the documented outputs and preserve input bytes.
 
 ## Validation
 
 - Run every recipe through zincite query and zincite-query; use the installed MiniZinc library only for semantic recipes. No new Rust tests are expected.
 - Run cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, and cargo test --workspace when Rust changes; always run git diff --check and zdev check base --format json for changed records.
 - Review the final human-facing prose against both writing skills: concrete openings, proportionate claims, direct explanations and Zayenz voice; remove generic or promotional wording without flattening useful context.
+
+## Result
+
+Added a public feature-extraction cookbook with precise ownership, duplicate and uncertainty rules.
+
+Validation:
+
+- Independent review passed: all twelve documented commands reproduce expected output with both command forms; all three public input hashes unchanged.
+- README and cookbook ownership reviewed; both writing skills and all done conditions satisfied; git diff checks pass and review snapshot W5053c2970404ab7c compares equal.

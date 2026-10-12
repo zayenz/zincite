@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 132
-- Ready: 5
+- Ready: 4
 - Blocked: 9
-- Done: 118
+- Done: 119
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -132,7 +132,7 @@
 | [base-121](tasks/121-remove-superseded-admission-inspectors-and-their-compatibili.md) | Remove superseded admission inspectors and their compatibility bridges | blocked | base-120 |
 | [base-122](tasks/122-evaluate-salsa-against-the-simplified-demand-driven-analysis.md) | Evaluate Salsa against the simplified demand-driven analysis | blocked | base-121 |
 | [base-123](tasks/123-verify-the-smaller-semantic-contract-across-lints-and-querie.md) | Verify the smaller semantic contract across lints and queries | blocked | base-122, base-111, base-112 |
-| [base-124](tasks/124-document-reproducible-minizinc-feature-extraction-recipes.md) | Document reproducible MiniZinc feature-extraction recipes | ready | — |
+| [base-124](tasks/124-document-reproducible-minizinc-feature-extraction-recipes.md) | Document reproducible MiniZinc feature-extraction recipes | done | — |
 | [base-125](tasks/125-specify-shared-comprehension-syntax-for-reports-and-structur.md) | Specify shared comprehension syntax for reports and structured data | ready | — |
 | [base-126](tasks/126-run-query-programs-with-bindings-comprehensions-and-structur.md) | Run query programs with bindings, comprehensions and structured reports | blocked | base-119, base-125 |
 | [base-127](tasks/127-create-and-replace-structured-data-using-bounded-comprehensi.md) | Create and replace structured data using bounded comprehensions | blocked | base-125, base-126 |
