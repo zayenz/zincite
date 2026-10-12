@@ -18,6 +18,8 @@ The reviewed site is published at the chosen canonical URL with verified navigat
 
 Late attended gate: choose zincite.zayenz.se or zayenz.se/zincite, deployment host and authorized credentials/DNS access before any external mutation. Use the committed site from astro-doc-site and reconcile semantic support claims with the actual committed implementation; unfinished semantic work must remain labeled as future work. Hosting setup is not a prerequisite for local site work.
 
+The user selected https://zayenz.se/zincite/ and directed deployment discovery through the web-infra and zayenz.se projects. The existing approved publication route is the personal site's Git-based Netlify project zayenz-web (36755581-737f-42cb-ac2f-a16d37fcd00f), production branch main, with existing authenticated access. No DNS, account, environment or paid-service change is needed. Prepare the static import from the current production source rather than including unrelated unpublished personal-site commits. Record the recoverable prior deploy and reviewed source candidate before the authorized publication.
+
 For human-facing documentation and website prose, apply unslop (/Users/zayenz/.agents/skills/unslop/SKILL.md) and zayenz-writing-style (/Users/zayenz/.agents/skills/zayenz-writing-style/SKILL.md). Read their applicable guidance; use the professional-informal/code-documentation register for explanatory docs. Preserve exact commands, code, schemas, quotations and machine-oriented reference text.
 
 ## Boundaries
