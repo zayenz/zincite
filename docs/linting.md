@@ -27,6 +27,24 @@ Independent input files continue after errors. A rule's `Completed`,
 `Inapplicable`, `Limited` or `NotRun` library result describes its analysis;
 command status 0 does not promise complete semantic coverage.
 
+## Choose a category and inspect fix support
+
+Use a family to select a kind of concern, then inspect individual rules with
+`--list-rules` or `--explain RULE`:
+
+| Family | Reader's question |
+| --- | --- |
+| `correctness` | Is a supported source relationship inconsistent, such as an index-set mismatch? |
+| `suspicious` | Does the code contain a likely unintended construct, such as shadowing or hidden optionality? |
+| `modelling` | Is there a modelling concern, such as an unused binding or missing input precondition? |
+| `performance` | Does supported structure suggest expensive work? This does not estimate runtime or promise a speedup. |
+| `style` | Does the code depart from naming or layout-related modelling conventions? |
+
+A correctness-family finding is still a warning. Advisory wording asks for a
+modelling decision, and a rule with no fix may still diagnose a concrete concern.
+Use the [fix guide](#suppression-and-explicit-fixes) to distinguish Safe,
+conditional and diagnostic-only support before applying changes.
+
 ## Model context and source preservation
 
 Semantic rules load the root and its include closure. Supply the library root

@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-130"
 key = "reader-documentation"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -28,13 +28,22 @@ For human-facing documentation and website prose, apply unslop (/Users/zayenz/.a
 
 ## Done when
 
-- [ ] README navigation leads to installation, formatter/editor setup, lint/fix categories, query and data transformation guides, library reference and support limits.
-- [ ] Reader-facing pages distinguish implemented behavior, supported Unknown, explicit limitations, input failures and future work using current evidence.
-- [ ] Commands and examples are reproducible, relative links resolve, and moved material has preserved links or a clear replacement path.
-- [ ] The structure can feed an Astro site without a second independently maintained documentation copy.
+- [x] README navigation leads to installation, formatter/editor setup, lint/fix categories, query and data transformation guides, library reference and support limits.
+- [x] Reader-facing pages distinguish implemented behavior, supported Unknown, explicit limitations, input failures and future work using current evidence.
+- [x] Commands and examples are reproducible, relative links resolve, and moved material has preserved links or a clear replacement path.
+- [x] The structure can feed an Astro site without a second independently maintained documentation copy.
 
 ## Validation
 
 - Check internal links and execute a small selection of current command examples; no new Rust tests expected.
 - Run git diff --check and zdev check base --format json for changed records.
 - Review the final human-facing prose against both writing skills: concrete openings, proportionate claims, direct explanations and Zayenz voice; remove generic or promotional wording without flattening useful context.
+
+## Result
+
+Organized README and Markdown workflow pages with direct paths to existing contracts, recipes, support boundaries and library references.
+
+Validation:
+
+- Independent verifier PASS at Wcdaad9b3413b326b; 19 installed-command checks, 94 links and anchors, byte-preserving previews and scoped explicit writes passed.
+- git diff --check and git diff --cached --check passed; documentation-only change.

@@ -3,6 +3,11 @@
 Zincite targets MiniZinc 2.10.1 model (`.mzn`) and data (`.dzn`) files.
 For installation and command usage, see the [README](../README.md).
 
+For command workflows, start with [installation](getting-started.md),
+[formatting](formatting.md), [linting](linting.md), [queries](queries.md) or
+[data edits](data-edits.md). [Support limits](support.md) separate current
+capabilities from incomplete analysis and planned work.
+
 ## Syntax support
 
 This describes supported syntax families, not complete compiler compatibility.
@@ -363,6 +368,8 @@ Source rendering inserts no separators and changes no line endings. It preserves
 opaque non-UTF-8 comment bytes; code and literals must be UTF-8. Input parsing
 rejects malformed/unsupported syntax and non-assignment data items. It establishes
 syntax only, not compiler acceptance or semantic validity of data expressions.
+
+### Assignment edits
 
 Assignment edits require data-file mode, even when a model-mode input contains
 only assignments. `set_value` checks that its argument contains one valid

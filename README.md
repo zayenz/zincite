@@ -6,341 +6,74 @@
   <img alt="Zincite — orange crystal Z logo" src="assets/zincite-logo-dark.svg" width="420">
 </picture>
 
-Zincite provides source tools for MiniZinc model (`.mzn`) and data
-(`.dzn`) files:
+Zincite formats, lints and queries MiniZinc model (`.mzn`) and data (`.dzn`)
+files. The Rust commands share a source-preserving parser and need no compiler
+or solver. Zincite is under development, targeting MiniZinc 2.10.1; formatting
+may change before a stable release.
 
-- **`zincite fmt`** (or **`zincite-fmt`**) formats source, checks formatting, and writes changes in place.
-- **`zincite lint`** (or **`zincite-lint`**) is a linter for MiniZinc models and data.
-- **`zincite query`** (or **`zincite-query`**) inspects items, expressions, calls and annotations, emits JSON/count reports, and explicitly edits data assignments and enum membership.
+## Start here
 
-The tools are written in Rust and share a parser that preserves source spelling,
-comments, whitespace and source locations. The commands do not require a MiniZinc
-compiler or solver.
-
-Zincite is under development, targeting MiniZinc 2.10.1. Formatting may change
-before a stable release. See
-[current limitations](#current-limitations) before using it across a codebase.
+| Task | Documentation |
+| --- | --- |
+| Install and try the commands | [Getting started](docs/getting-started.md) |
+| Format files and configure layout | [Formatting guide](docs/formatting.md), [style gallery](docs/formatting-style.md) |
+| Set up formatting in an editor | [Format on save](docs/format-on-save.md) |
+| Select lint rules, understand categories and apply fixes | [Linting guide](docs/linting.md) |
+| Inspect source, declarations and uses | [Query guide](docs/queries.md) |
+| Extract counts, histograms, types and literal shapes | [Feature-extraction cookbook](docs/query-cookbook.md) |
+| Change data values, filter elements or reduce an enum | [Data-edit guide](docs/data-edits.md) |
+| Look up command statuses and write restrictions | [Command reference](docs/cli.md) |
+| Understand Unknown, failures and coverage limits | [Support limits](docs/support.md) |
 
 ## Installation
 
-Install from a checkout with a current stable Rust toolchain:
-
-```sh
-git clone https://github.com/zayenz/zincite.git
-cd zincite
-cargo install --locked --path .
-```
-
-The root command provides `zincite fmt`, `zincite lint` and `zincite query`. To install the
-standalone commands instead, use:
-
-```sh
-cargo install --locked --path crates/zincite-fmt
-cargo install --locked --path crates/zincite-lint
-cargo install --locked --path crates/zincite-query
-```
-
-Both invocation forms use the same options, defaults and exit codes. Run
-`zincite --help` for the command list.
-Run `zincite --version` to report the package version and the build's Git revision
-when available. Builds from source without Git still report the package version.
-
-The `0.0.0-pre` packages on crates.io are empty name reservations. Install from
-source to use the tools.
+[Install from a checkout](docs/getting-started.md) with a stable Rust toolchain.
+The root command supplies `zincite fmt`, `zincite lint` and `zincite query`;
+standalone commands are also available.
 
 ## Formatting
 
-```sh
-# Print formatted source to stdout.
-zincite fmt model.mzn
-
-# Check files or a directory without changing them.
-zincite fmt --check model.mzn data.dzn
-zincite fmt --check models/
-
-# Format explicit files in place.
-zincite fmt --write model.mzn data.dzn
-```
-
-With no input argument, or with `-`, the formatter reads stdin. Multiple files
-require `--check` or `--write`; directories support `--check` only. Directory
-checks include hidden and Git-ignored `.mzn` and `.dzn` files and skip `.git`.
-
-Formatting preserves comments and literal spelling. It uses four-space
-indentation and a default maximum width of 120 columns, expands `forall` bodies
-(with short direct `if`/`elseif` conditions kept inline when they fit),
-aligns matrix columns, and sorts adjacent include groups with `globals.mzn`
-first. Long literals and preserved comments may exceed the width.
-
-Syntax or formatting-directive errors leave the affected file untouched.
-`--write` preserves file permissions and refuses symlinks. Other independent
-files are still processed when one fails.
-
-### Editor integration
-
-Send the editor buffer to stdin and use its path for language mode and
-EditorConfig lookup:
-
-```sh
-zincite fmt --stdin-filepath path/to/model.mzn < path/to/model.mzn
-```
-
-Replace the buffer with stdout only when the command succeeds. A `.dzn` path
-selects data syntax. Plain stdin without `--stdin-filepath` uses model syntax
-and default formatting settings.
-
-### Configuration
-
-The formatter reads `.editorconfig` files. For example:
-
-```ini
-root = true
-
-[*.{mzn,dzn}]
-indent_style = space
-indent_size = 4
-max_line_length = 120
-end_of_line = lf
-insert_final_newline = true
-```
-
-It also supports `tab_width`, `trim_trailing_whitespace` and `charset` (`utf-8`
-or `utf-8-bom`). Set `max_line_length = off` to disable width-based wrapping.
-Comments, literal contents and skipped regions retain their original text.
-
-Command-line options override EditorConfig:
-
-```sh
-zincite fmt --indent-size 2 --max-line-length 80 model.mzn
-```
-
-Run `zincite fmt --help` (or `zincite-fmt --help`) for all options.
-
-### Keeping layout unchanged
-
-Place `% zincite-fmt: skip` on its own line before a top-level item to preserve
-that item's layout. Use standalone `% zincite-fmt: off` and `% zincite-fmt: on`
-comments around a region of complete top-level items to preserve the region.
-Skipped source must still parse; unmatched or misplaced markers are errors.
+The [formatting guide](docs/formatting.md) covers stdout, check and file-write
+workflows, configuration and layout directives. Use the
+[editor recipe](docs/format-on-save.md) for buffer replacement.
 
 ## Linting
 
-```sh
-zincite lint model.mzn data.dzn
-zincite lint models/
-zincite lint --rules naming model.mzn
-zincite lint --stdin-filepath model.mzn < model.mzn
-```
-
-Use `--rules` with a comma-separated list to select rules. To suppress a rule
-throughout the next top-level item, place a standalone comment before it:
-
-```text
-% zincite-lint: ignore missing-constraint-label
-```
-
-Unknown rules and malformed, misplaced or dangling suppression comments are
-errors. Ordinary analysis writes diagnostics to stderr and preserves source.
-Use `--diff` to preview eligible fixes or `--fix` to apply them. See the
-[linting guide](docs/linting.md) for fix selection and restrictions.
-It accepts files, directories or stdin, with the same directory discovery and
-`.dzn` selection as the formatter. Run `zincite lint --help` (or `zincite-lint --help`) for details.
-
-Model analysis uses the MiniZinc standard library for builtin declarations and
-standard includes. Supply the library root containing `std/stdlib.mzn` with
-`--stdlib-dir DIR` or `MZN_STDLIB_DIR`; the explicit option takes precedence.
-Missing library dependencies report a setup hint. With MiniZincIDE on macOS,
-the usual path is:
-
-```sh
-zincite lint --stdlib-dir /Applications/MiniZincIDE.app/Contents/Resources/share/minizinc model.mzn
-```
-
-Use your installation's library root if it differs. Zincite does not discover
-installations or run the MiniZinc compiler or solver during linting.
+The [linting guide](docs/linting.md) explains default rules, families, presets,
+model context, suppression and explicit fixes. Rule family, warning severity,
+advisory wording and fix eligibility are separate properties.
 
 ## Querying items
 
-```sh
-# Print constraints in written order, with their attached comments.
-zincite query 'filter(kind("constraint"))' model.mzn
-
-# Count assignments in a data file.
-zincite query 'items | filter(kind("assignment")) | count' data.dzn
-
-# Print the first assignment named capacity from stdin.
-zincite query --stdin-filepath data.dzn 'filter(name("capacity")) | head(1)' < data.dzn
-
-# Preview a changed capacity without writing the data file.
-zincite query --diff 'filter(name("capacity")) | set_value("20")' data.dzn
-
-# Explicitly remove the selected assignment from one data file.
-zincite query --write 'filter(name("unused")) | remove' data.dzn
-```
-
-Inspect nested calls and solve annotations without loading a MiniZinc library:
-
-```sh
-zincite query 'filter(kind("constraint")) | expressions | call_names | tally | json' model.mzn
-zincite query 'filter(kind("solve")) | subtree | annotation_names | unique | json' model.mzn
-zincite query 'expressions | range(20,80) | json' model.mzn
-```
-
-Supply one query and at most one file or `-`; omitted input reads stdin.
-An empty query or `items` emits the exact document. `filter` supports `kind`
-and `name` predicates, parentheses and Boolean `not`, `and`, `or` in that
-precedence order. `head(n)` keeps the first `n` selected items. `count` emits a
-decimal count; `emit` emits original source, and source emission is implicit.
-`emit` ends the pipeline; `count` may be followed by `json`.
-
-Selections use top-level items in written order and compare identifier identity,
-including quoted names. `filter` and `head` emit fragments containing selected
-items and attached comments; separated section comments stay in document output.
-
-`set_value("EXPRESSION")` replaces selected assignment right-hand sides;
-`remove` deletes selected assignments and attached comments. These stages require
-`.dzn` data mode and return the entire validated candidate. One edit stage may be
-followed only by `emit_document`, which is also implicit. Comments before and
-after a replaced expression remain; internal expression comments cause a located
-placement error. Separated section comments and untouched bytes remain in the
-candidate. Removal keeps next-item directives with their targets and rejects
-unbalanced formatter regions.
-
-Default editing prints the candidate and leaves files unchanged. `--diff` previews
-it; `--write` replaces the explicit regular file after checking the original bytes
-again and preserving permissions. The modes are mutually exclusive; writes
-reject stdin and symlinks. Edits change instance meaning and establish syntax
-only. Syntax queries do not load includes or evaluate data. Enum reduction uses
-optional read-only model facts:
-
-```sh
-zincite query --model seating.mzn 'reduce_enum("Guests", keep("A", "C"))' data.dzn
-zincite-query --diff 'reduce_enum("Guests", keep_first(20))' data.dzn
-```
-
-Retention preserves original enum order and quoted spelling; empty retention is
-allowed. Reduction removes matching keyed records and supported array slices,
-including nested arrays and rectangular axes. Positional alignment requires
-unambiguous model declarations and full original enum coverage. `-I DIR` adds
-include paths in order; `--stdlib-dir DIR` overrides `MZN_STDLIB_DIR`.
-Reduction also prunes supported nested sets. Positional `array[int]` groups of
-the target enum lose newly empty sets and keep singletons and pre-existing empty
-sets; supported literal group accesses receive the compacted indices. Required
-record fields and fixed-index cells remain present when their sets become empty.
-Remaining scalar/computed dependencies and unavailable alignment facts make the
-candidate incomplete.
-Incomplete previews exit 1 with located stderr diagnostics; `--write` refuses them.
-Actual errors exit 2 with empty stdout. See the [query reference](docs/reference.md#query-library)
-for kind strings, comment rules and limits, or run `zincite query --help`. See the
-[feature-extraction cookbook](docs/query-cookbook.md) for reproducible counts,
-histograms, declaration types and literal shapes.
-
-Model queries also inspect existing declaration, reference, type and `par`/`var`
-facts without running lint policy:
-
-```sh
-zincite query 'filter(name("capacity")) | declarations | uses | json' model.mzn
-zincite-query 'references | declarations | types | json' model.mzn
-zincite query 'declarations | transitive_references(3) | names | unique' model.mzn
-```
-
-`references` selects written occurrences inside selected regions; `declarations`
-selects owned declarations or proven reference targets. `uses` follows exact
-identities, including lexical shadowing and selected overloads. `types` keeps
-structured native types; `instantiations` exposes independently available
-`par`/`var` facts. Filters accept `type("int")`, `instantiation("var")` and
-`source_kind("user")` or `source_kind("standard_library")`. Unknown facts remain
-unknown under `not` and make the semantic report incomplete, including after
-`names` or `count`. Semantic JSON contains `complete`, located `limitations` and
-`result`. Included source retains its actual file and original byte ranges.
-
-Semantic file queries use that model file as their root unless `--model` is
-supplied. Stdin requires explicit `--model` and bytes matching its retained root
-exactly, including a BOM; `--stdin-filepath` supplies only a label and language
-mode. Traversal follows static written references for the requested number of
-waves and terminates on recursion. See the reference for ordering, limits and
-available facts. An incomplete semantic report exits 1 with located stderr notes.
-
-### Recipes for both command forms
-
-The following pairs use the same query, settings and input. Replace the example
-paths with your files. Default edits print a candidate; redirect output to a
-temporary file to inspect it before an explicit `--write`.
-
-| Operation | Standalone | Root command |
-| --- | --- | --- |
-| Count assignments | `zincite-query 'items \| filter(kind("assignment")) \| count' data.dzn` | `zincite query 'items \| filter(kind("assignment")) \| count' data.dzn` |
-| Inspect record fields | `zincite-query 'filter(name("records")) \| elements \| fields \| names \| json' data.dzn` | `zincite query 'filter(name("records")) \| elements \| fields \| names \| json' data.dzn` |
-| Change an assignment | `zincite-query 'filter(name("capacity")) \| set_value("20")' data.dzn` | `zincite query 'filter(name("capacity")) \| set_value("20")' data.dzn` |
-| Keep positive weights | `zincite-query 'filter(name("weights")) \| filter_elements(gt(0))' data.dzn` | `zincite query 'filter(name("weights")) \| filter_elements(gt(0))' data.dzn` |
-| Reduce an enum | `zincite-query --model model.mzn 'reduce_enum("Guests", keep_first(8))' data.dzn` | `zincite query --model model.mzn 'reduce_enum("Guests", keep_first(8))' data.dzn` |
-| Inspect declaration uses | `zincite-query 'filter(name("capacity")) \| declarations \| uses \| json' model.mzn` | `zincite query 'filter(name("capacity")) \| declarations \| uses \| json' model.mzn` |
-
-Structured inspection requires literal values. Enum-keyed records can establish
-alignment directly; unrelated positional arrays still need model declarations.
-Semantic queries return available facts and limitations together. Configure
-`--stdlib-dir DIR` when builtin facts are needed, and keep exit 1 or a reported
-collection limit visible. Neither source navigation nor instance reduction
-evaluates arbitrary MiniZinc expressions.
-
-The [query acceptance report](scripts/query-acceptance.md) records actual paired
-commands, private-instance checks, measurements and the remaining completeness
-and resource limits.
+Start with the [query guide](docs/queries.md) for source selection and semantic
+inspection, or the [data-edit guide](docs/data-edits.md) for transformations.
+The [cookbook](docs/query-cookbook.md) contains reproducible extraction recipes.
 
 ## Exit codes
 
-| Code | `zincite fmt` / `zincite-fmt` | `zincite lint` / `zincite-lint` |
-| --- | --- | --- |
-| `0` | Formatting succeeded; in check mode, no changes needed | No warnings |
-| `1` | Check mode found formatting changes | Unsuppressed warnings |
-| `2` | Input, syntax, configuration, directive or usage error | Input, syntax, directive, usage or dependency error |
-
-`zincite query` / `zincite-query` exits 0 for complete results, 1 for incomplete
-semantic reports or reduction candidates and 2 for query, input, model, usage or I/O errors. An empty
-fragment selection succeeds and emits no source; its count is 0.
-
-Errors take precedence when checking multiple files. Diagnostics include a file
-path and source location where applicable.
+See the [command reference](docs/cli.md#exit-codes).
 
 ## Current limitations
 
-- Syntax coverage targets MiniZinc 2.10.1. Corpus checks retain compiler-negative
-  inputs, incompatible encodings and unavailable dependencies separately from
-  Zincite failures. See the [syntax reference](docs/reference.md#syntax-support)
-  and [acceptance report](scripts/corpus-acceptance.md) for checked revisions,
-  coverage limits and final validation status.
-- Parsing checks syntax. Formatting preserves source tokens and does not load includes or assess solver
-  performance. The default linter loads model context for bounded comprehension advice.
-- Naming conventions (`naming`), constraint labels (`missing-constraint-label`)
-  and direct comprehensions (`prefer-array-comprehension`) are enabled by default. The `thesis` preset selects fourteen modelling rules;
-  `all` selects all 28 implemented rules. The opt-in style rule `prefer-enum`
-  advises considering an enum for supported integer identity sets and offers no
-  automatic fix; `prefer-array-comprehension` offers fixes when its conditions hold.
-  Semantic rules use an explicit model and include context. Unsupported required facts produce located limitations;
-  rule availability does not promise complete coverage of every input.
-- Code and literals use UTF-8; opaque comment bytes are preserved. Data files
-  accept top-level assignments. JSON data and
-  solver output formats are outside the supported input formats.
+The [support guide](docs/support.md) distinguishes current behavior, supported
+Unknown, located limitations, input failures and future work. The current dense
+format-on-save case still misses its 100 ms p95 budget.
 
 ## Libraries
 
-The commands have reusable Rust libraries:
-
-| Crate | Purpose |
+| Rust crate | Reference |
 | --- | --- |
-| `zincite-syntax` | Lexer, parser, source locations and a concrete syntax tree |
-| `zincite-fmt` | Formatting a parsed file, with configurable layout |
-| `zincite-lint` | Lint rules, diagnostics and explicit model/include context |
-| `zincite-query` | Source inspection, JSON/count reports and explicit data/enum edits |
+| `zincite-syntax` | [Source, CST and parsing APIs](docs/reference.md#syntax-library) |
+| `zincite-fmt` | [Formatting APIs](docs/reference.md#formatter-library) |
+| `zincite-lint` | [Analysis, settings and fix APIs](docs/reference.md#lint-library) |
+| `zincite-query` | [Inspection and data-edit APIs](docs/reference.md#query-library) |
 
-See the [syntax and library reference](docs/reference.md) for APIs and detailed
-language coverage. Generate local API documentation with
-`cargo doc --workspace --no-deps --open`.
+Generate local API documentation with `cargo doc --workspace --no-deps --open`.
 
 ## Development
 
 Read [AGENTS.md](AGENTS.md) for repository guidance and the
-[project brief](.zdev/base/brief.md) for detailed behavior and planned work.
+[project brief](.zdev/base/brief.md) for behavior contracts and planned work.
 Run the workspace checks with:
 
 ```sh
@@ -350,7 +83,11 @@ cargo test --workspace
 ```
 
 The [developer scripts](scripts/README.md) document corpus checks and performance
-measurements.
+measurements. The [semantic processing plan](docs/semantic-processing-plan.md)
+is developer material; it does not establish completed support. Reader
+documentation lives in this README and `docs/*.md`. A future Astro site can
+render these same files without maintaining another copy of the guides or
+contracts.
 
 ## License
 
