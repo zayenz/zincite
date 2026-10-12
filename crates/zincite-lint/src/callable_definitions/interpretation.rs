@@ -123,13 +123,11 @@ impl<'a> BodyInterpreter<'a, '_> {
         known: &[CallableOutput],
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
-        inspected: &mut Vec<DeclarationId>,
     ) {
         self.interpret_forwarded(
             (clause, view, known),
             out,
             unavailable,
-            inspected,
             &mut Vec::new(),
             None,
         );
@@ -141,7 +139,6 @@ impl<'a> BodyInterpreter<'a, '_> {
         known: &[CallableOutput],
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
-        inspected: &mut Vec<DeclarationId>,
     ) {
         let eligible = matches!(clause.kind, ClauseKind::Call)
             && self
@@ -157,7 +154,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                         .any(|output| output.callable == id && output.parameters == parameters)
                 });
         if !eligible {
-            self.interpret(clause, view, known, out, unavailable, inspected);
+            self.interpret(clause, view, known, out, unavailable);
             return;
         }
         let mut invocation = Invocation {
@@ -168,7 +165,6 @@ impl<'a> BodyInterpreter<'a, '_> {
             (clause, view, known),
             out,
             unavailable,
-            inspected,
             &mut Vec::new(),
             Some(&mut invocation),
         );
@@ -182,9 +178,8 @@ impl<'a> BodyInterpreter<'a, '_> {
         ),
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
-        inspected: &mut Vec<DeclarationId>,
         active: &mut Vec<(FileId, std::ops::Range<usize>)>,
-        mut invocation: Option<&mut Invocation<'a, 'b>>,
+        invocation: Option<&mut Invocation<'a, 'b>>,
     ) {
         let (clause, _, _) = inputs;
         let key = (clause.file, clause.node.range());
@@ -197,127 +192,50 @@ impl<'a> BodyInterpreter<'a, '_> {
             return;
         }
         active.push(key);
-        if let Some(safety) = self.regular_four_owning_body(clause, inputs.1) {
-            if let DefinitionSafety::Unsupported(reason) = safety {
-                self.unavailable(clause, &reason, unavailable);
-            }
-            active.pop();
-            return;
-        }
-        if matches!(clause.kind, ClauseKind::Call)
-            && let Some((id, parameters)) = self.source.resolved(clause.file, clause.node, inputs.1)
-            && let Some(checked) =
-                self.inspect_regular_four(clause, inputs.1, id, &parameters, invocation.as_deref())
-        {
-            if let Err(reason) = checked {
-                self.unavailable(clause, &reason, unavailable);
-            }
-            // Source inspection supplies no outputs or inspected-local certificate.
-            active.pop();
-            return;
-        }
-        if let Some(safety) = self.optional_increasing_body_safety(inputs.0, inputs.1) {
-            if let DefinitionSafety::Unsupported(reason) = safety {
-                self.unavailable(clause, &reason, unavailable);
-            }
-            // The checked optional recurrence supplies no outputs or local certificate.
-            active.pop();
-            return;
-        }
-        if let Some(checked) = self.inspect_private_index_conditional(
-            inputs,
-            unavailable,
-            active,
-            invocation.as_deref_mut(),
-        ) {
-            if let Err(reason) = checked {
-                self.unavailable(clause, &reason, unavailable);
-                if unavailable
-                    .last()
-                    .is_some_and(|row| !row.targets.is_empty())
-                {
+
+        for generator in &clause.generators {
+            for value in generator.child_nodes() {
+                if let Some(reason) = opaque_source_error(
+                    self.source.context,
+                    self.source.bindings,
+                    inputs.1,
+                    self.source.instantiations,
+                    self.source.domains,
+                    clause.file,
+                    value,
+                ) {
+                    self.unavailable(clause, &reason, unavailable);
                     unavailable.push(UnavailableCallableDefinition {
                         operation: CallableDefinitionOperation::Source,
                         status: CallableDefinitionStatus::Unsupported,
-                        location: self.source.context.files[clause.file]
-                            .location(clause.node.range()),
+                        location: self.source.context.files[clause.file].location(value.range()),
                         targets: Vec::new(),
                         reason,
                     });
+                    active.pop();
+                    return;
                 }
             }
-            active.pop();
-            return;
         }
-        // This owning let inspector checks locals and selectors in declaration
-        // order. A context-free prescan must not reopen its partial initializer.
-        if let Some(state) = invocation.as_ref()
-            && (!matches!(clause.kind, ClauseKind::Local)
-                || self
-                    .inspect_uncertain_index_let(clause, inputs.1, None, &[], invocation.as_deref())
-                    .is_none())
-        {
-            let (_, view, _) = inputs;
+        if let Some(state) = invocation.as_ref() {
+            let (_, view, known) = inputs;
             let mut nodes = vec![clause.node];
             let mut unsupported = None;
-            let before = unavailable.len();
             while let Some(node) = nodes.pop() {
                 if !crate::definitions::annotations_safe(self.source.context, clause.file, node) {
                     unsupported = Some("invoked body annotation is unsupported".into());
                 }
-                if is_expression(node.kind())
-                    && (node.kind() == NodeKind::Expression
-                        || self
-                            .source
-                            .expression_type(
-                                self.source.view(clause.file, node, view),
-                                clause.file,
-                                node,
-                            )
-                            .is_none_or(|e| e.ty.kind != TypeKind::Bool))
-                {
-                    let source = self.invocation_source(clause.file, node, state);
-                    let checked = match source {
-                        Ok(Some(actual)) => self.invocation_actual_safety(actual),
-                        Ok(None) => self.initialized_source_safety(
-                            clause.file,
-                            node,
-                            view,
-                            &clause.generators,
-                            &mut Vec::new(),
-                        ),
-                        Err(reason) => DefinitionSafety::Unsupported(reason),
-                    };
-                    if let DefinitionSafety::Unsupported(reason) = checked {
-                        let selected = unwrap(node);
-                        if self
-                            .source
-                            .expression_type(
-                                self.source.view(clause.file, node, view),
-                                clause.file,
-                                node,
-                            )
-                            .is_some_and(|e| decision_integer_set(&e.ty))
-                            && (selected.kind() == NodeKind::GeneratorCallExpression
-                                && self.source.core(clause.file, selected, view, "array_union")
-                                || selected.kind() == NodeKind::BinaryExpression
-                                    && self.source.core(clause.file, selected, view, "intersect"))
-                            && let Err(boundary) = self.decision_set_union_value_safety(
-                                clause.file,
-                                node,
-                                view,
-                                &clause.generators,
-                                &mut Vec::new(),
-                            )
-                            && !unavailable.contains(&boundary)
-                        {
-                            unavailable.push(boundary);
-                        }
-                        unsupported = Some(reason);
-                    }
-                    continue;
-                }
                 nodes.extend(node.child_nodes());
+            }
+            if unsupported.is_none() {
+                unsupported = super::adapters::opaque_dependency_error(
+                    self.source,
+                    clause.file,
+                    clause.node,
+                    view,
+                    &state.actuals,
+                    &mut known.iter().map(|output| output.callable).collect(),
+                );
             }
             if let Some(reason) = unsupported {
                 self.unavailable(clause, &reason, unavailable);
@@ -325,8 +243,6 @@ impl<'a> BodyInterpreter<'a, '_> {
                     .last()
                     .is_some_and(|row| !row.targets.is_empty())
                 {
-                    // A source failure still prevents inspection when its mapped
-                    // dependencies are already searched or parameter values.
                     unavailable.push(UnavailableCallableDefinition {
                         operation: CallableDefinitionOperation::Source,
                         status: CallableDefinitionStatus::Unsupported,
@@ -339,29 +255,10 @@ impl<'a> BodyInterpreter<'a, '_> {
                 active.pop();
                 return;
             }
-            if unavailable.len() != before {
-                active.pop();
-                return;
-            }
         }
         let mut found = Vec::new();
-        let mut local_choices = Vec::new();
-        let before = unavailable.len();
         let direct_invocation = invocation.is_none();
-        self.interpret_body(
-            inputs,
-            &mut found,
-            unavailable,
-            &mut local_choices,
-            active,
-            invocation,
-        );
-        if unavailable[before..]
-            .iter()
-            .all(|row| row.status != CallableDefinitionStatus::Unsupported)
-        {
-            extend(inspected, local_choices);
-        }
+        self.interpret_body(inputs, &mut found, unavailable, active, invocation);
         // Filtered traversal does not unconditionally enforce a body output.
         // Membership may still prove its relation operands safe.
         let filtered = clause
@@ -403,7 +300,6 @@ impl<'a> BodyInterpreter<'a, '_> {
         ),
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
-        inspected: &mut Vec<DeclarationId>,
         active: &mut Vec<(FileId, std::ops::Range<usize>)>,
         invocation: Option<&mut Invocation<'a, 'b>>,
     ) {
@@ -411,29 +307,19 @@ impl<'a> BodyInterpreter<'a, '_> {
         match clause.kind {
             ClauseKind::Unsupported => self.interpret_unsupported_clause(clause, view, unavailable),
             ClauseKind::Relation => self.interpret_relation_clause(inputs, out, unavailable),
-            ClauseKind::Conditional => self.interpret_conditional_clause(
-                inputs,
-                out,
-                unavailable,
-                inspected,
-                active,
-                invocation,
-            ),
-            ClauseKind::Local => {
-                self.interpret_local_clause(inputs, out, unavailable, inspected, active, invocation)
+            ClauseKind::Conditional => {
+                self.interpret_conditional_clause(inputs, out, unavailable, active, invocation)
             }
-            ClauseKind::Assertion => self.interpret_assertion_clause(
-                inputs,
-                out,
-                unavailable,
-                inspected,
-                active,
-                invocation,
-            ),
+            ClauseKind::Local => {
+                self.interpret_local_clause(inputs, out, unavailable, active, invocation)
+            }
+            ClauseKind::Assertion => {
+                self.interpret_assertion_clause(inputs, out, unavailable, active, invocation)
+            }
             ClauseKind::Boolean => self.interpret_boolean_clause(clause, view, out),
             ClauseKind::Equality => self.interpret_equality_clause(clause, view, out, unavailable),
             ClauseKind::Call => {
-                self.interpret_call_clause(inputs, out, unavailable, inspected, active, invocation)
+                self.interpret_call_clause(inputs, out, unavailable, active, invocation)
             }
         }
     }

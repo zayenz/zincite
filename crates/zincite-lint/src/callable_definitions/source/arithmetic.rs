@@ -220,21 +220,6 @@ impl<'a> BodyInterpreter<'a, '_> {
             {
                 return DefinitionSafety::Unsupported(reason);
             }
-            if self
-                .source
-                .inactive_integer_body
-                .as_ref()
-                .is_some_and(|(f, range)| {
-                    *f == file && range.start <= node.range().start && node.range().end <= range.end
-                })
-            {
-                return match self.initialized_children_safety(file, &children, view, generators) {
-                    unsupported @ DefinitionSafety::Unsupported(_) => unsupported,
-                    _ => DefinitionSafety::Unknown(
-                        "inactive parameter integer value is unproved".into(),
-                    ),
-                };
-            }
             let mut safety = DefinitionSafety::Supported;
             let mut unsupported = None;
             let mut values = Vec::new();

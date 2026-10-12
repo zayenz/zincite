@@ -671,7 +671,7 @@ fn empty_unknown_and_unsupported_domains_have_distinct_outcomes() {
             .iter()
             .map(|limit| &unsafe_source[limit.location.range.clone()])
             .collect::<Vec<_>>(),
-        ["Tagged", "Opaque", "Optional", "Partial"]
+        ["Tagged", "Optional", "Partial"]
     );
     assert!(matches!(
         result.rules[0].outcome,

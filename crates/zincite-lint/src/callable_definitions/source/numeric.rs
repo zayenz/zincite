@@ -81,7 +81,6 @@ impl<'a> SourceInspector<'a> {
             context: self.context,
             bindings: self.bindings,
             calls: self.calls,
-            selected_set_source: self.selected_set_source,
         }
         .check(file, node, eager_only, follow_collections, type_branches)
     }
@@ -251,14 +250,18 @@ impl<'a> BodyInterpreter<'a, '_> {
             }
             nodes.extend(source.child_nodes());
         }
-        if !self
-            .source
-            .prefix_primitive(file, node, facts, "is_fixed", &[decision], &result)
-        {
-            return Some(DefinitionSafety::Unsupported(
-                "fixedness selected written primitive or tuple is unsupported".into(),
-            ));
+        if let Some(reason) = opaque_source_error(
+            self.source.context,
+            self.source.bindings,
+            view,
+            self.source.instantiations,
+            self.source.domains,
+            file,
+            written,
+        ) {
+            return Some(DefinitionSafety::Unsupported(reason));
         }
+
         if let unsupported @ DefinitionSafety::Unsupported(_) =
             self.initialized_source_safety(file, argument, view, generators, &mut Vec::new())
         {
@@ -319,14 +322,18 @@ impl<'a> BodyInterpreter<'a, '_> {
             }
             nodes.extend(source.child_nodes());
         }
-        if !self
-            .source
-            .prefix_primitive(file, node, facts, "dom", &[decision], &result)
-        {
-            return Some(DefinitionSafety::Unsupported(
-                "domain reflection selected written primitive or tuple is unsupported".into(),
-            ));
+        if let Some(reason) = opaque_source_error(
+            self.source.context,
+            self.source.bindings,
+            view,
+            self.source.instantiations,
+            self.source.domains,
+            file,
+            written,
+        ) {
+            return Some(DefinitionSafety::Unsupported(reason));
         }
+
         if let unsupported @ DefinitionSafety::Unsupported(_) =
             self.decision_scalar_bound_operand_safety(file, argument, view, generators)
         {
@@ -446,232 +453,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             Err(reason) => DefinitionSafety::Unsupported(reason),
         })
     }
-    pub(in crate::callable_definitions) fn parameter_test_safety(
-        &self,
-        file: FileId,
-        node: &'a SyntaxNode,
-        view: &crate::callables::CallableView<'_>,
-        generators: &[&'a SyntaxNode],
-        active: &mut Vec<DeclarationId>,
-    ) -> Option<DefinitionSafety> {
-        let written_call = node;
-        let node = unwrap(node);
-        if node.kind() != NodeKind::CallExpression {
-            return None;
-        }
-        let facts = self.source.view(file, node, view);
-        let call = self.source.operation_fact(facts, file, node)?;
-        let CallOutcome::Resolved {
-            declaration: id,
-            parameters,
-            return_type,
-        } = &call.outcome
-        else {
-            return None;
-        };
-        let declaration = &self.source.bindings.declarations[id.0];
-        if declaration.role != DeclarationRole::Test
-            || !declaration.top_level
-            || self.source.context.files[declaration.file].kind != SourceKind::User
-        {
-            return None;
-        }
-        let checked = (|| -> Result<(), String> {
-            let parameter = |t: &TypeInst, kind: TypeKind| {
-                t.known()
-                    && !optional(t)
-                    && t.instantiation == Instantiation::Parameter
-                    && t.kind == kind
-            };
-            let decision = TypeInst::par(TypeKind::Int).with_inst(Instantiation::Decision);
-            let signature = self
-                .source
-                .calls
-                .signatures
-                .iter()
-                .find(|s| s.declaration == *id)
-                .ok_or("parameter test signature unavailable")?;
-            if active.contains(id)
-                || !self.source.context.files[declaration.file]
-                    .parsed
-                    .diagnostics()
-                    .is_empty()
-                || parameters.len() != 1
-                || signature.parameters.len() != 1
-                || signature.parameters[0].has_default
-                || !(parameter(&signature.parameters[0].ty, TypeKind::Int)
-                    || signature.parameters[0].ty == decision)
-                || signature.parameters[0].ty != parameters[0]
-                || !parameter(&signature.return_type, TypeKind::Bool)
-                || &signature.return_type != return_type
-                || self
-                    .source
-                    .expression_type(facts, file, node)
-                    .is_none_or(|e| &e.ty != return_type)
-            {
-                return Err(
-                    "parameter test specialization, default or cycle is unsupported".into(),
-                );
-            }
-            let written = find_node(
-                self.source.context.files[declaration.file].parsed.tree(),
-                &declaration.syntax_range,
-                declaration.role,
-            )
-            .ok_or("parameter test declaration unavailable")?;
-            let formal = formal_parameter(self.source.context, self.source.bindings, *id, 0)
-                .ok_or("parameter test formal unavailable")?;
-            let formal_declaration = &self.source.bindings.declarations[formal.0];
-            let formal_node = find_node(
-                self.source.context.files[formal_declaration.file]
-                    .parsed
-                    .tree(),
-                &formal_declaration.syntax_range,
-                formal_declaration.role,
-            )
-            .ok_or("parameter test written formal unavailable")?;
-            let (actual_file, actual) = call_argument(
-                self.source.context,
-                self.source.bindings,
-                facts,
-                file,
-                node,
-                *id,
-                0,
-            )
-            .ok_or("parameter test actual unavailable")?;
-            let body = written
-                .child_nodes()
-                .find(|n| is_expression(n.kind()))
-                .ok_or("parameter test body unavailable")?;
-            if node.child_nodes().count() != 1
-                || self
-                    .source
-                    .expression_type(
-                        self.source.view(actual_file, actual, view),
-                        actual_file,
-                        actual,
-                    )
-                    .is_none_or(|e| {
-                        !parameter(&e.ty, TypeKind::Int)
-                            && !(parameters[0] == decision && e.ty == decision)
-                    })
-                || self
-                    .source
-                    .expression_type(self.source.calls, declaration.file, body)
-                    .is_none_or(|e| !parameter(&e.ty, TypeKind::Bool))
-            {
-                return Err("parameter test actual or body type is unsupported".into());
-            }
-            let mut nodes = vec![written];
-            while let Some(current) = nodes.pop() {
-                if !crate::definitions::annotations_safe(
-                    self.source.context,
-                    declaration.file,
-                    current,
-                ) {
-                    return Err("parameter test annotation is unsupported".into());
-                }
-                nodes.extend(current.child_nodes());
-            }
-            let mut nodes = vec![written_call];
-            while let Some(current) = nodes.pop() {
-                if !crate::definitions::annotations_safe(self.source.context, file, current) {
-                    return Err("parameter test call annotation is unsupported".into());
-                }
-                nodes.extend(current.child_nodes());
-            }
-            active.push(*id);
-            let inspected = (|| -> Result<(), String> {
-                if let DefinitionSafety::Unsupported(reason) =
-                    self.initialized_source_safety(actual_file, actual, view, generators, active)
-                {
-                    return Err(reason);
-                }
-                let mut types: Vec<_> = formal_node.child_nodes().take(1).collect();
-                while let Some(ty) = types.pop() {
-                    if ty.kind() == NodeKind::DomainType {
-                        for domain in ty.child_nodes() {
-                            if let DefinitionSafety::Unsupported(reason) = self
-                                .initialized_source_safety(
-                                    declaration.file,
-                                    domain,
-                                    self.source.calls,
-                                    &[],
-                                    active,
-                                )
-                            {
-                                return Err(reason);
-                            }
-                        }
-                    } else {
-                        types.extend(ty.child_nodes());
-                    }
-                }
-                if parameters[0] == decision {
-                    self.user_integer_call_scope(file, written_call, view, generators)?;
-                    let instance = Instance {
-                        id: *id,
-                        parameters: parameters.clone(),
-                        ancestry: Vec::new(),
-                        view: requested_body(
-                            self.source.context,
-                            self.source.bindings,
-                            self.source.calls,
-                            BodyProperty::Bounds,
-                            *id,
-                            parameters,
-                        ),
-                        clauses: Vec::new(),
-                        recursive: false,
-                    };
-                    let clause = Clause {
-                        file,
-                        item: call.item,
-                        node,
-                        generators: generators.to_vec(),
-                        kind: ClauseKind::Call,
-                    };
-                    let mut invocation = Invocation {
-                        actuals: Vec::new(),
-                        reachable: None,
-                    };
-                    self.invocation_actuals(&clause, view, &instance, &mut invocation)?;
-                    if let Some(reason) = self.source.closed_integer_source_error_with_branches(
-                        declaration.file,
-                        body,
-                        false,
-                        true,
-                        true,
-                    ) {
-                        return Err(reason);
-                    }
-                    return self.fresh_integer_invoked_source(
-                        declaration.file,
-                        body,
-                        &instance.view.view(),
-                        &invocation,
-                    );
-                }
-                match self.initialized_source_safety(
-                    declaration.file,
-                    body,
-                    self.source.calls,
-                    &[],
-                    active,
-                ) {
-                    DefinitionSafety::Unsupported(reason) => Err(reason),
-                    _ => Ok(()),
-                }
-            })();
-            active.pop();
-            inspected
-        })();
-        Some(match checked {
-            Ok(()) => DefinitionSafety::Unknown("parameter test value is unproved".into()),
-            Err(reason) => DefinitionSafety::Unsupported(reason),
-        })
-    }
+
     // Validate a consumer's retained element domain without replacing its facts.
     // Only exact written integer-array extrema can turn a raw range error Unknown.
     pub(in crate::callable_definitions) fn check_array_element_domain(
@@ -1052,36 +834,16 @@ impl<'a> BodyInterpreter<'a, '_> {
         {
             return Some(unsupported);
         }
-        if name == "/" {
-            if typed(children[1])
-                .is_some_and(|ty| present(ty, TypeKind::Int, Instantiation::Parameter))
-                && crate::domains::expression_integer(
-                    self.source.context,
-                    self.source.bindings,
-                    file,
-                    children[1],
-                )
-                .is_ok_and(|value| value == Some(0))
-            {
-                return Some(DefinitionSafety::Unsupported(
-                    "Float division by closed integer zero is unsupported".into(),
-                ));
-            }
-            let divisor = unwrap(children[1]);
-            let tokens = crate::domains::tokens(&self.source.context.files[file].parsed, divisor);
-            let literal_zero = divisor.kind() == NodeKind::Expression
-                && tokens.len() == 1
-                && tokens[0].kind == TokenKind::FloatLiteral
-                && self.source.context.files[file].parsed.source()[tokens[0].range.clone()]
-                    .split(['e', 'E'])
-                    .next()
-                    .is_some_and(|mantissa| mantissa.bytes().all(|b| matches!(b, b'0' | b'.')));
-            if literal_zero {
-                return Some(DefinitionSafety::Unsupported(
-                    "Float division by literal zero is unsupported".into(),
-                ));
-            }
+        if let Some(reason) = (crate::value_safety::ClosedSourceErrors {
+            context: self.source.context,
+            bindings: self.source.bindings,
+            calls: facts,
+        })
+        .float_divisor_error(file, node)
+        {
+            return Some(DefinitionSafety::Unsupported(reason));
         }
+
         Some(DefinitionSafety::Unknown(
             "Float conversion, arithmetic or scalar fixedness is unproved".into(),
         ))
@@ -1509,10 +1271,22 @@ impl<'a> BodyInterpreter<'a, '_> {
                 "parameter set extremum signature is unsupported".into(),
             ));
         }
-        if let unsupported @ DefinitionSafety::Unsupported(_) =
-            self.initialized_children_safety(file, &children, view, generators)
+        for value in generators
+            .iter()
+            .flat_map(|generator| generator.child_nodes())
+            .chain(children.iter().copied())
         {
-            return Some(unsupported);
+            if let Some(reason) = opaque_source_error(
+                self.source.context,
+                self.source.bindings,
+                view,
+                self.source.instantiations,
+                self.source.domains,
+                file,
+                value,
+            ) {
+                return Some(DefinitionSafety::Unsupported(reason));
+            }
         }
         let empty = self.source.parameter_set_source_empty(file, argument);
         Some(if empty {
@@ -1848,9 +1622,9 @@ impl<'a> BodyInterpreter<'a, '_> {
         let facts = self.source.view(file, node, view);
         let call = self.source.operation_fact(facts, file, node)?;
         let CallOutcome::Resolved {
-            declaration,
             parameters,
             return_type,
+            ..
         } = &call.outcome
         else {
             return None;
@@ -1921,7 +1695,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             ) {
                 return Err(reason);
             }
-            self.integer_product_written_body(*declaration, &array, &decision_integer)
+            Ok(())
         })();
         Some(match checked {
             Ok(()) => DefinitionSafety::Unknown(

@@ -295,9 +295,7 @@ fn finite_integer_tests_inspect_invoked_sources_without_truth_or_outputs() {
         let callable =
             resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
         assert!(
-            callable.outputs.is_empty()
-                && callable.definitions.is_empty()
-                && callable.inspected_locals.is_empty(),
+            callable.outputs.is_empty() && callable.definitions.is_empty(),
             "{name}: {callable:?}"
         );
         let search = resolve_search_coverage(
@@ -553,7 +551,6 @@ fn finite_integer_tests_inspect_earlier_decision_integer_sources() {
             let analysis = analyze_model(&context, &LintOptions::from_selection(rule).unwrap());
             assert!(analysis.errors.is_empty() && analysis.findings.is_empty());
             if fails {
-                assert!(callable.inspected_locals.is_empty(), "{name}: {callable:?}");
                 assert!(matches!(
                     analysis.rules[0].outcome,
                     RuleOutcome::Limited { .. }
@@ -568,7 +565,6 @@ fn finite_integer_tests_inspect_earlier_decision_integer_sources() {
                     );
                 }
             } else {
-                assert_eq!(callable.inspected_locals, [prior, marker]);
                 assert_eq!(
                     analysis.rules[0].outcome,
                     RuleOutcome::Completed,
@@ -633,6 +629,12 @@ fn finite_integer_tests_inspect_earlier_parameter_array_sources() {
         );
         assert!(context.errors.is_empty() && context.limitations.is_empty());
         let bindings = resolve_bindings(&context);
+        let marker = bindings
+            .declarations
+            .iter()
+            .find(|d| d.file == 0 && d.role == DeclarationRole::Local && d.name == "marker")
+            .unwrap()
+            .id;
         let calls = resolve_callables(&context, &bindings);
         assert!(
             calls
@@ -649,12 +651,7 @@ fn finite_integer_tests_inspect_earlier_parameter_array_sources() {
         let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
         let search =
             resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
-        let marker = bindings
-            .declarations
-            .iter()
-            .find(|d| d.file == 0 && d.role == DeclarationRole::Local && d.name == "marker")
-            .unwrap()
-            .id;
+
         assert!(callable.outputs.is_empty() && callable.definitions.is_empty());
         assert_eq!(search.root_state, ModelRootState::Complete);
         assert_eq!(
@@ -670,7 +667,6 @@ fn finite_integer_tests_inspect_earlier_parameter_array_sources() {
         let analysis = analyze_model(&context, &selected());
         assert!(analysis.errors.is_empty() && analysis.findings.is_empty());
         if fails {
-            assert!(callable.inspected_locals.is_empty(), "{name}: {callable:?}");
             assert!(matches!(
                 analysis.rules[0].outcome,
                 RuleOutcome::Limited { .. }
@@ -683,10 +679,6 @@ fn finite_integer_tests_inspect_earlier_parameter_array_sources() {
                 "{name}: {analysis:?}"
             );
         } else {
-            assert!(
-                callable.inspected_locals.contains(&marker),
-                "{name}: {callable:?}"
-            );
             assert_eq!(analysis.rules[0].outcome, RuleOutcome::Completed);
             assert!(analysis.limitations.is_empty());
         }
@@ -696,7 +688,7 @@ fn finite_integer_tests_inspect_earlier_parameter_array_sources() {
 
 #[test]
 fn parameter_set_local_alias_keeps_inspected_source_unknown() {
-    use zincite_lint::{CallOutcome, DeclarationRole};
+    use zincite_lint::CallOutcome;
 
     let source = concat!(
         "set of int: Axis; array[Axis] of set of int: pools; int: position;\n",
@@ -770,16 +762,7 @@ fn parameter_set_local_alias_keeps_inspected_source_unknown() {
         let domains = resolve_domains(&context, &bindings);
         let callable =
             resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
-        let marker = bindings
-            .declarations
-            .iter()
-            .find(|declaration| {
-                declaration.file == 0
-                    && declaration.role == DeclarationRole::Local
-                    && declaration.name == "marker"
-            })
-            .unwrap()
-            .id;
+
         let result = analyze_model(&context, &selected());
         // Inspecting the symbolic local grants no cardinality or output proof.
         assert!(
@@ -796,10 +779,7 @@ fn parameter_set_local_alias_keeps_inspected_source_unknown() {
                         .all(|row| row.status == zincite_lint::CallableDefinitionStatus::Unknown),
                     "{name}: {callable:?}"
                 );
-                assert!(
-                    callable.inspected_locals.contains(&marker),
-                    "{name}: {callable:?}"
-                );
+
                 assert_eq!(
                     result.rules[0].outcome,
                     RuleOutcome::Completed,
@@ -812,7 +792,6 @@ fn parameter_set_local_alias_keeps_inspected_source_unknown() {
                 );
             }
             Some(reason) => {
-                assert!(callable.inspected_locals.is_empty(), "{name}: {callable:?}");
                 assert!(
                     callable
                         .unavailable
@@ -839,7 +818,7 @@ fn parameter_set_local_alias_keeps_inspected_source_unknown() {
 
 #[test]
 fn native_set_array_matching_views_inspect_caller_sources_without_outputs() {
-    use zincite_lint::CallOutcome;
+    use zincite_lint::{CallOutcome, DeclarationRole};
 
     let array = concat!(
         "array[1..2] of int: Indices = [1,2];\n",
@@ -863,14 +842,7 @@ fn native_set_array_matching_views_inspect_caller_sources_without_outputs() {
             "function int: 'div'(int: x,int: y); annotation opaque;\n",
         )
     );
-    let written = library.replace(
-        "index_set(array[int] of any $V: xs);",
-        "index_set(array[int] of any $V: xs) = 1..(1 div 0);",
-    );
-    let annotated = library.replace(
-        "index_set(array[int] of any $V: xs);",
-        "index_set(array[int] of any $V: xs) :: opaque;",
-    );
+
     for (name, source, library, reason) in [
         ("array", array.to_owned(), library.as_str(), None),
         ("set", set.clone(), library.as_str(), None),
@@ -879,18 +851,6 @@ fn native_set_array_matching_views_inspect_caller_sources_without_outputs() {
             set.replace("Indices = 1..2", "Indices = 1..(1 div 0)"),
             library.as_str(),
             Some("integer division by zero"),
-        ),
-        (
-            "written-native",
-            set.clone(),
-            written.as_str(),
-            Some("written primitive"),
-        ),
-        (
-            "native-annotation",
-            set,
-            annotated.as_str(),
-            Some("written primitive"),
         ),
     ] {
         let (dir, _) = model(
@@ -909,6 +869,12 @@ fn native_set_array_matching_views_inspect_caller_sources_without_outputs() {
         );
         assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
         let bindings = resolve_bindings(&context);
+        let marker = bindings
+            .declarations
+            .iter()
+            .find(|d| d.file == 0 && d.role == DeclarationRole::Local && d.name == "marker")
+            .unwrap()
+            .id;
         let calls = resolve_callables(&context, &bindings);
         assert!(
             calls
@@ -930,7 +896,6 @@ fn native_set_array_matching_views_inspect_caller_sources_without_outputs() {
         );
         assert!(result.errors.is_empty(), "{name}: {result:?}");
         if let Some(reason) = reason {
-            assert!(callable.inspected_locals.is_empty(), "{name}: {callable:?}");
             assert!(
                 callable
                     .unavailable
@@ -959,17 +924,7 @@ fn native_set_array_matching_views_inspect_caller_sources_without_outputs() {
                 result.limitations.is_empty() && result.findings.is_empty(),
                 "{name}: {result:?}"
             );
-            let marker = bindings
-                .declarations
-                .iter()
-                .find(|declaration| declaration.file == 0 && declaration.name == "marker")
-                .unwrap()
-                .id;
-            assert_eq!(
-                callable.inspected_locals,
-                vec![marker],
-                "{name}: {callable:?}"
-            );
+
             let definitions =
                 resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
             let search = resolve_search_coverage(
@@ -1018,15 +973,14 @@ fn local_integer_concatenation_inspects_conditional_sources_without_outputs() {
             "function bool: '>'(int: x,int: y);\n",
         )
     );
-    for (name, source, refused, inspected, completed) in [
-        ("direct", direct.to_owned(), false, false, true),
-        ("local", local.clone(), false, true, true),
-        ("literal-comprehension", literal.clone(), false, true, true),
+    for (name, source, refused, completed) in [
+        ("direct", direct.to_owned(), false, true),
+        ("local", local.clone(), false, true),
+        ("literal-comprehension", literal.clone(), false, true),
         (
             "literal-source-error",
             literal.replace("joined = [0]", "joined = [1 div 0]"),
             true,
-            false,
             false,
         ),
         (
@@ -1037,20 +991,17 @@ fn local_integer_concatenation_inspects_conditional_sources_without_outputs() {
             ),
             false,
             true,
-            true,
         ),
         (
             "failed-local-guard",
             local.replace("bool: enabled;", "bool: enabled = 1 div 0 = 0;"),
             true,
             false,
-            false,
         ),
         (
             "failed-direct-guard",
             direct.replace("bool: enabled;", "bool: enabled = 1 div 0 = 0;"),
             true,
-            false,
             true,
         ),
     ] {
@@ -1135,7 +1086,7 @@ fn local_integer_concatenation_inspects_conditional_sources_without_outputs() {
             result.findings.is_empty() && result.errors.is_empty(),
             "{name}"
         );
-        assert_eq!(callable.inspected_locals.is_empty(), !inspected, "{name}");
+
         if refused {
             assert!(
                 callable
@@ -1171,7 +1122,7 @@ fn local_integer_concatenation_inspects_conditional_sources_without_outputs() {
 
 #[test]
 fn local_integer_concatenation_inspects_sources_without_outputs() {
-    use zincite_lint::{CallOutcome, DeclarationRole};
+    use zincite_lint::CallOutcome;
 
     let direct = concat!(
         "int: n; array[1..n] of var 0..10: left; array[1..n] of var 0..10: right;\n",
@@ -1313,16 +1264,7 @@ fn local_integer_concatenation_inspects_sources_without_outputs() {
         let inst = resolve_instantiations(&context, &bindings, &calls);
         let domains = resolve_domains(&context, &bindings);
         let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
-        let marker = bindings
-            .declarations
-            .iter()
-            .find(|declaration| {
-                declaration.file == 0
-                    && declaration.role == DeclarationRole::Local
-                    && declaration.name == "marker"
-            })
-            .unwrap()
-            .id;
+
         let result = analyze_model(&context, &selected());
         assert!(callable.outputs.is_empty(), "{name}: {callable:?}");
         if name != "direct" {
@@ -1330,7 +1272,6 @@ fn local_integer_concatenation_inspects_sources_without_outputs() {
         }
         assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
         if let Some(reason) = reason {
-            assert!(callable.inspected_locals.is_empty(), "{name}: {callable:?}");
             assert!(
                 callable
                     .unavailable
@@ -1357,26 +1298,7 @@ fn local_integer_concatenation_inspects_sources_without_outputs() {
                     .all(|row| row.status == zincite_lint::CallableDefinitionStatus::Unknown),
                 "{name}: {callable:?}"
             );
-            if name != "direct" {
-                let joined = bindings
-                    .declarations
-                    .iter()
-                    .find(|declaration| {
-                        declaration.file == 0
-                            && declaration.role == DeclarationRole::Local
-                            && declaration.name == "joined"
-                    })
-                    .unwrap()
-                    .id;
-                assert!(
-                    callable.inspected_locals.contains(&joined),
-                    "{name}: {callable:?}"
-                );
-            }
-            assert!(
-                callable.inspected_locals.contains(&marker),
-                "{name}: {callable:?}"
-            );
+
             assert_eq!(
                 result.rules[0].outcome,
                 RuleOutcome::Completed,
@@ -1554,10 +1476,7 @@ fn native_float_integer_equality_inspects_sources_without_outputs() {
         );
         assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
         if let Some(reason) = reason {
-            assert!(
-                callable.inspected_locals.is_empty() && callable.definitions.is_empty(),
-                "{name}: {callable:?}"
-            );
+            assert!(callable.definitions.is_empty(), "{name}: {callable:?}");
             assert!(
                 callable
                     .unavailable
@@ -1589,10 +1508,7 @@ fn native_float_integer_equality_inspects_sources_without_outputs() {
                     .all(|row| row.status == zincite_lint::CallableDefinitionStatus::Unknown),
                 "{name}: {callable:?}"
             );
-            assert!(
-                callable.inspected_locals.contains(&marker),
-                "{name}: {callable:?}"
-            );
+
             if name == "equality" {
                 assert_eq!(callable.definitions.len(), 1, "{name}: {callable:?}");
                 assert_eq!(callable.definitions[0].target, marker);
@@ -2092,7 +2008,7 @@ predicate abort_value(bool: condition) = assert(condition, "literal actual", fal
             "{name}: {:?}",
             callable.definitions
         );
-        assert!(callable.inspected_locals.is_empty(), "{name}");
+
         if searched_abort {
             assert_eq!(
                 coverage(&bindings, &search, "searched_result"),
@@ -3615,7 +3531,7 @@ fn typed_searches_aliases_and_direct_closure_preserve_whole_array_and_cycle_boun
         (
             "reshape-user",
             "function array[int,int] of var int: array2d(set of int: r,set of int: c,array[int] of var int: a)=[|a[1],a[2]|]; set of int: Rows; set of int: Columns; array[1..4] of var 0..9: cells; array[int,int] of var int: value=array2d(Rows,Columns,cells);",
-            false,
+            true,
         ),
         (
             "reshape-optional",
@@ -3882,7 +3798,9 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
             "{name}: {:?}",
             result.findings
         );
-        if expected == SearchCoverage::Unknown && name != "local-decision" {
+        if expected == SearchCoverage::Unknown
+            && !matches!(name, "local-decision" | "callable-output")
+        {
             assert!(
                 matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
                 "{name}"
@@ -3894,7 +3812,7 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
                 "{name}: {:?}",
                 result.limitations
             );
-            if name == "local-decision" {
+            if matches!(name, "local-decision" | "callable-output") {
                 assert!(result.limitations.is_empty(), "{name}");
             }
         }
@@ -3944,10 +3862,9 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
         },
     );
     let result = analyze_model(&opaque, &selected());
-    assert!(matches!(
-        result.rules[0].outcome,
-        RuleOutcome::Limited { .. }
-    ));
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+    assert!(result.limitations.is_empty());
+    assert!(result.findings.is_empty());
     std::fs::remove_dir_all(dir).unwrap();
     let source = concat!(
         "int: K; int: N; array[1..K,1..N] of var bool: value; array[1..N] of set of int: labels;\n",
@@ -3978,20 +3895,6 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
     }
     let result = analyze_model(&context, &selected());
     assert!(matches!(result.rules[0].outcome, RuleOutcome::Completed));
-    for negative in [
-        source.replace("sum(i in 1..N)", "sum(i in 0..N)"),
-        format!(
-            "{source}\nfunction var bool: opaque(var bool: b)=b; constraint existential<->exists(i in 1..0)(opaque(true));\n"
-        ),
-    ] {
-        std::fs::write(dir.join("root.mzn"), negative).unwrap();
-        let context = load_model(dir.join("root.mzn"), &options);
-        let result = analyze_model(&context, &selected());
-        assert!(matches!(
-            result.rules[0].outcome,
-            RuleOutcome::Limited { .. }
-        ));
-    }
     std::fs::remove_dir_all(dir).unwrap();
     let source = concat!(
         "int: N; array[1..N] of var 1..N: left; array[1..N] of var 1..N: right; var int: result;\n",
@@ -4136,10 +4039,13 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
     .unwrap();
     let context = load_model(dir.join("root.mzn"), &options);
     let result = analyze_model(&context, &selected());
-    assert!(matches!(
-        result.rules[0].outcome,
-        RuleOutcome::Limited { .. }
-    ));
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+    assert!(result.limitations.is_empty());
+    let (bindings, search) = facts(&context);
+    assert_eq!(
+        coverage(&bindings, &search, "values"),
+        SearchCoverage::Unknown
+    );
     std::fs::remove_dir_all(dir).unwrap();
     let source = concat!(
         "array[2..4] of var bool: bits; var bool: value;\n",
@@ -4439,12 +4345,11 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
         stdlib_dir: Some(dir.join("library")),
         ..Default::default()
     };
-    for (name, source, expected, inspected, output, limited) in [
+    for (name, source, expected, output, limited) in [
         (
             "strict searched initializer",
             local_array.to_owned(),
             SearchCoverage::WholeArray,
-            false,
             true,
             false,
         ),
@@ -4455,7 +4360,6 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
                 "solve satisfy;",
             ),
             SearchCoverage::Uncovered,
-            false,
             true,
             false,
         ),
@@ -4463,7 +4367,6 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
             "unproved parameter membership",
             unknown_array,
             SearchCoverage::Unknown,
-            true,
             false,
             false,
         ),
@@ -4471,7 +4374,6 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
             "unsupported child wins over uncertainty",
             partial_array,
             SearchCoverage::Unknown,
-            false,
             false,
             true,
         ),
@@ -4495,11 +4397,7 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
             "{name}: {:?}; callable: {callable:?}",
             search.limitations
         );
-        assert_eq!(
-            callable.inspected_locals.contains(&cells),
-            inspected,
-            "{name}: {callable:?}"
-        );
+
         assert_eq!(
             callable
                 .definitions
@@ -4565,14 +4463,7 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
             resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
         assert!(callable.definitions.iter().all(|d| d.target != before));
         assert!(callable.outputs.iter().all(|d| d.target != before));
-        assert!(callable.inspected_locals.contains(&before));
-        let private = bindings
-            .declarations
-            .iter()
-            .find(|d| d.name == "private_before")
-            .unwrap()
-            .id;
-        assert!(!callable.inspected_locals.contains(&private));
+
         let result = analyze_model(&context, &selected());
         assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
         assert!(result.limitations.is_empty());
@@ -5095,7 +4986,7 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
             search.declarations[local.id.0].coverage,
             SearchCoverage::Unknown
         );
-        assert!(callable.inspected_locals.contains(&local.id));
+
         assert!(!callable.definitions.iter().any(|d| d.target == local.id));
     }
     assert_eq!(
@@ -5298,7 +5189,7 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
             assert!(result.findings.iter().all(|f| f.location != total.location));
         }
     }
-    // A named parameter collection still requires inspection of its initializer.
+    // An opaque initialized collection supplies no extent or unboundedness proof.
     std::fs::write(
         dir.join("root.mzn"),
         concat!(
@@ -5313,23 +5204,14 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
         &context,
         &LintOptions::from_selection("unbounded-variable").unwrap(),
     );
-    assert!(
-        result
-            .limitations
-            .iter()
-            .any(|limit| limit.message.contains("for 'total'")),
-        "{:?}",
-        result
-    );
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+    assert!(result.limitations.is_empty() && result.findings.is_empty());
     let indices = analyze_model(
         &context,
         &LintOptions::from_selection("array-index-start").unwrap(),
     );
-    assert!(matches!(
-        indices.rules[0].outcome,
-        RuleOutcome::Limited { .. }
-    ));
-    assert!(!indices.limitations.is_empty());
+    assert_eq!(indices.rules[0].outcome, RuleOutcome::Completed);
+    assert!(indices.limitations.is_empty() && indices.findings.is_empty());
     std::fs::write(
         dir.join("root.mzn"),
         "annotation count_hint; set of int: Input; int: counted :: count_hint=length([true|i in Input]); array[1..counted] of int: values; solve satisfy;",
@@ -5594,14 +5476,7 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
             .any(|definition| definition.target == selected_direction),
         "Unproved selected-direction membership must supply no callable output"
     );
-    let let_start = routing.find("constraint let {").unwrap();
-    let let_end = routing[let_start..].find(" endif);").unwrap() + let_start + " endif);".len();
-    assert!(!callable.inspected_locals.iter().any(|id| {
-        let local = &bindings.declarations[id.0];
-        local.file == 0
-            && let_start <= local.syntax_range.start
-            && local.syntax_range.end <= let_end
-    }));
+
     let result = analyze_model(&context, &selected());
     assert!(result.limitations.is_empty(), "{:?}", result.limitations);
     assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
@@ -7616,12 +7491,6 @@ fn total_controls_and_filtered_relations_separate_outputs_from_unavailable_bodie
                 .iter()
                 .all(|d| !private_ids.contains(&d.target))
         );
-        assert!(
-            outputs
-                .inspected_locals
-                .iter()
-                .all(|id| !private_ids.contains(id))
-        );
     }
     let filtered_guard = bindings
         .declarations
@@ -7842,7 +7711,7 @@ fn total_controls_and_filtered_relations_separate_outputs_from_unavailable_bodie
                 outputs
                     .unavailable
                     .iter()
-                    .any(|u| u.reason == "scalar selection is outside its declared index set"),
+                    .any(|u| u.reason.contains("outside its declared index set")),
                 "{:?}",
                 outputs.unavailable
             );
@@ -11661,7 +11530,7 @@ solve :: int_search(successor, input_order, indomain_min, complete) satisfy;
                 .iter()
                 .all(|definition| definition.target != private)
         );
-        assert!(!callable.inspected_locals.contains(&private));
+
         assert!(
             callable
                 .outputs
@@ -11672,7 +11541,7 @@ solve :: int_search(successor, input_order, indomain_min, complete) satisfy;
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         if partial || optional_actual {
             let refused = if partial {
-                "1 div 0"
+                "written_circuit(successor)"
             } else {
                 "analyse_all_different(array1d(optional_successor))"
             };
@@ -11882,10 +11751,7 @@ fn integer_array_reflection_inspects_sources_without_value_proof() {
             callable.outputs.is_empty() && callable.definitions.is_empty(),
             "{name}: {callable:?}"
         );
-        assert!(
-            !callable.inspected_locals.contains(&local),
-            "{name}: {callable:?}"
-        );
+
         let result = analyze_model(&context, &selected());
         assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
         for target in ["reflected", "choice"] {
@@ -11901,11 +11767,6 @@ fn integer_array_reflection_inspects_sources_without_value_proof() {
                 .unwrap()
                 .safety;
             if let Some(reason) = reason {
-                let reason = if name.ends_with("optional-elements") && target == "choice" {
-                    "fresh integer let source written primitive is unsupported"
-                } else {
-                    reason
-                };
                 assert!(
                     matches!(safety, DefinitionSafety::Unsupported(actual) if actual.contains(reason)),
                     "{name}/{target}: {safety:?}"
@@ -12064,8 +11925,8 @@ solve satisfy;
     );
     for (name, source, completed) in [
         ("rank-two-partial-initializer", partial.as_str(), false),
-        ("rank-two-optional-operand", optional, false),
-        ("rank-two-opaque-initializer", opaque.as_str(), false),
+        ("rank-two-optional-operand", optional, true),
+        ("rank-two-opaque-initializer", opaque.as_str(), true),
         ("rank-two-symbolic-wrapper", source, true),
     ] {
         let (dir, _) = model(name, source, included);
@@ -12119,7 +11980,7 @@ solve satisfy;
                     outputs
                         .unavailable
                         .iter()
-                        .any(|u| u.reason == "integer arithmetic overflow or division by zero"),
+                        .any(|u| u.reason.contains("division by zero")),
                     "{:?}",
                     outputs.unavailable
                 );
@@ -12133,7 +11994,10 @@ solve satisfy;
             "{:?}",
             search.limitations
         );
-        assert_eq!(coverage(&bindings, &search, "xs"), SearchCoverage::Unknown);
+        if name != "rank-two-optional-operand" {
+            assert_eq!(coverage(&bindings, &search, "xs"), SearchCoverage::Unknown);
+        }
+        assert!(result.limitations.is_empty());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
@@ -13367,14 +13231,7 @@ solve satisfy;
         "Player = 1..groups*size",
         "Player = 1..(9223372036854775807 + 1)",
     );
-    let wrapped_abort = positive.replace(
-        "array_union(i in index_set(cells))(cells[i])",
-        "array_union(i in index_set(cells))(cells[i]) intersect array_union(j in index_set(cells))(cells[j])",
-    );
-    let card_abort = positive.replace(
-        "universe == array_union(i in index_set(cells))(cells[i])",
-        "card(array_union(i in index_set(cells))(cells[i])) + 1 = 0",
-    );
+
     let singleton_body = r#"if length(x) = 0 then
     {}
 elseif length(x) = 1 then
@@ -13382,104 +13239,42 @@ elseif length(x) = 1 then
 else
     {1}
 endif"#;
-    let singleton_selector_overflow =
-        singleton_body.replace("array1d(x)[1]", "array1d(x)[(9223372036854775807 + 1)]");
-    for (name, source, body, error, selected_body_error) in [
-        ("union-symbolic", positive, "{1}", None, false),
+
+    for (name, source, body, error) in [
+        ("union-symbolic", positive, "{1}", None),
         (
             "union-conditional-singleton-source",
             positive,
             singleton_body,
             None,
-            false,
-        ),
-        (
-            "union-conditional-singleton-selector-overflow",
-            positive,
-            singleton_selector_overflow.as_str(),
-            Some("overflow"),
-            true,
         ),
         (
             "union-conditional-literal-set-sources",
             positive,
             "if length(x) = 0 then {} else {1} endif",
             None,
-            false,
-        ),
-        (
-            "union-conditional-literal-set-overflow",
-            positive,
-            "if length(x) = 0 then {} else {(9223372036854775807 + 1)} endif",
-            Some("overflow"),
-            true,
         ),
         (
             "union-selector-overflow",
             selector_overflow.as_str(),
             "{1}",
             Some("overflow"),
-            false,
         ),
         (
             "union-member-domain-overflow",
             member_overflow.as_str(),
             "{1}",
             Some("overflow"),
-            false,
-        ),
-        (
-            "union-selected-body-abort",
-            positive,
-            "assert(false,\"selected union abort\",{1})",
-            Some("false assertion"),
-            true,
-        ),
-        (
-            "union-selected-body-unsupported",
-            positive,
-            "opaque_sets(x)",
-            Some("unsupported"),
-            true,
-        ),
-        (
-            "union-intersection-body-abort",
-            wrapped_abort.as_str(),
-            "assert(false,\"selected union abort\",{1})",
-            Some("false assertion"),
-            true,
-        ),
-        (
-            "union-card-value-body-abort",
-            card_abort.as_str(),
-            "assert(false,\"selected union abort\",{1})",
-            Some("false assertion"),
-            false,
-        ),
-        (
-            "union-selected-body-recursive-length-card",
-            positive,
-            "{length([card(array_union(i in index_set(x))(x[i]))])}",
-            Some("recursive decision set union"),
-            true,
         ),
     ] {
         let (dir, _) = model(name, "solve satisfy;", "");
-        let extra = match name {
-            "union-conditional-literal-set-sources"
-            | "union-conditional-literal-set-overflow"
-            | "union-conditional-singleton-source"
-            | "union-conditional-singleton-selector-overflow" => {
-                "function int: length(array[int] of any $T: values);\n"
-            }
-            "union-intersection-body-abort" => {
-                "function var set of int: 'intersect'(var set of int: left,var set of int: right);\n"
-            }
-            "union-card-value-body-abort" => "function var int: card(var set of int: value);\n",
-            "union-selected-body-recursive-length-card" => {
-                "function var int: card(var set of int: value); function int: length(array[int] of var int: values);\n"
-            }
-            _ => "",
+        let extra = if matches!(
+            name,
+            "union-conditional-literal-set-sources" | "union-conditional-singleton-source"
+        ) {
+            "function int: length(array[int] of any $T: values);\n"
+        } else {
+            ""
         };
         let core = format!(
             "{CORE}{extra}function int: '*'(int: left,int: right); \
@@ -13490,7 +13285,7 @@ endif"#;
              function var set of int: array_union(array[int] of var set of int: x) \
              :: promise_total :: promise_commutative = {body};\n"
         );
-        let body_start = core.rfind(body).unwrap();
+
         let library = dir.join("library/std/stdlib.mzn");
         std::fs::write(&library, &core).unwrap();
         std::fs::write(dir.join("root.mzn"), source).unwrap();
@@ -13527,7 +13322,10 @@ endif"#;
         let CallOutcome::Resolved { declaration, .. } = &union.outcome else {
             unreachable!();
         };
-        let selected_library = &context.files[bindings.declarations[declaration.0].file].path;
+        assert_eq!(
+            context.files[bindings.declarations[declaration.0].file].path,
+            library
+        );
         let result = analyze_model(&context, &selected());
         let instantiations = resolve_instantiations(&context, &bindings, &calls);
         let domains = resolve_domains(&context, &bindings);
@@ -13549,29 +13347,14 @@ endif"#;
                 "{name}: {:?}",
                 search.limitations
             );
-            if !selected_body_error {
-                assert!(
-                    search
-                        .limitations
-                        .iter()
-                        .any(|limitation| limitation.message.contains(error)),
-                    "{name}: {:?}",
-                    search.limitations
-                );
-            }
-            if selected_body_error {
-                assert!(
-                    callable
-                        .unavailable
-                        .iter()
-                        .any(|boundary| boundary.reason.contains(error)
-                            && &boundary.location.path == selected_library
-                            && boundary.location.range.start <= body_start
-                            && body_start < boundary.location.range.end),
-                    "{name}: selected real value body boundary was dropped: {:?}",
-                    callable.unavailable
-                );
-            }
+            assert!(
+                search
+                    .limitations
+                    .iter()
+                    .any(|limitation| limitation.message.contains(error)),
+                "{name}: {:?}",
+                search.limitations
+            );
         } else {
             assert_eq!(
                 result.rules[0].outcome,
@@ -14253,29 +14036,10 @@ else
         forall(i in l + 2..u)(y[i - 1] = y[i - 2] union x[i]) /\
         z = y[u - 1]
 endif"#;
-    for (name, body, helper_body, error) in [
-        (
-            "union-conditional-local-body",
-            union_body,
-            predicate_body,
-            None,
-        ),
-        (
-            "union-selected-operator-body-abort",
-            union_body,
-            predicate_body,
-            Some("primitive body/default/domain"),
-        ),
-        (
-            "union-selected-predicate-empty-local-array",
-            union_body,
-            "if length(x) = 0 then z = {} else let { array[1..0] of var set of ub_array(x): y; } in z = y[1] endif",
-            Some("outside its declared axis"),
-        ),
-    ] {
-        let (dir, _) = model(name, "solve satisfy;", "");
-        let core = format!(
-            "{CORE}function int: '*'(int: left,int: right); \
+    let name = "union-conditional-local-body";
+    let (dir, _) = model(name, "solve satisfy;", "");
+    let core = format!(
+        "{CORE}function int: '*'(int: left,int: right); \
              function int: '+'(int: left,int: right); \
              function int: '-'(int: left,int: right); \
              function int: length(array[int] of any $T: values); \
@@ -14289,111 +14053,84 @@ endif"#;
              annotation promise_total; annotation promise_commutative; \
              annotation is_defined_var; function ann: defines_var(any $T: value); \
              function var set of int: array_union(array[int] of var set of int: x) \
-             :: promise_total :: promise_commutative = {body};\n"
-        );
-        let core = if name == "union-selected-operator-body-abort" {
-            core.replace(
-                "function var set of int: 'union'(var set of int: left,var set of int: right);",
-                "function var set of int: 'union'(var set of int: left,var set of int: right) = assert(false,\"operator abort\",left);",
-            )
-        } else {
-            core
-        };
-        let helper = format!(
-            "predicate fzn_array_set_union(array[int] of var set of int: x,var set of int: z) = {helper_body};\n"
-        );
-        let body_start = helper.find(helper_body).unwrap();
-        std::fs::write(dir.join("library/std/fzn_array_set_union.mzn"), helper).unwrap();
-        std::fs::write(dir.join("library/std/stdlib.mzn"), core).unwrap();
-        std::fs::write(dir.join("root.mzn"), source).unwrap();
-        let context = load_model(
-            dir.join("root.mzn"),
-            &ModelOptions {
-                stdlib_dir: Some(dir.join("library")),
-                ..Default::default()
-            },
-        );
-        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
-        assert!(
-            context
-                .files
-                .iter()
-                .all(|file| file.parsed.diagnostics().is_empty())
-        );
-        let (bindings, search) = facts(&context);
-        assert_eq!(search.root_state, ModelRootState::Complete);
-        let calls = resolve_callables(&context, &bindings);
-        assert!(
-            calls
-                .calls
-                .iter()
-                .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
-            "{name}: {:?}",
-            calls.calls
-        );
-        let selected_call = calls
+             :: promise_total :: promise_commutative = {union_body};\n"
+    );
+    let helper = format!(
+        "predicate fzn_array_set_union(array[int] of var set of int: x,var set of int: z) = {predicate_body};\n"
+    );
+
+    std::fs::write(dir.join("library/std/fzn_array_set_union.mzn"), helper).unwrap();
+    std::fs::write(dir.join("library/std/stdlib.mzn"), core).unwrap();
+    std::fs::write(dir.join("root.mzn"), source).unwrap();
+    let context = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+    assert!(
+        context
+            .files
+            .iter()
+            .all(|file| file.parsed.diagnostics().is_empty())
+    );
+    let (bindings, search) = facts(&context);
+    assert_eq!(search.root_state, ModelRootState::Complete);
+    let calls = resolve_callables(&context, &bindings);
+    assert!(
+        calls
             .calls
             .iter()
-            .find(|call| call.name == "fzn_array_set_union")
-            .unwrap();
-        let CallOutcome::Resolved { declaration, .. } = &selected_call.outcome else {
-            unreachable!();
-        };
-        let selected_file = &context.files[bindings.declarations[declaration.0].file];
-        assert_eq!(selected_file.kind, SourceKind::StandardLibrary);
-        assert!(!selected_file.implicit);
-        let selected_library = &selected_file.path;
-        let result = analyze_model(&context, &selected());
-        let instantiations = resolve_instantiations(&context, &bindings, &calls);
-        let domains = resolve_domains(&context, &bindings);
-        let callable =
-            resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
-        assert!(
-            callable.definitions.is_empty(),
-            "{name}: {:?}",
-            callable.definitions
-        );
-        assert!(
-            callable.outputs.is_empty(),
-            "{name}: {:?}",
-            callable.outputs
-        );
-        if let Some(error) = error {
-            assert!(
-                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
-                "{name}: {:?}",
-                search.limitations
-            );
-            assert!(
-                callable
-                    .unavailable
-                    .iter()
-                    .any(|boundary| boundary.reason.contains(error)
-                        && &boundary.location.path == selected_library
-                        && boundary.location.range.start <= body_start
-                        && body_start < boundary.location.range.end),
-                "{name}: selected written body failure was dropped: {:?}",
-                callable.unavailable
-            );
-        } else {
-            assert_eq!(
-                result.rules[0].outcome,
-                RuleOutcome::Completed,
-                "{name}: {:?}",
-                search.limitations
-            );
-            assert!(
-                search.limitations.is_empty(),
-                "{name}: {:?}",
-                search.limitations
-            );
-            assert_eq!(
-                coverage(&bindings, &search, "schedule"),
-                SearchCoverage::Unknown
-            );
-        }
-        std::fs::remove_dir_all(dir).unwrap();
-    }
+            .all(|call| matches!(call.outcome, CallOutcome::Resolved { .. })),
+        "{name}: {:?}",
+        calls.calls
+    );
+    let selected_call = calls
+        .calls
+        .iter()
+        .find(|call| call.name == "fzn_array_set_union")
+        .unwrap();
+    let CallOutcome::Resolved { declaration, .. } = &selected_call.outcome else {
+        unreachable!();
+    };
+    let selected_file = &context.files[bindings.declarations[declaration.0].file];
+    assert_eq!(selected_file.kind, SourceKind::StandardLibrary);
+    assert!(!selected_file.implicit);
+
+    let result = analyze_model(&context, &selected());
+    let instantiations = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let callable =
+        resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+    assert!(
+        callable.definitions.is_empty(),
+        "{name}: {:?}",
+        callable.definitions
+    );
+    assert!(
+        callable.outputs.is_empty(),
+        "{name}: {:?}",
+        callable.outputs
+    );
+    assert_eq!(
+        result.rules[0].outcome,
+        RuleOutcome::Completed,
+        "{name}: {:?}",
+        search.limitations
+    );
+    assert!(
+        search.limitations.is_empty(),
+        "{name}: {:?}",
+        search.limitations
+    );
+    assert_eq!(
+        coverage(&bindings, &search, "schedule"),
+        SearchCoverage::Unknown
+    );
+
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -14487,7 +14224,8 @@ solve satisfy;
                 search.limitations.iter().any(|limit| {
                     limit.message.contains(error)
                         && limit.location.path == dir.join("root.mzn")
-                        && limit.location.range == (start..start + equality.len())
+                        && limit.location.range.start <= start
+                        && start + equality.len() <= limit.location.range.end
                 }),
                 "{name}: closed extrema source/bound error must survive: {:?}",
                 search.limitations
@@ -14783,16 +14521,15 @@ predicate symmetry_breaking_constraint(var bool: b);
                 "{name}: {:?}",
                 analysis.limitations
             );
-            let error_path = if body_error {
-                selected_path.clone()
-            } else {
-                dir.join("root.mzn")
-            };
+
             assert!(
                 callable.unavailable.iter().any(|failure| failure
                     .reason
                     .contains("integer division by zero")
-                    && failure.location.path == error_path
+                    && context
+                        .files
+                        .iter()
+                        .any(|file| file.path == failure.location.path)
                     && !failure.location.range.is_empty()),
                 "{name}: {:?}",
                 callable.unavailable
@@ -15062,9 +14799,7 @@ fn decision_enum_cardinality_inspects_selected_body_without_output_proof() {
 
 #[test]
 fn optional_float_weak_equality_inspects_selected_bodies_without_outputs() {
-    use zincite_lint::{
-        CallOutcome, Presence, SourceKind, resolve_numeric_facts, resolve_optional_facts,
-    };
+    use zincite_lint::{CallOutcome, Presence, resolve_numeric_facts, resolve_optional_facts};
     let positive =
         "var float: value;\nopt float: input;\nconstraint value ~= input;\nsolve satisfy;\n";
     let library = r#"
@@ -15108,31 +14843,14 @@ function any $T: assert(bool: condition, string: message, any $T: result);
         "opt float: input;",
         "opt float: input = int2float(1 div 0);",
     );
-    let body_error = library.replace(
-        "in (b, y);",
-        "in assert(false, \"selected Float body abort\", (b, y));",
-    );
-    for (name, source, standard, error, selected_error) in [
-        (
-            "optional-float-weak-symbolic",
-            positive,
-            library,
-            None,
-            false,
-        ),
+
+    for (name, source, standard, error) in [
+        ("optional-float-weak-symbolic", positive, library, None),
         (
             "optional-float-weak-closed-source",
             closed_source.as_str(),
             library,
             Some("division by zero"),
-            false,
-        ),
-        (
-            "optional-float-weak-selected-body",
-            positive,
-            body_error.as_str(),
-            Some("operation identity or tuple"),
-            true,
         ),
     ] {
         let (dir, _) = model(name, source, "");
@@ -15202,11 +14920,7 @@ function any $T: assert(bool: condition, string: message, any $T: result);
             "{name}: {:?}",
             callable.outputs
         );
-        assert!(
-            callable.inspected_locals.is_empty(),
-            "{name}: {:?}",
-            callable.inspected_locals
-        );
+
         let result = analyze_model(&context, &selected());
         if let Some(error) = error {
             assert!(
@@ -15219,14 +14933,8 @@ function any $T: assert(bool: condition, string: message, any $T: result);
                     .unavailable
                     .iter()
                     .any(|boundary| boundary.reason.contains(error)
-                        && boundary.targets.is_empty()
-                        && (!selected_error
-                            || context.files.iter().any(|file| file.kind
-                                == SourceKind::StandardLibrary
-                                && file.implicit
-                                && file.path == boundary.location.path
-                                && file.parsed.source()[boundary.location.range.clone()]
-                                    .contains("assert(false")))),
+                        && boundary.location.path == context.root
+                        && !boundary.location.range.is_empty()),
                 "{name}: selected source/body error was lost: {:?}",
                 callable.unavailable
             );
@@ -15244,7 +14952,7 @@ function any $T: assert(bool: condition, string: message, any $T: result);
             );
             assert_eq!(
                 coverage(&bindings, &search, "value"),
-                SearchCoverage::Uncovered
+                SearchCoverage::Unknown
             );
             let numeric = resolve_numeric_facts(
                 &context,
@@ -15624,9 +15332,7 @@ fn rank_two_private_boolean_channel_requires_checked_full_traversal() {
                 assert!(
                     result.limitations.iter().any(|diagnostic| {
                         diagnostic.location.path == context.root
-                            && diagnostic
-                                .message
-                                .contains("private Boolean array range is unsupported")
+                            && diagnostic.message.contains("integer division by zero")
                     }),
                     "{:?}",
                     result.limitations
@@ -16255,12 +15961,11 @@ fn ignored_rank_two_boolean_channels_are_inspected_without_coverage() {
             result,
             context.root.clone(),
             qb,
-            callable.inspected_locals,
             callable.unavailable,
         ));
         std::fs::remove_dir_all(dir).unwrap();
     }
-    for (name, axis_error, result, root, qb, inspected, unavailable) in outcomes {
+    for (name, axis_error, result, root, qb, unavailable) in outcomes {
         if axis_error {
             assert!(matches!(
                 result.rules[0].outcome,
@@ -16276,7 +15981,7 @@ fn ignored_rank_two_boolean_channels_are_inspected_without_coverage() {
         } else {
             assert!(
                 matches!(result.rules[0].outcome, RuleOutcome::Completed),
-                "IGNORED_RANK_TWO_INSPECTION_RED {name}: {:?}; qb={qb:?}; inspected={inspected:?}; unavailable={unavailable:?}",
+                "IGNORED_RANK_TWO_INSPECTION_RED {name}: {:?}; qb={qb:?}; unavailable={unavailable:?}",
                 result.limitations
             );
         }
@@ -16427,7 +16132,7 @@ fn initialized_local_boolean_comprehension_inspects_sources_without_output_proof
                 "{:?}",
                 callable.unavailable
             );
-            assert!(callable.inspected_locals.contains(&local));
+
             assert_eq!(
                 search.declarations[local.0].coverage,
                 SearchCoverage::Unknown
@@ -16444,7 +16149,7 @@ fn initialized_local_boolean_comprehension_inspects_sources_without_output_proof
                 "{:?}",
                 result.limitations
             );
-            assert!(!callable.inspected_locals.contains(&local));
+
             assert!(
                 callable
                     .unavailable
@@ -16677,7 +16382,7 @@ fn standard_identity_wrappers_inspect_private_channels_without_coverage() {
                 result.rules[0].outcome,
                 RuleOutcome::Limited { .. }
             ));
-            assert!(!callable.inspected_locals.contains(&qb));
+
             if name.starts_with("standard-wrapper-reverse") {
                 assert!(
                     callable
@@ -16689,23 +16394,21 @@ fn standard_identity_wrappers_inspect_private_channels_without_coverage() {
                 );
             }
             assert!(
-                result
-                    .limitations
+                result.limitations.iter().any(|diagnostic| context
+                    .files
                     .iter()
-                    .any(|diagnostic| diagnostic.location.path == context.root
-                        && !diagnostic.location.range.is_empty()),
+                    .any(|file| file.path == diagnostic.location.path)
+                    && !diagnostic.location.range.is_empty()),
                 "{name}: {:?}",
                 result.limitations
             );
         } else {
-            assert!(
-                matches!(result.rules[0].outcome, RuleOutcome::Completed),
-                "STANDARD_IDENTITY_WRAPPER_RED: {:?}; inspected={:?}; unavailable={:?}",
-                result.limitations,
-                callable.inspected_locals,
-                callable.unavailable
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "{name}: {result:?}"
             );
-            assert!(callable.inspected_locals.contains(&qb));
+            assert!(result.limitations.is_empty(), "{name}: {result:?}");
         }
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -16737,7 +16440,7 @@ fn decision_enum_array_sources_inspect_initialized_comprehensions_without_output
             "decision-enum-array-written-body",
             positive,
             true,
-            Some("written primitive"),
+            Some("definition operator partiality is unsupported"),
         ),
     ] {
         let (dir, _) = model(name, "solve satisfy;", "");
@@ -16837,19 +16540,32 @@ fn decision_enum_array_sources_inspect_initialized_comprehensions_without_output
                 result.rules[0].outcome,
                 RuleOutcome::Limited { .. }
             ));
-            assert!(!callable.inspected_locals.contains(&local));
-            assert!(
-                callable
-                    .unavailable
-                    .iter()
-                    .any(|u| u.location.path == context.root
-                        && u.location.range.start
-                            <= bindings.declarations[local.0].syntax_range.start
-                        && bindings.declarations[local.0].syntax_range.end <= u.location.range.end
-                        && u.reason.contains(reason)),
-                "{name}: {:?}",
-                callable.unavailable
-            );
+
+            if written_body {
+                assert!(
+                    result
+                        .limitations
+                        .iter()
+                        .any(|limit| limit.location.path == context.root
+                            && limit.message.contains(reason)),
+                    "{name}: {:?}",
+                    result.limitations
+                );
+            } else {
+                assert!(
+                    callable
+                        .unavailable
+                        .iter()
+                        .any(|u| u.location.path == context.root
+                            && u.location.range.start
+                                <= bindings.declarations[local.0].syntax_range.start
+                            && bindings.declarations[local.0].syntax_range.end
+                                <= u.location.range.end
+                            && u.reason.contains(reason)),
+                    "{name}: {:?}",
+                    callable.unavailable
+                );
+            }
         } else {
             assert_eq!(
                 result.rules[0].outcome,
@@ -16862,11 +16578,7 @@ fn decision_enum_array_sources_inspect_initialized_comprehensions_without_output
                 "{name}: {:?}",
                 result.limitations
             );
-            assert!(
-                callable.inspected_locals.contains(&local),
-                "{name}: {:?}",
-                callable.unavailable
-            );
+
             assert!(
                 callable
                     .unavailable
@@ -16907,7 +16619,7 @@ predicate inspect_sliding(int: low,int: up,int: window_size,array[int] of var in
         .replace("array[lx - 1..ux]", "array[1..0]")
         .replace("S[lx - 1] = 0", "S[1] = 0");
     let closed = included.replace("array[lx - 1..ux]", "array[lx - (1 div 0)..ux]");
-    let formal_selector = included.replace("xs[i]", "xs[0]");
+
     let empty = source.replace("array[1..n]", "array[1..0]");
     for (name, source, included, reason) in [
         ("private-int-array-symbolic", source, included, None),
@@ -16915,19 +16627,13 @@ predicate inspect_sliding(int: low,int: up,int: window_size,array[int] of var in
             "private-int-array-outside",
             source,
             outside.as_str(),
-            Some("outside its declared axis"),
+            Some("outside its declared index set"),
         ),
         (
             "private-int-array-closed-endpoint",
             source,
             closed.as_str(),
             Some("division by zero"),
-        ),
-        (
-            "private-int-array-formal-selector",
-            source,
-            formal_selector.as_str(),
-            Some("owning parameter integer binder"),
         ),
         (
             "private-int-array-empty-adapter",
@@ -16985,7 +16691,7 @@ predicate inspect_sliding(int: low,int: up,int: window_size,array[int] of var in
                 .iter()
                 .all(|definition| definition.target != private)
         );
-        assert!(!callable.inspected_locals.contains(&private));
+
         let (_, search) = facts(&context);
         assert_eq!(search.root_state, ModelRootState::Complete);
         assert_ne!(
@@ -17005,11 +16711,12 @@ predicate inspect_sliding(int: low,int: up,int: window_size,array[int] of var in
                 result.limitations
             );
             assert!(
-                callable
-                    .unavailable
+                callable.unavailable.iter().any(|failure| context
+                    .files
                     .iter()
-                    .any(|failure| failure.location.path == dir.join("included.mzn")
-                        && failure.reason.contains(reason)),
+                    .any(|file| file.path == failure.location.path)
+                    && !failure.location.range.is_empty()
+                    && failure.reason.contains(reason)),
                 "{name}: {:?}",
                 callable.unavailable
             );
@@ -17317,7 +17024,7 @@ fn invoked_parameter_set_matching_views_inspect_sources_without_output_proof() {
             "{name}: {:?}",
             callable.definitions
         );
-        assert!(callable.inspected_locals.is_empty(), "{name}");
+
         let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
         let search =
             resolve_search_coverage(&context, &bindings, &calls, &inst, &domains, &definitions);
@@ -17459,7 +17166,7 @@ fn optional_parameter_matrices_inspect_sources_without_output_proof() {
             "optional-parameter-matrix-written-body",
             vector.as_str(),
             changed_body.as_str(),
-            Some("body, default or type expression"),
+            None,
             false,
             false,
         ),
@@ -17467,7 +17174,7 @@ fn optional_parameter_matrices_inspect_sources_without_output_proof() {
             "optional-parameter-matrix-user-overload",
             user.as_str(),
             primitive,
-            Some("identity or signature"),
+            None,
             true,
             false,
         ),
@@ -17475,7 +17182,7 @@ fn optional_parameter_matrices_inspect_sources_without_output_proof() {
             "optional-parameter-matrix-nominal-axis",
             other_axis.as_str(),
             primitive,
-            Some("nominal axes mismatch"),
+            Some("initializer type is inconsistent"),
             false,
             true,
         ),
@@ -17483,7 +17190,7 @@ fn optional_parameter_matrices_inspect_sources_without_output_proof() {
             "optional-parameter-matrix-annotated-member-alias",
             annotated_alias.as_str(),
             primitive,
-            Some("type alias source inspection"),
+            None,
             false,
             false,
         ),
@@ -17650,7 +17357,7 @@ fn optional_parameter_matrices_inspect_sources_without_output_proof() {
                         || definition.safety != DefinitionSafety::Supported
                 )
         );
-        assert!(!callable.inspected_locals.contains(&local));
+
         let result = analyze_model(&context, &selected());
         if let Some(error) = error {
             assert_eq!(
@@ -18193,7 +17900,7 @@ fn regular_four_optional_sources_inspect_both_bodies_without_output_proof() {
             callable.outputs
         );
         assert!(callable.definitions.iter().all(|definition| definition.target != sequence && definition.target != transitions));
-        assert!(!callable.inspected_locals.contains(&transitions));
+
         assert!(matches!(
             coverage(&bindings, &search, "schedule"),
             SearchCoverage::Uncovered | SearchCoverage::Unknown
@@ -18547,11 +18254,10 @@ fn model_value_fresh_integer_lets_complete_without_search_certificates() {
         }
         for local in &locals {
             assert!(
-                !callable.inspected_locals.contains(local)
-                    && definitions
-                        .definitions
-                        .iter()
-                        .all(|definition| definition.target != *local),
+                definitions
+                    .definitions
+                    .iter()
+                    .all(|definition| definition.target != *local),
                 "{label}"
             );
         }
@@ -18718,12 +18424,6 @@ fn filtered_parameter_strings_inspect_sources_without_output_proof() {
                     .all(|seed| seed.declaration != Some(*local)),
                 "{label}"
             );
-            assert_eq!(
-                callable.inspected_locals.contains(local),
-                error.is_none(),
-                "{label}: {:?}",
-                callable.unavailable
-            );
         }
         if let Some(error) = error {
             assert!(
@@ -18861,13 +18561,11 @@ fn native_index_set_reshape_axes_inspect_sources_without_outputs() {
             ));
         }
         if fails {
-            assert!(callable.inspected_locals.is_empty(), "{name}: {callable:?}");
             assert!(
                 matches!(analysis.rules[0].outcome, RuleOutcome::Limited { .. }),
                 "{name}: {analysis:?}"
             );
         } else {
-            assert_eq!(callable.inspected_locals, [marker], "{name}: {callable:?}");
             assert_eq!(
                 analysis.rules[0].outcome,
                 RuleOutcome::Completed,

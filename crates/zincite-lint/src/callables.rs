@@ -2474,7 +2474,6 @@ pub(crate) fn resolve_source_callable_body_view(
 /// The consumer owns contextual proof checks; this request shares only concrete typing.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum BodyProperty {
-    Bounds,
     Definedness,
     Outputs,
 }

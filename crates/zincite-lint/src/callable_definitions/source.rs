@@ -4,7 +4,6 @@ use super::*;
 mod arithmetic;
 mod collections;
 mod fallback;
-mod locals;
 mod numeric;
 mod standard;
 
@@ -15,8 +14,6 @@ pub(super) struct SourceInspector<'a> {
     pub(super) instantiations: &'a InstantiationFacts,
     pub(super) domains: &'a DomainFacts,
     pub(super) lookups: Option<DirectSafetyLookups<'a>>,
-    pub(super) selected_set_source: bool,
-    pub(super) inactive_integer_body: Option<(FileId, std::ops::Range<usize>)>,
 }
 impl<'a> SourceInspector<'a> {
     pub(super) fn new(
@@ -34,8 +31,6 @@ impl<'a> SourceInspector<'a> {
             instantiations,
             domains,
             lookups,
-            selected_set_source: false,
-            inactive_integer_body: None,
         }
     }
 }
@@ -337,7 +332,7 @@ impl<'a> SourceInspector<'a> {
             })
     }
     // Only an actual in-header can delegate its selected set source. The typed
-    // helper inspects its complete initializer and returns no membership facts.
+    // helper retains required source errors and returns no membership facts.
     pub(in crate::callable_definitions) fn selected_generator_source_safety(
         &self,
         file: FileId,
@@ -345,8 +340,7 @@ impl<'a> SourceInspector<'a> {
         view: &crate::callables::CallableView<'_>,
         generators: &[&'a SyntaxNode],
     ) -> Option<DefinitionSafety> {
-        if self.selected_set_source
-            || header.kind() != NodeKind::Generator
+        if header.kind() != NodeKind::Generator
             || !header.children().iter().any(|child| {
                 matches!(child, SyntaxElement::Token(i)
                     if self.context.files[file].parsed.tokens()[*i].kind == TokenKind::In)
@@ -455,17 +449,8 @@ impl<'a> BodyInterpreter<'a, '_> {
                     "initialized source annotation is unsupported".into(),
                 );
             }
-            if let Some(checked) =
-                self.parameter_test_safety(file, current, view, generators, active)
-            {
-                match checked {
-                    unsupported @ DefinitionSafety::Unsupported(_) => return unsupported,
-                    unknown @ DefinitionSafety::Unknown(_) => safety = unknown,
-                    DefinitionSafety::Supported => {}
-                }
-            }
-            if !self.source.selected_set_source
-                && current.kind() == NodeKind::Generator
+
+            if current.kind() == NodeKind::Generator
                 && current
                     .child_nodes()
                     .next()
@@ -575,12 +560,14 @@ impl<'a> BodyInterpreter<'a, '_> {
                         "scoped Boolean source requires an inspected comprehension".into(),
                     );
                 }
-                if let Err(reason) = self.uncertain_comprehension_type(
+                if let Some(reason) = opaque_source_error(
+                    self.source.context,
+                    self.source.bindings,
+                    view,
+                    self.source.instantiations,
+                    self.source.domains,
                     file,
                     written,
-                    unwrap(initializer),
-                    view,
-                    generators,
                 ) {
                     return DefinitionSafety::Unsupported(reason);
                 }
@@ -733,7 +720,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                     && self.source.core(file, selected, view, "intersect"));
         let checked = if strict_set {
             inspected
-                .decision_set_source_safety(file, node, view, generators, active)
+                .decision_set_source_safety(file, node, view)
                 .unwrap_or_else(|| {
                     DefinitionSafety::Unsupported("decision set source type is unsupported".into())
                 })
@@ -806,12 +793,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         if let Some(safety) = self.parameter_float_safety(file, node, view, generators) {
             return safety;
         }
-        if let Some(safety) = self.float_let_safety(file, node, view, generators) {
-            return safety;
-        }
-        if let Some(safety) = self.parameter_set_let_safety(file, node, view, generators) {
-            return safety;
-        }
+
         if let Some(safety) = self.full_axis_slice_safety(file, node, view, generators) {
             return safety;
         }
@@ -851,6 +833,20 @@ impl<'a> BodyInterpreter<'a, '_> {
         if let Some(safety) = self.native_integer_flat_cell_safety(file, node, view, generators) {
             return safety;
         }
+        // Let prerequisites still evaluate before a strict result can be safe.
+        if unwrap(node).kind() == NodeKind::LetExpression
+            && let Some(reason) = opaque_source_error(
+                self.source.context,
+                self.source.bindings,
+                view,
+                self.source.instantiations,
+                self.source.domains,
+                file,
+                node,
+            )
+        {
+            return DefinitionSafety::Unsupported(reason);
+        }
         // A strict dependency on a named collection does not inspect its
         // initializer. Keep that evaluation check ahead of strict success.
         let aggregate = self.aggregate_source_safety(file, node, view, generators);
@@ -861,19 +857,29 @@ impl<'a> BodyInterpreter<'a, '_> {
         if let Some(safety) = self.parameter_enum_set_source_safety(file, node, view, generators) {
             return safety;
         }
-        if let Some(safety) =
-            self.decision_set_source_safety(file, node, view, generators, &mut Vec::new())
-        {
+        if let Some(safety) = self.decision_set_source_safety(file, node, view) {
             return safety;
         }
-        if let Some(safety) = self.parameter_row_let_safety(file, node, view, generators, &[]) {
-            return safety;
-        }
-        if let Some(safety) = self.fresh_integer_let_safety(file, node, view, generators, None) {
-            return safety;
-        }
-        if let Some(safety) = self.user_integer_fresh_let_safety(file, node, view, generators) {
-            return safety;
+
+        if unwrap(node).kind() == NodeKind::LetExpression {
+            return match opaque_source_error(
+                self.source.context,
+                self.source.bindings,
+                view,
+                self.source.instantiations,
+                self.source.domains,
+                file,
+                node,
+            ) {
+                Some(reason) => DefinitionSafety::Unsupported(reason),
+                None => crate::value_safety::opaque_expression_safety(
+                    self.source.context,
+                    self.source.bindings,
+                    view,
+                    file,
+                    node,
+                ),
+            };
         }
         if let Some(safety) = self.parameter_set_extremum_safety(file, node, view, generators) {
             return safety;
@@ -893,7 +899,51 @@ impl<'a> BodyInterpreter<'a, '_> {
                 safety
             };
         }
-        self.fallback_source_safety(file, node, view, generators, reason)
+        let checked = self.fallback_source_safety(file, node, view, generators, reason);
+        if !matches!(checked, DefinitionSafety::Unsupported(_)) {
+            return checked;
+        }
+        if unwrap(node).kind() == NodeKind::CallExpression
+            && self.source.operation_fact(view, file, unwrap(node)).is_some_and(|call| {
+                matches!(call.outcome, CallOutcome::Resolved { declaration, .. }
+                    if self.source.context.files[self.source.bindings.declarations[declaration.0].file].kind == SourceKind::User)
+            }) {
+            self.opaque_source_safety(file, node, view, generators)
+        } else {
+            checked
+        }
+    }
+    pub(in crate::callable_definitions) fn opaque_source_safety(
+        &self,
+        file: FileId,
+        node: &'a SyntaxNode,
+        view: &crate::callables::CallableView<'_>,
+        generators: &[&'a SyntaxNode],
+    ) -> DefinitionSafety {
+        for value in generators
+            .iter()
+            .flat_map(|generator| generator.child_nodes())
+            .chain(std::iter::once(node))
+        {
+            if let Some(reason) = opaque_source_error(
+                self.source.context,
+                self.source.bindings,
+                view,
+                self.source.instantiations,
+                self.source.domains,
+                file,
+                value,
+            ) {
+                return DefinitionSafety::Unsupported(reason);
+            }
+        }
+        crate::value_safety::opaque_expression_safety(
+            self.source.context,
+            self.source.bindings,
+            view,
+            file,
+            node,
+        )
     }
     pub(in crate::callable_definitions) fn direct_children_safety(
         &self,

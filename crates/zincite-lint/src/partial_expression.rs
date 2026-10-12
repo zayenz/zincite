@@ -66,7 +66,7 @@ pub(super) fn check_partial_expressions(
             ))
             .or_default()
             .push(row);
-        if limitation.reason == "default capture of aborting assertion is unsupported" {
+        if limitation.kind == crate::GuardedLimitationKind::AbortingDefault {
             abort_limitations.push(row);
         }
     }

@@ -328,13 +328,19 @@ fn missing_data_distinct_defaults_and_unsupported_math_retain_identity_and_locat
             .outcome
     };
     assert!(matches!(definition("selected"), NumericOutcome::Unknown(_)));
-    for name in ["nested_unknown", "outside", "unproved"] {
+    for name in ["nested_unknown", "unproved"] {
         assert!(
-            matches!(definition(name), NumericOutcome::Unsupported(_)),
+            matches!(definition(name), NumericOutcome::Unknown(_)),
             "{name}: {:?}",
             definition(name)
         );
     }
+    assert!(
+        matches!(definition("outside"), NumericOutcome::Unsupported(_)),
+        "outside: {:?}",
+        definition("outside")
+    );
+
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -363,6 +369,8 @@ fn cycles_and_conditional_or_unsafe_definitions_cannot_establish_values() {
         "bool2int(q)",
         "bool2int(safe)",
         "bool2int(true)",
+        "bool2int(opaque())",
+        "bool2int(bad)",
     ] {
         assert!(
             matches!(outcome(source), NumericOutcome::Unknown(_)),
@@ -371,8 +379,6 @@ fn cycles_and_conditional_or_unsafe_definitions_cannot_establish_values() {
         );
     }
     for source in [
-        "bool2int(opaque())",
-        "bool2int(bad)",
         "bool2int(p)::unsafe",
         "bool2int(annotated)",
         "bool2int(cycle)",

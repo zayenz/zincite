@@ -18,7 +18,6 @@ pub(super) fn infer_outputs(
                     &outputs,
                     &mut found,
                     &mut Vec::new(),
-                    &mut Vec::new(),
                 );
             }
             if let Some(reciprocal) = interpreter.reciprocal_array_outputs(instance) {
@@ -65,7 +64,6 @@ pub(super) fn infer_boundaries(
                     outputs,
                     &mut Vec::new(),
                     &mut unavailable,
-                    &mut Vec::new(),
                 );
             }
             for unavailable in unavailable {

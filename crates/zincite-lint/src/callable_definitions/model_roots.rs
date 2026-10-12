@@ -1,4 +1,4 @@
-//! Publish model definitions and retained local observations in source-item order.
+//! Publish model definitions and unavailable siblings in source-item order.
 use super::*;
 
 pub(super) fn interpret_model_roots<'a>(
@@ -33,9 +33,7 @@ pub(super) fn interpret_model_roots<'a>(
                             && source.core(clause.file, clause.node, source.calls, name)
                     })
         };
-        let mut inspected = Vec::new();
         let mut definitions = Vec::new();
-        let mut complete = true;
         let mut known_failure = false;
         for clause in clauses {
             if inspection_only(clause) {
@@ -48,7 +46,6 @@ pub(super) fn interpret_model_roots<'a>(
                     clause.file,
                     clause.node,
                 ) {
-                    complete = false;
                     known_failure = true;
                     facts.unavailable.push(UnavailableCallableDefinition {
                         location: source.context.files[clause.file].location(clause.node.range()),
@@ -68,11 +65,7 @@ pub(super) fn interpret_model_roots<'a>(
                 &facts.outputs,
                 &mut found,
                 &mut unavailable,
-                &mut inspected,
             );
-            complete &= unavailable
-                .iter()
-                .all(|row| row.status != CallableDefinitionStatus::Unsupported);
             for output in found {
                 definitions.push(Definition {
                     target: output.target,
@@ -92,9 +85,6 @@ pub(super) fn interpret_model_roots<'a>(
         }
         if !known_failure {
             facts.definitions.extend(definitions);
-        }
-        if complete {
-            extend(&mut facts.inspected_locals, inspected);
         }
         cursor += count;
     }

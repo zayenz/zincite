@@ -8,16 +8,6 @@ impl<'a> BodyInterpreter<'a, '_> {
         view: &crate::callables::CallableView<'b>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
     ) {
-        if let Some(checked) = self
-            .source
-            .optional_float_weak_equality_safety(clause, view)
-        {
-            if let Err(boundary) = checked {
-                unavailable.push(boundary);
-            }
-            // Inspection of this relation supplies no definition or output.
-            return;
-        }
         if clause.node.kind() == NodeKind::GeneratorCallExpression
             && self.source.core(clause.file, clause.node, view, "forall")
         {
@@ -80,11 +70,41 @@ impl<'a> BodyInterpreter<'a, '_> {
                 DefinitionSafety::Supported => {}
             }
         }
-        self.output_unavailable(
-            clause,
-            "callable definition enforcement or control flow is unsupported",
-            unavailable,
-        );
+        let optional_relation = self
+            .source
+            .expression_type(view, clause.file, clause.node)
+            .is_some_and(|fact| fact.ty.known())
+            && self
+                .source
+                .operation_fact(view, clause.file, clause.node)
+                .is_some_and(|fact| {
+                    matches!(&fact.outcome, CallOutcome::Resolved { parameters, .. }
+                        if parameters.iter().any(optional))
+                });
+        if optional_relation {
+            match opaque_source_error(
+                self.source.context,
+                self.source.bindings,
+                view,
+                self.source.instantiations,
+                self.source.domains,
+                clause.file,
+                clause.node,
+            ) {
+                Some(reason) => self.unavailable(clause, &reason, unavailable),
+                None => self.unknown(
+                    clause,
+                    "typed optional relation outputs are unproved",
+                    unavailable,
+                ),
+            }
+        } else {
+            self.output_unavailable(
+                clause,
+                "callable definition enforcement or control flow is unsupported",
+                unavailable,
+            );
+        }
     }
     pub(in crate::callable_definitions) fn interpret_relation_clause<'b>(
         &'b self,
@@ -97,6 +117,18 @@ impl<'a> BodyInterpreter<'a, '_> {
         unavailable: &mut Vec<UnavailableCallableDefinition>,
     ) {
         let (clause, view, _) = inputs;
+        if let Some(reason) = opaque_source_error(
+            self.source.context,
+            self.source.bindings,
+            view,
+            self.source.instantiations,
+            self.source.domains,
+            clause.file,
+            clause.node,
+        ) {
+            self.unavailable(clause, &reason, unavailable);
+            return;
+        }
         if let Err(reason) =
             self.relation_iterations(clause.file, &clause.generators, 0, view, false)
         {
@@ -236,13 +268,12 @@ impl<'a> BodyInterpreter<'a, '_> {
         ),
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
-        inspected: &mut Vec<DeclarationId>,
         active: &mut Vec<(FileId, std::ops::Range<usize>)>,
         mut invocation: Option<&mut Invocation<'a, 'b>>,
     ) {
         let (clause, view, known) = inputs;
-        // Inspect a failed guard before any branch contributes outputs or
-        // inspected locals. An unproved test value supplies no direction.
+        // Check a failed guard before any branch contributes outputs.
+        // An unproved test value supplies no direction.
         let guard_error = invocation
             .is_none()
             .then(|| {
@@ -432,7 +463,6 @@ impl<'a> BodyInterpreter<'a, '_> {
                     (&branch, view, known),
                     &mut values,
                     unavailable,
-                    inspected,
                     active,
                     invocation.as_deref_mut(),
                 );
@@ -491,7 +521,6 @@ impl<'a> BodyInterpreter<'a, '_> {
         ),
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
-        inspected: &mut Vec<DeclarationId>,
         active: &mut Vec<(FileId, std::ops::Range<usize>)>,
         mut invocation: Option<&mut Invocation<'a, 'b>>,
     ) {
@@ -514,41 +543,11 @@ impl<'a> BodyInterpreter<'a, '_> {
             );
             return;
         }
-        if let Some(result) =
-            self.inspect_uncertain_index_let(clause, view, None, &[], invocation.as_deref())
-        {
-            match result {
-                Err(reason) => self.unavailable(clause, &reason, unavailable),
-                Ok(()) => self.unknown(
-                    clause,
-                    "local initializer and resulting outputs are unproved",
-                    unavailable,
-                ),
-            }
-            // No output holds when an initializer can abort the whole let.
-            return;
-        }
-        if let Some(safety) =
-            self.parameter_set_let_safety(clause.file, clause.node, view, &clause.generators)
-        {
-            match safety {
-                DefinitionSafety::Unsupported(reason) => {
-                    self.unavailable(clause, &reason, unavailable)
-                }
-                _ => self.unknown(
-                    clause,
-                    "local filtered set relation outputs and bounds are unproved",
-                    unavailable,
-                ),
-            }
-            // A relation over a local filtered set defines no array.
-            return;
-        }
+
         let mut clauses = Vec::new();
         let mut private = Vec::new();
         let mut initialization = Vec::new();
         let mut found = Vec::new();
-        let mut uncertain_locals = Vec::new();
         let mut uncertain_initialization = false;
         for block in clause
             .node
@@ -587,19 +586,40 @@ impl<'a> BodyInterpreter<'a, '_> {
                     return;
                 };
                 let ty = &view.declarations[declaration.id.0].ty;
-                if let Some(safety) = self.optional_parameter_matrix_safety(
-                    clause.file,
-                    local,
-                    declaration.id,
-                    view,
-                    &clause.generators,
-                ) {
-                    if let DefinitionSafety::Unsupported(reason) = safety {
-                        self.unavailable(clause, &reason, unavailable);
-                        return;
+                let initializer = local.child_nodes().find(|n| is_expression(n.kind()));
+                if initializer.is_some_and(|value| {
+                    self.source
+                        .expression_type(view, clause.file, value)
+                        .is_some_and(|fact| {
+                            fact.ty.known() && ty.known() && !crate::types::coerces(&fact.ty, ty)
+                        })
+                }) {
+                    self.unavailable(
+                        clause,
+                        "local initializer type is inconsistent with its declaration",
+                        unavailable,
+                    );
+                    return;
+                }
+
+                if ty.known() && optional(ty) {
+                    match opaque_source_error(
+                        self.source.context,
+                        self.source.bindings,
+                        view,
+                        self.source.instantiations,
+                        self.source.domains,
+                        clause.file,
+                        clause.node,
+                    ) {
+                        Some(reason) => self.unavailable(clause, &reason, unavailable),
+                        None => self.unknown(
+                            clause,
+                            "optional local initialization is unproved",
+                            unavailable,
+                        ),
                     }
-                    uncertain_initialization = true;
-                    continue;
+                    return;
                 }
                 if !ty.known() || optional(ty) {
                     self.unavailable(
@@ -609,7 +629,17 @@ impl<'a> BodyInterpreter<'a, '_> {
                     );
                     return;
                 }
-                let initializer = local.child_nodes().find(|n| is_expression(n.kind()));
+                if ty.instantiation == Instantiation::Parameter
+                    && matches!(ty.kind, TypeKind::Set(_) | TypeKind::Array { .. })
+                    && initializer.is_some_and(|value| {
+                        matches!(
+                            self.direct_safety(clause.file, value, view, &clause.generators),
+                            DefinitionSafety::Unknown(_)
+                        )
+                    })
+                {
+                    uncertain_initialization = true;
+                }
                 // Definition value safety owns admission of these typed opaque
                 // initializers. Source observation retains failures, never outputs.
                 if let Some(value) = initializer.filter(|value| {
@@ -632,10 +662,6 @@ impl<'a> BodyInterpreter<'a, '_> {
                     }
                     uncertain_initialization = true;
                     if ty.instantiation == Instantiation::Decision {
-                        // Only actual model-let scope accounting can publish this ID.
-                        if self.source.scoped_local(clause, declaration.id, view, ty.kind.clone()) {
-                            uncertain_locals.push(declaration.id);
-                        }
                         private.push(declaration.id);
                     }
                     continue;
@@ -666,17 +692,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                             );
                             return;
                         }
-                        if let Err(reason) = self.uncertain_comprehension_type(
-                            clause.file,
-                            local,
-                            initializer,
-                            view,
-                            &clause.generators,
-                        ) {
-                            self.unavailable(clause, &reason, unavailable);
-                            return;
-                        }
-                        let safety = self.collection_construction_safety(
+                        let safety = self.opaque_source_safety(
                             clause.file,
                             initializer,
                             view,
@@ -687,7 +703,6 @@ impl<'a> BodyInterpreter<'a, '_> {
                             return;
                         }
                         uncertain_initialization = true;
-                        uncertain_locals.push(declaration.id);
                         private.push(declaration.id);
                         continue;
                     }
@@ -746,7 +761,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                         for argument in arguments {
                             let argument = unwrap(argument);
                             let safety = match argument.kind() {
-                                NodeKind::ArrayComprehension => self.integer_comprehension_safety(
+                                NodeKind::ArrayComprehension => self.opaque_source_safety(
                                     clause.file,
                                     argument,
                                     view,
@@ -780,7 +795,6 @@ impl<'a> BodyInterpreter<'a, '_> {
                         }
                         // Inspected sources do not prove this Local's extent or outputs.
                         uncertain_initialization = true;
-                        uncertain_locals.push(declaration.id);
                         private.push(declaration.id);
                         continue;
                     }
@@ -838,7 +852,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                             self.unavailable(clause, &reason, unavailable);
                             return;
                         }
-                        DefinitionSafety::Unknown(_) => uncertain_locals.push(declaration.id),
+                        DefinitionSafety::Unknown(_) => {}
                         DefinitionSafety::Supported => {
                             // Exact 1..N plain literals define this scoped array
                             // forward from every cell, never their input owners.
@@ -939,26 +953,44 @@ impl<'a> BodyInterpreter<'a, '_> {
                                 );
                                 return;
                             };
-                            if let Err(reason) =
-                                self.dependencies(clause.file, index, view, &clause.generators)
+                            if self
+                                .dependencies(clause.file, index, view, &clause.generators)
+                                .is_err()
                             {
-                                self.unavailable(
-                                    clause,
-                                    &format!(
-                                        "private Boolean array range is unsupported: {reason}"
-                                    ),
-                                    unavailable,
-                                );
-                                return;
+                                if let Some(error) = opaque_source_error(
+                                    self.source.context,
+                                    self.source.bindings,
+                                    view,
+                                    self.source.instantiations,
+                                    self.source.domains,
+                                    clause.file,
+                                    index,
+                                ) {
+                                    self.unavailable(clause, &error, unavailable);
+                                    return;
+                                }
+                                uncertain_initialization = true;
                             }
                         }
                     }
                     if ty.kind == TypeKind::Bool || boolean_array_rank.is_some() {
-                        if let Err(reason) =
-                            self.type_dependencies(clause.file, local, view, &clause.generators)
+                        if self
+                            .type_dependencies(clause.file, local, view, &clause.generators)
+                            .is_err()
                         {
-                            self.unavailable(clause, &reason, unavailable);
-                            return;
+                            if let Some(reason) = opaque_source_error(
+                                self.source.context,
+                                self.source.bindings,
+                                view,
+                                self.source.instantiations,
+                                self.source.domains,
+                                clause.file,
+                                local,
+                            ) {
+                                self.unavailable(clause, &reason, unavailable);
+                                return;
+                            }
+                            uncertain_initialization = true;
                         }
                         private.push(declaration.id);
                         continue;
@@ -967,12 +999,25 @@ impl<'a> BodyInterpreter<'a, '_> {
                 if (ty.instantiation != Instantiation::Parameter && !scoped_integer)
                     || initializer.is_none()
                 {
-                    self.unavailable(
-                        clause,
-                        "local output initializer or decision type is unsupported",
-                        unavailable,
-                    );
-                    return;
+                    match opaque_source_error(
+                        self.source.context,
+                        self.source.bindings,
+                        view,
+                        self.source.instantiations,
+                        self.source.domains,
+                        clause.file,
+                        local,
+                    ) {
+                        Some(reason) => {
+                            self.unavailable(clause, &reason, unavailable);
+                            return;
+                        }
+                        None => {
+                            uncertain_initialization = true;
+                            private.push(declaration.id);
+                            continue;
+                        }
+                    }
                 }
                 match self
                     .type_dependencies(clause.file, local, view, &clause.generators)
@@ -1019,10 +1064,22 @@ impl<'a> BodyInterpreter<'a, '_> {
                         } else {
                             None
                         };
-                        if matches!(&safety, Some(DefinitionSafety::Unknown(_))) {
+                        let opaque_parameter = ty.instantiation == Instantiation::Parameter
+                            && safety.is_none()
+                            && opaque_source_error(
+                                self.source.context,
+                                self.source.bindings,
+                                view,
+                                self.source.instantiations,
+                                self.source.domains,
+                                clause.file,
+                                local,
+                            )
+                            .is_none();
+                        if matches!(&safety, Some(DefinitionSafety::Unknown(_))) || opaque_parameter
+                        {
                             uncertain_initialization = true;
                             if scoped_integer {
-                                uncertain_locals.push(declaration.id);
                                 private.push(declaration.id);
                             }
                         } else {
@@ -1042,6 +1099,26 @@ impl<'a> BodyInterpreter<'a, '_> {
                 }
             }
         }
+        if uncertain_initialization {
+            match super::super::adapters::opaque_dependency_error(
+                self.source,
+                clause.file,
+                clause.node,
+                view,
+                invocation
+                    .as_ref()
+                    .map_or(&[], |state| state.actuals.as_slice()),
+                &mut Vec::new(),
+            ) {
+                Some(reason) => self.unavailable(clause, &reason, unavailable),
+                None => self.unknown(
+                    clause,
+                    "owning let outputs and bounds are unproved",
+                    unavailable,
+                ),
+            }
+            return;
+        }
         for body in clause
             .node
             .child_nodes()
@@ -1058,130 +1135,24 @@ impl<'a> BodyInterpreter<'a, '_> {
         }
         let before = unavailable.len();
         for body in clauses {
-            if uncertain_initialization
-                && matches!(body.kind, ClauseKind::Equality)
-                && self.source.core(body.file, body.node, view, "=")
-            {
-                let operands: Vec<_> = body.node.child_nodes().collect();
-                let integers = operands.len() == 2
-                    && operands.iter().all(|node| {
-                        let range = self.source.context.files[body.file]
-                            .location(node.range())
-                            .range;
-                        self.source
-                            .view(body.file, node, view)
-                            .expressions
-                            .iter()
-                            .any(|e| {
-                                e.file == body.file
-                                    && e.location.range == range
-                                    && e.ty.known()
-                                    && !optional(&e.ty)
-                                    && e.ty.kind == TypeKind::Int
-                            })
-                    });
-                if integers {
-                    if let DefinitionSafety::Unsupported(reason) =
-                        self.direct_children_safety(body.file, &operands, view, &body.generators)
-                    {
-                        self.unavailable(&body, &reason, unavailable);
-                    }
-                    continue;
-                }
-            }
-            let scoped_boolean_result = invocation.is_none()
-                && uncertain_locals.iter().any(|id| {
-                    matches!(&view.declarations[id.0].ty.kind,
-                        TypeKind::Array { indices, element }
-                            if indices.len() == 1 && element.kind == TypeKind::Bool)
-                })
-                && matches!(body.kind, ClauseKind::Call)
-                && clause.node.child_nodes().any(|result| {
-                    result.kind() != NodeKind::LetBlock
-                        && unwrap(result).range() == body.node.range()
-                })
-                && self
-                    .source
-                    .resolved(body.file, body.node, view)
-                    .is_some_and(|(id, parameters)| {
-                        self.instances.iter().any(|instance| {
-                            instance.id == id
-                                && instance.parameters == parameters
-                                && !instance.recursive
-                        }) && !known
-                            .iter()
-                            .any(|output| output.callable == id && output.parameters == parameters)
-                    });
-            if scoped_boolean_result {
-                // The checked owning scope supplies sources, never outputs.
-                // Preserve the active forwarding stack while binding actuals.
-                let mut sources = Invocation {
-                    actuals: Vec::new(),
-                    reachable: Some(true),
-                };
-                self.interpret_forwarded(
-                    (&body, view, known),
-                    &mut found,
-                    unavailable,
-                    inspected,
-                    active,
-                    Some(&mut sources),
-                );
-            } else {
-                self.interpret_forwarded(
-                    (&body, view, known),
-                    &mut found,
-                    unavailable,
-                    inspected,
-                    active,
-                    invocation.as_deref_mut(),
-                );
-            }
+            self.interpret_forwarded(
+                (&body, view, known),
+                &mut found,
+                unavailable,
+                active,
+                invocation.as_deref_mut(),
+            );
         }
         if unavailable[before..]
             .iter()
             .all(|row| row.status != CallableDefinitionStatus::Unsupported)
         {
-            extend(inspected, uncertain_locals);
-            for id in &private {
-                let declaration = &self.source.bindings.declarations[id.0];
-                let source = &self.source.context.files[declaration.file];
-                if source.kind == SourceKind::User
-                    && source
-                        .parsed
-                        .tree()
-                        .child_nodes()
-                        .nth(declaration.item)
-                        .is_some_and(|item| item.kind() == NodeKind::Constraint)
-                    && view.declarations[id.0].ty.kind == TypeKind::Bool
-                    && !inspected.contains(id)
-                {
-                    inspected.push(*id);
-                }
-            }
-            // These scoped values were inspected successfully, but an
-            // unproved initializer can abort before any guarantee holds.
-            if uncertain_initialization || unavailable.len() != before {
+            // Unknown body clauses withhold the owning let's outputs.
+            if unavailable.len() != before {
                 self.unknown(
                     clause,
                     "owning let outputs and bounds are unproved",
                     unavailable,
-                );
-                extend(
-                    inspected,
-                    found
-                        .iter()
-                        .filter(|output| {
-                            output.scoped_local
-                                && self.source.scoped_local(
-                                    clause,
-                                    output.target,
-                                    view,
-                                    view.declarations[output.target.0].ty.kind.clone(),
-                                )
-                        })
-                        .map(|output| output.target)
-                        .collect(),
                 );
                 return;
             }
@@ -1227,7 +1198,6 @@ impl<'a> BodyInterpreter<'a, '_> {
         ),
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
-        inspected: &mut Vec<DeclarationId>,
         active: &mut Vec<(FileId, std::ops::Range<usize>)>,
         mut invocation: Option<&mut Invocation<'a, 'b>>,
     ) {
@@ -1417,7 +1387,6 @@ impl<'a> BodyInterpreter<'a, '_> {
                         (&body, view, known),
                         &mut found,
                         &mut body_unavailable,
-                        inspected,
                         active,
                         invocation.as_deref_mut(),
                     );
@@ -1607,11 +1576,24 @@ impl<'a> BodyInterpreter<'a, '_> {
         ),
         out: &mut Vec<Output>,
         unavailable: &mut Vec<UnavailableCallableDefinition>,
-        inspected: &mut Vec<DeclarationId>,
         active: &mut Vec<(FileId, std::ops::Range<usize>)>,
         mut invocation: Option<&mut Invocation<'a, 'b>>,
     ) {
         let (clause, view, known) = inputs;
+        if let Some(reason) = super::super::adapters::opaque_dependency_error(
+            self.source,
+            clause.file,
+            clause.node,
+            view,
+            invocation
+                .as_ref()
+                .map_or(&[], |state| state.actuals.as_slice()),
+            &mut known.iter().map(|output| output.callable).collect(),
+        ) {
+            self.unavailable(clause, &reason, unavailable);
+            return;
+        }
+
         let Some((id, parameters)) = self.source.resolved(clause.file, clause.node, view) else {
             self.unavailable(
                 clause,
@@ -1637,12 +1619,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             // Existential bodies are inspected, never enforced directional outputs.
             return;
         }
-        if let Some(DefinitionSafety::Unsupported(reason)) =
-            self.optional_decreasing_actual_safety(clause, view, id, &parameters)
-        {
-            self.unavailable(clause, &reason, unavailable);
-            return;
-        }
+
         let mut computed_dependencies = Vec::new();
         let mut uncertain_actual = false;
         let mut unsupported_actual = false;
@@ -1758,64 +1735,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                 }
             }
         }
-        if let Some(checked) =
-            self.inspect_ignored_constraint(clause, view, id, &parameters, known, active)
-        {
-            match checked {
-                Ok(locals) => {
-                    extend(inspected, locals);
-                    self.unknown(
-                        clause,
-                        "relation outputs and bounds are unproved",
-                        unavailable,
-                    );
-                }
-                Err(reason) => self.unavailable(clause, &reason, unavailable),
-            }
-            // Checked source IDs supply no enforcement or output guarantee.
-            return;
-        }
-        if let Some(checked) =
-            self.inspect_bodyless_boolean_aggregate(clause, view, id, &parameters)
-        {
-            if let Err(reason) = checked {
-                self.unavailable(clause, &reason, unavailable);
-            } else {
-                self.unknown(
-                    clause,
-                    "aggregate relation outputs and bounds are unproved",
-                    unavailable,
-                );
-            }
-            return;
-        }
-        if let Some(checked) = self.inspect_bodyless_integer_maximum(clause, view, id, &parameters)
-        {
-            if let Err(reason) = checked {
-                self.unavailable(clause, &reason, unavailable);
-            } else {
-                self.unknown(
-                    clause,
-                    "maximum relation outputs and bounds are unproved",
-                    unavailable,
-                );
-            }
-            return;
-        }
-        if let Some(checked) =
-            self.inspect_literal_regular(clause, view, id, &parameters, invocation.as_deref())
-        {
-            if let Err(reason) = checked {
-                self.unavailable(clause, &reason, unavailable);
-            } else {
-                self.unknown(
-                    clause,
-                    "regular relation outputs and bounds are unproved",
-                    unavailable,
-                );
-            }
-            return;
-        }
+
         let Some(instance) = self
             .instances
             .iter()
@@ -1893,7 +1813,6 @@ impl<'a> BodyInterpreter<'a, '_> {
                             (body, &instance.view.view(), known),
                             &mut Vec::new(),
                             &mut body_unavailable,
-                            &mut Vec::new(),
                             active,
                             Some(&mut *state),
                         );
@@ -1959,7 +1878,6 @@ impl<'a> BodyInterpreter<'a, '_> {
                         (&actual_clause, view, known),
                         out,
                         unavailable,
-                        inspected,
                         active,
                         invocation.as_deref_mut(),
                     );

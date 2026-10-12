@@ -235,7 +235,7 @@ fn unsupported_value_safety_limits_only_constant_variable() {
         LintOptions::from_selection("constant-variable,global-variable-in-function").unwrap();
     let result = analyze_model(&context, &options);
     assert_eq!(result.findings.len(), 1, "{:?}", result.findings);
-    assert_eq!(result.limitations.len(), 6, "{:?}", result.limitations);
+    assert_eq!(result.limitations.len(), 5, "{:?}", result.limitations);
     assert!(matches!(
         result.rules[0].outcome,
         RuleOutcome::Limited { .. }
@@ -720,7 +720,7 @@ fn selected_integer_product_inspects_written_sources_without_output_proof() {
             "changed-recurrence",
             source,
             changed_recurrence.as_str(),
-            Some("integer product selected written body is unsupported"),
+            None,
         ),
     ] {
         let (directory, _) = model(&format!("integer-product-{name}"), "solve satisfy;", "");
@@ -830,19 +830,28 @@ fn selected_integer_product_inspects_written_sources_without_output_proof() {
                     "{name}: {:?}",
                     definition.safety
                 );
-                assert!(matches!(
-                    result.rules[0].outcome,
-                    RuleOutcome::Limited { .. }
-                ));
+                if name == "body-zero" {
+                    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+                    assert!(result.limitations.is_empty());
+                } else {
+                    assert!(matches!(
+                        result.rules[0].outcome,
+                        RuleOutcome::Limited { .. }
+                    ));
+                }
+
                 assert!(result.findings.is_empty());
-                assert!(
-                    result
-                        .limitations
-                        .iter()
-                        .any(|limit| limit.location.path == root && limit.message.contains(reason)),
-                    "{name}: {:?}",
-                    result.limitations
-                );
+                if name != "body-zero" {
+                    assert!(
+                        result
+                            .limitations
+                            .iter()
+                            .any(|limit| limit.location.path == root
+                                && limit.message.contains(reason)),
+                        "{name}: {:?}",
+                        result.limitations
+                    );
+                }
             }
         }
         std::fs::remove_dir_all(directory).unwrap();
@@ -963,7 +972,7 @@ fn fresh_integer_let_inspects_sources_without_defining_private_choices() {
             .find(|d| d.target == direct)
             .unwrap();
         assert!(callable.outputs.is_empty());
-        assert!(callable.inspected_locals.is_empty());
+
         for local in bindings
             .declarations
             .iter()
@@ -1067,7 +1076,7 @@ fn decision_sources_inspect_rank_three_reshape_fixedness_and_constrained_fresh_l
             "decision-sources-written-fixedness",
             source.to_owned(),
             library.replace("is_fixed(var int: x);", "is_fixed(var int: x) = true;"),
-            &["reshaped", "fixed"][..],
+            &[][..],
         ),
     ] {
         let (directory, _) = model(name, "solve satisfy;", "");
@@ -1114,7 +1123,7 @@ fn decision_sources_inspect_rank_three_reshape_fixedness_and_constrained_fresh_l
             &domains,
         );
         assert!(callable.outputs.is_empty());
-        assert!(callable.inspected_locals.is_empty());
+
         let locals: Vec<_> = bindings
             .declarations
             .iter()
@@ -1628,7 +1637,7 @@ fn parameter_float_coercions_inspect_integer_sources_without_output_proof() {
             &domains,
         );
         assert!(callable.outputs.is_empty());
-        assert!(callable.inspected_locals.is_empty());
+
         let result = analyze_model(
             &context,
             &LintOptions::from_selection("unbounded-variable").unwrap(),
@@ -1705,11 +1714,7 @@ fn user_integer_fresh_let_sources_preserve_unknown_and_refusals() {
     for (name, source, failure) in [
         ("symbolic", source, None),
         ("closed-body-error", zero.as_str(), Some("division by zero")),
-        (
-            "recursive-body",
-            recursive.as_str(),
-            Some("written primitive"),
-        ),
+        ("recursive-body", recursive.as_str(), None),
     ] {
         let (directory, _) = model(name, "solve satisfy;", "");
         let root = directory.join("root.mzn");
@@ -1755,7 +1760,7 @@ fn user_integer_fresh_let_sources_preserve_unknown_and_refusals() {
             &instantiations,
             &domains,
         );
-        assert!(callable.outputs.is_empty() && callable.inspected_locals.is_empty());
+        assert!(callable.outputs.is_empty());
         let result = bindings
             .declarations
             .iter()
@@ -1920,7 +1925,7 @@ fn plain_fresh_integer_sources_preserve_unknown_and_errors() {
             })
             .unwrap()
             .id;
-        assert!(callable.outputs.is_empty() && callable.inspected_locals.is_empty());
+        assert!(callable.outputs.is_empty());
         assert!(!definitions.definitions.iter().any(|d| d.target == local));
         assert!(
             !definitions
@@ -2210,12 +2215,7 @@ fn native_integer_domain_sources_preserve_unknown_and_errors() {
             library,
             Some("division by zero"),
         ),
-        (
-            "written-body",
-            source,
-            written_body.as_str(),
-            Some("domain reflection selected written primitive or tuple"),
-        ),
+        ("written-body", source, written_body.as_str(), None),
     ] {
         let (directory, _) = model(&format!("native-dom-source-{name}"), "solve satisfy;", "");
         let standard = directory.join("library/std/stdlib.mzn");
@@ -2462,7 +2462,7 @@ fn local_parameter_sources_retain_owning_postfix_scope() {
             .iter()
             .find(|definition| definition.target == target)
             .unwrap();
-        assert!(callable.outputs.is_empty() && callable.inspected_locals.is_empty());
+        assert!(callable.outputs.is_empty());
         assert!(
             !definitions
                 .definitions
@@ -3274,10 +3274,7 @@ fn parameter_integer_array_conditionals_inspect_sources_without_proof() {
             &instantiations,
             &domains,
         );
-        assert!(
-            callable.outputs.is_empty() && callable.inspected_locals.is_empty(),
-            "{name}: {callable:?}"
-        );
+        assert!(callable.outputs.is_empty(), "{name}: {callable:?}");
         assert!(
             !definitions
                 .bounded_or_defined_targets(&bindings, &domains)
@@ -3517,7 +3514,7 @@ fn multidimensional_length_inspects_sources_without_extent_proof() {
             &domains,
         );
         assert!(callable.outputs.is_empty(), "{name}");
-        assert!(callable.inspected_locals.is_empty(), "{name}");
+
         let result = analyze_model(
             &context,
             &LintOptions::from_selection("unbounded-variable").unwrap(),

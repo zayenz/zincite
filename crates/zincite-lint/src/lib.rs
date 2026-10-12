@@ -100,7 +100,8 @@ pub use global_uses::{GlobalUse, GlobalUseFacts, GlobalUseOutcome, resolve_globa
 pub use guarded::{
     GuardActivation, GuardAssumption, GuardAssumptionKind, GuardContext, GuardEvaluation,
     GuardObligation, GuardObligationKind, GuardedExpression, GuardedFacts, GuardedIndexSpace,
-    GuardedLimitation, GuardedOutcome, resolve_guarded_facts, resolve_guarded_facts_with_options,
+    GuardedLimitation, GuardedLimitationKind, GuardedOutcome, resolve_guarded_facts,
+    resolve_guarded_facts_with_options,
 };
 pub use instantiations::{ExpressionInstantiation, InstantiationFacts, resolve_instantiations};
 pub use iteration::{

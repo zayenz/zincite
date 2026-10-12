@@ -30,11 +30,7 @@ impl<'a> BodyInterpreter<'a, '_> {
         if let Some(safety) = self.enum_index_conversion_safety(file, written, view, generators) {
             return safety;
         }
-        if let Some(safety) =
-            self.parameter_test_safety(file, written, view, generators, &mut Vec::new())
-        {
-            return safety;
-        }
+
         if let Some(safety) = self.conditional_source_safety(file, written, view, generators) {
             return safety;
         }
@@ -488,51 +484,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                     "conditional inspection requires a safe complete else".into(),
                 ));
             }
-            if self.source.selected_set_source && branches.len() == 2 && values.len() == 3 {
-                let inactive = match self.source.assertion_literal(file, values[0]) {
-                    Some(TokenKind::False) => Some(1),
-                    Some(TokenKind::True) => Some(2),
-                    _ => None,
-                };
-                let mut unsupported = None;
-                for (position, value) in values.iter().enumerate() {
-                    let checked = if inactive == Some(position) {
-                        let inspector = SourceInspector {
-                            context: self.source.context,
-                            bindings: self.source.bindings,
-                            calls: self.source.calls,
-                            instantiations: self.source.instantiations,
-                            domains: self.source.domains,
-                            lookups: None,
-                            selected_set_source: true,
-                            inactive_integer_body: Some((file, value.range())),
-                        };
-                        let producer = BodyInterpreter::without_bodies(&inspector);
-                        producer.initialized_source_safety(
-                            file,
-                            value,
-                            view,
-                            generators,
-                            &mut Vec::new(),
-                        )
-                    } else {
-                        self.initialized_source_safety(
-                            file,
-                            value,
-                            view,
-                            generators,
-                            &mut Vec::new(),
-                        )
-                    };
-                    if let DefinitionSafety::Unsupported(reason) = checked {
-                        unsupported = Some(reason);
-                    }
-                }
-                return Some(match unsupported {
-                    Some(reason) => DefinitionSafety::Unsupported(reason),
-                    None => DefinitionSafety::Unknown("conditional value is unproved".into()),
-                });
-            }
+
             return Some(match self.initialized_children_safety(file, &values, view, generators) {
                 unsupported @ DefinitionSafety::Unsupported(_) => unsupported,
                 _ => DefinitionSafety::Unknown("conditional value is unproved".into()),
@@ -704,29 +656,6 @@ impl<'a> BodyInterpreter<'a, '_> {
                 {
                     return Some(DefinitionSafety::Unsupported(
                         "scalar selection is outside its declared index set".into(),
-                    ));
-                }
-                let owner = &self.source.bindings.declarations[array.0];
-                if element.kind == TypeKind::Bool
-                    && matches!(crate::domains::tokens(&self.source.context.files[file].parsed, subject).as_slice(),
-                        [token] if matches!(token.kind, TokenKind::Identifier | TokenKind::QuotedIdentifier))
-                    && (owner.role == DeclarationRole::Parameter
-                        || owner.role == DeclarationRole::Value && owner.top_level)
-                    && let Some(written) = find_node(
-                        self.source.context.files[owner.file].parsed.tree(),
-                        &owner.syntax_range,
-                        owner.role,
-                    )
-                    && !written.child_nodes().any(|node| is_expression(node.kind()))
-                    && !self.literal_bool_index_membership(
-                        file,
-                        node,
-                        array,
-                        self.source.view(file, node, view),
-                    )
-                {
-                    return Some(DefinitionSafety::Unsupported(
-                        "Boolean selection requires an index-membership proof".into(),
                     ));
                 }
                 return Some(DefinitionSafety::Unknown("scalar selection membership is unproved".into()));
@@ -906,7 +835,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                 {
                     Some(TypeKind::Int)
                 }
-                (NodeKind::BinaryExpression, Some("/\\" | "\\/" | "<->" | "->" | "<-"))
+                (NodeKind::BinaryExpression, Some("/\\" | "\\/" | "<->" | "->" | "<-" | "xor"))
                     if children.len() == 2 =>
                 {
                     Some(TypeKind::Bool)
@@ -974,10 +903,10 @@ impl<'a> BodyInterpreter<'a, '_> {
                     "parameter collection annotation is unsupported".into(),
                 ));
             }
-            return Some(self.collection_construction_safety(file, node, view, generators));
+            return Some(self.opaque_source_safety(file, node, view, generators));
         }
         if node.kind() == NodeKind::ArrayComprehension {
-            return Some(self.integer_comprehension_safety(file, node, view, generators));
+            return Some(self.opaque_source_safety(file, node, view, generators));
         }
         None
     }
@@ -1076,7 +1005,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                         || children.iter().all(|n| parameter_int(n))
                 }
                 Some("<" | "<=" | ">" | ">=") => children.iter().all(|n| parameter_int(n)),
-                Some("/\\" | "\\/" | "<->" | "->" | "<-") => {
+                Some("/\\" | "\\/" | "<->" | "->" | "<-" | "xor") => {
                     children.iter().all(|n| parameter_bool(n))
                 }
                 _ => false,

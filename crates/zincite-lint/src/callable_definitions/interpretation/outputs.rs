@@ -816,7 +816,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             {
                 return None;
             }
-            if let Err(reason) = self.source.selected_union_primitive_safety(*equality_id) {
+            if let Err(reason) = self.source.standard_primitive_safety(*equality_id) {
                 return Some(Err(reason));
             }
             for formal in &formals {

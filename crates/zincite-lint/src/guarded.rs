@@ -136,8 +136,14 @@ pub struct GuardedExpression {
     pub presence: Option<Presence>,
     pub context: GuardContext,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GuardedLimitationKind {
+    Unsupported,
+    AbortingDefault,
+}
 #[derive(Clone, Debug)]
 pub struct GuardedLimitation {
+    pub kind: GuardedLimitationKind,
     pub file: FileId,
     pub location: SourceLocation,
     pub reason: String,
@@ -827,6 +833,7 @@ impl<'a> Producer<'a> {
     ) -> Evaluation {
         let reason = reason.into();
         self.facts.limitations.push(GuardedLimitation {
+            kind: GuardedLimitationKind::Unsupported,
             file,
             location: self.location(file, node),
             reason: reason.clone(),
@@ -2493,11 +2500,17 @@ impl<'a> Producer<'a> {
         };
         let right = self.walk(file, item, children[1], own);
         if left.assertion {
-            return self.unsupported(
+            let reason = "default capture of aborting assertion is unsupported".to_owned();
+            self.facts.limitations.push(GuardedLimitation {
+                kind: GuardedLimitationKind::AbortingDefault,
                 file,
-                node,
-                "default capture of aborting assertion is unsupported",
-            );
+                location: self.location(file, node),
+                reason: reason.clone(),
+            });
+            return Evaluation {
+                definedness: GuardedOutcome::Unsupported(reason),
+                ..Evaluation::total()
+            };
         }
         // Missing interpretation is not a proved undefined value. An opaque
         // condition/body may abort; default cannot certify that evaluation.
@@ -2577,6 +2590,7 @@ impl<'a> Producer<'a> {
         let (invariant, outcome) = outcomes;
         if let GuardedOutcome::Unsupported(reason) = &outcome {
             self.facts.limitations.push(GuardedLimitation {
+                kind: GuardedLimitationKind::Unsupported,
                 file,
                 location: self.location(file, operation),
                 reason: reason.clone(),

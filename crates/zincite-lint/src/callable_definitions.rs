@@ -12,11 +12,10 @@
 //!   Its coordinating path checks forwarding cycles and invocation sources before
 //!   dispatching named clause handlers, then applies output eligibility separately.
 //! - `model_roots` publishes successful definitions alongside unavailable siblings.
-//!   Retained local observations require passing siblings, and supply no proof.
 //! - `source` borrows immutable facts and optional lookup views. Its source families
 //!   keep owning scopes, written bodies, metadata, primitives and error checks together.
-//!   Body-aware source coordination stays on `BodyInterpreter`: Float lets reuse the
-//!   ordered Local interpreter with the current instances and boundaries.
+//!   `BodyInterpreter` retains execution for supported scoped definitions; opaque
+//!   sources use selected typing and the existing closed-error readers.
 //! - `dependencies` returns strict ordered declaration dependencies or a refusal.
 //!   Checked Unknown inspection cannot satisfy a proof-sensitive dependency path.
 //! - `adapters` preserves the consumer entry points and their Some/None lookup choices.
@@ -90,10 +89,6 @@ pub struct CallableDefinitionFacts {
     /// Supported definitions in enforced model calls and scoped model lets.
     pub definitions: Vec<Definition>,
     pub unavailable: Vec<UnavailableCallableDefinition>,
-    /// Local observations retained from model-let interpretation. They supply
-    /// no safety, bound, definition or coverage proof; search does not use them
-    /// as an admission requirement.
-    pub inspected_locals: Vec<DeclarationId>,
 }
 pub(crate) fn resolve_callable_definitions_view(
     context: &ModelContext,

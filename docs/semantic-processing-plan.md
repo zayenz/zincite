@@ -410,12 +410,49 @@ coverage and located missing-search advice.
 
 Search no longer requires inspected-local certificates or a separate model-value
 fresh-local admission walk. Scoped decisions without retained definitions remain
-Unknown. The public `inspected_locals` field retains local observations for
-compatibility; search does not consume it. Closed-source error readers and
-complete-owner proof checks still retain known errors and failed siblings.
-Their successful observations establish no safety, value, output or coverage.
-The historical message-bridge draft in the callable plan is superseded, and its
-old evidence remains unchanged.
+Unknown. Base-121 removes the unused public `inspected_locals` field, its
+observation collection and publication. Private-local identity checks still
+prevent private outputs from escaping their scope.
+
+Base-121 also removes the regular/regexp, optional-matrix, row/fresh-local and
+selected union-body interpreters that only licensed Unknown. Sliding-sum and GCC
+specialized dispatch was already absent. Collection, conditional/set and native
+source routes now use selected typing, the existing safety/domain result and
+closed-error observations. They do not recognize library recurrence shapes or
+execute excluded implementations to establish an admission certificate.
+
+The retained shared source families have concrete consumers:
+
+| Family | Current consumers and guarantee | Existing public witnesses |
+| --- | --- | --- |
+| Direct/indexed and initialized safety | `definitions`, `unbounded_variable`, `array_indices`, `guarded`, `domains` and `search` retain strict source dependencies, scoped membership, complete definitions and checked search views. Supported is required before a positive proof. | `whole_definitions_retain_identity_ranges_dependencies_and_item_suppression`; `full_index_range_membership_under_let_and_conjunction_supplies_bounds`; `local_guards_preserve_obligations_identity_and_boolean_ranges` |
+| Length, index extrema and native identity | `array_indices`, `domains` and callable traversal/output checks retain selected signatures and exact source identity. Conditional/set/extremum routes supply typed uncertainty and closed-error vetoes; they supply no count or bound by themselves. | `named_domains_and_symbolic_bounds_retain_identity_and_precise_advice`; `let_integer_equalities_inspect_symbolic_array_extremum_bounds`; `native_integer_domain_sources_preserve_unknown_and_errors` |
+| Checked reshape/source views | `definitions` and `search` retain matching axes and source identity for complete traversal and coverage. | `typed_searches_require_present_elements_matching_indices_and_native_views`; `callable_outputs_keep_selected_direction_defaults_captures_and_array_extent` |
+| Closed source, type and argument errors | `definitions`, `domains`, `guarded`, `optional`, `iteration` and callable invocation checks retain closed arithmetic failures, false assertions, strict empty extrema, invalid nominal types and out-of-axis selections. Formal/actual correspondence retains the caller's source error. | `assertions_inside_opaque_selections_retain_only_known_failures`; `typed_opaque_calls_keep_unknown_parents_hazards_and_abort_barriers`; `uncertain_private_integer_arrays_inspect_sources_without_output_proof` |
+| Narrow standard metadata and primitives | Callable output checks retain selected metadata/signature checks for literal-result elements and other finite outputs. Strict dependency and complete-owner checks still reject failed siblings. | `full_weighted_bodies_require_all_sibling_sources_before_load_outputs`; `constructed_weighted_rows_require_same_source_and_complete_output_traversal`; `selected_output_requests_leave_unrelated_library_relations_opaque` |
+
+An admission-only library body shape or opaque initializer may now become
+Completed with Unknown. This includes changed product recurrences, written
+fixedness/domain-reflection bodies, opaque Boolean/numeric aliases, optional
+metadata operands and unrequested native set/union bodies. Unknown establishes
+no value, totality, output, coverage or fix eligibility. A direct facts request
+can observe an error in a requested library body while a bounded rule that never
+requests that body retains opacity. Errors found by required source, typing or
+proof work still veto dependent publication, including failed siblings and closed
+actuals. Error diagnostics may identify the owning invocation when the cause lies
+in its callee or actual; their located error remains available.
+
+Callable analysis still runs its finite sequence: build lookup indexes, collect
+model clauses, discover concrete output candidates, stabilize outputs, stabilize
+typed boundaries, publish definitions and mark cycles. Selected identity and
+formal tuples, defaults/captures, complete-owner checks and recursion barriers
+remain prerequisites for the retained outputs. Closed-error observations supply
+no safety, value, output or coverage on success.
+
+Guarded default evaluation records an `AbortingDefault` limitation kind at the
+owning branch. `partial_expression` reads that kind; the rendered default-abort
+reason and location remain diagnostic payload. The historical message-bridge
+draft in the callable plan is superseded, and its old evidence remains unchanged.
 
 This baseline is a small bundle control set, not a substitute for the existing
 full catalogue and parsing/formatting acceptance evidence.

@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-121"
 key = "retire-admission-inspectors"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -27,11 +27,11 @@ Read .zdev/base/brief.md Semantic analysis, Interpretation before policy, Testin
 
 ## Done when
 
-- [ ] Every remaining exported callable source-inspection entry point has a named concrete guarantee or required source-fact consumer; the semantic plan records the retained families and intentional opacity without cataloguing every private helper.
-- [ ] Admission-only regular/sliding/gcc, optional-matrix, local-initializer and union-domain paths no longer retain private interpreters merely to conclude Unknown. Any retained portion is justified by a current stronger consumer and a representative public witness.
-- [ ] Semantic branching no longer compares human-readable diagnostic text in the affected admission/definition/guarded/search paths. Consumers receive direct domain results from the owning module.
-- [ ] Remove unused inspected-local/whole-owner plumbing, fallback dispatch branches and adapters created solely for retired admission. No parallel old and new path remains for the migrated behavior.
-- [ ] The end state has less interpretation responsibility, not just more modules: the result explains the removed responsibilities, retained guarantees and intentional outcome changes, with file/line totals only as secondary context.
+- [x] Every remaining exported callable source-inspection entry point has a named concrete guarantee or required source-fact consumer; the semantic plan records the retained families and intentional opacity without cataloguing every private helper.
+- [x] Admission-only regular/sliding/gcc, optional-matrix, local-initializer and union-domain paths no longer retain private interpreters merely to conclude Unknown. Any retained portion is justified by a current stronger consumer and a representative public witness.
+- [x] Semantic branching no longer compares human-readable diagnostic text in the affected admission/definition/guarded/search paths. Consumers receive direct domain results from the owning module.
+- [x] Remove unused inspected-local/whole-owner plumbing, fallback dispatch branches and adapters created solely for retired admission. No parallel old and new path remains for the migrated behavior.
+- [x] The end state has less interpretation responsibility, not just more modules: the result explains the removed responsibilities, retained guarantees and intentional outcome changes, with file/line totals only as secondary context.
 
 ## Validation
 
@@ -39,3 +39,11 @@ Read .zdev/base/brief.md Semantic analysis, Interpretation before policy, Testin
 - Search for the former refusal literals and exported adapters, inspect every remaining semantic caller, and verify rendering strings are no longer classification keys.
 - Replay the representative opaque and retained-proof controls from earlier tasks, including fixes and error barriers.
 - Use the brief's focused testing level and run its required Rust validation (cargo fmt --all -- --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace), plus git diff --check. Run zdev check base --format json for changed zdev records.
+
+## Result
+
+Removed Unknown-only admission interpreters and unused inspected-local plumbing; retained proof/error owners and typed guarded limitations.
+
+Validation:
+
+- Independent whole-task PASS W4495ef383e427401: 402 workspace tests; 177 baseline/final focused controls and 25 retained witnesses; fmt, clippy, diff checks and zdev check passed. Intentional opacity and retired admission rows reviewed separately; no corpus or solver campaign.

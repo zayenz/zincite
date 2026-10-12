@@ -1098,10 +1098,6 @@ fn inspected_parameter_ranges_keep_source_vetoes() {
             "array[int] of int: inputs; constraint forall(i in 1..(length(inputs) div 0))(i > 0); solve satisfy;",
         ),
         (
-            "range-user-length",
-            "function int: length(array[int] of int: values)=1; array[int] of int: inputs; constraint forall(i in 1..(length(inputs) div 2))(i > 0); solve satisfy;",
-        ),
-        (
             "range-source-annotation",
             "array[int] of int: inputs; constraint forall(i in (1..(length(inputs) div 2) :: mark(1 div 0)))(i > 0); solve satisfy;",
         ),

@@ -1,8 +1,7 @@
 //! Bounded expression safety shared by definition and compact-if interpretation.
 use crate::domains::{expression_integer, invariant_expression_integer};
 use crate::{
-    BindingFacts, CallOutcome, DefinitionSafety, FileId, Instantiation, ModelContext, TypeInst,
-    TypeKind,
+    BindingFacts, DefinitionSafety, FileId, Instantiation, ModelContext, TypeInst, TypeKind,
 };
 use std::collections::HashMap;
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
@@ -251,7 +250,6 @@ impl Safety<'_> {
             context: self.context,
             bindings: self.bindings,
             calls: self.calls,
-            selected_set_source: false,
         })
         .check(file, node, false, true, true)
         {
@@ -297,7 +295,6 @@ pub(crate) struct ClosedSourceErrors<'a> {
     pub context: &'a ModelContext,
     pub bindings: &'a BindingFacts,
     pub calls: &'a crate::callables::CallableView<'a>,
-    pub selected_set_source: bool,
 }
 impl ClosedSourceErrors<'_> {
     fn expression_type(&self, file: FileId, node: &SyntaxNode) -> Option<&crate::ExpressionType> {
@@ -383,6 +380,56 @@ impl ClosedSourceErrors<'_> {
                 })
             && self.assertion_literal(file, arguments[0]) == Some(TokenKind::False)
     }
+    pub(crate) fn float_divisor_error(&self, file: FileId, node: &SyntaxNode) -> Option<String> {
+        let children: Vec<_> = node.child_nodes().collect();
+        let [_, divisor] = children.as_slice() else {
+            return None;
+        };
+        let float = TypeInst::par(TypeKind::Float);
+        if node.kind() != NodeKind::BinaryExpression
+            || operator(self.context, file, node) != Some(TokenKind::Slash)
+            || !self.core(file, node, self.calls, "/")
+            || self
+                .expression_type(file, node)
+                .is_none_or(|e| e.ty != float)
+            || !matches!(self.operation_fact(self.calls, file, node).map(|call| &call.outcome),
+                Some(crate::CallOutcome::Resolved { parameters, return_type, .. })
+                if parameters.as_slice() == [float.clone(), float.clone()] && return_type == &float)
+            || children.iter().any(|value| {
+                self.expression_type(file, value).is_none_or(|e| {
+                    !e.ty.known()
+                        || optional(&e.ty)
+                        || e.ty.instantiation != Instantiation::Parameter
+                        || !matches!(e.ty.kind, TypeKind::Int | TypeKind::Float)
+                })
+            })
+        {
+            return None;
+        }
+        if self
+            .expression_type(file, divisor)
+            .is_some_and(|e| e.ty.kind == TypeKind::Int)
+            && expression_integer(self.context, self.bindings, file, divisor)
+                .is_ok_and(|value| value == Some(0))
+        {
+            return Some("Float division by closed integer zero is unsupported".into());
+        }
+        let mut divisor = *divisor;
+        while divisor.kind() == NodeKind::ParenthesizedExpression {
+            divisor = divisor.child_nodes().next()?;
+        }
+        let tokens = crate::domains::tokens(&self.context.files[file].parsed, divisor);
+        if divisor.kind() == NodeKind::Expression
+            && matches!(tokens.as_slice(), [token] if token.kind == TokenKind::FloatLiteral)
+            && self.context.files[file].parsed.source()[tokens[0].range.clone()]
+                .split(['e', 'E'])
+                .next()
+                .is_some_and(|mantissa| mantissa.bytes().all(|b| matches!(b, b'0' | b'.')))
+        {
+            return Some("Float division by literal zero is unsupported".into());
+        }
+        None
+    }
     pub(crate) fn check(
         &self,
         file: FileId,
@@ -448,82 +495,21 @@ impl ClosedSourceErrors<'_> {
             let context = inspector.context;
             let bindings = inspector.bindings;
             if eager_only
-                && node.kind() == NodeKind::ConditionalExpression
-                && inspector.selected_set_source
-            {
-                let branches: Vec<_> = node.child_nodes().collect();
-                if let [then, otherwise] = branches.as_slice() {
-                    let first: Vec<_> = then.child_nodes().collect();
-                    let last: Vec<_> = otherwise.child_nodes().collect();
-                    if then.kind() == NodeKind::ConditionalBranch
-                        && otherwise.kind() == NodeKind::ElseBranch
-                        && let ([guard, body], [fallback]) = (first.as_slice(), last.as_slice())
-                    {
-                        let selected = inspector.assertion_literal(file, guard);
-                        literal_parts(inspector, file, guard, eager_only, type_branches)?;
-                        for value in [
-                            (*body, selected != Some(TokenKind::False)),
-                            (*fallback, selected != Some(TokenKind::True)),
-                        ] {
-                            if value.1
-                                && literal_parts(
-                                    inspector,
-                                    file,
-                                    value.0,
-                                    eager_only,
-                                    type_branches,
-                                )?
-                            {
-                                crate::domains::invariant_expression_integer(
-                                    context, bindings, file, value.0,
-                                )?;
-                            }
-                        }
-                        return Ok(false);
-                    }
-                }
-            }
-            let inspected_conjunction = eager_only
-                && inspector.selected_set_source
-                && node.kind() == NodeKind::BinaryExpression
-                && inspector.core(file, node, inspector.calls, "/\\")
-                && {
-                    let facts = inspector.calls;
-                    let parameter_bool = |ty: &TypeInst| {
-                        ty.known()
-                            && !optional(ty)
-                            && ty.instantiation == Instantiation::Parameter
-                            && ty.kind == TypeKind::Bool
-                    };
-                    let operands: Vec<_> = node.child_nodes().collect();
-                    operands.len() == 2
-                        && operands.iter().all(|operand| {
-                            inspector
-                                .expression_type(file, operand)
-                                .is_some_and(|expression| parameter_bool(&expression.ty))
-                        })
-                        && inspector.operation_fact(facts, file, node).is_some_and(|call| {
-                            matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
-                                if parameters.len() == 2 && parameters.iter().all(parameter_bool)
-                                    && parameter_bool(return_type)
-                                    && inspector.expression_type(file, node)
-                                        .is_some_and(|expression| &expression.ty == return_type))
-                        })
-                };
-            if eager_only
                 && (node.kind() == NodeKind::ConditionalExpression
                     || node.kind() == NodeKind::BinaryExpression
                         && matches!(
                             operator(context, file, node)
                                 .and_then(crate::bindings::symbolic_operator),
                             Some("/\\" | "\\/" | "<->" | "->" | "<-" | "default")
-                        )
-                        && !inspected_conjunction)
+                        ))
             {
                 return Err("lazy initialized arithmetic inspection is unavailable".into());
             }
             if inspector.false_integer_assertion(file, node) {
                 return Err("false assertion condition aborts evaluation".into());
+            }
+            if let Some(reason) = inspector.float_divisor_error(file, node) {
+                return Err(reason);
             }
             let mut children = Vec::new();
             for child in source_children(inspector, file, node, type_branches) {
@@ -609,22 +595,6 @@ impl ClosedSourceErrors<'_> {
             let mut nodes = vec![root];
             while let Some(node) = nodes.pop() {
                 nodes.extend(source_children(self, file, node, type_branches));
-                if self.selected_set_source && node.kind() == NodeKind::DomainType {
-                    match literal_parts(self, file, node, true, type_branches) {
-                        Ok(true) => {
-                            if let Err(reason) = crate::domains::invariant_expression_integer(
-                                self.context,
-                                self.bindings,
-                                file,
-                                node,
-                            ) {
-                                return Some(reason);
-                            }
-                        }
-                        Err(reason) => return Some(reason),
-                        Ok(false) => {}
-                    }
-                }
                 if node.kind() == NodeKind::Expression
                     && let Some(id) = self.reference(file, node)
                     && !sources.contains(&id)
@@ -636,7 +606,7 @@ impl ClosedSourceErrors<'_> {
                         && ty.known()
                         && (!optional(ty)
                             && ty.instantiation == Instantiation::Parameter
-                            && ty.kind == TypeKind::Int
+                            && matches!(ty.kind, TypeKind::Int | TypeKind::Float)
                             || follow_collections
                                 && matches!(ty.kind, TypeKind::Set(_) | TypeKind::Array { .. }))
                         && let Some(written) = crate::callables::find_node(

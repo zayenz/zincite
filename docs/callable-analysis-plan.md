@@ -83,15 +83,32 @@ or partial values and their dependent definitions. The boundaries supply no
 coverage seed or relation direction; closed references preserve independent
 negative advice, while unavailable attribution retains a wider veto.
 
-Search no longer consumes `inspected_locals` or walks fresh model-value locals
-for admission. The public field retains incidental local observations for
-compatibility and supplies no proof. Publication no longer rechecks an entire
-source item solely to certify that list. Concrete closed-error readers remain
-in use by definitions, domains and scoped source inspectors, including siblings
-handled by the separate direct-definition producer. Relevant failed siblings
-still withhold their owning output; successful observations supply no admission
-or value certificate. Constant-variable consumes unchanged direct definitions and does
-not request callable facts solely to change their safety.
+Search no longer consumes inspected-local certificates or walks fresh
+model-value locals for admission. Base-121 removes the public `inspected_locals`
+field and the collection/publication work used only for that observation list.
+Private-local identity and supported scoped definitions retain their own checks.
+
+The regular/regexp, optional-matrix, row/fresh-local and selected union-body
+admission interpreters are removed. Typed opacity and existing closed-error
+readers replace their successful Unknown-only routes; excluded library bodies
+need no execution solely for admission. The semantic plan documents the retained
+[helper families, consumers and public witnesses](semantic-processing-plan.md).
+Direct/indexed safety, checked initialized prerequisites, selected length/index
+identity, matching reshape views and narrow standard metadata/primitive checks
+remain where complete definitions, membership or finite outputs consume them.
+
+`resolve_callable_definitions_view` retains its ordered stages: borrowed lookup
+indexes, model clauses, finite concrete output candidates, stabilized outputs,
+stabilized typed boundaries, published definitions and cycle marking. Full
+sibling checking, selected identity/formal tuples, actual/default/capture scope
+and recursion/changing-instantiation barriers remain. Known source/type/argument
+errors still veto dependent outputs; successful error observations supply no
+admission or value certificate. Constant-variable consumes direct definitions
+and requires Supported safety before advice or fixes.
+
+Guarded owns a typed `AbortingDefault` limitation kind. Partial-expression advice
+selects that data instead of comparing its rendered reason. Unknown/Unsupported
+and Source/Output boundary distinctions continue to govern consumers directly.
 
 The sections below preserve the recorded base-093/base-094 implementation map
 and observations. Their line numbers and consumer descriptions are historical.

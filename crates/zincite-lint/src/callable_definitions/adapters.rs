@@ -17,8 +17,6 @@ pub(crate) fn direct_expression_safety<'a>(
         instantiations,
         domains,
         lookups: None,
-        selected_set_source: false,
-        inactive_integer_body: None,
     };
     BodyInterpreter::without_bodies(&inspector).direct_safety(source.0, source.1, calls, generators)
 }
@@ -40,12 +38,10 @@ pub(crate) fn opaque_source_error<'a>(
         instantiations,
         domains,
         lookups: None,
-        selected_set_source: false,
-        inactive_integer_body: None,
     };
     opaque_dependency_error(&inspector, file, node, calls, &[], &mut Vec::new())
 }
-fn opaque_dependency_error<'a>(
+pub(super) fn opaque_dependency_error<'a>(
     inspector: &SourceInspector<'a>,
     file: FileId,
     source: &'a SyntaxNode,
@@ -71,11 +67,28 @@ fn opaque_dependency_error<'a>(
             context: inspector.context,
             bindings: inspector.bindings,
             calls: inspector.view(file, value, view),
-            selected_set_source: false,
         })
         .false_integer_assertion(file, value)
         {
             return Some("false assertion condition aborts evaluation".into());
+        }
+        // Reflection bounds still require a valid native signature and a
+        // nonempty source, even when the enclosing value stays unknown.
+        if value.kind() == NodeKind::CallExpression
+            && (inspector.core(file, value, view, "lb_array")
+                || inspector.core(file, value, view, "ub_array"))
+            && value
+                .child_nodes()
+                .next()
+                .and_then(|argument| inspector.reference(file, unwrap(argument)))
+                .is_some_and(|id| {
+                    inspector.bindings.declarations[id.0].top_level
+                        && inspector.bindings.declarations[id.0].role == DeclarationRole::Value
+                })
+            && let Some(DefinitionSafety::Unsupported(reason)) =
+                interpreter.integer_array_bound_safety(file, value, view, &[])
+        {
+            return Some(reason);
         }
         if value.kind() == NodeKind::CallExpression
             && inspector.core(file, value, view, "floor")
@@ -84,32 +97,67 @@ fn opaque_dependency_error<'a>(
         {
             return Some(reason);
         }
+        if value.kind() == NodeKind::CallExpression
+            && inspector.core(file, value, view, "to_enum")
+            && value.child_nodes().nth(1).is_some_and(|ordinal| {
+                crate::domains::invariant_expression_integer(
+                    inspector.context,
+                    inspector.bindings,
+                    file,
+                    ordinal,
+                )
+                .ok()
+                .flatten()
+                .is_some()
+            })
+            && let Some(DefinitionSafety::Unsupported(reason)) =
+                interpreter.parameter_enum_conversion_safety(file, value, view, &[])
+        {
+            return Some(reason);
+        }
         if value.kind() == NodeKind::ArrayAccessExpression
             && inspector
                 .expression_type(view, file, value)
-                .is_some_and(|e| e.ty.known() && !optional(&e.ty) && e.ty.kind == TypeKind::Int)
+                .is_some_and(|e| e.ty.known() && e.ty.kind != TypeKind::Bool)
             && let Some(subject) = value.child_nodes().next()
-            && let Some(array) = inspector.reference(file, subject)
+            && let (array_file, subject) =
+                match interpreter.invocation_source(file, subject, &invocation) {
+                    Ok(Some(actual)) => (actual.file, actual.node),
+                    Ok(None) => (file, subject),
+                    Err(reason) => return Some(reason),
+                }
+            && let Some(array) = inspector.reference(array_file, subject)
             && let Domain::Array { indices, .. } =
                 crate::domains::bare_index_domain(&inspector.domains.declarations[array.0].domain)
-            && indices
-                .iter()
-                .zip(value.child_nodes().skip(1))
-                .any(|(axis, selector)| {
-                    crate::domains::invariant_expression_integer(
-                        inspector.context,
-                        inspector.bindings,
-                        file,
-                        selector,
-                    )
-                    .is_ok_and(|value| {
-                        value.is_some_and(|value| {
-                            crate::domains::index_domain_member(axis, value) == Some(false)
-                        })
-                    })
-                })
         {
-            return Some("integer selection is outside its declared index set".into());
+            let integer = inspector
+                .expression_type(view, file, value)
+                .is_some_and(|e| e.ty.kind == TypeKind::Int);
+            for (axis, selector) in indices.iter().zip(value.child_nodes().skip(1)) {
+                match crate::domains::invariant_expression_integer(
+                    inspector.context,
+                    inspector.bindings,
+                    file,
+                    selector,
+                ) {
+                    Ok(Some(value))
+                        if crate::domains::index_domain_member(axis, value) == Some(false)
+                            || matches!(crate::domains::bare_index_domain(axis), Domain::Range { lower, upper }
+                            if crate::domains::invariant_integer(lower).ok().flatten().is_some_and(|lower| value < lower)
+                                || crate::domains::invariant_integer(upper).ok().flatten().is_some_and(|upper| value > upper)) =>
+                    {
+                        return Some(
+                            if integer {
+                                "integer selection is outside its declared index set"
+                            } else {
+                                "selection is outside its declared index set"
+                            }
+                            .into(),
+                        );
+                    }
+                    _ => {}
+                }
+            }
         }
         // Retain the existing set-extremum arithmetic error reader for these
         // concrete operands. Its successful result is discarded.
@@ -232,6 +280,17 @@ fn opaque_dependency_error<'a>(
                 return Some("native max is undefined for an empty iteration".into());
             }
         }
+        if value.kind() == NodeKind::Expression {
+            match interpreter.invocation_source(file, value, &invocation) {
+                Ok(Some(actual)) if !sources.contains(&actual.formal) => {
+                    sources.push(actual.formal);
+                    strict.push((actual.file, actual.node));
+                    nodes.push((actual.file, actual.node));
+                }
+                Err(reason) => return Some(reason),
+                _ => {}
+            }
+        }
         if value.kind() == NodeKind::Expression
             && let Some(id) = inspector.reference(file, value)
             && !sources.contains(&id)
@@ -243,7 +302,8 @@ fn opaque_dependency_error<'a>(
                 DeclarationRole::Value | DeclarationRole::Local
             ) && ty.known()
                 && (matches!(ty.kind, TypeKind::Set(_) | TypeKind::Array { .. })
-                    || ty.kind == TypeKind::Int && ty.instantiation == Instantiation::Parameter)
+                    || matches!(ty.kind, TypeKind::Int | TypeKind::Float)
+                        && ty.instantiation == Instantiation::Parameter)
                 && let Some(written) = find_node(
                     inspector.context.files[declaration.file].parsed.tree(),
                     &declaration.syntax_range,
@@ -251,6 +311,15 @@ fn opaque_dependency_error<'a>(
                 )
             {
                 sources.push(id);
+                if let Some(reason) = inspector.closed_integer_source_error_with_branches(
+                    declaration.file,
+                    written,
+                    false,
+                    true,
+                    true,
+                ) {
+                    return Some(reason);
+                }
                 strict.push((declaration.file, written));
                 nodes.push((declaration.file, written));
             }
@@ -448,8 +517,6 @@ pub(crate) fn initialized_expression_safety<'a>(
         instantiations,
         domains,
         lookups,
-        selected_set_source: false,
-        inactive_integer_body: None,
     };
     let interpreter = BodyInterpreter::without_bodies(&inspector);
     let safety =
@@ -486,8 +553,6 @@ pub(crate) fn native_operation_source_safe<'a>(
         instantiations,
         domains,
         lookups: None,
-        selected_set_source: false,
-        inactive_integer_body: None,
     };
     let interpreter = BodyInterpreter::without_bodies(&inspector);
     let Some(call) = interpreter.source.operation_fact(calls, file, node) else {
@@ -532,8 +597,6 @@ pub(crate) fn initialized_conditional_bound_safety<'a>(
         instantiations,
         domains,
         lookups: None,
-        selected_set_source: false,
-        inactive_integer_body: None,
     };
     let interpreter = BodyInterpreter::without_bodies(&inspector);
     if node.kind() != NodeKind::ConditionalExpression
@@ -549,10 +612,21 @@ pub(crate) fn initialized_conditional_bound_safety<'a>(
     {
         return None;
     }
-    let safety =
-        interpreter.initialized_source_safety(file, node, calls, generators, &mut Vec::new());
-    if let unsupported @ DefinitionSafety::Unsupported(_) = safety {
-        return Some(unsupported);
+    for value in generators
+        .iter()
+        .flat_map(|generator| generator.child_nodes())
+    {
+        if let Some(reason) = opaque_source_error(
+            context,
+            bindings,
+            calls,
+            instantiations,
+            domains,
+            file,
+            value,
+        ) {
+            return Some(DefinitionSafety::Unsupported(reason));
+        }
     }
     // Inspect both branches and every closed fragment without choosing a branch
     // or waiving errors in a literal-inactive body.
@@ -583,8 +657,6 @@ pub(crate) fn closed_integer_type_source_error<'a>(
         instantiations,
         domains,
         lookups: None,
-        selected_set_source: false,
-        inactive_integer_body: None,
     };
     let interpreter = BodyInterpreter::without_bodies(&inspector);
     interpreter
@@ -608,8 +680,6 @@ pub(crate) fn decision_prefix_source_safety<'a>(
         instantiations,
         domains,
         lookups: None,
-        selected_set_source: false,
-        inactive_integer_body: None,
     };
     let interpreter = BodyInterpreter::without_bodies(&inspector);
     interpreter.decision_prefix_source_safety(source.0, source.1, source.2)
@@ -637,8 +707,6 @@ pub(crate) fn selected_integer_set_source_safety<'a>(
         instantiations,
         domains,
         lookups,
-        selected_set_source: true,
-        inactive_integer_body: None,
     };
     let interpreter = BodyInterpreter::without_bodies(&inspector);
     let node = unwrap(written);
@@ -694,43 +762,40 @@ pub(crate) fn selected_integer_set_source_safety<'a>(
     {
         return None;
     }
-    // Actual preceding headers and filters are independent evaluated sources.
-    for generator in generators {
-        for value in generator.child_nodes() {
-            let value = if value.kind() == NodeKind::WhereFilter {
-                let Some(value) = value.child_nodes().next() else {
-                    return Some(DefinitionSafety::Unsupported(
-                        "generator filter is unavailable".into(),
-                    ));
-                };
-                value
-            } else {
-                value
-            };
-            if let unsupported @ DefinitionSafety::Unsupported(_) = interpreter
-                .initialized_source_safety(file, value, view, generators, &mut Vec::new())
-            {
-                return Some(unsupported);
-            }
-            if let Some(reason) = interpreter
-                .source
-                .closed_integer_source_error(file, value, true, true)
-            {
-                return Some(DefinitionSafety::Unsupported(reason));
-            }
+    for value in generators
+        .iter()
+        .flat_map(|generator| generator.child_nodes())
+    {
+        if let Some(reason) = opaque_source_error(
+            context,
+            bindings,
+            view,
+            instantiations,
+            domains,
+            file,
+            value,
+        ) {
+            return Some(DefinitionSafety::Unsupported(reason));
         }
     }
-    let safety =
-        interpreter.initialized_source_safety(file, written, view, generators, &mut Vec::new());
-    if !matches!(safety, DefinitionSafety::Unsupported(_))
-        && let Some(reason) = interpreter
-            .source
-            .closed_integer_source_error(file, written, true, true)
-    {
-        return Some(DefinitionSafety::Unsupported(reason));
-    }
-    Some(safety)
+    Some(
+        match opaque_source_error(
+            context,
+            bindings,
+            view,
+            instantiations,
+            domains,
+            file,
+            written,
+        ) {
+            Some(reason) => DefinitionSafety::Unsupported(reason),
+            None => {
+                DefinitionSafety::Unknown("selected parameter set membership is unproved".into())
+            }
+        },
+    )
 }
+
 // Inspect a typed integer-set source only after all semantic facts exist.
 // Original calls own initialized declarations; the current view owns this source.
 pub(crate) fn initialized_integer_set_source_safety<'a>(
@@ -753,8 +818,6 @@ pub(crate) fn initialized_integer_set_source_safety<'a>(
         instantiations,
         domains,
         lookups: None,
-        selected_set_source: false,
-        inactive_integer_body: None,
     };
     let interpreter = BodyInterpreter::without_bodies(&inspector);
     let present_integer = |ty: &TypeInst| {
@@ -778,18 +841,29 @@ pub(crate) fn initialized_integer_set_source_safety<'a>(
             "source requires a present parameter integer set".into(),
         );
     }
-    let safety =
-        interpreter.initialized_source_safety(file, node, view, generators, &mut Vec::new());
-    if !matches!(safety, DefinitionSafety::Unsupported(_))
-        && let Some(reason) = interpreter
-            .source
-            .closed_integer_source_error(file, node, true, true)
+    for value in generators
+        .iter()
+        .flat_map(|generator| generator.child_nodes())
     {
-        return DefinitionSafety::Unsupported(reason);
+        if let Some(reason) = opaque_source_error(
+            context,
+            bindings,
+            view,
+            instantiations,
+            domains,
+            file,
+            value,
+        ) {
+            return DefinitionSafety::Unsupported(reason);
+        }
     }
-    safety
+    match opaque_source_error(context, bindings, view, instantiations, domains, file, node) {
+        Some(reason) => DefinitionSafety::Unsupported(reason),
+        None => DefinitionSafety::Unknown("parameter set source value is unproved".into()),
+    }
 }
-// Admit only the selected present parameter integer-set extremum, never its value.
+
+// Retain the selected set extremum type, closed errors and known empty-source veto.
 pub(crate) fn initialized_parameter_set_extremum_safety<'a>(
     context: &'a ModelContext,
     bindings: &'a BindingFacts,
@@ -815,8 +889,6 @@ pub(crate) fn initialized_parameter_set_extremum_safety<'a>(
         instantiations,
         domains,
         lookups,
-        selected_set_source: false,
-        inactive_integer_body: None,
     };
     let interpreter = BodyInterpreter::without_bodies(&inspector);
     let ty = &interpreter
@@ -974,8 +1046,6 @@ pub(crate) fn indexed_expression_safety<'a>(
         instantiations,
         domains,
         lookups: Some(lookups),
-        selected_set_source: false,
-        inactive_integer_body: None,
     };
     BodyInterpreter::without_bodies(&inspector).direct_safety(source.0, source.1, calls, source.2)
 }
@@ -1017,8 +1087,6 @@ pub(crate) fn set_axis_integer_reshape_source<'a>(
         instantiations,
         domains,
         lookups,
-        selected_set_source: false,
-        inactive_integer_body: None,
     };
     inspector
         .set_axis_integer_reshape_arguments(source.0, source.1, calls, false)
