@@ -2,8 +2,8 @@
 
 # Tasks: base
 
-- Total: 106
-- Ready: 0
+- Total: 113
+- Ready: 7
 - Blocked: 0
 - Done: 106
 
@@ -115,3 +115,10 @@
 | [base-104](tasks/104-indent-expanded-conditional-headers-consistently.md) | Indent expanded conditional headers consistently | done | — |
 | [base-105](tasks/105-prefer-direct-array-comprehensions-with-preserved-indices.md) | Prefer direct array comprehensions with preserved indices | done | — |
 | [base-106](tasks/106-suggest-enums-for-integer-sets-used-only-as-identities.md) | Suggest enums for integer sets used only as identities | done | base-099 |
+| [base-107](tasks/107-align-explicit-and-implicit-expanded-comprehension-layouts.md) | Align explicit and implicit expanded comprehension layouts | ready | — |
+| [base-108](tasks/108-stop-treating-anonymous-enum-initializer-calls-as-declaratio.md) | Stop treating anonymous enum initializer calls as declarations | ready | — |
+| [base-109](tasks/109-respect-explicit-per-element-range-constraints-in-unbounded.md) | Respect explicit per-element range constraints in unbounded advice | ready | — |
+| [base-110](tasks/110-recognize-complete-enum2int-search-projections.md) | Recognize complete enum2int search projections | ready | — |
+| [base-111](tasks/111-render-unproven-cartesian-expense-as-informational-advice.md) | Render unproven Cartesian expense as informational advice | ready | — |
+| [base-112](tasks/112-show-lint-roots-and-summarize-analysis-limitations.md) | Show lint roots and summarize analysis limitations | ready | — |
+| [base-113](tasks/113-report-the-build-version-and-suggest-standard-library-setup.md) | Report the build version and suggest standard-library setup | ready | — |
