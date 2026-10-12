@@ -75,13 +75,22 @@ values. An opaque private prerequisite can withhold its enclosing let's output,
 so that enclosing scope publishes its own Unknown boundary. Unknown boundaries
 supply no output, definition, bound or search seed.
 
-`inspected_locals` remains a scoped-search prerequisite list. Search uses it to
-account for checked locals while keeping their coverage Unknown; no consumer
-uses it to repair definition safety or to prove a bound. Whole-owner checks
-still gate this list and positive model outputs after relevant siblings pass.
-Concrete closed-error readers remain in use by definitions, domains and scoped
-source inspectors. Their successful observations supply no admission or value
-certificate. Constant-variable consumes unchanged direct definitions and does
+Base-117 adds a possible-reference boundary when a selected relation has no
+finite output summary. It reads written references and maps actuals, defaults
+and captures without executing the body for admission. Search closes supported
+positive definitions first, then applies these boundaries to affected uncovered
+or partial values and their dependent definitions. The boundaries supply no
+coverage seed or relation direction; closed references preserve independent
+negative advice, while unavailable attribution retains a wider veto.
+
+Search no longer consumes `inspected_locals` or walks fresh model-value locals
+for admission. The public field retains incidental local observations for
+compatibility and supplies no proof. Publication no longer rechecks an entire
+source item solely to certify that list. Concrete closed-error readers remain
+in use by definitions, domains and scoped source inspectors, including siblings
+handled by the separate direct-definition producer. Relevant failed siblings
+still withhold their owning output; successful observations supply no admission
+or value certificate. Constant-variable consumes unchanged direct definitions and does
 not request callable facts solely to change their safety.
 
 The sections below preserve the recorded base-093/base-094 implementation map

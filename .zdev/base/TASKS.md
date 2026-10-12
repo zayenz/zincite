@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 123
-- Ready: 2
+- Ready: 1
 - Blocked: 5
-- Done: 116
+- Done: 117
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -125,7 +125,7 @@
 | [base-114](tasks/114-adopt-deliberate-semantic-opacity-and-the-retained-proof-con.md) | Adopt deliberate semantic opacity and the retained proof contract | done | — |
 | [base-115](tasks/115-treat-opaque-calls-conservatively-in-numeric-and-guarded-ana.md) | Treat opaque calls conservatively in numeric and guarded analysis | done | base-114 |
 | [base-116](tasks/116-move-definition-uncertainty-into-its-owner-and-remove-consum.md) | Move definition uncertainty into its owner and remove consumer exceptions | done | base-115 |
-| [base-117](tasks/117-separate-possible-dependencies-from-proven-definitions-in-se.md) | Separate possible dependencies from proven definitions in search coverage | ready | base-116 |
+| [base-117](tasks/117-separate-possible-dependencies-from-proven-definitions-in-se.md) | Separate possible dependencies from proven definitions in search coverage | done | base-116 |
 | [base-118](tasks/118-use-source-facts-for-structural-lints-and-reference-queries.md) | Use source facts for structural lints and reference queries | ready | base-114 |
 | [base-119](tasks/119-share-lazily-computed-semantic-facts-within-a-model-analysis.md) | Share lazily computed semantic facts within a model analysis | blocked | base-115, base-116, base-117, base-118 |
 | [base-120](tasks/120-limit-selected-body-interpretation-to-requested-retained-pro.md) | Limit selected-body interpretation to requested retained proofs | blocked | base-119 |

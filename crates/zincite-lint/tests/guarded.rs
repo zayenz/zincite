@@ -1590,17 +1590,9 @@ fn literal_regular_relations_inspect_sources_without_totality_proof() {
             .unwrap()
             .coverage;
         if failure.is_none() {
-            assert_eq!(
-                coverage,
-                if name == "written-native" {
-                    // The written true body constrains no schedule value.
-                    SearchCoverage::Uncovered
-                } else {
-                    // Literal regular inspection leaves its schedule relation opaque.
-                    SearchCoverage::Unknown
-                },
-                "{name}: {search:?}"
-            );
+            // The selected regular wrapper references schedule through xs even
+            // when its native delegate has a written true body; no output is proved.
+            assert_eq!(coverage, SearchCoverage::Unknown, "{name}: {search:?}");
         } else {
             assert!(
                 matches!(

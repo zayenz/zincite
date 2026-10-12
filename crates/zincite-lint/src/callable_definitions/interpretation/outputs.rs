@@ -243,6 +243,49 @@ impl<'a> BodyInterpreter<'a, '_> {
             DefinitionSafety::Supported => Ok(unknown),
         }
     }
+    pub(in crate::callable_definitions) fn unknown_call_outputs(
+        &self,
+        clause: &Clause<'a>,
+        view: &CallableFacts,
+        instance: &Instance<'a>,
+        out: &mut Vec<UnavailableCallableDefinition>,
+    ) {
+        let declaration = &self.source.bindings.declarations[instance.id.0];
+        let Some(node) = find_node(
+            self.source.context.files[declaration.file].parsed.tree(),
+            &declaration.syntax_range,
+            declaration.role,
+        ) else {
+            self.unknown(clause, "selected relation references are unavailable", out);
+            return;
+        };
+        // Written references retain possible defaults/captures without executing
+        // the selected body or inventing dependencies for unused formals.
+        let body = Clause {
+            file: declaration.file,
+            item: declaration.item,
+            node,
+            generators: Vec::new(),
+            kind: ClauseKind::Call,
+        };
+        let mut unavailable = Vec::new();
+        self.boundary(
+            &body,
+            "selected relation outputs are unproved",
+            CallableDefinitionStatus::Unknown,
+            CallableDefinitionOperation::Output,
+            &mut unavailable,
+        );
+        let boundaries: Vec<_> = unavailable
+            .into_iter()
+            .map(|unavailable| Boundary {
+                callable: instance.id,
+                parameters: instance.parameters.clone(),
+                unavailable,
+            })
+            .collect();
+        self.map_boundaries(clause, view, &boundaries, out);
+    }
     pub(in crate::callable_definitions) fn map_boundaries(
         &self,
         clause: &Clause<'a>,
@@ -262,19 +305,40 @@ impl<'a> BodyInterpreter<'a, '_> {
         {
             let mut targets = Vec::new();
             let mut unresolved = boundary.unavailable.targets.is_empty();
-            for target in &boundary.unavailable.targets {
-                if self.source.bindings.declarations[target.0].role != DeclarationRole::Parameter {
-                    extend(&mut targets, vec![*target]);
-                } else if let Some((file, node)) = self.source.actual(clause, id, *target, view) {
+            let formals: Vec<_> = (0..parameters.len())
+                .filter_map(|position| {
+                    formal_parameter(self.source.context, self.source.bindings, id, position)
+                })
+                .collect();
+            let mut pending: Vec<_> = boundary
+                .unavailable
+                .targets
+                .iter()
+                .rev()
+                .map(|target| (*target, Vec::new()))
+                .collect();
+            let mut expanded_formals = Vec::new();
+            while let Some((target, mut active)) = pending.pop() {
+                if !formals.contains(&target) {
+                    extend(&mut targets, vec![target]);
+                } else if active.contains(&target) {
+                    unresolved = true;
+                } else if expanded_formals.contains(&target) {
+                    continue;
+                } else if let Some((file, node)) = self.source.actual(clause, id, target, view) {
+                    active.push(target);
+                    expanded_formals.push(target);
                     let range = self.source.context.files[file].location(node.range()).range;
-                    for reference in &self.source.bindings.references {
+                    for reference in self.source.bindings.references.iter().rev() {
                         if reference.file == file
                             && reference.kind == ReferenceKind::Value
                             && range.start <= reference.location.range.start
                             && reference.location.range.end <= range.end
                         {
                             match reference.resolution {
-                                BindingResolution::Resolved(id) => extend(&mut targets, vec![id]),
+                                BindingResolution::Resolved(actual) => {
+                                    pending.push((actual, active.clone()));
+                                }
                                 _ => unresolved = true,
                             }
                         }

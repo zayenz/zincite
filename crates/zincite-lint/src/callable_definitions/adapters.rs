@@ -947,28 +947,6 @@ pub(crate) fn indexed_expression_safety<'a>(
     };
     BodyInterpreter::without_bodies(&inspector).direct_safety(source.0, source.1, calls, source.2)
 }
-// Ephemeral Search prerequisite accounting, separate from callable facts.
-pub(crate) fn indexed_model_value_fresh_locals<'a>(
-    context: &'a ModelContext,
-    bindings: &'a BindingFacts,
-    calls: &'a CallableFacts,
-    instantiations: &'a InstantiationFacts,
-    domains: &'a DomainFacts,
-    owner: DeclarationId,
-    lookups: DirectSafetyLookups<'a>,
-) -> Option<Result<Vec<DeclarationId>, String>> {
-    let inspector = SourceInspector {
-        context,
-        bindings,
-        calls,
-        instantiations,
-        domains,
-        lookups: Some(lookups),
-        selected_set_source: false,
-        inactive_integer_body: None,
-    };
-    BodyInterpreter::without_bodies(&inspector).model_value_fresh_locals(owner)
-}
 // Admit only this checked reshape to the raw-definition inspection fallback.
 pub(crate) fn indexed_set_axis_integer_reshape<'a>(
     context: &'a ModelContext,

@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-117"
 key = "opaque-search-proofs"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -27,11 +27,11 @@ Read .zdev/base/brief.md Semantic analysis, Interpretation before policy, Testin
 
 ## Done when
 
-- [ ] Opaque relations and unavailable output proofs have explicit conservative effects on potentially affected decisions without requiring comprehensive selected-body inspection.
-- [ ] An absent output proof alone never becomes Uncovered or PartialArray advice. Unrelated known search coverage remains usable; inability to safely localize uncertainty may still limit the wider result.
-- [ ] Direct definitions, supported complete forall definitions, transparent wrappers, finite callable summaries, aliases/views and complete enum2int search projections retain their established positive coverage behavior.
-- [ ] Search and definition publication retain known errors and sibling failures and do not publish outputs from incomplete owners. Recursive or changing-instantiation calls terminate with uncertainty rather than guessed summaries.
-- [ ] Admission-only inspected-local handling is removed from search where it establishes no retained guarantee; public findings and RuleOutcome classifications match the revised contract.
+- [x] Opaque relations and unavailable output proofs have explicit conservative effects on potentially affected decisions without requiring comprehensive selected-body inspection.
+- [x] An absent output proof alone never becomes Uncovered or PartialArray advice. Unrelated known search coverage remains usable; inability to safely localize uncertainty may still limit the wider result.
+- [x] Direct definitions, supported complete forall definitions, transparent wrappers, finite callable summaries, aliases/views and complete enum2int search projections retain their established positive coverage behavior.
+- [x] Search and definition publication retain known errors and sibling failures and do not publish outputs from incomplete owners. Recursive or changing-instantiation calls terminate with uncertainty rather than guessed summaries.
+- [x] Admission-only inspected-local handling is removed from search where it establishes no retained guarantee; public findings and RuleOutcome classifications match the revised contract.
 
 ## Validation
 
@@ -39,3 +39,11 @@ Read .zdev/base/brief.md Semantic analysis, Interpretation before policy, Testin
 - Use a compact opaque p(x,y) case with x searched: y must not be certified covered or warned as definitely independent merely because p is opaque. Check a separate provably uncovered simple decision still receives scoped advice when localization is safe.
 - Compare standalone search and combined constant/unbounded/search selections on the same models; findings and relevant proof facts must agree.
 - Use the brief's focused testing level and run its required Rust validation (cargo fmt --all -- --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace), plus git diff --check. Run zdev check base --format json for changed zdev records.
+
+## Result
+
+Preserve finite search coverage proofs and use mapped possible references to veto unsupported negative advice; remove admission-only local inspection.
+
+Validation:
+
+- Independent PASS at W120eb28be7a692fa; 398 workspace tests, fmt, clippy and diff checks passed. Installed root/standalone lint parity checks passed; binary hashes match.

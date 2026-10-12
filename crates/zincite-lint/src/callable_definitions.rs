@@ -12,7 +12,7 @@
 //!   Its coordinating path checks forwarding cycles and invocation sources before
 //!   dispatching named clause handlers, then applies output eligibility separately.
 //! - `model_roots` publishes successful definitions alongside unavailable siblings.
-//!   Inspected locals require a complete owning source item and passing siblings.
+//!   Retained local observations require passing siblings, and supply no proof.
 //! - `source` borrows immutable facts and optional lookup views. Its source families
 //!   keep owning scopes, written bodies, metadata, primitives and error checks together.
 //!   Body-aware source coordination stays on `BodyInterpreter`: Float lets reuse the
@@ -90,10 +90,9 @@ pub struct CallableDefinitionFacts {
     /// Supported definitions in enforced model calls and scoped model lets.
     pub definitions: Vec<Definition>,
     pub unavailable: Vec<UnavailableCallableDefinition>,
-    /// Fully inspected model-let Boolean choices and integer initializers
-    /// and comprehensions with unproved shape or membership. Search uses these
-    /// only to account for checked scoped prerequisites; they supply no safety,
-    /// bound, definition or coverage proof.
+    /// Local observations retained from model-let interpretation. They supply
+    /// no safety, bound, definition or coverage proof; search does not use them
+    /// as an admission requirement.
     pub inspected_locals: Vec<DeclarationId>,
 }
 /// Interpret exact selected Boolean bodies and close nested output guarantees
@@ -150,12 +149,11 @@ use source::SourceInspector;
 
 pub(super) use adapters::{
     DirectSafetyLookups, closed_integer_type_source_error, decision_prefix_source_safety,
-    direct_expression_safety, indexed_expression_safety, indexed_model_value_fresh_locals,
-    indexed_set_axis_integer_reshape, initialized_conditional_bound_safety,
-    initialized_expression_safety, initialized_integer_set_source_safety,
-    initialized_parameter_set_extremum_safety, length_argument, native_operation_source_safe,
-    opaque_source_error, parameter_index_extremum, selected_integer_set_source_safety,
-    set_axis_integer_reshape_source,
+    direct_expression_safety, indexed_expression_safety, indexed_set_axis_integer_reshape,
+    initialized_conditional_bound_safety, initialized_expression_safety,
+    initialized_integer_set_source_safety, initialized_parameter_set_extremum_safety,
+    length_argument, native_operation_source_safe, opaque_source_error, parameter_index_extremum,
+    selected_integer_set_source_safety, set_axis_integer_reshape_source,
 };
 
 #[derive(Clone)]

@@ -321,12 +321,22 @@ decisions and simple unbounded declarations still warn. Explicit scalar and
 complete per-element ranges and all retained Scalar/WholeArray proof outputs
 remain unchanged.
 
-`inspected_locals` remains only for scoped-search prerequisite accounting.
-Whole-owner checks still prevent a failing sibling from publishing an output
-or inspected-local certificate. Closed-source error readers serve concrete
-definition and domain consumers; successful observation establishes no safety,
-value, output or coverage. The historical message-bridge draft in the callable
-plan is superseded, and its old evidence remains unchanged.
+Base-117 separates possible references from finite output dependencies in search.
+A selected relation without an output summary retains its written references,
+mapped through actuals, defaults and captures. Those references turn affected
+uncovered or partial coverage into Unknown after positive closure; they never
+seed coverage or establish a relation direction. Unavailable attribution withholds
+wider negative claims. Safely localized uncertainty preserves independent known
+coverage and located missing-search advice.
+
+Search no longer requires inspected-local certificates or a separate model-value
+fresh-local admission walk. Scoped decisions without retained definitions remain
+Unknown. The public `inspected_locals` field retains local observations for
+compatibility; search does not consume it. Closed-source error readers and
+complete-owner proof checks still retain known errors and failed siblings.
+Their successful observations establish no safety, value, output or coverage.
+The historical message-bridge draft in the callable plan is superseded, and its
+old evidence remains unchanged.
 
 This baseline is a small bundle control set, not a substitute for the existing
 full catalogue and parsing/formatting acceptance evidence.

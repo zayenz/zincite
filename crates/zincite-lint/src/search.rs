@@ -1,5 +1,5 @@
 //! Direct search interpretation, independent of missing-coverage advice.
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::callables::{core_operation, find_node, is_expression, operation_fact};
 use crate::definitions::complete_array_coverage;
@@ -44,11 +44,12 @@ pub struct SearchFacts {
 /// covered. All prerequisites belong to this context. Numeric domains are not
 /// seeds. Partial selections do not cover an entire array, and computed search
 /// values do not seed their inputs. Unknown annotations withhold missing claims.
-/// Exact selected callable bodies contribute bounded output guarantees. Options,
-/// opaque bodies and unproved iteration/enforcement retain specific limitations.
+/// Exact selected callable bodies contribute bounded output guarantees. Opaque
+/// relations retain possible references that veto affected missing-search advice;
+/// known errors and excluded required operations retain specific limitations.
 /// Advice addresses top-level solve-visible values (thesis 4.9, p.28).
 /// Checked positive model lets contribute functional local definitions. Other
-/// scoped decisions retain Unknown and their required boundary.
+/// scoped decisions retain Unknown without requiring inspection certificates.
 pub fn resolve_search_coverage(
     context: &ModelContext,
     bindings: &BindingFacts,
@@ -108,28 +109,7 @@ pub(super) fn resolve_search_with_callable(
         }
         return producer.facts;
     }
-    for missing in &callable.unavailable {
-        if missing.status == crate::CallableDefinitionStatus::Unknown && missing.targets.is_empty()
-        {
-            // An owner whose affected references cannot be delimited supplies
-            // no missing-search claim. Existing positive coverage remains valid.
-            for declaration in &mut producer.facts.declarations {
-                if !covered(declaration.coverage) {
-                    declaration.coverage = SearchCoverage::Unknown;
-                }
-            }
-        }
-        for id in &missing.targets {
-            if !covered(producer.facts.declarations[id.0].coverage) {
-                producer.facts.declarations[id.0].coverage = SearchCoverage::Unknown;
-            }
-        }
-    }
-    producer.close(
-        definitions,
-        &callable.definitions,
-        &callable.inspected_locals,
-    );
+    producer.close(definitions, &callable.definitions, &callable.unavailable);
     for missing in &callable.unavailable {
         if missing.status == crate::CallableDefinitionStatus::Unknown {
             continue;
@@ -1747,7 +1727,7 @@ impl<'a> Producer<'a> {
         &mut self,
         definitions: &DefinitionFacts,
         callable: &[crate::Definition],
-        inspected_locals: &[DeclarationId],
+        unavailable: &[crate::UnavailableCallableDefinition],
     ) {
         for d in &self.bindings.declarations {
             let ty = &self.calls.declarations[d.id.0].ty;
@@ -1795,41 +1775,6 @@ impl<'a> Producer<'a> {
             indices.sort_unstable_by_key(|&row| {
                 (self.bindings.references[row].location.range.start, row)
             });
-        }
-        let local_items: HashSet<_> = self
-            .bindings
-            .declarations
-            .iter()
-            .filter(|local| {
-                local.role == DeclarationRole::Local
-                    && self.calls.declarations[local.id.0].ty.instantiation
-                        == Instantiation::Decision
-            })
-            .map(|local| (local.file, local.item))
-            .collect();
-        let mut fresh_value_locals = Vec::new();
-        for owner in self.bindings.declarations.iter().filter(|owner| {
-            owner.top_level
-                && owner.role == DeclarationRole::Value
-                && local_items.contains(&(owner.file, owner.item))
-        }) {
-            if let Some(Ok(inspected)) =
-                crate::callable_definitions::indexed_model_value_fresh_locals(
-                    self.context,
-                    self.bindings,
-                    self.calls,
-                    self.instantiations,
-                    self.domains,
-                    owner.id,
-                    crate::callable_definitions::DirectSafetyLookups {
-                        expressions: &expression_indices,
-                        calls: &call_indices,
-                        value_references: &value_reference_indices,
-                    },
-                )
-            {
-                fresh_value_locals.extend(inspected);
-            }
         }
         let mut admitted = Vec::new();
         for (d, callable_record) in definitions
@@ -1944,8 +1889,26 @@ impl<'a> Producer<'a> {
                 break;
             }
         }
-        // An unsupported prerequisite also prevents a confident claim about
-        // its direct dependents. This never supplies a coverage seed.
+        for boundary in unavailable {
+            if boundary.status == crate::CallableDefinitionStatus::Unknown
+                && boundary.targets.is_empty()
+            {
+                // Unavailable attribution withholds wider negative claims,
+                // while independent searched or defined values remain covered.
+                for declaration in &mut self.facts.declarations {
+                    if !covered(declaration.coverage) {
+                        declaration.coverage = SearchCoverage::Unknown;
+                    }
+                }
+            }
+            for target in &boundary.targets {
+                if !covered(self.facts.declarations[target.0].coverage) {
+                    self.facts.declarations[target.0].coverage = SearchCoverage::Unknown;
+                }
+            }
+        }
+        // Possible references and unsupported prerequisites veto confident
+        // claims about direct dependents. They never supply coverage seeds.
         loop {
             let mut changed = false;
             for d in &admitted {
@@ -1969,37 +1932,6 @@ impl<'a> Producer<'a> {
                 if !covered(d.coverage) {
                     d.coverage = SearchCoverage::Unknown;
                 }
-            }
-        }
-        for d in &self.bindings.declarations {
-            if d.role != DeclarationRole::Local
-                || self.calls.declarations[d.id.0].ty.instantiation != Instantiation::Decision
-                || callable.iter().any(|definition| definition.target == d.id)
-                || inspected_locals.contains(&d.id)
-                || fresh_value_locals.contains(&d.id)
-                || covered(self.facts.declarations[d.id.0].coverage)
-            {
-                continue;
-            }
-            let source = &self.context.files[d.file];
-            let item = source.parsed.tree().child_nodes().nth(d.item).unwrap();
-            if source.warnings_enabled()
-                && !matches!(
-                    item.kind(),
-                    NodeKind::FunctionDeclaration
-                        | NodeKind::PredicateDeclaration
-                        | NodeKind::TestDeclaration
-                        | NodeKind::AnnotationDeclaration
-                )
-            {
-                self.facts.limitations.push(SourceDiagnostic {
-                    location: d.location.clone(),
-                    message: concat!(
-                        "search-coverage: model-level local decision coverage is unsupported; ",
-                        "its scoped name is not available to the solve search"
-                    )
-                    .into(),
-                });
             }
         }
     }

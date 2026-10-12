@@ -65,6 +65,92 @@ fn selected() -> LintOptions {
 }
 
 #[test]
+fn opaque_relation_references_veto_only_affected_missing_search_advice() {
+    let source = concat!(
+        "predicate p(var int: left,var int: right) = left <= right;\n",
+        "var 0..9: x; var 0..9: y; var 0..9: independent;\n",
+        "constraint p(x,y);\n",
+        "solve :: int_search([x],input_order,indomain_min,complete) satisfy;\n",
+    );
+    let (dir, _) = model("opaque-references", source, "");
+    std::fs::write(
+        dir.join("library/std/stdlib.mzn"),
+        format!("{CORE}function var bool: '<='(var int: left,var int: right);\n"),
+    )
+    .unwrap();
+    let context = load_model(
+        dir.join("root.mzn"),
+        &ModelOptions {
+            stdlib_dir: Some(dir.join("library")),
+            ..Default::default()
+        },
+    );
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let instantiations = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let definitions = resolve_definitions(&context, &bindings, &calls, &instantiations, &domains);
+    let callable =
+        resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
+    let search = resolve_search_coverage(
+        &context,
+        &bindings,
+        &calls,
+        &instantiations,
+        &domains,
+        &definitions,
+    );
+    assert_eq!(coverage(&bindings, &search, "x"), SearchCoverage::Scalar);
+    assert_eq!(coverage(&bindings, &search, "y"), SearchCoverage::Unknown);
+    assert_eq!(
+        coverage(&bindings, &search, "independent"),
+        SearchCoverage::Uncovered
+    );
+    assert!(callable.outputs.is_empty() && callable.definitions.is_empty());
+    let independent = bindings
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "independent")
+        .unwrap();
+    let single = analyze_model(&context, &selected());
+    let combined = analyze_model(
+        &context,
+        &LintOptions::from_selection("constant-variable,unbounded-variable,search-coverage")
+            .unwrap(),
+    );
+    assert!(single.errors.is_empty() && combined.errors.is_empty());
+    assert!(single.limitations.is_empty() && combined.limitations.is_empty());
+    assert_eq!(single.rules[0].outcome, RuleOutcome::Completed);
+    let combined_search = combined
+        .rules
+        .iter()
+        .find(|execution| execution.rule.id() == "search-coverage")
+        .unwrap();
+    assert_eq!(combined_search.outcome, single.rules[0].outcome);
+    let single_findings: Vec<_> = single
+        .findings
+        .iter()
+        .filter(|finding| finding.rule.id() == "search-coverage")
+        .collect();
+    let combined_findings: Vec<_> = combined
+        .findings
+        .iter()
+        .filter(|finding| finding.rule.id() == "search-coverage")
+        .collect();
+    assert_eq!(single_findings.len(), combined_findings.len());
+    for (single, combined) in single_findings.iter().zip(&combined_findings) {
+        assert_eq!(single.location, combined.location);
+        assert_eq!(single.message, combined.message);
+        assert_eq!(single.severity, combined.severity);
+        assert!(single.fix.is_none() && combined.fix.is_none());
+    }
+    assert_eq!(single_findings.len(), 1);
+    assert_eq!(single_findings[0].location, independent.location);
+    assert!(single_findings[0].fix.is_none());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn finite_integer_tests_inspect_invoked_sources_without_truth_or_outputs() {
     use zincite_lint::{CallOutcome, DeclarationRole};
 
@@ -200,12 +286,12 @@ fn finite_integer_tests_inspect_invoked_sources_without_truth_or_outputs() {
             })
             .unwrap()
             .id;
-        let safety = &definitions
+        let initialized = definitions
             .definitions
             .iter()
             .find(|definition| definition.target == selected)
-            .unwrap()
-            .safety;
+            .unwrap();
+        let safety = &initialized.safety;
         let callable =
             resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
         assert!(
@@ -241,8 +327,8 @@ fn finite_integer_tests_inspect_invoked_sources_without_truth_or_outputs() {
                 name,
                 "written-comparison" | "user-bound" | "default" | "optional" | "cycle"
             ) {
-                // These selected filter bodies need no admission certificate for
-                // the raw comprehension. Scoped-search refusals remain below.
+                // These selected filter bodies need no admission certificate
+                // for the raw comprehension or its scoped decisions.
                 assert!(
                     matches!(safety, DefinitionSafety::Unknown(_)),
                     "{name}: {safety:?}"
@@ -253,18 +339,22 @@ fn finite_integer_tests_inspect_invoked_sources_without_truth_or_outputs() {
                     "{name}: {safety:?}"
                 );
             }
-            assert!(
-                search
-                    .limitations
-                    .iter()
-                    .any(|limitation| limitation.location
-                        == bindings.declarations[chosen.0].location
-                        && limitation
-                            .message
-                            .contains("model-level local decision coverage is unsupported")),
-                "{name}: {:?}",
-                search.limitations
-            );
+            if matches!(safety, DefinitionSafety::Unsupported(_)) {
+                assert!(
+                    search.limitations.iter().any(|limitation| {
+                        limitation.location == initialized.location
+                            && limitation.message.contains(reason)
+                    }),
+                    "{name}: {:?}",
+                    search.limitations
+                );
+            } else {
+                assert!(
+                    search.limitations.is_empty(),
+                    "{name}: {:?}",
+                    search.limitations
+                );
+            }
         } else {
             assert!(
                 matches!(safety, DefinitionSafety::Unknown(_)),
@@ -283,11 +373,10 @@ fn finite_integer_tests_inspect_invoked_sources_without_truth_or_outputs() {
                 "{name}/{rule}: {result:?}"
             );
             if reason.is_some()
-                && !(rule == "unbounded-variable"
-                    && matches!(
-                        name,
-                        "written-comparison" | "user-bound" | "default" | "optional" | "cycle"
-                    ))
+                && !matches!(
+                    name,
+                    "written-comparison" | "user-bound" | "default" | "optional" | "cycle"
+                )
             {
                 assert!(
                     matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
@@ -4260,8 +4349,8 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
         (
             "unsearched selector",
             literal_calls.replace("[selected_index,assigned_value]", "[assigned_value]"),
-            SearchCoverage::Uncovered,
-            SearchCoverage::Uncovered,
+            SearchCoverage::Unknown,
+            SearchCoverage::Unknown,
             false,
         ),
         (
@@ -4311,7 +4400,7 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
         );
         assert_eq!(
             coverage(&bindings, &search, "self_lookup"),
-            SearchCoverage::Uncovered,
+            SearchCoverage::Unknown,
             "a selector cannot define itself: {:?}",
             search.limitations
         );
@@ -4435,7 +4524,7 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
         "constraint if enabled then let {var bool: before;} in (before->start_a+duration<=start_b) /\\ ((start_b+duration<=start_a)<-not before) /\\ (before \\/ not before) else true endif;\n",
         "solve :: int_search([start_a,start_b],input_order,indomain_min,complete) satisfy;\n"
     );
-    let failed_choice = local_choice
+    let filtered_choice = local_choice
         .replace(
             "int: duration=1;",
             "int: duration=1; int: parameter_index=1;",
@@ -4455,7 +4544,7 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
         stdlib_dir: Some(dir.join("library")),
         ..Default::default()
     };
-    for (source, limited) in [(local_choice, false), (failed_choice.as_str(), true)] {
+    for source in [local_choice, filtered_choice.as_str()] {
         std::fs::write(dir.join("root.mzn"), source).unwrap();
         let context = load_model(dir.join("root.mzn"), &options);
         let (bindings, search) = facts(&context);
@@ -4476,7 +4565,7 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
             resolve_callable_definitions(&context, &bindings, &calls, &instantiations, &domains);
         assert!(callable.definitions.iter().all(|d| d.target != before));
         assert!(callable.outputs.iter().all(|d| d.target != before));
-        assert_eq!(callable.inspected_locals.contains(&before), !limited);
+        assert!(callable.inspected_locals.contains(&before));
         let private = bindings
             .declarations
             .iter()
@@ -4485,12 +4574,8 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
             .id;
         assert!(!callable.inspected_locals.contains(&private));
         let result = analyze_model(&context, &selected());
-        assert_eq!(
-            matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
-            limited,
-            "{:?}",
-            result.limitations
-        );
+        assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+        assert!(result.limitations.is_empty());
     }
     std::fs::remove_dir_all(dir).unwrap();
     let literal_extrema = concat!(
@@ -7107,7 +7192,7 @@ fn callable_outputs_keep_selected_direction_defaults_captures_and_array_extent()
     );
     assert_eq!(
         coverage(&bindings, &search, "filtered_output"),
-        SearchCoverage::Uncovered
+        SearchCoverage::Unknown
     );
     assert!(
         outputs
@@ -7610,15 +7695,7 @@ fn total_controls_and_filtered_relations_separate_outputs_from_unavailable_bodie
     ] {
         assert_eq!(
             coverage(&bindings, &search, name),
-            if matches!(
-                name,
-                "pattern_result" | "pattern_direct_result" | "table_result"
-            ) {
-                // These results belong to explicitly opaque owning relation/let scopes.
-                SearchCoverage::Unknown
-            } else {
-                SearchCoverage::Uncovered
-            },
+            SearchCoverage::Unknown,
             "{name}"
         );
     }
@@ -8246,7 +8323,7 @@ fn enforced_boolean_assertions_keep_outer_branch_and_abort_boundaries() {
         (
             "outer-branch",
             "if take then assert(gate,\"enabled\",result=0) else true endif",
-            SearchCoverage::Uncovered,
+            SearchCoverage::Unknown,
             false,
         ),
         (
@@ -8313,7 +8390,11 @@ fn enforced_boolean_assertions_keep_outer_branch_and_abort_boundaries() {
             );
         } else {
             assert!(
-                callable.unavailable.is_empty(),
+                callable
+                    .unavailable
+                    .iter()
+                    .all(|boundary| boundary.status
+                        == zincite_lint::CallableDefinitionStatus::Unknown),
                 "{name}: {:?}",
                 callable.unavailable
             );
@@ -11616,7 +11697,11 @@ solve :: int_search(successor, input_order, indomain_min, complete) satisfy;
             );
         } else {
             assert!(
-                callable.unavailable.is_empty(),
+                callable
+                    .unavailable
+                    .iter()
+                    .all(|boundary| boundary.status
+                        == zincite_lint::CallableDefinitionStatus::Unknown),
                 "{:?}",
                 callable.unavailable
             );
@@ -12048,10 +12133,7 @@ solve satisfy;
             "{:?}",
             search.limitations
         );
-        assert_eq!(
-            coverage(&bindings, &search, "xs"),
-            SearchCoverage::Uncovered
-        );
+        assert_eq!(coverage(&bindings, &search, "xs"), SearchCoverage::Unknown);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
@@ -13504,7 +13586,7 @@ endif"#;
             );
             assert_eq!(
                 coverage(&bindings, &search, "schedule"),
-                SearchCoverage::Uncovered
+                SearchCoverage::Unknown
             );
         }
         std::fs::remove_dir_all(dir).unwrap();
@@ -14307,7 +14389,7 @@ endif"#;
             );
             assert_eq!(
                 coverage(&bindings, &search, "schedule"),
-                SearchCoverage::Uncovered
+                SearchCoverage::Unknown
             );
         }
         std::fs::remove_dir_all(dir).unwrap();
@@ -14671,12 +14753,16 @@ predicate symmetry_breaking_constraint(var bool: b);
         if initializer.is_empty() && !body_error {
             assert_eq!(
                 coverage(&bindings, &search, "xs"),
-                SearchCoverage::Uncovered,
+                SearchCoverage::Unknown,
                 "{name}: callable unavailable {:?}",
                 callable.unavailable
             );
             assert!(
-                callable.unavailable.is_empty(),
+                callable
+                    .unavailable
+                    .iter()
+                    .all(|boundary| boundary.status
+                        == zincite_lint::CallableDefinitionStatus::Unknown),
                 "{name}: {:?}",
                 callable.unavailable
             );
@@ -15514,10 +15600,15 @@ fn rank_two_private_boolean_channel_requires_checked_full_traversal() {
                 callable.unavailable
             );
         } else {
-            assert!(matches!(
-                result.rules[0].outcome,
-                RuleOutcome::Limited { .. }
-            ));
+            if axis_error {
+                assert!(matches!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Limited { .. }
+                ));
+            } else {
+                assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+                assert!(search.limitations.is_empty());
+            }
             assert_ne!(
                 search.declarations[qb.0].coverage,
                 SearchCoverage::WholeArray
@@ -18501,18 +18592,11 @@ fn model_value_fresh_integer_lets_complete_without_search_certificates() {
                 "{label}: {:?}",
                 initialized.safety
             );
-            // A checked sibling does not exempt p when the whole owner fails.
             assert!(
-                locals.iter().all(
-                    |local| search
-                        .limitations
-                        .iter()
-                        .any(|limitation| limitation.location
-                            == bindings.declarations[local.0].location
-                            && limitation
-                                .message
-                                .contains("model-level local decision coverage is unsupported"))
-                ),
+                search.limitations.iter().any(|limitation| {
+                    limitation.location == initialized.location
+                        && limitation.message.contains("integer division by zero")
+                }),
                 "{label}: {:?}",
                 search.limitations
             );

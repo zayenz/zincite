@@ -1825,6 +1825,9 @@ impl<'a> BodyInterpreter<'a, '_> {
             .iter()
             .filter(|g| g.callable == id && g.parameters == parameters)
             .collect();
+        if selected.is_empty() {
+            self.unknown_call_outputs(clause, view, instance, unavailable);
+        }
         if selected.is_empty() && instance.recursive {
             self.unavailable(clause,"callable output guarantees are unsupported or have no independent recursive anchor",unavailable);
         }

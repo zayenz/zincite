@@ -1,4 +1,4 @@
-//! Publish model definitions in source-item order; certify locals only after every sibling passes.
+//! Publish model definitions and retained local observations in source-item order.
 use super::*;
 
 pub(super) fn interpret_model_roots<'a>(
@@ -22,8 +22,8 @@ pub(super) fn interpret_model_roots<'a>(
             .count();
         let clauses = &roots[cursor..cursor + count];
         // Equalities retain their direct interpreter, and core implication/disjunction
-        // supply no ordinary output. Inspect these siblings only when a local
-        // choice requires the entire constraint item to be understood.
+        // supply no ordinary callable output. Their direct definitions retain
+        // their separate producer.
         let inspection_only = |clause: &Clause<'_>| {
             matches!(clause.kind, ClauseKind::Equality)
                 || operator(source.context, clause.file, clause.node)
@@ -34,8 +34,32 @@ pub(super) fn interpret_model_roots<'a>(
                     })
         };
         let mut inspected = Vec::new();
+        let mut definitions = Vec::new();
         let mut complete = true;
-        for clause in clauses.iter().filter(|clause| !inspection_only(clause)) {
+        let mut known_failure = false;
+        for clause in clauses {
+            if inspection_only(clause) {
+                if let Some(reason) = opaque_source_error(
+                    source.context,
+                    source.bindings,
+                    source.calls,
+                    source.instantiations,
+                    source.domains,
+                    clause.file,
+                    clause.node,
+                ) {
+                    complete = false;
+                    known_failure = true;
+                    facts.unavailable.push(UnavailableCallableDefinition {
+                        location: source.context.files[clause.file].location(clause.node.range()),
+                        targets: Vec::new(),
+                        status: CallableDefinitionStatus::Unsupported,
+                        operation: CallableDefinitionOperation::Source,
+                        reason,
+                    });
+                }
+                continue;
+            }
             let mut found = Vec::new();
             let mut unavailable = Vec::new();
             interpreter.interpret_root(
@@ -50,7 +74,7 @@ pub(super) fn interpret_model_roots<'a>(
                 .iter()
                 .all(|row| row.status != CallableDefinitionStatus::Unsupported);
             for output in found {
-                facts.definitions.push(Definition {
+                definitions.push(Definition {
                     target: output.target,
                     file: clause.file,
                     item: clause.item,
@@ -66,25 +90,10 @@ pub(super) fn interpret_model_roots<'a>(
             }
             facts.unavailable.extend(unavailable);
         }
-        if complete
-            && !inspected.is_empty()
-            && interpreter.inspected_item_iterations(first.file, first.item, source.calls)
-            && clauses
-                .iter()
-                .filter(|clause| inspection_only(clause))
-                .all(|clause| {
-                    interpreter
-                        .boolean_relation_dependencies(
-                            clause.file,
-                            clause.node,
-                            source.calls,
-                            &clause.generators,
-                        )
-                        .is_ok()
-                })
-        {
-            // Conjunction splitting keeps clauses in source item order. A
-            // failed sibling must not certify another let in that constraint.
+        if !known_failure {
+            facts.definitions.extend(definitions);
+        }
+        if complete {
             extend(&mut facts.inspected_locals, inspected);
         }
         cursor += count;
