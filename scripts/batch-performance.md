@@ -705,3 +705,255 @@ The attribution example passed Cargo formatting, Clippy and all 189 workspace
 tests. The initial test attempt failed at the existing CLI helper's BrokenPipe
 race; its complete streams remain separate from the successful focused/full
 retry and release build. No timing or reporting-only test was added.
+
+
+## Base-122: demand and reuse observations
+
+2026-10-12; post-base-121 source `0dbc2781c7a309668e932308a8e11b76d0876dc8`;
+Rust `1.98.1 (48a229cea 2026-09-01)`; release build; Apple M1 Max, arm64,
+64 GiB RAM; macOS Darwin 25.6.0. MiniZinc's installed library is 2.10.1,
+build 33348285743. This bounded observation supports the
+[Salsa decision](../docs/semantic-processing-plan.md#salsa-decision-2026-10-12).
+It measures ordinary reuse, with no Salsa implementation or solver run.
+
+The two existing cases are retained byte-identically under
+`/var/folders/fv/49yy8rf13z5045yfpqbxv3fh0000gn/T/zincite119-baseline-6xxxg19o`:
+
+| Case | Bytes | SHA256 |
+| --- | ---: | --- |
+| `small.mzn` | 84 | `506fee246fca919b39fa9208ecc5db5b9565e8b2f2dbe122e57d690572e30f0b` |
+| `library-mixed.mzn` | 115 | `fe0f512a1363559b1a9c66ef898bd26be6946988431e45c512a3c1cf50765acc` |
+
+Production source, root bytes and every loaded canonical dependency were
+unchanged. Small loaded 179 files / 452,114 source bytes; mixed loaded 203 files /
+469,184 bytes. The sum is 382 file instances / 921,298 bytes, compared with
+204 unique canonical files / 469,268 bytes. The repeated 178 files / 452,030 bytes
+identify common dependencies across these two independent contexts. No fact
+sharing across roots or avoided-loading benefit was measured.
+
+### Commands and captures
+
+Build and CLI commands were:
+
+```sh
+cargo build --release --locked --target-dir /tmp/zincite122-build -p zincite --bin zincite
+base122_cases=/var/folders/fv/49yy8rf13z5045yfpqbxv3fh0000gn/T/zincite119-baseline-6xxxg19o
+/tmp/zincite122-build/release/zincite lint --isolated \
+  --rules unbounded-variable,search-coverage \
+  --stdlib-dir /Applications/MiniZincIDE.app/Contents/Resources/share/minizinc \
+  --show-limitations "$base122_cases/small.mzn"
+/tmp/zincite122-build/release/zincite lint --isolated \
+  --rules decision-variable-operator,decision-variable-generator,decision-variable-condition,unmarked-symmetry-breaking,reified-global,unused-declaration,element-predicate,prefer-array-comprehension,prefer-enum,search-coverage \
+  --stdlib-dir /Applications/MiniZincIDE.app/Contents/Resources/share/minizinc \
+  --show-limitations "$base122_cases/library-mixed.mzn"
+```
+
+The caller `/tmp/zincite122-measure.py` imports `scripts/bench-save.py::file_invoke`
+and runs each CLI command three times sequentially with a 45-second deadline.
+It retains complete stdout/stderr, status and exact-child `os.wait4` resources.
+This CPython 3.12.6 exposes `wait4`, but omits `waitid`; the initial invocation
+therefore used the helper's fallback and returned no RSS. Those observations
+remain in `/tmp/zincite122-20261012/report.json` and its raw streams. The final
+replay is `/tmp/zincite122-20261012-wait4/report.json`, with all raw streams,
+commands, per-dependency hashes, timing arrays, equality checks and allocation
+snapshots. Local builds and competing timed work were paused during both windows.
+
+A small disposable `/tmp/zincite122-waitid.c` bridge exposes the native
+`waitid` result needed by the existing helper. `WNOWAIT` reserves the child PID
+until the sole `wait4` reaper runs. The repository helper was unchanged. Compile
+commands for the unchanged public-API observation driver and its separate
+allocation mode were:
+
+```sh
+rustc --edition=2024 -O /tmp/zincite122-observe.rs \
+  --extern zincite_lint=/tmp/zincite122-build/release/deps/libzincite_lint-6c753487752a8fb0.rlib \
+  --extern serde_json=/tmp/zincite122-build/release/deps/libserde_json-3022f706fbb0b451.rlib \
+  -L dependency=/tmp/zincite122-build/release/deps -o /tmp/zincite122-api
+rustc --edition=2024 -O --cfg memory /tmp/zincite122-observe.rs \
+  --extern zincite_lint=/tmp/zincite122-build/release/deps/libzincite_lint-6c753487752a8fb0.rlib \
+  --extern serde_json=/tmp/zincite122-build/release/deps/libserde_json-3022f706fbb0b451.rlib \
+  -L dependency=/tmp/zincite122-build/release/deps -o /tmp/zincite122-memory
+clang -Wall -Wextra -Werror -dynamiclib /tmp/zincite122-waitid.c -o /tmp/zincite122-waitid.dylib
+python3 /tmp/zincite122-measure.py
+```
+
+Each API command is `/tmp/zincite122-api ROOT STDLIB SELECTION`, using the exact
+root, library path and selection above. There are three fresh driver processes
+per case, each under the same deadline. `/tmp/zincite122-memory` uses those same
+arguments once per case for the separate allocation observation. Driver source
+SHA256 is `04c32a90ac02d77b25d00bcdeba968465f0da99942ba55152ac455cb18615e6b`;
+the bridge is `fa968fbd154cc9e0bc7cfa8f6ce5091dd33dfbfa114df5b5c64a9ec61066e558`.
+
+| Binary | SHA256 |
+| --- | --- |
+| cli | `c82454c5845e163abdb52d1ced31106e1555ff2c4f70ddf97fca162b0ed91dcc` |
+| api | `8a751d3e9572d3578a1186a28f2e86182e71954bee9a702883b3f74d820f32f1` |
+| memory | `75cf0e2cbabe6dff64f23ab2d5064f3b00dc8c5c35358b144d20bc59aff2ba33` |
+
+### Fresh CLI and first API requests
+
+All six final CLI processes returned 0 with empty stdout and stderr. The API
+first/warm/fresh-owner analyses also had no findings, errors or limitations;
+all two small-case rules and all ten mixed-case rules were Completed in the
+requested order. Complete `AnalysisResult` debug renderings, including fix
+payloads, were equal outside timed regions for every request and across driver
+processes. The public diagnostic renderer agreed with CLI stderr after removing
+its root prefix. This checks result equality, not useful positive-proof coverage.
+
+Every process completed and was reaped without a timeout. RSS below is exact-child
+OS high-water memory in bytes and MiB. CLI wall time surrounds subprocess creation
+through completion. Sample 1 is retained separately as the first invocation;
+none of these observations establishes cold filesystem caches or a p95.
+
+| Case / CLI sample | Wall ms | Peak RSS bytes | Peak RSS MiB |
+| --- | ---: | ---: | ---: |
+| small / 1 | 70.817 | 30,343,168 | 28.938 |
+| small / 2 | 70.274 | 30,261,248 | 28.859 |
+| small / 3 | 70.240 | 30,294,016 | 28.891 |
+| mixed / 1 | 159.273 | 43,401,216 | 41.391 |
+| mixed / 2 | 159.977 | 43,450,368 | 41.438 |
+| mixed / 3 | 164.167 | 43,352,064 | 41.344 |
+
+| Case | CLI median ms | CLI min–max ms |
+| --- | ---: | ---: |
+| small | 70.274 | 70.240–70.817 |
+| mixed | 159.977 | 159.273–164.167 |
+
+The API sequence is `load_model` → empty `ModelFacts` → first
+`analyze_model_with_facts` → ten warm-owner requests → ten `analyze_model`
+fresh-owner controls against the same loaded context. Each result is dropped
+before the next request. Timers surround the named call only; full-result
+comparison, fact-identity checks and report construction occur outside them.
+API process RSS also includes those checks, serialized observations and the
+retained owner alongside fresh-owner controls. It is not bare analysis RSS.
+
+| Case / API process | Load ms | First analysis ms | Process peak RSS bytes | Process peak RSS MiB |
+| --- | ---: | ---: | ---: | ---: |
+| small / 1 | 19.985 | 42.716 | 82,395,136 | 78.578 |
+| small / 2 | 19.454 | 42.647 | 84,328,448 | 80.422 |
+| small / 3 | 19.623 | 42.753 | 82,460,672 | 78.641 |
+| mixed / 1 | 21.092 | 127.452 | 117,555,200 | 112.109 |
+| mixed / 2 | 21.052 | 125.982 | 117,653,504 | 112.203 |
+| mixed / 3 | 21.306 | 126.302 | 118,079,488 | 112.609 |
+
+| Case / API phase | Median ms | Min–max ms |
+| --- | ---: | ---: |
+| small / load | 19.623 | 19.454–19.985 |
+| small / first analysis | 42.716 | 42.647–42.753 |
+| small / warm request | 0.800 | 0.798–1.232 |
+| small / fresh-owner request | 42.236 | 41.923–44.523 |
+| mixed / load | 21.092 | 21.052–21.306 |
+| mixed / first analysis | 126.302 | 125.982–127.452 |
+| mixed / warm request | 0.363 | 0.356–0.637 |
+| mixed / fresh-owner request | 128.622 | 127.146–132.035 |
+
+### Repeated request samples and fact reuse
+
+All ten repetitions are shown below in milliseconds. Columns 1–3 identify the
+independent API processes. The warm/fresh-owner medians above pool thirty
+requests per phase; these are descriptive samples, not thirty independent models.
+
+Small case:
+
+| Request | Warm 1 | Warm 2 | Warm 3 | Fresh owner 1 | Fresh owner 2 | Fresh owner 3 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 0.909 | 1.232 | 0.893 | 43.271 | 44.523 | 43.354 |
+| 2 | 0.812 | 0.813 | 0.806 | 42.239 | 43.877 | 42.019 |
+| 3 | 0.804 | 0.807 | 0.804 | 42.051 | 43.532 | 41.927 |
+| 4 | 0.800 | 0.800 | 0.803 | 42.400 | 42.237 | 42.072 |
+| 5 | 0.799 | 0.798 | 0.802 | 41.958 | 42.369 | 42.785 |
+| 6 | 0.798 | 0.798 | 0.801 | 42.234 | 42.528 | 42.907 |
+| 7 | 0.798 | 0.799 | 0.799 | 41.923 | 42.170 | 42.839 |
+| 8 | 0.798 | 0.799 | 0.800 | 41.998 | 42.235 | 42.086 |
+| 9 | 0.800 | 0.798 | 0.800 | 41.976 | 41.946 | 42.556 |
+| 10 | 0.798 | 0.798 | 0.804 | 41.926 | 41.996 | 42.327 |
+
+Mixed case:
+
+| Request | Warm 1 | Warm 2 | Warm 3 | Fresh owner 1 | Fresh owner 2 | Fresh owner 3 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 0.637 | 0.549 | 0.558 | 130.903 | 130.519 | 132.035 |
+| 2 | 0.372 | 0.369 | 0.372 | 129.073 | 128.462 | 128.598 |
+| 3 | 0.363 | 0.365 | 0.368 | 128.645 | 127.146 | 128.578 |
+| 4 | 0.362 | 0.360 | 0.365 | 128.371 | 130.215 | 128.883 |
+| 5 | 0.367 | 0.365 | 0.370 | 127.566 | 128.221 | 127.909 |
+| 6 | 0.360 | 0.361 | 0.360 | 131.902 | 127.543 | 128.082 |
+| 7 | 0.358 | 0.357 | 0.359 | 129.152 | 127.165 | 129.229 |
+| 8 | 0.357 | 0.357 | 0.362 | 128.994 | 130.189 | 128.184 |
+| 9 | 0.363 | 0.365 | 0.356 | 128.493 | 128.466 | 127.655 |
+| 10 | 0.357 | 0.356 | 0.356 | 128.916 | 129.632 | 129.809 |
+
+Repeated public requests used `std::ptr::eq` on the returned references.
+Both cases reused bindings, canonical source callables, instantiations, source
+domains, direct definitions, callable definitions and search. Small also reused
+combined definitions. Mixed also reused numeric, optional, guarded, symmetry,
+global-use and usage results. These are families already demanded by the selected
+rules. No iteration, bulk proof closure or extra query driver was requested to
+obtain another observation. Canonical source callable contents remained unchanged
+through warm requests and fresh-owner controls.
+
+Reference identity establishes reuse of the returned fact object. It does not
+count internal producer executions or prove caching of invocation actuals,
+default/capture mapping, guards, membership or output publication. The local
+`OnceCell` slots and concrete-body key explain those distinct cache boundaries.
+Diagnostic policy still runs on each request.
+
+### Separate live allocation and drop observation
+
+The allocation mode reuses the counting allocator in
+`crates/zincite-fmt/examples/profile-phases.rs`. It records requested/live bytes
+and cumulative allocation traffic for the same public sequence; result objects
+are dropped before each snapshot. Report construction occurs after the context
+drops. Baseline live bytes are 985 (small) and 1,183 (mixed), holding arguments
+and options. Values below are deltas above that baseline. They measure requested
+allocations, excluding allocator/page overhead, and are not OS residency.
+
+| Case / phase | Live bytes | Allocation calls | Requested bytes, cumulative |
+| --- | ---: | ---: | ---: |
+| small / loaded context | 9,589,528 | 129,599 | 18,283,092 |
+| small / first facts, result dropped | 25,191,904 | 584,778 | 67,344,198 |
+| small / ten warm results dropped | 25,191,904 | 584,938 | 67,674,508 |
+| small / ten fresh-owner results dropped | 25,191,904 | 5,132,778 | 556,348,608 |
+| small / retained owner dropped | 9,687,352 | 5,132,778 | 556,348,608 |
+| small / context dropped | 0 | 5,132,778 | 556,348,608 |
+| mixed / loaded context | 9,919,337 | 134,807 | 18,906,686 |
+| mixed / first facts, result dropped | 36,002,418 | 966,871 | 117,714,263 |
+| mixed / ten warm results dropped | 36,002,418 | 967,221 | 120,253,603 |
+| mixed / ten fresh-owner results dropped | 36,002,418 | 9,283,701 | 1,106,384,493 |
+| mixed / retained owner dropped | 10,017,641 | 9,283,701 | 1,106,384,493 |
+| mixed / context dropped | 0 | 9,283,701 | 1,106,384,493 |
+
+Ten warm requests retained no additional bytes. They still requested 330,310
+bytes (small) and 2,539,340 bytes (mixed) during analysis over retained facts. Fresh-owner
+controls temporarily hold another set of facts while the retained owner remains
+live. Peak requested-live deltas for the whole sequence were 40,762,288 and
+62,262,115 bytes. Separate allocator-driver OS peaks were 69,533,696 bytes /
+66.312 MiB and 97,599,488 bytes / 93.078 MiB. Neither peak is a post-drop reading.
+
+Owner drop leaves the context alive, including lazily populated source-location
+indexes. Context drop returns the requested-live count exactly to baseline in
+both observations. This settles these owners' observed lifetime; it establishes
+no general corpus memory bound or database retention policy.
+
+### Retained initial attempt and limits
+
+The initial fallback observations are retained, with RSS explicitly unavailable.
+Their CLI timings include the fallback's subprocess-wait behavior, so they are
+not pooled with the final `waitid`/`wait4` replay. All initial streams/status and
+first/warm/fresh-owner comparisons also passed. No noisy observation was removed.
+
+| Case | Initial CLI samples ms | Initial API load samples ms | Initial API first-analysis samples ms |
+| --- | --- | --- | --- |
+| small | 76.991, 74.049, 82.955 | 19.928, 20.452, 19.764 | 43.564, 89.730, 43.428 |
+| mixed | 206.329, 206.330, 206.805 | 21.312, 21.277, 21.362 | 128.057, 126.478, 127.175 |
+
+The initial small first-analysis sample of 89.730 ms and warm-request maximum of
+1.938 ms remain in that capture with all ten repetitions per process. Its cause
+was not established. Historical base-119/base-120 timings are separate evidence,
+not an improvement target or a Salsa comparison.
+
+These cases exercise fresh CLI operation, unchanged in-process requests and a
+shared installed-library closure. They do not measure edits, multiple-root cache
+sharing, large-model scaling or a Salsa speed ratio. Ordinary reuse and drop
+behavior needed no Salsa prototype. No repository Rust, manifest, fixture or
+benchmark script changed, and no new product test or Rust test run was required.

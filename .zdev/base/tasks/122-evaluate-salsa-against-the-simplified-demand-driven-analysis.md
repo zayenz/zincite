@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-122"
 key = "salsa-decision"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -27,13 +27,21 @@ Read .zdev/base/brief.md Semantic analysis, Interpretation before policy, Testin
 
 ## Done when
 
-- [ ] Update the existing semantic plan with a dated decision and direct primary-source links, separating demand, within-session memoization and cross-revision incrementality.
-- [ ] Compare ordinary per-model caching with Salsa for the actual fact families, input identity, include/configuration dependencies, context-sensitive keys, diagnostic collection, cycle handling, invalidation and retained memory. State what Salsa would and would not simplify.
-- [ ] Measure fresh analysis and repeated requests with the existing small cases; report actual fact reuse, wall time and peak memory and any measurement limits. Do not infer a Salsa speedup without a comparable prototype measurement.
-- [ ] If a prototype is warranted, restrict it to one representative source-fact query and one source/configuration mutation, verify affected results change while unaffected results remain reusable, and check cycle policy and memory lifetime. Otherwise record the concrete reason no prototype is needed.
-- [ ] Recommend defer or a separately scoped adoption, with observable reconsideration triggers and implementation cost. Either result leaves the production semantic contract and completed simplification intact.
+- [x] Update the existing semantic plan with a dated decision and direct primary-source links, separating demand, within-session memoization and cross-revision incrementality.
+- [x] Compare ordinary per-model caching with Salsa for the actual fact families, input identity, include/configuration dependencies, context-sensitive keys, diagnostic collection, cycle handling, invalidation and retained memory. State what Salsa would and would not simplify.
+- [x] Measure fresh analysis and repeated requests with the existing small cases; report actual fact reuse, wall time and peak memory and any measurement limits. Do not infer a Salsa speedup without a comparable prototype measurement.
+- [x] If a prototype is warranted, restrict it to one representative source-fact query and one source/configuration mutation, verify affected results change while unaffected results remain reusable, and check cycle policy and memory lifetime. Otherwise record the concrete reason no prototype is needed.
+- [x] Recommend defer or a separately scoped adoption, with observable reconsideration triggers and implementation cost. Either result leaves the production semantic contract and completed simplification intact.
 
 ## Validation
 
 - No new product tests are expected. Verify factual claims against current primary documentation and local code; retain the exact commands and small measurement results in the task result or existing performance note.
 - Run zdev check base --format json and git diff --check. Run the brief's Rust checks only if repository Rust code changes, which this investigation should not require.
+
+## Result
+
+Defer Salsa: immutable-owner demand and reuse already serve current consumers. Dated decision compares actual fact/input/proof contracts and documents measured reuse/lifetime, migration costs and observable reconsideration conditions; production dependencies unchanged.
+
+Validation:
+
+- Independent whole-task PASS W25ed30ab0f49cb06: five current primary sources and actual source/query contracts checked; two retained cases, three CLI and API processes each, exact-child RSS, complete result equality, fact reference reuse and allocation drop observations recomputed. Initial no-RSS/noisy captures preserved separately. No Salsa prototype, production code or new tests. Historical bytes, diff checks and zdev check passed.

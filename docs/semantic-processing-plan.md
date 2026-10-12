@@ -318,6 +318,137 @@ cost after ordinary demand/reuse, a concrete invalidation/identity design and a
 separately scoped decision that accounts for integration cost. No speedup claim
 follows from policy or fewer inspected nodes alone.
 
+## Salsa decision: 2026-10-12
+
+Defer Salsa. The current consumers can reuse facts through an immutable
+`ModelFacts` owner, and the bounded replay confirms that this reuse works. There
+is no approved consumer that retains a mutable model across edits, and no
+measured cross-edit recomputation cost to justify revision tracking. This
+decision leaves the semantic contract and production dependencies unchanged.
+
+Three mechanisms need separate justification. Demand avoids work that a selected
+consumer does not request. Memoization reuses a requested result while its inputs
+stay unchanged. Incrementality validates dependencies and reuses unaffected
+results after an input changes. Zincite implements the first two within a model
+owner. [Salsa's overview](https://salsa-rs.github.io/salsa/overview.html) describes
+tracked deterministic computations, memoized results and dependency checking
+across revisions; its inputs must represent everything that can affect a result.
+
+The [post-base-121 measurements](../scripts/batch-performance.md#base-122-demand-and-reuse-observations)
+use the existing 84-byte model and 115-byte installed-library model at
+`0dbc2781c7a309668e932308a8e11b76d0876dc8`. Fresh CLI medians were 70.274 and
+159.977 ms, with maximum child RSS of 28.938 and 41.438 MiB. In three independent
+API processes per case, ten requests through the retained owner had pooled
+medians of 0.800 and 0.363 ms; ten fresh-owner controls against the same loaded
+context had medians of 42.236 and 128.622 ms. Loading is measured separately.
+Every complete first/warm/fresh-owner result agreed, including ordered findings,
+errors, limitations, fixes and rule outcomes. Repeated public fact requests
+returned the same borrowed objects. This is observed result reuse, not a count
+of producer executions or cached invocation proofs.
+
+The separate allocation observation retained 25,191,904 and 36,002,418 live
+bytes above its pre-load baseline after first analysis. Ten warm results, each
+dropped before the next request, added no retained bytes. Dropping the owner
+released its facts; dropping the context returned live allocation bytes to the
+baseline. OS RSS is a process high-water measure and does not establish that
+resident pages fall after a drop. The replay covers two small cases, not a
+corpus, mutable session or matched Salsa implementation.
+
+### Fact boundaries and possible query keys
+
+`ModelFacts` has ordinary `OnceCell` slots for one borrowed immutable context.
+Its source and proof views remain distinct. A future database would still need
+the following semantic boundaries, even if Salsa managed the memo tables.
+
+| Facts or policy | Current reuse boundary | Required boundary in a future database |
+| --- | --- | --- |
+| Source/core: bindings, source callable selections, types and instantiations | One model's sources, include closure and availability | Stable file, declaration and root identity, with source bytes and resolution dependencies; context-independent parsing may be shared across roots |
+| Local domains/numeric facts | Source facts, checked arithmetic, direct definitions and symbolic identities | Root-local dependencies and the relevant declaration/expression identity; no invented parameter values |
+| Optional, guarded and iteration facts | Named per-model results retain scoped presence, definedness, membership and traversal | Scope, substitutions, generators and guards wherever they affect the requested result; equal array sizes do not establish equal indices |
+| Direct and callable definitions | Direct definitions stay separate from finite callable outputs and combined cycle marking | Preserve enforcement, coverage, sibling safety and root dependency anchors |
+| Concrete callable-body typing | `DeclarationId` plus the exact formal `TypeInst` tuple in `CallablePreparation` | Stable declaration identity plus that tuple and its tracked source/type dependencies; actuals, mapped defaults/captures, lexical guards, membership and output publication remain invocation work |
+| Search | Per-root seeds, definitions, callable outputs and supported complete views | Root-specific search annotations and dependency closure; a shared library path cannot identify a model's coverage |
+| Rule and fix policy | `analyze_model_with_facts` recreates diagnostics over reused facts | Keep selected rules, parameters, suppressions, applicability, ordering and safe-edit obligations explicit if policy results are ever memoized |
+
+Body navigation adds written source typing to its returned observation. Bulk
+`proof_callables` is an explicit compatibility request. Neither is interchangeable
+with canonical source facts or an invocation's bound, definedness or output
+proof. A declaration-only key would merge distinct substitutions and caller
+contexts. Salsa cannot supply the missing semantic key.
+
+### Identity, dependencies and lifetime
+
+`FileId` and `DeclarationId` are indices in one loaded context; CST byte positions
+can move after an edit. They are unsuitable as unchanged cross-revision keys.
+`load_model` retains exact source bytes and BOM offsets, canonical file identity
+with the first readable spelling for diagnostics, include edges, and standard/user
+availability. Resolution uses the including directory, ordered include directories
+and the configured standard library. These inputs also determine missing,
+unreadable and cyclic-dependency errors. Each root loads independently.
+
+An immutable owner needs no invalidation. Changed source or include configuration
+requires a new context and owner. A retained database would need tracked source
+bytes, resolution/configuration inputs and dependency failures, plus an explicit
+identity design for roots, files and declarations. The two observations loaded
+382 file instances but only 204 unique canonical files. That identifies repeated
+library loading in these roots; it measures no benefit from sharing it and does
+not justify sharing root binding, type or proof results.
+
+Salsa would automate memoization and dependency verification once those inputs
+and computations were represented. Its
+[accumulators](https://salsa-rs.github.io/salsa/overview.html#accumulators) can
+collect diagnostics separately from query values. Zincite would still own
+MiniZinc semantics, conservative Unknown/Unsupported distinctions, source ranges,
+diagnostic order, suppressions, rule execution outcomes and safe-fix obligations.
+Queries using `evaluate_with_facts` still check exact root bytes/BOM and charge
+each evaluation's scan and result budgets; a warm fact owner does not waive them.
+Their retained `Rc<ModelFacts>` also keeps facts alive until the last session or
+result owner drops. No additional query measurement was needed for this decision.
+
+[Salsa's cycle handling](https://salsa-rs.github.io/salsa/cycles.html) defaults to
+a panic for a query cycle. Fallbacks and fixed-point recovery require explicit
+domain policy; iterative recovery requires deterministic monotone operations
+over a finite-height domain. Zincite already owns finite output-then-boundary
+stabilization, concrete-instantiation recursion barriers and definition cycle
+marking. Keep those algorithms and their refusal/publication rules. Adopting a
+query engine would not authorize generic recursive interpretation.
+
+[Salsa's tuning guidance](https://salsa-rs.github.io/salsa/tuning.html) says memo
+values are retained without an eviction limit by default. LRU can evict values,
+but query keys and dependency metadata remain; input identities last until the
+database drops. A retained database therefore needs a memory policy beyond a
+memo-value capacity. The current owner limits retention by model lifetime;
+fresh CLI processes retain no facts for the next invocation.
+
+The five primary sources were checked on 2026-10-12. The moving
+[ty inference source](https://github.com/astral-sh/ruff/blob/main/crates/ty_python_semantic/src/types/infer.rs)
+uses selected scope/expression queries, explicit type contexts and domain-specific
+cycle normalization. It illustrates query granularity and contextual key design.
+The [rustc query guide](https://rustc-dev-guide.rust-lang.org/query.html) separately
+describes demand, memoization, dependency discovery and incremental facilities.
+These are architecture references, not Zincite performance comparisons.
+
+### Reconsideration and cost
+
+No Salsa prototype is warranted here. Local code and the public-API observations
+settle unchanged-input reuse and owner lifetime; the primary documentation
+explains revision tracking, cycle behavior and retention. There is no specific
+unresolved adoption question that requires a disposable implementation. Without
+a matched prototype, this decision makes no Salsa speedup or overhead claim.
+
+Reconsider when an approved consumer needs a retained mutable session across
+edits, or a bounded profile identifies material repeated source/fact work across
+actual roots after ordinary demand and reuse. Define stable identity and
+include/configuration dependencies first. Then compare identical ordinary-cache
+and Salsa workloads, with affected-result correctness, unaffected-result reuse,
+cycle compatibility and memory lifetime inside an agreed latency/memory budget.
+
+Adoption would require input/identity design, conversion of the named fact
+dependencies, contextual key design, diagnostic collection and ordering,
+cycle-policy compatibility, public API/lifetime changes and retention limits.
+That is a separately scoped migration with focused validation. The current
+measurement provides no reason to pay that cost now.
+
 ## Small baseline for this bundle
 
 Current documentation baseline: `6b497f9caa46276fd9c62016371350a909a5b08e`
