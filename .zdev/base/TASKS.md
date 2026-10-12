@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 132
-- Ready: 4
+- Ready: 3
 - Blocked: 9
-- Done: 119
+- Done: 120
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -137,7 +137,7 @@
 | [base-126](tasks/126-run-query-programs-with-bindings-comprehensions-and-structur.md) | Run query programs with bindings, comprehensions and structured reports | blocked | base-119, base-125 |
 | [base-127](tasks/127-create-and-replace-structured-data-using-bounded-comprehensi.md) | Create and replace structured data using bounded comprehensions | blocked | base-125, base-126 |
 | [base-128](tasks/128-measure-shared-query-feature-extraction-and-bounded-resource.md) | Measure shared-query feature extraction and bounded resource use | blocked | base-126 |
-| [base-129](tasks/129-publish-the-formatting-style-and-refresh-bounded-acceptance.md) | Publish the formatting style and refresh bounded acceptance evidence | ready | — |
+| [base-129](tasks/129-publish-the-formatting-style-and-refresh-bounded-acceptance.md) | Publish the formatting style and refresh bounded acceptance evidence | done | — |
 | [base-130](tasks/130-organize-zincite-documentation-around-user-workflows.md) | Organize Zincite documentation around user workflows | ready | — |
 | [base-131](tasks/131-build-an-astro-documentation-site-with-zincite-branding.md) | Build an Astro documentation site with Zincite branding | blocked | base-130 |
 | [base-132](tasks/132-publish-and-verify-the-approved-zincite-documentation-site.md) | Publish and verify the approved Zincite documentation site | blocked | base-131 |

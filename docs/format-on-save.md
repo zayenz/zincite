@@ -25,7 +25,8 @@ The default style uses four spaces, LF, a final newline and a 120-column limit.
 EditorConfig supplies indentation, tab width, editable line endings, width,
 final-newline and trailing-whitespace settings, and UTF-8/BOM selection.
 Supported command-line style overrides take precedence; see `--help` for their
-values. Formatting may change between versions before a stable release.
+values and the [formatting style gallery](formatting-style.md) for examples.
+Formatting may change between versions before a stable release.
 
 ## Editor recipe
 
@@ -72,13 +73,21 @@ persistent process or formatting cache is required.
 
 ## Measured behavior
 
+The [current bounded save checkpoint](../scripts/save-performance-current.md)
+records the current release's named cases. All expected outputs/statuses pass,
+but the default 966,669-byte dense case misses the 100 ms p95 gate at 111.014 ms.
+Overall interactive acceptance remains open pending a bounded dense-case
+follow-up. The historical results below remain separate.
+
+### Historical base-081 results
+
 The [save performance checkpoint](../scripts/save-performance.md) records
 50 fresh processes per case and configuration, complete stdout capture,
 error-buffer preservation and separate native child RSS checks. The original
 base-048 representative cases passed their budgets; the later public wide matrix
 prevented an overall acceptance claim.
 
-The current base-081 recheck uses the existing scalar-matrix renderer and syntax
+The base-081 recheck uses the existing scalar-matrix renderer and syntax
 storage with no additional source change. Fifty fresh saves per configuration
 measure 89.184/89.121 ms p95 for the 885,733-byte public wide input. Separate
 native stdin saves measure 51.406250/51.375000 MiB for default/nested settings,
@@ -89,7 +98,7 @@ status match the retained baseline; focused matrix/table fidelity and scope-drop
 checks pass.
 
 The checkpoint preserves the earlier failed campaigns, unsuccessful experiments,
-separate CPU/allocation evidence and first-use observations. Current first-use
+separate CPU/allocation evidence and first-use observations. Its first-use
 controls show no material launch delay, but do not explain the historical host
 startup cause or establish controlled cold-cache performance. Large inputs remain
 supported; interactive budgets cover inputs up to 1 MiB. Fresh full no-rules
