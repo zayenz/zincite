@@ -34,6 +34,123 @@ fn selected() -> LintOptions {
 }
 
 #[test]
+fn direct_and_local_length_axes_inspect_sources_without_minimum_proof() {
+    const LIBRARY: &str = concat!(
+        "function set of int: '..'(int: left,int: right);\n",
+        "function int: length(array[int] of var int: values);\n",
+        "function int: 'div'(int: left,int: right);\n",
+        "predicate forall(array[int] of bool: values);\n",
+        "annotation marker;\n",
+    );
+    let direct = concat!(
+        "predicate derived_axis(array[int] of var int: input) =\n",
+        "  let { array[1..length(input)] of var int: values; } in true;\n",
+        "solve satisfy;\n",
+    );
+    let local = direct.replace(
+        "array[1..length(input)]",
+        "int: n = length(input); array[1..n]",
+    );
+    let headers = direct
+        .replace("  let {", "  forall(i in 1..2)(let {")
+        .replace("} in true;", "} in true);");
+    let bad_header = headers.replace("i in 1..2", "i in 1..(1 div 0)");
+    let bad_type = direct.replace("of var int: input", "of var 0..(1 div 0): input");
+    let bad_initializer = concat!(
+        "array[int] of int: input = [1 div 0];\n",
+        "constraint let { array[1..length(input)] of var int: values; } in true;\n",
+        "solve satisfy;\n",
+    );
+    let annotated = local.replace("int: n =", "int: n :: marker =");
+    let bodied_length = LIBRARY.replace(
+        "function int: length(array[int] of var int: values);",
+        "function int: length(array[int] of var int: values) = 1;",
+    );
+    let (directory, _) = model("direct-local-length-axis", "solve satisfy;\n");
+    let root = directory.join("root.mzn");
+    let options = ModelOptions {
+        stdlib_dir: Some(directory.join("library")),
+        include_dirs: Vec::new(),
+    };
+    for (name, source, library, completed) in [
+        ("direct", direct, LIBRARY, true),
+        ("earlier-local", local.as_str(), LIBRARY, true),
+        ("lexical-headers", headers.as_str(), LIBRARY, true),
+        ("closed-header-error", bad_header.as_str(), LIBRARY, false),
+        (
+            "closed-formal-type-error",
+            bad_type.as_str(),
+            LIBRARY,
+            false,
+        ),
+        ("closed-initializer-error", bad_initializer, LIBRARY, false),
+        ("local-annotation", annotated.as_str(), LIBRARY, false),
+        (
+            "changed-native-length",
+            direct,
+            bodied_length.as_str(),
+            false,
+        ),
+    ] {
+        std::fs::write(&root, source).unwrap();
+        std::fs::write(directory.join("library/std/stdlib.mzn"), library).unwrap();
+        let context = load_model(&root, &options);
+        assert!(context.errors.is_empty(), "{name}: {:?}", context.errors);
+        assert!(
+            context
+                .files
+                .iter()
+                .all(|file| file.parsed.diagnostics().is_empty())
+        );
+        let bindings = resolve_bindings(&context);
+        let domains = resolve_domains(&context, &bindings);
+        let axis = domains
+            .array_indices
+            .iter()
+            .find(|axis| {
+                axis.location.path == root
+                    && source[axis.location.range.clone()].starts_with("1..")
+                    && axis.domain.numeric_minimum().is_err()
+            })
+            .unwrap();
+        // Source inspection does not change the unsupported numeric endpoint.
+        assert!(matches!(&axis.domain, Domain::Range { upper, .. }
+            if matches!(upper, NumericBound::Unsupported(_) | NumericBound::Defined { .. })));
+        let result = analyze_model(&context, &selected());
+        assert!(result.errors.is_empty(), "{name}: {:?}", result.errors);
+        assert!(result.findings.is_empty(), "{name}: {:?}", result.findings);
+        if completed {
+            assert_eq!(
+                result.rules[0].outcome,
+                RuleOutcome::Completed,
+                "LENGTH_AXIS_RED {name}: {:?}",
+                result.limitations
+            );
+            assert!(
+                result.limitations.is_empty(),
+                "{name}: {:?}",
+                result.limitations
+            );
+        } else {
+            assert!(
+                matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                "{name}: {:?}",
+                result.rules
+            );
+            assert!(
+                result.limitations.iter().any(|limit| {
+                    limit.location == axis.location
+                        && limit.message.starts_with("array-index-start:")
+                }),
+                "{name}: {:?}",
+                result.limitations
+            );
+        }
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn symbolic_local_conditional_axes_retain_source_errors() {
     let source = concat!(
         "predicate symbolic_axis(array[int] of int: cons) =\n",

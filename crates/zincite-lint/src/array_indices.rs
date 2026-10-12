@@ -39,7 +39,7 @@ pub(super) fn check_array_indices(
             }),
             Err(_) if inspected_count_bound(context, bindings, calls, instantiations, facts, definitions, &index.domain)
                 || inspected_initialized_axis_source(context, bindings, calls, instantiations, facts, definitions, &index.domain)
-                || inspected_local_selection_bound(context, bindings, calls, instantiations, facts, index) => {},
+                || inspected_source_bound(context, bindings, calls, instantiations, facts, definitions, index) => {},
             Err(reason) => result.limitations.push(SourceDiagnostic {
                 location: index.location.clone(),
                 message: format!("array-index-start: {reason}"),
@@ -50,14 +50,15 @@ pub(super) fn check_array_indices(
     result
 }
 
-// A checked parameter source can supply a symbolic local axis without a
+// A checked parameter source can supply a symbolic axis without a
 // numeric minimum, membership guarantee or definition of the owning array.
-fn inspected_local_selection_bound(
+fn inspected_source_bound(
     context: &ModelContext,
     bindings: &BindingFacts,
     calls: &CallableFacts,
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
+    definitions: &DefinitionFacts,
     index: &ArrayIndexSet,
 ) -> bool {
     let Domain::Range {
@@ -67,8 +68,9 @@ fn inspected_local_selection_bound(
     else {
         return false;
     };
-    let (id, value, conditional) = match upper {
-        NumericBound::Defined { declaration, value } => (declaration, value, false),
+    let local_bound = match upper {
+        NumericBound::Unsupported(_) => None,
+        NumericBound::Defined { declaration, value } => Some((declaration, value, false)),
         NumericBound::Arithmetic {
             operator: TokenKind::Plus,
             operands,
@@ -80,24 +82,27 @@ fn inspected_local_selection_bound(
             else {
                 return false;
             };
-            (declaration, value, true)
+            Some((declaration, value, true))
         }
         _ => return false,
     };
-    let declaration = &bindings.declarations[id.0];
+    let conditional = local_bound.is_some_and(|(_, _, conditional)| conditional);
     let integer = |ty: &crate::TypeInst| {
         ty.known()
             && !crate::value_safety::optional(ty)
             && ty.instantiation == Instantiation::Parameter
             && ty.kind == TypeKind::Int
     };
-    if !matches!(value.as_ref(), NumericBound::Unsupported(_))
-        || declaration.role != DeclarationRole::Local
-        || declaration.file != index.file
-        || declaration.item != index.item
-        || !integer(&calls.declarations[id.0].ty)
-    {
-        return false;
+    if let Some((id, value, _)) = local_bound {
+        let declaration = &bindings.declarations[id.0];
+        if !matches!(value.as_ref(), NumericBound::Unsupported(_))
+            || declaration.role != DeclarationRole::Local
+            || declaration.file != index.file
+            || declaration.item != index.item
+            || !integer(&calls.declarations[id.0].ty)
+        {
+            return false;
+        }
     }
     let file = index.file;
     let source = &context.files[file];
@@ -167,7 +172,7 @@ fn inspected_local_selection_bound(
     if !matches!(crate::domains::tokens(&source.parsed, lower).as_slice(),
         [token] if token.kind == TokenKind::IntegerLiteral)
         || &source.parsed.source()[lower.range()] != "1"
-        || reference(local_reference) != Some(*id)
+        || local_bound.is_some_and(|(id, _, _)| reference(local_reference) != Some(*id))
         || crate::callables::core_operation(context, bindings, calls, file, node, "..") != Ok(true)
         || crate::callables::operation_fact(context, calls, file, node).is_none_or(|fact| {
             !matches!(&fact.outcome, crate::CallOutcome::Resolved { parameters, return_type, .. }
@@ -183,6 +188,24 @@ fn inspected_local_selection_bound(
     {
         return false;
     }
+    let Some((id, _, _)) = local_bound else {
+        let Some(owner) = path
+            .iter()
+            .rev()
+            .find(|n| n.kind() == NodeKind::Declaration)
+        else {
+            return false;
+        };
+        return inspected_length_source(
+            context,
+            bindings,
+            calls,
+            instantiations,
+            domains,
+            (file, node, *upper, owner),
+        );
+    };
+    let declaration = &bindings.declarations[id.0];
     let Some(local) = path
         .iter()
         .find(|n| n.kind() == NodeKind::LetBlock)
@@ -211,6 +234,29 @@ fn inspected_local_selection_bound(
     else {
         return false;
     };
+    if !conditional
+        && crate::callable_definitions::length_argument(context, bindings, calls, file, value)
+            .is_some()
+    {
+        return definitions.definitions.iter().any(|definition| {
+            definition.target == *id
+                && definition.file == file
+                && definition.item == index.item
+                && definition.location == source.location(local.range())
+                && definition.value == source.location(value.range())
+                && definition.instantiation == Instantiation::Parameter
+                && definition.coverage == DefinitionCoverage::Scalar
+                && definition.enforcement == DefinitionEnforcement::Enforced
+                && !definition.cyclic
+        }) && inspected_length_source(
+            context,
+            bindings,
+            calls,
+            instantiations,
+            domains,
+            (file, node, value, local),
+        );
+    }
     if conditional {
         let branches: Vec<_> = value.child_nodes().collect();
         let [first, otherwise] = branches.as_slice() else {
@@ -511,6 +557,161 @@ fn inspected_local_selection_bound(
         ),
         DefinitionSafety::Unsupported(_)
     )
+}
+
+// A native length's source can be inspected without evaluating the count.
+// Keep the initializer's own lexical headers, not later consuming generators.
+fn inspected_length_source<'a>(
+    context: &'a ModelContext,
+    bindings: &'a BindingFacts,
+    calls: &'a CallableFacts,
+    instantiations: &'a InstantiationFacts,
+    domains: &'a DomainFacts,
+    source: (
+        crate::FileId,
+        &'a SyntaxNode,
+        &'a SyntaxNode,
+        &'a SyntaxNode,
+    ),
+) -> bool {
+    let (file, range, length, owner) = source;
+    let Some(argument) =
+        crate::callable_definitions::length_argument(context, bindings, calls, file, length)
+    else {
+        return false;
+    };
+    let argument_range = context.files[file].location(argument.range()).range;
+    if calls
+        .expressions
+        .iter()
+        .find(|e| e.file == file && e.location.range == argument_range)
+        .is_none_or(
+            |e| !matches!(&e.ty.kind, TypeKind::Array { indices, .. } if indices.len() == 1),
+        )
+        || [range, length].iter().any(|node| {
+            !crate::callable_definitions::native_operation_source_safe(
+                context,
+                bindings,
+                calls,
+                instantiations,
+                domains,
+                (file, node),
+            )
+        })
+    {
+        return false;
+    }
+    let Some(generators) =
+        crate::callable_definitions::local_source_scope(context.files[file].parsed.tree(), owner)
+    else {
+        return false;
+    };
+    let Some(actual) = crate::definitions::resolved_reference(context, bindings, file, argument)
+    else {
+        return false;
+    };
+    let declaration = &bindings.declarations[actual.0];
+    if declaration.role != DeclarationRole::Parameter
+        && !(declaration.role == DeclarationRole::Value && declaration.top_level)
+    {
+        return false;
+    }
+    let Some(written) = crate::callables::find_node(
+        context.files[declaration.file].parsed.tree(),
+        &declaration.syntax_range,
+        declaration.role,
+    ) else {
+        return false;
+    };
+    let Some(header) = written.child_nodes().next() else {
+        return false;
+    };
+    if !crate::definitions::annotations_safe(context, declaration.file, written)
+        || crate::callable_definitions::closed_integer_type_source_error(
+            context,
+            bindings,
+            calls,
+            instantiations,
+            domains,
+            (declaration.file, header),
+        )
+        .is_some()
+    {
+        return false;
+    }
+    let mut types = vec![header];
+    while let Some(node) = types.pop() {
+        if !crate::definitions::annotations_safe(context, declaration.file, node) {
+            return false;
+        }
+        if node.kind() == NodeKind::DomainType
+            && node
+                .child_nodes()
+                .filter(|value| crate::callables::is_expression(value.kind()))
+                .any(|value| {
+                    matches!(
+                        crate::callable_definitions::initialized_expression_safety(
+                            context,
+                            bindings,
+                            calls,
+                            instantiations,
+                            domains,
+                            (declaration.file, value, &[], true),
+                            None,
+                        ),
+                        DefinitionSafety::Unsupported(_)
+                    )
+                })
+        {
+            return false;
+        }
+        types.extend(node.child_nodes());
+    }
+    for (position, generator) in generators.iter().enumerate() {
+        if generator.kind() != NodeKind::Generator
+            || !crate::definitions::annotations_safe(context, file, generator)
+        {
+            return false;
+        }
+        for part in generator.child_nodes() {
+            let (value, visible) = if part.kind() == NodeKind::WhereFilter {
+                let Some(value) = part.child_nodes().next() else {
+                    return false;
+                };
+                (value, position + 1)
+            } else {
+                (part, position)
+            };
+            if matches!(
+                crate::callable_definitions::initialized_expression_safety(
+                    context,
+                    bindings,
+                    calls,
+                    instantiations,
+                    domains,
+                    (file, value, &generators[..visible], true),
+                    None,
+                ),
+                DefinitionSafety::Unsupported(_)
+            ) {
+                return false;
+            }
+        }
+    }
+    [length, argument].iter().all(|node| {
+        !matches!(
+            crate::callable_definitions::initialized_expression_safety(
+                context,
+                bindings,
+                calls,
+                instantiations,
+                domains,
+                (file, node, &generators, true),
+                None,
+            ),
+            DefinitionSafety::Unsupported(_)
+        )
+    })
 }
 
 // Checked count evaluation can be supported while its numeric value remains
