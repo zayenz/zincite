@@ -6,11 +6,12 @@ For installation and command usage, see the [README](../README.md).
 ## Syntax support
 
 This describes supported syntax families, not complete compiler compatibility.
-Known corpus gaps include form-feed whitespace, escaped single quotes in strings,
+The parser supports form-feed whitespace, escaped single quotes in strings,
 deprecated declarations without the `function` keyword, anonymous enum
-constructors, standalone equality items and callable annotation capture. See the
-[corpus checkpoint](../scripts/formatter-corpus-checkpoint.md) for examples,
-validation results and unresolved performance limits.
+constructors, standalone equality items and callable annotation capture. The
+[syntax reconciliation](../scripts/syntax-corpus-reconciliation.md) records their
+corpus and compiler checks. See the [acceptance report](../scripts/corpus-acceptance.md)
+for the checked inventory, remaining coverage limits and final validation status.
 
 The parser supports:
 

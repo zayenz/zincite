@@ -17,8 +17,8 @@ The tools are written in Rust and share a parser that preserves source spelling,
 comments, whitespace and source locations. The commands do not require a MiniZinc
 compiler or solver.
 
-Zincite is under development, targeting MiniZinc 2.10.1. Some valid syntax remains
-unsupported, and formatting may change before a stable release. See
+Zincite is under development, targeting MiniZinc 2.10.1. Formatting may change
+before a stable release. See
 [current limitations](#current-limitations) before using it across a codebase.
 
 ## Installation
@@ -287,10 +287,11 @@ path and source location where applicable.
 
 ## Current limitations
 
-- Syntax coverage targets MiniZinc 2.10.1, but corpus checks still identify valid
-  inputs that are rejected and large inputs that time out. See the
-  [syntax reference](docs/reference.md#syntax-support) and
-  [corpus checkpoint](scripts/formatter-corpus-checkpoint.md).
+- Syntax coverage targets MiniZinc 2.10.1. Corpus checks retain compiler-negative
+  inputs, incompatible encodings and unavailable dependencies separately from
+  Zincite failures. See the [syntax reference](docs/reference.md#syntax-support)
+  and [acceptance report](scripts/corpus-acceptance.md) for checked revisions,
+  coverage limits and final validation status.
 - Parsing checks syntax. Formatting preserves source tokens and does not load includes or assess solver
   performance. The default linter loads model context for bounded comprehension advice.
 - Naming conventions (`naming`), constraint labels (`missing-constraint-label`)
@@ -300,7 +301,8 @@ path and source location where applicable.
   automatic fix; `prefer-array-comprehension` offers fixes when its conditions hold.
   Semantic rules use an explicit model and include context. Unsupported required facts produce located limitations;
   rule availability does not promise complete coverage of every input.
-- Files must be UTF-8. Data files accept top-level assignments. JSON data and
+- Code and literals use UTF-8; opaque comment bytes are preserved. Data files
+  accept top-level assignments. JSON data and
   solver output formats are outside the supported input formats.
 
 ## Libraries
