@@ -65,8 +65,8 @@ pub use bindings::{
     Reference, ReferenceKind, resolve_bindings,
 };
 pub use callable_definitions::{
-    CallableDefinitionFacts, CallableOutput, UnavailableCallableDefinition,
-    resolve_callable_definitions,
+    CallableDefinitionFacts, CallableDefinitionOperation, CallableDefinitionStatus, CallableOutput,
+    UnavailableCallableDefinition, resolve_callable_definitions,
 };
 pub use callables::{
     CallFact, CallOutcome, CallableFacts, CallableParameter, CallableSignature, DeclarationType,

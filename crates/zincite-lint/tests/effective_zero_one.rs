@@ -188,6 +188,7 @@ fn unsupported_safety_and_ambiguous_operators_remain_local_without_blanket_acces
             n.child_nodes().find_map(access)
         }
     }
+    // Typed integer selection is supported opacity, never a membership proof.
     assert!(matches!(
         expression_safety(
             &context,
@@ -196,7 +197,7 @@ fn unsupported_safety_and_ambiguous_operators_remain_local_without_blanket_acces
             0,
             access(context.files[0].parsed.tree()).unwrap()
         ),
-        DefinitionSafety::Unsupported(_)
+        DefinitionSafety::Unknown(_)
     ));
     std::fs::remove_dir_all(dir).unwrap();
     let overloaded = concat!(

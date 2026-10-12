@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-116"
 key = "opaque-definition-facts"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -27,12 +27,12 @@ Read .zdev/base/brief.md Semantic analysis, Interpretation before policy, Testin
 
 ## Done when
 
-- [ ] Supported-but-unproved local integer selections, array comprehensions and union-derived domains receive conservative facts from their semantic owner without a second body interpreter certifying admission.
-- [ ] analysis.rs no longer recognizes the control/iteration-safety message or reconstructs initializer shapes to change semantic facts; unbounded_variable.rs no longer recognizes the index-membership message; domain admission no longer depends on the UNINSPECTED_UNION_COMPREHENSION diagnostic text.
-- [ ] Constant-variable advice and semantic fixes still require supported safety and complete enforced definitions. Unknown initializer facts withhold stronger conclusions.
-- [ ] Unbounded advice retains positive simple explicit-domain cases and existing direct/per-element bound suppression. A relevant opaque initializer or relation that might supply a bound/definition prevents advice based solely on failure to prove one; target attribution uses conservative references, not arbitrary relation inversion. If affected targets cannot be bounded safely, withhold the dependent rule result at the necessary scope.
-- [ ] Whole-owner and inspected-local mechanisms remain only where they establish an actual retained guarantee. Remove fields/helpers made unused, or document their remaining concrete proof consumer without retaining message-based compatibility logic.
-- [ ] Update rule/support documentation for intentional scope changes and preserve meaningful source locations and limitation/error distinctions.
+- [x] Supported-but-unproved local integer selections, array comprehensions and union-derived domains receive conservative facts from their semantic owner without a second body interpreter certifying admission.
+- [x] analysis.rs no longer recognizes the control/iteration-safety message or reconstructs initializer shapes to change semantic facts; unbounded_variable.rs no longer recognizes the index-membership message; domain admission no longer depends on the UNINSPECTED_UNION_COMPREHENSION diagnostic text.
+- [x] Constant-variable advice and semantic fixes still require supported safety and complete enforced definitions. Unknown initializer facts withhold stronger conclusions.
+- [x] Unbounded advice retains positive simple explicit-domain cases and existing direct/per-element bound suppression. A relevant opaque initializer or relation that might supply a bound/definition prevents advice based solely on failure to prove one; target attribution uses conservative references, not arbitrary relation inversion. If affected targets cannot be bounded safely, withhold the dependent rule result at the necessary scope.
+- [x] Whole-owner and inspected-local mechanisms remain only where they establish an actual retained guarantee. Remove fields/helpers made unused, or document their remaining concrete proof consumer without retaining message-based compatibility logic.
+- [x] Update rule/support documentation for intentional scope changes and preserve meaningful source locations and limitation/error distinctions.
 
 ## Validation
 
@@ -40,3 +40,13 @@ Read .zdev/base/brief.md Semantic analysis, Interpretation before policy, Testin
 - Add only a missing public opaque-initializer/relation veto with a nearby independent positive declaration to check that uncertainty is localized when evidence permits.
 - Run constant-variable and fix controls to prove that replacing Unsupported with supported uncertainty does not upgrade fix eligibility.
 - Use the brief's focused testing level and run its required Rust validation (cargo fmt --all -- --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace), plus git diff --check. Run zdev check base --format json for changed zdev records.
+
+## Result
+
+Definition and domain owners publish supported uncertainty directly; consumers no longer repair diagnostic text or initializer shapes. Targeted callable boundaries withhold dependent advice while preserving known errors, explicit bounds, positive proofs and Supported-only fixes.
+
+Validation:
+
+- Fresh independent PASS on unchanged We1ece30064ed8b32: all six conditions, twenty-eight owned paths, modified public controls, callers and documentation reviewed; known false assertions retained inside opaque selections and model lets.
+- cargo fmt --all -- --check; cargo clippy --workspace --all-targets -- -D warnings; cargo test --workspace: 397 passed, zero failed/ignored; git diff --check. Focused implementation controls: 151 passed; independent focused controls: 144 passed.
+- Installed zincite, zincite-lint and zincite-query match release binaries. Both lint commands preserve independent unbounded advice, no constant advice for opaque cases, and direct/wrapped false-assert limitations using installed MiniZinc stdlib; input bytes preserved.

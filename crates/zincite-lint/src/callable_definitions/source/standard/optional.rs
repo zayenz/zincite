@@ -67,6 +67,8 @@ impl<'a> SourceInspector<'a> {
             )
         };
         Some(checked.map_err(|reason| UnavailableCallableDefinition {
+            operation: CallableDefinitionOperation::Source,
+            status: CallableDefinitionStatus::Unsupported,
             location,
             targets: Vec::new(),
             reason,

@@ -3,10 +3,11 @@ use crate::callables::{core_operation, find_node, is_expression};
 use crate::definitions::{annotations_safe, complete_array_coverage, resolved_reference};
 use crate::value_safety::optional;
 use crate::{
-    BindingFacts, CallableFacts, DeclarationId, DeclarationRole, DefinitionCoverage,
-    DefinitionEnforcement, DefinitionFacts, DefinitionSafety, Domain, DomainFacts, FileFinding,
-    FileId, Instantiation, InstantiationFacts, ModelContext, Rule, Severity, SourceDiagnostic,
-    TypeInst, TypeKind,
+    BindingFacts, CallableDefinitionOperation, CallableDefinitionStatus, CallableFacts,
+    DeclarationId, DeclarationRole, DefinitionCoverage, DefinitionEnforcement, DefinitionFacts,
+    DefinitionSafety, Domain, DomainFacts, FileFinding, FileId, Instantiation, InstantiationFacts,
+    ModelContext, Rule, Severity, SourceDiagnostic, TypeInst, TypeKind,
+    UnavailableCallableDefinition,
 };
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
@@ -22,7 +23,7 @@ pub(super) fn check_unbounded_variables(
     instantiations: &InstantiationFacts,
     domains: &DomainFacts,
     definitions: &DefinitionFacts,
-    inspected_locals: &[DeclarationId],
+    boundaries: &[UnavailableCallableDefinition],
 ) -> UnboundedResult {
     let mut result = UnboundedResult {
         findings: Vec::new(),
@@ -75,32 +76,6 @@ pub(super) fn check_unbounded_variables(
             Err(_) if unknown_domain => None,
             Err(reason) => Some(reason.to_owned()),
         };
-        let inspected_initializer = if declaration.role == DeclarationRole::Local
-            && inspected_locals.contains(&declaration.id)
-            && ty.known()
-            && !optional(ty)
-            && ty.instantiation == Instantiation::Decision
-            && ty.kind == TypeKind::Int
-        {
-            find_node(
-                file.parsed.tree(),
-                &declaration.syntax_range,
-                declaration.role,
-            )
-            .and_then(|local| {
-                local
-                    .child_nodes()
-                    .find(|node| is_expression(node.kind()))
-                    .map(|value| {
-                        (
-                            file.location(local.range()).range,
-                            file.location(value.range()).range,
-                        )
-                    })
-            })
-        } else {
-            None
-        };
 
         let mut unknown_definition = false;
         for definition in definitions
@@ -138,22 +113,6 @@ pub(super) fn check_unbounded_variables(
             ) {
                 (DefinitionEnforcement::Unsupported(reason), _, _)
                 | (_, DefinitionCoverage::Unsupported(reason), _) => Some(reason),
-                (_, DefinitionCoverage::Scalar, DefinitionSafety::Unsupported(reason))
-                    if reason == "definition array access requires an index-membership proof"
-                        && inspected_initializer
-                            .as_ref()
-                            .is_some_and(|(local, value)| {
-                                definition.file == declaration.file
-                                    && definition.item == declaration.item
-                                    && definition.location.range == *local
-                                    && definition.value.range == *value
-                            }) =>
-                {
-                    // Full model-let inspection supplies no output when an
-                    // initializer is uncertain. Keep that barrier in this advice.
-                    unknown_definition = true;
-                    None
-                }
                 (_, _, DefinitionSafety::Unsupported(reason)) => Some(reason),
                 (_, _, DefinitionSafety::Unknown(_)) => {
                     unknown_definition = true;
@@ -172,12 +131,31 @@ pub(super) fn check_unbounded_variables(
             result.limitations.push(diagnostic.clone());
             continue;
         }
+        let mut unsupported_boundary = false;
+        for boundary in boundaries.iter().filter(|boundary| {
+            boundary.operation == CallableDefinitionOperation::Source
+                && (boundary.targets.is_empty() || boundary.targets.contains(&declaration.id))
+        }) {
+            match boundary.status {
+                CallableDefinitionStatus::Unknown => unknown_definition = true,
+                CallableDefinitionStatus::Unsupported => {
+                    let diagnostic = SourceDiagnostic {
+                        location: boundary.location.clone(),
+                        message: format!("unbounded-variable: {}", boundary.reason),
+                    };
+                    if !result.limitations.contains(&diagnostic) {
+                        result.limitations.push(diagnostic);
+                    }
+                    unsupported_boundary = true;
+                }
+            }
+        }
         if let Some(reason) = limitation {
             result.limitations.push(SourceDiagnostic {
                 location: declaration.location.clone(),
                 message: format!("unbounded-variable: {reason} for '{}'", declaration.name),
             });
-        } else if !unknown_definition && !unknown_domain {
+        } else if !unsupported_boundary && !unknown_definition && !unknown_domain {
             result.findings.push(FileFinding { fix: None,
                 location: declaration.location.clone(),
                 rule: Rule::UnboundedVariable,

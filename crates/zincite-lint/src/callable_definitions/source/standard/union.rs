@@ -509,6 +509,8 @@ impl<'a> BodyInterpreter<'a, '_> {
         let mut location = self.source.context.files[file].location(node.range());
         if !crate::definitions::annotations_safe(self.source.context, file, node) {
             return Err(UnavailableCallableDefinition {
+                operation: CallableDefinitionOperation::Source,
+                status: CallableDefinitionStatus::Unsupported,
                 location,
                 targets: Vec::new(),
                 reason: "decision set source annotation is unsupported".into(),
@@ -519,6 +521,8 @@ impl<'a> BodyInterpreter<'a, '_> {
             && self.source.core(file, node, view, "intersect")
         {
             let failure = |reason: String| UnavailableCallableDefinition {
+                operation: CallableDefinitionOperation::Source,
+                status: CallableDefinitionStatus::Unsupported,
                 location: location.clone(),
                 targets: Vec::new(),
                 reason,
@@ -1085,6 +1089,8 @@ impl<'a> BodyInterpreter<'a, '_> {
             active.pop();
         }
         checked.map_err(|reason| UnavailableCallableDefinition {
+            operation: CallableDefinitionOperation::Source,
+            status: CallableDefinitionStatus::Unsupported,
             location,
             targets: Vec::new(),
             reason,
@@ -2040,6 +2046,8 @@ impl<'a> BodyInterpreter<'a, '_> {
             active.pop();
         }
         checked.map_err(|reason| UnavailableCallableDefinition {
+            operation: CallableDefinitionOperation::Source,
+            status: CallableDefinitionStatus::Unsupported,
             location,
             targets: Vec::new(),
             reason,

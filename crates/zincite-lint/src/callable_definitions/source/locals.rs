@@ -1888,12 +1888,17 @@ impl<'a> BodyInterpreter<'a, '_> {
             &mut unavailable,
             &mut Vec::new(),
         );
-        Some(match unavailable.into_iter().next() {
-            Some(unavailable) => DefinitionSafety::Unsupported(unavailable.reason),
-            None => {
-                DefinitionSafety::Unknown("Float let initialization or value is unproved".into())
-            }
-        })
+        Some(
+            match unavailable
+                .into_iter()
+                .find(|row| row.status == CallableDefinitionStatus::Unsupported)
+            {
+                Some(unavailable) => DefinitionSafety::Unsupported(unavailable.reason),
+                None => DefinitionSafety::Unknown(
+                    "Float let initialization or value is unproved".into(),
+                ),
+            },
+        )
     }
     // Inspect this optional constructor without establishing any cell value,
     // presence, extent or local output. Its present sources remain strict.

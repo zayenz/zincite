@@ -109,6 +109,16 @@ pub(super) fn resolve_search_with_callable(
         return producer.facts;
     }
     for missing in &callable.unavailable {
+        if missing.status == crate::CallableDefinitionStatus::Unknown && missing.targets.is_empty()
+        {
+            // An owner whose affected references cannot be delimited supplies
+            // no missing-search claim. Existing positive coverage remains valid.
+            for declaration in &mut producer.facts.declarations {
+                if !covered(declaration.coverage) {
+                    declaration.coverage = SearchCoverage::Unknown;
+                }
+            }
+        }
         for id in &missing.targets {
             if !covered(producer.facts.declarations[id.0].coverage) {
                 producer.facts.declarations[id.0].coverage = SearchCoverage::Unknown;
@@ -121,6 +131,9 @@ pub(super) fn resolve_search_with_callable(
         &callable.inspected_locals,
     );
     for missing in &callable.unavailable {
+        if missing.status == crate::CallableDefinitionStatus::Unknown {
+            continue;
+        }
         if missing.targets.is_empty()
             || missing
                 .targets

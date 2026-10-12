@@ -360,7 +360,10 @@ impl<'a> BodyInterpreter<'a, '_> {
                         active,
                         None,
                     );
-                    if let Some(unavailable) = unavailable.into_iter().next() {
+                    if let Some(unavailable) = unavailable
+                        .into_iter()
+                        .find(|row| row.status == CallableDefinitionStatus::Unsupported)
+                    {
                         return Err(unavailable.reason);
                     }
                     extend(&mut inspected, locals);
@@ -529,7 +532,10 @@ impl<'a> BodyInterpreter<'a, '_> {
                     None,
                 );
             }
-            match unavailable.into_iter().next() {
+            match unavailable
+                .into_iter()
+                .find(|row| row.status == CallableDefinitionStatus::Unsupported)
+            {
                 Some(unavailable) => Err(unavailable.reason),
                 None => Ok(inspected),
             }

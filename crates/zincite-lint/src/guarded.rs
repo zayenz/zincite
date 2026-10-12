@@ -3266,10 +3266,7 @@ impl<'a> Producer<'a> {
                 return None;
             }
             let row = self.domains.declarations.get(id.0)?;
-            if row.declaration != id
-                || matches!(row.domain, Domain::Unsupported(_))
-                    && !crate::definitions::uninspected_union(&row.domain)
-            {
+            if row.declaration != id {
                 return None;
             }
             Some(Domain::Named {
@@ -3295,31 +3292,24 @@ impl<'a> Producer<'a> {
             }
             return self.domain(file, node);
         };
-        // The source resolves to a top-level value, so enclosing binders cannot
-        // supply its initializer context. Its own binders are inspected normally.
-        if !crate::definitions::uninspected_union(&domain) {
-            return match crate::callable_definitions::initialized_integer_set_source_safety(
-                self.context,
-                self.bindings,
-                (self.calls, self.calls),
-                self.instantiations,
-                self.domains,
-                (file, node, &[]),
-            ) {
-                crate::DefinitionSafety::Unsupported(reason) => Domain::Unsupported(reason),
-                _ => domain,
-            };
+        if domain.numeric_minimum().is_err() {
+            // Keep the owner's concrete domain error instead of reopening it
+            // through a raw query without callable typing.
+            return domain;
         }
-        crate::definitions::inspect_union_domain(
+        // Domain production owns union uncertainty and errors. The selected source
+        // retains its ordinary observation checks without repairing a domain refusal.
+        match crate::callable_definitions::initialized_integer_set_source_safety(
             self.context,
             self.bindings,
             (self.calls, self.calls),
             self.instantiations,
             self.domains,
             (file, node, &[]),
-            &domain,
-        )
-        .unwrap_or_else(Domain::Unsupported)
+        ) {
+            crate::DefinitionSafety::Unsupported(reason) => Domain::Unsupported(reason),
+            _ => domain,
+        }
     }
     fn replaceable_set(&self, domain: &Domain) -> bool {
         match domain {

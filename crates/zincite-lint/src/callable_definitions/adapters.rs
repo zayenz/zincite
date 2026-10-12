@@ -63,8 +63,88 @@ fn opaque_dependency_error<'a>(
         actuals: actuals.to_vec(),
         reachable: None,
     };
-    let mut strict = vec![source];
-    while let Some(value) = strict.pop() {
+    let mut strict = vec![(file, source)];
+    let mut sources = Vec::new();
+    let mut nodes = vec![(file, source)];
+    while let Some((file, value)) = strict.pop() {
+        if (crate::value_safety::ClosedSourceErrors {
+            context: inspector.context,
+            bindings: inspector.bindings,
+            calls: inspector.view(file, value, view),
+            selected_set_source: false,
+        })
+        .false_integer_assertion(file, value)
+        {
+            return Some("false assertion condition aborts evaluation".into());
+        }
+        if value.kind() == NodeKind::CallExpression
+            && inspector.core(file, value, view, "floor")
+            && let Some(DefinitionSafety::Unsupported(reason)) =
+                interpreter.floor_sum_source_safety(file, value, view, &[])
+        {
+            return Some(reason);
+        }
+        if value.kind() == NodeKind::ArrayAccessExpression
+            && inspector
+                .expression_type(view, file, value)
+                .is_some_and(|e| e.ty.known() && !optional(&e.ty) && e.ty.kind == TypeKind::Int)
+            && let Some(subject) = value.child_nodes().next()
+            && let Some(array) = inspector.reference(file, subject)
+            && let Domain::Array { indices, .. } =
+                crate::domains::bare_index_domain(&inspector.domains.declarations[array.0].domain)
+            && indices
+                .iter()
+                .zip(value.child_nodes().skip(1))
+                .any(|(axis, selector)| {
+                    crate::domains::invariant_expression_integer(
+                        inspector.context,
+                        inspector.bindings,
+                        file,
+                        selector,
+                    )
+                    .is_ok_and(|value| {
+                        value.is_some_and(|value| {
+                            crate::domains::index_domain_member(axis, value) == Some(false)
+                        })
+                    })
+                })
+        {
+            return Some("integer selection is outside its declared index set".into());
+        }
+        // Retain the existing set-extremum arithmetic error reader for these
+        // concrete operands. Its successful result is discarded.
+        if value.kind() == NodeKind::BinaryExpression
+            && matches!(
+                operator(inspector.context, file, value)
+                    .and_then(crate::bindings::symbolic_operator),
+                Some("div" | "mod")
+            )
+        {
+            let mut operands: Vec<_> = value.child_nodes().collect();
+            let mut set_extremum = false;
+            while let Some(operand) = operands.pop() {
+                let operand = unwrap(operand);
+                operands.extend(operand.child_nodes());
+                if operand.kind() == NodeKind::CallExpression
+                    && (inspector.core(file, operand, view, "min") || inspector.core(file, operand, view, "max"))
+                    && operand.child_nodes().next().is_some_and(|argument| inspector.expression_type(view, file, argument)
+                        .is_some_and(|e| matches!(&e.ty.kind, TypeKind::Set(element) if element.kind == TypeKind::Int)))
+                {
+                    set_extremum = true;
+                }
+            }
+            if set_extremum
+                && let DefinitionSafety::Unsupported(reason) = interpreter.integer_operator_safety(
+                    file,
+                    value,
+                    view,
+                    &[],
+                    "integer arithmetic source is unsupported".into(),
+                )
+            {
+                return Some(reason);
+            }
+        }
         if parameter_index_extremum(inspector.context, inspector.bindings, view, file, value)
             .is_some()
             && let Some(subject) = unwrap(value)
@@ -82,6 +162,99 @@ fn opaque_dependency_error<'a>(
         {
             return Some("strict index extremum has a known empty actual array".into());
         }
+        if let Some(call) = operation_fact(inspector.context, view, file, value)
+            && matches!(call.name.as_str(), "min" | "max")
+            && core_operation(
+                inspector.context,
+                inspector.bindings,
+                view,
+                file,
+                value,
+                &call.name,
+            ) == Ok(true)
+            && matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                if matches!(parameters.as_slice(), [parameter] if parameter.known() && !optional(parameter)
+                    && parameter.instantiation == Instantiation::Parameter
+                    && matches!(&parameter.kind, TypeKind::Array { indices, element }
+                        if indices.len() == 1 && element.kind == TypeKind::Int))
+                    && return_type.kind == TypeKind::Int && !optional(return_type)
+                    && return_type.instantiation == Instantiation::Parameter)
+            && let Some(subject) = value.child_nodes().next()
+            && interpreter.invocation_array_empty(
+                file,
+                subject,
+                view,
+                &invocation,
+                &mut Vec::new(),
+                true,
+            ) == Ok(Some(true))
+        {
+            return Some("integer extrema source is empty".into());
+        }
+        if let Some(call) = operation_fact(inspector.context, view, file, value)
+            && matches!(call.name.as_str(), "min" | "max")
+            && inspector.core(file, value, view, &call.name)
+            && let CallOutcome::Resolved {
+                parameters,
+                return_type,
+                ..
+            } = &call.outcome
+            && return_type.known()
+            && !optional(return_type)
+            && return_type.instantiation == Instantiation::Parameter
+            && return_type.kind == TypeKind::Int
+        {
+            if value.kind() == NodeKind::CallExpression
+                && matches!(parameters.as_slice(), [parameter] if parameter.known() && !optional(parameter)
+                    && parameter.instantiation == Instantiation::Parameter && matches!(&parameter.kind, TypeKind::Set(element) if element.kind == TypeKind::Int))
+                && value
+                    .child_nodes()
+                    .next()
+                    .is_some_and(|argument| inspector.parameter_set_source_empty(file, argument))
+            {
+                return Some("parameter set extremum is undefined for an empty set".into());
+            }
+            if value.kind() == NodeKind::GeneratorCallExpression
+                && call.name == "max"
+                && value.child_nodes().next().is_some_and(|list| {
+                    list.child_nodes().any(|header| {
+                        header.child_nodes().next().is_some_and(|source| {
+                            inspector.parameter_set_source_empty(file, source)
+                        }) || header.child_nodes().skip(1).any(|filter| {
+                            filter.child_nodes().next().is_some_and(|condition| {
+                                inspector.assertion_literal(file, condition)
+                                    == Some(TokenKind::False)
+                            })
+                        })
+                    })
+                })
+            {
+                return Some("native max is undefined for an empty iteration".into());
+            }
+        }
+        if value.kind() == NodeKind::Expression
+            && let Some(id) = inspector.reference(file, value)
+            && !sources.contains(&id)
+        {
+            let declaration = &inspector.bindings.declarations[id.0];
+            let ty = &view.declarations[id.0].ty;
+            if matches!(
+                declaration.role,
+                DeclarationRole::Value | DeclarationRole::Local
+            ) && ty.known()
+                && (matches!(ty.kind, TypeKind::Set(_) | TypeKind::Array { .. })
+                    || ty.kind == TypeKind::Int && ty.instantiation == Instantiation::Parameter)
+                && let Some(written) = find_node(
+                    inspector.context.files[declaration.file].parsed.tree(),
+                    &declaration.syntax_range,
+                    declaration.role,
+                )
+            {
+                sources.push(id);
+                strict.push((declaration.file, written));
+                nodes.push((declaration.file, written));
+            }
+        }
         // A strict guard still evaluates, but an unproved branch is no witness
         // that its extremum executes. This check never admits the enclosing body.
         if value.kind() == NodeKind::ConditionalExpression {
@@ -89,15 +262,15 @@ fn opaque_dependency_error<'a>(
                 value
                     .child_nodes()
                     .filter(|branch| branch.kind() == NodeKind::ConditionalBranch)
-                    .filter_map(|branch| branch.child_nodes().next()),
+                    .filter_map(|branch| branch.child_nodes().next())
+                    .map(|node| (file, node)),
             );
         } else {
-            strict.extend(value.child_nodes());
+            strict.extend(value.child_nodes().map(|node| (file, node)));
         }
     }
-    let mut nodes = vec![source];
-    while let Some(node) = nodes.pop() {
-        nodes.extend(node.child_nodes());
+    while let Some((file, node)) = nodes.pop() {
+        nodes.extend(node.child_nodes().map(|node| (file, node)));
         if !matches!(
             node.kind(),
             NodeKind::CallExpression | NodeKind::GeneratorCallExpression

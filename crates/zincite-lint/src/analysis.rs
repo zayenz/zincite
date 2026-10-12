@@ -451,7 +451,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                     || options.rules.contains(&Rule::MissingInputPrecondition)
                     || options.rules.contains(&Rule::SuspiciousDomain)
                 {
-                    let mut definitions = prepared_definitions.unwrap_or_else(|| {
+                    let definitions = prepared_definitions.unwrap_or_else(|| {
                         resolve_definitions(
                             context,
                             &facts,
@@ -461,8 +461,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                         )
                     });
                     let callable_definitions = (options.rules.contains(&Rule::SearchCoverage)
-                        || options.rules.contains(&Rule::UnboundedVariable)
-                        || options.rules.contains(&Rule::ConstantVariable))
+                        || options.rules.contains(&Rule::UnboundedVariable))
                     .then(|| {
                         crate::resolve_callable_definitions(
                             context,
@@ -472,55 +471,6 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                             domains.as_ref().unwrap(),
                         )
                     });
-                    if let Some(callable) = &callable_definitions {
-                        for definition in &mut definitions.definitions {
-                            let declaration = &facts.declarations[definition.target.0];
-                            let ty = &calls.declarations[definition.target.0].ty;
-                            let file = &context.files[declaration.file];
-                            if declaration.role != crate::DeclarationRole::Local
-                                || !callable.inspected_locals.contains(&declaration.id)
-                                || !ty.known()
-                                || crate::value_safety::optional(ty)
-                                || ty.instantiation != crate::Instantiation::Decision
-                                || !matches!(&ty.kind, crate::TypeKind::Array { indices, element }
-                                    if indices.len() == 1 && element.kind == crate::TypeKind::Int)
-                                || definition.enforcement != crate::DefinitionEnforcement::Enforced
-                                || definition.coverage != crate::DefinitionCoverage::WholeArray
-                                || !matches!(&definition.safety, crate::DefinitionSafety::Unsupported(reason)
-                                    if reason == "definition value control/iteration safety is unsupported")
-                            {
-                                continue;
-                            }
-                            let local = crate::callables::find_node(
-                                file.parsed.tree(),
-                                &declaration.syntax_range,
-                                declaration.role,
-                            );
-                            if local
-                                .and_then(|local| {
-                                    local
-                                        .child_nodes()
-                                        .find(|node| crate::callables::is_expression(node.kind()))
-                                        .map(|value| (local, value))
-                                })
-                                .is_some_and(|(local, value)| {
-                                    value.kind() == zincite_syntax::NodeKind::ArrayComprehension
-                                        && definition.file == declaration.file
-                                        && definition.item == declaration.item
-                                        && definition.location.range
-                                            == file.location(local.range()).range
-                                        && definition.value.range
-                                            == file.location(value.range()).range
-                                })
-                            {
-                                // The complete owning let was inspected, but its uncertain
-                                // initializer supplies no definition, bound or clarity advice.
-                                definition.safety = crate::DefinitionSafety::Unknown(
-                                    "inspected local comprehension is unproved".into(),
-                                );
-                            }
-                        }
-                    }
                     if options.rules.contains(&Rule::ElementPredicate)
                         || options.rules.contains(&Rule::IndexSetMismatch)
                         || options.rules.contains(&Rule::HiddenOptionality)
@@ -778,7 +728,7 @@ pub fn analyze_model(context: &ModelContext, options: &LintOptions) -> AnalysisR
                             &instantiations,
                             domains.as_ref().unwrap(),
                             &complete,
-                            &callable_definitions.as_ref().unwrap().inspected_locals,
+                            &callable_definitions.as_ref().unwrap().unavailable,
                         );
                         unbounded_incomplete = !checked.limitations.is_empty();
                         result.findings.extend(checked.findings);

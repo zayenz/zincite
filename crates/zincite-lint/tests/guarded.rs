@@ -1590,7 +1590,17 @@ fn literal_regular_relations_inspect_sources_without_totality_proof() {
             .unwrap()
             .coverage;
         if failure.is_none() {
-            assert_eq!(coverage, SearchCoverage::Uncovered, "{name}: {search:?}");
+            assert_eq!(
+                coverage,
+                if name == "written-native" {
+                    // The written true body constrains no schedule value.
+                    SearchCoverage::Uncovered
+                } else {
+                    // Literal regular inspection leaves its schedule relation opaque.
+                    SearchCoverage::Unknown
+                },
+                "{name}: {search:?}"
+            );
         } else {
             assert!(
                 matches!(

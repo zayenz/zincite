@@ -202,8 +202,9 @@ catalogue, finite query resource guards and independent query/data contracts in
 the brief. General computed enum-index evaluation is still excluded from complete
 data reduction: unresolved affected dependencies keep previews incomplete and
 veto in-place writes. No corpus sweep or solver run is authorized by this revision.
-The old initializer-query/whole-owner extraction drafts remain optional local
-cleanup; a later semantic repair needs a concrete owner, witness and proof barrier.
+The historical initializer-query draft is superseded by owner-produced
+uncertainty. Any retained whole-owner check needs a concrete proof or scoped
+accounting consumer; a later repair needs an owner, witness and proof barrier.
 
 ## Warning and edit policy
 
@@ -290,6 +291,42 @@ completion or dependent proofs. Numeric chains, scoped guards, capacity/presence
 and definition/search guarantees keep their existing controls. Known enclosing
 index/division obligations remain reportable, while opaque unused-generator
 bodies acquire no fix eligibility. Historical captures above remain unchanged.
+
+Base-116 moves initializer and domain uncertainty to their semantic owners.
+Typed nonoptional integer selections and array comprehensions now publish
+DefinitionSafety::Unknown without an initialized-body admission certificate.
+Union comprehension operands publish Domain::Unknown while preserving named
+identity, both union operands and closed minima. Definition enforcement,
+coverage, dependency anchors and cycles retain their separate meaning. Exact
+traversal membership can still establish Supported safety.
+
+Former local selection/comprehension and selected written primitive-body
+admission refusals can therefore become Completed with Unknown. Analysis no
+longer changes definitions by matching diagnostic text or initializer syntax;
+constant-variable alone no longer requests callable analysis. Unknown cannot
+satisfy constant advice, strict output dependencies or semantic fix eligibility.
+Known arithmetic/source errors, empty strict extrema, out-of-axis selections,
+unavailable typing, invalid selections and relevant failed siblings remain
+Unsupported with their source locations.
+
+Callable boundaries retain an explicit Unknown or Unsupported status and a
+Source or Output operation. Source opacity can veto dependent unbounded advice;
+a stronger output refusal does not erase advice for understood conditional,
+partial or unanchored definitions. Existing resolved references and
+actual/default/capture mapping delimit affected targets without inversion.
+An unavailable attribution retains the necessary owner/root veto. Relevant
+opaque aggregates, relations and enclosing lets now retain Unknown search
+coverage instead of a missing-search warning. Independent known uncovered
+decisions and simple unbounded declarations still warn. Explicit scalar and
+complete per-element ranges and all retained Scalar/WholeArray proof outputs
+remain unchanged.
+
+`inspected_locals` remains only for scoped-search prerequisite accounting.
+Whole-owner checks still prevent a failing sibling from publishing an output
+or inspected-local certificate. Closed-source error readers serve concrete
+definition and domain consumers; successful observation establishes no safety,
+value, output or coverage. The historical message-bridge draft in the callable
+plan is superseded, and its old evidence remains unchanged.
 
 This baseline is a small bundle control set, not a substitute for the existing
 full catalogue and parsing/formatting acceptance evidence.

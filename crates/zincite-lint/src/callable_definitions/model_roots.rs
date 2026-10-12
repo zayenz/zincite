@@ -46,7 +46,9 @@ pub(super) fn interpret_model_roots<'a>(
                 &mut unavailable,
                 &mut inspected,
             );
-            complete &= unavailable.is_empty();
+            complete &= unavailable
+                .iter()
+                .all(|row| row.status != CallableDefinitionStatus::Unsupported);
             for output in found {
                 facts.definitions.push(Definition {
                     target: output.target,

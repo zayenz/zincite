@@ -881,7 +881,8 @@ fn fresh_integer_let_inspects_sources_without_defining_private_choices() {
             "fresh-choice-written-body",
             source.to_owned(),
             library.replace("min(set of $$E: s);", "min(set of $$E: s) = 0;"),
-            Some("written primitive"),
+            // A selected written body makes the comprehension opaque, not invalid.
+            None,
         ),
     ] {
         let (directory, _) = model(name, "solve satisfy;", "");
@@ -1166,7 +1167,9 @@ fn decision_sources_inspect_rank_three_reshape_fixedness_and_constrained_fresh_l
                 if text == "p = limit" {
                     assert_eq!(record.safety, DefinitionSafety::Supported);
                 } else {
-                    assert!(matches!(record.safety, DefinitionSafety::Unsupported(_)));
+                    // A typed selection remains Unknown; conditional enforcement
+                    // and the original dependencies still forbid a whole definition.
+                    assert!(matches!(record.safety, DefinitionSafety::Unknown(_)));
                 }
             }
         }
@@ -1278,7 +1281,8 @@ fn rank_four_parameter_integer_sources_preserve_unknown_and_errors() {
             "written-body",
             source,
             written_body.as_str(),
-            Some("parameter array primitive body"),
+            // No body-admission certificate is required for a typed opaque comprehension.
+            None,
         ),
     ] {
         let (directory, _) = model(&format!("rank-four-source-{name}"), "solve satisfy;", "");
@@ -2023,7 +2027,8 @@ fn rank_three_flat_parameter_integer_sources_preserve_unknown_and_errors() {
             "written-body",
             source,
             written_body.as_str(),
-            Some("parameter array primitive body"),
+            // No body-admission certificate is required for a typed opaque comprehension.
+            None,
         ),
     ] {
         let (directory, _) = model(
@@ -2581,7 +2586,8 @@ fn native_generator_max_sources_preserve_unknown_and_errors() {
             "written-body",
             source,
             written_body.as_str(),
-            Some("native max selected written primitive or tuple"),
+            // The selected max body remains opaque and supplies no value proof.
+            None,
         ),
     ] {
         let (directory, _) = model(&format!("native-max-source-{name}"), "solve satisfy;", "");

@@ -47,6 +47,47 @@ No public facts, general evaluator, IR or fixed-point framework are introduced
 by this revision. Use ordinary per-analysis demand/reuse before considering
 Salsa under the semantic plan's separately scoped, measured decision.
 
+## Current definition and boundary contracts
+
+Base-116 implements owner-produced uncertainty under the semantic support
+contract. `value_safety` and `definitions` classify typed nonoptional integer
+selections and array comprehensions as Unknown when membership, iteration or
+values remain unproved. `domains` classifies opaque union comprehension
+operands as Unknown. They retain known errors and useful concrete domain facts
+without an initialized-body admission certificate.
+
+`UnavailableCallableDefinition` now carries a typed status and operation beside
+its source location, affected targets and diagnostic reason. Unknown means the
+source is supported but the operation remains unproved. Unsupported retains a
+failed or unsupported required source/operation. Source boundaries describe
+relevant evaluation or relation uncertainty; Output boundaries describe a
+stronger output proof that is unavailable. Search retains Unknown for affected
+targets and reports only Unsupported boundaries. Unbounded advice reads Source
+boundaries directly, so relevant opacity vetoes dependent advice while an Output
+refusal preserves advice for understood conditional or partial definitions.
+The reason is diagnostic payload, never a policy selector.
+
+Boundary targets follow conservative resolved references and existing
+actual/default/capture mapping. They do not infer relation direction. Unresolved
+attribution retains an empty target list as the necessary owner/root veto;
+closed actuals with no affected references supply no veto on independent
+values. An opaque private prerequisite can withhold its enclosing let's output,
+so that enclosing scope publishes its own Unknown boundary. Unknown boundaries
+supply no output, definition, bound or search seed.
+
+`inspected_locals` remains a scoped-search prerequisite list. Search uses it to
+account for checked locals while keeping their coverage Unknown; no consumer
+uses it to repair definition safety or to prove a bound. Whole-owner checks
+still gate this list and positive model outputs after relevant siblings pass.
+Concrete closed-error readers remain in use by definitions, domains and scoped
+source inspectors. Their successful observations supply no admission or value
+certificate. Constant-variable consumes unchanged direct definitions and does
+not request callable facts solely to change their safety.
+
+The sections below preserve the recorded base-093/base-094 implementation map
+and observations. Their line numbers and consumer descriptions are historical.
+The private refusal-text query is superseded by these owner-produced facts.
+
 ## Historical implementation responsibilities
 
 All collaborating facts must come from the same retained `ModelContext`.
@@ -86,7 +127,7 @@ boundaries; publish model roots; mark definition cycles
 (`callable_definitions.rs:97–121`). These stages produce facts without choosing
 diagnostics or mutating source.
 
-## Public callable facts and their actual uses
+## Historical public callable facts and their uses
 
 | Field | Guarantee and permitted use | Consumer and remaining obligations |
 | --- | --- | --- |
@@ -100,7 +141,7 @@ diagnostics or mutating source.
 output summaries. `domains`, `guarded` and `iteration` likewise use bounded
 adapters; their facts keep their own meaning.
 
-## Source adapters: admission is narrower than proof
+## Historical source adapters: admission is narrower than proof
 
 The adapter map below covers the current consumer entry points in
 `callable_definitions/adapters.rs`. Unless stated otherwise, inspection needs
@@ -193,6 +234,11 @@ this recomputation; no checked evidence establishes that it is redundant or a
 performance defect. Whether wider sharing helps remains a hypothesis.
 
 ## Alternatives and recommendation
+
+This message-bridge draft is superseded by base-116. It records the earlier
+proposal and is not an instruction to retain safety strings or initializer
+shape checks in policy consumers.
+
 
 | Approach | Benefit to current consumers | Trade-off and cost |
 | --- | --- | --- |

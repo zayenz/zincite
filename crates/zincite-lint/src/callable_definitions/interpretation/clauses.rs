@@ -69,7 +69,10 @@ impl<'a> BodyInterpreter<'a, '_> {
                 &clause.generators,
                 &mut sources,
             ) {
-                DefinitionSafety::Unknown(_) => return,
+                DefinitionSafety::Unknown(reason) => {
+                    self.unknown(clause, &reason, unavailable);
+                    return;
+                }
                 DefinitionSafety::Unsupported(reason) => {
                     self.unavailable(clause, &reason, unavailable);
                     return;
@@ -77,7 +80,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                 DefinitionSafety::Supported => {}
             }
         }
-        self.unavailable(
+        self.output_unavailable(
             clause,
             "callable definition enforcement or control flow is unsupported",
             unavailable,
@@ -120,9 +123,42 @@ impl<'a> BodyInterpreter<'a, '_> {
                 }
             }
             match self.initialized_children_safety(clause.file, &values, view, &clause.generators) {
-                DefinitionSafety::Unknown(_) => {}
+                DefinitionSafety::Unknown(reason) => self.unknown(clause, &reason, unavailable),
                 DefinitionSafety::Unsupported(reason) => {
-                    self.unavailable(clause, &reason, unavailable)
+                    let direct_control = matches!(
+                        operator(self.source.context, clause.file, clause.node),
+                        Some(TokenKind::Implies | TokenKind::ReverseImplies | TokenKind::Or)
+                    ) && self
+                        .source
+                        .expression_type(view, clause.file, clause.node)
+                        .is_some_and(|value| {
+                            value.ty.known()
+                                && !optional(&value.ty)
+                                && value.ty.kind == TypeKind::Bool
+                        })
+                        && self
+                            .source
+                            .operation_fact(view, clause.file, clause.node)
+                            .is_none_or(|call| {
+                                !matches!(call.outcome, CallOutcome::Resolved { .. })
+                            });
+                    if direct_control {
+                        if let Some(error) = super::super::adapters::opaque_source_error(
+                            self.source.context,
+                            self.source.bindings,
+                            view,
+                            self.source.instantiations,
+                            self.source.domains,
+                            clause.file,
+                            clause.node,
+                        ) {
+                            self.unavailable(clause, &error, unavailable);
+                        } else {
+                            self.output_unavailable(clause, &reason, unavailable);
+                        }
+                    } else {
+                        self.unavailable(clause, &reason, unavailable);
+                    }
                 }
                 DefinitionSafety::Supported => self.unavailable(clause, &reason, unavailable),
             }
@@ -266,7 +302,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                 )
             })();
             match checked {
-                DefinitionSafety::Unknown(_) => {}
+                DefinitionSafety::Unknown(reason) => self.unknown(clause, &reason, unavailable),
                 DefinitionSafety::Unsupported(reason) => {
                     self.unavailable(clause, &reason, unavailable)
                 }
@@ -298,7 +334,7 @@ impl<'a> BodyInterpreter<'a, '_> {
                         || t.optional
                         || t.instantiation != Instantiation::Parameter
                 }) {
-                    self.unavailable(
+                    self.output_unavailable(
                         clause,
                         "conditional output guard is not a supported total parameter Boolean",
                         unavailable,
@@ -469,8 +505,13 @@ impl<'a> BodyInterpreter<'a, '_> {
         if let Some(result) =
             self.inspect_uncertain_index_let(clause, view, None, &[], invocation.as_deref())
         {
-            if let Err(reason) = result {
-                self.unavailable(clause, &reason, unavailable);
+            match result {
+                Err(reason) => self.unavailable(clause, &reason, unavailable),
+                Ok(()) => self.unknown(
+                    clause,
+                    "local initializer and resulting outputs are unproved",
+                    unavailable,
+                ),
             }
             // No output holds when an initializer can abort the whole let.
             return;
@@ -478,8 +519,15 @@ impl<'a> BodyInterpreter<'a, '_> {
         if let Some(safety) =
             self.parameter_set_let_safety(clause.file, clause.node, view, &clause.generators)
         {
-            if let DefinitionSafety::Unsupported(reason) = safety {
-                self.unavailable(clause, &reason, unavailable);
+            match safety {
+                DefinitionSafety::Unsupported(reason) => {
+                    self.unavailable(clause, &reason, unavailable)
+                }
+                _ => self.unknown(
+                    clause,
+                    "local filtered set relation outputs and bounds are unproved",
+                    unavailable,
+                ),
             }
             // A relation over a local filtered set defines no array.
             return;
@@ -550,6 +598,36 @@ impl<'a> BodyInterpreter<'a, '_> {
                     return;
                 }
                 let initializer = local.child_nodes().find(|n| is_expression(n.kind()));
+                // Definition value safety owns admission of these typed opaque
+                // initializers. Source observation retains failures, never outputs.
+                if let Some(value) = initializer.filter(|value| {
+                    let value = unwrap(value);
+                    ty.kind == TypeKind::Int && value.kind() == NodeKind::ArrayAccessExpression
+                        || value.kind() == NodeKind::ArrayComprehension
+                            && matches!(&ty.kind, TypeKind::Array { element, .. } if element.kind == TypeKind::Int)
+                }) {
+                    let checked = crate::expression_safety(self.source.context, self.source.bindings,
+                        self.source.view(clause.file, value, view), clause.file, value);
+                    if let DefinitionSafety::Unsupported(reason) = checked {
+                        self.unavailable(clause, &reason, unavailable);
+                        return;
+                    }
+                    if let Some(reason) = super::super::adapters::opaque_source_error(
+                        self.source.context, self.source.bindings, self.source.view(clause.file, local, view),
+                        self.source.instantiations, self.source.domains, clause.file, local) {
+                        self.unavailable(clause, &reason, unavailable);
+                        return;
+                    }
+                    uncertain_initialization = true;
+                    if ty.instantiation == Instantiation::Decision {
+                        // Only actual model-let scope accounting can publish this ID.
+                        if self.source.scoped_local(clause, declaration.id, view, ty.kind.clone()) {
+                            uncertain_locals.push(declaration.id);
+                        }
+                        private.push(declaration.id);
+                    }
+                    continue;
+                }
                 let boolean_comprehension = initializer
                     .is_some_and(|n| unwrap(n).kind() == NodeKind::ArrayComprehension)
                     && matches!(&ty.kind, TypeKind::Array { element, .. }
@@ -586,21 +664,12 @@ impl<'a> BodyInterpreter<'a, '_> {
                             self.unavailable(clause, &reason, unavailable);
                             return;
                         }
-                        let safety = if boolean_comprehension {
-                            self.collection_construction_safety(
-                                clause.file,
-                                initializer,
-                                view,
-                                &clause.generators,
-                            )
-                        } else {
-                            self.integer_comprehension_safety(
-                                clause.file,
-                                initializer,
-                                view,
-                                &clause.generators,
-                            )
-                        };
+                        let safety = self.collection_construction_safety(
+                            clause.file,
+                            initializer,
+                            view,
+                            &clause.generators,
+                        );
                         if let DefinitionSafety::Unsupported(reason) = safety {
                             self.unavailable(clause, &reason, unavailable);
                             return;
@@ -1057,7 +1126,10 @@ impl<'a> BodyInterpreter<'a, '_> {
                 );
             }
         }
-        if unavailable.len() == before {
+        if unavailable[before..]
+            .iter()
+            .all(|row| row.status != CallableDefinitionStatus::Unsupported)
+        {
             extend(inspected, uncertain_locals);
             for id in &private {
                 let declaration = &self.source.bindings.declarations[id.0];
@@ -1077,7 +1149,12 @@ impl<'a> BodyInterpreter<'a, '_> {
             }
             // These scoped values were inspected successfully, but an
             // unproved initializer can abort before any guarantee holds.
-            if uncertain_initialization {
+            if uncertain_initialization || unavailable.len() != before {
+                self.unknown(
+                    clause,
+                    "owning let outputs and bounds are unproved",
+                    unavailable,
+                );
                 extend(
                     inspected,
                     found
@@ -1368,6 +1445,8 @@ impl<'a> BodyInterpreter<'a, '_> {
                 // A reached abort remains unavailable even when the
                 // affected actual result is already explicitly searched.
                 unavailable.push(UnavailableCallableDefinition {
+                    operation: CallableDefinitionOperation::Source,
+                    status: CallableDefinitionStatus::Unsupported,
                     location: self.source.context.files[clause.file].location(clause.node.range()),
                     targets: Vec::new(),
                     reason: "false assertion condition aborts evaluation".into(),
@@ -1631,8 +1710,31 @@ impl<'a> BodyInterpreter<'a, '_> {
                         )
                     });
                 if let Err(reason) = checked {
-                    self.unavailable(clause, &reason, unavailable);
-                    return;
+                    let safety = actual.map(|(file, node)| {
+                        let lexical = if file == clause.file
+                            && clause.node.range().start <= node.range().start
+                            && node.range().end <= clause.node.range().end
+                        {
+                            &clause.generators[..]
+                        } else {
+                            &[]
+                        };
+                        self.direct_safety(file, node, view, lexical)
+                    });
+                    match safety {
+                        Some(DefinitionSafety::Unknown(actual)) => {
+                            self.unknown(clause, &actual, unavailable);
+                            uncertain_actual = true;
+                        }
+                        Some(DefinitionSafety::Unsupported(actual)) => {
+                            self.unavailable(clause, &actual, unavailable);
+                            unsupported_actual = true;
+                        }
+                        _ => {
+                            self.output_unavailable(clause, &reason, unavailable);
+                            unsupported_actual = true;
+                        }
+                    }
                 }
             }
         }
@@ -1640,7 +1742,14 @@ impl<'a> BodyInterpreter<'a, '_> {
             self.inspect_ignored_constraint(clause, view, id, &parameters, known, active)
         {
             match checked {
-                Ok(locals) => extend(inspected, locals),
+                Ok(locals) => {
+                    extend(inspected, locals);
+                    self.unknown(
+                        clause,
+                        "relation outputs and bounds are unproved",
+                        unavailable,
+                    );
+                }
                 Err(reason) => self.unavailable(clause, &reason, unavailable),
             }
             // Checked source IDs supply no enforcement or output guarantee.
@@ -1651,6 +1760,12 @@ impl<'a> BodyInterpreter<'a, '_> {
         {
             if let Err(reason) = checked {
                 self.unavailable(clause, &reason, unavailable);
+            } else {
+                self.unknown(
+                    clause,
+                    "aggregate relation outputs and bounds are unproved",
+                    unavailable,
+                );
             }
             return;
         }
@@ -1658,6 +1773,12 @@ impl<'a> BodyInterpreter<'a, '_> {
         {
             if let Err(reason) = checked {
                 self.unavailable(clause, &reason, unavailable);
+            } else {
+                self.unknown(
+                    clause,
+                    "maximum relation outputs and bounds are unproved",
+                    unavailable,
+                );
             }
             return;
         }
@@ -1666,6 +1787,12 @@ impl<'a> BodyInterpreter<'a, '_> {
         {
             if let Err(reason) = checked {
                 self.unavailable(clause, &reason, unavailable);
+            } else {
+                self.unknown(
+                    clause,
+                    "regular relation outputs and bounds are unproved",
+                    unavailable,
+                );
             }
             return;
         }
@@ -1674,11 +1801,24 @@ impl<'a> BodyInterpreter<'a, '_> {
             .iter()
             .find(|i| i.id == id && i.parameters == parameters)
         else {
-            self.unavailable(
-                clause,
-                "selected body or recursive type instantiation is unsupported",
-                unavailable,
-            );
+            // The selected first-order signature establishes no relation result.
+            // Observe known source failures without interpreting a body for admission.
+            match super::super::adapters::opaque_source_error(
+                self.source.context,
+                self.source.bindings,
+                view,
+                self.source.instantiations,
+                self.source.domains,
+                clause.file,
+                clause.node,
+            ) {
+                Some(reason) => self.unavailable(clause, &reason, unavailable),
+                None => self.unknown(
+                    clause,
+                    "selected relation outputs and bounds are unproved",
+                    unavailable,
+                ),
+            }
             return;
         };
         let selected: Vec<_> = known

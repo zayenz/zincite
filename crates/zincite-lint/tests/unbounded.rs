@@ -16,6 +16,8 @@ fn model(name: &str, source: &str) -> (PathBuf, zincite_lint::ModelContext) {
             "function var bool: 'in'(var int: a, set of int: b);\n",
             "function set of int: '..'(int: a, int: b);\n",
             "function var bool: '>='(var int: a, var int: b);\n",
+            "function var bool: '='(var int: a, var int: b);\n",
+            "function $T: assert(bool: condition, string: message, $T: value);\n",
         ),
     )
     .unwrap();
@@ -116,11 +118,9 @@ fn conditional_partial_and_unanchored_cycles_still_receive_domain_advice() {
     );
     let (directory, context) = model("negative", source);
     let result = analyze_model(&context, &selected());
-    assert_eq!(result.limitations.len(), 1, "{:?}", result.limitations);
-    assert_eq!(
-        &source[result.limitations[0].location.range.clone()],
-        "limited_array"
-    );
+    // The equality's selected integer cell is supported opacity. It supplies
+    // neither whole-array definition nor a reason to advise on limited_array.
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
     let names: Vec<_> = result
         .findings
         .iter()
@@ -137,10 +137,7 @@ fn conditional_partial_and_unanchored_cycles_still_receive_domain_advice() {
             "filtered"
         ]
     );
-    assert!(matches!(
-        result.rules[0].outcome,
-        RuleOutcome::Limited { .. }
-    ));
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
     let bindings = resolve_bindings(&context);
     let domains = resolve_domains(&context, &bindings);
     let calls = resolve_callables(&context, &bindings);
@@ -331,4 +328,166 @@ fn unsupported_range_source_limits_only_its_array() {
         .collect();
     assert_eq!(names, ["unrelated"]);
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn opaque_initializers_and_relations_veto_only_dependent_domain_advice() {
+    use zincite_lint::{DefinitionSafety, resolve_callable_definitions};
+    let source = concat!(
+        "int: count; array[1..count] of var 0..10: values;\n",
+        "var int: selected=values[1];\n",
+        "array[1..count] of var int: copied=[values[i] | i in 1..count];\n",
+        "var int: through; constraint let {var int: local=values[1];} in through=local;\n",
+        "predicate opaque(var int: value); var int: related; constraint opaque(related);\n",
+        "var int: independent; solve satisfy;\n",
+    );
+    let (directory, context) = model("opaque-veto", source);
+    let bindings = resolve_bindings(&context);
+    let calls = resolve_callables(&context, &bindings);
+    let inst = resolve_instantiations(&context, &bindings, &calls);
+    let domains = resolve_domains(&context, &bindings);
+    let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+    let callable = resolve_callable_definitions(&context, &bindings, &calls, &inst, &domains);
+    for name in ["selected", "copied", "local"] {
+        let id = bindings
+            .declarations
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap()
+            .id;
+        assert!(
+            definitions
+                .definitions
+                .iter()
+                .any(|d| d.target == id && matches!(d.safety, DefinitionSafety::Unknown(_)))
+        );
+        assert!(
+            !definitions
+                .bounded_or_defined_targets(&bindings, &domains)
+                .contains(&id)
+        );
+        assert!(!callable.definitions.iter().any(|d| d.target == id));
+    }
+    let result = analyze_model(&context, &selected());
+    assert!(
+        result.errors.is_empty() && result.limitations.is_empty(),
+        "{result:?}"
+    );
+    assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+    assert_eq!(
+        result
+            .findings
+            .iter()
+            .map(|f| &source[f.location.range.clone()])
+            .collect::<Vec<_>>(),
+        ["independent"]
+    );
+    let constants = analyze_model(
+        &context,
+        &LintOptions::from_selection("constant-variable").unwrap(),
+    );
+    assert_eq!(constants.rules[0].outcome, RuleOutcome::Completed);
+    assert!(constants.findings.is_empty(), "{constants:?}");
+    assert_eq!(
+        std::fs::read_to_string(directory.join("root.mzn")).unwrap(),
+        source
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn assertions_inside_opaque_selections_retain_only_known_failures() {
+    use zincite_lint::DefinitionSafety;
+    for condition in ["false", "gate", "true"] {
+        let source = format!(
+            "bool: gate; array[1..1] of int: values=[1];\n\
+             var int: chosen=values[assert({condition},\"abort\",1)];\n\
+             var int: through; constraint let {{int: local=values[assert({condition},\"abort\",1)];}} in through=local;\n\
+             var int: independent; solve satisfy;\n"
+        );
+        let (directory, context) = model(&format!("opaque-assert-{condition}"), &source);
+        let bindings = resolve_bindings(&context);
+        let calls = resolve_callables(&context, &bindings);
+        let inst = resolve_instantiations(&context, &bindings, &calls);
+        let domains = resolve_domains(&context, &bindings);
+        let definitions = resolve_definitions(&context, &bindings, &calls, &inst, &domains);
+        for name in ["chosen", "local"] {
+            let target = bindings
+                .declarations
+                .iter()
+                .find(|d| d.name == name)
+                .unwrap()
+                .id;
+            let definition = definitions
+                .definitions
+                .iter()
+                .find(|d| d.target == target)
+                .unwrap();
+            if condition == "false" {
+                assert!(
+                    matches!(&definition.safety, DefinitionSafety::Unsupported(reason)
+                    if reason == "false assertion condition aborts evaluation"),
+                    "{definition:?}"
+                );
+            } else {
+                assert!(
+                    matches!(definition.safety, DefinitionSafety::Unknown(_)),
+                    "{definition:?}"
+                );
+            }
+            if name == "chosen" {
+                assert!(
+                    !definitions
+                        .bounded_or_defined_targets(&bindings, &domains)
+                        .contains(&target)
+                );
+            }
+        }
+        for selection in ["constant-variable", "unbounded-variable"] {
+            let result = analyze_model(&context, &LintOptions::from_selection(selection).unwrap());
+            assert!(result.errors.is_empty(), "{result:?}");
+            if condition == "false" {
+                assert!(
+                    matches!(result.rules[0].outcome, RuleOutcome::Limited { .. }),
+                    "{result:?}"
+                );
+                assert!(
+                    result.limitations.iter().any(|limitation| limitation
+                        .message
+                        .contains("false assertion condition aborts evaluation")
+                        && source[limitation.location.range.clone()].contains("chosen")),
+                    "{result:?}"
+                );
+                if selection == "unbounded-variable" {
+                    assert!(
+                        result.limitations.iter().any(|limitation| limitation
+                            .message
+                            .contains("false assertion condition aborts evaluation")
+                            && source[limitation.location.range.clone()].contains("local")),
+                        "{result:?}"
+                    );
+                }
+            } else {
+                assert_eq!(
+                    result.rules[0].outcome,
+                    RuleOutcome::Completed,
+                    "{result:?}"
+                );
+                assert!(result.limitations.is_empty(), "{result:?}");
+            }
+            assert_eq!(
+                result
+                    .findings
+                    .iter()
+                    .map(|finding| &source[finding.location.range.clone()])
+                    .collect::<Vec<_>>(),
+                if selection == "unbounded-variable" {
+                    vec!["independent"]
+                } else {
+                    vec![]
+                }
+            );
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 }

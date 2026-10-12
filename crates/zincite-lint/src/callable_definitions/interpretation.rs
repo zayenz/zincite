@@ -42,20 +42,75 @@ impl<'a> BodyInterpreter<'a, '_> {
         reason: &str,
         out: &mut Vec<UnavailableCallableDefinition>,
     ) {
+        self.boundary(
+            clause,
+            reason,
+            CallableDefinitionStatus::Unsupported,
+            CallableDefinitionOperation::Source,
+            out,
+        );
+    }
+    pub(in crate::callable_definitions) fn unknown(
+        &self,
+        clause: &Clause<'a>,
+        reason: &str,
+        out: &mut Vec<UnavailableCallableDefinition>,
+    ) {
+        self.boundary(
+            clause,
+            reason,
+            CallableDefinitionStatus::Unknown,
+            CallableDefinitionOperation::Source,
+            out,
+        );
+    }
+    pub(in crate::callable_definitions) fn output_unavailable(
+        &self,
+        clause: &Clause<'a>,
+        reason: &str,
+        out: &mut Vec<UnavailableCallableDefinition>,
+    ) {
+        self.boundary(
+            clause,
+            reason,
+            CallableDefinitionStatus::Unsupported,
+            CallableDefinitionOperation::Output,
+            out,
+        );
+    }
+    fn boundary(
+        &self,
+        clause: &Clause<'a>,
+        reason: &str,
+        status: CallableDefinitionStatus,
+        operation: CallableDefinitionOperation,
+        out: &mut Vec<UnavailableCallableDefinition>,
+    ) {
         let location = self.source.context.files[clause.file].location(clause.node.range());
         let mut targets = Vec::new();
-        for r in &self.source.bindings.references {
-            if r.file == clause.file
-                && r.kind == ReferenceKind::Value
-                && location.range.start <= r.location.range.start
-                && r.location.range.end <= location.range.end
-                && let BindingResolution::Resolved(id) = r.resolution
-                && !targets.contains(&id)
+        let mut unresolved = false;
+        for reference in &self.source.bindings.references {
+            if reference.file == clause.file
+                && reference.kind == ReferenceKind::Value
+                && location.range.start <= reference.location.range.start
+                && reference.location.range.end <= location.range.end
             {
-                targets.push(id);
+                match reference.resolution {
+                    BindingResolution::Resolved(id) => extend(&mut targets, vec![id]),
+                    _ => unresolved = true,
+                }
             }
         }
+        if unresolved && status == CallableDefinitionStatus::Unknown {
+            targets.clear();
+        } else if status == CallableDefinitionStatus::Unknown && targets.is_empty() {
+            // A closed relation with no affected references cannot supply a bound
+            // or definition for an independent declaration.
+            return;
+        }
         out.push(UnavailableCallableDefinition {
+            operation,
+            status,
             location,
             targets,
             reason: reason.into(),
@@ -178,6 +233,8 @@ impl<'a> BodyInterpreter<'a, '_> {
                     .is_some_and(|row| !row.targets.is_empty())
                 {
                     unavailable.push(UnavailableCallableDefinition {
+                        operation: CallableDefinitionOperation::Source,
+                        status: CallableDefinitionStatus::Unsupported,
                         location: self.source.context.files[clause.file]
                             .location(clause.node.range()),
                         targets: Vec::new(),
@@ -267,6 +324,8 @@ impl<'a> BodyInterpreter<'a, '_> {
                     // A source failure still prevents inspection when its mapped
                     // dependencies are already searched or parameter values.
                     unavailable.push(UnavailableCallableDefinition {
+                        operation: CallableDefinitionOperation::Source,
+                        status: CallableDefinitionStatus::Unsupported,
                         location: self.source.context.files[clause.file]
                             .location(clause.node.range()),
                         targets: Vec::new(),
@@ -293,7 +352,10 @@ impl<'a> BodyInterpreter<'a, '_> {
             active,
             invocation,
         );
-        if unavailable.len() == before {
+        if unavailable[before..]
+            .iter()
+            .all(|row| row.status != CallableDefinitionStatus::Unsupported)
+        {
             extend(inspected, local_choices);
         }
         // Filtered traversal does not unconditionally enforce a body output.

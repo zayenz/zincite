@@ -261,6 +261,7 @@ impl<'a> BodyInterpreter<'a, '_> {
             .filter(|b| b.callable == id && b.parameters == parameters)
         {
             let mut targets = Vec::new();
+            let mut unresolved = boundary.unavailable.targets.is_empty();
             for target in &boundary.unavailable.targets {
                 if self.source.bindings.declarations[target.0].role != DeclarationRole::Parameter {
                     extend(&mut targets, vec![*target]);
@@ -271,14 +272,28 @@ impl<'a> BodyInterpreter<'a, '_> {
                             && reference.kind == ReferenceKind::Value
                             && range.start <= reference.location.range.start
                             && reference.location.range.end <= range.end
-                            && let BindingResolution::Resolved(id) = reference.resolution
                         {
-                            extend(&mut targets, vec![id]);
+                            match reference.resolution {
+                                BindingResolution::Resolved(id) => extend(&mut targets, vec![id]),
+                                _ => unresolved = true,
+                            }
                         }
                     }
+                } else {
+                    unresolved = true;
                 }
             }
+            if unresolved && boundary.unavailable.status == CallableDefinitionStatus::Unknown {
+                targets.clear();
+            } else if boundary.unavailable.status == CallableDefinitionStatus::Unknown
+                && targets.is_empty()
+            {
+                // All affected formals mapped to closed actuals.
+                continue;
+            }
             let unavailable = UnavailableCallableDefinition {
+                operation: boundary.unavailable.operation,
+                status: boundary.unavailable.status,
                 location: boundary.unavailable.location.clone(),
                 targets,
                 reason: boundary.unavailable.reason.clone(),

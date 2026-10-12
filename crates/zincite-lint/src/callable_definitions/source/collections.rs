@@ -1451,8 +1451,11 @@ impl<'a> BodyInterpreter<'a, '_> {
             if let Some(state) = invocation.as_deref_mut() {
                 state.reachable = incoming;
             }
-            if unavailable.len() != before {
-                return Err(unavailable[before].reason.clone());
+            if let Some(row) = unavailable[before..]
+                .iter()
+                .find(|row| row.status == CallableDefinitionStatus::Unsupported)
+            {
+                return Err(row.reason.clone());
             }
             Ok(())
         })())

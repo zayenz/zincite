@@ -36,7 +36,7 @@ use crate::callables::{
 };
 use crate::definitions::complete_array_coverage;
 use crate::domains::{NumericBound, expression_domain};
-use crate::value_safety::optional;
+use crate::value_safety::{operator, optional};
 use crate::{
     BindingFacts, BindingResolution, CallFact, CallOutcome, CallableFacts, DeclarationId,
     DeclarationRole, Definition, DefinitionCoverage, DefinitionEnforcement, DefinitionSafety,
@@ -58,10 +58,30 @@ pub struct CallableOutput {
     /// supply an enforced equality; this is not arbitrary value inversion.
     pub enforced_boolean: bool,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CallableDefinitionOperation {
+    /// Source evaluation or an opaque relation relevant to bounds/definitions.
+    Source,
+    /// A stronger output proof is unavailable; understood partial/conditional
+    /// definitions may still receive advice about their written domains.
+    Output,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CallableDefinitionStatus {
+    /// The source is supported but this operation's result remains unproved.
+    Unknown,
+    /// A required operation or source prerequisite is unsupported or failed.
+    Unsupported,
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnavailableCallableDefinition {
     pub location: SourceLocation,
+    /// Conservative resolved references, mapped through actuals/defaults and
+    /// captures. Empty retains the necessary owner/root scope when attribution
+    /// is unavailable; it is not an inferred relation direction.
     pub targets: Vec<DeclarationId>,
+    pub status: CallableDefinitionStatus,
+    pub operation: CallableDefinitionOperation,
     pub reason: String,
 }
 #[derive(Debug, Default)]
@@ -71,7 +91,9 @@ pub struct CallableDefinitionFacts {
     pub definitions: Vec<Definition>,
     pub unavailable: Vec<UnavailableCallableDefinition>,
     /// Fully inspected model-let Boolean choices and integer initializers
-    /// and comprehensions with unproved shape or membership. These supply no output or coverage.
+    /// and comprehensions with unproved shape or membership. Search uses these
+    /// only to account for checked scoped prerequisites; they supply no safety,
+    /// bound, definition or coverage proof.
     pub inspected_locals: Vec<DeclarationId>,
 }
 /// Interpret exact selected Boolean bodies and close nested output guarantees
@@ -358,14 +380,4 @@ fn unwrap(mut node: &SyntaxNode) -> &SyntaxNode {
         node = n;
     }
     node
-}
-fn operator(context: &ModelContext, file: FileId, node: &SyntaxNode) -> Option<TokenKind> {
-    node.children().iter().find_map(|c| {
-        if let SyntaxElement::Token(i) = c {
-            let kind = context.files[file].parsed.tokens()[*i].kind;
-            crate::bindings::symbolic_operator(kind).map(|_| kind)
-        } else {
-            None
-        }
-    })
 }

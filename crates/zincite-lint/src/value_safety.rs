@@ -1,15 +1,16 @@
 //! Bounded expression safety shared by definition and compact-if interpretation.
 use crate::domains::{expression_integer, invariant_expression_integer};
 use crate::{
-    BindingFacts, CallableFacts, DefinitionSafety, FileId, ModelContext, TypeInst, TypeKind,
+    BindingFacts, CallOutcome, CallableFacts, DefinitionSafety, FileId, Instantiation,
+    ModelContext, TypeInst, TypeKind,
 };
 use std::collections::HashMap;
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
 /// Check supported value safety without running lint or evaluating model code.
 /// The node, file and prerequisite facts must belong to this same ModelContext.
-/// This is a bounded check: opaque calls, index membership, options and control
-/// flow remain explicit unsupported facts, not a general definedness proof.
+/// Typed integer selections and comprehensions retain Unknown without proving
+/// membership or iteration safety. This is not a general definedness proof.
 pub fn expression_safety(
     context: &ModelContext,
     bindings: &BindingFacts,
@@ -43,6 +44,22 @@ pub(super) fn indexed_expression_safety(
         expression_indices: Some(expression_indices),
     }
     .check(file, node)
+}
+pub(crate) fn opaque_expression_safety(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &CallableFacts,
+    file: FileId,
+    node: &SyntaxNode,
+) -> DefinitionSafety {
+    Safety {
+        context,
+        bindings,
+        calls,
+        membership: None,
+        expression_indices: None,
+    }
+    .opaque(file, node, "definition source safety is unproved")
 }
 struct Safety<'a> {
     context: &'a ModelContext,
@@ -101,13 +118,15 @@ impl Safety<'_> {
                 }
             }
             NodeKind::MatrixLiteral => {
+                let mut safety = DefinitionSafety::Supported;
                 for value in children.iter().flat_map(|row| row.child_nodes()) {
-                    let safety = self.check(file, value);
-                    if safety != DefinitionSafety::Supported {
-                        return safety;
+                    match self.check(file, value) {
+                        unsupported @ DefinitionSafety::Unsupported(_) => return unsupported,
+                        unknown @ DefinitionSafety::Unknown(_) => safety = unknown,
+                        DefinitionSafety::Supported => {}
                     }
                 }
-                DefinitionSafety::Supported
+                safety
             }
             NodeKind::CallExpression | NodeKind::GeneratorCallExpression => {
                 DefinitionSafety::Unsupported(
@@ -115,13 +134,18 @@ impl Safety<'_> {
                 )
             }
             NodeKind::ArrayAccessExpression if self.membership.as_ref() == Some(&node.range()) => {
+                let mut safety = DefinitionSafety::Supported;
                 for child in children {
-                    let safety = self.check(file, child);
-                    if safety != DefinitionSafety::Supported {
-                        return safety;
+                    match self.check(file, child) {
+                        unsupported @ DefinitionSafety::Unsupported(_) => return unsupported,
+                        unknown @ DefinitionSafety::Unknown(_) => safety = unknown,
+                        DefinitionSafety::Supported => {}
                     }
                 }
-                DefinitionSafety::Supported
+                safety
+            }
+            NodeKind::ArrayAccessExpression if ty.known() && ty.kind == TypeKind::Int => {
+                self.opaque(file, node, "definition array membership is unproved")
             }
             NodeKind::ArrayAccessExpression => DefinitionSafety::Unsupported(
                 "definition array access requires an index-membership proof".into(),
@@ -168,6 +192,13 @@ impl Safety<'_> {
                     "definition operator partiality is unsupported".into(),
                 )
             }
+            NodeKind::ArrayComprehension
+                if ty.known()
+                    && matches!(&ty.kind, TypeKind::Array { element, .. }
+                        if element.kind == TypeKind::Int) =>
+            {
+                self.opaque(file, node, "definition comprehension safety is unproved")
+            }
             NodeKind::LetExpression
             | NodeKind::ConditionalExpression
             | NodeKind::ArrayComprehension
@@ -176,14 +207,61 @@ impl Safety<'_> {
                 "definition value control/iteration safety is unsupported".into(),
             ),
             _ => {
+                let mut safety = DefinitionSafety::Supported;
                 for child in children {
                     let status = self.check(file, child);
-                    if status != DefinitionSafety::Supported {
-                        return status;
+                    match status {
+                        DefinitionSafety::Unsupported(_) => return status,
+                        DefinitionSafety::Unknown(_) => safety = status,
+                        DefinitionSafety::Supported => {}
                     }
                 }
-                DefinitionSafety::Supported
+                safety
             }
+        }
+    }
+    fn opaque(&self, file: FileId, node: &SyntaxNode, reason: &str) -> DefinitionSafety {
+        let mut pending = vec![node];
+        while let Some(node) = pending.pop() {
+            if !crate::definitions::annotations_safe(self.context, file, node) {
+                return DefinitionSafety::Unsupported(
+                    "definition source annotations are unsupported".into(),
+                );
+            }
+            if crate::callables::is_expression(node.kind()) {
+                let Some(ty) = self.ty(file, node).filter(|ty| ty.known()) else {
+                    return DefinitionSafety::Unsupported(
+                        "definition source type is unavailable".into(),
+                    );
+                };
+                if optional(ty) {
+                    return DefinitionSafety::Unsupported(
+                        "optional definition values are not supported".into(),
+                    );
+                }
+                if matches!(
+                    node.kind(),
+                    NodeKind::CallExpression | NodeKind::GeneratorCallExpression
+                ) && let Err(reason) = crate::callables::selected_call_type(
+                    crate::callables::operation_fact(self.context, self.calls, file, node),
+                    Some(ty),
+                ) {
+                    return DefinitionSafety::Unsupported(reason);
+                }
+            }
+            pending.extend(node.child_nodes());
+        }
+        if let Some(reason) = (ClosedSourceErrors {
+            context: self.context,
+            bindings: self.bindings,
+            calls: self.calls,
+            selected_set_source: false,
+        })
+        .check(file, node, false, true, true)
+        {
+            DefinitionSafety::Unsupported(reason)
+        } else {
+            DefinitionSafety::Unknown(reason.into())
         }
     }
 }
@@ -198,7 +276,7 @@ pub(super) fn optional(ty: &TypeInst) -> bool {
 }
 
 /// Only the exact access whose full generator/index correspondence was proved.
-/// Ordinary expression_safety keeps rejecting accesses without membership proof.
+/// Ordinary expression_safety retains Unknown without this membership proof.
 /// Traversal safety also retains parameter dependencies in closed div/mod checks.
 pub(super) fn traversal_expression_safety(
     context: &ModelContext,
@@ -216,4 +294,376 @@ pub(super) fn traversal_expression_safety(
         expression_indices: None,
     }
     .check(file, node)
+}
+
+// Observe closed failures without requesting initialized-body admission or a value proof.
+pub(crate) struct ClosedSourceErrors<'a> {
+    pub context: &'a ModelContext,
+    pub bindings: &'a BindingFacts,
+    pub calls: &'a CallableFacts,
+    pub selected_set_source: bool,
+}
+impl ClosedSourceErrors<'_> {
+    fn expression_type(&self, file: FileId, node: &SyntaxNode) -> Option<&crate::ExpressionType> {
+        let range = self.context.files[file].location(node.range()).range;
+        self.calls
+            .expressions
+            .iter()
+            .find(|e| e.file == file && e.location.range == range)
+    }
+    fn operation_fact<'b>(
+        &self,
+        facts: &'b CallableFacts,
+        file: FileId,
+        node: &SyntaxNode,
+    ) -> Option<&'b crate::CallFact> {
+        crate::callables::operation_fact(self.context, facts, file, node)
+    }
+    fn core(&self, file: FileId, node: &SyntaxNode, facts: &CallableFacts, name: &str) -> bool {
+        crate::callables::core_operation(self.context, self.bindings, facts, file, node, name)
+            == Ok(true)
+    }
+    fn reference(&self, file: FileId, node: &SyntaxNode) -> Option<crate::DeclarationId> {
+        let range = self.context.files[file].location(node.range()).range;
+        self.bindings
+            .references
+            .iter()
+            .find(|reference| {
+                reference.file == file
+                    && reference.kind == crate::ReferenceKind::Value
+                    && range.start <= reference.location.range.start
+                    && reference.location.range.end <= range.end
+            })
+            .and_then(|reference| match reference.resolution {
+                crate::BindingResolution::Resolved(id) => Some(id),
+                _ => None,
+            })
+    }
+    fn assertion_literal(&self, file: FileId, mut node: &SyntaxNode) -> Option<TokenKind> {
+        while node.kind() == NodeKind::ParenthesizedExpression {
+            node = node.child_nodes().next()?;
+        }
+        (node.kind() == NodeKind::Expression)
+            .then(|| {
+                crate::domains::tokens(&self.context.files[file].parsed, node)
+                    .first()
+                    .map(|token| token.kind)
+            })
+            .flatten()
+    }
+    pub(crate) fn false_integer_assertion(&self, file: FileId, node: &SyntaxNode) -> bool {
+        if node.kind() != NodeKind::CallExpression
+            || !self.core(file, node, self.calls, "assert")
+            || crate::callables::selected_call_type(
+                self.operation_fact(self.calls, file, node),
+                self.expression_type(file, node)
+                    .map(|expression| &expression.ty),
+            )
+            .is_err()
+        {
+            return false;
+        }
+        let arguments: Vec<_> = node.child_nodes().collect();
+        arguments.len() == 3
+            && arguments
+                .iter()
+                .zip([TypeKind::Bool, TypeKind::String, TypeKind::Int])
+                .all(|(argument, kind)| {
+                    argument.kind() != NodeKind::NamedArgument
+                        && self
+                            .expression_type(file, argument)
+                            .is_some_and(|expression| {
+                                expression.ty.known()
+                                    && !optional(&expression.ty)
+                                    && expression.ty.instantiation == Instantiation::Parameter
+                                    && expression.ty.kind == kind
+                            })
+                })
+            && self.assertion_literal(file, arguments[0]) == Some(TokenKind::False)
+    }
+    pub(crate) fn check(
+        &self,
+        file: FileId,
+        node: &SyntaxNode,
+        eager_only: bool,
+        follow_collections: bool,
+        type_branches: bool,
+    ) -> Option<String> {
+        // Both scans must omit the same literal-inactive body, including its references.
+        fn source_children<'b>(
+            inspector: &ClosedSourceErrors<'_>,
+            file: FileId,
+            node: &'b SyntaxNode,
+            type_branches: bool,
+        ) -> Vec<&'b SyntaxNode> {
+            let children: Vec<_> = node.child_nodes().collect();
+            if !type_branches || node.kind() != NodeKind::ConditionalExpression {
+                return children;
+            }
+            let [then, otherwise] = children.as_slice() else {
+                return children;
+            };
+            let first: Vec<_> = then.child_nodes().collect();
+            let last: Vec<_> = otherwise.child_nodes().collect();
+            let ([guard, body], [fallback]) = (first.as_slice(), last.as_slice()) else {
+                return children;
+            };
+            let parsed = &inspector.context.files[file].parsed;
+            if then.kind() != NodeKind::ConditionalBranch
+                || otherwise.kind() != NodeKind::ElseBranch
+                || guard.kind() != NodeKind::Expression
+                || ![node, *then, *otherwise, *guard].iter().all(|source| {
+                    crate::definitions::annotations_safe(inspector.context, file, source)
+                })
+                || !matches!(crate::domains::tokens(parsed, guard).as_slice(),
+                    [token] if matches!(token.kind, TokenKind::True | TokenKind::False))
+                || inspector
+                    .expression_type(file, guard)
+                    .is_none_or(|expression| {
+                        expression.ty
+                            != TypeInst {
+                                instantiation: Instantiation::Parameter,
+                                optional: false,
+                                kind: TypeKind::Bool,
+                            }
+                    })
+            {
+                return children;
+            }
+            match inspector.assertion_literal(file, guard) {
+                Some(TokenKind::True) => vec![*guard, *body],
+                Some(TokenKind::False) => vec![*guard, *fallback],
+                _ => children,
+            }
+        }
+        fn literal_parts(
+            inspector: &ClosedSourceErrors<'_>,
+            file: FileId,
+            node: &SyntaxNode,
+            eager_only: bool,
+            type_branches: bool,
+        ) -> Result<bool, String> {
+            let context = inspector.context;
+            let bindings = inspector.bindings;
+            if eager_only
+                && node.kind() == NodeKind::ConditionalExpression
+                && inspector.selected_set_source
+            {
+                let branches: Vec<_> = node.child_nodes().collect();
+                if let [then, otherwise] = branches.as_slice() {
+                    let first: Vec<_> = then.child_nodes().collect();
+                    let last: Vec<_> = otherwise.child_nodes().collect();
+                    if then.kind() == NodeKind::ConditionalBranch
+                        && otherwise.kind() == NodeKind::ElseBranch
+                        && let ([guard, body], [fallback]) = (first.as_slice(), last.as_slice())
+                    {
+                        let selected = inspector.assertion_literal(file, guard);
+                        literal_parts(inspector, file, guard, eager_only, type_branches)?;
+                        for value in [
+                            (*body, selected != Some(TokenKind::False)),
+                            (*fallback, selected != Some(TokenKind::True)),
+                        ] {
+                            if value.1
+                                && literal_parts(
+                                    inspector,
+                                    file,
+                                    value.0,
+                                    eager_only,
+                                    type_branches,
+                                )?
+                            {
+                                crate::domains::invariant_expression_integer(
+                                    context, bindings, file, value.0,
+                                )?;
+                            }
+                        }
+                        return Ok(false);
+                    }
+                }
+            }
+            let inspected_conjunction = eager_only
+                && inspector.selected_set_source
+                && node.kind() == NodeKind::BinaryExpression
+                && inspector.core(file, node, inspector.calls, "/\\")
+                && {
+                    let facts = inspector.calls;
+                    let parameter_bool = |ty: &TypeInst| {
+                        ty.known()
+                            && !optional(ty)
+                            && ty.instantiation == Instantiation::Parameter
+                            && ty.kind == TypeKind::Bool
+                    };
+                    let operands: Vec<_> = node.child_nodes().collect();
+                    operands.len() == 2
+                        && operands.iter().all(|operand| {
+                            inspector
+                                .expression_type(file, operand)
+                                .is_some_and(|expression| parameter_bool(&expression.ty))
+                        })
+                        && inspector.operation_fact(facts, file, node).is_some_and(|call| {
+                            matches!(&call.outcome, CallOutcome::Resolved { parameters, return_type, .. }
+                                if parameters.len() == 2 && parameters.iter().all(parameter_bool)
+                                    && parameter_bool(return_type)
+                                    && inspector.expression_type(file, node)
+                                        .is_some_and(|expression| &expression.ty == return_type))
+                        })
+                };
+            if eager_only
+                && (node.kind() == NodeKind::ConditionalExpression
+                    || node.kind() == NodeKind::BinaryExpression
+                        && matches!(
+                            operator(context, file, node)
+                                .and_then(crate::bindings::symbolic_operator),
+                            Some("/\\" | "\\/" | "<->" | "->" | "<-" | "default")
+                        )
+                        && !inspected_conjunction)
+            {
+                return Err("lazy initialized arithmetic inspection is unavailable".into());
+            }
+            if inspector.false_integer_assertion(file, node) {
+                return Err("false assertion condition aborts evaluation".into());
+            }
+            let mut children = Vec::new();
+            for child in source_children(inspector, file, node, type_branches) {
+                children.push((
+                    child,
+                    literal_parts(inspector, file, child, eager_only, type_branches)?,
+                ));
+            }
+            let literal = match node.kind() {
+                NodeKind::Expression => {
+                    matches!(crate::domains::tokens(&context.files[file].parsed, node).as_slice(),
+                    [token] if token.kind == TokenKind::IntegerLiteral)
+                }
+                NodeKind::ParenthesizedExpression => children.len() == 1 && children[0].1,
+                NodeKind::UnaryExpression => {
+                    children.len() == 1
+                        && children[0].1
+                        && matches!(
+                            operator(context, file, node),
+                            Some(TokenKind::Plus | TokenKind::Minus)
+                        )
+                }
+                NodeKind::BinaryExpression => {
+                    children.len() == 2
+                        && children.iter().all(|(_, literal)| *literal)
+                        && matches!(
+                            operator(context, file, node),
+                            Some(
+                                TokenKind::Plus
+                                    | TokenKind::Minus
+                                    | TokenKind::Star
+                                    | TokenKind::Div
+                                    | TokenKind::Mod
+                            )
+                        )
+                }
+                _ => false,
+            };
+            if node.kind() == NodeKind::BinaryExpression
+                && children.len() == 2
+                && children[1].1
+                && matches!(
+                    operator(context, file, node),
+                    Some(TokenKind::Div | TokenKind::Mod)
+                )
+                && crate::domains::invariant_expression_integer(
+                    context,
+                    bindings,
+                    file,
+                    children[1].0,
+                )? == Some(0)
+            {
+                return Err("integer division by zero".into());
+            }
+            if !literal {
+                for (child, literal) in children {
+                    if literal {
+                        crate::domains::invariant_expression_integer(
+                            context, bindings, file, child,
+                        )?;
+                    }
+                }
+            }
+            Ok(literal)
+        }
+        let mut sources = Vec::new();
+        let mut pending = vec![(file, node)];
+        while let Some((file, root)) = pending.pop() {
+            match literal_parts(self, file, root, eager_only, type_branches) {
+                Ok(true) => {
+                    if let Err(reason) = crate::domains::invariant_expression_integer(
+                        self.context,
+                        self.bindings,
+                        file,
+                        root,
+                    ) {
+                        return Some(reason);
+                    }
+                }
+                Err(reason) => return Some(reason),
+                Ok(false) => {}
+            }
+            let mut nodes = vec![root];
+            while let Some(node) = nodes.pop() {
+                nodes.extend(source_children(self, file, node, type_branches));
+                if self.selected_set_source && node.kind() == NodeKind::DomainType {
+                    match literal_parts(self, file, node, true, type_branches) {
+                        Ok(true) => {
+                            if let Err(reason) = crate::domains::invariant_expression_integer(
+                                self.context,
+                                self.bindings,
+                                file,
+                                node,
+                            ) {
+                                return Some(reason);
+                            }
+                        }
+                        Err(reason) => return Some(reason),
+                        Ok(false) => {}
+                    }
+                }
+                if node.kind() == NodeKind::Expression
+                    && let Some(id) = self.reference(file, node)
+                    && !sources.contains(&id)
+                {
+                    let declaration = &self.bindings.declarations[id.0];
+                    let ty = &self.calls.declarations[id.0].ty;
+                    if (declaration.top_level && declaration.role == crate::DeclarationRole::Value
+                        || follow_collections && declaration.role == crate::DeclarationRole::Local)
+                        && ty.known()
+                        && (!optional(ty)
+                            && ty.instantiation == Instantiation::Parameter
+                            && ty.kind == TypeKind::Int
+                            || follow_collections
+                                && matches!(ty.kind, TypeKind::Set(_) | TypeKind::Array { .. }))
+                        && let Some(written) = crate::callables::find_node(
+                            self.context.files[declaration.file].parsed.tree(),
+                            &declaration.syntax_range,
+                            declaration.role,
+                        )
+                    {
+                        sources.push(id);
+                        pending.push((declaration.file, written));
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+pub(crate) fn operator(
+    context: &ModelContext,
+    file: FileId,
+    node: &SyntaxNode,
+) -> Option<TokenKind> {
+    node.children().iter().find_map(|c| {
+        if let SyntaxElement::Token(i) = c {
+            let kind = context.files[file].parsed.tokens()[*i].kind;
+            crate::bindings::symbolic_operator(kind).map(|_| kind)
+        } else {
+            None
+        }
+    })
 }

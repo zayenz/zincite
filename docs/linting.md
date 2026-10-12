@@ -114,6 +114,34 @@ not run a solver or infer arbitrary callee meaning, symbolic algebra, feasibilit
 or optimization benefit. Current installed-library and corpus limitations are
 recorded in [the expansion checkpoint](../scripts/lint-expansion-checkpoint.md).
 
+## Definitions and domain advice
+
+`value_safety` and `definitions` retain Unknown for typed nonoptional integer
+selections and array comprehensions whose membership, iteration or values are
+unproved. `domains` does the same for opaque union comprehension operands,
+while keeping named set identity, union operands and useful closed minima.
+These facts need no body interpreter to certify admission. Unknown proves no
+member, bound, whole-array definition or safe edit.
+
+`unbounded-variable` still advises on simple bare numeric declarations and
+understood conditional or partial definitions. Complete anchored definitions
+and explicit scalar or matching per-element ranges suppress that advice.
+An opaque initializer or relation withholds advice on its conservatively
+referenced targets; an independent declaration can still warn. When references
+cannot delimit the affected targets, the owner retains the necessary wider
+veto. Supported opacity can complete without a finding. Known source failures
+and unsupported required operations remain located limitations.
+
+`constant-variable` and semantic fixes still require Supported safety and a
+complete enforced definition. Search retains Unknown for relevant opaque
+relations and enclosing lets, instead of warning from a missing output proof.
+Unknown boundaries supply no search coverage; original searched seeds and
+complete definition guarantees keep their stronger requirements. Required
+typing, overload selection, closed arithmetic errors, known-empty strict
+extrema, known out-of-axis selections, sibling failures and cycles remain
+explicit. A refusal of a stronger output proof is distinct from a source
+failure; diagnostic text does not select rule behavior.
+
 ## Integer identity sets and enums
 
 Select `prefer-enum`, `family:style` or `all` to enable this advisory rule.
