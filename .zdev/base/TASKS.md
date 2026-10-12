@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 132
-- Ready: 3
+- Ready: 2
 - Blocked: 9
-- Done: 120
+- Done: 121
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -133,7 +133,7 @@
 | [base-122](tasks/122-evaluate-salsa-against-the-simplified-demand-driven-analysis.md) | Evaluate Salsa against the simplified demand-driven analysis | blocked | base-121 |
 | [base-123](tasks/123-verify-the-smaller-semantic-contract-across-lints-and-querie.md) | Verify the smaller semantic contract across lints and queries | blocked | base-122, base-111, base-112 |
 | [base-124](tasks/124-document-reproducible-minizinc-feature-extraction-recipes.md) | Document reproducible MiniZinc feature-extraction recipes | done | — |
-| [base-125](tasks/125-specify-shared-comprehension-syntax-for-reports-and-structur.md) | Specify shared comprehension syntax for reports and structured data | ready | — |
+| [base-125](tasks/125-specify-shared-comprehension-syntax-for-reports-and-structur.md) | Specify shared comprehension syntax for reports and structured data | done | — |
 | [base-126](tasks/126-run-query-programs-with-bindings-comprehensions-and-structur.md) | Run query programs with bindings, comprehensions and structured reports | blocked | base-119, base-125 |
 | [base-127](tasks/127-create-and-replace-structured-data-using-bounded-comprehensi.md) | Create and replace structured data using bounded comprehensions | blocked | base-125, base-126 |
 | [base-128](tasks/128-measure-shared-query-feature-extraction-and-bounded-resource.md) | Measure shared-query feature extraction and bounded resource use | blocked | base-126 |

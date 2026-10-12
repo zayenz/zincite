@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-125"
 key = "literal-mapping-contract"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -30,14 +30,24 @@ The user confirmed that doubling means duplicating entities and their dependent 
 
 ## Done when
 
-- [ ] The contract defines shared MiniZinc-style comprehension syntax, generators, binding/index scope, supported scalar operations, numeric failures and aggregate limits for report and data consumers.
-- [ ] Report examples construct arrays or keyed structures from query results; data examples create new assignments and replace existing structured values without confusing source insertion with evaluated construction.
-- [ ] A complete public double-instance example expands a structured collection and its dependent arrays, sets or records with explicit index/reference mapping; it distinguishes this operation from merely multiplying numeric values.
-- [ ] The contract states positional/keyed/multidimensional output shape, rectangularity, comment policy, identifier/member representation, uncertain input handling and refusal behavior.
-- [ ] Recommend one shared bounded comprehension implementation using existing syntax/literal/query machinery where sufficient; exclude a general MiniZinc evaluator and record concrete user choices for the data implementation approval gate.
+- [x] The contract defines shared MiniZinc-style comprehension syntax, generators, binding/index scope, supported scalar operations, numeric failures and aggregate limits for report and data consumers.
+- [x] Report examples construct arrays or keyed structures from query results; data examples create new assignments and replace existing structured values without confusing source insertion with evaluated construction.
+- [x] A complete public double-instance example expands a structured collection and its dependent arrays, sets or records with explicit index/reference mapping; it distinguishes this operation from merely multiplying numeric values.
+- [x] The contract states positional/keyed/multidimensional output shape, rectangularity, comment policy, identifier/member representation, uncertain input handling and refusal behavior.
+- [x] Recommend one shared bounded comprehension implementation using existing syntax/literal/query machinery where sufficient; exclude a general MiniZinc evaluator and record concrete user choices for the data implementation approval gate.
 
 ## Validation
 
 - Check examples against current parser/edit behavior and current MiniZinc primary documentation; no new product tests or benchmark campaign.
 - Run git diff --check and zdev check base --format json for changed records.
 - Review the final human-facing prose against both writing skills: concrete openings, proportionate claims, direct explanations and Zayenz voice; remove generic or promotional wording without flattening useful context.
+
+## Result
+
+Specified a proposed shared bounded comprehension contract with report/data adapters, coherent doubled-instance mappings and concrete data approval choices; no implementation approval granted.
+
+Validation:
+
+- Fresh independent review passed all five done conditions and both writing guides; original and doubled public instances accepted by MiniZinc instance-only checks and twelve expression bodies parsed by Zincite.
+- Confirmed compiler string-set gap corrected with located common-subset refusal; grammar, scopes, numeric errors, limits, identifiers, shape, comments and coherent candidate axis obligations reviewed.
+- Git diff checks and zdev check pass; corrected review snapshot W7eb81fb71c57614f compares equal; private evidence retained in /tmp/zincite125-validation.txt.
