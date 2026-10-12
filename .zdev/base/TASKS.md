@@ -2,9 +2,9 @@
 
 # Tasks: base
 
-- Total: 123
-- Ready: 1
-- Blocked: 4
+- Total: 132
+- Ready: 5
+- Blocked: 9
 - Done: 118
 
 | ID | Task | State | Blocked by |
@@ -132,3 +132,12 @@
 | [base-121](tasks/121-remove-superseded-admission-inspectors-and-their-compatibili.md) | Remove superseded admission inspectors and their compatibility bridges | blocked | base-120 |
 | [base-122](tasks/122-evaluate-salsa-against-the-simplified-demand-driven-analysis.md) | Evaluate Salsa against the simplified demand-driven analysis | blocked | base-121 |
 | [base-123](tasks/123-verify-the-smaller-semantic-contract-across-lints-and-querie.md) | Verify the smaller semantic contract across lints and queries | blocked | base-122, base-111, base-112 |
+| [base-124](tasks/124-document-reproducible-minizinc-feature-extraction-recipes.md) | Document reproducible MiniZinc feature-extraction recipes | ready | — |
+| [base-125](tasks/125-specify-shared-comprehension-syntax-for-reports-and-structur.md) | Specify shared comprehension syntax for reports and structured data | ready | — |
+| [base-126](tasks/126-run-query-programs-with-bindings-comprehensions-and-structur.md) | Run query programs with bindings, comprehensions and structured reports | blocked | base-119, base-125 |
+| [base-127](tasks/127-create-and-replace-structured-data-using-bounded-comprehensi.md) | Create and replace structured data using bounded comprehensions | blocked | base-125, base-126 |
+| [base-128](tasks/128-measure-shared-query-feature-extraction-and-bounded-resource.md) | Measure shared-query feature extraction and bounded resource use | blocked | base-126 |
+| [base-129](tasks/129-publish-the-formatting-style-and-refresh-bounded-acceptance.md) | Publish the formatting style and refresh bounded acceptance evidence | ready | — |
+| [base-130](tasks/130-organize-zincite-documentation-around-user-workflows.md) | Organize Zincite documentation around user workflows | ready | — |
+| [base-131](tasks/131-build-an-astro-documentation-site-with-zincite-branding.md) | Build an Astro documentation site with Zincite branding | blocked | base-130 |
+| [base-132](tasks/132-publish-and-verify-the-approved-zincite-documentation-site.md) | Publish and verify the approved Zincite documentation site | blocked | base-131 |
