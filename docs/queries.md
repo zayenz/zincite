@@ -41,8 +41,13 @@ in the source binding to select semantic declaration identities instead.
 Statements run in order with immutable earlier bindings. Each starts from the
 same input selection unless it names another native result. A later failure
 leaves stdout empty. [Query programs](reference.md#query-programs) describes
-emitters, the library result and aggregate limits. Positional and keyed
-comprehensions remain future work.
+emitters, the library result and aggregate limits.
+
+Read-only programs also support `let` bindings, positional comprehensions and
+scalar expressions over query projections or a written literal assignment. The
+reference describes the accepted values, checked arithmetic and result schema.
+Keyed arrays, enum identities, multidimensional access and program-based data
+edits remain future work.
 
 ## Inspect semantic facts
 

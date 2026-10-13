@@ -22,7 +22,7 @@ From the Zincite checkout:
 ```sh
 cd site
 npm ci
-npm run check
+SITE_URL=https://zayenz.se SITE_BASE=/zincite npm run check
 SITE_URL=https://zayenz.se SITE_BASE=/zincite npm run build
 SITE_URL=https://zayenz.se SITE_BASE=/zincite npm run preview -- --host 127.0.0.1
 ```
@@ -37,15 +37,24 @@ rollback point. Compare the chosen personal-site source commit with production;
 unpublished changes need their own review before they enter the release.
 Preserve existing local changes and the Git index.
 
-In a clean publication checkout of the personal site, inspect whether
-`public/zincite/` already exists. Preserve the previous imported directory before
-replacing it. Copy the new `site/dist/` contents there, including `_astro/`,
-`pagefind/`, icons, guides and the Zincite sitemap files. Commit the imported
-output so the existing hosted build can reproduce the publication without a
-second repository checkout or new credentials. Omit the generated `404.html`: the
-personal site owns Netlify's error page, and Zincite's standalone error page links
-to a directory route that is absent from the import. Record the Zincite source commit
-in the import commit message.
+In a clean publication checkout of the personal site, use its project-site import
+command. The project is registered as `zincite` and published at `/zincite/`:
+
+```sh
+npm run import:project -- --project zincite --source /absolute/path/to/zincite/site/dist --dry-run --replace
+npm run import:project -- --project zincite --source /absolute/path/to/zincite/site/dist --replace
+```
+
+Use the absolute path to the output built above. `--dry-run` previews the import;
+`--replace` explicitly allows replacing an existing imported directory. A first
+import into an absent directory does not need `--replace`. The command checks
+the static output and places it in `public/zincite/`. It omits `404.html` because
+the personal site owns the error page, and keeps Zincite's assets, guides, search
+index and sitemaps together. Do not edit the generated output by hand.
+
+Commit the imported output so the hosted build can reproduce publication without
+a second repository checkout or new credentials. Record the Zincite source commit
+in the import commit message. Git retains the previous import for rollback.
 
 Review the diff. It should contain only the intended Zincite import and any
 explicitly reviewed publication instructions. Run the personal site's required

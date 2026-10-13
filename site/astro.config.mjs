@@ -27,6 +27,7 @@ export default defineConfig({
       { label: 'Linting', items: ['guides/linting'] },
       { label: 'Queries and data', items: ['guides/queries', 'guides/query-cookbook', 'guides/data-edits'] },
       { label: 'Reference', items: ['guides/cli', 'guides/reference'] },
+      { label: 'All projects on zayenz.se', link: 'https://zayenz.se/projects/' },
     ],
     expressiveCode: { shiki: { langs: [minizinc], langAlias: { 'rust,ignore': 'rust' } } },
   })],
