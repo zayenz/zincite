@@ -19,4 +19,4 @@ replace groups = [
     group_map[g,c]: {entity_map[i,c] | i in old_groups[g]}
   | c in 0..1, g in 1..1
 ];
-emit_document;
+emit;

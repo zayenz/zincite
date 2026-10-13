@@ -714,9 +714,9 @@ fn data_program_files_preview_diff_and_write_one_coherent_candidate() {
     );
     std::fs::write(&data, original).unwrap();
     for failing in [
-        "replace entity_count=4; emit_document;",
-        "replace entity_count=4; replace group_count=1 div 0; emit_document;",
-        "replace entity_count=4; replace 'entity_count'=5; emit_document;",
+        "replace entity_count=4; emit;",
+        "replace entity_count=4; replace group_count=1 div 0; emit;",
+        "replace entity_count=4; replace 'entity_count'=5; emit;",
     ] {
         std::fs::write(&program, failing).unwrap();
         let output = run(&write_args, "");
@@ -725,7 +725,7 @@ fn data_program_files_preview_diff_and_write_one_coherent_candidate() {
         assert!(!output.stderr.is_empty());
         assert_eq!(std::fs::read(&data).unwrap(), original);
     }
-    std::fs::write(&program, "create entity_count=2; create group_count=1; create entities=[(weight:7,peer:2,group:1),(weight:11,peer:1,group:1)]; create capacities=[(i,j):i+j | i in 1..2,j in 1..2]; create groups=[{1,2}]; emit_document;").unwrap();
+    std::fs::write(&program, "create entity_count=2; create group_count=1; create entities=[(weight:7,peer:2,group:1),(weight:11,peer:1,group:1)]; create capacities=[(i,j):i+j | i in 1..2,j in 1..2]; create groups=[{1,2}]; emit;").unwrap();
     std::fs::write(&data, "").unwrap();
     let output = run(&args, "");
     assert!(
@@ -848,7 +848,7 @@ fn inline_programs_share_file_results_and_buffer_errors() {
         &[
             "query",
             "--program",
-            "let unused=sum([1]); replace a=[2]; emit_document;",
+            "let unused=sum([1]); replace a=[2]; emit;",
         ],
         input,
     );

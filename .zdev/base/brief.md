@@ -815,8 +815,9 @@ crate publication and registry packaging wait for an explicit release milestone.
 
 `set_value("EXPRESSION")` replaces selected assignment right-hand sides; `remove`
 removes selected assignments. Selection does not edit source. An editing pipeline
-ends with `emit_document` (also its implicit output), producing the complete
-candidate. Allow one transformation stage per pipeline followed by its emitter;
+ends with `emit` (also its implicit output), producing the complete
+candidate. Keep `emit_document` as a compatibility alias for edit emission. Allow
+one transformation stage per pipeline followed by its emitter;
 do not evaluate later queries against stale CST ranges. `--diff` previews edits;
 `--write` explicitly replaces the single regular file. These modes are mutually
 exclusive and writes reject stdin and symlinks.

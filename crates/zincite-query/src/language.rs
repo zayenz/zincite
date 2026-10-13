@@ -159,6 +159,7 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
             "tally" => StageKind::Tally,
             "json" => StageKind::Json,
             "count" => StageKind::Count,
+            "emit" if editing => StageKind::EmitDocument,
             "emit" => StageKind::Emit,
             "set_value" => {
                 parser.punctuation(b'(', "expected '(' after set_value")?;
@@ -234,7 +235,7 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
         if editing && !matches!(kind, StageKind::EmitDocument) {
             return Err(QueryError::query(
                 start..parser.position,
-                "only emit_document may follow a transformation stage",
+                "only emit may follow a transformation stage",
             ));
         }
         if matches!(kind, StageKind::EmitDocument) && !editing {

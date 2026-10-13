@@ -18,7 +18,7 @@ Program input is exclusive with a legacy positional QUERY.
 Reports support length, checked integer sum, forall, exists and literal-message require.
 Array reducers are eager; these pure expressions do not execute a model or solver.
 Programs construct arrays, records and sets with bounded MiniZinc comprehensions.
-create/replace assignments end with emit_document; data batches require --model.
+create/replace assignments end with emit; data batches require --model.
 Inspect MiniZinc source or change data assignments and enum membership.
 No input or '-' reads stdin; .dzn paths select assignment-only data syntax.
 Syntax queries do not load includes or require a MiniZinc library or solver.
@@ -29,7 +29,7 @@ Stages:
     filter(PREDICATE)       Keep matching items; not > and > or, with parentheses
     head(N)                 Keep the first N nodes, literal values or strings
     count                   Return a count; only json may follow
-    emit                    Emit original selected source; terminal stage
+    emit                    Emit selected source or the complete edit candidate; terminal stage
     expressions             Select expression nodes in each selected subtree
     children                Select immediate CST child nodes
     subtree                 Select each node and its descendants, with duplicates
@@ -55,14 +55,14 @@ Stages:
     filter_elements(CMP)    Filter literal set/array/matrix elements in data mode
     remove                  Remove selected data assignments and attached comments
     reduce_enum(NAME,KEEP)   Reduce an explicit enum and supported dependent data
-    emit_document           Emit the reparsed edit candidate
-Source/string emission is implicit; edits implicitly emit_document.
+Source/string emission is implicit; edits implicitly emit the complete candidate.
+emit_document remains an alias for edit emission.
 Projections inspect selected nodes; use subtree to include descendants.
 Range bounds are half-open original byte coordinates, including a BOM.
 JSON includes node kind, names, file, range and exact UTF-8 text.
 Node navigation preserves per-root written order and overlapping duplicates.
 Counts describe written occurrences, not execution frequency.
-Only emit_document may follow one transformation stage. Edits require data mode.
+Only emit may follow one transformation stage. Edits require data mode.
 Comments inside a replaced expression cause a located placement error.
 Element comparisons: eq(VALUE), lt(NUMBER), le(NUMBER), gt(NUMBER), ge(NUMBER).
 Equality accepts numbers, Booleans, strings and explicit member(\"A\") identities.

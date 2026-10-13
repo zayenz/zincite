@@ -44,7 +44,7 @@ source         = "source" ident "=" ("query" "(" string ")"
                | "literal" "(" string ")") ";" ;
 binding        = "let" ident "=" expression ";" ;
 report         = "report" expression ";" ;
-edit-batch     = edit+ "emit_document" ";" ;
+edit-batch     = edit+ ("emit" | "emit_document") ";" ;
 edit           = ("create" | "replace") ident "=" expression ";" ;
 
 array-comp     = "[" expression "|" generators "]" ;
@@ -270,13 +270,13 @@ these requests make different kinds of data edit:
 ```text
 source old_counts = literal("counts");
 create doubled_counts = [old_counts[i] * 2 | i in index_set(old_counts)];
-emit_document;
+emit;
 ```
 
 ```text
 source old_counts = literal("counts");
 replace counts = [old_counts[i] + 1 | i in index_set(old_counts)];
-emit_document;
+emit;
 ```
 
 The first adds `doubled_counts = [6, 10];`; the second replaces `counts` with
@@ -362,7 +362,7 @@ replace groups = [
     group_map[g,c]: {entity_map[i,c] | i in old_groups[g]}
   | c in 0..1, g in 1..1
 ];
-emit_document;
+emit;
 ```
 
 | Old key | Copy 0 | Copy 1 |

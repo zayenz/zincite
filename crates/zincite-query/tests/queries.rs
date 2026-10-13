@@ -280,6 +280,7 @@ fn assignment_edits_emit_complete_documents_and_preserve_surviving_bytes() {
     let expected = b"\xef\xbb\xbf% Section\r\n\r\n% attached \xff\r\n'capacity' = /* before \xff */ [3, 4] /* after */; % tail\r\n\r\n% zincite-lint: ignore made-up-rule\r\n\r\nused = 1;\r\n";
     for expression in [
         expression.to_owned(),
+        format!("{expression} | emit"),
         format!("{expression} | emit_document"),
     ] {
         let result = query(&input, &expression);
@@ -330,7 +331,6 @@ fn edits_refuse_invalid_replacements_internal_comments_and_stale_stage_evaluatio
         "remove | count",
         "remove | filter(name(\"x\"))",
         "set_value(\"1\") | remove",
-        "set_value(\"1\") | emit",
         "emit_document",
     ] {
         assert!(Query::parse(expression, Limits::default()).is_err());
@@ -2571,7 +2571,8 @@ fn data_programs_create_replace_and_preserve_declared_keys_and_source() {
     let model = semantic_model("data-create", b"enum E={Zulu,'alpha beta'}; array[1..2] of int: counts; array[E] of int: keyed; record(1..9: n,array[1..0,2..3] of int: empty): r; array[1..0,2..3] of int: empty; array[1..2] of 1..3: limited; solve satisfy;", b"", "");
     let original = b"\xef\xbb\xbfcounts = [3, 5]; % keep\r\n\r\n% detached\r\n";
     let input = Input::parse_named(original.to_vec(), FileMode::Data, "data.dzn").unwrap();
-    let program = Program::parse(r#"source old = literal("counts"); let saved = old; replace counts = [saved[i]+1 | i in index_set(saved)]; create keyed = [enum_member(E,"Zulu"):7,enum_member(E,"alpha beta"):9]; create r = (n:1,empty:[(i+0,j):1 | i in 1..0,j in 2..3]); create empty = []; emit_document;"#, ProgramLimits::default()).unwrap();
+    let source = r#"source old = literal("counts"); let saved = old; replace counts = [saved[i]+1 | i in index_set(saved)]; create keyed = [enum_member(E,"Zulu"):7,enum_member(E,"alpha beta"):9]; create r = (n:1,empty:[(i+0,j):1 | i in 1..0,j in 2..3]); create empty = []; emit;"#;
+    let program = Program::parse(source, ProgramLimits::default()).unwrap();
     assert!(program.is_editing());
     let mut result = program
         .evaluate_with_model(&input, Some(&model), ProgramLimits::default())
@@ -2580,18 +2581,24 @@ fn data_programs_create_replace_and_preserve_declared_keys_and_source() {
     let candidate = result.render().unwrap();
     assert_eq!(candidate, b"\xef\xbb\xbfcounts = [4, 6]; % keep\r\nkeyed = [Zulu: 7, 'alpha beta': 9];\r\nr = (n: 1, empty: []);\r\nempty = [];\r\n\r\n% detached\r\n");
     assert_eq!(result.candidate().unwrap().source_bytes(), candidate);
-    let replaced_record_input = Input::parse(candidate.clone(), FileMode::Data).unwrap();
-    let record = Program::parse(
-        "replace r=(n:2,empty:[]); emit_document;",
+    let mut alias = Program::parse(
+        &source.replace("emit;", "emit_document;"),
         ProgramLimits::default(),
     )
     .unwrap()
-    .evaluate_with_model(
-        &replaced_record_input,
-        Some(&model),
-        ProgramLimits::default(),
-    )
+    .evaluate_with_model(&input, Some(&model), ProgramLimits::default())
     .unwrap();
+    assert_eq!(alias.render().unwrap(), candidate);
+
+    let replaced_record_input = Input::parse(candidate.clone(), FileMode::Data).unwrap();
+    let record = Program::parse("replace r=(n:2,empty:[]); emit;", ProgramLimits::default())
+        .unwrap()
+        .evaluate_with_model(
+            &replaced_record_input,
+            Some(&model),
+            ProgramLimits::default(),
+        )
+        .unwrap();
     assert!(
         record
             .candidate()
@@ -2603,7 +2610,7 @@ fn data_programs_create_replace_and_preserve_declared_keys_and_source() {
 
     assert_eq!(input.source_bytes(), original);
     let empty_shape = Program::parse(
-        "create empty=[(i,j):1 | i in 1..2 where false,j in 2..3]; emit_document;",
+        "create empty=[(i,j):1 | i in 1..2 where false,j in 2..3]; emit;",
         ProgramLimits::default(),
     )
     .unwrap()
@@ -2615,37 +2622,36 @@ fn data_programs_create_replace_and_preserve_declared_keys_and_source() {
     );
     let empty = Input::parse(Vec::new(), FileMode::Data).unwrap();
     let mut created = Program::parse(
-        "create counts = [i | i in 1..2]; emit_document;",
+        "create counts = [i | i in 1..2]; emit;",
         ProgramLimits::default(),
     )
     .unwrap()
     .evaluate_with_model(&empty, Some(&model), ProgramLimits::default())
     .unwrap();
     assert_eq!(created.render().unwrap(), b"counts = [1, 2];\n");
-    let limited = Program::parse(
-        "create limited=[1,3]; emit_document;",
-        ProgramLimits::default(),
-    )
-    .unwrap()
-    .evaluate_with_model(&empty, Some(&model), ProgramLimits::default())
-    .unwrap();
+    let limited = Program::parse("create limited=[1,3]; emit;", ProgramLimits::default())
+        .unwrap()
+        .evaluate_with_model(&empty, Some(&model), ProgramLimits::default())
+        .unwrap();
     assert_eq!(
         limited.candidate().unwrap().source_bytes(),
         b"limited = [1, 3];\n"
     );
     for request in [
-        "create counts=[1,2]; emit_document;",
-        "replace missing=1; emit_document;",
-        "replace counts=[1]; emit_document;",
-        "replace counts=[1,2]; create 'counts'=[1,2]; emit_document;",
-        "report 1; replace counts=[1,2]; emit_document;",
+        "emit;",
+        "emit_document;",
+        "create counts=[1,2]; emit;",
+        "replace missing=1; emit;",
+        "replace counts=[1]; emit;",
+        "replace counts=[1,2]; create 'counts'=[1,2]; emit;",
+        "report 1; replace counts=[1,2]; emit;",
         "replace counts=[1,2];",
-        "replace counts=[1,2]; emit_document; report 1;",
-        "create keyed=[1:7,2:9]; emit_document;",
-        "create empty=[(1,2):1]; emit_document;",
-        "create limited=[1,4]; emit_document;",
-        "replace counts=[1,1 div 0]; emit_document;",
-        "replace counts=[1,abs(2)]; emit_document;",
+        "replace counts=[1,2]; emit; report 1;",
+        "create keyed=[1:7,2:9]; emit;",
+        "create empty=[(1,2):1]; emit;",
+        "create limited=[1,4]; emit;",
+        "replace counts=[1,1 div 0]; emit;",
+        "replace counts=[1,abs(2)]; emit;",
     ] {
         let error = Program::parse(request, ProgramLimits::default())
             .and_then(|program| {
@@ -2657,15 +2663,12 @@ fn data_programs_create_replace_and_preserve_declared_keys_and_source() {
     let commented =
         Input::parse(b"counts=[3, /* placement */5];".to_vec(), FileMode::Data).unwrap();
     assert!(
-        Program::parse(
-            "replace counts=[4,6]; emit_document;",
-            ProgramLimits::default()
-        )
-        .unwrap()
-        .evaluate_with_model(&commented, Some(&model), ProgramLimits::default())
-        .unwrap_err()
-        .message
-        .contains("internal comments")
+        Program::parse("replace counts=[4,6]; emit;", ProgramLimits::default())
+            .unwrap()
+            .evaluate_with_model(&commented, Some(&model), ProgramLimits::default())
+            .unwrap_err()
+            .message
+            .contains("internal comments")
     );
 }
 
@@ -2695,8 +2698,8 @@ fn data_programs_double_entities_and_validate_final_scalar_axes() {
     let candidate = result.render().unwrap();
     assert_eq!(candidate, b"entity_count = 4;\ngroup_count = 2;\nentities = [(weight: 7, peer: 2, group: 1), (weight: 11, peer: 1, group: 1), (weight: 7, peer: 4, group: 2), (weight: 11, peer: 3, group: 2)];\ncapacities = [| 3, 4 | 5, 6 | 3, 4 | 5, 6 |];\ngroups = [1: {1, 2}, 2: {3, 4}];\n");
     for request in [
-        "replace entity_count=4; emit_document;",
-        "replace entity_count=4; replace entities=[(weight:1,peer:1,group:1) | i in 1..3]; emit_document;",
+        "replace entity_count=4; emit;",
+        "replace entity_count=4; replace entities=[(weight:1,peer:1,group:1) | i in 1..3]; emit;",
     ] {
         assert!(
             Program::parse(request, ProgramLimits::default())
@@ -2726,7 +2729,7 @@ fn data_programs_double_entities_and_validate_final_scalar_axes() {
         "",
     );
     let data = Input::parse(b"n=2; a=[2:5,3:6];".to_vec(), FileMode::Data).unwrap();
-    let request = Program::parse(r#"source a=literal("a"); replace n=3; replace a=[i:if i=4 then 7 else a[i] endif | i in 2..4]; emit_document;"#, ProgramLimits::default()).unwrap();
+    let request = Program::parse(r#"source a=literal("a"); replace n=3; replace a=[i:if i=4 then 7 else a[i] endif | i in 2..4]; emit;"#, ProgramLimits::default()).unwrap();
     let mut result = request
         .evaluate_with_model(&data, Some(&axes), ProgramLimits::default())
         .unwrap();
@@ -2836,16 +2839,13 @@ fn report_call_preflight_keeps_literal_messages_and_the_data_whitelist() {
         assert!(Program::parse(source, limits).is_err(), "{source}");
     }
     for (source, call) in [
+        ("let unused = sum([1]); replace a=[2]; emit;", "sum([1])"),
         (
-            "let unused = sum([1]); replace a=[2]; emit_document;",
-            "sum([1])",
-        ),
-        (
-            r#"let unused = if false then require(true,1,"x") else 0 endif; create b=1; emit_document;"#,
+            r#"let unused = if false then require(true,1,"x") else 0 endif; create b=1; emit;"#,
             r#"require(true,1,"x")"#,
         ),
         (
-            "replace a=if true then [2] else [length([1])] endif; emit_document;",
+            "replace a=if true then [2] else [length([1])] endif; emit;",
             "length([1])",
         ),
     ] {

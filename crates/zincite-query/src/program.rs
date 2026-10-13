@@ -347,7 +347,7 @@ impl Program {
         while parser.cursor.position < source.len() {
             let start = parser.cursor.position;
             if document_seen {
-                return Err(parser.cursor.error("no statement may follow emit_document"));
+                return Err(parser.cursor.error("no statement may follow emit"));
             }
             let create = parser.cursor.take_word("create");
             let replace = !create && parser.cursor.take_word("replace");
@@ -409,16 +409,14 @@ impl Program {
                 parser.cursor.space();
                 continue;
             }
-            if parser.cursor.take_word("emit_document") {
+            if parser.cursor.take_word("emit") || parser.cursor.take_word("emit_document") {
                 if edits.is_empty() || output_seen {
                     return Err(QueryError::query(
                         start..parser.cursor.position,
-                        "emit_document requires an edit batch",
+                        "emit requires an edit batch",
                     ));
                 }
-                parser
-                    .cursor
-                    .punctuation(b';', "expected ';' after emit_document")?;
+                parser.cursor.punctuation(b';', "expected ';' after emit")?;
                 let range = start..parser.cursor.position;
                 statements.push(Located::new(
                     zirql::Statement::Evaluate {
@@ -435,9 +433,7 @@ impl Program {
                 continue;
             }
             if !edits.is_empty() {
-                return Err(parser
-                    .cursor
-                    .error("an edit batch must end with emit_document"));
+                return Err(parser.cursor.error("an edit batch must end with emit"));
             }
             let is_source = parser.cursor.take_word("source");
             let is_let = !is_source && parser.cursor.take_word("let");
@@ -558,9 +554,7 @@ impl Program {
             parser.cursor.space();
         }
         if !edits.is_empty() {
-            return Err(parser
-                .cursor
-                .error("an edit batch must end with emit_document"));
+            return Err(parser.cursor.error("an edit batch must end with emit"));
         }
         if document_seen {
             if let Some(range) = invalid_binding {

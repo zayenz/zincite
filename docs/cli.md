@@ -31,7 +31,7 @@ share evaluation, results, limits and buffered output. Select exactly one source
 program options are exclusive with each other and the legacy positional query.
 Program mode accepts at most one file or `-`, with no positional query slot.
 Programs have immutable bindings followed
-by reports or one `create`/`replace` batch ending in `emit_document;`. Data
+by reports or one `create`/`replace` batch ending in `emit;`. Data
 programs require `.dzn` mode and `--model` for target declarations. Query
 diagnostics go to stderr. Inline errors use `<program>` and file errors name the
 program file; both retain byte ranges. `--max-work`, `--max-results`, `--max-items`

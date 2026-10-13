@@ -70,7 +70,7 @@ Start with `counts = [3, 5];` in `counts.dzn`, and save this as `create.zq`:
 ```text
 source old_counts = literal("counts");
 create doubled_counts = [old_counts[i] * 2 | i in index_set(old_counts)];
-emit_document;
+emit;
 ```
 
 Both command forms produce the same candidate, adding
@@ -90,7 +90,7 @@ new data document, create an empty `.dzn` file and use a source-free program:
 ```text
 create counts = [i * 2 | i in 1..2];
 create doubled_counts = [i * 4 | i in 1..2];
-emit_document;
+emit;
 ```
 
 Created assignments use the input's line ending and appear after the last
@@ -106,7 +106,7 @@ Save this as `replace.zq` to replace `counts` with `[4, 6]`:
 source old_counts = literal("counts");
 let saved = old_counts;
 replace counts = [saved[i] + 1 | i in index_set(saved)];
-emit_document;
+emit;
 ```
 
 Run `zincite-query --model counts.mzn --diff -f replace.zq counts.dzn`, then
@@ -131,7 +131,7 @@ use zincite_lint::ModelContext;
 fn preview(input: &Input, model: &ModelContext) -> Result<Vec<u8>, zincite_query::QueryError> {
     let limits = ProgramLimits::default();
     let program = Program::parse(
-        "create counts = [i * 2 | i in 1..2]; emit_document;",
+        "create counts = [i * 2 | i in 1..2]; emit;",
         limits,
     )?;
     let mut result = program.evaluate_with_model(input, Some(model), limits)?;

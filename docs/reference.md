@@ -260,20 +260,20 @@ library and both commands use the same pipeline stages:
 | `elements` | Select written collection values, excluding array keys |
 | `keys` | Select written array keys and matrix axis keys |
 | `json` | Render nodes, literals, strings, a count or histogram as JSON |
-| `emit` | Render the selected original source bytes |
+| `emit` | Render selected original source bytes or the complete reparsed edit candidate |
 | `set_value("EXPRESSION")` | Replace selected assignment right-hand sides in data mode |
 | `filter_elements(comparison)` | Explicitly filter literal set, array or matrix elements in data mode |
 | `remove` | Remove selected data assignments and their attached comments/directives |
 | `reduce_enum("Guests", keep("A", "B"))` | Keep explicit enum members and reduce supported dependent arrays, sets and group accesses |
-| `emit_document` | Render the reparsed edit candidate |
 
 Stages are separated by `|`. The initial selection is `items`, including for an
 empty query. Source or projected-string emission is implicit. `emit` and `json` are terminal.
 Only `json` may follow `count` or `tally`. A pipeline may contain one transformation stage,
-followed only by its optional `emit_document`; document emission is implicit for
-edits. `emit_document` requires a transformation. `head` does not avoid parsing
-or evaluating the earlier selection. No input items produces an empty selection or count 0;
-the untouched selection of a comment-only document still emits its original bytes.
+followed only by its optional `emit`; document emission is implicit for
+edits. `emit_document` remains a compatibility alias requiring a transformation.
+`head` does not avoid parsing or evaluating the earlier selection. No input items
+produces an empty selection or count 0; the untouched selection of a comment-only
+document still emits its original bytes.
 
 Predicates are `kind("assignment")` and `name("capacity")`, combined with
 parentheses and `not`, `and`, `or` in that precedence order. Query strings are
@@ -466,9 +466,9 @@ cases. Pure `.dzn` reports retain an explicitly supplied `--model` without using
 the semantic query's `.mzn` root path.
 
 Model calls remain unsupported. Data batches use `create` and `replace`, followed
-by one `emit_document;`. Sources and immutable `let` bindings precede the edits
-and read the original input. Their expression calls are exactly `index_set` and
-`enum_member`. The five report-only calls are refused in unused preceding lets,
+by one `emit;` (`emit_document;` remains a compatibility alias). Sources and
+immutable `let` bindings precede the edits and read the original input. Their
+expression calls are exactly `index_set` and `enum_member`. The five report-only calls are refused in unused preceding lets,
 skipped branches and edit RHSs. A batch cannot include report/query emissions or
 repeat a target name. Creation requires an absent assignment; replacement requires
 exactly one original assignment. Both require a unique fixed nonoptional model
