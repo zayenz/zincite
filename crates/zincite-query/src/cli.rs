@@ -104,6 +104,7 @@ Fragment selections that unbalance paired formatter markers fail.
 
 Options:
     --program TEXT         Run an inline program with the same semantics as a file
+    --param name=value     Supply one required int, string or bool input (repeatable)
     -f, --program-file PATH Read bindings, reports or create/replace data batches
     --max-work N           Program work allowance (default 1000000)
     --max-results N        Program aggregate entries (default 100000)
@@ -142,6 +143,7 @@ enum RequestSource {
 struct Arguments {
     request_source: RequestSource,
     program_limits: crate::ProgramLimits,
+    parameters: Vec<String>,
     path: Option<PathBuf>,
     stdin_filepath: Option<PathBuf>,
     output: OutputMode,
@@ -203,6 +205,21 @@ fn execute(arguments: Vec<OsString>, invocation: &str) -> Result<u8, String> {
             Query::parse(source, limits).map_err(|error| query_diagnostic(source, &error))
         })
         .transpose()?;
+    if let Some(source) = &query_source {
+        zirql::admit_parameters(
+            &[],
+            zirql::ParameterInputs::Cli(&arguments.parameters),
+            &[],
+            0..source.len(),
+            &mut zirql::Budget::for_program(zirql::ProgramLimits {
+                work: arguments.program_limits.work,
+                results: arguments.program_limits.results,
+                nesting: arguments.program_limits.nesting,
+                stream_items: arguments.program_limits.stream_items,
+            }),
+        )
+        .map_err(|error| query_diagnostic(source, &crate::pipeline::core_error(error)))?;
+    }
     if arguments.output != OutputMode::Source
         && !query.as_ref().is_some_and(Query::is_editing)
         && !program.as_ref().is_some_and(crate::Program::is_editing)
@@ -294,7 +311,12 @@ fn execute(arguments: Vec<OsString>, invocation: &str) -> Result<u8, String> {
             ErrorLocation::Model(location) => model_diagnostic(location, &error.message, "error"),
         };
         let mut result = program
-            .evaluate_with_model(&input, model.as_ref(), arguments.program_limits)
+            .evaluate_with_model_and_parameters(
+                &input,
+                model.as_ref(),
+                zirql::ParameterInputs::Cli(&arguments.parameters),
+                arguments.program_limits,
+            )
             .map_err(diagnostic)?;
         let output = result.render().map_err(diagnostic)?;
         for limitation in result.limitations() {
@@ -412,6 +434,7 @@ fn edit_output(
 
 fn parse_arguments(arguments: Vec<OsString>) -> Result<Arguments, String> {
     let mut positional = Vec::new();
+    let mut parameters = Vec::new();
     let mut request_source = None;
     let mut program_limits = crate::ProgramLimits::default();
     let mut explicit_program_limits = false;
@@ -479,6 +502,14 @@ fn parse_arguments(arguments: Vec<OsString>) -> Result<Arguments, String> {
                 _ => program_limits.nesting = value,
             }
             explicit_program_limits = true;
+        } else if options && argument == "--param" {
+            parameters.push(
+                arguments
+                    .next()
+                    .ok_or("--param requires name=value")?
+                    .into_string()
+                    .map_err(|_| "parameter argument must be UTF-8")?,
+            );
         } else if options && argument == "--model" {
             if model_path.is_some() {
                 return Err("repeated --model".into());
@@ -553,6 +584,7 @@ fn parse_arguments(arguments: Vec<OsString>) -> Result<Arguments, String> {
     Ok(Arguments {
         request_source,
         program_limits,
+        parameters,
         path,
         stdin_filepath,
         output,

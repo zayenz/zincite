@@ -800,7 +800,7 @@ fn references_binding(
     charge(budget, 1, &expression.range)?;
     match &expression.value {
         K::Name(name) => Ok(names.contains(name)),
-        K::Literal(_) => Ok(false),
+        K::Literal(_) | K::NativeQuery(_) => Ok(false),
         K::Array(values) | K::Tuple(values) | K::Set(values) => {
             any_binding(values.iter(), names, budget)
         }
@@ -830,6 +830,7 @@ fn references_binding(
                 || generator_binding(clauses, names, budget)?)
         }
         K::Unary { operand, .. }
+        | K::One(operand)
         | K::IndexSet(operand)
         | K::Reduce { array: operand, .. }
         | K::Field { value: operand, .. }

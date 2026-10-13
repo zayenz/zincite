@@ -4,8 +4,8 @@
 assignment. `values` reads written literals, but does not evaluate a computed
 right-hand side. Neither operation constructs a new value from query results.
 Read-only [query programs](reference.md#query-programs) support immutable `source`
-and `let` bindings, ordered query statements, native reports and the bounded
-expression/comprehension subset below. Zincite lowers its existing CST and uses
+and `let` bindings, required scalar parameters, ordered query statements, native
+reports and the bounded expression/comprehension subset below. Zincite lowers its existing CST and uses
 Zirql for checked expressions, scopes, generators, array summaries and requirements.
 Model-backed `.dzn` edit batches use the common expression subset and evaluator;
 the five report-only calls below are excluded from every edit expression.
@@ -31,17 +31,21 @@ does not imply that the constructor can evaluate an expression.
 
 ## Report expressions and edit grammar
 
-One request has named sources, optional immutable bindings, then one report or
-one atomic edit batch. The `query` string is an existing Zincite query pipeline;
-`literal` names one existing assignment in the input `.dzn`. These are host
-statements, not expression calls. Host strings use the current query string
-escapes (`\"`, `\\`, `\n`, `\r`, `\t`); other escapes fail. Each source name and
-`let` name must be unique.
+Read-only requests may interleave parameter/source declarations, immutable
+bindings and reports. Names become visible in statement order. A data request
+ends in one atomic edit batch and cannot include reports. The `query` string is an existing Zincite query pipeline;
+`literal` takes a checked string naming one existing assignment in the input
+`.dzn`. These are host statements, not expression calls. Host strings use the current query string
+escapes (`\"`, `\\`, `\n`, `\r`, `\t`); other escapes fail. Each visible source,
+parameter and `let` name must be unique.
+Parameters follow the [required input rules](reference.md#required-query-parameters).
 
 ```ebnf
-request        = source* binding* (report | edit-batch) ;
+request        = (parameter | source | binding | report)* report
+               | (parameter | source | binding)* edit-batch ;
+parameter      = "param" ascii-ident ":" ("int" | "string" | "bool") ";" ;
 source         = "source" ident "=" ("query" "(" string ")"
-               | "literal" "(" string ")") ";" ;
+               | "literal" "(" expression ")") ";" ;
 binding        = "let" ident "=" expression ";" ;
 report         = "report" expression ";" ;
 edit-batch     = edit+ ("emit" | "emit_document") ";" ;
@@ -57,6 +61,7 @@ generator      = names "in" expression ("where" expression)?
 names          = binder ("," binder)* ;
 binder         = ident | "_" ;
 ident          = MiniZinc identifier or quoted identifier ;
+ascii-ident    = ASCII letter or "_", followed by ASCII letters, digits or "_" ;
 ```
 
 The brackets, key prefix and generator forms match the pinned [array and
@@ -72,8 +77,9 @@ evaluates its right side once for each preceding binding. Earlier generator
 bindings are visible in later sources and filters; a generator's own bindings
 are visible in its `where` and the head. They are not visible in that
 generator's source. The rightmost generator is innermost. `_` discards a value
-and cannot be referenced. Duplicate bindings, shadowing a source or `let`,
-and forward references fail at the name. Filters require a fixed Boolean.
+and cannot be referenced. Duplicate bindings, shadowing a source, `let` or
+visible parameter, and forward references fail at the name. Filters require a
+fixed Boolean.
 Neither missing values nor decision-dependent Booleans are admitted. These
 scope and iteration rules follow the [specification's generator
 rules](https://docs.minizinc.dev/en/2.10.1/spec.html#set-comprehensions).

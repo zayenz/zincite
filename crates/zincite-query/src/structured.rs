@@ -607,7 +607,7 @@ pub(crate) fn json_value(selection: &LiteralSelection<'_>) -> Result<Value, Quer
     ))
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum Scalar {
     Integer(i64),
     Float(f64),
@@ -625,7 +625,7 @@ pub(crate) enum ComparisonKind {
     Ge,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct Comparison {
     pub kind: ComparisonKind,
     pub value: Scalar,

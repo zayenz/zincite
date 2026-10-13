@@ -28,6 +28,7 @@ mod language;
 mod pipeline;
 mod program;
 pub use program::{Program, ProgramEmission, ProgramLimits, ProgramResult, ReportValue};
+pub use zirql::{ConstructedValue, ParameterDeclaration, ParameterInputs, ParameterType};
 mod reduction;
 mod semantic;
 mod structured;
@@ -381,7 +382,7 @@ impl QueryResult<'_> {
 }
 
 /// One fixed-stage query. Empty text selects and emits the original document.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Query {
     stages: Vec<Stage>,
     range: Range<usize>,

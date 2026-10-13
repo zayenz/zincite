@@ -808,6 +808,61 @@ fn inline_programs_share_file_results_and_buffer_errors() {
         report
     );
     assert_eq!(report.stdout, file.stdout);
+    let parameter_program =
+        include_str!("../crates/zincite-query/tests/fixtures/capacity-parameters.zq");
+    let parameter_inline = run(
+        &[
+            "query",
+            "--stdin-filepath",
+            "data.dzn",
+            "--param",
+            "factor=2",
+            "--program",
+            parameter_program,
+        ],
+        input,
+    );
+    assert!(parameter_inline.status.success(), "{:?}", parameter_inline);
+    assert_eq!(parameter_inline.stdout, report.stdout);
+    std::fs::write(&path, parameter_program).unwrap();
+    let parameter_file = run(
+        &[
+            "query",
+            "--stdin-filepath",
+            "data.dzn",
+            "--param",
+            "factor=+2",
+            "-f",
+            path.to_str().unwrap(),
+        ],
+        input,
+    );
+    assert!(parameter_file.status.success(), "{:?}", parameter_file);
+    assert_eq!(parameter_file.stdout, report.stdout);
+    for supplied in [
+        vec![],
+        vec!["factor=2", "factor=3"],
+        vec!["factor=2", "extra=1"],
+        vec!["factor=2.0"],
+    ] {
+        let mut arguments = vec![
+            "query",
+            "--stdin-filepath",
+            "data.dzn",
+            "--program",
+            parameter_program,
+        ];
+        for value in supplied {
+            arguments.extend(["--param", value]);
+        }
+        let refused = run(&arguments, input);
+        assert!(
+            !refused.status.success() && refused.stdout.is_empty(),
+            "{:?}",
+            refused
+        );
+    }
+
     for arguments in [
         vec![
             "query",

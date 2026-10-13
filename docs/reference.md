@@ -370,6 +370,70 @@ opaque non-UTF-8 comment bytes; code and literals must be UTF-8. Input parsing
 rejects malformed/unsupported syntax and non-assignment data items. It establishes
 syntax only, not compiler acceptance or semantic validity of data expressions.
 
+### Required query parameters
+
+Query programs declare required scalar inputs with `param name: int;`,
+`param name: string;` or `param name: bool;`. Pass each value with a repeated
+`--param name=value` option in either command:
+
+```sh
+zincite-query --param factor=2 --program 'param factor: int; source d = literal("demand"); report sum([n * factor | n in d]);' data.dzn
+zincite query --param factor=2 --program-file capacity-parameters.zq data.dzn
+```
+
+The companion program [capacity-parameters.zq](../crates/zincite-query/tests/fixtures/capacity-parameters.zq)
+uses the capacity report's inputs `demand=[2,3,4]; capacity=[6,8,5];`. For
+`factor=2`, total demand is `18`, total capacity is `19`, headrooms are
+`2,2,-3`, and only the third row violates its capacity. The result is complete
+with no limitations. Inline and file programs use the same evaluator.
+
+CLI integers are signed 64-bit ASCII decimal values with an optional `+` or `-`;
+whitespace, fractions and overflow fail. Booleans are exactly `true` or `false`.
+Strings contain everything after the first `=`, including empty text, quotes,
+backslashes, whitespace or additional `=` characters. Shell quoting protects
+arguments; their contents are never interpreted as query source.
+
+Declarations have no defaults. Every declaration needs exactly one input.
+Duplicate declarations or inputs, missing inputs, extra names and type
+mismatches fail before native query work or data construction. Names use the
+shared ASCII binding rules and cannot shadow reserved names or earlier visible
+bindings. A declaration becomes visible at its written position; forward
+references and shadowing it in a local comprehension fail at the name.
+
+Program query sources retain their original strings and source coordinates.
+Checked primitive arguments such as `name(selected)`, `head(limit + 1)`,
+`range(start, end)` and `transitive_references(depth)` use the existing MiniZinc
+expression subset and shared evaluator. String `kind`, `type`, `instantiation`
+and `source_kind` predicates also accept checked expressions. Native accepted
+names, nonnegative indices and range order are still checked. Known wrong
+types fail before a query executes, including empty or unchosen predicates.
+`source data = literal(field);` accepts a checked string assignment name.
+Literal pipeline arguments and short positional queries keep their behavior;
+legacy positional queries have no parameter declarations and reject inputs.
+
+Rust `Program::parameters()` exposes declaration metadata.
+`evaluate_with_parameters`, `evaluate_with_model_and_parameters` and
+`evaluate_with_facts_and_parameters` accept `ParameterInputs::Typed` scalar
+pairs or `ParameterInputs::Cli` raw strings alongside `ProgramLimits`:
+
+```rust
+use zincite_query::{ConstructedValue, ParameterInputs, Program, ProgramLimits};
+
+let limits = ProgramLimits::default();
+let program = Program::parse("param factor:int; report factor;", limits)?;
+let result = program.evaluate_with_parameters(
+    &input,
+    ParameterInputs::Typed(&[("factor".to_owned(), ConstructedValue::Integer(2))]),
+    limits,
+)?;
+```
+
+Existing evaluation methods supply an empty input set. Input conversion and
+admission share the request work and aggregate result allowance with evaluation
+and rendering. Data edits keep their closed type and call policy, complete
+candidate validation and atomic write boundary. Any admission or later failure
+leaves CLI stdout empty and the input file unchanged.
+
 ### Query programs
 
 `Program::parse(source, ProgramLimits)` accepts ordered reports or one atomic

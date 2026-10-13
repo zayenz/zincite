@@ -6,7 +6,7 @@ license.workspace = true
 description = "Source-preserving MiniZinc inspection and data queries"
 
 [dependencies]
-zirql = { git = "https://github.com/zayenz/zirql", rev = "fadce51b6d8fc65bc12458dc57f3d9b2092c2cb5" }
+zirql = { git = "https://github.com/zayenz/zirql", rev = "cbf7fc84b12c779916144ae004d639c466e506eb" }
 zincite-lint = { path = "../zincite-lint" }
 zincite-syntax = { path = "../zincite-syntax" }
 serde_json = "1"

@@ -717,6 +717,30 @@ fn data_program_files_preview_diff_and_write_one_coherent_candidate() {
         include_bytes!("fixtures/doubled.mzn")
     );
     std::fs::write(&data, original).unwrap();
+    std::fs::write(&program,"param field:string; param value:int; source old=literal(field); replace group_count=value; emit;").unwrap();
+    let mut parameter_args = args.clone();
+    parameter_args.extend(["--param", "field=group_count", "--param", "value=1"]);
+    let parameter_preview = run(&parameter_args, b"");
+    assert!(
+        parameter_preview.status.success(),
+        "{:?}",
+        parameter_preview
+    );
+    assert_eq!(std::fs::read(&data).unwrap(), original);
+    for supplied in [
+        vec![],
+        vec!["field=group_count", "value=1", "value=1"],
+        vec!["field=group_count", "value=wrong"],
+    ] {
+        let mut refused_args = write_args.clone();
+        for value in supplied {
+            refused_args.extend(["--param", value]);
+        }
+        let refused = run(&refused_args, b"");
+        assert!(!refused.status.success() && refused.stdout.is_empty());
+        assert_eq!(std::fs::read(&data).unwrap(), original);
+    }
+
     for failing in [
         "replace entity_count=4; emit;",
         "replace entity_count=4; replace group_count=1 div 0; emit;",
@@ -801,6 +825,57 @@ fn inline_programs_share_file_library_results_and_buffer_errors() {
         report
     );
     assert_eq!(report.stdout, expected);
+    let parameter_program = include_str!("fixtures/capacity-parameters.zq");
+    let parameter_inline = run(
+        &[
+            "--stdin-filepath",
+            "data.dzn",
+            "--param",
+            "factor=2",
+            "--program",
+            parameter_program,
+        ],
+        input.as_bytes(),
+    );
+    assert!(parameter_inline.status.success(), "{:?}", parameter_inline);
+    assert_eq!(parameter_inline.stdout, report.stdout);
+    std::fs::write(&path, parameter_program).unwrap();
+    let parameter_file = run(
+        &[
+            "--stdin-filepath",
+            "data.dzn",
+            "--param",
+            "factor=+2",
+            "-f",
+            path.to_str().unwrap(),
+        ],
+        input.as_bytes(),
+    );
+    assert!(parameter_file.status.success(), "{:?}", parameter_file);
+    assert_eq!(parameter_file.stdout, report.stdout);
+    for supplied in [
+        vec![],
+        vec!["factor=2", "factor=3"],
+        vec!["factor=2", "extra=1"],
+        vec!["factor=2.0"],
+    ] {
+        let mut arguments = vec![
+            "--stdin-filepath",
+            "data.dzn",
+            "--program",
+            parameter_program,
+        ];
+        for value in supplied {
+            arguments.extend(["--param", value]);
+        }
+        let refused = run(&arguments, input.as_bytes());
+        assert!(
+            !refused.status.success() && refused.stdout.is_empty(),
+            "{:?}",
+            refused
+        );
+    }
+
     for arguments in [
         vec![
             "--program",

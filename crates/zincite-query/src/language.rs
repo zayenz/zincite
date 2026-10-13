@@ -7,13 +7,13 @@ use crate::{Limits, Query, QueryError};
 const MAX_QUERY_BYTES: usize = 1_048_576;
 const MAX_NESTING: usize = 64;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct Stage {
     pub kind: StageKind,
     pub range: Range<usize>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum StageKind {
     Items,
     References,
@@ -48,19 +48,19 @@ pub(crate) enum StageKind {
     EmitDocument,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum Retention {
     Keep(Vec<(String, Range<usize>)>),
     First(usize),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct Predicate {
     pub kind: PredicateKind,
     pub range: Range<usize>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum PredicateKind {
     Kind(String),
     Type(String),
@@ -73,7 +73,96 @@ pub(crate) enum PredicateKind {
     Or(Vec<Predicate>),
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ArgumentKind {
+    Head,
+    RangeStart,
+    RangeEnd,
+    TransitiveReferences,
+    Kind,
+    Name,
+    Type,
+    Instantiation,
+    SourceKind,
+}
+impl ArgumentKind {
+    pub(crate) fn ty(self) -> zirql::ParameterType {
+        match self {
+            Self::Head | Self::RangeStart | Self::RangeEnd | Self::TransitiveReferences => {
+                zirql::ParameterType::Int
+            }
+            Self::Kind | Self::Name | Self::Type | Self::Instantiation | Self::SourceKind => {
+                zirql::ParameterType::String
+            }
+        }
+    }
+    pub(crate) fn predicate(
+        self,
+        value: String,
+        range: Range<usize>,
+    ) -> Result<PredicateKind, QueryError> {
+        Ok(match self {
+            Self::Kind => {
+                if !known_kind(&value) {
+                    return Err(QueryError::query(
+                        range,
+                        format!("unknown node kind '{value}'"),
+                    ));
+                }
+                PredicateKind::Kind(value)
+            }
+            Self::Type => {
+                if !crate::semantic::known_type_kind(&value) {
+                    return Err(QueryError::query(
+                        range,
+                        format!("unknown type kind '{value}'"),
+                    ));
+                }
+                PredicateKind::Type(value)
+            }
+            Self::Instantiation => {
+                if !matches!(value.as_str(), "par" | "var") {
+                    return Err(QueryError::query(
+                        range,
+                        "instantiation requires par or var",
+                    ));
+                }
+                PredicateKind::Instantiation(value)
+            }
+            Self::SourceKind => {
+                if !matches!(value.as_str(), "user" | "standard_library") {
+                    return Err(QueryError::query(
+                        range,
+                        "source_kind requires user or standard_library",
+                    ));
+                }
+                PredicateKind::SourceKind(value)
+            }
+            Self::Name => PredicateKind::Name(value),
+            Self::Head | Self::RangeStart | Self::RangeEnd | Self::TransitiveReferences => {
+                unreachable!("integer stage operand is not a predicate")
+            }
+        })
+    }
+}
+type ArgumentReader<'a> =
+    dyn FnMut(usize, ArgumentKind, Range<usize>) -> Result<(), QueryError> + 'a;
+
 pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
+    parse_arguments(source, limits, None)
+}
+pub(crate) fn parse_scoped<'a>(
+    source: &'a str,
+    limits: Limits,
+    arguments: &'a mut ArgumentReader<'a>,
+) -> Result<Query, QueryError> {
+    parse_arguments(source, limits, Some(arguments))
+}
+fn parse_arguments<'a>(
+    source: &'a str,
+    limits: Limits,
+    arguments: Option<&'a mut ArgumentReader<'a>>,
+) -> Result<Query, QueryError> {
     if source.len() > MAX_QUERY_BYTES {
         return Err(QueryError::query(
             0..0,
@@ -84,6 +173,7 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
         source,
         position: 0,
         nesting_limit: limits.nesting.min(MAX_NESTING),
+        arguments,
     };
     let mut stages = Vec::new();
     let mut editing = false;
@@ -100,7 +190,7 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
             "instantiations" => StageKind::Instantiations,
             "transitive_references" => {
                 parser.punctuation(b'(', "expected '(' after transitive_references")?;
-                let depth = parser.integer()?;
+                let depth = parser.integer_argument(start, ArgumentKind::TransitiveReferences)?;
                 parser.punctuation(b')', "expected ')' after traversal depth")?;
                 StageKind::TransitiveReferences(depth)
             }
@@ -112,18 +202,22 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
             }
             "head" => {
                 parser.punctuation(b'(', "expected '(' after head")?;
-                parser.space();
-                let number_start = parser.position;
-                while parser.current().is_some_and(|byte| byte.is_ascii_digit()) {
-                    parser.position += 1;
-                }
-                let number_range = number_start..parser.position;
-                let count = source[number_range.clone()].parse::<usize>().map_err(|_| {
-                    QueryError::query(
-                        number_range,
-                        "head requires a non-negative integer fitting usize",
-                    )
-                })?;
+                let count = if parser.arguments.is_some() {
+                    parser.integer_argument(start, ArgumentKind::Head)?
+                } else {
+                    parser.space();
+                    let number_start = parser.position;
+                    while parser.current().is_some_and(|byte| byte.is_ascii_digit()) {
+                        parser.position += 1;
+                    }
+                    let range = number_start..parser.position;
+                    source[range.clone()].parse::<usize>().map_err(|_| {
+                        QueryError::query(
+                            range,
+                            "head requires a non-negative integer fitting usize",
+                        )
+                    })?
+                };
                 parser.punctuation(b')', "expected ')' after head count")?;
                 StageKind::Head(count)
             }
@@ -132,14 +226,14 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
             "subtree" => StageKind::Subtree,
             "range" => {
                 parser.punctuation(b'(', "expected '(' after range")?;
-                let start = parser.integer()?;
+                let from = parser.integer_argument(start, ArgumentKind::RangeStart)?;
                 parser.punctuation(b',', "expected ',' between range bounds")?;
-                let end = parser.integer()?;
+                let end = parser.integer_argument(start, ArgumentKind::RangeEnd)?;
                 parser.punctuation(b')', "expected ')' after range bounds")?;
-                if start > end {
+                if from > end {
                     return Err(QueryError::query(name_range, "range start exceeds end"));
                 }
-                StageKind::Range(start..end)
+                StageKind::Range(from..end)
             }
             "names" => StageKind::Names,
             "call_names" => StageKind::CallNames,
@@ -284,6 +378,7 @@ pub(crate) struct Parser<'a> {
     pub(crate) source: &'a str,
     pub(crate) position: usize,
     pub(crate) nesting_limit: usize,
+    pub(crate) arguments: Option<&'a mut ArgumentReader<'a>>,
 }
 
 impl<'a> Parser<'a> {
@@ -399,54 +494,126 @@ impl<'a> Parser<'a> {
             ));
         }
         self.punctuation(b'(', "expected '(' after predicate name")?;
-        let (value, value_range) = self.string()?;
-        self.punctuation(b')', "expected ')' after predicate argument")?;
-        let kind = if name == "kind" {
-            if !known_kind(&value) {
-                return Err(QueryError::query(
-                    value_range,
-                    format!("unknown node kind '{value}'"),
-                ));
-            }
-            PredicateKind::Kind(value)
-        } else {
-            match name {
-                "type" => {
-                    if !crate::semantic::known_type_kind(&value) {
-                        return Err(QueryError::query(
-                            value_range,
-                            format!("unknown type kind '{value}'"),
-                        ));
-                    }
-                    PredicateKind::Type(value)
-                }
-                "instantiation" => {
-                    if !matches!(value.as_str(), "par" | "var") {
-                        return Err(QueryError::query(
-                            value_range,
-                            "instantiation requires par or var",
-                        ));
-                    }
-                    PredicateKind::Instantiation(value)
-                }
-                "source_kind" => {
-                    if !matches!(value.as_str(), "user" | "standard_library") {
-                        return Err(QueryError::query(
-                            value_range,
-                            "source_kind requires user or standard_library",
-                        ));
-                    }
-                    PredicateKind::SourceKind(value)
-                }
-                _ => PredicateKind::Name(value),
-            }
+        let argument = match name {
+            "kind" => ArgumentKind::Kind,
+            "type" => ArgumentKind::Type,
+            "instantiation" => ArgumentKind::Instantiation,
+            "source_kind" => ArgumentKind::SourceKind,
+            _ => ArgumentKind::Name,
         };
+        let (value, value_range) = self.string_argument(start, argument)?;
+        self.punctuation(b')', "expected ')' after predicate argument")?;
+        let kind = argument.predicate(value, value_range)?;
         Ok(Predicate {
             kind,
             range: start..self.position,
         })
     }
 
+    fn scalar_range(&mut self) -> Result<Range<usize>, QueryError> {
+        self.space();
+        let start = self.position;
+        let mut depth = 0usize;
+        let mut quote = None;
+        let mut escaped = false;
+        while let Some(byte) = self.current() {
+            if let Some(delimiter) = quote {
+                if byte == delimiter && !escaped {
+                    quote = None;
+                }
+                escaped = byte == b'\\' && !escaped;
+            } else {
+                match byte {
+                    b'"' | b'\'' => {
+                        quote = Some(byte);
+                        escaped = false;
+                    }
+                    b'%' => {
+                        while self.current().is_some_and(|byte| byte != b'\n') {
+                            self.position += 1;
+                        }
+                        continue;
+                    }
+                    b'/' if self.source.as_bytes()[self.position..].starts_with(b"/*") => {
+                        self.position += 2;
+                        while self.current().is_some()
+                            && !self.source.as_bytes()[self.position..].starts_with(b"*/")
+                        {
+                            self.position += 1;
+                        }
+                        if self.current().is_some() {
+                            self.position += 2;
+                        }
+                        continue;
+                    }
+                    b'(' | b'[' | b'{' => {
+                        depth += 1;
+                        if depth > self.nesting_limit {
+                            return Err(self.error("value nesting limit exceeded"));
+                        }
+                    }
+                    b')' | b']' | b'}' if depth > 0 => depth -= 1,
+                    b')' | b',' if depth == 0 => break,
+                    _ => {}
+                }
+            }
+            self.position += 1;
+        }
+        if start == self.position {
+            return Err(self.error("expected a primitive argument expression"));
+        }
+        Ok(start..self.position)
+    }
+    fn integer_argument(&mut self, owner: usize, kind: ArgumentKind) -> Result<usize, QueryError> {
+        if self.arguments.is_none() {
+            return self.integer();
+        }
+        self.space();
+        let start = self.position;
+        if let Ok(value) = self.integer() {
+            self.space();
+            if matches!(self.current(), Some(b')' | b',')) {
+                return Ok(value);
+            }
+        }
+        self.position = start;
+        let range = self.scalar_range()?;
+        self.arguments.as_mut().expect("scoped argument reader")(owner, kind, range)?;
+        Ok(if matches!(kind, ArgumentKind::RangeEnd) {
+            usize::MAX
+        } else {
+            0
+        })
+    }
+    fn string_argument(
+        &mut self,
+        owner: usize,
+        kind: ArgumentKind,
+    ) -> Result<(String, Range<usize>), QueryError> {
+        if self.arguments.is_none() {
+            return self.string();
+        }
+        self.space();
+        let start = self.position;
+        if self.current() == Some(b'"') {
+            let value = self.string()?;
+            self.space();
+            if matches!(self.current(), Some(b')' | b',')) {
+                return Ok(value);
+            }
+        }
+        self.position = start;
+        let range = self.scalar_range()?;
+        self.arguments.as_mut().expect("scoped argument reader")(owner, kind, range.clone())?;
+        let placeholder = match kind {
+            ArgumentKind::Kind => "assignment",
+            ArgumentKind::Type => "int",
+            ArgumentKind::Instantiation => "par",
+            ArgumentKind::SourceKind => "user",
+            _ => "",
+        };
+        Ok((placeholder.to_owned(), range))
+    }
     fn integer(&mut self) -> Result<usize, QueryError> {
         self.space();
         let start = self.position;

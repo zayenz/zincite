@@ -2581,6 +2581,43 @@ fn data_programs_create_replace_and_preserve_declared_keys_and_source() {
     let candidate = result.render().unwrap();
     assert_eq!(candidate, b"\xef\xbb\xbfcounts = [4, 6]; % keep\r\nkeyed = [Zulu: 7, 'alpha beta': 9];\r\nr = (n: 1, empty: []);\r\nempty = [];\r\n\r\n% detached\r\n");
     assert_eq!(result.candidate().unwrap().source_bytes(), candidate);
+    let parameter_source = format!(
+        "param increment:int; {}",
+        source.replace("saved[i]+1", "saved[i]+increment")
+    );
+    let parameter_program = Program::parse(&parameter_source, ProgramLimits::default()).unwrap();
+    let arguments = [("increment".into(), zirql::ConstructedValue::Integer(1))];
+    let mut parameter_result = parameter_program
+        .evaluate_with_model_and_parameters(
+            &input,
+            Some(&model),
+            zirql::ParameterInputs::Typed(&arguments),
+            ProgramLimits::default(),
+        )
+        .unwrap();
+    assert_eq!(parameter_result.render().unwrap(), candidate);
+    let facts = std::rc::Rc::new(zincite_lint::ModelFacts::new(&model));
+    let mut facts_result = parameter_program
+        .evaluate_with_facts_and_parameters(
+            &input,
+            facts,
+            zirql::ParameterInputs::Typed(&arguments),
+            ProgramLimits::default(),
+        )
+        .unwrap();
+    assert_eq!(facts_result.render().unwrap(), candidate);
+    assert!(
+        parameter_program
+            .evaluate_with_model_and_parameters(
+                &input,
+                Some(&model),
+                zirql::ParameterInputs::Typed(&[]),
+                ProgramLimits::default()
+            )
+            .is_err()
+    );
+    assert_eq!(input.source_bytes(), original);
+
     let mut alias = Program::parse(
         &source.replace("emit;", "emit_document;"),
         ProgramLimits::default(),
@@ -2769,6 +2806,32 @@ fn scalar_summaries_report_capacity_and_short_literal_totals() {
     let report: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
     assert_eq!(report["complete"], true);
     assert_eq!(report["limitations"], serde_json::json!([]));
+    let parameter_program =
+        Program::parse(include_str!("fixtures/capacity-parameters.zq"), limits).unwrap();
+    let typed = [("factor".into(), V::Integer(2))];
+    let raw = ["factor=+2".to_owned()];
+    for inputs in [
+        zirql::ParameterInputs::Typed(&typed),
+        zirql::ParameterInputs::Cli(&raw),
+    ] {
+        let mut parameter_result = parameter_program
+            .evaluate_with_parameters(&input, inputs, limits)
+            .unwrap();
+        assert!(parameter_result.is_complete() && parameter_result.limitations().is_empty());
+        let (ReportValue::Constructed(expected), ReportValue::Constructed(actual)) = (
+            result.emissions()[0].value(),
+            parameter_result.emissions()[0].value(),
+        ) else {
+            panic!("native data")
+        };
+        assert_eq!(actual, expected);
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&parameter_result.render().unwrap())
+                .unwrap(),
+            report
+        );
+    }
+
     let mut short = Program::parse(r#"source d = literal("demand"); report sum(d);"#, limits)
         .unwrap()
         .evaluate(&input, limits)
@@ -2853,4 +2916,125 @@ fn report_call_preflight_keeps_literal_messages_and_the_data_whitelist() {
         assert_eq!(&source[error.range], call);
         assert!(error.message.contains("report-only"));
     }
+}
+
+#[test]
+fn typed_parameters_and_native_arguments_keep_scope_and_locations() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    use zirql::{ConstructedValue as V, ParameterInputs as P};
+    let limits = ProgramLimits::default();
+    let input = Input::parse(b"x=2; y=3;".to_vec(), FileMode::Data).unwrap();
+    let program = Program::parse(
+        "report [factor | factor in [1]]; param factor: int; report factor;",
+        limits,
+    )
+    .unwrap();
+    let supplied = [("factor".into(), V::Integer(2))];
+    let result = program
+        .evaluate_with_parameters(&input, P::Typed(&supplied), limits)
+        .unwrap();
+    assert!(
+        matches!(result.emissions()[0].value(), ReportValue::Constructed(V::Array(values)) if values==&vec![V::Integer(1)])
+    );
+    assert!(matches!(
+        result.emissions()[1].value(),
+        ReportValue::Constructed(V::Integer(2))
+    ));
+    for source in [
+        "report factor; param factor:int; report factor;",
+        "param factor:int; report [factor | factor in [1]];",
+        "param factor:int; let factor=2; report factor;",
+    ] {
+        assert!(Program::parse(source, limits).is_err(), "{source}");
+    }
+    let dynamic = Program::parse(r#"param selected:string; param limit:int; let n=limit+1; source names=query("filter(name(selected)) | head(n % ignored )\n + 0) | names"); report names;"#,limits).unwrap();
+    let result = dynamic
+        .evaluate_with_parameters(
+            &input,
+            P::Typed(&[
+                ("selected".into(), V::String("x".into())),
+                ("limit".into(), V::Integer(0)),
+            ]),
+            limits,
+        )
+        .unwrap();
+    assert!(
+        matches!(result.emissions()[0].value(),ReportValue::Query(zincite_query::SemanticStream::Inspection(value)) if matches!(&**value,zincite_query::QueryResult::Strings(names) if names==&vec!["x".to_owned()]))
+    );
+    let unicode = Program::parse(
+        r#"param n:int; source names=query("items | head(n /* é ) */) | names"); report names;"#,
+        limits,
+    )
+    .unwrap();
+    let unicode_result = unicode
+        .evaluate_with_parameters(&input, P::Typed(&[("n".into(), V::Integer(1))]), limits)
+        .unwrap();
+    assert!(
+        matches!(unicode_result.emissions()[0].value(), ReportValue::Query(zincite_query::SemanticStream::Inspection(value)) if matches!(&**value,zincite_query::QueryResult::Strings(names) if names==&vec!["x".to_owned()]))
+    );
+    let escaped =
+        r#"param n:int; source q=query("filter(name(\"x\")) | head(/* é */ \"bad\")"); report q;"#;
+    let error = Program::parse(escaped, limits).unwrap_err();
+    assert_eq!(&escaped[error.range], r#"\"bad\""#);
+    let unchosen = r#"param n:int; source q=query("filter(name(\"missing\") and name(n)) | head(0)"); report q;"#;
+    let error = Program::parse(unchosen, limits).unwrap_err();
+    assert_eq!(&unchosen[error.range], "n");
+    let string = Program::parse("param text:string; report text;", limits).unwrap();
+    let raw = ["text=  \"x\"=\\  ".to_owned()];
+    let result = string
+        .evaluate_with_parameters(&input, P::Cli(&raw), limits)
+        .unwrap();
+    assert!(
+        matches!(result.emissions()[0].value(),ReportValue::Constructed(V::String(text)) if text=="  \"x\"=\\  ")
+    );
+    let integer = Program::parse("param n:int; report n;", limits).unwrap();
+    for raw in [
+        vec![],
+        vec!["n=2".into(), "n=3".into()],
+        vec!["n=2".into(), "extra=0".into()],
+        vec!["n=2.0".into()],
+        vec!["n=9223372036854775808".into()],
+        vec!["n".into()],
+    ] {
+        assert!(
+            integer
+                .evaluate_with_parameters(&input, P::Cli(&raw), limits)
+                .is_err()
+        );
+    }
+    assert!(
+        integer
+            .evaluate_with_parameters(&input, P::Typed(&[("n".into(), V::Boolean(true))]), limits)
+            .is_err()
+    );
+    assert!(
+        string
+            .evaluate_with_parameters(
+                &input,
+                P::Typed(&[("text".into(), V::String("x".repeat(1000)))]),
+                ProgramLimits {
+                    work: 100,
+                    ..limits
+                }
+            )
+            .is_err()
+    );
+
+    let source_name = Program::parse(
+        "param field:string; source data=literal(field); report data;",
+        limits,
+    )
+    .unwrap();
+    assert!(matches!(
+        source_name
+            .evaluate_with_parameters(
+                &input,
+                P::Typed(&[("field".into(), V::String("x".into()))]),
+                limits
+            )
+            .unwrap()
+            .emissions()[0]
+            .value(),
+        ReportValue::Constructed(V::Integer(2))
+    ));
 }
