@@ -1,0 +1,5 @@
+entity_count = 2;
+group_count = 1;
+entities = [(weight: 7, peer: 2, group: 1), (weight: 11, peer: 1, group: 1)];
+capacities = [| 3, 4 | 5, 6 |];
+groups = [{1, 2}];

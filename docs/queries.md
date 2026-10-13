@@ -48,8 +48,9 @@ scalar expressions over query projections or a written literal assignment. The
 reference describes the accepted values, checked arithmetic and result schema.
 Reports also support keyed arrays, established enum-member identities and
 multidimensional access, with explicit axes and rectangular-shape checks.
-Program-based data edits remain future work and require their existing approval
-gate.
+For new assignments and computed replacements, use a model-backed
+[data edit program](data-edits.md#construct-new-data). It uses the same bounded
+expressions and produces one atomic document candidate.
 
 ## Inspect semantic facts
 

@@ -6,8 +6,7 @@ right-hand side. Neither operation constructs a new value from query results.
 Read-only [query programs](reference.md#query-programs) support immutable `source`
 and `let` bindings, ordered query statements, native reports and the bounded
 expression/comprehension subset below. Zincite lowers its existing CST and uses
-Zirql for checked expressions, scopes and generators. Explicit `.dzn` edit
-batches remain proposals subject to their existing approval gate.
+Zirql for checked expressions, scopes and generators. Model-backed `.dzn` edit batches use the same expression rules and evaluator.
 
 Reports accept positional and fully keyed arrays, matrices, tuples, ordered
 records and homogeneous Boolean/integer/float/nominal sets. Sources may use
@@ -17,7 +16,8 @@ starting-key tails are refused. `index_set`
 returns established rank-one keys. `enum_member` resolves explicit declared
 members through a retained read-only model; use `--model` for `.dzn` programs.
 Source declarations may establish enum alignment and empty axes from written
-integer intervals or explicit enums. Computed or uncertain axes are refused.
+integer intervals or explicit enums. Bounded integer axis endpoints may read unique fixed integer literal assignments;
+computed dependency values and uncertain axes are refused.
 Native-only reports keep their existing untagged result; pure reports use the
 tagged schema in this contract.
 
@@ -27,7 +27,7 @@ MiniZinc itself permits more expressions and functions. This contract accepts
 only the subset stated here; syntactic acceptance by Zincite's parser alone
 does not imply that the constructor can evaluate an expression.
 
-## Report expressions and proposed edit grammar
+## Report expressions and edit grammar
 
 One request has named sources, optional immutable bindings, then one report or
 one atomic edit batch. The `query` string is an existing Zincite query pipeline;
@@ -208,7 +208,7 @@ complete object (shown with line breaks for readability):
 }
 ```
 
-## Reports and proposed edit requests
+## Reports and data edit requests
 
 Both reports are implemented. They use the current `names` projection as a
 source of strings; the keyed report preserves explicit positions.
@@ -259,8 +259,8 @@ line ending. An edit never changes model or include files. Without unique
 model ownership, type and axis obligations for a new or changed assignment
 remain unknown and the edit is refused.
 
-The batch is a proposed extension of the current one-transformation pipeline.
-It checks the supported target type and shape facts using read-only model
+An edit program constructs one atomic batch. It checks supported target types,
+written finite integer scalar domains and array shapes using read-only model
 declarations and the coherent candidate assignments after all edits. Thus the
 doubled example requires `entities` length 4, `groups` length 2 and
 `capacities` shape `4 × 2`, while source bindings still read the original
@@ -413,14 +413,14 @@ zirql::evaluate_value(expression, bindings, shared_budget)
 The report adapter supplies typed query results and renders the native value.
 The data adapter supplies literal RHS values, checks model ownership and target
 shape, serializes constructed MiniZinc literals, then calls the existing atomic
-edit preparation and complete-candidate reparse. The proposed data adapter must use the same
-expression rules and budget. Zincite has one CST frontend and uses the existing
+edit preparation and complete-candidate reparse. Both adapters use the same expression rules and budget. Edit expressions are
+validated at parse time and lowered again with declared target evidence during
+evaluation; this additional work spends the same request budget. Zincite has one CST frontend and uses the existing
 Zirql dependency for shared evaluation. It does not run a model, compiler or solver.
 
-Before base-127 implements data construction, the user needs to approve the
-host `source`/`let`/`report`/`create`/`replace` grammar and batch shape; the
-operator and two-helper whitelist; model-backed creation and replacement
-requirements; keyed and empty-axis policy; comment placement; explicit member
-identity rules; and the obligation to map every dependent reference and choose
-cross-copy values. These are the recommendations of base-125. Finishing this
-investigation grants no approval to implement them.
+The user approved this exact bounded data contract on 2026-10-13. The library
+and both query commands implement it. Use `--model` to supply read-only target
+declarations, `--diff` to inspect changes, and `--write` only for an explicit
+regular data file. Model and include files are never edited. A candidate's type
+and axis checks cover this subset; they do not prove full MiniZinc validity or
+satisfiability.

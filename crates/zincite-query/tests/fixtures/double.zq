@@ -1,0 +1,22 @@
+source old_entities = literal("entities");
+source old_capacities = literal("capacities");
+source old_groups = literal("groups");
+let entity_map = [(i,c): i + 2*c | i in 1..2, c in 0..1];
+let group_map = [(g,c): g + c | g in 1..1, c in 0..1];
+replace entity_count = 4;
+replace group_count = 2;
+replace entities = [
+    (weight: old_entities[i].weight,
+     peer: entity_map[old_entities[i].peer,c],
+     group: group_map[old_entities[i].group,c])
+  | c in 0..1, i in 1..2
+];
+replace capacities = [
+    (entity_map[i,c],j): old_capacities[i,j]
+  | c in 0..1, i in 1..2, j in 1..2
+];
+replace groups = [
+    group_map[g,c]: {entity_map[i,c] | i in old_groups[g]}
+  | c in 0..1, g in 1..1
+];
+emit_document;

@@ -13,8 +13,9 @@ use crate::{ErrorLocation, Input, Limits, Query, QueryError, QueryResult};
 
 const HELP: &str = "Usage: zincite-query [--stdin-filepath PATH] [--model PATH] [-I DIR] [--stdlib-dir DIR] [--diff|--write] QUERY [FILE|-]
 
-Use -f PROGRAM [FILE|-] for read-only sources, let bindings and reports.
-Programs construct positional/keyed arrays and sets with MiniZinc comprehensions.
+Use -f PROGRAM [FILE|-] for immutable bindings, reports or atomic data batches.
+Programs construct arrays, records and sets with bounded MiniZinc comprehensions.
+create/replace assignments end with emit_document; data batches require --model.
 Inspect MiniZinc source or change data assignments and enum membership.
 No input or '-' reads stdin; .dzn paths select assignment-only data syntax.
 Syntax queries do not load includes or require a MiniZinc library or solver.
@@ -99,16 +100,16 @@ attached comments. Separated section comments and a BOM stay in document output.
 Fragment selections that unbalance paired formatter markers fail.
 
 Options:
-    -f, --program-file PATH Read source/let bindings and native or positional reports
+    -f, --program-file PATH Read bindings, reports or create/replace data batches
     --max-work N           Program work allowance (default 1000000)
     --max-results N        Program aggregate entries (default 100000)
     --max-items N          Program stream ceiling (default 100000)
     --max-nesting N        Program nesting ceiling (default 64)
     --stdin-filepath PATH   Select stdin language mode and diagnostic path
-    --model PATH            Retain a root for semantic queries or data reduction
+    --model PATH            Retain a root for semantic queries or model-backed data edits
     -I DIR                  Add an include directory in supplied order
     --stdlib-dir DIR        MiniZinc library root; overrides MZN_STDLIB_DIR
-    --diff                  Preview an editing pipeline as a whole-file diff
+    --diff                  Preview an editing pipeline/program as a whole-file diff
     --write                 Write a complete candidate; rejects stdin/symlinks
     --                      End option processing
     -h, --help              Show this help
@@ -193,10 +194,15 @@ fn execute(arguments: Vec<OsString>, invocation: &str) -> Result<u8, String> {
     } else {
         None
     };
-    if arguments.output != OutputMode::Source && !query.as_ref().is_some_and(Query::is_editing) {
-        return Err(format!(
-            "{invocation}: --diff and --write require an editing pipeline"
-        ));
+    if arguments.output != OutputMode::Source
+        && !query.as_ref().is_some_and(Query::is_editing)
+        && !program.as_ref().is_some_and(crate::Program::is_editing)
+    {
+        return Err(if program.is_some() {
+            format!("{invocation}: --diff and --write are unavailable for read-only programs")
+        } else {
+            format!("{invocation}: --diff and --write require an editing pipeline or program")
+        });
     }
     if arguments.output == OutputMode::Write && arguments.path.is_none() {
         return Err(format!(
@@ -291,6 +297,17 @@ fn execute(arguments: Vec<OsString>, invocation: &str) -> Result<u8, String> {
             .map_err(|error| format!("stderr: {error}"))?;
         }
         let status = u8::from(!result.is_complete());
+        if arguments.output == OutputMode::Write && !result.is_complete() {
+            return Ok(1);
+        }
+        let output = edit_output(
+            arguments.output,
+            &arguments.path,
+            path,
+            &bytes,
+            output,
+            input.file(),
+        )?;
         return io::stdout()
             .write_all(&output)
             .map(|()| status)
@@ -339,29 +356,49 @@ fn execute(arguments: Vec<OsString>, invocation: &str) -> Result<u8, String> {
         }
     }
     let candidate = result.render();
-    let output = match arguments.output {
-        OutputMode::Source => candidate,
-        OutputMode::Diff => {
-            let snapshot = SourceSnapshot::new(
-                path.cloned().unwrap_or_else(|| PathBuf::from("<stdin>")),
-                &bytes,
-            );
-            let mut diff = Vec::new();
-            write_fix_diff(&snapshot, &candidate, &mut diff)
-                .map_err(|error| format!("diff: {error}"))?;
-            diff
-        }
-        OutputMode::Write => {
-            let snapshot = SourceSnapshot::new(arguments.path.as_ref().unwrap(), &bytes);
-            replace_source_file(&snapshot, &candidate)
-                .map_err(|error| format!("{label}: {error}"))?;
-            return Ok(0);
-        }
-    };
+    let output = edit_output(
+        arguments.output,
+        &arguments.path,
+        path,
+        &bytes,
+        candidate,
+        &label,
+    )?;
     io::stdout()
         .write_all(&output)
         .map(|()| status)
         .map_err(|error| format!("stdout: {error}"))
+}
+
+fn edit_output(
+    mode: OutputMode,
+    write_path: &Option<PathBuf>,
+    label_path: Option<&PathBuf>,
+    original: &[u8],
+    candidate: Vec<u8>,
+    label: &str,
+) -> Result<Vec<u8>, String> {
+    match mode {
+        OutputMode::Source => Ok(candidate),
+        OutputMode::Diff => {
+            let snapshot = SourceSnapshot::new(
+                label_path
+                    .cloned()
+                    .unwrap_or_else(|| PathBuf::from("<stdin>")),
+                original,
+            );
+            let mut diff = Vec::new();
+            write_fix_diff(&snapshot, &candidate, &mut diff)
+                .map_err(|error| format!("diff: {error}"))?;
+            Ok(diff)
+        }
+        OutputMode::Write => {
+            let snapshot = SourceSnapshot::new(write_path.as_ref().unwrap(), original);
+            replace_source_file(&snapshot, &candidate)
+                .map_err(|error| format!("{label}: {error}"))?;
+            Ok(Vec::new())
+        }
+    }
 }
 
 fn parse_arguments(arguments: Vec<OsString>) -> Result<Arguments, String> {
@@ -456,9 +493,6 @@ fn parse_arguments(arguments: Vec<OsString>) -> Result<Arguments, String> {
     let (query, path) = if program_file.is_some() {
         if positional.len() > 1 {
             return Err("program input accepts at most one input file or '-'".into());
-        }
-        if output != OutputMode::Source {
-            return Err("--diff and --write are unavailable for read-only programs".into());
         }
         (
             String::new(),

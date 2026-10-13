@@ -25,7 +25,11 @@ Lint diagnostics go to stderr; ordinary analysis preserves files.
 
 Queries accept one query and at most one file or `-`; omitted input reads stdin.
 The [query reference](reference.md#query-library) defines pipeline output and
-semantic model loading. Query diagnostics go to stderr.
+semantic model loading. `-f PROGRAM` or `--program-file PROGRAM` selects a
+[query program](reference.md#query-programs), with immutable bindings followed
+by reports or one `create`/`replace` batch ending in `emit_document;`. Data
+programs require `.dzn` mode and `--model` for target declarations. Query
+diagnostics go to stderr.
 
 ## Explicit writes
 
@@ -42,7 +46,7 @@ bytes again before replacing the file. Writes retain file permissions.
 | Code | Formatter | Linter | Query |
 | --- | --- | --- | --- |
 | `0` | Formatting succeeded; check found no changes | No unsuppressed warnings or errors | Complete result |
-| `1` | Check found formatting changes | Unsuppressed warnings | Incomplete semantic report or reduction candidate |
+| `1` | Check found formatting changes | Unsuppressed warnings | Incomplete semantic report or data candidate |
 | `2` | Input, syntax, configuration, directive, usage or I/O error | Input, syntax, settings, directive, usage, dependency or I/O error | Query, input, model, usage or I/O error |
 
 Errors take precedence across formatter/linter inputs. A query's empty fragment

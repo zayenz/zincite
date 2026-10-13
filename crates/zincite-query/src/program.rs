@@ -1,7 +1,7 @@
-//! Ordered read-only programs over native query results and constructed values.
+//! Native reports and atomic model-backed data batches using shared evaluation.
 use crate::{
     Input, Limits, Query, QueryError, QueryResult, Selection, SemanticResult, SemanticStream, Work,
-    comprehension, inspection, language, pipeline, semantic,
+    comprehension, data, inspection, language, pipeline, semantic,
 };
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, ops::Range, rc::Rc};
@@ -16,6 +16,7 @@ type Expression = zirql::Expression<Stage, (), Emitter>;
 #[derive(Debug)]
 enum Stage {
     Query(usize),
+    Data(Vec<data::Edit>),
     Literal(Located<String>),
     Value {
         expression: comprehension::LoweredValue,
@@ -124,12 +125,18 @@ impl<'a> ProgramEmission<'a> {
 #[derive(Debug)]
 pub struct ProgramResult<'a> {
     emissions: Vec<ProgramEmission<'a>>,
+    candidate: Option<Input>,
+    candidate_range: Range<usize>,
     semantic: Option<SemanticResult<'a>>,
     facts: Option<Rc<ModelFacts<'a>>>,
     report_limitations: Vec<SourceDiagnostic>,
     budget: Budget,
 }
 impl<'a> ProgramResult<'a> {
+    /// The complete reparsed document, present only for an editing program.
+    pub fn candidate(&self) -> Option<&Input> {
+        self.candidate.as_ref()
+    }
     pub fn emissions(&self) -> &[ProgramEmission<'a>] {
         &self.emissions
     }
@@ -152,6 +159,15 @@ impl<'a> ProgramResult<'a> {
     /// Render all requested outputs into one buffer. Repeated rendering charges
     /// the allowance again; a failure returns no partial bytes.
     pub fn render(&mut self) -> Result<Vec<u8>, QueryError> {
+        if let Some(candidate) = &self.candidate {
+            self.budget
+                .charge(
+                    candidate.source_bytes().len(),
+                    zirql::Location::Query(self.candidate_range.clone()),
+                )
+                .map_err(pipeline::core_error)?;
+            return Ok(candidate.source_bytes().to_vec());
+        }
         let mut bytes = Vec::new();
         for emission in &self.emissions {
             let mut output = match (&emission.emitter, &emission.value) {
@@ -279,8 +295,9 @@ impl std::io::Write for BudgetWriter<'_> {
     }
 }
 
-/// A parsed, read-only program. Query-source strings lower once with their
-/// original program byte coordinates; execution never parses generated text.
+/// A parsed report or data program. Query-source strings lower once. Edit RHS
+/// expressions are lowered again with target evidence under the request budget;
+/// their original program coordinates are retained. Generated text is not evaluated.
 #[derive(Debug)]
 pub struct Program {
     program: zirql::Program<Stage, (), Emitter>,
@@ -289,9 +306,10 @@ pub struct Program {
     preflight_range: Option<Range<usize>>,
     queries: Vec<Query>,
     report_model_demand: bool,
+    editing: bool,
 }
 impl Program {
-    /// Parse immutable source/let bindings, query statements and reports.
+    /// Parse immutable bindings, reports, or one terminal data edit batch.
     /// All names, terminal emitters and supported result transitions are checked
     /// before any statement executes.
     pub fn parse(source: &str, limits: ProgramLimits) -> Result<Self, QueryError> {
@@ -316,16 +334,124 @@ impl Program {
             lexed: zincite_syntax::lex(source),
         };
         let mut statements = Vec::new();
+        let mut edits = Vec::new();
+        let mut target_names = std::collections::BTreeSet::new();
+        let mut output_seen = false;
+        let mut let_seen = false;
+        let mut late_source = None;
+        let mut invalid_source = None;
+        let mut invalid_binding = None;
+        let mut document_seen = false;
         parser.cursor.space();
         while parser.cursor.position < source.len() {
             let start = parser.cursor.position;
+            if document_seen {
+                return Err(parser.cursor.error("no statement may follow emit_document"));
+            }
+            let create = parser.cursor.take_word("create");
+            let replace = !create && parser.cursor.take_word("replace");
+            if create || replace {
+                if output_seen {
+                    return Err(parser
+                        .cursor
+                        .error("an edit batch cannot include report or query emissions"));
+                }
+                let (name, range) = parser.identifier("expected an assignment target")?;
+                if !parser.minizinc_identifier(&range) {
+                    return Err(QueryError::query(
+                        range,
+                        "expected a MiniZinc identifier or quoted identifier",
+                    ));
+                }
+                parser.begin_pure(range.clone())?;
+                parser
+                    .preflight
+                    .charge(name.len() + 1, zirql::Location::Query(range.clone()))
+                    .map_err(pipeline::core_error)?;
+                parser
+                    .preflight
+                    .charge_results(1, zirql::Location::Query(range.clone()))
+                    .map_err(pipeline::core_error)?;
+                if !target_names.insert(name.to_owned()) {
+                    return Err(QueryError::query(range, "duplicate edit target"));
+                }
+                parser
+                    .cursor
+                    .punctuation(b'=', "expected '=' after edit target")?;
+                parser.cursor.space();
+                let expression_range = parser.cursor.position..parser.expression_end()?;
+                let (_, names) = parser.pure_value(expression_range.clone())?;
+                parser
+                    .preflight
+                    .charge(
+                        expression_range.len() + name.len() + 1,
+                        zirql::Location::Query(range.clone()),
+                    )
+                    .map_err(pipeline::core_error)?;
+                edits.push(data::Edit {
+                    create,
+                    name: Located::new(name.to_owned(), range),
+                    source: source[expression_range.clone()].to_owned(),
+                    range: expression_range,
+                    names,
+                });
+                parser.cursor.punctuation(b';', "expected ';' after edit")?;
+                parser.cursor.space();
+                continue;
+            }
+            if parser.cursor.take_word("emit_document") {
+                if edits.is_empty() || output_seen {
+                    return Err(QueryError::query(
+                        start..parser.cursor.position,
+                        "emit_document requires an edit batch",
+                    ));
+                }
+                parser
+                    .cursor
+                    .punctuation(b';', "expected ';' after emit_document")?;
+                let range = start..parser.cursor.position;
+                statements.push(Located::new(
+                    zirql::Statement::Evaluate {
+                        expression: value_stage(
+                            Stage::Data(std::mem::take(&mut edits)),
+                            range.clone(),
+                        ),
+                        implicit_output: None,
+                    },
+                    range,
+                ));
+                document_seen = true;
+                parser.cursor.space();
+                continue;
+            }
+            if !edits.is_empty() {
+                return Err(parser
+                    .cursor
+                    .error("an edit batch must end with emit_document"));
+            }
             let is_source = parser.cursor.take_word("source");
             let is_let = !is_source && parser.cursor.take_word("let");
+            if is_source && let_seen {
+                late_source = Some(start..parser.cursor.position);
+            }
+            let_seen |= is_let;
             let binding = if is_source || is_let {
                 let (name, range) = parser.identifier("expected a binding name")?;
+                if !parser.minizinc_identifier(&range) {
+                    invalid_binding = Some(range.clone());
+                }
                 if matches!(
                     name,
-                    "source" | "let" | "literal" | "report" | "query" | "json" | "emit"
+                    "source"
+                        | "let"
+                        | "literal"
+                        | "report"
+                        | "query"
+                        | "json"
+                        | "emit"
+                        | "create"
+                        | "replace"
+                        | "emit_document"
                 ) {
                     return Err(QueryError::query(
                         range,
@@ -346,6 +472,16 @@ impl Program {
             parser.cursor.space();
             let expression_start = parser.cursor.position;
             let expression_end = parser.expression_end()?;
+            if is_source
+                && !source[expression_start..expression_end]
+                    .trim_start()
+                    .starts_with("query")
+                && !source[expression_start..expression_end]
+                    .trim_start()
+                    .starts_with("literal")
+            {
+                invalid_source = Some(expression_start..expression_end);
+            }
             let (expression, kind, emits) = if is_source && parser.cursor.take_word("literal") {
                 parser.begin_pure(expression_start..expression_end)?;
                 parser.report_model_demand = true;
@@ -392,6 +528,7 @@ impl Program {
             parser
                 .cursor
                 .punctuation(b';', "expected ';' after program statement")?;
+            output_seen |= binding.is_none();
             let statement = if let Some(name) = binding {
                 parser.names.insert(name.value.clone(), kind);
                 zirql::Statement::Bind { name, expression }
@@ -410,6 +547,31 @@ impl Program {
             statements.push(Located::new(statement, start..parser.cursor.position));
             parser.cursor.space();
         }
+        if !edits.is_empty() {
+            return Err(parser
+                .cursor
+                .error("an edit batch must end with emit_document"));
+        }
+        if document_seen {
+            if let Some(range) = invalid_binding {
+                return Err(QueryError::query(
+                    range,
+                    "expected a MiniZinc identifier or quoted identifier",
+                ));
+            }
+            if let Some(range) = late_source {
+                return Err(QueryError::query(
+                    range,
+                    "sources must precede let bindings in an edit request",
+                ));
+            }
+            if let Some(range) = invalid_source {
+                return Err(QueryError::query(
+                    range,
+                    "an edit source requires query(...) or literal(...)",
+                ));
+            }
+        }
         if statements.is_empty() {
             return Err(QueryError::query(
                 0..source.len(),
@@ -419,7 +581,8 @@ impl Program {
         Ok(Self {
             program: zirql::Program::new(statements, 0..source.len()),
             queries: parser.queries,
-            report_model_demand: parser.report_model_demand,
+            report_model_demand: parser.report_model_demand || document_seen,
+            editing: document_seen,
             preflight_work: limits
                 .work
                 .checked_sub(parser.preflight.remaining_work())
@@ -430,6 +593,9 @@ impl Program {
                 .unwrap(),
             preflight_range: parser.preflight_range,
         })
+    }
+    pub fn is_editing(&self) -> bool {
+        self.editing
     }
     pub fn requires_model_facts(&self) -> bool {
         self.report_model_demand || self.queries.iter().any(Query::requires_model_facts)
@@ -505,6 +671,7 @@ impl Program {
             facts,
             facts_admitted: false,
             emissions: Vec::new(),
+            candidate: None,
         };
         zirql::evaluate_program(
             &self.program,
@@ -541,6 +708,7 @@ impl Program {
         } else {
             Vec::new()
         };
+        let candidate = context.candidate;
         let retained_facts = context.facts;
         let emissions = context.emissions;
         let semantic = if let Some(mut report) = context.query.report.take() {
@@ -572,6 +740,8 @@ impl Program {
         }
         Ok(ProgramResult {
             emissions,
+            candidate,
+            candidate_range: self.program.range(),
             facts: retained_facts,
             report_limitations: if semantic.is_some() {
                 Vec::new()
@@ -629,10 +799,10 @@ impl<'a> Parser<'a> {
         }
         Ok(())
     }
-    fn pure_expression(
+    fn pure_value(
         &mut self,
         range: Range<usize>,
-    ) -> Result<(Expression, Kind, bool), QueryError> {
+    ) -> Result<(comprehension::LoweredValue, Vec<Located<String>>), QueryError> {
         self.begin_pure(range.clone())?;
         self.admit_cst(&range)?;
         let expression = comprehension::lower(
@@ -688,6 +858,13 @@ impl<'a> Parser<'a> {
             }
         }
         self.cursor.position = range.end;
+        Ok((expression, names))
+    }
+    fn pure_expression(
+        &mut self,
+        range: Range<usize>,
+    ) -> Result<(Expression, Kind, bool), QueryError> {
+        let (expression, names) = self.pure_value(range.clone())?;
         Ok((
             value_stage(Stage::Value { expression, names }, range),
             Kind::Constructed,
@@ -767,6 +944,20 @@ impl<'a> Parser<'a> {
             position: 0,
         };
         syntax.expression(0) && syntax.current().is_none()
+    }
+    fn minizinc_identifier(&self, range: &Range<usize>) -> bool {
+        let i = self
+            .lexed
+            .tokens()
+            .partition_point(|token| token.range.start < range.start);
+        self.lexed.tokens().get(i).is_some_and(|token| {
+            token.range == *range
+                && matches!(
+                    token.kind,
+                    zincite_syntax::TokenKind::Identifier
+                        | zincite_syntax::TokenKind::QuotedIdentifier
+                )
+        })
     }
     fn identifier(&mut self, message: &str) -> Result<(&'a str, Range<usize>), QueryError> {
         self.cursor.space();
@@ -1238,6 +1429,7 @@ struct Context<'c, 'a> {
     facts: Option<Rc<ModelFacts<'a>>>,
     facts_admitted: bool,
     emissions: Vec<ProgramEmission<'a>>,
+    candidate: Option<Input>,
 }
 impl<'a> Context<'_, 'a> {
     fn report_facts(
@@ -1306,78 +1498,34 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
                 .map_err(zirql::EvaluationError::Host);
             }
             Stage::Value { expression, names } => {
-                let facts = if !expression.members.is_empty() || names.iter().any(|name| matches!(bindings.get(&name.value, name.range.clone()), Ok(ReportValue::Query(SemanticStream::Inspection(value))) if matches!(value.as_ref(), QueryResult::Literals(_)))) {
-                    context.report_facts(budget, range).map_err(zirql::EvaluationError::Host)?
-                } else { context.facts.clone() };
-                let count = names
-                    .len()
-                    .checked_add(expression.members.len())
-                    .ok_or_else(|| {
-                        zirql::QueryError::query(range.clone(), "projection size overflow")
-                    })?;
-                budget.charge(count, zirql::Location::Query(range.clone()))?;
-                budget.charge_results(count, zirql::Location::Query(range.clone()))?;
-                let mut projected = Vec::with_capacity(count);
-                for name in names {
-                    budget.charge(
-                        name.value.len() + 20,
-                        zirql::Location::Query(name.range.clone()),
-                    )?;
-                    let value = bindings.get(&name.value, name.range.clone())?;
-                    let value = match value {
-                        ReportValue::Constructed(value) => zirql::copy_constructed_value(
-                            value,
-                            budget,
-                            zirql::Location::Query(name.range.clone()),
-                        )?,
-                        ReportValue::Query(stream) => comprehension::project(
-                            stream,
-                            facts.as_deref(),
-                            budget,
-                            &name.range,
-                            self.nesting,
-                        )
-                        .map_err(zirql::EvaluationError::Host)?,
-                        ReportValue::Record(_) => {
-                            return Err(zirql::EvaluationError::Host(QueryError::query(
-                                name.range.clone(),
-                                "native records require explicit scalar projections",
-                            )));
-                        }
-                    };
-                    projected.push((
-                        Located::new(name.value.to_owned(), name.range.clone()),
-                        value,
-                    ));
-                }
-                for member in &expression.members {
-                    budget.charge(
-                        member.slot.len() + 1,
-                        zirql::Location::Query(member.range.clone()),
-                    )?;
-                    let value = comprehension::resolve_member(
-                        facts.as_deref(),
-                        Some(&member.enum_name.value),
-                        &member.member_name.value,
-                        budget,
-                        &member.range,
-                    )
+                return self
+                    .constructed(expression, names, context, bindings, budget, range)
+                    .map(ReportValue::Constructed);
+            }
+            Stage::Data(edits) => {
+                let facts = context
+                    .report_facts(budget, range)
                     .map_err(zirql::EvaluationError::Host)?;
-                    projected.push((
-                        Located::new(member.slot.clone(), member.range.clone()),
-                        zirql::ConstructedValue::Member(value),
-                    ));
-                }
-                let bindings = Bindings::new(projected)?;
-                let value = zirql::evaluate_value_with_host_validation(
-                    &expression.expression,
-                    &bindings,
+                let facts = facts.ok_or_else(|| {
+                    zirql::EvaluationError::Host(QueryError::query(
+                        range.clone(),
+                        "data construction requires read-only model context (--model)",
+                    ))
+                })?;
+                let candidate = data::prepare_data_batch(
+                    context.input,
+                    &facts,
+                    edits,
                     budget,
-                    comprehension::validate_report_value,
-                )?;
-                comprehension::validate_report_shape(&value, budget, range)
-                    .map_err(zirql::EvaluationError::Host)?;
-                return Ok(ReportValue::Constructed(value));
+                    self.limits,
+                    |expression, names, budget, range| {
+                        self.constructed(expression, names, context, bindings, budget, range)
+                            .map_err(pipeline::evaluation_error)
+                    },
+                )
+                .map_err(zirql::EvaluationError::Host)?;
+                context.candidate = Some(candidate);
+                return Ok(value);
             }
         };
         if self.pipelines[index].stages().is_empty() {
@@ -1448,6 +1596,87 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
     }
 }
 impl<'a> NativeHost<'_> {
+    fn constructed(
+        &self,
+        expression: &comprehension::LoweredValue,
+        names: &[Located<String>],
+        context: &mut Context<'_, 'a>,
+        bindings: &Bindings<ReportValue<'a>>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<zirql::ConstructedValue, zirql::EvaluationError<QueryError>> {
+        let facts = if !expression.members.is_empty() || names.iter().any(|name| matches!(bindings.get(&name.value, name.range.clone()), Ok(ReportValue::Query(SemanticStream::Inspection(value))) if matches!(value.as_ref(), QueryResult::Literals(_)))) {
+                    context.report_facts(budget, range).map_err(zirql::EvaluationError::Host)?
+                } else { context.facts.clone() };
+        let count = names
+            .len()
+            .checked_add(expression.members.len())
+            .ok_or_else(|| zirql::QueryError::query(range.clone(), "projection size overflow"))?;
+        budget.charge(count, zirql::Location::Query(range.clone()))?;
+        budget.charge_results(count, zirql::Location::Query(range.clone()))?;
+        let mut projected = Vec::with_capacity(count);
+        for name in names {
+            budget.charge(
+                name.value.len() + 20,
+                zirql::Location::Query(name.range.clone()),
+            )?;
+            let value = bindings.get(&name.value, name.range.clone())?;
+            let value = match value {
+                ReportValue::Constructed(value) => zirql::copy_constructed_value(
+                    value,
+                    budget,
+                    zirql::Location::Query(name.range.clone()),
+                )?,
+                ReportValue::Query(stream) => comprehension::project(
+                    stream,
+                    facts.as_deref(),
+                    budget,
+                    &name.range,
+                    self.nesting,
+                )
+                .map_err(zirql::EvaluationError::Host)?,
+                ReportValue::Record(_) => {
+                    return Err(zirql::EvaluationError::Host(QueryError::query(
+                        name.range.clone(),
+                        "native records require explicit scalar projections",
+                    )));
+                }
+            };
+            projected.push((
+                Located::new(name.value.to_owned(), name.range.clone()),
+                value,
+            ));
+        }
+        for member in &expression.members {
+            budget.charge(
+                member.slot.len() + 1,
+                zirql::Location::Query(member.range.clone()),
+            )?;
+            let value = comprehension::resolve_member(
+                facts.as_deref(),
+                Some(&member.enum_name.value),
+                &member.member_name.value,
+                budget,
+                &member.range,
+            )
+            .map_err(zirql::EvaluationError::Host)?;
+            projected.push((
+                Located::new(member.slot.clone(), member.range.clone()),
+                zirql::ConstructedValue::Member(value),
+            ));
+        }
+        let bindings = Bindings::new(projected)?;
+        let value = zirql::evaluate_value_with_host_validation(
+            &expression.expression,
+            &bindings,
+            budget,
+            comprehension::validate_report_value,
+        )?;
+        comprehension::validate_report_shape(&value, budget, range)
+            .map_err(zirql::EvaluationError::Host)?;
+        Ok(value)
+    }
+
     fn run_pipeline(
         &self,
         index: usize,

@@ -643,3 +643,50 @@ match the captured versions, and `git diff --check` passes. No repository Rust,
 manifest, tests or measurement service changed; this report needs no new product
 tests or repeat workspace Rust checks. Earlier rejected and incomplete acceptance
 results above remain unchanged.
+
+## Model-backed data batches
+
+The base-127 implementation adds atomic `create`/`replace` programs ending in
+`emit_document;`. Validation used the approved public two-entity model and data
+from `crates/zincite-query/tests/fixtures/`, on the source checkout over
+`a8cc0cd66f6ca7cfa44a4055b4b82c767a1f692c`, with Zirql pinned at
+`9c3ce81dca3d35cde55b2fba77567d73e431ae54`. No solver or corpus sweep ran.
+
+The library, `zincite-query -f double.zq` and `zincite query -f double.zq`
+produced the same 257-byte candidate. Its SHA-256 is
+`d1c0bbbd134e55f59c0e658a4c6539b6b38ef2f706710f803770a2bd7fcee01c`.
+A subsequent public literal report checked entity keys `1..4`, weights
+`7,11,7,11`, peers `2,1,4,3`, groups `1,1,2,2`, all eight capacity keys in
+`1..4 × 1..2` with values `3,4,5,6,3,4,5,6`, and group keys `1..2` with
+memberships `{1,2}` and `{3,4}`. Both evaluations retained the supplied
+`Rc<ModelFacts>` owner. Sources and `let` bindings read the original input;
+final target axes used the generated counts.
+
+Both command forms passed source preview, `--diff` and explicit `--write`.
+Previews left the original bytes intact; writes matched the library candidate
+and retained permissions. A failed second replacement returned status 2 with
+empty stdout and no write. Incomplete model context returned status 1 and
+refused writing; stdin and symlink writes returned status 2. Model bytes stayed
+unchanged. The native checks used a temporary library containing an empty
+`std/stdlib.mzn`, sufficient for this model's fixed literal declarations.
+
+MiniZinc 2.10.1 build 33348285743 accepted the original, the documented doubled
+data and the actual generated candidate with `--instance-check-only`. These
+checks returned status 0 with empty diagnostics. They supplement the explicit
+key and reference checks; they do not establish satisfiability.
+
+Focused library controls cover existing and initially empty data documents,
+array/matrix/record replacements, nominal member spelling, known empty axes,
+BOM/CRLF and detached comments, written integer scalar domains, conflicting
+targets, unsupported or computed values, internal RHS comments and stale final
+scalar-dependent coverage. Existing report and legacy edit controls also pass.
+The final source passed workspace formatting, clippy with warnings denied,
+workspace tests and `git diff --check`.
+
+Raw commands, statuses, output files and binary/input hashes remain under
+`/private/tmp/zincite127-evidence/`. `proof-final.json` records the library and
+15 CLI/compiler controls; `mapped.json` retains the public typed report, and
+`validation-final.json` records final workspace commands and source hashes.
+The earlier logs are retained separately and do not describe the final
+bounded-domain addition. Baseline compiler evidence is in
+`/private/tmp/zincite127-public-baseline/proof.json`.

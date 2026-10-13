@@ -1,7 +1,10 @@
 //! MiniZinc CST lowering and native projection; Zirql evaluates every value.
 use crate::{Input, QueryError, QueryResult, SemanticStream, pipeline, structured};
 use serde_json::{Value, json};
-use std::{collections::BTreeSet, ops::Range};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    ops::Range,
+};
 use zincite_lint::{
     Declaration, DeclarationId, DeclarationRole, Domain, ModelFacts, NumericBound, TypeInst,
     TypeKind,
@@ -811,7 +814,7 @@ fn model_error(location: zincite_lint::SourceLocation, message: impl Into<String
 fn nominal_id(id: DeclarationId, range: &Range<usize>) -> Result<u64, QueryError> {
     u64::try_from(id.0).map_err(|_| QueryError::query(range.clone(), "nominal identity overflow"))
 }
-fn unique_declaration<'a>(
+pub(crate) fn unique_declaration<'a>(
     facts: &'a ModelFacts<'_>,
     name: &str,
     role: DeclarationRole,
@@ -833,7 +836,7 @@ fn unique_declaration<'a>(
     }
     found.ok_or_else(|| QueryError::query(range.clone(), "unavailable declaration identity"))
 }
-fn declaration_type<'a>(
+pub(crate) fn declaration_type<'a>(
     facts: &'a ModelFacts<'_>,
     id: DeclarationId,
     budget: &mut Budget,
@@ -855,7 +858,7 @@ fn declaration_type<'a>(
     found.ok_or_else(|| QueryError::query(range.clone(), "unavailable declaration type"))
 }
 /// Explicit cases and their retained declaration coordinates prove membership/order.
-fn enum_cases<'a>(
+pub(crate) fn enum_cases<'a>(
     facts: &'a ModelFacts<'_>,
     owner: &'a Declaration,
     budget: &mut Budget,
@@ -1002,12 +1005,12 @@ pub(crate) fn resolve_member(
 }
 /// The written type accompanies public expanded types; enum types do not prove index subsets.
 #[derive(Clone, Copy)]
-struct LiteralMetadata<'a> {
-    ty: &'a TypeInst,
-    file: usize,
-    node: Option<&'a SyntaxNode>,
+pub(crate) struct LiteralMetadata<'a> {
+    pub ty: &'a TypeInst,
+    pub file: usize,
+    pub node: Option<&'a SyntaxNode>,
 }
-fn declaration_node<'a>(
+pub(crate) fn declaration_node<'a>(
     facts: &'a ModelFacts<'_>,
     id: DeclarationId,
     budget: &mut Budget,
@@ -1027,7 +1030,7 @@ fn declaration_node<'a>(
     }
     Ok(None)
 }
-fn resolve_metadata<'a, 'model: 'a>(
+pub(crate) fn resolve_metadata<'a, 'model: 'a>(
     mut metadata: LiteralMetadata<'a>,
     facts: &ModelFacts<'model>,
     budget: &mut Budget,
@@ -1088,7 +1091,7 @@ fn resolve_metadata<'a, 'model: 'a>(
         "model type nesting limit exceeded",
     ))
 }
-fn child_metadata<'a>(
+pub(crate) fn child_metadata<'a>(
     metadata: Option<LiteralMetadata<'a>>,
     ty: &'a TypeInst,
     position: Option<usize>,
@@ -1108,7 +1111,7 @@ fn child_metadata<'a>(
         node,
     }
 }
-fn declared_value<'a>(
+pub(crate) fn declared_value<'a>(
     facts: &'a ModelFacts<'_>,
     name: &str,
     budget: &mut Budget,
@@ -1145,22 +1148,202 @@ fn declared_value<'a>(
         node,
     }))
 }
+/// Resolve only literal fixed scalar dependencies; arithmetic itself runs in Zirql.
+pub(crate) fn integer_bound(
+    bound: &NumericBound,
+    input: &Input,
+    scalars: &BTreeMap<usize, i64>,
+    facts: &ModelFacts<'_>,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<i64, QueryError> {
+    fn expression(
+        bound: &NumericBound,
+        input: &Input,
+        scalars: &BTreeMap<usize, i64>,
+        facts: &ModelFacts<'_>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+        remaining: usize,
+    ) -> Result<E, QueryError> {
+        charge(budget, 1, range)?;
+        if remaining == 0 {
+            return Err(QueryError::query(
+                range.clone(),
+                "axis bound nesting limit exceeded",
+            ));
+        }
+        let value = match bound {
+            NumericBound::Integer(n) => K::Literal(V::Integer(*n)),
+            NumericBound::Symbol(id)
+            | NumericBound::Defined {
+                declaration: id, ..
+            } => {
+                let declaration = &facts.bindings().declarations[id.0];
+                let owner = unique_declaration(
+                    facts,
+                    &declaration.name,
+                    DeclarationRole::Value,
+                    budget,
+                    range,
+                )?;
+                let ty = declaration_type(facts, owner.id, budget, range)?;
+                if ty.optional
+                    || ty.instantiation != zincite_lint::Instantiation::Parameter
+                    || ty.kind != TypeKind::Int
+                {
+                    return Err(model_error(
+                        owner.location.clone(),
+                        "axis dependency requires one fixed integer scalar declaration",
+                    ));
+                }
+                let n = if let Some(n) = scalars.get(&id.0) {
+                    *n
+                } else {
+                    let mut rhs = None;
+                    for node in input.syntax().tree().child_nodes() {
+                        charge(budget, 1 + node.children().len(), range)?;
+                        if node.kind() == N::Assignment {
+                            let token = structured::direct_token(input, node).unwrap();
+                            if crate::identifier_identity(
+                                std::str::from_utf8(input.token_bytes(token)).unwrap(),
+                            ) == owner.name
+                            {
+                                if rhs.is_some() {
+                                    return Err(QueryError::input(
+                                        input.original_range(node.range()),
+                                        "axis scalar assignment is ambiguous",
+                                    ));
+                                }
+                                rhs = crate::assignment_rhs(node);
+                            }
+                        }
+                    }
+                    if let Some(rhs) = rhs {
+                        let literal = structured::read_literal(
+                            input,
+                            rhs,
+                            &mut crate::Work { budget },
+                            range,
+                            crate::Limits::default(),
+                        )
+                        .map_err(input_error)?;
+                        if !matches!(literal.kind, structured::LiteralKind::Integer) {
+                            return Err(QueryError::input(
+                                literal.range,
+                                "axis dependency requires an original integer literal; computed assignments are unsupported",
+                            ));
+                        }
+                        let V::Integer(n) = written_scalar(&literal, input, budget)? else {
+                            unreachable!()
+                        };
+                        n
+                    } else if let NumericBound::Defined { value, .. } = bound {
+                        let NumericBound::Integer(n) = value.as_ref() else {
+                            return Err(model_error(
+                                owner.location.clone(),
+                                "computed axis scalar dependency is unsupported",
+                            ));
+                        };
+                        *n
+                    } else {
+                        return Err(model_error(
+                            owner.location.clone(),
+                            "axis scalar dependency has no original literal assignment",
+                        ));
+                    }
+                };
+                K::Literal(V::Integer(n))
+            }
+            NumericBound::Arithmetic { operator, operands } => {
+                let mut values = slots(budget, operands.len(), range)?;
+                for operand in operands {
+                    values.push(expression(
+                        operand,
+                        input,
+                        scalars,
+                        facts,
+                        budget,
+                        range,
+                        remaining - 1,
+                    )?);
+                }
+                match values.len() {
+                    1 if matches!(operator, T::Plus | T::Minus) => K::Unary {
+                        operator: if *operator == T::Plus {
+                            U::Positive
+                        } else {
+                            U::Negative
+                        },
+                        operand: Box::new(values.pop().unwrap()),
+                    },
+                    2 => {
+                        let operator = match operator {
+                            T::Plus => B::Add,
+                            T::Minus => B::Subtract,
+                            T::Star => B::Multiply,
+                            T::Div => B::IntegerDivide,
+                            T::Mod => B::Modulo,
+                            _ => {
+                                return Err(QueryError::query(
+                                    range.clone(),
+                                    "unsupported axis arithmetic",
+                                ));
+                            }
+                        };
+                        let right = values.pop().unwrap();
+                        let left = values.pop().unwrap();
+                        K::Binary {
+                            operator,
+                            left: Box::new(left),
+                            right: Box::new(right),
+                        }
+                    }
+                    _ => {
+                        return Err(QueryError::query(
+                            range.clone(),
+                            "unsupported axis arithmetic",
+                        ));
+                    }
+                }
+            }
+            _ => {
+                return Err(QueryError::query(
+                    range.clone(),
+                    "unknown or unsupported integer axis bound",
+                ));
+            }
+        };
+        Ok(Located::new(value, range.clone()))
+    }
+    let expression = expression(bound, input, scalars, facts, budget, range, 64)?;
+    match zirql::evaluate_value(&expression, &zirql::Bindings::default(), budget)
+        .map_err(pipeline::core_error)?
+    {
+        V::Integer(n) => Ok(n),
+        _ => Err(QueryError::query(
+            range.clone(),
+            "axis bound is not an integer",
+        )),
+    }
+}
 fn domain_axis(
     domain: &Domain,
+    input: &Input,
+    scalars: &BTreeMap<usize, i64>,
     facts: &ModelFacts<'_>,
     budget: &mut Budget,
     range: &Range<usize>,
 ) -> Result<zirql::KeyAxis, QueryError> {
     use zirql::{KeyAxis, ValueKey as Key, ValueKeyType as KeyType};
     match domain {
-        Domain::Range {
-            lower: NumericBound::Integer(lo),
-            upper: NumericBound::Integer(hi),
-        } => {
+        Domain::Range { lower, upper } => {
+            let lo = integer_bound(lower, input, scalars, facts, budget, range)?;
+            let hi = integer_bound(upper, input, scalars, facts, budget, range)?;
             let len = if lo > hi {
                 0
             } else {
-                usize::try_from(i128::from(*hi) - i128::from(*lo) + 1)
+                usize::try_from(i128::from(hi) - i128::from(lo) + 1)
                     .map_err(|_| QueryError::query(range.clone(), "axis size overflow"))?
             };
             let mut keys = slots(budget, len, range)?;
@@ -1182,7 +1365,7 @@ fn domain_axis(
             declaration,
             domain,
         } if matches!(domain.as_ref(), Domain::Enum(id) if id == declaration) => {
-            domain_axis(domain, facts, budget, range)
+            domain_axis(domain, input, scalars, facts, budget, range)
         }
         Domain::Enum(id) => {
             let owner = facts.bindings().declarations.get(id.0).ok_or_else(|| {
@@ -1210,7 +1393,9 @@ fn domain_axis(
         )),
     }
 }
-fn declared_axes(
+pub(crate) fn declared_axes(
+    input: &Input,
+    scalars: &BTreeMap<usize, i64>,
     metadata: Option<LiteralMetadata<'_>>,
     facts: Option<&ModelFacts<'_>>,
     budget: &mut Budget,
@@ -1253,7 +1438,7 @@ fn declared_axes(
     }
     let mut axes = slots(budget, types.len(), range)?;
     for domain in domains {
-        axes.push(domain_axis(domain, facts, budget, range)?);
+        axes.push(domain_axis(domain, input, scalars, facts, budget, range)?);
     }
     Ok(Some(axes))
 }
@@ -1515,13 +1700,14 @@ fn project_literal(
             K::Record(children)
         }
         L::Array { indexing, entries } => {
-            let axes = declared_axes(metadata, facts, budget, range).map_err(|e| {
-                if matches!(e.location, crate::ErrorLocation::Query) {
-                    input_error(e)
-                } else {
-                    e
-                }
-            })?;
+            let axes = declared_axes(input, &BTreeMap::new(), metadata, facts, budget, range)
+                .map_err(|e| {
+                    if matches!(e.location, crate::ErrorLocation::Query) {
+                        input_error(e)
+                    } else {
+                        e
+                    }
+                })?;
             if *indexing == Indexing::Positional && axes.is_none() {
                 let mut children = slots(budget, entries.len(), range).map_err(input_error)?;
                 for entry in entries {
@@ -1587,7 +1773,8 @@ fn project_literal(
             }
         }
         L::Matrix { column_keys, rows } => {
-            let mut axes = declared_axes(metadata, facts, budget, range).map_err(input_error)?;
+            let mut axes = declared_axes(input, &BTreeMap::new(), metadata, facts, budget, range)
+                .map_err(input_error)?;
             let columns = if column_keys.is_empty() {
                 rows.first().map_or(0, |row| row.cells.len())
             } else {
@@ -1665,7 +1852,7 @@ fn project_literal(
     };
     Ok(Located::new(kind, range.clone()))
 }
-fn key_expression(
+pub(crate) fn key_expression(
     key: &zirql::ValueKey,
     budget: &mut Budget,
     range: &Range<usize>,

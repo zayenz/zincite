@@ -2564,3 +2564,171 @@ fn keyed_report_work_and_repeated_rendering_share_the_request_allowance() {
         .unwrap_err();
     assert!(error.message.contains("result limit"));
 }
+
+#[test]
+fn data_programs_create_replace_and_preserve_declared_keys_and_source() {
+    use zincite_query::{Program, ProgramLimits};
+    let model = semantic_model("data-create", b"enum E={Zulu,'alpha beta'}; array[1..2] of int: counts; array[E] of int: keyed; record(1..9: n,array[1..0,2..3] of int: empty): r; array[1..0,2..3] of int: empty; array[1..2] of 1..3: limited; solve satisfy;", b"", "");
+    let original = b"\xef\xbb\xbfcounts = [3, 5]; % keep\r\n\r\n% detached\r\n";
+    let input = Input::parse_named(original.to_vec(), FileMode::Data, "data.dzn").unwrap();
+    let program = Program::parse(r#"source old = literal("counts"); let saved = old; replace counts = [saved[i]+1 | i in index_set(saved)]; create keyed = [enum_member(E,"Zulu"):7,enum_member(E,"alpha beta"):9]; create r = (n:1,empty:[(i+0,j):1 | i in 1..0,j in 2..3]); create empty = []; emit_document;"#, ProgramLimits::default()).unwrap();
+    assert!(program.is_editing());
+    let mut result = program
+        .evaluate_with_model(&input, Some(&model), ProgramLimits::default())
+        .unwrap();
+    assert!(result.is_complete());
+    let candidate = result.render().unwrap();
+    assert_eq!(candidate, b"\xef\xbb\xbfcounts = [4, 6]; % keep\r\nkeyed = [Zulu: 7, 'alpha beta': 9];\r\nr = (n: 1, empty: []);\r\nempty = [];\r\n\r\n% detached\r\n");
+    assert_eq!(result.candidate().unwrap().source_bytes(), candidate);
+    let replaced_record_input = Input::parse(candidate.clone(), FileMode::Data).unwrap();
+    let record = Program::parse(
+        "replace r=(n:2,empty:[]); emit_document;",
+        ProgramLimits::default(),
+    )
+    .unwrap()
+    .evaluate_with_model(
+        &replaced_record_input,
+        Some(&model),
+        ProgramLimits::default(),
+    )
+    .unwrap();
+    assert!(
+        record
+            .candidate()
+            .unwrap()
+            .source_bytes()
+            .windows(b"r = (n: 2, empty: []);".len())
+            .any(|bytes| bytes == b"r = (n: 2, empty: []);")
+    );
+
+    assert_eq!(input.source_bytes(), original);
+    let empty_shape = Program::parse(
+        "create empty=[(i,j):1 | i in 1..2 where false,j in 2..3]; emit_document;",
+        ProgramLimits::default(),
+    )
+    .unwrap()
+    .evaluate_with_model(&input, Some(&model), ProgramLimits::default())
+    .unwrap();
+    assert_eq!(
+        empty_shape.candidate().unwrap().source_bytes(),
+        b"\xef\xbb\xbfcounts = [3, 5]; % keep\r\nempty = [];\r\n\r\n% detached\r\n"
+    );
+    let empty = Input::parse(Vec::new(), FileMode::Data).unwrap();
+    let mut created = Program::parse(
+        "create counts = [i | i in 1..2]; emit_document;",
+        ProgramLimits::default(),
+    )
+    .unwrap()
+    .evaluate_with_model(&empty, Some(&model), ProgramLimits::default())
+    .unwrap();
+    assert_eq!(created.render().unwrap(), b"counts = [1, 2];\n");
+    let limited = Program::parse(
+        "create limited=[1,3]; emit_document;",
+        ProgramLimits::default(),
+    )
+    .unwrap()
+    .evaluate_with_model(&empty, Some(&model), ProgramLimits::default())
+    .unwrap();
+    assert_eq!(
+        limited.candidate().unwrap().source_bytes(),
+        b"limited = [1, 3];\n"
+    );
+    for request in [
+        "create counts=[1,2]; emit_document;",
+        "replace missing=1; emit_document;",
+        "replace counts=[1]; emit_document;",
+        "replace counts=[1,2]; create 'counts'=[1,2]; emit_document;",
+        "report 1; replace counts=[1,2]; emit_document;",
+        "replace counts=[1,2];",
+        "replace counts=[1,2]; emit_document; report 1;",
+        "create keyed=[1:7,2:9]; emit_document;",
+        "create empty=[(1,2):1]; emit_document;",
+        "create limited=[1,4]; emit_document;",
+        "replace counts=[1,1 div 0]; emit_document;",
+        "replace counts=[1,abs(2)]; emit_document;",
+    ] {
+        let error = Program::parse(request, ProgramLimits::default())
+            .and_then(|program| {
+                program.evaluate_with_model(&input, Some(&model), ProgramLimits::default())
+            })
+            .unwrap_err();
+        assert!(error.range.start <= request.len(), "{request}: {error:?}");
+    }
+    let commented =
+        Input::parse(b"counts=[3, /* placement */5];".to_vec(), FileMode::Data).unwrap();
+    assert!(
+        Program::parse(
+            "replace counts=[4,6]; emit_document;",
+            ProgramLimits::default()
+        )
+        .unwrap()
+        .evaluate_with_model(&commented, Some(&model), ProgramLimits::default())
+        .unwrap_err()
+        .message
+        .contains("internal comments")
+    );
+}
+
+#[test]
+fn data_programs_double_entities_and_validate_final_scalar_axes() {
+    use std::rc::Rc;
+    use zincite_query::{Program, ProgramLimits};
+    let model = semantic_model(
+        "data-double",
+        include_bytes!("fixtures/doubled.mzn"),
+        b"",
+        "",
+    );
+    let facts = Rc::new(zincite_lint::ModelFacts::new(&model));
+    let input = Input::parse_named(
+        include_bytes!("fixtures/doubled.dzn").to_vec(),
+        FileMode::Data,
+        "double.dzn",
+    )
+    .unwrap();
+    let program =
+        Program::parse(include_str!("fixtures/double.zq"), ProgramLimits::default()).unwrap();
+    let mut result = program
+        .evaluate_with_facts(&input, facts.clone(), ProgramLimits::default())
+        .unwrap();
+    assert!(std::ptr::eq(result.model_facts().unwrap(), facts.as_ref()));
+    let candidate = result.render().unwrap();
+    assert_eq!(candidate, b"entity_count = 4;\ngroup_count = 2;\nentities = [(weight: 7, peer: 2, group: 1), (weight: 11, peer: 1, group: 1), (weight: 7, peer: 4, group: 2), (weight: 11, peer: 3, group: 2)];\ncapacities = [| 3, 4 | 5, 6 | 3, 4 | 5, 6 |];\ngroups = [1: {1, 2}, 2: {3, 4}];\n");
+    for request in [
+        "replace entity_count=4; emit_document;",
+        "replace entity_count=4; replace entities=[(weight:1,peer:1,group:1) | i in 1..3]; emit_document;",
+    ] {
+        assert!(
+            Program::parse(request, ProgramLimits::default())
+                .unwrap()
+                .evaluate_with_facts(&input, facts.clone(), ProgramLimits::default())
+                .is_err()
+        );
+    }
+    let computed = Input::parse(
+        include_str!("fixtures/doubled.dzn")
+            .replace("entity_count = 2", "entity_count = 1+1")
+            .into_bytes(),
+        FileMode::Data,
+    )
+    .unwrap();
+    assert!(
+        program
+            .evaluate_with_facts(&computed, facts, ProgramLimits::default())
+            .unwrap_err()
+            .message
+            .contains("computed")
+    );
+    let axes = semantic_model(
+        "data-axis-expression",
+        b"int: n; array[2..n+1] of int: a; solve satisfy;",
+        b"",
+        "",
+    );
+    let data = Input::parse(b"n=2; a=[2:5,3:6];".to_vec(), FileMode::Data).unwrap();
+    let request = Program::parse(r#"source a=literal("a"); replace n=3; replace a=[i:if i=4 then 7 else a[i] endif | i in 2..4]; emit_document;"#, ProgramLimits::default()).unwrap();
+    let mut result = request
+        .evaluate_with_model(&data, Some(&axes), ProgramLimits::default())
+        .unwrap();
+    assert_eq!(result.render().unwrap(), b"n=3; a=[2: 5, 3: 6, 4: 7];");
+}

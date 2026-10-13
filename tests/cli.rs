@@ -641,3 +641,101 @@ fn keyed_program_files_keep_nominal_axes_and_buffer_later_errors() {
     );
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn data_program_files_preview_diff_and_write_one_coherent_candidate() {
+    let dir =
+        std::env::temp_dir().join(format!("zincite-root-data-program-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(dir.join("library/std/stdlib.mzn"), "").unwrap();
+    let model = dir.join("model.mzn");
+    let program = dir.join("double.zq");
+    let data = dir.join("input.dzn");
+    std::fs::write(
+        &model,
+        include_bytes!("../crates/zincite-query/tests/fixtures/doubled.mzn"),
+    )
+    .unwrap();
+    std::fs::write(
+        &program,
+        include_bytes!("../crates/zincite-query/tests/fixtures/double.zq"),
+    )
+    .unwrap();
+    let original = include_bytes!("../crates/zincite-query/tests/fixtures/doubled.dzn");
+    std::fs::write(&data, original).unwrap();
+    let library = dir.join("library");
+    let args = vec![
+        "query",
+        "--model",
+        model.to_str().unwrap(),
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        "-f",
+        program.to_str().unwrap(),
+        data.to_str().unwrap(),
+    ];
+    let output = run(&args, "");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let candidate = output.stdout;
+    assert!(
+        candidate
+            .windows(b"peer: 4, group: 2".len())
+            .any(|bytes| bytes == b"peer: 4, group: 2")
+    );
+    assert!(
+        candidate
+            .windows(b"capacities = [| 3, 4 | 5, 6 | 3, 4 | 5, 6 |]".len())
+            .any(|bytes| bytes == b"capacities = [| 3, 4 | 5, 6 | 3, 4 | 5, 6 |]")
+    );
+    assert!(
+        candidate
+            .windows(b"groups = [1: {1, 2}, 2: {3, 4}]".len())
+            .any(|bytes| bytes == b"groups = [1: {1, 2}, 2: {3, 4}]")
+    );
+    assert_eq!(std::fs::read(&data).unwrap(), original);
+    let mut diff_args = args.clone();
+    diff_args.insert(1, "--diff");
+    let output = run(&diff_args, "");
+    assert!(output.status.success());
+    assert!(output.stdout.starts_with(b"--- a/"));
+    assert_eq!(std::fs::read(&data).unwrap(), original);
+    let mut write_args = args.clone();
+    write_args.insert(1, "--write");
+    let output = run(&write_args, "");
+    assert!(output.status.success() && output.stdout.is_empty());
+    assert_eq!(std::fs::read(&data).unwrap(), candidate);
+    assert_eq!(
+        std::fs::read(&model).unwrap(),
+        include_bytes!("../crates/zincite-query/tests/fixtures/doubled.mzn")
+    );
+    std::fs::write(&data, original).unwrap();
+    for failing in [
+        "replace entity_count=4; emit_document;",
+        "replace entity_count=4; replace group_count=1 div 0; emit_document;",
+        "replace entity_count=4; replace 'entity_count'=5; emit_document;",
+    ] {
+        std::fs::write(&program, failing).unwrap();
+        let output = run(&write_args, "");
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+        assert_eq!(std::fs::read(&data).unwrap(), original);
+    }
+    std::fs::write(&program, "create entity_count=2; create group_count=1; create entities=[(weight:7,peer:2,group:1),(weight:11,peer:1,group:1)]; create capacities=[(i,j):i+j | i in 1..2,j in 1..2]; create groups=[{1,2}]; emit_document;").unwrap();
+    std::fs::write(&data, "").unwrap();
+    let output = run(&args, "");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let created = output.stdout;
+    let output = run(&write_args, "");
+    assert!(output.status.success());
+    assert_eq!(std::fs::read(&data).unwrap(), created);
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -372,7 +372,8 @@ syntax only, not compiler acceptance or semantic validity of data expressions.
 
 ### Query programs
 
-`Program::parse(source, ProgramLimits)` accepts ordered read-only statements.
+`Program::parse(source, ProgramLimits)` accepts ordered reports or one atomic
+data edit batch.
 Every statement ends with `;`. A source binding is immutable and can refer only
 to earlier bindings. `query("pipeline")` uses the stages above; its string is
 parsed once and diagnostics retain the original program byte coordinates.
@@ -443,13 +444,26 @@ Keyed reports retain integer/member axes and multidimensional access uses
 enum declaration order, with the rightmost axis varying fastest. Every axis
 must be contiguous and every axis-product cell must exist. Filtered holes fail
 without shifting keys. Known empty axes retain their rank and the other axes;
-computed/dependent keys cannot establish an empty fallback. `enum_member` takes
+uncertain keys cannot establish an empty fallback. Declared source axes may
+resolve bounded integer endpoints from unique original scalar literals. `enum_member` takes
 an enum identifier and a member-name string, and requires unique explicit model
 cases. Pure `.dzn` reports retain an explicitly supplied `--model` without using
 the semantic query's `.mzn` root path.
 
-Programs remain read-only. Model calls and data construction/edit batches remain
-deferred. The existing single `Query` API retains its edit routes. Development
+Model calls remain unsupported. Data batches use `create` and `replace`, followed
+by one `emit_document;`. Sources and immutable `let` bindings precede the edits
+and read the original input. A batch cannot include report/query emissions or
+repeat a target name. Creation requires an absent assignment; replacement requires
+exactly one original assignment. Both require a unique fixed nonoptional model
+declaration. Final validation overlays edited integer scalars on original literals
+to check every target's type and axes, plus known unchanged assignments affected
+by those scalars. Written integer scalar intervals and sets are checked too,
+including elements inside records and arrays. Unsupported domain forms,
+unknown or computed dependencies refuse the batch. Declared
+targets can establish empty axes; they cannot repair nonempty keys or holes.
+See the [data-edit guide](data-edits.md#construct-new-data) and the
+[explicit doubled instance](query-comprehension-contract.md#a-complete-doubled-instance).
+The existing single `Query` API retains its edit routes. Development
 uses a pinned Git revision of Zirql. The published alpha.5 release lacks the
 runtime host-validation API, so this integration has no registry version
 fallback until release work supplies one. Consumer release packaging also needs
@@ -457,8 +471,9 @@ sibling dependency version metadata and registry readiness; it belongs to a
 release milestone.
 
 Use `zincite-query -f PROGRAM [FILE|-]` or `zincite query --program-file PROGRAM
-[FILE|-]`. Input, stdin and model options have their existing meanings. Programs
-reject `--diff` and `--write`. Both commands evaluate and render all requested
+[FILE|-]`. Input, stdin and model options have their existing meanings. Report programs
+reject `--diff` and `--write`; editing programs use the existing preview and
+complete-candidate write rules. Both commands evaluate and render all requested
 outputs before writing stdout. A later runtime or rendering error leaves stdout
 empty. Program-file errors name the actual program file; source errors retain
 the original input or model location. Incomplete semantic reports still carry
@@ -469,7 +484,9 @@ The library provides `evaluate`, `evaluate_with_model` and `evaluate_with_facts`
 `ProgramResult::model_facts()` retains the owner for native nominal identities,
 including pure `.dzn` reports. Each evaluation prepares
 one initial selection and retains one context, `Rc<ModelFacts>` and budget across
-statements. `ProgramResult::emissions()` exposes native values; `semantic()` retains
+statements. `Program::is_editing()` identifies a data batch, and
+`ProgramResult::candidate()` exposes its reparsed complete data document.
+`ProgramResult::emissions()` exposes report values; `semantic()` retains
 the public fact owner and `is_complete()`/`limitations()` retain uncertainty.
 Call `render(&mut self)` to obtain one output buffer, then write those bytes only
 after success. Every JSON emission uses `{complete, limitations, result}`, including
@@ -482,7 +499,10 @@ and copied native or constructed entries, generator candidates before filters,
 nested containers/fields, emission snapshots and JSON storage. Pure-expression
 lowering, validation and free-name discovery share the parse allowance across
 statements; evaluation admits those costs before input/fact preparation, and
-repeated evaluation pays them again. Before building the CST, parsing applies
+repeated evaluation pays them again. Data edits lower their original RHS text
+again with declared target evidence during evaluation; this work shares the
+request allowance. Candidate assembly, full reparsing and source rendering spend
+that allowance too. Before building the CST, parsing applies
 the nesting allowance conservatively to enclosed expression segments and their
 operator chains; sibling values and conditional branches reset local counts.
 JSON metadata reserves a bounded amount before construction. Work also covers

@@ -5,7 +5,7 @@
 //! Results stay native until source or JSON rendering. Source rendering retains
 //! original bytes, including opaque comment bytes. Literal inspection and
 //! comparisons are bounded and never evaluate computed input expressions or
-//! includes. [`Program`] also constructs positional report values through Zirql.
+//! includes. [`Program`] constructs reports and atomic model-backed data batches through Zirql.
 
 #![forbid(unsafe_code)]
 
@@ -22,6 +22,7 @@ use zincite_syntax::{
 
 pub mod cli;
 mod comprehension;
+mod data;
 mod inspection;
 mod language;
 mod pipeline;
