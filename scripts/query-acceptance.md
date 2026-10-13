@@ -340,3 +340,306 @@ refusals. The two named real reductions remain incomplete status-1 previews
 with unavailable writes; their computed enum-index evaluation is excluded by
 the adopted contract. This report does not assert full MiniZinc evaluation,
 satisfiability or completion of the separate corpus/thesis gate.
+
+## Shared multi-feature reports, 2026-10-13
+
+The successful syntax and semantic programs cost less than their matched separate
+invocations, reusing input parsing and requested binding facts. The 10,000-element
+literal report rejects under default limits; its timings describe refusal costs.
+
+The consumer source is `2efee89986860f7c898537f79026dabfaadfb524` and the exact
+Zirql Git dependency is `9c3ce81dca3d35cde55b2fba77567d73e431ae54`. The release
+root command reports `zincite 0.1.0 (2efee8998686)`. Both binaries come from:
+
+```sh
+cargo build --release --locked --target-dir /private/tmp/zincite128-build -p zincite -p zincite-query
+```
+
+Full binary, source, program and loaded-dependency hashes are in `environment.json`
+and `report.json` under `/private/tmp/zincite128-measurements-20261013`. The release
+`zincite` SHA-256 is
+`4b829d631b2f05827a0a046be260a02d6907007e49815c1a426e9f9762e59812`;
+`zincite-query` is
+`6c8134a42a9a489680b7619eb31f30b51878f9ea20ab6afd3ed3cb680d628aa6`.
+The standalone command does not implement `--version`.
+
+The host is an Apple M1 Max MacBook Pro with 10 CPU cores and 64 GB memory,
+arm64, macOS 26.6.2 (25G83), and Rust 1.98.1 (`48a229cea`, 2026-09-01).
+The semantic case explicitly uses MiniZinc 2.10.1 build 33348285743 at
+`/Applications/MiniZincIDE.app/Contents/Resources/share/minizinc`. It loads
+179 files totalling 452,118 bytes, including the 88-byte root and 178 standard
+library files. No solver or compiler instance check is part of this run.
+All programs retain default work 1,000,000, results 100,000, nesting 64 and
+stream items 100,000.
+
+### Inputs and matched reports
+
+`syntax-cookbook` is the exact 253-byte `model.mzn` in
+[the query cookbook](../docs/query-cookbook.md#create-the-inputs), with LF and a
+final LF. Its SHA-256 is
+`26c2e89def652fe4d2e646205184ccc2d10b9d3472bb639a2f02337d2646ab06`.
+Its written include is not loaded for this syntax report:
+
+```text
+source selected = query("filter(kind(\"constraint\"))");
+source n = selected | query("count");
+source histogram = selected | query("expressions | call_names | tally");
+report (count: n, histogram: histogram, selected: selected);
+```
+
+The result has count 3, histogram `{"abs":2,"bool2int":1,"forall":1}` and
+all three root constraints with their exact text, file and byte ranges.
+Each control reports one field and keeps only that field's binding dependencies.
+
+`semantic-capacity` is this 88-byte public model, with SHA-256
+`e69532cc4da408b8f4d5added90006f2f2cbb6835f6b7e3adc08101878e5fc19`:
+
+```minizinc
+int: capacity = 2;
+var int: occupancy;
+constraint occupancy <= capacity;
+solve satisfy;
+```
+
+```text
+source selected = query("filter(name(\"capacity\")) | declarations");
+source types = selected | query("types");
+source instantiations = selected | query("instantiations");
+source uses = selected | query("uses");
+report (selected: selected, types: types, instantiations: instantiations, uses: uses);
+```
+
+Its four controls keep `selected` and, where needed, the one derived binding.
+The result contains the `capacity` declaration at bytes 5..13, its parameter
+`int` type, `par` instantiation and written constraint reference at bytes 63..71.
+All reports are complete with no limitations. Native IDs are compared within their
+root owner; file/range/source identify observations across independently loaded
+owners. Numeric IDs are context-local.
+
+`literal-weights-10000` is generated as:
+
+```python
+('weights=[' + ','.join(str((-1, 0, 1)[i % 3]) for i in range(10000)) + '];\n').encode()
+```
+
+It has 23,345 bytes and SHA-256
+`12e42069caeb054341f33a2664eabbe5efb7c8a57795f8cbb679b148484e8a2f`.
+There is one assignment named `weights`, containing 3,333 positive scalar ones:
+
+```text
+source n = query("count");
+source names = query("names");
+source weights = literal("weights");
+let value_count = n;
+let value_names = names;
+let positives = [v | v in weights where v > 0];
+report (count: value_count, names: value_names, positives: positives);
+```
+
+The count control keeps `source n`, `let value_count` and its single-field
+report; names keeps its corresponding source and pure binding. Positives keeps
+only the literal source, comprehension and report. Explicit `let` bindings give
+count and names the same constructed tags in the main report and controls.
+Bare native controls would have different field shapes.
+
+The main program and positives control both exit 2 with empty stdout and
+`result limit exceeded`, at the generator binder `v`: main program bytes
+162..163 (line 6, column 22), control bytes 58..59 (line 2, column 22).
+Count and names controls exit 0, reporting constructed integer 1 and the
+positional string array containing `weights`. The rejected program returns no
+`ProgramResult`: its 3,333-element output and field parity remain unavailable.
+The positive count above comes from inspecting the input.
+
+A separately named `literal-weights-1000-companion` uses the same generator
+with `range(1000)`, 2,345 bytes and SHA-256
+`19b9638d856ada07cdccb91033feab83f93b624c041665aeaac1e4f799a34838`.
+With the same programs and defaults, complete native/rendered comparisons succeed:
+count 1, names `weights`, and 333 integer ones on positional keys 1..333 in source
+order. This shape control does not establish the original case's acceptance or an
+exact cutoff.
+
+Both CLI forms were captured once for every main and control program, including
+the companion. Full stdout, stderr and statuses match for each paired invocation.
+Comparisons preserve envelopes, limitations, native kinds, order, duplicates,
+source text, file/ranges and axes. Only the controls' outer record wrappers are
+assembled; their fields and limitations stay intact. Main/control stdout
+bytes are 833/925 for syntax and 1,367/1,505 for semantics, where control bytes
+are summed over separate outputs. Original literal bytes are 0/403, with the
+positives error retained separately. Companion bytes are 36,505/36,651.
+
+### Fresh command costs
+
+Ten main processes and ten sequential control groups per named case ran in one
+coordinated quiet window. Odd repetitions ran main then controls; even repetitions
+ran controls then main. Controls stay in report-field order. Each child has a
+45-second deadline and complete file captures. All 60 sample records and 130
+children finished; there were no timeouts, unfinished samples or incomplete
+results. Syntax and semantic main/control groups each have ten complete outcomes.
+Original literal groups each have ten rejected outcomes: their count and names
+children succeed, while all ten positives children reject.
+
+The existing `scripts/bench-save.py::file_invoke` is unchanged. Its exact-child
+`os.wait4` supplies CPU time and peak RSS; the small established `waitid` bridge
+keeps the child reserved for the sole reaper. RSS is reported in bytes on macOS
+and converted to MiB below. Main wall time spans child launch through completion.
+A control group's wall time spans all sequential captures, including capture
+bookkeeping between children; the component times remain in the raw records.
+Group RSS is the maximum child peak, not a sum of nonconcurrent peaks.
+
+| Case and variant | First sampled wall ms | Median wall ms (min..max) | Median peak RSS MiB (min..max) | Outcome |
+| --- | ---: | ---: | ---: | --- |
+| syntax-cookbook, program | 5.09 | 5.03 (4.56..14.49) | 2.44 (2.41..2.45) | complete, 10/10 |
+| syntax-cookbook, separate controls | 15.22 | 15.29 (14.43..25.65) | 2.38 (2.36..2.41) | complete, 10/10 |
+| semantic-capacity, program | 60.43 | 58.57 (56.83..60.43) | 26.20 (25.09..26.97) | complete, 10/10 |
+| semantic-capacity, separate controls | 174.06 | 176.53 (170.03..190.48) | 25.85 (24.91..27.11) | complete, 10/10 |
+| literal-weights-10000, program | 13.48 | 13.04 (12.47..13.90) | 9.26 (9.19..11.84) | rejected, 10/10 |
+| literal-weights-10000, separate controls | 28.73 | 28.31 (27.26..32.43) | 10.09 (9.14..12.22) | rejected, 10/10 |
+
+These are first samples after build and correctness probes, with ordinary warm
+filesystem caches. They are not controlled cold I/O or first-ever binary use.
+Ten observations support this bounded comparison, not p95 or a formatter-save
+budget claim. The earlier acceptance and base-122 measurements use different
+workloads or commits and are not matched regression baselines.
+
+### Retained input and requested facts
+
+Three uninstrumented processes per case parse Input/main Program/controls once,
+then record first and ten repeated requests. Semantics adds ten fresh ModelFacts
+owners against the same loaded context. The companion has three API observations
+and no ten-sample CLI campaign. Input bytes and syntax/tree addresses stay unchanged;
+all successful first/repeat/control native fields and rendered envelopes agree,
+including fresh semantic owners within their loaded context.
+
+The following medians are milliseconds. Parse/load and first-request columns
+have three observations; repeat and fresh-owner columns contain 30 requests
+nested within those three processes. Full min/max spreads and every phase row
+are in `report.json`.
+
+| Case | Input / main / controls parse | Model load | First evaluate / render | Repeat evaluate / render | Fresh owner evaluate / render |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| syntax-cookbook | 0.046 / 0.040 / 0.024 | not needed | 0.045 / 0.020 | 0.012 / 0.009 | not needed |
+| semantic-capacity | 0.032 / 0.048 / 0.030 | 20.857 | 28.813 / 0.036 | 1.492 / 0.021 | 26.856 / 0.031 |
+| literal-weights-10000 | 1.317 / 0.091 / 0.040 | not needed | 5.884 / unavailable | 5.389 / unavailable | not needed |
+| literal-weights-1000-companion | 0.181 / 0.084 / 0.038 | not needed | 0.912 / 0.561 | 0.792 / 0.445 | not needed |
+
+Input/program parse timers exclude file reads. Model loading includes its source
+reads and parsing. Evaluation and one render are timed separately; native/output
+comparisons run outside those timers, and each result/output is dropped before
+the next request. Fresh-owner timing excludes the small Rc/ModelFacts constructor.
+Literal-10000 evaluation rows end in rejection, so render timings are unavailable.
+
+The semantic ProgramResult retains the supplied ModelFacts owner and the same
+borrowed BindingFacts across requests. This declaration's type and `par`
+instantiation are supplied by bindings: `SemanticResult::instantiation_facts()`
+returns None because the deeper occurrence-instantiation family is not demanded.
+A narrow direct `Query::evaluate_with_facts` probe for the identical declaration
+instantiation pipeline confirms the same borrowed bindings and None deeper facts
+on ten requests in each of the three corrected processes. No unused family is
+initialized for the final observations. Internal parser or fact-producer call
+counts are not instrumented; public identity demonstrates retained input and
+borrowed-result reuse, not free evaluation or rendering.
+
+An original pointer check forced `ModelFacts::instantiations()` after the first
+semantic evaluation and in the independent-root allocator probe. Those observations
+are retained but superseded by a separate corrected driver, one allocator run and
+three semantic API processes in a narrow quiet window. CLI samples and unaffected
+API rows were not repeated. An earlier panic on the optional absent accessor remains
+recorded as an observer failure.
+
+### Allocation and root lifetime
+
+A separate CountingAllocator build records requested/live heap bytes, allocation
+calls and cumulative requested bytes. It adds no allocator overhead to the timing
+builds. Baselines include already retained probe/report buffers; JSON for each
+measured scope is built afterwards. After every repeated result/output drop,
+live bytes are stable, and every case returns to its baseline after Input,
+Program, facts and context are dropped. A rejected result holds only its error;
+it has no rendered report.
+
+| Case | Input + Program retained bytes | After model load | First result/error + output retained | After repeated drops | Peak live heap bytes | After complete drop |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| syntax-cookbook | 11,801 | 11,801 | 14,433 | 11,801 | 23,272 | 0 |
+| semantic-capacity | 7,012 | 9,595,632 | 21,788,790 | 21,786,368 | 22,978,793 | 0 |
+| literal-weights-10000 | 1,904,903 | 1,904,903 | 1,904,924 | 1,904,903 | 6,059,065 | 0 |
+| literal-weights-1000-companion | 214,784 | 214,784 | 276,035 | 214,784 | 1,207,859 | 0 |
+
+For the semantic case, dropping the caller's owner after results are released
+reduces retained bytes from 21,786,368 to 9,693,488; dropping the ModelContext
+leaves only the 7,012-byte parsed input/program allocation delta. The first demand
+adds retained binding facts; fresh owners rebuild them. Loading and first binding
+construction account for most of this case's fresh-process cost. Repeated requests
+still traverse and copy their selected results and render a new output.
+
+Two simultaneously loaded capacity roots have identical 88-byte source but
+different paths, distinct ModelContexts, ModelFacts and borrowed bindings. Each
+retained result keeps its root's owner alive after the caller Rc is dropped.
+Both Weak pointers stop upgrading after their final result is dropped; dropping
+the Weak removes the small remaining control block. The contexts outlive their
+results. Their staged live-byte deltas are:
+
+| Drop boundary | Live bytes above baseline |
+| --- | ---: |
+| Both contexts loaded | 19,186,467 |
+| Both first results and outputs retained | 43,572,867 |
+| Both outputs dropped, results retained | 43,570,109 |
+| First caller Rc dropped | 43,570,109 |
+| First final result and Weak dropped | 31,476,174 |
+| First context dropped, second root live | 21,789,698 |
+| Second caller Rc dropped | 21,789,698 |
+| Second final result and Weak dropped | 9,695,703 |
+| Both contexts dropped | 9,209 |
+| Both Inputs and Program dropped | 0 |
+
+Each root also has ten repeated result/output drops while its first result remains
+live, with stable retained bytes. The subsequent ten fresh-context requests
+alternate the two paths; every complete result/owner/context drop returns exactly
+to the retained Input/Program baseline. No owner is shared across roots. Repeated
+loading retains 358 files / 904,236 source bytes; unique canonical paths contain
+180 files / 452,206 bytes. The duplicated 178 standard-library files explain the
+additional independent-root storage.
+
+Counters exclude stack, allocator metadata, other native allocations and residency.
+RSS is a process high-water value and need not fall on a drop. All allocation-call,
+requested-byte and Weak rows remain available. There is no observed accumulation
+or matched prior-version regression requiring another profile; the timing spread
+does not establish a product regression.
+
+The original literal refusal warrants one direct bounded follow-up: inspect
+produced/copied result charging for this exact 10,000-element comprehension and
+its positives-only control before deciding on an implementation change. The
+recorded refusal occurs during evaluation at the generator binder. This run does
+not identify each internal charge or justify relaxing defaults, adding a cache
+or changing semantic behavior. The successful companion establishes shape parity
+at its own size only.
+
+### Retained evidence and validation
+
+Zincite owns this run; Zirql base-010 reuses these artifacts instead of repeating
+its cases. Everything except this report remains temporary under
+`/private/tmp/zincite128-measurements-20261013`: `cases.json`, all inputs/programs,
+`parity.json`, `companion-parity.json`, complete `.stdout`/`.stderr` streams,
+`runs/shared-reports/` with configuration and per-sample records, `environment.json`
+and `report.json`. The original `observe.rs` and corrected `observe-demand.rs`,
+compile commands/logs, `api-observations.json`, `api-demand-observations.json`,
+`memory-observations-current.json` and `memory-demand-observation.json` distinguish
+original and corrected probes. Earlier failures and superseded observations remain
+in their own files. `report.json` selects the final evidence explicitly.
+
+The temporary runner saves named samples atomically, resumes unfinished work and
+rejects changed configurations. `capture-smoke.json` records preview, bounded
+collection, unchanged completed records on resume, configuration rejection, timeout
+capture and analysis without target binaries. Start/resume and analyze with:
+
+```sh
+python3 /private/tmp/zincite128-measurements-20261013/capture.py run --name shared-reports --repetitions 10 --timeout 45
+python3 /private/tmp/zincite128-measurements-20261013/capture.py analyze --name shared-reports
+```
+
+The executable script also has the uv script header and a working uv entry point
+using a temporary cache. Child arguments and cwd are explicit. Disposable Rust
+drivers pass rustfmt and compile with `-D warnings`; the waitid bridge compiles
+with `-Wall -Wextra -Werror`. Final input, source, dependency and binary hashes
+match the captured versions, and `git diff --check` passes. No repository Rust,
+manifest, tests or measurement service changed; this report needs no new product
+tests or repeat workspace Rust checks. Earlier rejected and incomplete acceptance
+results above remain unchanged.

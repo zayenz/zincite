@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-128"
 key = "query-feature-performance"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -30,12 +30,21 @@ For human-facing documentation and website prose, apply unslop (/Users/zayenz/.a
 
 ## Done when
 
-- [ ] Record source/release pins, environment, sample count, spread, wall time and available peak memory for each named case.
-- [ ] Show parse/fact reuse and memory lifetime for repeated in-process requests and independent roots; report unavailable measurement evidence explicitly.
-- [ ] Attribute any material regression and propose only a bounded direct follow-up when needed; document what the evidence can and cannot establish.
+- [x] Record source/release pins, environment, sample count, spread, wall time and available peak memory for each named case.
+- [x] Show parse/fact reuse and memory lifetime for repeated in-process requests and independent roots; report unavailable measurement evidence explicitly.
+- [x] Attribute any material regression and propose only a bounded direct follow-up when needed; document what the evidence can and cannot establish.
 
 ## Validation
 
 - Use existing drivers or a small adaptation, temporary instrumentation and complete output comparison. No new product tests are expected.
 - Run cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, and cargo test --workspace when Rust changes; always run git diff --check and zdev check base --format json for changed records.
 - Review the final human-facing prose against both writing skills: concrete openings, proportionate claims, direct explanations and Zayenz voice; remove generic or promotional wording without flattening useful context.
+
+## Result
+
+Measured bounded multi-feature reports, native/output parity, demanded-fact reuse and independent-root memory lifetime. Retained the original literal default-budget rejection separately from successful cases.
+
+Validation:
+
+- Independent whole-task PASS at W367646bbc16801b6; unchanged snapshot comparison. Raw 60 sample records/130 children, native/full-stream parity, final hashes and corrected API/allocation/drop observations verified.
+- git diff --check, staged diff checks and zdev check passed; report-only change requires no new product tests or repeated workspace Rust checks.

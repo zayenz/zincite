@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 132
-- Ready: 2
+- Ready: 1
 - Blocked: 0
-- Done: 130
+- Done: 131
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -136,7 +136,7 @@
 | [base-125](tasks/125-specify-shared-comprehension-syntax-for-reports-and-structur.md) | Specify shared comprehension syntax for reports and structured data | done | — |
 | [base-126](tasks/126-run-query-programs-with-bindings-comprehensions-and-structur.md) | Run query programs with bindings, comprehensions and structured reports | done | base-119, base-125 |
 | [base-127](tasks/127-create-and-replace-structured-data-using-bounded-comprehensi.md) | Create and replace structured data using bounded comprehensions | ready | base-125, base-126 |
-| [base-128](tasks/128-measure-shared-query-feature-extraction-and-bounded-resource.md) | Measure shared-query feature extraction and bounded resource use | ready | base-126 |
+| [base-128](tasks/128-measure-shared-query-feature-extraction-and-bounded-resource.md) | Measure shared-query feature extraction and bounded resource use | done | base-126 |
 | [base-129](tasks/129-publish-the-formatting-style-and-refresh-bounded-acceptance.md) | Publish the formatting style and refresh bounded acceptance evidence | done | — |
 | [base-130](tasks/130-organize-zincite-documentation-around-user-workflows.md) | Organize Zincite documentation around user workflows | done | — |
 | [base-131](tasks/131-build-an-astro-documentation-site-with-zincite-branding.md) | Build an Astro documentation site with Zincite branding | done | base-130 |
