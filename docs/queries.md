@@ -137,6 +137,49 @@ they do not run a MiniZinc model or solver. The
 [comprehension contract](query-comprehension-contract.md) defines types, eager
 arrays, requirements and request charges.
 
+## Group machine demands
+
+The [small data fixture](../crates/zincite-query/tests/fixtures/machine-groups.dzn)
+contains four positional records with machine keys `b, a, b, b` and demands
+`3, 5, 7, 3`. Grouping keeps both copies of the last `b` row:
+
+```sh
+zincite-query --program 'source rows = literal("jobs"); report [(machine:g.key, count:length(g.items), total:sum([r.demand | r in g.items])) | g in group_by(rows, "machine")];' crates/zincite-query/tests/fixtures/machine-groups.dzn
+zincite query --program-file crates/zincite-query/tests/fixtures/machine-groups.zq crates/zincite-query/tests/fixtures/machine-groups.dzn
+```
+
+Both return `b` with count `3` and total `13`, followed by `a` with count `1`
+and total `5`. The [saved program](../crates/zincite-query/tests/fixtures/machine-groups.zq)
+uses the same expression as the inline command. The report is complete, with
+no limitations, and uses the existing tagged array/record envelope.
+The input bytes remain unchanged.
+
+Library callers inspect native data before rendering:
+
+```rust
+use zincite_query::{Input, Program, ProgramLimits, ReportValue};
+use zincite_syntax::FileMode;
+
+let limits = ProgramLimits::default();
+let input = Input::parse(std::fs::read("machine-groups.dzn")?, FileMode::Data)?;
+let program = Program::parse(&std::fs::read_to_string("machine-groups.zq")?, limits)?;
+let mut result = program.evaluate(&input, limits)?;
+let ReportValue::Constructed(summary) = result.emissions()[0].value() else {
+    unreachable!("constructed machine summary")
+};
+// summary is an ordered native Zirql array of records.
+let bytes = result.render()?;
+```
+
+Without a model, this plain literal source stays positional. A keyed source
+needs an explicit conversion such as `[r | r in keyed_rows]` before grouping.
+Keys keep their integer, string or enum-member identity. The same grouping
+evaluator serves reports built from native projections; their existing
+completion status and located limitations pass through. Grouping is excluded
+from data-edit expressions and preceding edit lets. See the
+[expression contract](query-comprehension-contract.md#report-expressions-and-edit-grammar)
+for selector, type and budget rules.
+
 ## Correlate declarations with their uses
 
 A projection evaluates its fields against one native subject at a time. This

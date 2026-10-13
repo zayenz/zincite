@@ -917,6 +917,49 @@ fn inline_programs_share_file_library_results_and_buffer_errors() {
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
     assert!(String::from_utf8_lossy(&output.stderr).contains("report-only"));
+    let groups = include_str!("fixtures/machine-groups.zq");
+    let data = include_bytes!("fixtures/machine-groups.dzn");
+    std::fs::write(&path, groups).unwrap();
+    let data_path = path.with_extension("dzn");
+    std::fs::write(&data_path, data).unwrap();
+    let native = Input::parse(data.to_vec(), FileMode::Data).unwrap();
+    let expected = Program::parse(groups, ProgramLimits::default())
+        .unwrap()
+        .evaluate(&native, ProgramLimits::default())
+        .unwrap()
+        .render()
+        .unwrap();
+    for args in [
+        vec!["--program", groups, data_path.to_str().unwrap()],
+        vec![
+            "--program-file",
+            path.to_str().unwrap(),
+            data_path.to_str().unwrap(),
+        ],
+    ] {
+        let output = run(&args, b"");
+        assert!(
+            output.status.success() && output.stderr.is_empty(),
+            "{output:?}"
+        );
+        assert_eq!(output.stdout, expected);
+    }
+    let failure = run(
+        &[
+            "--program",
+            r#"report 7; report group_by([(machine: "b")], "absent");"#,
+            data_path.to_str().unwrap(),
+        ],
+        b"",
+    );
+    assert!(!failure.status.success() && failure.stdout.is_empty());
+    let diagnostic = String::from_utf8_lossy(&failure.stderr);
+    assert!(
+        diagnostic.contains("missing record field: absent") && diagnostic.contains("bytes 44..52"),
+        "{diagnostic}"
+    );
+    assert_eq!(std::fs::read(&data_path).unwrap(), data);
+    std::fs::remove_file(data_path).unwrap();
     std::fs::remove_file(path).unwrap();
 }
 

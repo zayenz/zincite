@@ -8,7 +8,7 @@ and `let` bindings, required scalar parameters, ordered query statements, native
 reports and the bounded expression/comprehension subset below. Zincite lowers its existing CST and uses
 Zirql for checked expressions, scopes, generators, array summaries and requirements.
 Model-backed `.dzn` edit batches use the common expression subset and evaluator;
-the five report-only calls below are excluded from every edit expression.
+the report-only calls below are excluded from every edit expression.
 
 Reports accept positional and fully keyed arrays, matrices, tuples, ordered
 records and homogeneous Boolean/integer/float/nominal sets. Sources may use
@@ -127,8 +127,9 @@ names and generated assignment names must have valid MiniZinc identifier
 spelling (quoted when required). Serialization uses the declaration's member
 spelling; it never replaces matching text inside strings or field labels.
 
-Reports additionally accept `length(a)`, `sum(a)`, `forall(a)`, `exists(a)`
-and `require(condition, value, "message")`. Each reducer takes one ordinary array
+Reports additionally accept `length(a)`, `sum(a)`, `forall(a)`, `exists(a)`,
+`require(condition, value, "message")` and `group_by(rows, "field")`.
+Each reducer takes one ordinary array
 expression. The array materializes fully before reduction; generator-call
 spellings such as `forall(i in 1..3)(...)` are unsupported. Length counts present
 values without flattening nested arrays. Sum accepts only integers and performs
@@ -151,7 +152,16 @@ construction and runtime host checks, while source projection and actual binding
 type discovery may still inspect or copy referenced values during preflight.
 A skipped operand cannot hide unsupported syntax or a known type mismatch.
 
-These five calls are reporting operations only. An edit program refuses them in
+`group_by` takes exactly two arguments: a positional record array and one string
+literal field selector. Keys must be homogeneous integers, strings or resolved
+members of one enum. It returns positional `key`/`items` records in first-seen
+key order; each items array retains row order and duplicates. Other row fields
+may differ. Empty input returns an empty array. Missing fields fail when
+executed, while known incompatible keys fail preflight even in skipped branches.
+Key refusals point to the selector; non-array input and non-record rows point
+to the call. Keyed arrays need an explicit positional comprehension conversion.
+
+These calls are reporting operations only. An edit program refuses them in
 preceding `let` bindings, including unused lets and skipped branches, and in every
 `create` or `replace` RHS. Data expressions retain exactly `index_set` and
 `enum_member` as their call whitelist. Sources, binding order, target checks and
@@ -461,6 +471,13 @@ True require moves the admitted child with no additional result or copy charge.
 Emission snapshots and rendering charge again. Arithmetic errors retain their
 child ranges; requirement failures retain their call range and limit failures
 the active operation range.
+
+Grouping evaluates rows once and charges row/depth scans, field/key comparisons,
+nominal metadata checks, new containers and slots, and copied group keys/labels.
+Rows move into items without another deep copy. Inferred group facts retain
+possible row schemas, including schema-bearing empty projections, without
+claiming group membership or count. Later snapshots and rendering spend the
+same allowance. Completion and limitations remain with the report adapter.
 
 Parse errors, unsupported expressions, wrong types, missing fields or keys,
 duplicate keys/targets and arithmetic failures identify the host query byte

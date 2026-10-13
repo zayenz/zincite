@@ -1,0 +1,2 @@
+jobs = [(machine: "b", demand: 3), (machine: "a", demand: 5),
+        (machine: "b", demand: 7), (machine: "b", demand: 3)];

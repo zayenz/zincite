@@ -2898,11 +2898,17 @@ fn report_call_preflight_keeps_literal_messages_and_the_data_whitelist() {
         "report require(true, 2);",
         "report sum([1],[2]);",
         "report forall(i in 1..2)(true);",
+        "report group_by([], 1);",
+        "report group_by([]);",
     ] {
         assert!(Program::parse(source, limits).is_err(), "{source}");
     }
     for (source, call) in [
         ("let unused = sum([1]); replace a=[2]; emit;", "sum([1])"),
+        (
+            "let unused = group_by([], \"machine\"); replace a=[2]; emit;",
+            "group_by([], \"machine\")",
+        ),
         (
             r#"let unused = if false then require(true,1,"x") else 0 endif; create b=1; emit;"#,
             r#"require(true,1,"x")"#,
@@ -2911,11 +2917,85 @@ fn report_call_preflight_keeps_literal_messages_and_the_data_whitelist() {
             "replace a=if true then [2] else [length([1])] endif; emit;",
             "length([1])",
         ),
+        (
+            "replace a=if true then [2] else group_by([], \"machine\") endif; emit_document;",
+            "group_by([], \"machine\")",
+        ),
+        (
+            "let unused=if false then group_by([], \"machine\") else [] endif; create b=1; emit;",
+            "group_by([], \"machine\")",
+        ),
     ] {
         let error = Program::parse(source, limits).unwrap_err();
         assert_eq!(&source[error.range], call);
         assert!(error.message.contains("report-only"));
     }
+}
+
+#[test]
+fn machine_groups_keep_native_rows_duplicates_and_ordered_summaries() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    use zirql::ConstructedValue as V;
+    let limits = ProgramLimits::default();
+    let source = include_bytes!("fixtures/machine-groups.dzn");
+    let input = Input::parse(source.to_vec(), FileMode::Data).unwrap();
+    let mut summary = Program::parse(include_str!("fixtures/machine-groups.zq"), limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let row = |machine: &str, count, total| {
+        V::Record(vec![
+            ("machine".into(), V::String(machine.into())),
+            ("count".into(), V::Integer(count)),
+            ("total".into(), V::Integer(total)),
+        ])
+    };
+    assert!(
+        matches!(summary.emissions()[0].value(), ReportValue::Constructed(value)
+        if value == &V::Array(vec![row("b",3,13),row("a",1,5)]))
+    );
+    assert!(summary.is_complete() && summary.limitations().is_empty());
+    let rendered: serde_json::Value = serde_json::from_slice(&summary.render().unwrap()).unwrap();
+    assert_eq!(rendered["complete"], true);
+    assert_eq!(rendered["limitations"], serde_json::json!([]));
+
+    let groups = Program::parse(
+        r#"source rows=literal("jobs"); report group_by(rows, "machine");"#,
+        limits,
+    )
+    .unwrap()
+    .evaluate(&input, limits)
+    .unwrap();
+    let row = |machine: &str, demand| {
+        V::Record(vec![
+            ("machine".into(), V::String(machine.into())),
+            ("demand".into(), V::Integer(demand)),
+        ])
+    };
+    assert!(
+        matches!(groups.emissions()[0].value(), ReportValue::Constructed(value)
+        if value == &V::Array(vec![
+            V::Record(vec![("key".into(),V::String("b".into())),("items".into(),V::Array(vec![row("b",3),row("b",7),row("b",3)]))]),
+            V::Record(vec![("key".into(),V::String("a".into())),("items".into(),V::Array(vec![row("a",5)]))]),
+        ]))
+    );
+    for source in [
+        r#"source rows=literal("jobs"); report group_by(rows, "absent");"#,
+        r#"report group_by([(machine: "b"), (machine: 1)], "machine");"#,
+    ] {
+        let error = Program::parse(source, limits)
+            .and_then(|p| p.evaluate(&input, limits))
+            .unwrap_err();
+        assert_eq!(
+            &source[error.range],
+            if source.contains("absent") {
+                "\"absent\""
+            } else {
+                "\"machine\""
+            }
+        );
+    }
+    assert_eq!(input.source_bytes(), source);
 }
 
 #[test]
@@ -3171,14 +3251,19 @@ fn native_composition_preserves_correlated_declarations_captures_and_empty_schem
 #[test]
 fn native_match_unknown_guards_keep_host_locations_and_boolean_control() {
     use zincite_query::{ErrorLocation, Program, ProgramLimits};
+    use zirql::ConstructedValue as V;
     let source = b"function $T: identity($T: x) = x; par tuple(int, $T): mixed; var int: v; int: result = missing(v); int: read = mixed; int: duplicate; int: duplicate; int: ambiguous = duplicate; solve satisfy;";
     let model = semantic_model("composition-unknown", source, b"", "");
     let input = Input::parse_named(source.to_vec(), FileMode::Model, "label-only.mzn").unwrap();
-    let known = Program::parse(r#"let m = match { from d in (subtree | declarations | unique | filter(name("mixed"))); where type(d, "tuple") or name(d, "mixed"); }; report m | project(r, {"name": r.d | names | one});"#, ProgramLimits::default()).unwrap();
+    let known = Program::parse(r#"let m = match { from d in (subtree | declarations | unique | filter(name("mixed"))); where type(d, "tuple") or name(d, "mixed"); }; let rows = m | project(r, {"name": r.d | names | one}); report group_by(rows, "name");"#, ProgramLimits::default()).unwrap();
     let mut result = known
         .evaluate_with_model(&input, Some(&model), ProgramLimits::default())
         .unwrap();
     assert!(!result.is_complete());
+    assert!(!result.limitations().is_empty());
+    assert!(
+        matches!(result.emissions()[0].value(), zincite_query::ReportValue::Constructed(V::Array(groups)) if groups.len()==1)
+    );
     let json: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
     assert_eq!(json["complete"], false);
     assert_eq!(

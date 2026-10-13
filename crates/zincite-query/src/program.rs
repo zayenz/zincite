@@ -1754,7 +1754,7 @@ fn map_value(expression: &mut zirql::ValueExpression, map: &impl Fn(Range<usize>
         | K::One(operand)
         | K::IndexSet(operand)
         | K::Reduce { array: operand, .. } => map_value(operand, map),
-        K::Field { value, field } => {
+        K::Field { value, field } | K::GroupBy { rows: value, field } => {
             field.range = map(field.range.clone());
             map_value(value, map);
         }

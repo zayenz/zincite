@@ -527,7 +527,7 @@ impl Lower<'_, '_> {
                     K::IndexSet(Box::new(self.node(child(), depth + 1)?))
                 } else if matches!(
                     self.text(i),
-                    "length" | "sum" | "forall" | "exists" | "require"
+                    "length" | "sum" | "forall" | "exists" | "require" | "group_by"
                 ) {
                     if self.policy == ExpressionPolicy::Data {
                         return Err(QueryError::query(
@@ -539,7 +539,36 @@ impl Lower<'_, '_> {
                     if self.first_report_call.is_none() {
                         self.first_report_call = Some(range.clone());
                     }
-                    if self.text(i) == "require" {
+                    if self.text(i) == "group_by" {
+                        let mut args = node.child_nodes();
+                        let rows = args.next().ok_or_else(|| {
+                            QueryError::query(range.clone(), "group_by needs two arguments")
+                        })?;
+                        let selector = args.next().ok_or_else(|| {
+                            QueryError::query(range.clone(), "group_by needs two arguments")
+                        })?;
+                        if args.next().is_some() {
+                            return Err(QueryError::query(range, "group_by needs two arguments"));
+                        }
+                        let rows = Box::new(self.node(rows, depth + 1)?);
+                        let token = self.tokens(selector).next().ok_or_else(unsupported)?;
+                        if selector.kind() != N::Expression
+                            || self.parsed.tokens()[token].kind != T::StringLiteral
+                        {
+                            return Err(QueryError::query(
+                                self.range(selector),
+                                "group_by selector must be a string literal",
+                            ));
+                        }
+                        let lowered = self.node(selector, depth + 1)?;
+                        let K::Literal(V::String(text)) = lowered.value else {
+                            unreachable!("string literal selector");
+                        };
+                        K::GroupBy {
+                            rows,
+                            field: Located::new(text, lowered.range),
+                        }
+                    } else if self.text(i) == "require" {
                         let mut args = node.child_nodes();
                         let condition = args.next().ok_or_else(|| {
                             QueryError::query(range.clone(), "require needs three arguments")
@@ -833,6 +862,7 @@ fn references_binding(
         | K::One(operand)
         | K::IndexSet(operand)
         | K::Reduce { array: operand, .. }
+        | K::GroupBy { rows: operand, .. }
         | K::Field { value: operand, .. }
         | K::TupleAccess { value: operand, .. } => references_binding(operand, names, budget),
         K::Binary { left, right, .. }

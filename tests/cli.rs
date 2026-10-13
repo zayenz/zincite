@@ -910,6 +910,46 @@ fn inline_programs_share_file_results_and_buffer_errors() {
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
     assert!(String::from_utf8_lossy(&output.stderr).contains("report-only"));
+    let groups = include_str!("../crates/zincite-query/tests/fixtures/machine-groups.zq");
+    let data = include_str!("../crates/zincite-query/tests/fixtures/machine-groups.dzn");
+    std::fs::write(&path, groups).unwrap();
+    let data_path = path.with_extension("dzn");
+    std::fs::write(&data_path, data).unwrap();
+    let inline = run(
+        &["query", "--program", groups, data_path.to_str().unwrap()],
+        "",
+    );
+    let file = run(
+        &[
+            "query",
+            "--program-file",
+            path.to_str().unwrap(),
+            data_path.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert!(
+        inline.status.success() && inline.stderr.is_empty(),
+        "{inline:?}"
+    );
+    assert!(file.status.success() && file.stderr.is_empty(), "{file:?}");
+    assert_eq!(inline.stdout, file.stdout);
+    let value = String::from_utf8(inline.stdout).unwrap();
+    assert!(value.find("\"value\":\"b\"").unwrap() < value.find("\"value\":\"a\"").unwrap());
+    assert!(value.contains("\"value\":13"));
+    let failure = run(
+        &[
+            "query",
+            "--program",
+            r#"report 7; report group_by([(machine: "b")], "absent");"#,
+            data_path.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert!(!failure.status.success() && failure.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&failure.stderr).contains("missing record field: absent"));
+    assert_eq!(std::fs::read_to_string(&data_path).unwrap(), data);
+    std::fs::remove_file(data_path).unwrap();
     std::fs::remove_file(path).unwrap();
 }
 

@@ -535,7 +535,7 @@ strings, resolved enum members, positional/keyed arrays, matrices, tuples,
 ordered records and homogeneous Boolean/integer/float/nominal sets. Supported operations include checked arithmetic, exact
 numeric promotion, comparison, equality, membership, concatenation, access,
 finite inclusive integer ranges, rank-one `index_set`, `enum_member`, report-only
-`length`/`sum`/`forall`/`exists`/`require`, and `if`/`elseif` with mandatory
+`length`/`sum`/`forall`/`exists`/`require`/`group_by`, and `if`/`elseif` with mandatory
 `else`. Unsupported forms and known incompatible types fail before evaluation,
 including in skipped branches. Skipped runtime branches perform no arithmetic
 or missing-access work. Overflow, zero division, inexact promotion, nonfinite
@@ -554,6 +554,15 @@ condition. True evaluates and returns the value; false fails at the require call
 with the literal message. False skips value arithmetic, access, construction and
 runtime host checks, while referenced values may still be projected or inspected
 during preflight. Undefined names and incompatible known types still fail.
+
+`group_by(rows, "field")` groups positional records by a static string selector.
+Keys are homogeneous integers, strings or resolved members of one enum. The
+positional result has `key` and `items` fields: groups follow first occurrence,
+and items retain input order and duplicates. Empty input returns an empty array.
+Missing fields and incompatible keys fail at the selector. Keyed arrays require
+an explicit positional conversion. Grouping is report-only, including preceding
+unused lets and skipped edit branches. See [machine groups](queries.md#group-machine-demands)
+for short inline, file and native library examples.
 
 `query` sources project `Strings`, `Count` and `Literals` into pure values.
 Selections need an explicit `names`, `count` or `values` query projection.
@@ -655,6 +664,8 @@ for its count/conversion. Each summary pays one scalar result unit, including
 empty arrays. Require preflight pays literal message bytes; false diagnostic
 copying pays bytes before allocation. True require moves its child without
 another result or copy charge. Emission snapshots and rendering pay again.
+Grouping charges field/key comparisons, nominal checks, new containers/slots
+and copied keys/labels; rows move into items under the continuing budget.
 Before building the CST, parsing applies
 the nesting allowance conservatively to enclosed expression segments and their
 operator chains; sibling values and conditional branches reset local counts.
