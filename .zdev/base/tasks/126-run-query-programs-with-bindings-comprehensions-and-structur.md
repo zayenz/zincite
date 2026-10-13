@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-126"
 key = "read-only-query-programs"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -17,34 +17,40 @@ One query program produces several related results and structured feature report
 
 ## Context
 
-Shared execution is owned by the Zirql base task bundle: base-002 supplies the native
-pipeline adapter, base-004 supplies programs/bindings, and base-005 supplies positional
-report comprehensions. Keyed/enum/multidimensional report obligations remain for
-base-007 integration. Check the live integration and pinned Zirql revision before
-implementation. Retain Zincite frontend, native result and acceptance obligations; a
-core feature alone does not complete this task.
+Zirql supplies shared pipeline execution, programs/bindings and positional/keyed report
+evaluation through its base-002/base-004/base-005/base-007 work. The complete consumer
+implementation retains Zincite frontend, native results, public ModelFacts ownership,
+rendering and source/edit safety. Consumer completion rests on its own full library/CLI
+requirements and independent canonical verification, not on a core feature alone.
 
-The verified positional consumer checkpoint accepts read-only source bindings, source
-literal helpers, immutable let bindings and bounded MiniZinc positional comprehensions
-through both CLI forms and Program library APIs. Zincite lowers its CST and projects
-supported native values; Zirql owns checked scalar expressions, scope and generator
-evaluation. Pure reports use tagged scalar/set/tuple/record/positional-array output;
-native reports preserve their existing shape. Shared execution uses Zirql
-be8bd8b07d5e7e4fb148f8f2e032ffe0f5e226b9 with exact registry fallback =0.1.0-alpha.4.
-The canonical source checkpoint is c4a3e568eaca852d2df4e7cae3bd7033218438e6, from source
-transport 02ca8d7e881b64666daa8845306f9372cb7bbf73. Existing Query/edit APIs,
-ModelFacts/source/proof ownership, original input/BOM locations and Unknown/negation
-behavior remain host-owned. Parsing, evaluation, projection, copying and rendering use
-aggregate allowances; CLI output remains buffered. Base-126 stays open for the remaining
-base-007 report obligations. Keep outcome, boundaries, completion conditions and
-validation unchanged.
+The accepted source checkpoint is 4c9da0ea89ad7e348a3951aa0a68d8afb8ef47d2, from
+reviewed transport 2a959d9a17a084141b149dd7f45aa01da3dc2818 plus the canonical
+query-guide correction. Both CLI forms and Program library APIs support ordered
+read-only statements, immutable source/let bindings, literal-source helpers and bounded
+positional/keyed/multidimensional comprehensions. Native count/histogram/selection
+reports preserve their existing shapes; constructed reports retain tagged members, sets,
+tuples, records, axes and keys. Exact declared domains and explicit enum-member
+identity/order come from existing public facts and retained source. Contiguous axes,
+rectangular coverage and established empty-axis information are validated before
+intermediate values can be consumed. Unsupported or uncertain identity/shape receives a
+located refusal. Parsing, evaluation, projection, copying, shape checks and rendering
+share finite request allowances; later failures leave CLI stdout empty. Model facts are
+reused within the request; original input/model/BOM locations, exact .mzn root guard and
+Unknown/negation behavior remain intact.
+
+Shared evaluation pins reviewed Zirql Git revision
+9c3ce81dca3d35cde55b2fba77567d73e431ae54. There is no alpha.5 registry fallback because
+that published version lacks the host-validation hook. Development uses exact Git pins;
+publication and registry packaging wait for an explicit release milestone. The existing
+missing sibling registry-version precondition remains release distribution work; this
+task does not claim a normalized package archive.
 
 Read crates/zincite-query/src/program.rs, comprehension.rs, language.rs, lib.rs,
-pipeline.rs, semantic.rs and cli.rs, docs/reference.md and Zirium docs/query-language.md
-as a design reference. Read the shared comprehension contract from
-literal-mapping-contract before the remaining integrations; report construction must use
-its MiniZinc-style generators and bounded operations. The accepted positional checkpoint
-does not complete the remaining keyed constructor obligations.
+pipeline.rs, structured.rs, semantic.rs and cli.rs, docs/reference.md and
+docs/query-comprehension-contract.md for the implemented report contracts. Later data
+construction must reuse this shared evaluator and resolve the existing attended base-127
+grammar/operation/comment/key gate before edits. No data-write approval is supplied by
+this report task.
 
 For human-facing documentation and website prose, apply unslop (/Users/zayenz/.agents/skills/unslop/SKILL.md) and zayenz-writing-style (/Users/zayenz/.agents/skills/zayenz-writing-style/SKILL.md). Read their applicable guidance; use the professional-informal/code-documentation register for explanatory docs. Preserve exact commands, code, schemas, quotations and machine-oriented reference text.
 
@@ -56,14 +62,23 @@ For human-facing documentation and website prose, apply unslop (/Users/zayenz/.a
 
 ## Done when
 
-- [ ] Both CLI forms and a reusable library API accept program files, ordered read-only statements and immutable earlier-result bindings.
-- [ ] Named count, histogram and selection results can form one structured JSON report; duplicate keys, undefined/forward bindings and incompatible stage types receive located errors.
-- [ ] Report comprehensions construct collections from named query results using the shared contract, with explicit generator order, filtering, keys and Unknown/resource behavior.
-- [ ] Programs reuse parsed input and demanded facts, have explicit aggregate work/result/nesting limits, and buffer output so a later failure emits no partial report.
-- [ ] Existing pipelines and semantic Unknown/negation/limit behavior remain unchanged; documented examples define statement emission and structured result types.
+- [x] Both CLI forms and a reusable library API accept program files, ordered read-only statements and immutable earlier-result bindings.
+- [x] Named count, histogram and selection results can form one structured JSON report; duplicate keys, undefined/forward bindings and incompatible stage types receive located errors.
+- [x] Report comprehensions construct collections from named query results using the shared contract, with explicit generator order, filtering, keys and Unknown/resource behavior.
+- [x] Programs reuse parsed input and demanded facts, have explicit aggregate work/result/nesting limits, and buffer output so a later failure emits no partial report.
+- [x] Existing pipelines and semantic Unknown/negation/limit behavior remain unchanged; documented examples define statement emission and structured result types.
 
 ## Validation
 
 - Reuse query test helpers; add one multi-feature report control using a comprehension and focused later-error, binding and aggregate-limit refusals. Demonstrate shared fact demand with temporary instrumentation rather than permanent implementation-count tests.
 - Run cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, and cargo test --workspace when Rust changes; always run git diff --check and zdev check base --format json for changed records.
 - Review the final human-facing prose against both writing skills: concrete openings, proportionate claims, direct explanations and Zayenz voice; remove generic or promotional wording without flattening useful context.
+
+## Result
+
+Implemented read-only query programs with immutable bindings, native feature reports and bounded positional, keyed and multidimensional comprehensions through shared Zirql evaluation. Preserved public facts, nominal identity, exact axes, native output, located limitations and aggregate budgets; later failures emit no partial output. Canonical source is 4c9da0e with exact reviewed Git dependency 9c3ce81; data edits remain attended.
+
+Validation:
+
+- Independent full canonical base-126 source PASS at Wab173b57fa9f5932 with unchanged comparison; fmt, warning-free Clippy, full workspace tests and Rust 1.88 controls pass. All eleven rebuilt CLI pairs retain exact outputs, diagnostics and statuses; temporary pure/native fact-reuse evidence checked.
+- All four commands installed from committed source with exact release-byte identity; eleven installed CLI pairs match reviewed controls, including complete/incomplete JSON and empty stdout for errors. Independent record/eligibility PASS at Wb581491c07b788e3 with unchanged comparison; diff and zdev checks pass. Registry packaging remains explicit release work; no publication or data-write approval.

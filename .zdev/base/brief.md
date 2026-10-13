@@ -756,15 +756,20 @@ data interpretation; use the existing `-I`/`--stdlib-dir` include rules when a
 query requires semantic context. Syntax queries require no library installation.
 Model/include files supply facts and are never implicit transformation targets.
 Read-only query programs accept -f/--program-file, immutable source and let bindings,
-ordered query/report statements and native or constructed positional reports. Literal
-sources read one original assignment; query sources use supported native projections.
-Zincite lowers its MiniZinc CST into Zirql for checked scalar expressions, scopes and
-generators. Pure values use tagged scalar, set, tuple, record and positional-array
-output; native reports keep their existing shapes. Both CLI forms and Program library
-APIs retain one input/context, demanded public ModelFacts owner and aggregate
-work/result/nesting budget across parsing, evaluation, copying and rendering. Reports
-retain completion/limitations; later runtime/rendering errors leave CLI stdout empty.
-Multiple input files and directory inputs remain deferred.
+ordered query/report statements and native or constructed reports. Literal sources read
+one original assignment; query sources use supported native projections. Zincite lowers
+its MiniZinc CST into Zirql for checked scalar expressions, scopes and generators. Pure
+values use tagged scalar, member, set, tuple, record and positional or explicit-array
+output; native reports keep their existing shapes. Keyed and multidimensional reports
+preserve established axes, nominal identities and row-major cells. Zincite establishes
+identity and exact written domains through its public model facts and retained sources,
+and refuses unsupported or uncertain identity/shape. Constructed arrays must have
+contiguous axes and rectangular coverage, including evaluated intermediate arrays. Both
+CLI forms and Program library APIs retain one input/context, demanded public ModelFacts
+owner and aggregate work/result/nesting budget across parsing, evaluation, copying,
+shape validation and rendering. Reports retain completion/limitations; later
+runtime/rendering errors leave CLI stdout empty. Multiple input files and directory
+inputs remain deferred.
 
 ### Initial query language
 
@@ -799,10 +804,12 @@ Keep results native in the library until rendering. Query errors identify query 
 ranges; input/semantic limitations identify source file/ranges. Bound query nesting,
 evaluation work and collection expansion, report exceeded limits, and never silently
 truncate results. Reuse Zirium's limit approach without importing its entire language.
-Read-only source/let bindings, native reports and bounded positional comprehensions use
-shared Zirql execution. Keyed/enum/multidimensional reports remain for Zirql base-007
-integration. Arbitrary callbacks, fixed-point programs, semantic diff, Markdown reports
-and general MiniZinc expression evaluation remain deferred.
+Read-only source/let bindings, native reports and bounded
+positional/keyed/multidimensional comprehensions use shared Zirql execution.
+Data-construction/edit batches retain their attended approval gate. Arbitrary query
+callbacks, fixed-point programs, semantic diff, Markdown reports and general MiniZinc
+expression evaluation remain deferred. Development uses an exact reviewed Zirql Git pin;
+crate publication and registry packaging wait for an explicit release milestone.
 
 ### Data edits and structured values
 
