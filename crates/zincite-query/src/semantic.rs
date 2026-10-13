@@ -822,31 +822,45 @@ fn subjects<'a>(
     Ok(subjects)
 }
 
-impl SemanticResult<'_> {
-    // Admit the whole context once before any producer allocates facts. Charge
-    // nodes before queueing them so the scan frontier is bounded by work too.
-    fn fact_scan(&self, work: &mut Work, stage: &Stage) -> Result<(), QueryError> {
-        for source in &self.model.files {
-            work.spend(source.parsed.tokens().len(), &stage.range)?;
-            work.visit(&stage.range)?;
-            let mut pending = vec![source.parsed.tree()];
-            while let Some(node) = pending.pop() {
-                for child in node.child_nodes() {
-                    work.visit(&stage.range)?;
-                    pending.push(child);
-                }
+/// Admit source tokens and CST nodes before any public fact producer runs.
+pub(crate) fn admit_model_facts(
+    model: &ModelContext,
+    work: &mut Work,
+    range: &Range<usize>,
+) -> Result<(), QueryError> {
+    if let Some(error) = model.errors.first() {
+        return Err(model_error(error.location.clone(), &error.message));
+    }
+    for source in &model.files {
+        work.spend(source.parsed.tokens().len(), range)?;
+        work.visit(range)?;
+        let mut pending = vec![source.parsed.tree()];
+        while let Some(node) = pending.pop() {
+            for child in node.child_nodes() {
+                work.visit(range)?;
+                pending.push(child);
             }
         }
-        Ok(())
     }
-    fn ensure_bindings(&mut self, work: &mut Work, stage: &Stage) -> Result<(), QueryError> {
+    Ok(())
+}
+
+impl SemanticResult<'_> {
+    // Admission is charged per request, including a warm shared owner.
+    pub(crate) fn admit_fact_owner(
+        &mut self,
+        work: &mut Work,
+        range: &Range<usize>,
+    ) -> Result<(), QueryError> {
         if !self.bindings_requested {
-            // Admission is charged per evaluation, even when the shared owner is warm.
-            self.fact_scan(work, stage)?;
+            admit_model_facts(self.model, work, range)?;
             self.facts.bindings();
             self.bindings_requested = true;
         }
         Ok(())
+    }
+    fn ensure_bindings(&mut self, work: &mut Work, stage: &Stage) -> Result<(), QueryError> {
+        self.admit_fact_owner(work, &stage.range)
     }
     fn ensure_callables(&mut self, work: &mut Work, stage: &Stage) -> Result<(), QueryError> {
         self.ensure_bindings(work, stage)?;

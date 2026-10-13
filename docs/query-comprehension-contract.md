@@ -4,18 +4,22 @@
 assignment. `values` reads written literals, but does not evaluate a computed
 right-hand side. Neither operation constructs a new value from query results.
 Read-only [query programs](reference.md#query-programs) support immutable `source`
-and `let` bindings, ordered query statements, native record reports and the
-positional scalar/comprehension subset below. The report adapter uses Zirql for
-checked expressions, scopes and generators. Keyed/enum arrays and explicit
-`.dzn` edit batches remain proposals subject to their existing approval gate.
+and `let` bindings, ordered query statements, native reports and the bounded
+expression/comprehension subset below. Zincite lowers its existing CST and uses
+Zirql for checked expressions, scopes and generators. Explicit `.dzn` edit
+batches remain proposals subject to their existing approval gate.
 
-The implemented subset accepts positional arrays, tuples, ordered records and
-homogeneous Boolean/integer/float sets. Sources may use existing query projections
-or one unique original literal assignment. Nested positional arrays stay nested.
-Explicit/starting-key arrays, matrices, member identities, multidimensional
-access and `enum_member` are refused. `index_set` returns a positional array's
-`1..n` positions. Native-only reports keep their existing untagged result; pure
-reports use the tagged schema in this contract.
+Reports accept positional and fully keyed arrays, matrices, tuples, ordered
+records and homogeneous Boolean/integer/float/nominal sets. Sources may use
+existing query projections or one unique original literal assignment. Nested
+arrays stay nested. Integer starting-key tails use checked successors; enum
+starting-key tails are refused. `index_set`
+returns established rank-one keys. `enum_member` resolves explicit declared
+members through a retained read-only model; use `--model` for `.dzn` programs.
+Source declarations may establish enum alignment and empty axes from written
+integer intervals or explicit enums. Computed or uncertain axes are refused.
+Native-only reports keep their existing untagged result; pure reports use the
+tagged schema in this contract.
 
 The expression syntax follows the [MiniZinc 2.10.1 comprehension and generator
 grammar](https://docs.minizinc.dev/en/2.10.1/spec.html#set-comprehensions).
@@ -23,7 +27,7 @@ MiniZinc itself permits more expressions and functions. This contract accepts
 only the subset stated here; syntactic acceptance by Zincite's parser alone
 does not imply that the constructor can evaluate an expression.
 
-## Proposed request and expression grammar
+## Report expressions and proposed edit grammar
 
 One request has named sources, optional immutable bindings, then one report or
 one atomic edit batch. The `query` string is an existing Zincite query pipeline;
@@ -82,7 +86,7 @@ literals; the three comprehensions above; and `if ... then ... elseif ... then
 ... else ... endif`. The `else` is mandatory in this subset. Records use
 MiniZinc labels, for example `(weight: 7, peer: 2)`; a label is not a string or
 member. The only expression calls are `index_set(a)` for a one-dimensional
-array's established keys and the proposed host helper
+array's established keys and the host helper
 `enum_member(EnumName, "MemberName")` for an explicit enum member identity.
 `enum_member` requires a unique model enum declaration and a
 member already declared there. Its arguments are an enum identifier and a
@@ -204,11 +208,10 @@ complete object (shown with line breaks for readability):
 }
 ```
 
-## Proposed report and edit requests
+## Reports and proposed edit requests
 
-The first report is an implemented positional request. The second proposes a
-keyed report and remains unsupported. Both use the current `names` projection
-as a source of strings; the keyed proposal preserves explicit positions.
+Both reports are implemented. They use the current `names` projection as a
+source of strings; the keyed report preserves explicit positions.
 
 ```text
 source names = query("filter(kind(\"assignment\")) | names");
@@ -360,7 +363,7 @@ cross-copy pairs exist and what values they take. The constructor must not
 infer that policy from the one-axis copies above.
 
 Integer positions are not enum identities. Suppose the read-only model
-declares `enum Guests = {A, B, A_copy, B_copy};`. This proposed binding names
+declares `enum Guests = {A, B, A_copy, B_copy};`. This report binding names
 both sides of a separate member mapping:
 
 ```text

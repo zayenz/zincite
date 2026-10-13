@@ -399,7 +399,7 @@ with their existing `emit` or `json` stage. An explicit emitter suppresses the
 statement's implicit emission. Bindings and record fields cannot emit. Program
 parsing checks names, emitters and supported result transitions before execution.
 Programs accept `source name = literal("assignment");`, immutable `let` bindings
-and pure positional reports. For input `zeta = [3, 5]; alpha = 2;`, this request
+and pure positional or keyed reports. For input `zeta = [3, 5]; alpha = 2;`, this request
 constructs records in source order:
 
 ```text
@@ -417,10 +417,10 @@ binds one value per preceding environment. `_` discards its binding. Filters
 require fixed Booleans and charge each candidate before filtering.
 
 Pure values include signed 64-bit integers, finite binary64 floats, Booleans,
-strings, positional arrays, tuples, ordered records and homogeneous Boolean,
-integer or float sets. Supported operations include checked arithmetic, exact
+strings, resolved enum members, positional/keyed arrays, matrices, tuples,
+ordered records and homogeneous Boolean/integer/float/nominal sets. Supported operations include checked arithmetic, exact
 numeric promotion, comparison, equality, membership, concatenation, access,
-finite inclusive integer ranges, `index_set` and `if`/`elseif` with mandatory
+finite inclusive integer ranges, rank-one `index_set`, `enum_member` and `if`/`elseif` with mandatory
 `else`. Unsupported forms and known incompatible types fail before evaluation,
 including in skipped branches. Skipped runtime branches perform no arithmetic
 or missing-access work. Overflow, zero division, inexact promotion, nonfinite
@@ -438,9 +438,23 @@ grammar and its existing validation. Pure reports use the tagged
 including explicit `1..n` axes and keys for positional arrays. Generated values
 have no input-source ranges.
 
-Programs remain read-only. Keyed arrays, enum identities, multidimensional
-access, model calls and data construction/edit batches remain deferred. The
-existing single `Query` API retains its edit routes.
+Keyed reports retain integer/member axes and multidimensional access uses
+`a[i,j]`; `a[i][j]` retains nested-array access. Keys follow numeric or explicit
+enum declaration order, with the rightmost axis varying fastest. Every axis
+must be contiguous and every axis-product cell must exist. Filtered holes fail
+without shifting keys. Known empty axes retain their rank and the other axes;
+computed/dependent keys cannot establish an empty fallback. `enum_member` takes
+an enum identifier and a member-name string, and requires unique explicit model
+cases. Pure `.dzn` reports retain an explicitly supplied `--model` without using
+the semantic query's `.mzn` root path.
+
+Programs remain read-only. Model calls and data construction/edit batches remain
+deferred. The existing single `Query` API retains its edit routes. Development
+uses a pinned Git revision of Zirql. The published alpha.5 release lacks the
+runtime host-validation API, so this integration has no registry version
+fallback until release work supplies one. Consumer release packaging also needs
+sibling dependency version metadata and registry readiness; it belongs to a
+release milestone.
 
 Use `zincite-query -f PROGRAM [FILE|-]` or `zincite query --program-file PROGRAM
 [FILE|-]`. Input, stdin and model options have their existing meanings. Programs
@@ -451,7 +465,9 @@ the original input or model location. Incomplete semantic reports still carry
 `complete:false` and located `limitations`, and exit 1.
 
 The library provides `evaluate`, `evaluate_with_model` and `evaluate_with_facts`.
-`Program::requires_model_facts()` reports semantic demand. Each evaluation prepares
+`Program::requires_model_facts()` reports semantic or possible source/member demand.
+`ProgramResult::model_facts()` retains the owner for native nominal identities,
+including pure `.dzn` reports. Each evaluation prepares
 one initial selection and retains one context, `Rc<ModelFacts>` and budget across
 statements. `ProgramResult::emissions()` exposes native values; `semantic()` retains
 the public fact owner and `is_complete()`/`limitations()` retain uncertainty.

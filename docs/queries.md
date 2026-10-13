@@ -46,8 +46,10 @@ emitters, the library result and aggregate limits.
 Read-only programs also support `let` bindings, positional comprehensions and
 scalar expressions over query projections or a written literal assignment. The
 reference describes the accepted values, checked arithmetic and result schema.
-Keyed arrays, enum identities, multidimensional access and program-based data
-edits remain future work.
+Reports also support keyed arrays, established enum-member identities and
+multidimensional access, with explicit axes and rectangular-shape checks.
+Program-based data edits remain future work and require their existing approval
+gate.
 
 ## Inspect semantic facts
 

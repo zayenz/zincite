@@ -14,7 +14,7 @@ use crate::{ErrorLocation, Input, Limits, Query, QueryError, QueryResult};
 const HELP: &str = "Usage: zincite-query [--stdin-filepath PATH] [--model PATH] [-I DIR] [--stdlib-dir DIR] [--diff|--write] QUERY [FILE|-]
 
 Use -f PROGRAM [FILE|-] for read-only sources, let bindings and reports.
-Programs construct positional arrays/sets with MiniZinc-style comprehensions.
+Programs construct positional/keyed arrays and sets with MiniZinc comprehensions.
 Inspect MiniZinc source or change data assignments and enum membership.
 No input or '-' reads stdin; .dzn paths select assignment-only data syntax.
 Syntax queries do not load includes or require a MiniZinc library or solver.
@@ -248,7 +248,8 @@ fn execute(arguments: Vec<OsString>, invocation: &str) -> Result<u8, String> {
     });
     let model = model_path
         .filter(|_| {
-            query.as_ref().is_some_and(Query::requires_model_facts)
+            (program.is_some() && arguments.model_path.is_some())
+                || query.as_ref().is_some_and(Query::requires_model_facts)
                 || program
                     .as_ref()
                     .is_some_and(crate::Program::requires_model_facts)

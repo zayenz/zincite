@@ -2065,7 +2065,7 @@ fn positional_programs_keep_constructed_order_and_native_projections() {
     use zincite_query::{Program, ProgramLimits, ReportValue};
     use zirql::ConstructedValue as V;
     let input = Input::parse(
-        b"zeta = [3, /*\xff*/ 5]; alpha = 2;".to_vec(),
+        b"zeta = [3, /*\xff*/ 5]; alpha = (+ /*\xff*/ 2);".to_vec(),
         FileMode::Data,
     )
     .unwrap();
@@ -2184,7 +2184,7 @@ fn positional_programs_validate_branches_and_preserve_failure_locations() {
         "if true then 1 else sum([1]) endif",
         "if true then 1 else 1 + false endif",
         "if true then 1 else 1e-999 endif",
-        "[1: 3]",
+        "[true: 3]",
         "if 1 then 2 else 3 endif",
     ] {
         let source = format!("report {expression};");
@@ -2264,4 +2264,303 @@ fn constructed_reports_retain_semantic_limitations() {
     assert_eq!(json["complete"], false);
     assert!(!json["limitations"].as_array().unwrap().is_empty());
     assert_eq!(json["result"]["fields"][0]["value"]["kind"], "integer");
+}
+
+#[test]
+fn keyed_reports_retain_model_identity_axes_and_row_major_cells() {
+    use std::rc::Rc;
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    use zirql::{ConstructedValue as V, ValueKey as K};
+    let model_source = b"enum Guest = {Zulu} ++ {Alpha}; array[2..3, Guest] of int: table; array[3..4] of int: tail; array[1..2,1..2] of int: matrix; set of Guest: vacant; array[1..0,Guest] of int: empty; type Info=record(array[Guest] of int: values); Info:info; solve satisfy;";
+    let model = semantic_model("keyed-report", model_source, b"", "");
+    let input = Input::parse_named(b"\xef\xbb\xbftable = [(3,Alpha):32, (2,Zulu):21, (3,Zulu):31, (2,Alpha):22]; tail=[3:7,8]; matrix=[|3,4|5,6|]; vacant={}; empty=[]; info=(values:[7,9]);".to_vec(), FileMode::Data, "report.dzn").unwrap();
+    let source = r#"source t = literal("table"); source tail = literal("tail");
+        source matrix = literal("matrix"); source vacant = literal("vacant"); source empty = literal("empty"); source info=literal("info");
+        let members = {enum_member(Guest,"Alpha"), enum_member(Guest,"Zulu"), enum_member(Guest,"Zulu")};
+        let cells = [(i,e): t[i-1,e] | i in index_set(tail), e in members];
+        let zero = [(i,e): 1 | i in 1..0, e in members];
+        report (cells: cells, written: t, pair: (tail[3],matrix[2,1]), nested: [[1],[2,3]], members: members, zero: zero, vacant: vacant, empty: empty, info: info);"#;
+    let limits = ProgramLimits::default();
+    let program = Program::parse(source, limits).unwrap();
+    let facts = Rc::new(zincite_lint::ModelFacts::new(&model));
+    let mut result = program
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap();
+    assert!(std::ptr::eq(result.model_facts().unwrap().model(), &model));
+    let ReportValue::Constructed(V::Record(fields)) = result.emissions()[0].value() else {
+        panic!("native constructed record")
+    };
+    let V::KeyedArray { axes, entries } = &fields[0].1 else {
+        panic!("native keyed result")
+    };
+    assert_eq!(axes.len(), 2);
+    assert_eq!(axes[0].keys, [K::Integer(3), K::Integer(4)]);
+    let enum_id = facts
+        .bindings()
+        .declarations
+        .iter()
+        .find(|d| d.name == "Guest")
+        .unwrap()
+        .id
+        .0 as u64;
+    let names: Vec<_> = axes[1]
+        .keys
+        .iter()
+        .map(|key| {
+            let K::Member(member) = key else {
+                panic!("nominal key")
+            };
+            assert_eq!(member.type_id.0, enum_id);
+            let declaration = facts
+                .bindings()
+                .declarations
+                .iter()
+                .find(|d| d.name == member.member_name)
+                .unwrap();
+            assert_eq!(member.member_id.0, declaration.id.0 as u64);
+            (member.member_name.as_str(), member.declaration_order)
+        })
+        .collect();
+    assert_eq!(names, [("Zulu", 0), ("Alpha", 1)]);
+    assert_eq!(
+        entries.iter().map(|e| &e.value).collect::<Vec<_>>(),
+        [
+            &V::Integer(21),
+            &V::Integer(22),
+            &V::Integer(31),
+            &V::Integer(32)
+        ]
+    );
+    assert_eq!(entries[0].key[0], K::Integer(3));
+    let V::KeyedArray { axes, entries } = &fields[5].1 else {
+        panic!("known empty result")
+    };
+    assert_eq!(axes.len(), 2);
+    assert!(axes[0].keys.is_empty());
+    assert_eq!(axes[1].keys.len(), 2);
+    assert!(entries.is_empty());
+    let V::Set {
+        element_type: Some(zirql::SetElementType::Member(id)),
+        elements,
+    } = &fields[6].1
+    else {
+        panic!("typed empty set")
+    };
+    assert_eq!(id.0, enum_id);
+    assert!(elements.is_empty());
+    let V::KeyedArray { axes, entries } = &fields[7].1 else {
+        panic!("declared empty array")
+    };
+    assert_eq!(axes.len(), 2);
+    assert!(axes[0].keys.is_empty());
+    assert_eq!(axes[1].keys.len(), 2);
+    assert!(entries.is_empty());
+    let V::Record(info) = &fields[8].1 else {
+        panic!("nested model-backed record")
+    };
+    let V::KeyedArray { axes, entries } = &info[0].1 else {
+        panic!("written alias field axes")
+    };
+    assert!(matches!(&axes[0].keys[0], K::Member(member) if member.member_name == "Zulu"));
+    assert_eq!(entries[1].value, V::Integer(9));
+    assert!(result.is_complete());
+    let bytes = result.render().unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["complete"], true);
+    assert_eq!(json["limitations"], serde_json::json!([]));
+    assert_eq!(json["result"]["fields"][0]["value"]["indexing"], "explicit");
+    assert_eq!(
+        json["result"]["fields"][0]["value"]["axes"][1][0],
+        serde_json::json!({"kind":"member","enum":"Guest","name":"Zulu"})
+    );
+    assert_eq!(json["result"]["fields"][2]["value"]["kind"], "tuple");
+    let mut shared = program
+        .evaluate_with_facts(&input, Rc::clone(&facts), limits)
+        .unwrap();
+    assert_eq!(shared.render().unwrap(), bytes);
+    let projected = Program::parse(r#"source rows = query("filter(name(\"table\")) | values"); let row = rows[1]; report row;"#, limits).unwrap().evaluate_with_facts(&input, Rc::clone(&facts), limits).unwrap();
+    assert!(
+        matches!(projected.emissions()[0].value(), ReportValue::Constructed(V::KeyedArray { axes, entries }) if axes.len() == 2 && entries[0].value == V::Integer(21))
+    );
+    let literals = Program::parse(
+        "let m = [| 2:1: | 4: 42,41 | 3:32,31 |]; report m[3,1];",
+        limits,
+    )
+    .unwrap()
+    .evaluate(&input, limits)
+    .unwrap();
+    assert!(matches!(
+        literals.emissions()[0].value(),
+        ReportValue::Constructed(V::Integer(31))
+    ));
+}
+
+#[test]
+fn keyed_reports_refuse_shape_identity_and_unestablished_empty_axes() {
+    use zincite_query::{Program, ProgramLimits};
+    let limits = ProgramLimits::default();
+    let input = Input::parse(b"x=1;".to_vec(), FileMode::Data).unwrap();
+    for (source, expected) in [
+        (
+            "let bad=[(1,1):1,(1,2):2,(2,1):3]; report [v | v in bad];",
+            "missing cells",
+        ),
+        (
+            "report [v | v in [(1,1):1,(1,2):2,(2,1):3]];",
+            "missing cells",
+        ),
+        ("report [i: i | i in 1..3 where i != 2];", "contiguous"),
+        ("report [1:1,1:2];", "duplicate"),
+        ("report [i+1: i | i in 1..0];", "empty"),
+        ("report [(i,j):1 | i in 1..0,j in 1..i];", "empty"),
+        ("report [i:1 | i in []];", "empty"),
+        ("report {\"no\"};", "set"),
+        (
+            "report if true then 1 else enum_member(Guest,\"Zulu\") endif;",
+            "model context",
+        ),
+        (
+            "let a=[1:1]; report index_set([ (i,j):1 | i,j in 1..2]);",
+            "rank one",
+        ),
+    ] {
+        let error = Program::parse(source, limits)
+            .and_then(|p| p.evaluate(&input, limits))
+            .unwrap_err();
+        assert!(error.message.contains(expected), "{source}: {error:?}");
+        assert_eq!(error.location, ErrorLocation::Query);
+        assert!(error.range.end <= source.len());
+        assert!(!error.message.contains('\0'));
+    }
+    let skipped = Program::parse(
+        "report if false then [v|v in [(1,1):1,(1,2):2,(2,1):3]] else [7] endif;",
+        limits,
+    )
+    .unwrap()
+    .evaluate(&input, limits)
+    .unwrap();
+    assert!(
+        matches!(skipped.emissions()[0].value(),zincite_query::ReportValue::Constructed(zirql::ConstructedValue::Array(values)) if values == &[zirql::ConstructedValue::Integer(7)])
+    );
+    let model = semantic_model(
+        "keyed-refusals",
+        b"enum Guest={Zulu,Alpha,Beta}; enum Other={Gamma}; solve satisfy;",
+        b"",
+        "",
+    );
+    for (source, expected) in [
+        (
+            "report [1:1,enum_member(Guest,\"Zulu\"):2];",
+            "incompatible",
+        ),
+        (
+            "report [enum_member(Guest,\"Zulu\"):1,enum_member(Guest,\"Beta\"):2];",
+            "contiguous",
+        ),
+        ("report enum_member(Guest,\"absent\");", "unavailable"),
+        ("report enum_member(Other,\"Zulu\");", "another enum"),
+    ] {
+        let p = Program::parse(source, limits).unwrap();
+        let error = p
+            .evaluate_with_model(&input, Some(&model), limits)
+            .unwrap_err();
+        assert!(error.message.contains(expected), "{error:?}");
+        assert_eq!(error.location, ErrorLocation::Query);
+    }
+    let ambiguous = semantic_model(
+        "keyed-ambiguous",
+        b"enum Guest={Same}; enum Other={Same}; solve satisfy;",
+        b"",
+        "",
+    );
+    let p = Program::parse("report enum_member(Guest,\"Same\");", limits).unwrap();
+    assert!(
+        p.evaluate_with_model(&input, Some(&ambiguous), limits)
+            .unwrap_err()
+            .message
+            .contains("ambiguous")
+    );
+    let computed = semantic_model(
+        "keyed-computed",
+        b"enum Guest={Zulu} ++ anon_enum(2); solve satisfy;",
+        b"",
+        "",
+    );
+    let p = Program::parse("report enum_member(Guest,\"Zulu\");", limits).unwrap();
+    let error = p
+        .evaluate_with_model(&input, Some(&computed), limits)
+        .unwrap_err();
+    assert!(matches!(error.location, ErrorLocation::Model(_)));
+    assert!(error.message.contains("computed"));
+    let subset_model=semantic_model("keyed-subset", b"enum Guest={Zulu,Alpha}; set of Guest:Subset; type Info=record(array[Subset] of int:values); Info:info; solve satisfy;", b"", "");
+    let subset_input = Input::parse(b"info=(values:[1,2]);".to_vec(), FileMode::Data).unwrap();
+    let p = Program::parse(r#"source info=literal("info"); report info;"#, limits).unwrap();
+    let error = p
+        .evaluate_with_model(&subset_input, Some(&subset_model), limits)
+        .unwrap_err();
+    assert!(error.message.contains("axis domain"), "{error:?}");
+    assert_eq!(error.location, ErrorLocation::Input);
+    let bom = Input::parse(b"\xef\xbb\xbfx=[Alpha:1,2];".to_vec(), FileMode::Data).unwrap();
+    let p = Program::parse(r#"source a=literal("x"); report a;"#, limits).unwrap();
+    let error = p
+        .evaluate_with_model(&bom, Some(&model), limits)
+        .unwrap_err();
+    assert_eq!(error.location, ErrorLocation::Input);
+    assert_eq!(&bom.source_bytes()[error.range], b"2");
+}
+
+#[test]
+fn keyed_report_work_and_repeated_rendering_share_the_request_allowance() {
+    use std::rc::Rc;
+    use zincite_query::{Program, ProgramLimits};
+    let limits = ProgramLimits::default();
+    let model = semantic_model(
+        "keyed-budget",
+        b"enum Guest={Zulu,Alpha}; solve satisfy;",
+        b"",
+        "",
+    );
+    let input = Input::parse(b"x=[Alpha:2,Zulu:1];".to_vec(), FileMode::Data).unwrap();
+    let facts = Rc::new(zincite_lint::ModelFacts::new(&model));
+    facts.source_domains();
+    let p = Program::parse(
+        r#"source x=literal("x"); let a=[i:x[i] | i in index_set(x)]; report a;"#,
+        limits,
+    )
+    .unwrap();
+    let mut result = p
+        .evaluate_with_facts(
+            &input,
+            Rc::clone(&facts),
+            ProgramLimits {
+                work: 12000,
+                ..limits
+            },
+        )
+        .unwrap();
+    assert!(!result.render().unwrap().is_empty());
+    while result.render().is_ok() {}
+    assert!(result.render().unwrap_err().message.contains("limit"));
+    let error = p
+        .evaluate_with_facts(
+            &input,
+            facts,
+            ProgramLimits {
+                work: 600,
+                ..limits
+            },
+        )
+        .unwrap_err();
+    assert!(error.message.contains("work limit"));
+    let error = p
+        .evaluate_with_model(
+            &input,
+            Some(&model),
+            ProgramLimits {
+                results: 60,
+                ..limits
+            },
+        )
+        .unwrap_err();
+    assert!(error.message.contains("result limit"));
 }

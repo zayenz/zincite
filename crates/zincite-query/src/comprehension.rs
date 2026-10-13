@@ -1,12 +1,29 @@
 //! MiniZinc CST lowering and native projection; Zirql evaluates every value.
 use crate::{Input, QueryError, QueryResult, SemanticStream, pipeline, structured};
 use serde_json::{Value, json};
-use std::ops::Range;
+use std::{collections::BTreeSet, ops::Range};
+use zincite_lint::{
+    Declaration, DeclarationId, DeclarationRole, Domain, ModelFacts, NumericBound, TypeInst,
+    TypeKind,
+};
 use zincite_syntax::{NodeKind as N, ParsedFile, SyntaxElement, SyntaxNode, TokenKind as T};
 use zirql::{
     Budget, ConstructedValue as V, Located, ValueBinaryOperator as B, ValueExpression as E,
     ValueExpressionKind as K, ValueGenerator, ValueUnaryOperator as U,
 };
+
+#[derive(Debug)]
+pub(crate) struct LoweredValue {
+    pub expression: E,
+    pub members: Vec<MemberRequest>,
+}
+#[derive(Debug)]
+pub(crate) struct MemberRequest {
+    pub slot: String,
+    pub enum_name: Located<String>,
+    pub member_name: Located<String>,
+    pub range: Range<usize>,
+}
 
 fn charge(budget: &mut Budget, units: usize, range: &Range<usize>) -> Result<(), QueryError> {
     budget
@@ -33,7 +50,7 @@ pub(crate) fn lower(
     range: Range<usize>,
     budget: &mut Budget,
     nesting: usize,
-) -> Result<E, QueryError> {
+) -> Result<LoweredValue, QueryError> {
     charge(
         budget,
         source
@@ -58,15 +75,19 @@ pub(crate) fn lower(
         .next()
         .and_then(crate::assignment_rhs)
         .ok_or_else(|| QueryError::query(range.clone(), "expected one value expression"))?;
-    Lower {
+    let mut lower = Lower {
         parsed: &parsed,
         offset: range.start,
         prefix: 8,
         budget,
         nesting,
-        literal_only: false,
-    }
-    .node(rhs, 0)
+        members: Vec::new(),
+    };
+    let expression = lower.node(rhs, 0)?;
+    Ok(LoweredValue {
+        expression,
+        members: lower.members,
+    })
 }
 fn map_range(range: Range<usize>, offset: usize, prefix: usize) -> Range<usize> {
     offset + range.start.saturating_sub(prefix)..offset + range.end.saturating_sub(prefix)
@@ -77,7 +98,7 @@ struct Lower<'a, 'b> {
     prefix: usize,
     budget: &'b mut Budget,
     nesting: usize,
-    literal_only: bool,
+    members: Vec<MemberRequest>,
 }
 impl Lower<'_, '_> {
     fn range(&self, node: &SyntaxNode) -> Range<usize> {
@@ -118,6 +139,148 @@ impl Lower<'_, '_> {
         }
         Ok(values)
     }
+    fn empty_sources(
+        &mut self,
+        key: &E,
+        generators: &SyntaxNode,
+        depth: usize,
+    ) -> Result<Option<Vec<E>>, QueryError> {
+        let components = match &key.value {
+            K::Tuple(parts) => parts.as_slice(),
+            _ => std::slice::from_ref(key),
+        };
+        charge(self.budget, components.len(), &key.range)?;
+        let mut own_names = BTreeSet::new();
+        for generator in generators.child_nodes() {
+            for element in generator.children() {
+                let SyntaxElement::Token(i) = element else {
+                    continue;
+                };
+                let i = *i;
+                if matches!(
+                    self.parsed.tokens()[i].kind,
+                    T::Identifier | T::QuotedIdentifier
+                ) {
+                    charge(self.budget, self.text(i).len() + 1, &key.range)?;
+                    own_names.insert(crate::identifier_identity(self.text(i)).to_owned());
+                }
+            }
+        }
+        let mut sources = slots(self.budget, components.len(), &key.range)?;
+        for component in components {
+            let K::Name(name) = &component.value else {
+                return Ok(None);
+            };
+            let mut found = None;
+            for generator in generators.child_nodes() {
+                charge(self.budget, 1 + generator.children().len(), &key.range)?;
+                if self
+                    .tokens(generator)
+                    .any(|i| self.parsed.tokens()[i].kind == T::Equal)
+                {
+                    continue;
+                }
+                if self.tokens(generator).any(|i| {
+                    matches!(
+                        self.parsed.tokens()[i].kind,
+                        T::Identifier | T::QuotedIdentifier
+                    ) && crate::identifier_identity(self.text(i)) == name
+                }) {
+                    found = generator.child_nodes().next();
+                }
+            }
+            let Some(source) = found else {
+                return Ok(None);
+            };
+            let lowered = self.node(source, depth + 1)?;
+            if references_binding(&lowered, &own_names, self.budget)? {
+                return Ok(None);
+            }
+            sources.push(lowered);
+        }
+        Ok(Some(sources))
+    }
+    fn matrix(&mut self, node: &SyntaxNode, depth: usize) -> Result<E, QueryError> {
+        let range = self.range(node);
+        let header = node
+            .child_nodes()
+            .find(|n| n.kind() == N::MatrixColumnIndices);
+        let row_count = node
+            .child_nodes()
+            .filter(|n| n.kind() == N::MatrixRow)
+            .count();
+        let column_count = header.map_or_else(
+            || {
+                node.child_nodes()
+                    .find(|n| n.kind() == N::MatrixRow)
+                    .map_or(0, |row| {
+                        row.child_nodes().count()
+                            - usize::from(
+                                self.tokens(row)
+                                    .any(|i| self.parsed.tokens()[i].kind == T::Colon),
+                            )
+                    })
+            },
+            |h| h.child_nodes().count(),
+        );
+        let count = row_count
+            .checked_mul(column_count)
+            .ok_or_else(|| QueryError::query(range.clone(), "matrix size overflow"))?;
+        let mut entries = slots(self.budget, count, &range)?;
+        for (i, row) in node
+            .child_nodes()
+            .filter(|n| n.kind() == N::MatrixRow)
+            .enumerate()
+        {
+            let explicit = self
+                .tokens(row)
+                .any(|i| self.parsed.tokens()[i].kind == T::Colon);
+            let mut cells = row.child_nodes();
+            let row_key = if explicit {
+                Some(cells.next().unwrap())
+            } else {
+                None
+            };
+            if row.child_nodes().count() - usize::from(explicit) != column_count {
+                return Err(QueryError::query(
+                    self.range(row),
+                    "matrix has missing cells",
+                ));
+            }
+            for (j, cell) in cells.enumerate() {
+                let row_key = row_key
+                    .map(|n| self.node(n, depth + 1))
+                    .transpose()?
+                    .unwrap_or(Located::new(
+                        K::Literal(V::Integer(position(i, &range)?)),
+                        range.clone(),
+                    ));
+                let column_key = header
+                    .and_then(|h| h.child_nodes().nth(j))
+                    .map(|n| self.node(n, depth + 1))
+                    .transpose()?
+                    .unwrap_or(Located::new(
+                        K::Literal(V::Integer(position(j, &range)?)),
+                        range.clone(),
+                    ));
+                let mut parts = slots(self.budget, 2, &range)?;
+                parts.extend([row_key, column_key]);
+                entries.push((
+                    Located::new(K::Tuple(parts), self.range(cell)),
+                    self.node(cell, depth + 1)?,
+                ));
+            }
+        }
+        let axes = if count == 0 {
+            return Err(QueryError::query(
+                range,
+                "empty matrix requires established axes",
+            ));
+        } else {
+            None
+        };
+        Ok(Located::new(K::KeyedArray { axes, entries }, range))
+    }
     fn node(&mut self, node: &SyntaxNode, depth: usize) -> Result<E, QueryError> {
         let range = self.range(node);
         if depth >= self.nesting.min(64) {
@@ -129,26 +292,7 @@ impl Lower<'_, '_> {
                 .next()
                 .expect("valid CST expression child")
         };
-        let unsupported = || {
-            QueryError::query(
-                range.clone(),
-                "unsupported expression in positional reports",
-            )
-        };
-        if self.literal_only
-            && !matches!(
-                node.kind(),
-                N::Expression
-                    | N::UnaryExpression
-                    | N::ParenthesizedExpression
-                    | N::ArrayLiteral
-                    | N::TupleLiteral
-                    | N::RecordLiteral
-                    | N::SetLiteral
-            )
-        {
-            return Err(unsupported());
-        }
+        let unsupported = || QueryError::query(range.clone(), "unsupported expression in reports");
         let kind = match node.kind() {
             N::ParenthesizedExpression => return self.node(child(), depth + 1),
             N::Expression => {
@@ -167,9 +311,7 @@ impl Lower<'_, '_> {
                                 .map_err(|m| QueryError::query(range.clone(), m))?,
                         ))
                     }
-                    T::Identifier | T::QuotedIdentifier if !self.literal_only => {
-                        K::Name(self.name(i)?.value)
-                    }
+                    T::Identifier | T::QuotedIdentifier => K::Name(self.name(i)?.value),
                     _ => return Err(unsupported()),
                 }
             }
@@ -178,7 +320,7 @@ impl Lower<'_, '_> {
                 let operator = match self.parsed.tokens()[i].kind {
                     T::Plus => U::Positive,
                     T::Minus => U::Negative,
-                    T::Not if !self.literal_only => U::Not,
+                    T::Not => U::Not,
                     _ => return Err(unsupported()),
                 };
                 // A written negative minimum cannot first become a positive i64.
@@ -240,12 +382,38 @@ impl Lower<'_, '_> {
                 }
             }
             N::ArrayLiteral => {
-                if node.child_nodes().any(|n| n.kind() == N::IndexedArrayEntry) {
-                    return Err(unsupported());
+                if structured::array_indexing(node) == structured::ArrayIndexing::Positional {
+                    K::Array(self.children(node, depth)?)
+                } else {
+                    let mut entries = slots(self.budget, node.child_nodes().count(), &range)?;
+                    let mut next_key = None;
+                    for entry in node.child_nodes() {
+                        let (key, value) = if entry.kind() == N::IndexedArrayEntry {
+                            let mut children = entry.child_nodes();
+                            let key = self.node(children.next().unwrap(), depth + 1)?;
+                            next_key = match &key.value {
+                                K::Literal(V::Integer(n)) => Some(*n),
+                                _ => None,
+                            };
+                            (key, self.node(children.next().unwrap(), depth + 1)?)
+                        } else {
+                            let n = next_key.and_then(|n| n.checked_add(1)).ok_or_else(|| QueryError::query(self.range(entry), "starting-key tail requires a written integer and checked successors"))?;
+                            next_key = Some(n);
+                            (
+                                Located::new(K::Literal(V::Integer(n)), self.range(entry)),
+                                self.node(entry, depth + 1)?,
+                            )
+                        };
+                        entries.push((key, value));
+                    }
+                    K::KeyedArray {
+                        axes: None,
+                        entries,
+                    }
                 }
-                K::Array(self.children(node, depth)?)
             }
-            N::TupleLiteral => K::Tuple(self.children(node, depth)?),
+            N::MatrixLiteral => return self.matrix(node, depth),
+            N::TupleLiteral | N::IndexTuple => K::Tuple(self.children(node, depth)?),
             N::SetLiteral => K::Set(self.children(node, depth)?),
             N::RecordLiteral => {
                 let mut fields = slots(self.budget, node.child_nodes().count(), &range)?;
@@ -284,21 +452,66 @@ impl Lower<'_, '_> {
                 }
             }
             N::ArrayAccessExpression => {
-                if node.child_nodes().count() != 2 {
-                    return Err(unsupported());
-                }
                 let mut children = node.child_nodes();
+                let array = Box::new(self.node(children.next().unwrap(), depth + 1)?);
+                let mut indices = slots(self.budget, node.child_nodes().count() - 1, &range)?;
+                for child in children {
+                    indices.push(self.node(child, depth + 1)?);
+                }
+                let index = if indices.len() == 1 {
+                    indices.pop().unwrap()
+                } else {
+                    Located::new(K::Tuple(indices), range.clone())
+                };
                 K::ArrayAccess {
-                    array: Box::new(self.node(children.next().unwrap(), depth + 1)?),
-                    index: Box::new(self.node(children.next().unwrap(), depth + 1)?),
+                    array,
+                    index: Box::new(index),
                 }
             }
             N::CallExpression => {
                 let i = self.tokens(node).next().unwrap();
-                if self.text(i) != "index_set" || node.child_nodes().count() != 1 {
+                if self.text(i) == "enum_member" {
+                    let mut args = node.child_nodes();
+                    let enum_arg = args.next().ok_or_else(unsupported)?;
+                    let member_arg = args.next().ok_or_else(unsupported)?;
+                    if args.next().is_some()
+                        || enum_arg.kind() != N::Expression
+                        || member_arg.kind() != N::Expression
+                    {
+                        return Err(unsupported());
+                    }
+                    let enum_token = self.tokens(enum_arg).next().ok_or_else(unsupported)?;
+                    let member_token = self.tokens(member_arg).next().ok_or_else(unsupported)?;
+                    if !matches!(
+                        self.parsed.tokens()[enum_token].kind,
+                        T::Identifier | T::QuotedIdentifier
+                    ) || self.parsed.tokens()[member_token].kind != T::StringLiteral
+                    {
+                        return Err(QueryError::query(
+                            range,
+                            "enum_member requires an enum identifier and string literal",
+                        ));
+                    }
+                    let enum_name = self.name(enum_token)?;
+                    charge(self.budget, self.text(member_token).len() + 32, &range)?;
+                    let member_name = structured::decode_string(self.text(member_token))
+                        .map_err(|m| QueryError::query(self.range(member_arg), m))?;
+                    let slot = format!("\0member{}", self.members.len());
+                    self.budget
+                        .charge_results(1, zirql::Location::Query(range.clone()))
+                        .map_err(pipeline::core_error)?;
+                    self.members.push(MemberRequest {
+                        slot: slot.clone(),
+                        enum_name,
+                        member_name: Located::new(member_name, self.range(member_arg)),
+                        range: range.clone(),
+                    });
+                    K::Name(slot)
+                } else if self.text(i) == "index_set" && node.child_nodes().count() == 1 {
+                    K::IndexSet(Box::new(self.node(child(), depth + 1)?))
+                } else {
                     return Err(unsupported());
                 }
-                K::IndexSet(Box::new(self.node(child(), depth + 1)?))
             }
             N::ConditionalExpression => {
                 let mut branches = slots(self.budget, node.child_nodes().count(), &range)?;
@@ -329,10 +542,24 @@ impl Lower<'_, '_> {
                     })?,
                 }
             }
-            N::ArrayComprehension | N::SetComprehension => {
+            N::ArrayComprehension | N::SetComprehension | N::IndexedArrayComprehension => {
                 let mut children = node.child_nodes();
-                let head = Box::new(self.node(children.next().unwrap(), depth + 1)?);
+                let first = children.next().unwrap();
+                let (key, head) = if node.kind() == N::IndexedArrayComprehension {
+                    let mut pair = first.child_nodes();
+                    (
+                        Some(Box::new(self.node(pair.next().unwrap(), depth + 1)?)),
+                        Box::new(self.node(pair.next().unwrap(), depth + 1)?),
+                    )
+                } else {
+                    (None, Box::new(self.node(first, depth + 1)?))
+                };
                 let generators = children.next().unwrap();
+                let empty_axis_sources = key
+                    .as_ref()
+                    .map(|key| self.empty_sources(key, generators, depth))
+                    .transpose()?
+                    .flatten();
                 let mut clauses = slots(self.budget, generators.child_nodes().count(), &range)?;
                 for generator in generators.child_nodes() {
                     let grange = self.range(generator);
@@ -393,14 +620,23 @@ impl Lower<'_, '_> {
                     };
                     clauses.push(Located::new(clause, grange));
                 }
-                K::Comprehension {
-                    constructor: if node.kind() == N::ArrayComprehension {
-                        zirql::ValueConstructor::Array
-                    } else {
-                        zirql::ValueConstructor::Set
-                    },
-                    clauses,
-                    head,
+                if let Some(key) = key {
+                    K::KeyedComprehension {
+                        clauses,
+                        key,
+                        head,
+                        empty_axis_sources,
+                    }
+                } else {
+                    K::Comprehension {
+                        constructor: if node.kind() == N::ArrayComprehension {
+                            zirql::ValueConstructor::Array
+                        } else {
+                            zirql::ValueConstructor::Set
+                        },
+                        clauses,
+                        head,
+                    }
                 }
             }
             _ => return Err(unsupported()),
@@ -419,9 +655,10 @@ fn number(text: &str, range: &Range<usize>) -> Result<V, QueryError> {
 pub(crate) fn literal_source(
     input: &Input,
     name: &str,
+    facts: Option<&ModelFacts<'_>>,
     budget: &mut Budget,
     range: &Range<usize>,
-    nesting: usize,
+    limits: crate::Limits,
 ) -> Result<V, QueryError> {
     let mut found = None;
     for node in input.syntax().tree().child_nodes() {
@@ -447,35 +684,1038 @@ pub(crate) fn literal_source(
             "literal source requires exactly one original assignment",
         )
     })?;
-    literal_value(input, node, budget, nesting)
-}
-fn literal_value(
-    input: &Input,
-    node: &SyntaxNode,
-    budget: &mut Budget,
-    nesting: usize,
-) -> Result<V, QueryError> {
-    let expression = Lower {
-        parsed: input.syntax(),
-        offset: input.syntax_offset(),
-        prefix: 0,
-        budget,
-        nesting,
-        literal_only: true,
-    }
-    .node(node, 0)
+    let source_range = input.original_range(node.range());
+    let literal = structured::read_literal(
+        input,
+        node,
+        &mut crate::Work { budget },
+        &source_range,
+        limits,
+    )
     .map_err(input_error)?;
-    zirql::evaluate_value(&expression, &zirql::Bindings::default(), budget)
-        .map_err(pipeline::core_error)
-        .map_err(input_error)
+    let metadata = facts
+        .map(|facts| declared_value(facts, name, budget, &source_range))
+        .transpose()
+        .map_err(input_error)?
+        .flatten();
+    evaluate_literal(&literal, input, facts, metadata, budget, limits.nesting)
 }
 fn input_error(mut error: QueryError) -> QueryError {
     error.location = crate::ErrorLocation::Input;
     error
 }
+fn position(i: usize, range: &Range<usize>) -> Result<i64, QueryError> {
+    i.checked_add(1)
+        .and_then(|n| i64::try_from(n).ok())
+        .ok_or_else(|| QueryError::query(range.clone(), "integer key overflow"))
+}
+fn references_binding(
+    expression: &E,
+    names: &BTreeSet<String>,
+    budget: &mut Budget,
+) -> Result<bool, QueryError> {
+    charge(budget, 1, &expression.range)?;
+    match &expression.value {
+        K::Name(name) => Ok(names.contains(name)),
+        K::Literal(_) => Ok(false),
+        K::Array(values) | K::Tuple(values) | K::Set(values) => {
+            any_binding(values.iter(), names, budget)
+        }
+        K::Record(fields) => any_binding(fields.iter().map(|(_, v)| v), names, budget),
+        K::KeyedArray { entries, .. } => {
+            any_binding(entries.iter().flat_map(|(k, v)| [k, v]), names, budget)
+        }
+        K::KeyedComprehension {
+            clauses,
+            key,
+            head,
+            empty_axis_sources,
+        } => {
+            if any_binding(
+                [key.as_ref(), head.as_ref()]
+                    .into_iter()
+                    .chain(empty_axis_sources.iter().flatten()),
+                names,
+                budget,
+            )? {
+                return Ok(true);
+            }
+            generator_binding(clauses, names, budget)
+        }
+        K::Comprehension { clauses, head, .. } => {
+            Ok(references_binding(head, names, budget)?
+                || generator_binding(clauses, names, budget)?)
+        }
+        K::Unary { operand, .. }
+        | K::IndexSet(operand)
+        | K::Field { value: operand, .. }
+        | K::TupleAccess { value: operand, .. } => references_binding(operand, names, budget),
+        K::Binary { left, right, .. }
+        | K::Range {
+            lower: left,
+            upper: right,
+        }
+        | K::ArrayAccess {
+            array: left,
+            index: right,
+        } => any_binding([left.as_ref(), right.as_ref()].into_iter(), names, budget),
+        K::Conditional {
+            branches,
+            otherwise,
+        } => any_binding(
+            branches
+                .iter()
+                .flat_map(|(c, v)| [c, v])
+                .chain(std::iter::once(otherwise.as_ref())),
+            names,
+            budget,
+        ),
+    }
+}
+fn any_binding<'a>(
+    children: impl Iterator<Item = &'a E>,
+    names: &BTreeSet<String>,
+    budget: &mut Budget,
+) -> Result<bool, QueryError> {
+    for child in children {
+        if references_binding(child, names, budget)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+fn generator_binding(
+    clauses: &[Located<ValueGenerator>],
+    names: &BTreeSet<String>,
+    budget: &mut Budget,
+) -> Result<bool, QueryError> {
+    for clause in clauses {
+        let (source, filter) = match &clause.value {
+            ValueGenerator::In { source, filter, .. } => (source, filter),
+            ValueGenerator::Bind { value, filter, .. } => (value, filter),
+        };
+        if any_binding(std::iter::once(source).chain(filter), names, budget)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn model_error(location: zincite_lint::SourceLocation, message: impl Into<String>) -> QueryError {
+    QueryError {
+        range: location.range.clone(),
+        location: crate::ErrorLocation::Model(location),
+        message: message.into(),
+    }
+}
+fn nominal_id(id: DeclarationId, range: &Range<usize>) -> Result<u64, QueryError> {
+    u64::try_from(id.0).map_err(|_| QueryError::query(range.clone(), "nominal identity overflow"))
+}
+fn unique_declaration<'a>(
+    facts: &'a ModelFacts<'_>,
+    name: &str,
+    role: DeclarationRole,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<&'a Declaration, QueryError> {
+    let mut found = None;
+    for declaration in &facts.bindings().declarations {
+        charge(budget, declaration.name.len() + name.len() + 1, range)?;
+        if declaration.top_level && declaration.name == name {
+            if declaration.role != role || found.is_some() {
+                return Err(QueryError::query(
+                    range.clone(),
+                    "unavailable or ambiguous declaration identity",
+                ));
+            }
+            found = Some(declaration);
+        }
+    }
+    found.ok_or_else(|| QueryError::query(range.clone(), "unavailable declaration identity"))
+}
+fn declaration_type<'a>(
+    facts: &'a ModelFacts<'_>,
+    id: DeclarationId,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<&'a TypeInst, QueryError> {
+    let mut found = None;
+    for ty in &facts.source_callables().declarations {
+        charge(budget, 1, range)?;
+        if ty.declaration == id {
+            if found.is_some() {
+                return Err(QueryError::query(
+                    range.clone(),
+                    "ambiguous declaration type",
+                ));
+            }
+            found = Some(&ty.ty);
+        }
+    }
+    found.ok_or_else(|| QueryError::query(range.clone(), "unavailable declaration type"))
+}
+/// Explicit cases and their retained declaration coordinates prove membership/order.
+fn enum_cases<'a>(
+    facts: &'a ModelFacts<'_>,
+    owner: &'a Declaration,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<Vec<&'a Declaration>, QueryError> {
+    let owner = unique_declaration(facts, &owner.name, DeclarationRole::Enum, budget, range)?;
+    let file = &facts.model().files[owner.file];
+    let mut root = None;
+    for (i, node) in file.parsed.tree().child_nodes().enumerate() {
+        charge(budget, 1, range)?;
+        if i == owner.item
+            && node.kind() == N::EnumDeclaration
+            && node.range() == owner.syntax_range
+        {
+            root = Some(node);
+        }
+    }
+    let root = root.ok_or_else(|| {
+        model_error(
+            owner.location.clone(),
+            "enum owner has no retained declaration",
+        )
+    })?;
+    let definition = root
+        .child_nodes()
+        .find(|n| n.kind() == N::EnumDefinition)
+        .ok_or_else(|| {
+            model_error(
+                owner.location.clone(),
+                "enum identity/order requires explicit cases",
+            )
+        })?;
+    let count = definition
+        .child_nodes()
+        .map(|n| n.child_nodes().count())
+        .try_fold(0usize, |n, count| n.checked_add(count))
+        .ok_or_else(|| QueryError::query(range.clone(), "enum case count overflow"))?;
+    let mut members = slots(budget, count, range)?;
+    for group in definition.child_nodes() {
+        charge(budget, 1 + group.children().len(), range)?;
+        if group.kind() != N::EnumCases {
+            return Err(model_error(
+                file.location(group.range()),
+                "computed or constructed enum identity/order is unavailable",
+            ));
+        }
+        for case in group.child_nodes() {
+            charge(budget, 1 + case.children().len(), range)?;
+            let mut member = None;
+            for declaration in &facts.bindings().declarations {
+                charge(budget, 1, range)?;
+                if declaration.file == owner.file
+                    && declaration.item == owner.item
+                    && declaration.syntax_range == case.range()
+                    && declaration.role == DeclarationRole::EnumMember
+                {
+                    if member.is_some() {
+                        return Err(model_error(
+                            file.location(case.range()),
+                            "ambiguous enum case identity",
+                        ));
+                    }
+                    member = Some(declaration);
+                }
+            }
+            let member = member.ok_or_else(|| {
+                model_error(
+                    file.location(case.range()),
+                    "enum case has no public declaration identity",
+                )
+            })?;
+            if !matches!(declaration_type(facts, member.id, budget, range)?.kind, TypeKind::Enum(id) if id == owner.id)
+            {
+                return Err(model_error(
+                    member.location.clone(),
+                    "enum member has an uncertain owner",
+                ));
+            }
+            unique_declaration(
+                facts,
+                &member.name,
+                DeclarationRole::EnumMember,
+                budget,
+                range,
+            )?;
+            members.push(member);
+        }
+    }
+    Ok(members)
+}
+pub(crate) fn resolve_member(
+    facts: Option<&ModelFacts<'_>>,
+    enum_name: Option<&str>,
+    member_name: &str,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<zirql::NominalMember, QueryError> {
+    let facts = facts.ok_or_else(|| {
+        QueryError::query(
+            range.clone(),
+            "enum member identity requires model context (--model)",
+        )
+    })?;
+    let member = unique_declaration(
+        facts,
+        member_name,
+        DeclarationRole::EnumMember,
+        budget,
+        range,
+    )?;
+    let TypeKind::Enum(owner_id) = declaration_type(facts, member.id, budget, range)?.kind else {
+        return Err(QueryError::query(
+            range.clone(),
+            "enum member has an uncertain owner",
+        ));
+    };
+    let owner = &facts.bindings().declarations[owner_id.0];
+    if enum_name.is_some_and(|name| name != owner.name) {
+        return Err(QueryError::query(
+            range.clone(),
+            "enum member belongs to another enum",
+        ));
+    }
+    let cases = enum_cases(facts, owner, budget, range)?;
+    let order = cases
+        .iter()
+        .position(|case| case.id == member.id)
+        .ok_or_else(|| QueryError::query(range.clone(), "enum member order is unavailable"))?;
+    charge(
+        budget,
+        cases.len() + owner.name.len() + member.name.len() + 1,
+        range,
+    )?;
+    budget
+        .charge_results(1, zirql::Location::Query(range.clone()))
+        .map_err(pipeline::core_error)?;
+    Ok(zirql::NominalMember {
+        type_id: zirql::NominalTypeId(nominal_id(owner.id, range)?),
+        member_id: zirql::NominalMemberId(nominal_id(member.id, range)?),
+        declaration_order: order,
+        type_name: owner.name.to_owned(),
+        member_name: member.name.to_owned(),
+    })
+}
+/// The written type accompanies public expanded types; enum types do not prove index subsets.
+#[derive(Clone, Copy)]
+struct LiteralMetadata<'a> {
+    ty: &'a TypeInst,
+    file: usize,
+    node: Option<&'a SyntaxNode>,
+}
+fn declaration_node<'a>(
+    facts: &'a ModelFacts<'_>,
+    id: DeclarationId,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<Option<&'a SyntaxNode>, QueryError> {
+    let declaration = &facts.bindings().declarations[id.0];
+    for (i, node) in facts.model().files[declaration.file]
+        .parsed
+        .tree()
+        .child_nodes()
+        .enumerate()
+    {
+        charge(budget, 1, range)?;
+        if i == declaration.item && node.range() == declaration.syntax_range {
+            return Ok(Some(node));
+        }
+    }
+    Ok(None)
+}
+fn resolve_metadata<'a, 'model: 'a>(
+    mut metadata: LiteralMetadata<'a>,
+    facts: &ModelFacts<'model>,
+    budget: &mut Budget,
+    range: &Range<usize>,
+    nesting: usize,
+) -> Result<LiteralMetadata<'a>, QueryError> {
+    for _ in 0..nesting.min(64) {
+        let Some(node) = metadata.node else {
+            return Ok(metadata);
+        };
+        charge(budget, 1 + node.children().len(), range)?;
+        if node.kind() != N::DomainType {
+            return Ok(metadata);
+        }
+        let file = &facts.model().files[metadata.file];
+        let location = file.location(node.range());
+        let mut alias = None;
+        for reference in &facts.bindings().references {
+            charge(budget, 1, range)?;
+            if reference.file == metadata.file
+                && location.range.start <= reference.location.range.start
+                && reference.location.range.end <= location.range.end
+                && let zincite_lint::BindingResolution::Resolved(id) = reference.resolution
+            {
+                let declaration = &facts.bindings().declarations[id.0];
+                if declaration.role == DeclarationRole::TypeAlias {
+                    alias = Some(declaration);
+                }
+            }
+        }
+        let Some(alias) = alias else {
+            return Ok(metadata);
+        };
+        unique_declaration(
+            facts,
+            &alias.name,
+            DeclarationRole::TypeAlias,
+            budget,
+            range,
+        )?;
+        // Model CST storage is owned by the retained context, not the fact vector.
+        let source = &facts.model().files[alias.file];
+        let mut node = None;
+        for (i, item) in source.parsed.tree().child_nodes().enumerate() {
+            charge(budget, 1, range)?;
+            if i == alias.item && item.range() == alias.syntax_range {
+                node = item.child_nodes().find(|n| n.kind() != N::Annotation);
+            }
+        }
+        metadata = LiteralMetadata {
+            ty: metadata.ty,
+            file: alias.file,
+            node,
+        };
+    }
+    Err(QueryError::query(
+        range.clone(),
+        "model type nesting limit exceeded",
+    ))
+}
+fn child_metadata<'a>(
+    metadata: Option<LiteralMetadata<'a>>,
+    ty: &'a TypeInst,
+    position: Option<usize>,
+) -> LiteralMetadata<'a> {
+    let node = metadata
+        .and_then(|metadata| metadata.node)
+        .and_then(|node| {
+            if let Some(i) = position {
+                node.child_nodes().nth(i)
+            } else {
+                node.child_nodes().last()
+            }
+        });
+    LiteralMetadata {
+        ty,
+        file: metadata.map_or(0, |metadata| metadata.file),
+        node,
+    }
+}
+fn declared_value<'a>(
+    facts: &'a ModelFacts<'_>,
+    name: &str,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<Option<LiteralMetadata<'a>>, QueryError> {
+    let mut owner = None;
+    for declaration in &facts.bindings().declarations {
+        charge(budget, 1 + name.len() + declaration.name.len(), range)?;
+        if declaration.top_level && declaration.name == name {
+            if declaration.role != DeclarationRole::Value || owner.is_some() {
+                return Err(QueryError::query(
+                    range.clone(),
+                    "source declaration identity is ambiguous",
+                ));
+            }
+            owner = Some(declaration);
+        }
+    }
+    let Some(owner) = owner else {
+        return Ok(None);
+    };
+    let ty = declaration_type(facts, owner.id, budget, range)?;
+    if ty.optional || ty.instantiation != zincite_lint::Instantiation::Parameter {
+        return Err(QueryError::query(
+            range.clone(),
+            "source requires a fixed nonoptional declaration",
+        ));
+    }
+    let node = declaration_node(facts, owner.id, budget, range)?
+        .and_then(|node| node.child_nodes().find(|node| node.kind() != N::Annotation));
+    Ok(Some(LiteralMetadata {
+        ty,
+        file: owner.file,
+        node,
+    }))
+}
+fn domain_axis(
+    domain: &Domain,
+    facts: &ModelFacts<'_>,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<zirql::KeyAxis, QueryError> {
+    use zirql::{KeyAxis, ValueKey as Key, ValueKeyType as KeyType};
+    match domain {
+        Domain::Range {
+            lower: NumericBound::Integer(lo),
+            upper: NumericBound::Integer(hi),
+        } => {
+            let len = if lo > hi {
+                0
+            } else {
+                usize::try_from(i128::from(*hi) - i128::from(*lo) + 1)
+                    .map_err(|_| QueryError::query(range.clone(), "axis size overflow"))?
+            };
+            let mut keys = slots(budget, len, range)?;
+            for i in 0..len {
+                keys.push(Key::Integer(
+                    lo.checked_add(
+                        i64::try_from(i)
+                            .map_err(|_| QueryError::query(range.clone(), "axis key overflow"))?,
+                    )
+                    .ok_or_else(|| QueryError::query(range.clone(), "axis key overflow"))?,
+                ));
+            }
+            Ok(KeyAxis {
+                key_type: KeyType::Integer,
+                keys,
+            })
+        }
+        Domain::Named {
+            declaration,
+            domain,
+        } if matches!(domain.as_ref(), Domain::Enum(id) if id == declaration) => {
+            domain_axis(domain, facts, budget, range)
+        }
+        Domain::Enum(id) => {
+            let owner = facts.bindings().declarations.get(id.0).ok_or_else(|| {
+                QueryError::query(range.clone(), "axis enum identity unavailable")
+            })?;
+            let cases = enum_cases(facts, owner, budget, range)?;
+            let mut keys = slots(budget, cases.len(), range)?;
+            for member in cases {
+                keys.push(Key::Member(resolve_member(
+                    Some(facts),
+                    Some(&owner.name),
+                    &member.name,
+                    budget,
+                    range,
+                )?));
+            }
+            Ok(KeyAxis {
+                key_type: KeyType::Member(zirql::NominalTypeId(nominal_id(*id, range)?)),
+                keys,
+            })
+        }
+        _ => Err(QueryError::query(
+            range.clone(),
+            "axis domain must be a written integer interval or explicit enum",
+        )),
+    }
+}
+fn declared_axes(
+    metadata: Option<LiteralMetadata<'_>>,
+    facts: Option<&ModelFacts<'_>>,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<Option<Vec<zirql::KeyAxis>>, QueryError> {
+    let Some(metadata) = metadata else {
+        return Ok(None);
+    };
+    let TypeKind::Array { indices: types, .. } = &metadata.ty.kind else {
+        return Ok(None);
+    };
+    let facts = facts
+        .ok_or_else(|| QueryError::query(range.clone(), "declared axes require model context"))?;
+    let mut domains = slots(budget, types.len(), range)?;
+    for i in 0..types.len() {
+        let node = metadata
+            .node
+            .and_then(|node| node.child_nodes().nth(i))
+            .ok_or_else(|| {
+                QueryError::query(range.clone(), "written array index domain is unavailable")
+            })?;
+        let location = facts.model().files[metadata.file].location(node.range());
+        let mut domain = None;
+        for index in &facts.source_domains().array_indices {
+            charge(budget, 1, range)?;
+            if index.file == metadata.file && index.location.range == location.range {
+                domain = Some(&index.domain);
+            }
+        }
+        domains.push(domain.ok_or_else(|| {
+            QueryError::query(range.clone(), "array index domain is unavailable")
+        })?);
+    }
+    // An unconstrained integer declaration adds no missing rank-one identity.
+    if types.len() == 1
+        && types[0].kind == TypeKind::Int
+        && matches!(domains.as_slice(), [Domain::UnconstrainedInt])
+    {
+        return Ok(None);
+    }
+    let mut axes = slots(budget, types.len(), range)?;
+    for domain in domains {
+        axes.push(domain_axis(domain, facts, budget, range)?);
+    }
+    Ok(Some(axes))
+}
+fn literal_key(
+    literal: &structured::LiteralValue<'_>,
+    input: &Input,
+    facts: Option<&ModelFacts<'_>>,
+    budget: &mut Budget,
+    nesting: usize,
+) -> Result<E, QueryError> {
+    let expression = project_literal(literal, input, facts, None, budget, nesting, 0)?;
+    match &expression.value {
+        K::Literal(V::Integer(_) | V::Member(_)) | K::Tuple(_) => Ok(expression),
+        _ => Err(QueryError::input(
+            literal.range.clone(),
+            "array key requires an integer or resolved enum member",
+        )),
+    }
+}
+fn array_element<'a>(metadata: Option<LiteralMetadata<'a>>) -> Option<LiteralMetadata<'a>> {
+    let metadata = metadata?;
+    let TypeKind::Array { element, .. } = &metadata.ty.kind else {
+        return None;
+    };
+    Some(child_metadata(Some(metadata), element, None))
+}
+fn written_scalar(
+    literal: &structured::LiteralValue<'_>,
+    input: &Input,
+    budget: &mut Budget,
+) -> Result<V, QueryError> {
+    let range = &literal.range;
+    let syntax_range = range.start - input.syntax_offset()..range.end - input.syntax_offset();
+    let tokens = input.syntax().tokens();
+    let first = tokens.partition_point(|t| t.range.start < syntax_range.start);
+    let mut negative = false;
+    let mut atom = None;
+    for (offset, token) in tokens[first..]
+        .iter()
+        .enumerate()
+        .take_while(|(_, t)| t.range.end <= syntax_range.end)
+    {
+        charge(budget, 1, range).map_err(input_error)?;
+        match token.kind {
+            T::Whitespace
+            | T::LineComment
+            | T::BlockComment
+            | T::LeftParen
+            | T::RightParen
+            | T::Plus => {}
+            T::Minus => negative = !negative,
+            T::IntegerLiteral | T::FloatLiteral | T::StringLiteral if atom.is_none() => {
+                atom = Some(first + offset)
+            }
+            _ => {
+                return Err(QueryError::input(
+                    range.clone(),
+                    "unsupported written scalar",
+                ));
+            }
+        }
+    }
+    let atom =
+        atom.ok_or_else(|| QueryError::input(range.clone(), "written scalar has no token"))?;
+    let text = std::str::from_utf8(input.token_bytes(atom)).unwrap();
+    charge(budget, text.len() + usize::from(negative), range).map_err(input_error)?;
+    if tokens[atom].kind == T::StringLiteral {
+        return structured::decode_string(text)
+            .map(V::String)
+            .map_err(|m| QueryError::input(range.clone(), m));
+    }
+    if negative {
+        number(&format!("-{text}"), range).map_err(input_error)
+    } else {
+        number(text, range).map_err(input_error)
+    }
+}
+fn project_literal(
+    literal: &structured::LiteralValue<'_>,
+    input: &Input,
+    facts: Option<&ModelFacts<'_>>,
+    metadata: Option<LiteralMetadata<'_>>,
+    budget: &mut Budget,
+    nesting: usize,
+    depth: usize,
+) -> Result<E, QueryError> {
+    use structured::{ArrayIndexing as Indexing, LiteralKind as L};
+    let range = &literal.range;
+    if depth >= nesting.min(64) {
+        return Err(QueryError::input(
+            range.clone(),
+            "literal nesting limit exceeded",
+        ));
+    }
+    charge(budget, 1 + literal.spelling.len(), range).map_err(input_error)?;
+    let metadata = metadata
+        .map(|metadata| {
+            resolve_metadata(
+                metadata,
+                facts.expect("metadata has retained facts"),
+                budget,
+                range,
+                nesting.saturating_sub(depth),
+            )
+        })
+        .transpose()
+        .map_err(input_error)?;
+    let kind = match &literal.kind {
+        L::Integer | L::Float | L::String => K::Literal(written_scalar(literal, input, budget)?),
+        L::Boolean(v) => K::Literal(V::Boolean(*v)),
+        L::Member(name) => {
+            let member = resolve_member(facts, None, name, budget, range).map_err(|e| {
+                if matches!(e.location, crate::ErrorLocation::Query) {
+                    input_error(e)
+                } else {
+                    e
+                }
+            })?;
+            if let Some(facts) = facts {
+                // Reuse a written model reference only when these are the same original bytes.
+                for (file_id, file) in facts.model().files.iter().enumerate() {
+                    charge(budget, 1, range).map_err(input_error)?;
+                    if input.mode == zincite_syntax::FileMode::Model {
+                        charge(budget, file.source_bytes().len(), range).map_err(input_error)?;
+                    }
+                    if input.mode == zincite_syntax::FileMode::Model
+                        && input.syntax_offset() == file.byte_offset
+                        && input.source_bytes()[file.byte_offset..] == *file.source_bytes()
+                    {
+                        for reference in &facts.bindings().references {
+                            charge(budget, 1, range).map_err(input_error)?;
+                            if reference.file == file_id
+                                && reference.location.range == *range
+                                && !matches!(reference.resolution, zincite_lint::BindingResolution::Resolved(id) if nominal_id(id, range)? == member.member_id.0)
+                            {
+                                return Err(QueryError::input(
+                                    range.clone(),
+                                    "written member reference has uncertain identity",
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+            K::Literal(V::Member(member))
+        }
+        L::Set(values) | L::Tuple(values) => {
+            let mut children = slots(budget, values.len(), range).map_err(input_error)?;
+            for (i, child) in values.iter().enumerate() {
+                let child_meta = match metadata.map(|metadata| &metadata.ty.kind) {
+                    Some(TypeKind::Set(ty)) => Some(child_metadata(metadata, ty, None)),
+                    Some(TypeKind::Tuple(types)) => {
+                        types.get(i).map(|ty| child_metadata(metadata, ty, Some(i)))
+                    }
+                    _ => None,
+                };
+                children.push(project_literal(
+                    child,
+                    input,
+                    facts,
+                    child_meta,
+                    budget,
+                    nesting,
+                    depth + 1,
+                )?);
+            }
+            if matches!(literal.kind, L::Tuple(_)) {
+                K::Tuple(children)
+            } else if values.is_empty() {
+                let element_type = match metadata.map(|metadata| &metadata.ty.kind) {
+                    Some(TypeKind::Set(ty)) => match ty.kind {
+                        TypeKind::Int => Some(zirql::SetElementType::Integer),
+                        TypeKind::Bool => Some(zirql::SetElementType::Boolean),
+                        TypeKind::Float => Some(zirql::SetElementType::Float),
+                        TypeKind::Enum(id) => {
+                            let facts = facts.ok_or_else(|| {
+                                QueryError::input(
+                                    range.clone(),
+                                    "empty nominal set requires model context",
+                                )
+                            })?;
+                            let owner = &facts.bindings().declarations[id.0];
+                            enum_cases(facts, owner, budget, range)?;
+                            Some(zirql::SetElementType::Member(zirql::NominalTypeId(
+                                nominal_id(id, range)?,
+                            )))
+                        }
+                        TypeKind::String => {
+                            return Err(QueryError::input(
+                                range.clone(),
+                                "string sets are unsupported",
+                            ));
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                K::Literal(V::Set {
+                    element_type,
+                    elements: Vec::new(),
+                })
+            } else {
+                K::Set(children)
+            }
+        }
+        L::Record(fields) => {
+            let mut children = slots(budget, fields.len(), range).map_err(input_error)?;
+            for field in fields {
+                charge(budget, field.label.name.len() + 1, range).map_err(input_error)?;
+                let child_meta = if let Some(metadata) = metadata {
+                    if let TypeKind::Record(types) = &metadata.ty.kind {
+                        let mut written = None;
+                        for node in metadata.node.into_iter().flat_map(SyntaxNode::child_nodes) {
+                            charge(budget, 1 + node.children().len(), range)
+                                .map_err(input_error)?;
+                            let parsed = &facts.unwrap().model().files[metadata.file].parsed;
+                            for token in
+                                node.children().iter().filter_map(|element| match element {
+                                    SyntaxElement::Token(i) => Some(&parsed.tokens()[*i]),
+                                    _ => None,
+                                })
+                            {
+                                if matches!(token.kind, T::Identifier | T::QuotedIdentifier) {
+                                    let name = &parsed.source()[token.range.clone()];
+                                    charge(budget, name.len(), range).map_err(input_error)?;
+                                    if crate::identifier_identity(name) == field.label.name {
+                                        written = node.child_nodes().next();
+                                    }
+                                }
+                            }
+                        }
+                        types
+                            .iter()
+                            .find(|(name, _)| name == field.label.name)
+                            .map(|(_, ty)| LiteralMetadata {
+                                ty,
+                                file: metadata.file,
+                                node: written,
+                            })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                children.push((
+                    Located::new(field.label.name.to_owned(), field.label.range.clone()),
+                    project_literal(
+                        &field.value,
+                        input,
+                        facts,
+                        child_meta,
+                        budget,
+                        nesting,
+                        depth + 1,
+                    )?,
+                ));
+            }
+            K::Record(children)
+        }
+        L::Array { indexing, entries } => {
+            let axes = declared_axes(metadata, facts, budget, range).map_err(|e| {
+                if matches!(e.location, crate::ErrorLocation::Query) {
+                    input_error(e)
+                } else {
+                    e
+                }
+            })?;
+            if *indexing == Indexing::Positional && axes.is_none() {
+                let mut children = slots(budget, entries.len(), range).map_err(input_error)?;
+                for entry in entries {
+                    children.push(project_literal(
+                        &entry.value,
+                        input,
+                        facts,
+                        array_element(metadata),
+                        budget,
+                        nesting,
+                        depth + 1,
+                    )?);
+                }
+                K::Array(children)
+            } else {
+                let mut pairs = slots(budget, entries.len(), range).map_err(input_error)?;
+                let mut next = None;
+                for (i, entry) in entries.iter().enumerate() {
+                    let key = if let Some(key) = &entry.key {
+                        let key = literal_key(key, input, facts, budget, nesting)?;
+                        next = match &key.value {
+                            K::Literal(V::Integer(n)) => Some(*n),
+                            _ => None,
+                        };
+                        key
+                    } else if *indexing == Indexing::StartingKey {
+                        let n = next.and_then(|n| n.checked_add(1)).ok_or_else(|| QueryError::input(entry.value.range.clone(), "starting-key tail requires a written integer and checked successors"))?;
+                        next = Some(n);
+                        Located::new(K::Literal(V::Integer(n)), entry.value.range.clone())
+                    } else {
+                        let axes = axes.as_ref().unwrap();
+                        if axes.len() != 1 {
+                            return Err(QueryError::input(
+                                range.clone(),
+                                "positional source cannot establish multidimensional keys",
+                            ));
+                        }
+                        let key = axes[0].keys.get(i).ok_or_else(|| {
+                            QueryError::input(
+                                range.clone(),
+                                "source exceeds declared axis coverage",
+                            )
+                        })?;
+                        key_expression(key, budget, range)?
+                    };
+                    pairs.push((
+                        key,
+                        project_literal(
+                            &entry.value,
+                            input,
+                            facts,
+                            array_element(metadata),
+                            budget,
+                            nesting,
+                            depth + 1,
+                        )?,
+                    ));
+                }
+                K::KeyedArray {
+                    axes,
+                    entries: pairs,
+                }
+            }
+        }
+        L::Matrix { column_keys, rows } => {
+            let mut axes = declared_axes(metadata, facts, budget, range).map_err(input_error)?;
+            let columns = if column_keys.is_empty() {
+                rows.first().map_or(0, |row| row.cells.len())
+            } else {
+                column_keys.len()
+            };
+            let count = rows
+                .len()
+                .checked_mul(columns)
+                .ok_or_else(|| QueryError::input(range.clone(), "matrix size overflow"))?;
+            let mut pairs = slots(budget, count, range).map_err(input_error)?;
+            if axes.as_ref().is_some_and(|axes| axes.len() != 2) {
+                return Err(QueryError::input(range.clone(), "matrix requires rank two"));
+            }
+            for (i, row) in rows.iter().enumerate() {
+                if row.cells.len() != columns {
+                    return Err(QueryError::input(range.clone(), "matrix has missing cells"));
+                }
+                for (j, cell) in row.cells.iter().enumerate() {
+                    let row_key = if let Some(key) = &row.key {
+                        literal_key(key, input, facts, budget, nesting)?
+                    } else if let Some(axes) = &axes {
+                        key_expression(
+                            axes[0].keys.get(i).ok_or_else(|| {
+                                QueryError::input(range.clone(), "matrix exceeds declared row axis")
+                            })?,
+                            budget,
+                            range,
+                        )?
+                    } else {
+                        Located::new(K::Literal(V::Integer(position(i, range)?)), range.clone())
+                    };
+                    let col_key = if let Some(key) = column_keys.get(j) {
+                        literal_key(key, input, facts, budget, nesting)?
+                    } else if let Some(axes) = &axes {
+                        key_expression(
+                            axes[1].keys.get(j).ok_or_else(|| {
+                                QueryError::input(
+                                    range.clone(),
+                                    "matrix exceeds declared column axis",
+                                )
+                            })?,
+                            budget,
+                            range,
+                        )?
+                    } else {
+                        Located::new(K::Literal(V::Integer(position(j, range)?)), range.clone())
+                    };
+                    let mut parts = slots(budget, 2, range).map_err(input_error)?;
+                    parts.extend([row_key, col_key]);
+                    pairs.push((
+                        Located::new(K::Tuple(parts), range.clone()),
+                        project_literal(
+                            cell,
+                            input,
+                            facts,
+                            array_element(metadata),
+                            budget,
+                            nesting,
+                            depth + 1,
+                        )?,
+                    ));
+                }
+            }
+            if count == 0 && axes.is_none() {
+                return Err(QueryError::input(
+                    range.clone(),
+                    "empty matrix requires established axes",
+                ));
+            }
+            K::KeyedArray {
+                axes: axes.take(),
+                entries: pairs,
+            }
+        }
+    };
+    Ok(Located::new(kind, range.clone()))
+}
+fn key_expression(
+    key: &zirql::ValueKey,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<E, QueryError> {
+    let value = match key {
+        zirql::ValueKey::Integer(n) => V::Integer(*n),
+        zirql::ValueKey::Member(member) => {
+            charge(
+                budget,
+                member.type_name.len() + member.member_name.len() + 1,
+                range,
+            )?;
+            budget
+                .charge_results(1, zirql::Location::Query(range.clone()))
+                .map_err(pipeline::core_error)?;
+            V::Member(zirql::NominalMember {
+                type_id: member.type_id,
+                member_id: member.member_id,
+                declaration_order: member.declaration_order,
+                type_name: member.type_name.to_owned(),
+                member_name: member.member_name.to_owned(),
+            })
+        }
+    };
+    Ok(Located::new(K::Literal(value), range.clone()))
+}
+fn evaluate_literal(
+    literal: &structured::LiteralValue<'_>,
+    input: &Input,
+    facts: Option<&ModelFacts<'_>>,
+    metadata: Option<LiteralMetadata<'_>>,
+    budget: &mut Budget,
+    nesting: usize,
+) -> Result<V, QueryError> {
+    let expression = project_literal(literal, input, facts, metadata, budget, nesting, 0)?;
+    let value = zirql::evaluate_value_with_host_validation(
+        &expression,
+        &zirql::Bindings::default(),
+        budget,
+        validate_report_value,
+    )
+    .map_err(pipeline::core_error)
+    .map_err(input_error)?;
+    validate_report_shape(&value, budget, &literal.range).map_err(input_error)?;
+    Ok(value)
+}
 
 pub(crate) fn project(
     stream: &SemanticStream<'_>,
+    facts: Option<&ModelFacts<'_>>,
     budget: &mut Budget,
     range: &Range<usize>,
     nesting: usize,
@@ -514,30 +1754,27 @@ pub(crate) fn project(
                 .map_err(pipeline::core_error)?;
             for literal in selection.values() {
                 let input = selection.input();
-                let mut node = input.syntax().tree();
-                let mut depth = 0;
-                // Stay in the original CST so opaque comment bytes need no
-                // decoding and each inspected value keeps its input location.
-                while input.original_range(node.range()) != literal.range {
-                    if depth >= nesting.min(64) {
-                        return Err(QueryError::input(
-                            literal.range.clone(),
-                            "literal nesting limit exceeded",
-                        ));
+                let mut metadata = None;
+                if let Some(facts) = facts {
+                    for assignment in input.syntax().tree().child_nodes() {
+                        charge(budget, 1 + assignment.children().len(), range)?;
+                        if assignment.kind() == N::Assignment
+                            && crate::assignment_rhs(assignment).is_some_and(|rhs| {
+                                input.original_range(rhs.range()) == literal.range
+                            })
+                        {
+                            let token = structured::direct_token(input, assignment).unwrap();
+                            let name = crate::identifier_identity(
+                                std::str::from_utf8(input.token_bytes(token)).unwrap(),
+                            );
+                            metadata = declared_value(facts, name, budget, &literal.range)
+                                .map_err(input_error)?;
+                        }
                     }
-                    charge(budget, 1 + node.children().len(), range)?;
-                    node = node
-                        .child_nodes()
-                        .find(|child| {
-                            let child = input.original_range(child.range());
-                            child.start <= literal.range.start && child.end >= literal.range.end
-                        })
-                        .ok_or_else(|| {
-                            QueryError::input(literal.range.clone(), "literal has no original CST")
-                        })?;
-                    depth += 1;
                 }
-                values.push(literal_value(input, node, budget, nesting)?);
+                values.push(evaluate_literal(
+                    literal, input, facts, metadata, budget, nesting,
+                )?);
             }
             Ok(V::Array(values))
         }
@@ -548,13 +1785,101 @@ pub(crate) fn project(
     }
 }
 
+/// Zincite's MiniZinc array policy is stricter than generic sparse core values.
+pub(crate) fn validate_report_shape(
+    value: &V,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<(), QueryError> {
+    validate_report_value(value, budget, &zirql::Location::Query(range.clone()))
+        .map_err(pipeline::core_error)
+}
+/// The trusted runtime policy used before an inline value reaches its parent.
+pub(crate) fn validate_report_value(
+    value: &V,
+    budget: &mut Budget,
+    location: &zirql::Location,
+) -> Result<(), zirql::QueryError> {
+    zirql::constructed_value_type(value, budget, location.clone())?;
+    check_shape(value, budget, location)
+}
+
+fn check_shape(
+    value: &V,
+    budget: &mut Budget,
+    location: &zirql::Location,
+) -> Result<(), zirql::QueryError> {
+    budget.charge(1, location.clone())?;
+    match value {
+        V::KeyedArray { axes, entries } => {
+            budget.charge(axes.len(), location.clone())?;
+            let mut product = usize::from(!axes.iter().any(|axis| axis.keys.is_empty()));
+            for axis in axes {
+                budget.charge(1 + axis.keys.len(), location.clone())?;
+                product =
+                    product
+                        .checked_mul(axis.keys.len())
+                        .ok_or_else(|| zirql::QueryError {
+                            location: location.clone(),
+                            message: "array axis product overflow".into(),
+                        })?;
+                for pair in axis.keys.windows(2) {
+                    let contiguous = match (&pair[0], &pair[1]) {
+                        (zirql::ValueKey::Integer(a), zirql::ValueKey::Integer(b)) => {
+                            a.checked_add(1) == Some(*b)
+                        }
+                        (zirql::ValueKey::Member(a), zirql::ValueKey::Member(b)) => {
+                            a.type_id == b.type_id
+                                && a.declaration_order.checked_add(1) == Some(b.declaration_order)
+                        }
+                        _ => false,
+                    };
+                    if !contiguous {
+                        return Err(zirql::QueryError {
+                            location: location.clone(),
+                            message: "array axis must be increasing and contiguous".into(),
+                        });
+                    }
+                }
+            }
+            // The core has already checked identity, uniqueness and row-major keys.
+            // Cardinality therefore proves full-product coverage without expansion.
+            budget.charge(entries.len(), location.clone())?;
+            if product != entries.len() {
+                return Err(zirql::QueryError {
+                    location: location.clone(),
+                    message: "keyed array has missing cells in its rectangular axis product".into(),
+                });
+            }
+            for entry in entries {
+                check_shape(&entry.value, budget, location)?;
+            }
+        }
+        V::Array(values)
+        | V::Tuple(values)
+        | V::Set {
+            elements: values, ..
+        } => {
+            for value in values {
+                check_shape(value, budget, location)?;
+            }
+        }
+        V::Record(fields) => {
+            for (_, value) in fields {
+                check_shape(value, budget, location)?;
+            }
+        }
+        V::Integer(_) | V::Float(_) | V::Boolean(_) | V::String(_) | V::Member(_) => {}
+    }
+    Ok(())
+}
+
 pub(crate) fn json_value(
     value: &V,
     budget: &mut Budget,
     range: &Range<usize>,
 ) -> Result<Value, QueryError> {
-    zirql::constructed_value_type(value, budget, zirql::Location::Query(range.clone()))
-        .map_err(pipeline::core_error)?;
+    validate_report_shape(value, budget, range)?;
     tagged(value, budget, range)
 }
 fn object<const N: usize>(fields: [(&str, Value); N]) -> Value {
@@ -577,6 +1902,45 @@ fn tagged(value: &V, budget: &mut Budget, range: &Range<usize>) -> Result<Value,
         V::String(v) => {
             charge(budget, v.len(), range)?;
             json!({"kind":"string", "value":v})
+        }
+        V::Member(member) => {
+            charge(
+                budget,
+                member.type_name.len() + member.member_name.len() + 8,
+                range,
+            )?;
+            json!({"kind":"member", "enum":member.type_name, "name":member.member_name})
+        }
+        V::KeyedArray { axes, entries } => {
+            let mut output_axes = slots(budget, axes.len(), range)?;
+            for axis in axes {
+                let mut keys = slots(budget, axis.keys.len(), range)?;
+                for key in &axis.keys {
+                    keys.push(tagged_key(key, budget, range)?);
+                }
+                output_axes.push(Value::Array(keys));
+            }
+            let mut output_entries = slots(budget, entries.len(), range)?;
+            for entry in entries {
+                charge(budget, 32, range)?;
+                budget
+                    .charge_results(5, zirql::Location::Query(range.clone()))
+                    .map_err(pipeline::core_error)?;
+                let mut keys = slots(budget, entry.key.len(), range)?;
+                for key in &entry.key {
+                    keys.push(tagged_key(key, budget, range)?);
+                }
+                output_entries.push(object([
+                    ("key", Value::Array(keys)),
+                    ("value", tagged(&entry.value, budget, range)?),
+                ]));
+            }
+            object([
+                ("kind", Value::String("array".into())),
+                ("indexing", Value::String("explicit".into())),
+                ("axes", Value::Array(output_axes)),
+                ("entries", Value::Array(output_entries)),
+            ])
         }
         V::Record(fields) => {
             let mut result = slots(budget, fields.len(), range)?;
@@ -643,6 +2007,28 @@ fn tagged(value: &V, budget: &mut Budget, range: &Range<usize>) -> Result<Value,
                 ),
                 ("elements", Value::Array(elements)),
             ])
+        }
+    })
+}
+
+fn tagged_key(
+    key: &zirql::ValueKey,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<Value, QueryError> {
+    charge(budget, 64, range)?;
+    budget
+        .charge_results(8, zirql::Location::Query(range.clone()))
+        .map_err(pipeline::core_error)?;
+    Ok(match key {
+        zirql::ValueKey::Integer(n) => json!({"kind":"integer", "value":n}),
+        zirql::ValueKey::Member(member) => {
+            charge(
+                budget,
+                member.type_name.len() + member.member_name.len(),
+                range,
+            )?;
+            json!({"kind":"member", "enum":member.type_name, "name":member.member_name})
         }
     })
 }

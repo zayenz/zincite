@@ -551,3 +551,106 @@ report rows;"#,
     assert!(output.stdout.is_empty());
     std::fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn keyed_program_files_keep_nominal_axes_and_buffer_later_errors() {
+    let dir = std::env::temp_dir().join(format!("zincite-query-keyed-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(dir.join("library/std/stdlib.mzn"), "").unwrap();
+    let library = dir.join("library");
+    let model = dir.join("root.mzn");
+    let program = dir.join("report.zq");
+    std::fs::write(
+        &model,
+        "\u{feff}enum Guest={Zulu,Alpha}; array[2..3,Guest] of int: table; solve satisfy;",
+    )
+    .unwrap();
+    let report = r#"source table=literal("table"); let members={enum_member(Guest,"Alpha"),enum_member(Guest,"Zulu")};
+        let cells=[(i,e):table[i,e] | i in 2..3,e in members]; report cells;"#;
+    std::fs::write(&program, report).unwrap();
+    let args = [
+        "--stdin-filepath",
+        "report.dzn",
+        "--model",
+        model.to_str().unwrap(),
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        "-f",
+        program.to_str().unwrap(),
+    ];
+    let data = b"\xef\xbb\xbftable=[(3,Alpha):32,(2,Zulu):21,(3,Zulu):31,(2,Alpha):22];";
+    let output = run(&args, data);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["complete"], true);
+    assert_eq!(json["result"]["indexing"], "explicit");
+    assert_eq!(json["result"]["axes"][1][0]["name"], "Zulu");
+    assert_eq!(json["result"]["entries"][0]["value"]["value"], 21);
+    assert_eq!(json["result"]["entries"][3]["value"]["value"], 32);
+    // An unconfigured model remains an incomplete report with useful rows.
+    let without_library: Vec<_> = args
+        .iter()
+        .copied()
+        .enumerate()
+        .filter_map(|(i, arg)| {
+            let library_option = args.iter().position(|arg| *arg == "--stdlib-dir").unwrap();
+            (!matches!(i, n if n == library_option || n == library_option + 1)).then_some(arg)
+        })
+        .collect();
+    let incomplete = run(&without_library, data);
+    assert_eq!(incomplete.status.code(), Some(1));
+    let incomplete_text = String::from_utf8_lossy(&incomplete.stdout);
+    assert!(
+        incomplete_text.contains("\"complete\":false")
+            && incomplete_text.contains("standard library is not configured")
+    );
+    for later in [
+        "report 1 div 0;",
+        "report [v|v in [(1,1):1,(1,2):2,(2,1):3]];",
+        "let bad=[(1,1):1,(1,2):2,(2,1):3]; report [x|x in bad];",
+    ] {
+        std::fs::write(&program, format!("{report} {later}")).unwrap();
+        let output = run(&args, data);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains(program.to_str().unwrap()));
+    }
+    std::fs::write(&program, r#"report [(i,e):1 | i in 1..0,e in {enum_member(Guest,"Zulu"),enum_member(Guest,"Alpha")}];"#).unwrap();
+    let output = run(&args, data);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["result"]["axes"][0], serde_json::json!([]));
+    assert_eq!(json["result"]["axes"][1].as_array().unwrap().len(), 2);
+    assert_eq!(json["result"]["entries"], serde_json::json!([]));
+    std::fs::write(&program, r#"source t=literal("table"); report t;"#).unwrap();
+    let output = run(
+        &args,
+        b"\xef\xbb\xbftable=[(2,Zulu):21,(3,Zulu):31,(2,Alpha):22];",
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("report.dzn:1:8:"));
+    std::fs::write(
+        &model,
+        "\u{feff}enum Guest={Zulu} ++ anon_enum(2); solve satisfy;",
+    )
+    .unwrap();
+    std::fs::write(&program, "report enum_member(Guest,\"Zulu\");").unwrap();
+    let output = run(&args, data);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        error.contains(model.to_str().unwrap()) && error.contains("computed"),
+        "{error}"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}

@@ -289,6 +289,25 @@ pub(crate) fn project<'a>(
     Ok(QueryResult::Nodes(NodeSelection { input, nodes }))
 }
 
+fn literal_slots<T>(
+    work: &mut Work,
+    len: usize,
+    range: &Range<usize>,
+) -> Result<Vec<T>, QueryError> {
+    if len
+        .checked_mul(std::mem::size_of::<T>())
+        .is_none_or(|n| n > isize::MAX as usize)
+    {
+        return Err(QueryError::query(
+            range.clone(),
+            "literal allocation size overflow",
+        ));
+    }
+    work.spend(len, range)?;
+    work.produce(len, range)?;
+    Ok(Vec::with_capacity(len))
+}
+
 struct LiteralReader<'a, 'w, 'b> {
     input: &'a Input,
     work: &'w mut Work<'b>,
@@ -362,7 +381,7 @@ impl<'a> LiteralReader<'a, '_, '_> {
                 }
             }
             NodeKind::SetLiteral | NodeKind::TupleLiteral | NodeKind::IndexTuple => {
-                let mut values = Vec::new();
+                let mut values = literal_slots(self.work, node.child_nodes().count(), self.range)?;
                 for child in node.child_nodes() {
                     values.push(self.read(child, depth + 1)?);
                 }
@@ -373,13 +392,12 @@ impl<'a> LiteralReader<'a, '_, '_> {
                 }
             }
             NodeKind::RecordLiteral => {
-                let mut fields = Vec::new();
+                let mut fields = literal_slots(self.work, node.child_nodes().count(), self.range)?;
                 for field in node.child_nodes() {
                     self.work.spend(field.children().len(), self.range)?;
                     let index = direct_token(self.input, field).unwrap();
                     let label_range = self.input.token_range(index);
                     let spelling = self.input.token_bytes(index);
-                    self.work.produce(1, self.range)?;
                     fields.push(LiteralField {
                         label: LiteralLabel {
                             name: identifier_identity(std::str::from_utf8(spelling).unwrap()),
@@ -392,7 +410,7 @@ impl<'a> LiteralReader<'a, '_, '_> {
                 LiteralKind::Record(fields)
             }
             NodeKind::ArrayLiteral => {
-                let mut entries = Vec::new();
+                let mut entries = literal_slots(self.work, node.child_nodes().count(), self.range)?;
                 for entry in node.child_nodes() {
                     let mut children = entry.child_nodes();
                     let key = if entry.kind() == NodeKind::IndexedArrayEntry {
@@ -416,8 +434,18 @@ impl<'a> LiteralReader<'a, '_, '_> {
                 }
             }
             NodeKind::MatrixLiteral => {
-                let mut column_keys = Vec::new();
-                let mut rows = Vec::new();
+                let header_keys = node
+                    .child_nodes()
+                    .find(|row| row.kind() == NodeKind::MatrixColumnIndices)
+                    .map_or(0, |row| row.child_nodes().count());
+                let mut column_keys = literal_slots(self.work, header_keys, self.range)?;
+                let mut rows = literal_slots(
+                    self.work,
+                    node.child_nodes()
+                        .filter(|row| row.kind() == NodeKind::MatrixRow)
+                        .count(),
+                    self.range,
+                )?;
                 for row in node.child_nodes() {
                     self.work.spend(row.children().len(), self.range)?;
                     if row.kind() == NodeKind::MatrixColumnIndices {
@@ -426,7 +454,6 @@ impl<'a> LiteralReader<'a, '_, '_> {
                         }
                     } else {
                         check_collection(self.entries, self.limits.collection, self.range)?;
-                        self.work.produce(1, self.range)?;
                         self.entries += 1;
                         let mut cells = row.child_nodes();
                         let key = if has_colon(self.input, row) {
@@ -434,7 +461,11 @@ impl<'a> LiteralReader<'a, '_, '_> {
                         } else {
                             None
                         };
-                        let mut values = Vec::new();
+                        let mut values = literal_slots(
+                            self.work,
+                            row.child_nodes().count() - usize::from(key.is_some()),
+                            self.range,
+                        )?;
                         for cell in cells {
                             values.push(self.read(cell, depth + 1)?);
                         }
@@ -457,6 +488,24 @@ impl<'a> LiteralReader<'a, '_, '_> {
             kind,
         })
     }
+}
+
+/// Read an original RHS with the same literal reader used by `values`.
+pub(crate) fn read_literal<'a>(
+    input: &'a Input,
+    node: &'a SyntaxNode,
+    work: &mut Work,
+    range: &Range<usize>,
+    limits: Limits,
+) -> Result<LiteralValue<'a>, QueryError> {
+    LiteralReader {
+        input,
+        work,
+        range,
+        limits,
+        entries: 0,
+    }
+    .read(node, 0)
 }
 
 pub(crate) fn values<'a>(

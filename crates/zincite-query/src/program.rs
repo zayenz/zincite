@@ -18,7 +18,7 @@ enum Stage {
     Query(usize),
     Literal(Located<String>),
     Value {
-        expression: zirql::ValueExpression,
+        expression: comprehension::LoweredValue,
         names: Vec<Located<String>>,
     },
 }
@@ -125,6 +125,8 @@ impl<'a> ProgramEmission<'a> {
 pub struct ProgramResult<'a> {
     emissions: Vec<ProgramEmission<'a>>,
     semantic: Option<SemanticResult<'a>>,
+    facts: Option<Rc<ModelFacts<'a>>>,
+    report_limitations: Vec<SourceDiagnostic>,
     budget: Budget,
 }
 impl<'a> ProgramResult<'a> {
@@ -134,10 +136,14 @@ impl<'a> ProgramResult<'a> {
     pub fn semantic(&self) -> Option<&SemanticResult<'a>> {
         self.semantic.as_ref()
     }
+    /// Retained owner for native nominal IDs, including pure `.dzn` reports.
+    pub fn model_facts(&self) -> Option<&ModelFacts<'a>> {
+        self.facts.as_deref()
+    }
     pub fn limitations(&self) -> &[SourceDiagnostic] {
         self.semantic
             .as_ref()
-            .map_or(&[], SemanticResult::limitations)
+            .map_or(&self.report_limitations, SemanticResult::limitations)
     }
     pub fn is_complete(&self) -> bool {
         self.limitations().is_empty()
@@ -206,7 +212,7 @@ impl<'a> ProgramResult<'a> {
                     for limitation in self
                         .semantic
                         .as_ref()
-                        .map_or(&[][..], SemanticResult::limitations)
+                        .map_or(&self.report_limitations[..], SemanticResult::limitations)
                     {
                         self.budget
                             .charge(
@@ -282,6 +288,7 @@ pub struct Program {
     preflight_results: usize,
     preflight_range: Option<Range<usize>>,
     queries: Vec<Query>,
+    report_model_demand: bool,
 }
 impl Program {
     /// Parse immutable source/let bindings, query statements and reports.
@@ -303,6 +310,7 @@ impl Program {
             limits,
             names: BTreeMap::new(),
             queries: Vec::new(),
+            report_model_demand: false,
             preflight: Budget::for_program(limits.core()),
             preflight_range: None,
             lexed: zincite_syntax::lex(source),
@@ -340,6 +348,7 @@ impl Program {
             let expression_end = parser.expression_end()?;
             let (expression, kind, emits) = if is_source && parser.cursor.take_word("literal") {
                 parser.begin_pure(expression_start..expression_end)?;
+                parser.report_model_demand = true;
                 parser
                     .cursor
                     .punctuation(b'(', "expected '(' after literal")?;
@@ -410,6 +419,7 @@ impl Program {
         Ok(Self {
             program: zirql::Program::new(statements, 0..source.len()),
             queries: parser.queries,
+            report_model_demand: parser.report_model_demand,
             preflight_work: limits
                 .work
                 .checked_sub(parser.preflight.remaining_work())
@@ -422,7 +432,7 @@ impl Program {
         })
     }
     pub fn requires_model_facts(&self) -> bool {
-        self.queries.iter().any(Query::requires_model_facts)
+        self.report_model_demand || self.queries.iter().any(Query::requires_model_facts)
     }
     pub fn evaluate<'a>(
         &self,
@@ -437,11 +447,7 @@ impl Program {
         model: Option<&'a ModelContext>,
         limits: ProgramLimits,
     ) -> Result<ProgramResult<'a>, QueryError> {
-        let facts = if self.requires_model_facts() {
-            model.map(|model| Rc::new(ModelFacts::new(model)))
-        } else {
-            None
-        };
+        let facts = model.map(|model| Rc::new(ModelFacts::new(model)));
         self.run(input, facts, limits)
     }
     pub fn evaluate_with_facts<'a>(
@@ -481,7 +487,7 @@ impl Program {
             .find(|query| query.requires_model_facts())
             .unwrap_or(&empty);
         let (mut context, rows) =
-            pipeline::prepare_context(demand, input, facts, limits.query(), &mut budget)?;
+            pipeline::prepare_context(demand, input, facts.clone(), limits.query(), &mut budget)?;
         let input_value = ReportValue::Query(context.restore_stream(rows));
         let pipelines = self
             .queries
@@ -491,10 +497,13 @@ impl Program {
         let host = NativeHost {
             pipelines,
             nesting: limits.nesting,
+            limits: limits.query(),
         };
         let mut context = Context {
             query: &mut context,
             input,
+            facts,
+            facts_admitted: false,
             emissions: Vec::new(),
         };
         zirql::evaluate_program(
@@ -506,6 +515,33 @@ impl Program {
             &mut budget,
         )
         .map_err(pipeline::evaluation_error)?;
+        let report_limitations = if context.facts_admitted {
+            let limitations = context
+                .facts
+                .as_ref()
+                .unwrap()
+                .model()
+                .limitations
+                .as_slice();
+            budget
+                .charge_results(
+                    limitations.len(),
+                    zirql::Location::Query(self.program.range()),
+                )
+                .map_err(pipeline::core_error)?;
+            for limitation in limitations {
+                budget
+                    .charge(
+                        limitation.message.len() + limitation.location.path.as_os_str().len() + 1,
+                        zirql::Location::Query(self.program.range()),
+                    )
+                    .map_err(pipeline::core_error)?;
+            }
+            limitations.to_vec()
+        } else {
+            Vec::new()
+        };
+        let retained_facts = context.facts;
         let emissions = context.emissions;
         let semantic = if let Some(mut report) = context.query.report.take() {
             report.finish(
@@ -536,6 +572,12 @@ impl Program {
         }
         Ok(ProgramResult {
             emissions,
+            facts: retained_facts,
+            report_limitations: if semantic.is_some() {
+                Vec::new()
+            } else {
+                report_limitations
+            },
             semantic,
             budget,
         })
@@ -547,6 +589,7 @@ struct Parser<'a> {
     limits: ProgramLimits,
     names: BTreeMap<String, Kind>,
     queries: Vec<Query>,
+    report_model_demand: bool,
     preflight: Budget,
     preflight_range: Option<Range<usize>>,
     lexed: zincite_syntax::LexedSource,
@@ -615,8 +658,24 @@ impl<'a> Parser<'a> {
             };
             types.insert(name.clone(), ty);
         }
-        let names = zirql::free_value_names(&expression, &types, &mut self.preflight)
-            .map_err(pipeline::core_error)?;
+        for member in &expression.members {
+            self.preflight
+                .charge(
+                    member.slot.len() + 1,
+                    zirql::Location::Query(member.range.clone()),
+                )
+                .map_err(pipeline::core_error)?;
+            types.insert(member.slot.clone(), zirql::ValueType::Unestablished);
+        }
+        self.report_model_demand |= !expression.members.is_empty()
+            || self
+                .names
+                .values()
+                .any(|kind| matches!(kind, Kind::Literals));
+        let mut names =
+            zirql::free_value_names(&expression.expression, &types, &mut self.preflight)
+                .map_err(pipeline::core_error)?;
+        names.retain(|name| !name.value.starts_with('\0'));
         for name in &names {
             if !matches!(
                 self.names[&name.value],
@@ -1176,12 +1235,34 @@ fn validate_stages(query: &Query, mut kind: Kind) -> Result<Kind, QueryError> {
 struct Context<'c, 'a> {
     query: &'c mut pipeline::Context<'a>,
     input: &'a Input,
+    facts: Option<Rc<ModelFacts<'a>>>,
+    facts_admitted: bool,
     emissions: Vec<ProgramEmission<'a>>,
+}
+impl<'a> Context<'_, 'a> {
+    fn report_facts(
+        &mut self,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<Option<Rc<ModelFacts<'a>>>, QueryError> {
+        if let Some(facts) = &self.facts
+            && !self.facts_admitted
+        {
+            if let Some(report) = &mut self.query.report {
+                report.admit_fact_owner(&mut Work { budget }, range)?;
+            } else {
+                semantic::admit_model_facts(facts.model(), &mut Work { budget }, range)?;
+            }
+            self.facts_admitted = true;
+        }
+        Ok(self.facts.clone())
+    }
 }
 struct NativeHost<'q> {
     pipelines:
         Vec<zirql::Pipeline<(&'q language::Predicate, &'q language::Stage), &'q language::Stage>>,
     nesting: usize,
+    limits: Limits,
 }
 impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
     type Value = ReportValue<'a>;
@@ -1210,19 +1291,33 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
         let index = match stage {
             Stage::Query(index) => *index,
             Stage::Literal(name) => {
+                let facts = context
+                    .report_facts(budget, &name.range)
+                    .map_err(zirql::EvaluationError::Host)?;
                 return comprehension::literal_source(
                     context.input,
                     &name.value,
+                    facts.as_deref(),
                     budget,
                     &name.range,
-                    self.nesting,
+                    self.limits,
                 )
                 .map(ReportValue::Constructed)
                 .map_err(zirql::EvaluationError::Host);
             }
             Stage::Value { expression, names } => {
-                budget.charge(names.len(), zirql::Location::Query(range.clone()))?;
-                let mut projected = Vec::with_capacity(names.len());
+                let facts = if !expression.members.is_empty() || names.iter().any(|name| matches!(bindings.get(&name.value, name.range.clone()), Ok(ReportValue::Query(SemanticStream::Inspection(value))) if matches!(value.as_ref(), QueryResult::Literals(_)))) {
+                    context.report_facts(budget, range).map_err(zirql::EvaluationError::Host)?
+                } else { context.facts.clone() };
+                let count = names
+                    .len()
+                    .checked_add(expression.members.len())
+                    .ok_or_else(|| {
+                        zirql::QueryError::query(range.clone(), "projection size overflow")
+                    })?;
+                budget.charge(count, zirql::Location::Query(range.clone()))?;
+                budget.charge_results(count, zirql::Location::Query(range.clone()))?;
+                let mut projected = Vec::with_capacity(count);
                 for name in names {
                     budget.charge(
                         name.value.len() + 20,
@@ -1235,10 +1330,14 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
                             budget,
                             zirql::Location::Query(name.range.clone()),
                         )?,
-                        ReportValue::Query(stream) => {
-                            comprehension::project(stream, budget, &name.range, self.nesting)
-                                .map_err(zirql::EvaluationError::Host)?
-                        }
+                        ReportValue::Query(stream) => comprehension::project(
+                            stream,
+                            facts.as_deref(),
+                            budget,
+                            &name.range,
+                            self.nesting,
+                        )
+                        .map_err(zirql::EvaluationError::Host)?,
                         ReportValue::Record(_) => {
                             return Err(zirql::EvaluationError::Host(QueryError::query(
                                 name.range.clone(),
@@ -1251,10 +1350,34 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
                         value,
                     ));
                 }
+                for member in &expression.members {
+                    budget.charge(
+                        member.slot.len() + 1,
+                        zirql::Location::Query(member.range.clone()),
+                    )?;
+                    let value = comprehension::resolve_member(
+                        facts.as_deref(),
+                        Some(&member.enum_name.value),
+                        &member.member_name.value,
+                        budget,
+                        &member.range,
+                    )
+                    .map_err(zirql::EvaluationError::Host)?;
+                    projected.push((
+                        Located::new(member.slot.clone(), member.range.clone()),
+                        zirql::ConstructedValue::Member(value),
+                    ));
+                }
                 let bindings = Bindings::new(projected)?;
-                return zirql::evaluate_value(expression, &bindings, budget)
-                    .map(ReportValue::Constructed)
-                    .map_err(zirql::EvaluationError::Core);
+                let value = zirql::evaluate_value_with_host_validation(
+                    &expression.expression,
+                    &bindings,
+                    budget,
+                    comprehension::validate_report_value,
+                )?;
+                comprehension::validate_report_shape(&value, budget, range)
+                    .map_err(zirql::EvaluationError::Host)?;
+                return Ok(ReportValue::Constructed(value));
             }
         };
         if self.pipelines[index].stages().is_empty() {
@@ -1534,6 +1657,9 @@ fn validate_value(
     range: &Range<usize>,
 ) -> Result<(), QueryError> {
     match value {
+        ReportValue::Constructed(value) => {
+            comprehension::validate_report_shape(value, budget, range)?
+        }
         ReportValue::Record(fields) => {
             for (_, value) in fields {
                 validate_value(value, true, budget, range)?;
