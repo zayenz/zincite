@@ -912,3 +912,105 @@ fn inline_programs_share_file_results_and_buffer_errors() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("report-only"));
     std::fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn native_composition_inline_and_file_keep_results_status_and_buffering() {
+    let dir = std::env::temp_dir().join(format!("zincite-root-native-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(dir.join("library/std/stdlib.mzn"), "").unwrap();
+    let model_path = dir.join("model.mzn");
+    let program_path = dir.join("report.zq");
+    let source = include_bytes!("../crates/zincite-query/tests/fixtures/native-composition.mzn");
+    let program_source =
+        include_str!("../crates/zincite-query/tests/fixtures/native-composition.zq");
+    std::fs::write(&model_path, source).unwrap();
+    std::fs::write(&program_path, program_source).unwrap();
+    let library = dir.join("library");
+    let common = ["--stdlib-dir", library.to_str().unwrap()];
+    let inline = run(
+        &[
+            "query",
+            common[0],
+            common[1],
+            "--program",
+            program_source,
+            model_path.to_str().unwrap(),
+        ],
+        "",
+    );
+    let file = run(
+        &[
+            "query",
+            common[0],
+            common[1],
+            "--program-file",
+            program_path.to_str().unwrap(),
+            model_path.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(
+        inline.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&inline.stderr)
+    );
+    assert_eq!(
+        file.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&file.stderr)
+    );
+    assert!(inline.stderr.is_empty() && file.stderr.is_empty());
+    assert_eq!(inline.stdout, file.stdout);
+
+    let output = String::from_utf8(inline.stdout).unwrap();
+    assert_eq!(output.lines().count(), 3);
+    assert!(output.contains("\"value\":\"capacity\""));
+    assert!(output.contains("\"value\":2"));
+    assert_eq!(std::fs::read(&model_path).unwrap(), source);
+    let incomplete = b"int: value = missing; solve satisfy;";
+    std::fs::write(&model_path, incomplete).unwrap();
+    let known = r#"source unresolved = query("references | declarations | names | count"); report match { from d in (subtree | declarations | unique); };"#;
+    for (program_source, expected_status) in [
+        (known.to_owned(), 1),
+        (format!("{known} report 1 div 0;"), 2),
+    ] {
+        std::fs::write(&program_path, &program_source).unwrap();
+        for arguments in [
+            vec![
+                "query",
+                common[0],
+                common[1],
+                "--program",
+                &program_source,
+                model_path.to_str().unwrap(),
+            ],
+            vec![
+                "query",
+                common[0],
+                common[1],
+                "--program-file",
+                program_path.to_str().unwrap(),
+                model_path.to_str().unwrap(),
+            ],
+        ] {
+            let output = run(&arguments, "");
+            assert_eq!(
+                output.status.code(),
+                Some(expected_status),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            if expected_status == 1 {
+                let output = String::from_utf8(output.stdout).unwrap();
+                assert!(output.contains("\"complete\":false"));
+                assert!(output.contains("\"name\":\"value\""));
+            } else {
+                assert!(output.stdout.is_empty());
+            }
+            assert_eq!(std::fs::read(&model_path).unwrap(), incomplete);
+        }
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

@@ -1524,7 +1524,7 @@ fn semantic_navigation_keeps_shadowing_overloads_shared_nodes_and_actual_source_
 #[test]
 fn declaration_uses_skip_unrelated_references_and_keep_order_duplicates_and_spelling() {
     use zincite_query::{SemanticEntity, SemanticStream};
-    let source = b"\xef\xbb\xbfint: 'capacity';\r\narray[int] of int: reads = [capacity, 'capacity'];\r\nfunction int: shadow(int: capacity) = capacity;\r\nsolve satisfy;\r\n";
+    let source = include_bytes!("fixtures/native-composition.mzn");
     let core = (0..20)
         .map(|i| format!("int: unrelated_{i} = missing_{i}(1);\n"))
         .collect::<String>();
@@ -3037,4 +3037,176 @@ fn typed_parameters_and_native_arguments_keep_scope_and_locations() {
             .value(),
         ReportValue::Constructed(V::Integer(2))
     ));
+}
+
+#[test]
+fn native_composition_preserves_correlated_declarations_captures_and_empty_schemas() {
+    use std::rc::Rc;
+    use zincite_lint::ModelFacts;
+    use zincite_query::{
+        ConstructedValue as V, Program, ProgramLimits, ReportValue, SemanticEntity, SemanticStream,
+    };
+    let source = include_bytes!("fixtures/native-composition.mzn");
+    let model = semantic_model("native-composition", source, b"", "");
+    let input = Input::parse(source.to_vec(), FileMode::Model).unwrap();
+    let facts = Rc::new(ModelFacts::new(&model));
+    let program = Program::parse(
+        include_str!("fixtures/native-composition.zq"),
+        ProgramLimits::default(),
+    )
+    .unwrap();
+    assert!(program.requires_model_facts());
+    let mut result = program
+        .evaluate_with_facts(&input, Rc::clone(&facts), ProgramLimits::default())
+        .unwrap();
+    assert!(result.is_complete(), "{:?}", result.limitations());
+    assert!(std::ptr::eq(result.model_facts().unwrap(), facts.as_ref()));
+    let ReportValue::Constructed(V::Array(rows)) = result.emissions()[0].value() else {
+        panic!()
+    };
+    let expected = [
+        ("capacity", 2),
+        ("reads", 0),
+        ("shadow", 0),
+        ("capacity", 1),
+    ];
+    assert_eq!(rows.len(), expected.len(), "{rows:?}");
+    for (row, (name, count)) in rows.iter().zip(expected) {
+        assert_eq!(
+            row,
+            &V::Record(vec![
+                ("name".into(), V::String(name.into())),
+                ("uses".into(), V::Integer(count))
+            ])
+        );
+    }
+    let ReportValue::Captures(captures) = result.emissions()[1].value() else {
+        panic!()
+    };
+    let report = result.semantic().unwrap();
+    let mut ids = Vec::new();
+    let mut written = Vec::new();
+    for capture in captures.rows() {
+        let ReportValue::Query(SemanticStream::Entities(d)) = &capture.fields[0].1 else {
+            panic!()
+        };
+        let ReportValue::Query(SemanticStream::Entities(u)) = &capture.fields[1].1 else {
+            panic!()
+        };
+        assert!(matches!(d[0], SemanticEntity::Declaration(_)));
+        assert!(matches!(u[0], SemanticEntity::Reference(_)));
+        ids.push(d[0]);
+        written.push(report.source_bytes(u[0]));
+        assert_eq!(report.location(u[0]).path, model.root);
+        assert_eq!(
+            report.source_bytes(u[0]),
+            &source[report.location(u[0]).range.clone()]
+        );
+    }
+    assert_eq!(ids.len(), 3);
+    assert_eq!(ids[0], ids[1]);
+    assert_ne!(ids[0], ids[2]);
+    assert_eq!(
+        written,
+        [
+            b"capacity".as_slice(),
+            b"'capacity'".as_slice(),
+            b"capacity".as_slice()
+        ]
+    );
+    let ReportValue::Constructed(V::Array(rows)) = result.emissions()[2].value() else {
+        panic!()
+    };
+    for (row, text) in rows.iter().zip(["capacity", "'capacity'", "capacity"]) {
+        assert_eq!(
+            row,
+            &V::Record(vec![
+                ("name".into(), V::String("capacity".into())),
+                ("text".into(), V::String(text.into()))
+            ])
+        );
+    }
+    result.render().unwrap();
+    let empty = Program::parse(r#"let matches = match { from d in (head(0) | declarations); }; report matches | project(m, {"name": m.d | names | one});"#, ProgramLimits::default()).unwrap();
+    let result = empty
+        .evaluate_with_facts(&input, Rc::clone(&facts), ProgramLimits::default())
+        .unwrap();
+    assert!(
+        matches!(result.emissions()[0].value(), ReportValue::Constructed(V::Array(rows)) if rows.is_empty())
+    );
+    for (source, message) in [
+        (
+            r#"let matches = match { from d in (head(0) | declarations); }; report matches | project(m, {"name": m.missing | names | one});"#,
+            "unknown native capture field",
+        ),
+        (
+            r#"let d = subtree | declarations; report d | project(d, {"name": d | names | one});"#,
+            "shadows",
+        ),
+        (
+            r#"report subtree | declarations | project(d, {"name": d | names | json});"#,
+            "cannot emit",
+        ),
+        (
+            r#"let m = match { from d in (subtree | declarations); }; replace capacity=1; emit;"#,
+            "report-only",
+        ),
+    ] {
+        let error = Program::parse(source, ProgramLimits::default()).unwrap_err();
+        assert!(error.message.contains(message), "{error:?}");
+    }
+    let error = program
+        .evaluate_with_facts(
+            &input,
+            facts,
+            ProgramLimits {
+                results: 250,
+                ..ProgramLimits::default()
+            },
+        )
+        .unwrap_err();
+    assert!(error.message.contains("result limit"), "{error:?}");
+}
+
+#[test]
+fn native_match_unknown_guards_keep_host_locations_and_boolean_control() {
+    use zincite_query::{ErrorLocation, Program, ProgramLimits};
+    let source = b"function $T: identity($T: x) = x; par tuple(int, $T): mixed; var int: v; int: result = missing(v); int: read = mixed; int: duplicate; int: duplicate; int: ambiguous = duplicate; solve satisfy;";
+    let model = semantic_model("composition-unknown", source, b"", "");
+    let input = Input::parse_named(source.to_vec(), FileMode::Model, "label-only.mzn").unwrap();
+    let known = Program::parse(r#"let m = match { from d in (subtree | declarations | unique | filter(name("mixed"))); where type(d, "tuple") or name(d, "mixed"); }; report m | project(r, {"name": r.d | names | one});"#, ProgramLimits::default()).unwrap();
+    let mut result = known
+        .evaluate_with_model(&input, Some(&model), ProgramLimits::default())
+        .unwrap();
+    assert!(!result.is_complete());
+    let json: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
+    assert_eq!(json["complete"], false);
+    assert_eq!(
+        json["result"]["entries"][0]["value"]["fields"][0]["value"]["value"],
+        "mixed"
+    );
+    let unknown = Program::parse(r#"report match { from d in (subtree | declarations | unique | filter(name("mixed"))); where not type(d, "tuple"); };"#, ProgramLimits::default()).unwrap();
+    let error = unknown
+        .evaluate_with_model(&input, Some(&model), ProgramLimits::default())
+        .unwrap_err();
+    let ErrorLocation::Model(location) = error.location else {
+        panic!("{error:?}")
+    };
+    assert_eq!(location.path, model.root);
+    assert_eq!(&source[location.range], b"mixed");
+    assert!(error.message.contains("unresolved"), "{}", error.message);
+    let incomplete_source = b"int: value = missing; solve satisfy;";
+    let incomplete_model = semantic_model("composition-incomplete", incomplete_source, b"", "");
+    let input = Input::parse(incomplete_source.to_vec(), FileMode::Model).unwrap();
+    let program = Program::parse(r#"source unresolved = query("references | declarations | names | count"); report match { from d in (subtree | declarations | unique); }; report subtree | declarations | unique | project(d, {"name": d | names | one});"#, ProgramLimits::default()).unwrap();
+    let mut result = program
+        .evaluate_with_model(&input, Some(&incomplete_model), ProgramLimits::default())
+        .unwrap();
+    assert!(!result.is_complete());
+    assert!(!result.limitations().is_empty());
+    assert!(
+        String::from_utf8(result.render().unwrap())
+            .unwrap()
+            .contains("\"complete\":false")
+    );
 }

@@ -137,6 +137,61 @@ they do not run a MiniZinc model or solver. The
 [comprehension contract](query-comprehension-contract.md) defines types, eager
 arrays, requirements and request charges.
 
+## Correlate declarations with their uses
+
+A projection evaluates its fields against one native subject at a time. This
+short program reports each declaration's own name and use count:
+
+```sh
+zincite-query --program 'report subtree | declarations | unique | project(d, {"name": d | names | one, "uses": d | uses | count});' model.mzn
+zincite query --program 'report subtree | declarations | unique | project(d, {"name": d | names | one, "uses": d | uses | count});' model.mzn
+```
+
+`unique` removes repeated declaration handles. Two declarations named
+`capacity` in different scopes remain separate rows, with their own counts.
+`names` explicitly projects a string; `one` requires exactly one projected
+value. A missing or multiple value fails the request.
+
+To retain each declaration and its uses together, save this as `uses.zq`:
+
+```text
+let matches = match {
+  from d in (subtree | declarations | unique);
+  from u in (d | uses);
+};
+report matches | project(m, {
+  "name": m.d | names | one,
+  "text": m.u | text | one
+});
+```
+
+Run `zincite query --program-file uses.zq model.mzn`, or pass the same text
+through `--program`. Both commands use the same parser and evaluator. The
+[self-contained fixture](../crates/zincite-query/tests/fixtures/native-composition.mzn)
+has two declarations with the same name and three uses, including a quoted
+`'capacity'` occurrence. Its
+[companion program](../crates/zincite-query/tests/fixtures/native-composition.zq)
+also reports the native captures. The checks supply an empty local
+`std/stdlib.mzn`; they need no MiniZinc installation or solver.
+
+Each `from` follows source order. Later clauses see earlier captures; the
+rightmost generator varies fastest. `bind name = query;` requires exactly one
+native subject. `where type(d, "int");` and
+`where instantiation(d, "par");` use existing semantic facts. Shared
+`not`, `and` and `or` preserve Unknown through short-circuit evaluation. An
+Unknown required guard fails at its responsible model location. An Unknown
+leaf followed by a true `or` alternative can produce a known match, retaining
+its limitation and `complete:false`.
+
+Library callers inspect `ReportValue::Captures` through `CaptureMatches::rows`.
+Each row has ordered native fields; `ReportValue::fields` borrows a singleton
+capture's fields. The `ProgramResult` retains the same `ModelFacts` owner and
+source coordinates. Captures and projections share the request's remaining
+work, result and nesting allowance, including copies and rendering. Empty
+selections still validate field names, scope, types and purity. These forms
+are available only in reports; data edits refuse them in preceding lets and
+edit operands before preparing a candidate.
+
 ## Inspect semantic facts
 
 To follow a declaration's uses in that model:

@@ -14,6 +14,13 @@ use crate::{ErrorLocation, Input, Limits, Query, QueryError, QueryResult};
 const HELP: &str = "Usage: zincite-query [--stdin-filepath PATH] [--model PATH] [-I DIR] [--stdlib-dir DIR] [--diff|--write] QUERY [FILE|-]
 
 Use --program TEXT or -f PROGRAM [FILE|-] for bindings, reports or data batches.
+Native report example:
+    --program 'report subtree | declarations | unique | project(d, {\"name\": d | names | one, \"uses\": d | uses | count});' model.mzn
+Native match: match { from d in (subtree | declarations | unique); from u in (d | uses); }
+    keeps declaration/use fields for project(m, {\"text\": m.u | text | one}).
+Required where guards use type(d, \"int\") or instantiation(d, \"par\").
+Unknown guards refuse at their model location after shared Boolean evaluation.
+Projection/match are report-only; one requires exactly one projected value.
 Program input is exclusive with a legacy positional QUERY.
 Reports support length, checked integer sum, forall, exists and literal-message require.
 Array reducers are eager; these pure expressions do not execute a model or solver.

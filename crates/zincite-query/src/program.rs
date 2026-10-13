@@ -11,12 +11,16 @@ use zirql::{
     NativeValue, ProgramHost,
 };
 
+mod composition;
+
 type Expression = zirql::Expression<Stage, (), Emitter>;
 
 #[derive(Debug)]
 enum Stage {
     Parameter(usize),
     Query(usize),
+    Projection(composition::ProjectionStage),
+    Match(composition::MatchStage),
     Data(Vec<data::Edit>),
     Literal(Located<String>),
     LiteralValue {
@@ -72,7 +76,7 @@ enum Emitter {
     Source,
     Json,
 }
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 enum Kind {
     Nodes,
     Strings,
@@ -85,6 +89,9 @@ enum Kind {
     Instantiations,
     Constructed,
     Scalar(zirql::ParameterType),
+    Value(Rc<Vec<zirql::ValueType>>),
+    Capture(Rc<zirql::NativeCapture<Kind>>),
+    Captures(Rc<zirql::NativeCapture<Kind>>),
 }
 
 /// Native report leaves retain source selections and semantic identities.
@@ -93,20 +100,35 @@ enum Kind {
 pub enum ReportValue<'a> {
     Query(SemanticStream<'a>),
     Record(Vec<(String, ReportValue<'a>)>),
+    Capture(zirql::NativeCapture<ReportValue<'a>>),
+    Captures(CaptureMatches<'a>),
     Constructed(zirql::ConstructedValue),
 }
 impl<'a> ReportValue<'a> {
     pub fn fields(&self) -> Option<&[(String, ReportValue<'a>)]> {
         match self {
             Self::Record(fields) => Some(fields),
-            Self::Query(_) | Self::Constructed(_) => None,
+            Self::Capture(capture) => Some(&capture.fields),
+            Self::Query(_) | Self::Constructed(_) | Self::Captures(_) => None,
         }
     }
     pub fn stream(&self) -> Option<&SemanticStream<'a>> {
         match self {
             Self::Query(stream) => Some(stream),
-            Self::Record(_) | Self::Constructed(_) => None,
+            Self::Record(_) | Self::Constructed(_) | Self::Capture(_) | Self::Captures(_) => None,
         }
+    }
+}
+
+/// Native match rows retain their declared fields even when no candidate matches.
+#[derive(Debug)]
+pub struct CaptureMatches<'a> {
+    rows: Vec<zirql::NativeCapture<ReportValue<'a>>>,
+    schema: Rc<zirql::NativeCapture<Kind>>,
+}
+impl<'a> CaptureMatches<'a> {
+    pub fn rows(&self) -> &[zirql::NativeCapture<ReportValue<'a>>] {
+        &self.rows
     }
 }
 
@@ -345,6 +367,7 @@ impl Program {
                 source,
                 position: 0,
                 nesting_limit: limits.nesting.min(64),
+                collection_limit: limits.stream_items,
                 arguments: None,
             },
             limits,
@@ -354,6 +377,7 @@ impl Program {
             preflight: Budget::for_program(limits.core()),
             preflight_range: None,
             first_report_call: None,
+            composition_error: None,
             lexed: zincite_syntax::lex(source),
         };
         let mut statements = Vec::new();
@@ -656,6 +680,11 @@ impl Program {
                         false,
                     )
                 }
+            } else if parser.composition_syntax(expression_start..expression_end) {
+                if parser.first_report_call.is_none() {
+                    parser.first_report_call = Some(expression_start..expression_end);
+                }
+                parser.composition_expression(expression_start..expression_end)?
             } else if !is_let && parser.native_syntax(expression_start..expression_end) {
                 parser.expression(0, Kind::Nodes)?
             } else {
@@ -684,7 +713,16 @@ impl Program {
                 zirql::Statement::Evaluate {
                     expression,
                     implicit_output: Some(
-                        if report || matches!(kind, Kind::Record | Kind::Constructed) {
+                        if report
+                            || matches!(
+                                kind,
+                                Kind::Record
+                                    | Kind::Constructed
+                                    | Kind::Value(_)
+                                    | Kind::Capture(_)
+                                    | Kind::Captures(_)
+                            )
+                        {
                             Emitter::Json
                         } else {
                             Emitter::Source
@@ -888,6 +926,7 @@ impl Program {
             parameters: parameter_values,
             emissions: Vec::new(),
             candidate: None,
+            guard_unknown: None,
         };
         zirql::evaluate_program(
             &self.program,
@@ -970,6 +1009,19 @@ impl Program {
     }
 }
 
+impl Drop for Program {
+    fn drop(&mut self) {
+        let program = std::mem::replace(&mut self.program, zirql::Program::new(Vec::new(), 0..0));
+        for statement in program.into_statements() {
+            let expression = match statement.value {
+                zirql::Statement::Bind { expression, .. }
+                | zirql::Statement::Evaluate { expression, .. } => expression,
+            };
+            zirql::dispose_expression(expression);
+        }
+    }
+}
+
 struct Parser<'a> {
     cursor: language::Parser<'a>,
     limits: ProgramLimits,
@@ -980,6 +1032,7 @@ struct Parser<'a> {
     preflight_range: Option<Range<usize>>,
     lexed: zincite_syntax::LexedSource,
     first_report_call: Option<Range<usize>>,
+    composition_error: Option<QueryError>,
 }
 impl<'a> Parser<'a> {
     fn expression_end(&self) -> Result<usize, QueryError> {
@@ -1045,6 +1098,14 @@ impl<'a> Parser<'a> {
                 .map_err(pipeline::core_error)?;
             let ty = match kind {
                 Kind::Scalar(ty) => (*ty).into(),
+                Kind::Value(types) if types.len() == 1 => zirql::copy_value_types(
+                    types,
+                    &mut self.preflight,
+                    zirql::Location::Query(range.clone()),
+                )
+                .map_err(pipeline::core_error)?
+                .pop()
+                .unwrap(),
                 Kind::Count => zirql::ValueType::Integer,
                 Kind::Strings => zirql::ValueType::Array(zirql::ArrayType::Elements(vec![
                     zirql::ValueType::String,
@@ -1086,7 +1147,12 @@ impl<'a> Parser<'a> {
         for name in &names {
             if !matches!(
                 self.names[&name.value],
-                Kind::Count | Kind::Strings | Kind::Literals | Kind::Constructed | Kind::Scalar(_)
+                Kind::Count
+                    | Kind::Strings
+                    | Kind::Literals
+                    | Kind::Constructed
+                    | Kind::Scalar(_)
+                    | Kind::Value(_)
             ) {
                 return Err(QueryError::query(
                     name.range.clone(),
@@ -1209,7 +1275,7 @@ impl<'a> Parser<'a> {
         self.cursor.space();
         let start = self.cursor.position;
         let (mut expression, mut kind, mut emits) = if self.cursor.take_word("query") {
-            self.query(input)?
+            self.query(input.clone())?
         } else if self.cursor.current() == Some(b'(') {
             self.cursor.position += 1;
             self.cursor.space();
@@ -1233,7 +1299,7 @@ impl<'a> Parser<'a> {
                     let label = Located::new(label.to_owned(), range);
                     self.cursor
                         .punctuation(b':', "expected ':' after report label")?;
-                    let (value, _, emits) = self.expression(depth + 1, input)?;
+                    let (value, _, emits) = self.expression(depth + 1, input.clone())?;
                     if emits {
                         return Err(QueryError::query(value.range, "a report field cannot emit"));
                     }
@@ -1252,7 +1318,7 @@ impl<'a> Parser<'a> {
                     false,
                 )
             } else {
-                let (expression, kind, emits) = self.expression(depth + 1, input)?;
+                let (expression, kind, emits) = self.expression(depth + 1, input.clone())?;
                 self.cursor
                     .punctuation(b')', "expected ')' after grouped expression")?;
                 (
@@ -1267,7 +1333,7 @@ impl<'a> Parser<'a> {
         } else {
             let (name, range) =
                 self.identifier("expected query(...), a binding or a report record")?;
-            let kind = *self.names.get(name).ok_or_else(|| {
+            let kind = self.names.get(name).cloned().ok_or_else(|| {
                 QueryError::query(range.clone(), format!("undefined binding: {name}"))
             })?;
             (
@@ -1329,6 +1395,12 @@ impl<'a> Parser<'a> {
         Ok((expression, kind, emits))
     }
     fn query(&mut self, input: Kind) -> Result<(Expression, Kind, bool), QueryError> {
+        self.query_with_kind(Some(input))
+    }
+    fn query_with_kind(
+        &mut self,
+        input: Option<Kind>,
+    ) -> Result<(Expression, Kind, bool), QueryError> {
         let start = self.cursor.position.saturating_sub(5);
         self.cursor.punctuation(b'(', "expected '(' after query")?;
         let (source, written) = self.cursor.string()?;
@@ -1434,7 +1506,7 @@ impl<'a> Parser<'a> {
         query.range = map(query.range);
         self.cursor
             .punctuation(b')', "expected ')' after query string")?;
-        let kind = validate_stages(&query, input)?;
+        let kind = input.map_or(Ok(Kind::Nodes), |input| validate_stages(&query, input))?;
         let emitter = match query.stages.last().map(|stage| &stage.kind) {
             Some(language::StageKind::Json) => Some(Emitter::Json),
             Some(language::StageKind::Emit) => Some(Emitter::Source),
@@ -1852,7 +1924,15 @@ fn validate_stages(query: &Query, mut kind: Kind) -> Result<Kind, QueryError> {
                 valid
             }
             S::Count => {
-                let valid = !matches!(kind, Kind::Count | Kind::Tally | Kind::Record);
+                let valid = matches!(
+                    kind,
+                    Kind::Nodes
+                        | Kind::Strings
+                        | Kind::Literals
+                        | Kind::Entities
+                        | Kind::Types
+                        | Kind::Instantiations
+                );
                 kind = Kind::Count;
                 valid
             }
@@ -1861,11 +1941,19 @@ fn validate_stages(query: &Query, mut kind: Kind) -> Result<Kind, QueryError> {
                 kind = Kind::Tally;
                 valid
             }
-            S::Unique => !matches!(
+            S::Unique => matches!(
                 kind,
-                Kind::Literals | Kind::Count | Kind::Tally | Kind::Record
+                Kind::Nodes | Kind::Strings | Kind::Entities | Kind::Types | Kind::Instantiations
             ),
-            S::Head(_) => !matches!(kind, Kind::Count | Kind::Tally | Kind::Record),
+            S::Head(_) => matches!(
+                kind,
+                Kind::Nodes
+                    | Kind::Strings
+                    | Kind::Literals
+                    | Kind::Entities
+                    | Kind::Types
+                    | Kind::Instantiations
+            ),
             S::Range(_) => matches!(kind, Kind::Nodes),
             S::Filter(_) => matches!(
                 kind,
@@ -1943,6 +2031,7 @@ struct Context<'c, 'a> {
     parameters: Vec<Option<zirql::ConstructedValue>>,
     emissions: Vec<ProgramEmission<'a>>,
     candidate: Option<Input>,
+    guard_unknown: Option<SourceDiagnostic>,
 }
 impl<'a> Context<'_, 'a> {
     fn report_facts(
@@ -2004,6 +2093,27 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
                 ));
             }
             Stage::Query(index) => *index,
+            Stage::Projection(projection) => {
+                let host = composition::CompositionHost(self);
+                return zirql::evaluate_projection(
+                    projection.get(),
+                    &host,
+                    value,
+                    context,
+                    bindings,
+                    budget,
+                )
+                .map(ReportValue::Constructed);
+            }
+            Stage::Match(matching) => {
+                return composition::CompositionHost(self).matching(
+                    matching.get(),
+                    value,
+                    context,
+                    bindings,
+                    budget,
+                );
+            }
             Stage::LiteralValue { expression, names } => {
                 let value = self.constructed(
                     expression,
@@ -2103,6 +2213,16 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
         _: &Range<usize>,
     ) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
         Ok(ReportValue::Record(fields))
+    }
+    fn capture_record<'v>(
+        &self,
+        value: &'v ReportValue<'a>,
+    ) -> Option<&'v zirql::NativeCapture<ReportValue<'a>>> {
+        if let ReportValue::Capture(capture) = value {
+            Some(capture)
+        } else {
+            None
+        }
     }
     fn emit(
         &self,
@@ -2308,7 +2428,7 @@ impl<'a> NativeHost<'_> {
                     self.nesting,
                 )
                 .map_err(zirql::EvaluationError::Host)?,
-                ReportValue::Record(_) => {
+                ReportValue::Record(_) | ReportValue::Capture(_) | ReportValue::Captures(_) => {
                     return Err(zirql::EvaluationError::Host(QueryError::query(
                         name.range.clone(),
                         "native records require explicit scalar projections",
@@ -2384,6 +2504,50 @@ fn copy_value<'a>(
     budget: &mut Budget,
     range: &Range<usize>,
 ) -> Result<ReportValue<'a>, QueryError> {
+    match value {
+        ReportValue::Record(fields) => {
+            budget
+                .charge(fields.len() + 1, zirql::Location::Query(range.clone()))
+                .map_err(pipeline::core_error)?;
+            budget
+                .charge_results(fields.len() + 1, zirql::Location::Query(range.clone()))
+                .map_err(pipeline::core_error)?;
+            let mut copied = Vec::with_capacity(fields.len());
+            for (label, value) in fields {
+                budget
+                    .charge(label.len() + 1, zirql::Location::Query(range.clone()))
+                    .map_err(pipeline::core_error)?;
+                copied.push((label.clone(), copy_value(value, budget, range)?));
+            }
+            return Ok(ReportValue::Record(copied));
+        }
+        ReportValue::Capture(capture) => {
+            return copy_capture(capture, budget, range).map(ReportValue::Capture);
+        }
+        ReportValue::Captures(captures) => {
+            budget
+                .charge(
+                    captures.rows.len() + 1,
+                    zirql::Location::Query(range.clone()),
+                )
+                .map_err(pipeline::core_error)?;
+            budget
+                .charge_results(
+                    captures.rows.len() + 1,
+                    zirql::Location::Query(range.clone()),
+                )
+                .map_err(pipeline::core_error)?;
+            let schema = composition::copy_schema(&captures.schema, budget, range)
+                .map_err(pipeline::core_error)?;
+            let rows = captures
+                .rows
+                .iter()
+                .map(|row| copy_capture(row, budget, range))
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(ReportValue::Captures(CaptureMatches { rows, schema }));
+        }
+        _ => {}
+    }
     if let ReportValue::Constructed(value) = value {
         return zirql::copy_constructed_value(value, budget, zirql::Location::Query(range.clone()))
             .map(ReportValue::Constructed)
@@ -2397,9 +2561,32 @@ fn copy_value<'a>(
         .map_err(pipeline::core_error)?;
     Ok(copy_admitted(value))
 }
+fn copy_capture<'a>(
+    capture: &zirql::NativeCapture<ReportValue<'a>>,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<zirql::NativeCapture<ReportValue<'a>>, QueryError> {
+    budget
+        .charge_results(
+            capture.fields.len() + 1,
+            zirql::Location::Query(range.clone()),
+        )
+        .map_err(pipeline::core_error)?;
+    let mut fields = Vec::with_capacity(capture.fields.len());
+    for (name, value) in &capture.fields {
+        budget
+            .charge(name.len() + 1, zirql::Location::Query(range.clone()))
+            .map_err(pipeline::core_error)?;
+        fields.push((name.clone(), copy_value(value, budget, range)?));
+    }
+    Ok(zirql::NativeCapture { fields })
+}
+
 fn copy_admitted<'a>(value: &ReportValue<'a>) -> ReportValue<'a> {
     ReportValue::Query(match value {
-        ReportValue::Constructed(_) => unreachable!("constructed copies use the core"),
+        ReportValue::Constructed(_) | ReportValue::Capture(_) | ReportValue::Captures(_) => {
+            unreachable!("structured copies use admitted paths")
+        }
         ReportValue::Record(fields) => {
             return ReportValue::Record(
                 fields
@@ -2441,6 +2628,26 @@ fn copy_admitted<'a>(value: &ReportValue<'a>) -> ReportValue<'a> {
 fn value_units(value: &ReportValue<'_>) -> usize {
     match value {
         ReportValue::Constructed(_) => unreachable!("constructed admission uses the core"),
+        ReportValue::Capture(capture) => {
+            1 + capture
+                .fields
+                .iter()
+                .map(|(_, value)| 1 + value_units(value))
+                .sum::<usize>()
+        }
+        ReportValue::Captures(captures) => {
+            1 + captures
+                .rows
+                .iter()
+                .map(|capture| {
+                    1 + capture
+                        .fields
+                        .iter()
+                        .map(|(_, value)| 1 + value_units(value))
+                        .sum::<usize>()
+                })
+                .sum::<usize>()
+        }
         ReportValue::Record(fields) => {
             1 + fields
                 .iter()
@@ -2497,6 +2704,22 @@ fn literal_units(value: &crate::LiteralValue<'_>) -> usize {
 fn value_bytes(value: &ReportValue<'_>) -> usize {
     match value {
         ReportValue::Constructed(_) => unreachable!("constructed admission uses the core"),
+        ReportValue::Capture(capture) => capture
+            .fields
+            .iter()
+            .map(|(label, value)| label.len() + value_bytes(value))
+            .sum(),
+        ReportValue::Captures(captures) => captures
+            .rows
+            .iter()
+            .map(|capture| {
+                capture
+                    .fields
+                    .iter()
+                    .map(|(label, value)| label.len() + value_bytes(value))
+                    .sum::<usize>()
+            })
+            .sum(),
         ReportValue::Record(fields) => fields
             .iter()
             .map(|(label, value)| label.len() + value_bytes(value))
@@ -2537,6 +2760,23 @@ fn admit_json<'a>(
 ) -> Result<(), QueryError> {
     match value {
         ReportValue::Constructed(_) => {}
+        ReportValue::Capture(capture) => {
+            work.produce(1 + capture.fields.len(), range)?;
+            for (label, value) in &capture.fields {
+                work.spend(label.len(), range)?;
+                admit_json(value, semantic, work, range)?;
+            }
+        }
+        ReportValue::Captures(captures) => {
+            work.produce(1 + captures.rows.len(), range)?;
+            for capture in &captures.rows {
+                work.produce(1 + capture.fields.len(), range)?;
+                for (label, value) in &capture.fields {
+                    work.spend(label.len(), range)?;
+                    admit_json(value, semantic, work, range)?;
+                }
+            }
+        }
         ReportValue::Record(fields) => {
             work.produce(1 + fields.len(), range)?;
             for (label, value) in fields {
@@ -2560,6 +2800,18 @@ fn validate_value(
     match value {
         ReportValue::Constructed(value) => {
             comprehension::validate_report_shape(value, budget, range)?
+        }
+        ReportValue::Capture(capture) => {
+            for (_, value) in &capture.fields {
+                validate_value(value, true, budget, range)?;
+            }
+        }
+        ReportValue::Captures(captures) => {
+            for capture in &captures.rows {
+                for (_, value) in &capture.fields {
+                    validate_value(value, true, budget, range)?;
+                }
+            }
         }
         ReportValue::Record(fields) => {
             for (_, value) in fields {
@@ -2588,6 +2840,27 @@ fn report_json<'a>(
 ) -> Result<Value, QueryError> {
     match value {
         ReportValue::Constructed(value) => comprehension::json_value(value, budget, range),
+        ReportValue::Capture(capture) => capture
+            .fields
+            .iter()
+            .map(|(label, value)| Ok((label.clone(), report_json(value, semantic, budget, range)?)))
+            .collect::<Result<serde_json::Map<_, _>, _>>()
+            .map(Value::Object),
+        ReportValue::Captures(captures) => captures
+            .rows
+            .iter()
+            .map(|capture| {
+                capture
+                    .fields
+                    .iter()
+                    .map(|(label, value)| {
+                        Ok((label.clone(), report_json(value, semantic, budget, range)?))
+                    })
+                    .collect::<Result<serde_json::Map<_, _>, _>>()
+                    .map(Value::Object)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Array),
         ReportValue::Record(fields) => fields
             .iter()
             .map(|(label, value)| Ok((label.clone(), report_json(value, semantic, budget, range)?)))
@@ -2623,6 +2896,7 @@ fn charge_render<'a>(
 fn render_bytes<'a>(value: &ReportValue<'a>, semantic: Option<&SemanticResult<'a>>) -> usize {
     match value {
         ReportValue::Constructed(_) => unreachable!("constructed reports use tagged JSON"),
+        ReportValue::Capture(_) | ReportValue::Captures(_) => unreachable!("captures use JSON"),
         ReportValue::Record(fields) => fields
             .iter()
             .map(|(label, value)| label.len() + render_bytes(value, semantic))

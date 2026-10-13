@@ -919,3 +919,137 @@ fn inline_programs_share_file_library_results_and_buffer_errors() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("report-only"));
     std::fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn native_composition_inline_and_file_keep_results_status_and_buffering() {
+    let dir = std::env::temp_dir().join(format!("zincite-query-native-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(dir.join("library/std/stdlib.mzn"), "").unwrap();
+    let model_path = dir.join("model.mzn");
+    let program_path = dir.join("report.zq");
+    let source = include_bytes!("fixtures/native-composition.mzn");
+    let program_source = include_str!("fixtures/native-composition.zq");
+    std::fs::write(&model_path, source).unwrap();
+    std::fs::write(&program_path, program_source).unwrap();
+    let library = dir.join("library");
+    let common = ["--stdlib-dir", library.to_str().unwrap()];
+    let inline = run(
+        &[
+            common[0],
+            common[1],
+            "--program",
+            program_source,
+            model_path.to_str().unwrap(),
+        ],
+        b"",
+    );
+    let file = run(
+        &[
+            common[0],
+            common[1],
+            "--program-file",
+            program_path.to_str().unwrap(),
+            model_path.to_str().unwrap(),
+        ],
+        b"",
+    );
+    assert_eq!(
+        inline.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&inline.stderr)
+    );
+    assert_eq!(
+        file.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&file.stderr)
+    );
+    assert!(inline.stderr.is_empty() && file.stderr.is_empty());
+    assert_eq!(inline.stdout, file.stdout);
+
+    let model = zincite_lint::load_model(
+        &model_path,
+        &zincite_lint::ModelOptions {
+            include_dirs: vec![],
+            stdlib_dir: Some(dir.join("library")),
+        },
+    );
+    let input =
+        zincite_query::Input::parse(source.to_vec(), zincite_syntax::FileMode::Model).unwrap();
+    let program =
+        zincite_query::Program::parse(program_source, zincite_query::ProgramLimits::default())
+            .unwrap();
+    let expected = program
+        .evaluate_with_model(
+            &input,
+            Some(&model),
+            zincite_query::ProgramLimits::default(),
+        )
+        .unwrap()
+        .render()
+        .unwrap();
+    assert_eq!(inline.stdout, expected);
+
+    let outputs = inline
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|line| serde_json::from_slice::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(outputs.len(), 3);
+    let rows = outputs[0]["result"]["entries"].as_array().unwrap();
+    for (row, (name, uses)) in rows.iter().zip([
+        ("capacity", 2),
+        ("reads", 0),
+        ("shadow", 0),
+        ("capacity", 1),
+    ]) {
+        assert_eq!(row["value"]["fields"][0]["value"]["value"], name);
+        assert_eq!(row["value"]["fields"][1]["value"]["value"], uses);
+    }
+    assert_eq!(outputs[1]["result"].as_array().unwrap().len(), 3);
+    assert_eq!(std::fs::read(&model_path).unwrap(), source);
+    let incomplete = b"int: value = missing; solve satisfy;";
+    std::fs::write(&model_path, incomplete).unwrap();
+    let known = r#"source unresolved = query("references | declarations | names | count"); report match { from d in (subtree | declarations | unique); };"#;
+    for (program_source, expected_status) in [
+        (known.to_owned(), 1),
+        (format!("{known} report 1 div 0;"), 2),
+    ] {
+        std::fs::write(&program_path, &program_source).unwrap();
+        for arguments in [
+            vec![
+                common[0],
+                common[1],
+                "--program",
+                &program_source,
+                model_path.to_str().unwrap(),
+            ],
+            vec![
+                common[0],
+                common[1],
+                "--program-file",
+                program_path.to_str().unwrap(),
+                model_path.to_str().unwrap(),
+            ],
+        ] {
+            let output = run(&arguments, b"");
+            assert_eq!(
+                output.status.code(),
+                Some(expected_status),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            if expected_status == 1 {
+                let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+                assert_eq!(value["complete"], false);
+                assert_eq!(value["result"].as_array().unwrap().len(), 1);
+            } else {
+                assert!(output.stdout.is_empty());
+            }
+            assert_eq!(std::fs::read(&model_path).unwrap(), incomplete);
+        }
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

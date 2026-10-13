@@ -1498,6 +1498,43 @@ impl SemanticResult<'_> {
             _ => self.predicate_leaf(predicate, subject, work, stage, limits)?,
         })
     }
+    pub(crate) fn guard_leaf(
+        &mut self,
+        predicate: &Predicate,
+        subject: &SemanticSubject<'_>,
+        work: &mut Work,
+        stage: &Stage,
+        limits: Limits,
+    ) -> Result<(Truth, Option<SourceDiagnostic>), QueryError> {
+        let truth = self.predicate_leaf(predicate, subject, work, stage, limits)?;
+        let diagnostic = if truth == Truth::Unknown {
+            let location = match subject {
+                SemanticSubject::Entity(entity) => self.location(*entity),
+                SemanticSubject::Node { location, .. } => location,
+            };
+            let mut existing = None;
+            for diagnostic in self.limitations.iter().rev() {
+                work.visit(&predicate.range)?;
+                if diagnostic.location == *location {
+                    existing = Some(diagnostic);
+                    break;
+                }
+            }
+            let message = existing.map_or("semantic guard fact is unknown", |d| d.message.as_str());
+            work.spend(
+                location.path.as_os_str().len() + message.len() + 1,
+                &predicate.range,
+            )?;
+            work.produce(1, &predicate.range)?;
+            Some(SourceDiagnostic {
+                location: location.clone(),
+                message: message.to_owned(),
+            })
+        } else {
+            None
+        };
+        Ok((truth, diagnostic))
+    }
     pub(crate) fn predicate_leaf(
         &mut self,
         predicate: &Predicate,

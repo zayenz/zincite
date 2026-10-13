@@ -27,7 +27,9 @@ mod inspection;
 mod language;
 mod pipeline;
 mod program;
-pub use program::{Program, ProgramEmission, ProgramLimits, ProgramResult, ReportValue};
+pub use program::{
+    CaptureMatches, Program, ProgramEmission, ProgramLimits, ProgramResult, ReportValue,
+};
 pub use zirql::{ConstructedValue, ParameterDeclaration, ParameterInputs, ParameterType};
 mod reduction;
 mod semantic;

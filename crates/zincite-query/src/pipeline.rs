@@ -464,7 +464,7 @@ impl<'a> Context<'a> {
         SemanticStream::Inspection(Box::new(result))
     }
 
-    fn subject(&self, row: &Row<'a>) -> SemanticSubject<'a> {
+    pub(crate) fn subject(&self, row: &Row<'a>) -> SemanticSubject<'a> {
         let node = match row {
             Row::Entity(entity) => return SemanticSubject::Entity(*entity),
             Row::Type(row) => return row.subject.clone(),

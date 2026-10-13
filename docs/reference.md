@@ -463,6 +463,55 @@ are not scalar comprehension values.
 with their existing `emit` or `json` stage. An explicit emitter suppresses the
 statement's implicit emission. Bindings and record fields cannot emit. Program
 parsing checks names, emitters and supported result transitions before execution.
+#### Native projections and captures
+
+Read-only programs also accept domain stages directly:
+
+```text
+report subtree | declarations | unique | project(d, {
+  "name": d | names | one,
+  "uses": d | uses | count
+});
+let matches = match {
+  from d in (subtree | declarations | unique);
+  from u in (d | uses);
+};
+report matches | project(m, {"name": m.d | names | one, "text": m.u | text | one});
+```
+
+`project` returns a positional array of constructed records in native source
+order. Field labels are static quoted strings. The explicit subject is local
+to the projection and cannot shadow a visible binding. Native handles need
+`names`, `text`, `count` or another supported scalar projection before entering
+a constructed field; `one` extracts exactly one projected value. Existing
+`query("...")` wrappers remain valid native leaves, and ordinary MiniZinc
+records and their field access keep their existing syntax.
+
+`match { ... }` returns `ReportValue::Captures`. `CaptureMatches::rows()` borrows
+its ordered `zirql::NativeCapture<ReportValue>` rows. The retained schema checks
+field access even when there are no rows. `m.d` preserves the field's native
+kind and identity; it does not render or convert the handle. The enclosing
+`ProgramResult` retains its model fact owner. A singleton capture exposes its
+fields through the existing `ReportValue::fields()` view.
+
+Clauses run in written order. `from name in query;` enumerates native subjects;
+`bind name = query;` requires exactly one. A capture is absent in its own
+operand. Duplicate names, forward references and ambient shadowing fail before
+enumeration. `where type(d, "tuple");`, `instantiation(d, "par")`, `name(d,
+"capacity")`, `kind(d, "declaration")` and `source_kind(d, "user")` adapt the
+existing domain predicates to explicit subjects. Boolean wrappers use shared
+short-circuit control. A final Unknown required guard refuses at the
+responsible model file/range with its reason. Known matches from incomplete
+input retain limitations and the `complete:false` report envelope.
+
+Projection fields and match operands are pure. Empty inputs and unchosen
+Boolean branches still undergo scope/type/purity checks. Candidate expansion,
+native copies, capture metadata, scalar conversion and rendering spend one
+continuing request allowance. These constructs are report-only: an editing
+request refuses them in preceding lets or edit expressions. See the
+[declaration/use example](queries.md#correlate-declarations-with-their-uses)
+for inline and file commands.
+
 Programs accept `source name = literal("assignment");`, immutable `let` bindings
 and pure positional or keyed reports. For input `zeta = [3, 5]; alpha = 2;`, this request
 constructs records in source order:

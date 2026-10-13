@@ -29,6 +29,29 @@ MiniZinc itself permits more expressions and functions. This contract accepts
 only the subset stated here; syntactic acceptance by Zincite's parser alone
 does not imply that the constructor can evaluate an expression.
 
+## Native report composition
+
+Reports may use direct domain stages and the shared `project(subject, {fields})`
+and `match { from ...; bind ...; where ...; }` forms described in the
+[query reference](reference.md#native-projections-and-captures). Their quoted
+projection fields use the shared value reader and explicit native scalar
+projections. Ordinary MiniZinc expressions, records and comprehensions retain
+the CST frontend described below. Native captures retain declaration/reference
+identity and their model owner; they are never constructed scalar handles.
+
+The shared evaluator owns capture scope, dependent generator order,
+exact-one bindings, field lookup and correlated projection. The adapter supplies
+Zincite stages, semantic predicate leaves and scalar conversion. A match guard
+keeps Unknown until shared Boolean control finishes: a final Unknown refuses
+at the responsible model location, while a known true alternative can retain
+a row with its located limitation. Empty capture collections retain their field
+schema. Candidate admission, copies, metadata and rendering use the same
+continuing request budget as other reports.
+
+These forms are excluded from data expressions and preceding edit lets. The
+closed MiniZinc data grammar, complete-candidate validation and atomic write
+rules below continue to apply.
+
 ## Report expressions and edit grammar
 
 Read-only requests may interleave parameter/source declarations, immutable

@@ -173,6 +173,7 @@ fn parse_arguments<'a>(
         source,
         position: 0,
         nesting_limit: limits.nesting.min(MAX_NESTING),
+        collection_limit: limits.collection,
         arguments,
     };
     let mut stages = Vec::new();
@@ -180,142 +181,11 @@ fn parse_arguments<'a>(
     parser.space();
     while parser.position < source.len() {
         let start = parser.position;
-        let (name, name_range) = parser.word("expected a query stage")?;
-        let kind = match name {
-            "items" => StageKind::Items,
-            "references" => StageKind::References,
-            "declarations" => StageKind::Declarations,
-            "uses" => StageKind::Uses,
-            "types" => StageKind::Types,
-            "instantiations" => StageKind::Instantiations,
-            "transitive_references" => {
-                parser.punctuation(b'(', "expected '(' after transitive_references")?;
-                let depth = parser.integer_argument(start, ArgumentKind::TransitiveReferences)?;
-                parser.punctuation(b')', "expected ')' after traversal depth")?;
-                StageKind::TransitiveReferences(depth)
-            }
-            "filter" => {
-                parser.punctuation(b'(', "expected '(' after filter")?;
-                let predicate = parser.predicate(0)?;
-                parser.punctuation(b')', "expected ')' after filter predicate")?;
-                StageKind::Filter(predicate)
-            }
-            "head" => {
-                parser.punctuation(b'(', "expected '(' after head")?;
-                let count = if parser.arguments.is_some() {
-                    parser.integer_argument(start, ArgumentKind::Head)?
-                } else {
-                    parser.space();
-                    let number_start = parser.position;
-                    while parser.current().is_some_and(|byte| byte.is_ascii_digit()) {
-                        parser.position += 1;
-                    }
-                    let range = number_start..parser.position;
-                    source[range.clone()].parse::<usize>().map_err(|_| {
-                        QueryError::query(
-                            range,
-                            "head requires a non-negative integer fitting usize",
-                        )
-                    })?
-                };
-                parser.punctuation(b')', "expected ')' after head count")?;
-                StageKind::Head(count)
-            }
-            "expressions" => StageKind::Expressions,
-            "children" => StageKind::Children,
-            "subtree" => StageKind::Subtree,
-            "range" => {
-                parser.punctuation(b'(', "expected '(' after range")?;
-                let from = parser.integer_argument(start, ArgumentKind::RangeStart)?;
-                parser.punctuation(b',', "expected ',' between range bounds")?;
-                let end = parser.integer_argument(start, ArgumentKind::RangeEnd)?;
-                parser.punctuation(b')', "expected ')' after range bounds")?;
-                if from > end {
-                    return Err(QueryError::query(name_range, "range start exceeds end"));
-                }
-                StageKind::Range(from..end)
-            }
-            "names" => StageKind::Names,
-            "call_names" => StageKind::CallNames,
-            "annotation_names" => StageKind::AnnotationNames,
-            "text" => StageKind::Text,
-            "values" => StageKind::Values,
-            "fields" => StageKind::Fields,
-            "elements" => StageKind::Elements,
-            "keys" => StageKind::Keys,
-            "filter_elements" => {
-                parser.punctuation(b'(', "expected '(' after filter_elements")?;
-                let comparison = parser.comparison()?;
-                parser.punctuation(b')', "expected ')' after element comparison")?;
-                StageKind::FilterElements(comparison)
-            }
-            "unique" => StageKind::Unique,
-            "tally" => StageKind::Tally,
-            "json" => StageKind::Json,
-            "count" => StageKind::Count,
-            "emit" if editing => StageKind::EmitDocument,
-            "emit" => StageKind::Emit,
-            "set_value" => {
-                parser.punctuation(b'(', "expected '(' after set_value")?;
-                let (value, _) = parser.string()?;
-                parser.punctuation(b')', "expected ')' after replacement expression")?;
-                StageKind::SetValue(value)
-            }
-            "reduce_enum" => {
-                parser.punctuation(b'(', "expected '(' after reduce_enum")?;
-                let name = parser.string()?.0;
-                if crate::identifier_identity(&name).is_empty() {
-                    return Err(QueryError::query(
-                        name_range,
-                        "enum identity must not be empty",
-                    ));
-                }
-                parser.punctuation(b',', "expected ',' before enum retention")?;
-                let (selection, selection_range) = parser.word("expected keep or keep_first")?;
-                parser.punctuation(b'(', "expected '(' after retention")?;
-                let retention = match selection {
-                    "keep_first" => Retention::First(parser.integer()?),
-                    "keep" => {
-                        let mut names = Vec::new();
-                        parser.space();
-                        if parser.current() != Some(b')') {
-                            loop {
-                                if names.len() >= limits.collection {
-                                    return Err(QueryError::query(
-                                        start..parser.position,
-                                        "query collection limit exceeded",
-                                    ));
-                                }
-                                names.push(parser.string()?);
-                                parser.space();
-                                if parser.current() != Some(b',') {
-                                    break;
-                                }
-                                parser.punctuation(b',', "expected ',' between members")?;
-                            }
-                        }
-                        Retention::Keep(names)
-                    }
-                    _ => {
-                        return Err(QueryError::query(
-                            selection_range,
-                            "expected keep or keep_first",
-                        ));
-                    }
-                };
-                parser.punctuation(b')', "expected ')' after retention")?;
-                parser.punctuation(b')', "expected ')' after reduce_enum")?;
-                StageKind::ReduceEnum(name, retention)
-            }
-            "remove" => StageKind::Remove,
-            "emit_document" => StageKind::EmitDocument,
-            _ => {
-                return Err(QueryError::query(
-                    name_range,
-                    format!("unknown query stage '{name}'"),
-                ));
-            }
-        };
+        let stage = parser.stage()?;
+        let mut kind = stage.kind;
+        if editing && matches!(kind, StageKind::Emit) {
+            kind = StageKind::EmitDocument;
+        }
         if stages
             .last()
             .is_some_and(|stage: &Stage| matches!(stage.kind, StageKind::Count | StageKind::Tally))
@@ -378,10 +248,154 @@ pub(crate) struct Parser<'a> {
     pub(crate) source: &'a str,
     pub(crate) position: usize,
     pub(crate) nesting_limit: usize,
+    pub(crate) collection_limit: usize,
     pub(crate) arguments: Option<&'a mut ArgumentReader<'a>>,
 }
 
 impl<'a> Parser<'a> {
+    pub(crate) fn stage(&mut self) -> Result<Stage, QueryError> {
+        let start = self.position;
+        let (name, name_range) = self.word("expected a query stage")?;
+        let kind = match name {
+            "items" => StageKind::Items,
+            "references" => StageKind::References,
+            "declarations" => StageKind::Declarations,
+            "uses" => StageKind::Uses,
+            "types" => StageKind::Types,
+            "instantiations" => StageKind::Instantiations,
+            "transitive_references" => {
+                self.punctuation(b'(', "expected '(' after transitive_references")?;
+                let depth = self.integer_argument(start, ArgumentKind::TransitiveReferences)?;
+                self.punctuation(b')', "expected ')' after traversal depth")?;
+                StageKind::TransitiveReferences(depth)
+            }
+            "filter" => {
+                self.punctuation(b'(', "expected '(' after filter")?;
+                let predicate = self.predicate(0)?;
+                self.punctuation(b')', "expected ')' after filter predicate")?;
+                StageKind::Filter(predicate)
+            }
+            "head" => {
+                self.punctuation(b'(', "expected '(' after head")?;
+                let count = if self.arguments.is_some() {
+                    self.integer_argument(start, ArgumentKind::Head)?
+                } else {
+                    self.space();
+                    let number_start = self.position;
+                    while self.current().is_some_and(|byte| byte.is_ascii_digit()) {
+                        self.position += 1;
+                    }
+                    let range = number_start..self.position;
+                    self.source[range.clone()].parse::<usize>().map_err(|_| {
+                        QueryError::query(
+                            range,
+                            "head requires a non-negative integer fitting usize",
+                        )
+                    })?
+                };
+                self.punctuation(b')', "expected ')' after head count")?;
+                StageKind::Head(count)
+            }
+            "expressions" => StageKind::Expressions,
+            "children" => StageKind::Children,
+            "subtree" => StageKind::Subtree,
+            "range" => {
+                self.punctuation(b'(', "expected '(' after range")?;
+                let from = self.integer_argument(start, ArgumentKind::RangeStart)?;
+                self.punctuation(b',', "expected ',' between range bounds")?;
+                let end = self.integer_argument(start, ArgumentKind::RangeEnd)?;
+                self.punctuation(b')', "expected ')' after range bounds")?;
+                if from > end {
+                    return Err(QueryError::query(name_range, "range start exceeds end"));
+                }
+                StageKind::Range(from..end)
+            }
+            "names" => StageKind::Names,
+            "call_names" => StageKind::CallNames,
+            "annotation_names" => StageKind::AnnotationNames,
+            "text" => StageKind::Text,
+            "values" => StageKind::Values,
+            "fields" => StageKind::Fields,
+            "elements" => StageKind::Elements,
+            "keys" => StageKind::Keys,
+            "filter_elements" => {
+                self.punctuation(b'(', "expected '(' after filter_elements")?;
+                let comparison = self.comparison()?;
+                self.punctuation(b')', "expected ')' after element comparison")?;
+                StageKind::FilterElements(comparison)
+            }
+            "unique" => StageKind::Unique,
+            "tally" => StageKind::Tally,
+            "json" => StageKind::Json,
+            "count" => StageKind::Count,
+            "emit" => StageKind::Emit,
+            "set_value" => {
+                self.punctuation(b'(', "expected '(' after set_value")?;
+                let (value, _) = self.string()?;
+                self.punctuation(b')', "expected ')' after replacement expression")?;
+                StageKind::SetValue(value)
+            }
+            "reduce_enum" => {
+                self.punctuation(b'(', "expected '(' after reduce_enum")?;
+                let name = self.string()?.0;
+                if crate::identifier_identity(&name).is_empty() {
+                    return Err(QueryError::query(
+                        name_range,
+                        "enum identity must not be empty",
+                    ));
+                }
+                self.punctuation(b',', "expected ',' before enum retention")?;
+                let (selection, selection_range) = self.word("expected keep or keep_first")?;
+                self.punctuation(b'(', "expected '(' after retention")?;
+                let retention = match selection {
+                    "keep_first" => Retention::First(self.integer()?),
+                    "keep" => {
+                        let mut names = Vec::new();
+                        self.space();
+                        if self.current() != Some(b')') {
+                            loop {
+                                if names.len() >= self.collection_limit {
+                                    return Err(QueryError::query(
+                                        start..self.position,
+                                        "query collection limit exceeded",
+                                    ));
+                                }
+                                names.push(self.string()?);
+                                self.space();
+                                if self.current() != Some(b',') {
+                                    break;
+                                }
+                                self.punctuation(b',', "expected ',' between members")?;
+                            }
+                        }
+                        Retention::Keep(names)
+                    }
+                    _ => {
+                        return Err(QueryError::query(
+                            selection_range,
+                            "expected keep or keep_first",
+                        ));
+                    }
+                };
+                self.punctuation(b')', "expected ')' after retention")?;
+                self.punctuation(b')', "expected ')' after reduce_enum")?;
+                StageKind::ReduceEnum(name, retention)
+            }
+            "remove" => StageKind::Remove,
+            "emit_document" => StageKind::EmitDocument,
+            _ => {
+                return Err(QueryError::query(
+                    name_range,
+                    format!("unknown query stage '{name}'"),
+                ));
+            }
+        };
+        Ok(Stage {
+            kind,
+            range: start..self.position,
+        })
+    }
+
     fn comparison(&mut self) -> Result<Comparison, QueryError> {
         let (name, range) = self.word("expected eq, lt, le, gt or ge comparison")?;
         let kind = match name {
