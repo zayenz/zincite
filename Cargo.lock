@@ -216,7 +216,7 @@ version = "0.1.0"
 [[package]]
 name = "zirql"
 version = "0.1.0-alpha.5"
-source = "git+https://github.com/zayenz/zirql?rev=9c3ce81dca3d35cde55b2fba77567d73e431ae54#9c3ce81dca3d35cde55b2fba77567d73e431ae54"
+source = "git+https://github.com/zayenz/zirql?rev=fadce51b6d8fc65bc12458dc57f3d9b2092c2cb5#fadce51b6d8fc65bc12458dc57f3d9b2092c2cb5"
 
 [[package]]
 name = "zmij"

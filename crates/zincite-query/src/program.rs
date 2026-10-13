@@ -331,6 +331,7 @@ impl Program {
             report_model_demand: false,
             preflight: Budget::for_program(limits.core()),
             preflight_range: None,
+            first_report_call: None,
             lexed: zincite_syntax::lex(source),
         };
         let mut statements = Vec::new();
@@ -351,6 +352,12 @@ impl Program {
             let create = parser.cursor.take_word("create");
             let replace = !create && parser.cursor.take_word("replace");
             if create || replace {
+                if let Some(range) = &parser.first_report_call {
+                    return Err(QueryError::query(
+                        range.clone(),
+                        "report-only call is unavailable in data expressions",
+                    ));
+                }
                 if output_seen {
                     return Err(parser
                         .cursor
@@ -380,7 +387,10 @@ impl Program {
                     .punctuation(b'=', "expected '=' after edit target")?;
                 parser.cursor.space();
                 let expression_range = parser.cursor.position..parser.expression_end()?;
-                let (_, names) = parser.pure_value(expression_range.clone())?;
+                let (_, names) = parser.pure_value(
+                    expression_range.clone(),
+                    comprehension::ExpressionPolicy::Data,
+                )?;
                 parser
                     .preflight
                     .charge(
@@ -763,6 +773,7 @@ struct Parser<'a> {
     preflight: Budget,
     preflight_range: Option<Range<usize>>,
     lexed: zincite_syntax::LexedSource,
+    first_report_call: Option<Range<usize>>,
 }
 impl<'a> Parser<'a> {
     fn expression_end(&self) -> Result<usize, QueryError> {
@@ -802,6 +813,7 @@ impl<'a> Parser<'a> {
     fn pure_value(
         &mut self,
         range: Range<usize>,
+        policy: comprehension::ExpressionPolicy,
     ) -> Result<(comprehension::LoweredValue, Vec<Located<String>>), QueryError> {
         self.begin_pure(range.clone())?;
         self.admit_cst(&range)?;
@@ -810,6 +822,7 @@ impl<'a> Parser<'a> {
             range.clone(),
             &mut self.preflight,
             self.limits.nesting,
+            policy,
         )?;
         let mut types = BTreeMap::new();
         for (name, kind) in &self.names {
@@ -864,7 +877,11 @@ impl<'a> Parser<'a> {
         &mut self,
         range: Range<usize>,
     ) -> Result<(Expression, Kind, bool), QueryError> {
-        let (expression, names) = self.pure_value(range.clone())?;
+        let (expression, names) =
+            self.pure_value(range.clone(), comprehension::ExpressionPolicy::Report)?;
+        if self.first_report_call.is_none() {
+            self.first_report_call = expression.first_report_call.clone();
+        }
         Ok((
             value_stage(Stage::Value { expression, names }, range),
             Kind::Constructed,

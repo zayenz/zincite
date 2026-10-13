@@ -6,7 +6,9 @@ right-hand side. Neither operation constructs a new value from query results.
 Read-only [query programs](reference.md#query-programs) support immutable `source`
 and `let` bindings, ordered query statements, native reports and the bounded
 expression/comprehension subset below. Zincite lowers its existing CST and uses
-Zirql for checked expressions, scopes and generators. Model-backed `.dzn` edit batches use the same expression rules and evaluator.
+Zirql for checked expressions, scopes, generators, array summaries and requirements.
+Model-backed `.dzn` edit batches use the common expression subset and evaluator;
+the five report-only calls below are excluded from every edit expression.
 
 Reports accept positional and fully keyed arrays, matrices, tuples, ordered
 records and homogeneous Boolean/integer/float/nominal sets. Sources may use
@@ -85,7 +87,7 @@ tuple access (`t.1`), array access (`a[i]` or `a[i,j]`); finite integer ranges
 literals; the three comprehensions above; and `if ... then ... elseif ... then
 ... else ... endif`. The `else` is mandatory in this subset. Records use
 MiniZinc labels, for example `(weight: 7, peer: 2)`; a label is not a string or
-member. The only expression calls are `index_set(a)` for a one-dimensional
+member. The common expression calls are `index_set(a)` for a one-dimensional
 array's established keys and the host helper
 `enum_member(EnumName, "MemberName")` for an explicit enum member identity.
 `enum_member` requires a unique model enum declaration and a
@@ -95,6 +97,36 @@ literals retain their resolved identity when the model establishes one. Member
 names and generated assignment names must have valid MiniZinc identifier
 spelling (quoted when required). Serialization uses the declaration's member
 spelling; it never replaces matching text inside strings or field labels.
+
+Reports additionally accept `length(a)`, `sum(a)`, `forall(a)`, `exists(a)`
+and `require(condition, value, "message")`. Each reducer takes one ordinary array
+expression. The array materializes fully before reduction; generator-call
+spellings such as `forall(i in 1..3)(...)` are unsupported. Length counts present
+values without flattening nested arrays. Sum accepts only integers and performs
+checked addition in stored order. The quantifiers require fixed Booleans and
+scan every element. Positional and fully keyed arrays use the same reducers;
+Zincite still validates axes and rectangular coverage before consumption.
+
+| Call | Empty array result |
+| --- | --- |
+| `length([])` | `0` |
+| `sum([])` | `0` |
+| `forall([])` | `true` |
+| `exists([])` | `false` |
+
+Require takes exactly three arguments, with a string literal as its message.
+It preflights every operand, name and known type. Runtime evaluates its condition
+as a fixed Boolean. True evaluates and returns the value; false fails at the
+require call with the supplied message. False skips value arithmetic, access,
+construction and runtime host checks, while source projection and actual binding
+type discovery may still inspect or copy referenced values during preflight.
+A skipped operand cannot hide unsupported syntax or a known type mismatch.
+
+These five calls are reporting operations only. An edit program refuses them in
+preceding `let` bindings, including unused lets and skipped branches, and in every
+`create` or `replace` RHS. Data expressions retain exactly `index_set` and
+`enum_member` as their call whitelist. Sources, binding order, target checks and
+the atomic candidate rules below remain the data contract.
 
 The operators below use the [MiniZinc 2.10.1 precedence and associativity
 table](https://docs.minizinc.dev/en/2.10.1/spec.html#operators). Parentheses
@@ -390,6 +422,17 @@ products and byte lengths with overflow-safe arithmetic before allocating.
 Each repeated generator expansion and repeated serialization is charged again.
 On exhaustion, return a located limit error; never truncate a report or edit.
 
+Reducers pay full operand materialization, generator candidates and copies before
+scanning. Sum, forall and exists charge one work unit per inspected element;
+length charges one for the present-value count and checked `i64` conversion.
+Each summary scalar adds one aggregate result unit. Empty summaries still pay
+expression/preflight work and their scalar unit. Require preflight charges its
+literal message bytes; false diagnostic copying charges bytes before allocation.
+True require moves the admitted child with no additional result or copy charge.
+Emission snapshots and rendering charge again. Arithmetic errors retain their
+child ranges; requirement failures retain their call range and limit failures
+the active operation range.
+
 Parse errors, unsupported expressions, wrong types, missing fields or keys,
 duplicate keys/targets and arithmetic failures identify the host query byte
 range or the original source file/range responsible. For a generated value,
@@ -413,7 +456,8 @@ zirql::evaluate_value(expression, bindings, shared_budget)
 The report adapter supplies typed query results and renders the native value.
 The data adapter supplies literal RHS values, checks model ownership and target
 shape, serializes constructed MiniZinc literals, then calls the existing atomic
-edit preparation and complete-candidate reparse. Both adapters use the same expression rules and budget. Edit expressions are
+edit preparation and complete-candidate reparse. Both adapters share the common subset, evaluator and budget. Reporting also
+admits the selected summaries and require; data lowering excludes those calls. Edit expressions are
 validated at parse time and lowered again with declared target evidence during
 evaluation; this additional work spends the same request budget. Zincite has one CST frontend and uses the existing
 Zirql dependency for shared evaluation. It does not run a model, compiler or solver.

@@ -421,11 +421,26 @@ Pure values include signed 64-bit integers, finite binary64 floats, Booleans,
 strings, resolved enum members, positional/keyed arrays, matrices, tuples,
 ordered records and homogeneous Boolean/integer/float/nominal sets. Supported operations include checked arithmetic, exact
 numeric promotion, comparison, equality, membership, concatenation, access,
-finite inclusive integer ranges, rank-one `index_set`, `enum_member` and `if`/`elseif` with mandatory
+finite inclusive integer ranges, rank-one `index_set`, `enum_member`, report-only
+`length`/`sum`/`forall`/`exists`/`require`, and `if`/`elseif` with mandatory
 `else`. Unsupported forms and known incompatible types fail before evaluation,
 including in skipped branches. Skipped runtime branches perform no arithmetic
 or missing-access work. Overflow, zero division, inexact promotion, nonfinite
 results and nonzero floating results rounded to zero are located errors.
+
+Array reducers take one fully evaluated positional or keyed array. `length`
+counts present values and permits any element type; nested arrays remain nested.
+`sum` adds integers in order with checked overflow. `forall` and `exists` scan
+all fixed Boolean elements. Empty results are `0`, `0`, `true` and `false`.
+A comprehension head failure occurs before reduction even after a decisive
+Boolean. Sets, tuples, float sum and generator-call shorthand are refused.
+
+`require(condition, value, "message")` has exactly three arguments and a literal
+string message. It preflights both expressions, then evaluates the fixed Boolean
+condition. True evaluates and returns the value; false fails at the require call
+with the literal message. False skips value arithmetic, access, construction and
+runtime host checks, while referenced values may still be projected or inspected
+during preflight. Undefined names and incompatible known types still fail.
 
 `query` sources project `Strings`, `Count` and `Literals` into pure values.
 Selections need an explicit `names`, `count` or `values` query projection.
@@ -452,7 +467,9 @@ the semantic query's `.mzn` root path.
 
 Model calls remain unsupported. Data batches use `create` and `replace`, followed
 by one `emit_document;`. Sources and immutable `let` bindings precede the edits
-and read the original input. A batch cannot include report/query emissions or
+and read the original input. Their expression calls are exactly `index_set` and
+`enum_member`. The five report-only calls are refused in unused preceding lets,
+skipped branches and edit RHSs. A batch cannot include report/query emissions or
 repeat a target name. Creation requires an absent assignment; replacement requires
 exactly one original assignment. Both require a unique fixed nonoptional model
 declaration. Final validation overlays edited integer scalars on original literals
@@ -470,14 +487,31 @@ fallback until release work supplies one. Consumer release packaging also needs
 sibling dependency version metadata and registry readiness; it belongs to a
 release milestone.
 
-Use `zincite-query -f PROGRAM [FILE|-]` or `zincite query --program-file PROGRAM
-[FILE|-]`. Input, stdin and model options have their existing meanings. Report programs
+Use `zincite-query --program TEXT [FILE|-]` or `zincite query --program TEXT
+[FILE|-]` for inline programs. `-f PROGRAM` and `--program-file PROGRAM` read a
+file through the same Program API. Select one source: inline text, a program file
+or a legacy positional query. Repeated or mixed program sources fail. Program
+mode accepts at most one input file or `-` and has no positional query slot.
+Input, stdin and model options have their existing meanings. Report programs
 reject `--diff` and `--write`; editing programs use the existing preview and
 complete-candidate write rules. Both commands evaluate and render all requested
 outputs before writing stdout. A later runtime or rendering error leaves stdout
-empty. Program-file errors name the actual program file; source errors retain
+empty. Inline program errors use `<program>`; file errors name the program file.
+Both retain original program byte ranges. Source errors retain
 the original input or model location. Incomplete semantic reports still carry
 `complete:false` and located `limitations`, and exit 1.
+
+For `demand = [2,3,4];`, both commands return the tagged integer `9`:
+
+```sh
+zincite-query --program 'source d = literal("demand"); report sum(d);' data.dzn
+zincite query --program 'source d = literal("demand"); report sum(d);' data.dzn
+```
+
+Saving that exact source as `sum.zq` and using `--program-file sum.zq` produces
+the same result as `Program::parse` followed by evaluation and rendering. No
+parameter or named entry point is needed. The [capacity report](queries.md#compare-demand-and-capacity)
+shows a longer program with local `factor = 2`.
 
 The library provides `evaluate`, `evaluate_with_model` and `evaluate_with_facts`.
 `Program::requires_model_facts()` reports semantic or possible source/member demand.
@@ -502,7 +536,13 @@ statements; evaluation admits those costs before input/fact preparation, and
 repeated evaluation pays them again. Data edits lower their original RHS text
 again with declared target evidence during evaluation; this work shares the
 request allowance. Candidate assembly, full reparsing and source rendering spend
-that allowance too. Before building the CST, parsing applies
+that allowance too. Reducers retain full materialization/candidate/copy costs,
+then sum/forall/exists pay one work unit per scanned element and length pays one
+for its count/conversion. Each summary pays one scalar result unit, including
+empty arrays. Require preflight pays literal message bytes; false diagnostic
+copying pays bytes before allocation. True require moves its child without
+another result or copy charge. Emission snapshots and rendering pay again.
+Before building the CST, parsing applies
 the nesting allowance conservatively to enclosed expression segments and their
 operator chains; sibling values and conditional branches reset local counts.
 JSON metadata reserves a bounded amount before construction. Work also covers

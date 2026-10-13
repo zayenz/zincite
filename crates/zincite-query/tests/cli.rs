@@ -513,7 +513,7 @@ report rows;"#,
     );
     for source in [
         "report 7; report 1 div 0;",
-        "report if true then 1 else sum([1]) endif;",
+        "report if true then 1 else max([1]) endif;",
     ] {
         std::fs::write(&path, source).unwrap();
         let output = run(&args, b"a = 1;");
@@ -742,4 +742,108 @@ fn data_program_files_preview_diff_and_write_one_coherent_candidate() {
     assert!(output.status.success());
     assert_eq!(std::fs::read(&data).unwrap(), created);
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn inline_programs_share_file_library_results_and_buffer_errors() {
+    use zincite_query::{Input, Program, ProgramLimits};
+    use zincite_syntax::FileMode;
+    let source = r#"source d = literal("demand"); report sum(d);"#;
+    let input = "demand=[2,3,4]; capacity=[6,8,5];";
+    let path = std::env::temp_dir().join(format!("zincite-query-inline-{}.zq", std::process::id()));
+    std::fs::write(&path, source).unwrap();
+    let native = Input::parse(input.as_bytes().to_vec(), FileMode::Data).unwrap();
+    let expected = Program::parse(source, ProgramLimits::default())
+        .unwrap()
+        .evaluate(&native, ProgramLimits::default())
+        .unwrap()
+        .render()
+        .unwrap();
+    let inline = run(
+        &["--stdin-filepath", "data.dzn", "--program", source],
+        input.as_bytes(),
+    );
+    let file = run(
+        &[
+            "--stdin-filepath",
+            "data.dzn",
+            "--program-file",
+            path.to_str().unwrap(),
+        ],
+        input.as_bytes(),
+    );
+    assert!(
+        inline.status.success() && inline.stderr.is_empty(),
+        "{:?}",
+        inline
+    );
+    assert!(
+        file.status.success() && file.stderr.is_empty(),
+        "{:?}",
+        file
+    );
+    assert_eq!(inline.stdout, expected);
+    assert_eq!(file.stdout, expected);
+    let capacity = include_str!("fixtures/capacity.zq");
+    let expected = Program::parse(capacity, ProgramLimits::default())
+        .unwrap()
+        .evaluate(&native, ProgramLimits::default())
+        .unwrap()
+        .render()
+        .unwrap();
+    let report = run(
+        &["--stdin-filepath", "data.dzn", "--program", capacity, "-"],
+        input.as_bytes(),
+    );
+    assert!(
+        report.status.success() && report.stderr.is_empty(),
+        "{:?}",
+        report
+    );
+    assert_eq!(report.stdout, expected);
+    for arguments in [
+        vec![
+            "--program",
+            source,
+            "--program-file",
+            path.to_str().unwrap(),
+        ],
+        vec!["--program", source, "--program", source],
+        vec!["--program", source, "count", "data.dzn"],
+        vec!["--program", source, "--max-work", "0"],
+        vec!["--program", source, "--diff"],
+    ] {
+        let output = run(&arguments, input.as_bytes());
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+    }
+    let output = run(
+        &[
+            "--stdin-filepath",
+            "data.dzn",
+            "--program",
+            "report 7; report require(false,1 div 0,\"capacity refused\");",
+        ],
+        input.as_bytes(),
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let diagnostic = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        diagnostic.contains("<program>:1:")
+            && diagnostic.contains("capacity refused")
+            && diagnostic.contains("bytes 17.."),
+        "{diagnostic}"
+    );
+    let output = run(
+        &[
+            "--program",
+            "let unused=sum([1]); replace a=[2]; emit_document;",
+        ],
+        input.as_bytes(),
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("report-only"));
+    std::fs::remove_file(path).unwrap();
 }

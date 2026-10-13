@@ -2181,7 +2181,7 @@ fn positional_programs_validate_branches_and_preserve_failure_locations() {
     ));
     for expression in [
         "[i | i in i]",
-        "if true then 1 else sum([1]) endif",
+        "if true then 1 else max([1]) endif",
         "if true then 1 else 1 + false endif",
         "if true then 1 else 1e-999 endif",
         "[true: 3]",
@@ -2731,4 +2731,126 @@ fn data_programs_double_entities_and_validate_final_scalar_axes() {
         .evaluate_with_model(&data, Some(&axes), ProgramLimits::default())
         .unwrap();
     assert_eq!(result.render().unwrap(), b"n=3; a=[2: 5, 3: 6, 4: 7];");
+}
+
+#[test]
+fn scalar_summaries_report_capacity_and_short_literal_totals() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    use zirql::ConstructedValue as V;
+    let limits = ProgramLimits::default();
+    let input = Input::parse(
+        b"demand = [2,3,4]; capacity = [6,8,5];".to_vec(),
+        FileMode::Data,
+    )
+    .unwrap();
+    let program = Program::parse(include_str!("fixtures/capacity.zq"), limits).unwrap();
+    let mut result = program.evaluate(&input, limits).unwrap();
+    assert!(result.is_complete());
+    assert!(result.limitations().is_empty());
+    let row = |index, demand, capacity, headroom| {
+        V::Record(vec![
+            ("index".into(), V::Integer(index)),
+            ("demand".into(), V::Integer(demand)),
+            ("capacity".into(), V::Integer(capacity)),
+            ("headroom".into(), V::Integer(headroom)),
+        ])
+    };
+    assert!(
+        matches!(result.emissions()[0].value(), ReportValue::Constructed(value) if value == &V::Record(vec![
+            ("rows".into(), V::Array(vec![row(1,4,6,2), row(2,6,8,2), row(3,8,5,-3)])),
+            ("total_demand".into(), V::Integer(18)), ("total_capacity".into(), V::Integer(19)),
+            ("totals_fit".into(), V::Boolean(true)), ("cells_fit".into(), V::Boolean(false)),
+            ("violations".into(), V::Array(vec![row(3,8,5,-3)])),
+        ]))
+    );
+    let report: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
+    assert_eq!(report["complete"], true);
+    assert_eq!(report["limitations"], serde_json::json!([]));
+    let mut short = Program::parse(r#"source d = literal("demand"); report sum(d);"#, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    assert!(matches!(
+        short.emissions()[0].value(),
+        ReportValue::Constructed(V::Integer(9))
+    ));
+    let rendered: serde_json::Value = serde_json::from_slice(&short.render().unwrap()).unwrap();
+    assert_eq!(
+        rendered,
+        serde_json::json!({"complete":true,"limitations":[],"result":{"kind":"integer","value":9}})
+    );
+
+    let empty = Input::parse(b"demand=[]; capacity=[];".to_vec(), FileMode::Data).unwrap();
+    let empty_result = program.evaluate(&empty, limits).unwrap();
+    assert!(
+        matches!(empty_result.emissions()[0].value(), ReportValue::Constructed(value) if value == &V::Record(vec![
+            ("rows".into(), V::Array(vec![])), ("total_demand".into(), V::Integer(0)),
+            ("total_capacity".into(), V::Integer(0)), ("totals_fit".into(), V::Boolean(true)),
+            ("cells_fit".into(), V::Boolean(true)), ("violations".into(), V::Array(vec![])),
+        ]))
+    );
+}
+
+#[test]
+fn report_call_preflight_keeps_literal_messages_and_the_data_whitelist() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    use zirql::ConstructedValue as V;
+    let limits = ProgramLimits::default();
+    let input = Input::parse(b"a=[1];".to_vec(), FileMode::Data).unwrap();
+    let successful = Program::parse(r#"report (n:length(["x",[1]]), total:sum([]), all:forall([]), some:exists([]), value:require(true,7,"unused"));"#, limits).unwrap().evaluate(&input, limits).unwrap();
+    assert!(
+        matches!(successful.emissions()[0].value(), ReportValue::Constructed(value) if value == &V::Record(vec![
+            ("n".into(), V::Integer(2)), ("total".into(), V::Integer(0)), ("all".into(), V::Boolean(true)), ("some".into(), V::Boolean(false)), ("value".into(), V::Integer(7)),
+        ]))
+    );
+    for (source, responsible) in [
+        (
+            r#"report require(false, (1 div 0, [1][8]), "stopped");"#,
+            r#"require(false, (1 div 0, [1][8]), "stopped")"#,
+        ),
+        (
+            "report sum([9223372036854775807,1]);",
+            "sum([9223372036854775807,1])",
+        ),
+        (
+            "report forall([if i=1 then false else (1 div 0)=0 endif | i in 1..2]);",
+            "1 div 0",
+        ),
+    ] {
+        let error = Program::parse(source, limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .unwrap_err();
+        assert_eq!(&source[error.range], responsible);
+    }
+    for source in [
+        r#"report require(false, max([1]), "unused");"#,
+        r#"report require(false, sum([true]), "unused");"#,
+        r#"report require(false, missing, "unused");"#,
+        r#"report require(1, 2, "unused");"#,
+        r#"report require(true, 2, "computed" ++ "message");"#,
+        "report require(true, 2);",
+        "report sum([1],[2]);",
+        "report forall(i in 1..2)(true);",
+    ] {
+        assert!(Program::parse(source, limits).is_err(), "{source}");
+    }
+    for (source, call) in [
+        (
+            "let unused = sum([1]); replace a=[2]; emit_document;",
+            "sum([1])",
+        ),
+        (
+            r#"let unused = if false then require(true,1,"x") else 0 endif; create b=1; emit_document;"#,
+            r#"require(true,1,"x")"#,
+        ),
+        (
+            "replace a=if true then [2] else [length([1])] endif; emit_document;",
+            "length([1])",
+        ),
+    ] {
+        let error = Program::parse(source, limits).unwrap_err();
+        assert_eq!(&source[error.range], call);
+        assert!(error.message.contains("report-only"));
+    }
 }

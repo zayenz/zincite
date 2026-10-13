@@ -12,13 +12,20 @@ use zincite_lint::{
 use zincite_syntax::{NodeKind as N, ParsedFile, SyntaxElement, SyntaxNode, TokenKind as T};
 use zirql::{
     Budget, ConstructedValue as V, Located, ValueBinaryOperator as B, ValueExpression as E,
-    ValueExpressionKind as K, ValueGenerator, ValueUnaryOperator as U,
+    ValueExpressionKind as K, ValueGenerator, ValueReducer, ValueUnaryOperator as U,
 };
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExpressionPolicy {
+    Report,
+    Data,
+}
 
 #[derive(Debug)]
 pub(crate) struct LoweredValue {
     pub expression: E,
     pub members: Vec<MemberRequest>,
+    pub first_report_call: Option<Range<usize>>,
 }
 #[derive(Debug)]
 pub(crate) struct MemberRequest {
@@ -53,6 +60,7 @@ pub(crate) fn lower(
     range: Range<usize>,
     budget: &mut Budget,
     nesting: usize,
+    policy: ExpressionPolicy,
 ) -> Result<LoweredValue, QueryError> {
     charge(
         budget,
@@ -85,11 +93,14 @@ pub(crate) fn lower(
         budget,
         nesting,
         members: Vec::new(),
+        policy,
+        first_report_call: None,
     };
     let expression = lower.node(rhs, 0)?;
     Ok(LoweredValue {
         expression,
         members: lower.members,
+        first_report_call: lower.first_report_call,
     })
 }
 fn map_range(range: Range<usize>, offset: usize, prefix: usize) -> Range<usize> {
@@ -102,6 +113,8 @@ struct Lower<'a, 'b> {
     budget: &'b mut Budget,
     nesting: usize,
     members: Vec<MemberRequest>,
+    policy: ExpressionPolicy,
+    first_report_call: Option<Range<usize>>,
 }
 impl Lower<'_, '_> {
     fn range(&self, node: &SyntaxNode) -> Range<usize> {
@@ -512,6 +525,73 @@ impl Lower<'_, '_> {
                     K::Name(slot)
                 } else if self.text(i) == "index_set" && node.child_nodes().count() == 1 {
                     K::IndexSet(Box::new(self.node(child(), depth + 1)?))
+                } else if matches!(
+                    self.text(i),
+                    "length" | "sum" | "forall" | "exists" | "require"
+                ) {
+                    if self.policy == ExpressionPolicy::Data {
+                        return Err(QueryError::query(
+                            range,
+                            "report-only call is unavailable in data expressions",
+                        ));
+                    }
+                    // Record the outer call before lowering nested operands.
+                    if self.first_report_call.is_none() {
+                        self.first_report_call = Some(range.clone());
+                    }
+                    if self.text(i) == "require" {
+                        let mut args = node.child_nodes();
+                        let condition = args.next().ok_or_else(|| {
+                            QueryError::query(range.clone(), "require needs three arguments")
+                        })?;
+                        let value = args.next().ok_or_else(|| {
+                            QueryError::query(range.clone(), "require needs three arguments")
+                        })?;
+                        let message = args.next().ok_or_else(|| {
+                            QueryError::query(range.clone(), "require needs three arguments")
+                        })?;
+                        if args.next().is_some() {
+                            return Err(QueryError::query(range, "require needs three arguments"));
+                        }
+                        let condition = Box::new(self.node(condition, depth + 1)?);
+                        let value = Box::new(self.node(value, depth + 1)?);
+                        let token = self.tokens(message).next().ok_or_else(unsupported)?;
+                        if message.kind() != N::Expression
+                            || self.parsed.tokens()[token].kind != T::StringLiteral
+                        {
+                            return Err(QueryError::query(
+                                self.range(message),
+                                "require message must be a string literal",
+                            ));
+                        }
+                        let lowered = self.node(message, depth + 1)?;
+                        let K::Literal(V::String(text)) = lowered.value else {
+                            unreachable!("string literal message");
+                        };
+                        K::Require {
+                            condition,
+                            value,
+                            message: Located::new(text, lowered.range),
+                        }
+                    } else {
+                        if node.child_nodes().count() != 1 {
+                            return Err(QueryError::query(
+                                range,
+                                "array reducer needs one argument",
+                            ));
+                        }
+                        let operator = match self.text(i) {
+                            "length" => ValueReducer::Length,
+                            "sum" => ValueReducer::Sum,
+                            "forall" => ValueReducer::Forall,
+                            "exists" => ValueReducer::Exists,
+                            _ => unreachable!("selected reducer"),
+                        };
+                        K::Reduce {
+                            operator,
+                            array: Box::new(self.node(child(), depth + 1)?),
+                        }
+                    }
                 } else {
                     return Err(unsupported());
                 }
@@ -751,9 +831,15 @@ fn references_binding(
         }
         K::Unary { operand, .. }
         | K::IndexSet(operand)
+        | K::Reduce { array: operand, .. }
         | K::Field { value: operand, .. }
         | K::TupleAccess { value: operand, .. } => references_binding(operand, names, budget),
         K::Binary { left, right, .. }
+        | K::Require {
+            condition: left,
+            value: right,
+            ..
+        }
         | K::Range {
             lower: left,
             upper: right,

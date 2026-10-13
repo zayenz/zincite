@@ -499,7 +499,7 @@ report rows;"#,
     assert!(report.find("zeta").unwrap() < report.find("alpha").unwrap());
     for source in [
         "report 7; report 1 div 0;",
-        "report if true then 1 else sum([1]) endif;",
+        "report if true then 1 else max([1]) endif;",
     ] {
         std::fs::write(&path, source).unwrap();
         let output = run(&args, "a = 1;");
@@ -738,4 +738,122 @@ fn data_program_files_preview_diff_and_write_one_coherent_candidate() {
     assert!(output.status.success());
     assert_eq!(std::fs::read(&data).unwrap(), created);
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn inline_programs_share_file_results_and_buffer_errors() {
+    let source = r#"source d = literal("demand"); report sum(d);"#;
+    let input = "demand=[2,3,4]; capacity=[6,8,5];";
+    let path = std::env::temp_dir().join(format!("zincite-query-inline-{}.zq", std::process::id()));
+    std::fs::write(&path, source).unwrap();
+    let expected =
+        b"{\"complete\":true,\"limitations\":[],\"result\":{\"kind\":\"integer\",\"value\":9}}\n";
+    let inline = run(
+        &["query", "--stdin-filepath", "data.dzn", "--program", source],
+        input,
+    );
+    let file = run(
+        &[
+            "query",
+            "--stdin-filepath",
+            "data.dzn",
+            "--program-file",
+            path.to_str().unwrap(),
+        ],
+        input,
+    );
+    assert!(
+        inline.status.success() && inline.stderr.is_empty(),
+        "{:?}",
+        inline
+    );
+    assert!(
+        file.status.success() && file.stderr.is_empty(),
+        "{:?}",
+        file
+    );
+    assert_eq!(inline.stdout, expected);
+    assert_eq!(file.stdout, expected);
+    let capacity = include_str!("../crates/zincite-query/tests/fixtures/capacity.zq");
+    std::fs::write(&path, capacity).unwrap();
+    let file = run(
+        &[
+            "query",
+            "--stdin-filepath",
+            "data.dzn",
+            "-f",
+            path.to_str().unwrap(),
+        ],
+        input,
+    );
+    assert!(
+        file.status.success() && file.stderr.is_empty(),
+        "{:?}",
+        file
+    );
+    let report = run(
+        &[
+            "query",
+            "--stdin-filepath",
+            "data.dzn",
+            "--program",
+            capacity,
+            "-",
+        ],
+        input,
+    );
+    assert!(
+        report.status.success() && report.stderr.is_empty(),
+        "{:?}",
+        report
+    );
+    assert_eq!(report.stdout, file.stdout);
+    for arguments in [
+        vec![
+            "query",
+            "--program",
+            source,
+            "--program-file",
+            path.to_str().unwrap(),
+        ],
+        vec!["query", "--program", source, "--program", source],
+        vec!["query", "--program", source, "count", "data.dzn"],
+        vec!["query", "--program", source, "--max-work", "0"],
+        vec!["query", "--program", source, "--diff"],
+    ] {
+        let output = run(&arguments, input);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+    }
+    let output = run(
+        &[
+            "query",
+            "--stdin-filepath",
+            "data.dzn",
+            "--program",
+            "report 7; report require(false,1 div 0,\"capacity refused\");",
+        ],
+        input,
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let diagnostic = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        diagnostic.contains("<program>:1:")
+            && diagnostic.contains("capacity refused")
+            && diagnostic.contains("bytes 17.."),
+        "{diagnostic}"
+    );
+    let output = run(
+        &[
+            "query",
+            "--program",
+            "let unused=sum([1]); replace a=[2]; emit_document;",
+        ],
+        input,
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("report-only"));
+    std::fs::remove_file(path).unwrap();
 }
