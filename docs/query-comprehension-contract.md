@@ -65,7 +65,8 @@ rules below continue to apply.
 
 Read-only requests may interleave parameter/source declarations, immutable
 bindings and reports. Names become visible in statement order. A data request
-ends in one atomic edit batch and cannot include reports. The `query` string is an existing Zincite query pipeline;
+ends in one atomic edit batch and cannot include reports. Its sources must precede
+`let` bindings. The `query` string is an existing Zincite query pipeline;
 `literal` takes a checked string naming one existing assignment in the input
 `.dzn`. These are host statements, not expression calls. Host strings use the current query string
 escapes (`\"`, `\\`, `\n`, `\r`, `\t`); other escapes fail. Each visible source,
@@ -74,7 +75,7 @@ Parameters follow the [required input rules](reference.md#required-query-paramet
 
 ```ebnf
 request        = (parameter | source | binding | report)* report
-               | (parameter | source | binding)* edit-batch ;
+               | (parameter | source)* (parameter | binding)* edit-batch ;
 parameter      = "param" ascii-ident ":" ("int" | "string" | "bool") ";" ;
 source         = "source" ident "=" ("query" "(" string ")"
                | "literal" "(" expression ")") ";" ;
