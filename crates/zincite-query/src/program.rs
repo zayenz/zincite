@@ -1753,6 +1753,7 @@ fn map_value(expression: &mut zirql::ValueExpression, map: &impl Fn(Range<usize>
         K::Unary { operand, .. }
         | K::One(operand)
         | K::IndexSet(operand)
+        | K::Entries(operand)
         | K::Reduce { array: operand, .. } => map_value(operand, map),
         K::Field { value, field } | K::GroupBy { rows: value, field } => {
             field.range = map(field.range.clone());
@@ -1763,6 +1764,7 @@ fn map_value(expression: &mut zirql::ValueExpression, map: &impl Fn(Range<usize>
             map_value(value, map);
         }
         K::Binary { left, right, .. }
+        | K::ZipExact { left, right }
         | K::Range {
             lower: left,
             upper: right,

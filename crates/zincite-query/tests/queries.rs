@@ -2251,7 +2251,7 @@ fn constructed_reports_retain_semantic_limitations() {
     let source = b"int: value = missing; solve satisfy;";
     let model = semantic_model("constructed-incomplete", source, b"", "");
     let input = Input::parse(source.to_vec(), FileMode::Model).unwrap();
-    let program = Program::parse(r#"source n = query("references | declarations | names | count"); let r = (count: n); report r;"#, ProgramLimits::default()).unwrap();
+    let program = Program::parse(r#"source n = query("references | declarations | names | count"); let r = (count: n, cells: entries(zip_exact([1:n],[1:n]))); report r;"#, ProgramLimits::default()).unwrap();
     let mut result = program
         .evaluate_with_model(&input, Some(&model), ProgramLimits::default())
         .unwrap();
@@ -2267,6 +2267,89 @@ fn constructed_reports_retain_semantic_limitations() {
 }
 
 #[test]
+fn keyed_comparison_keeps_native_pairs_entries_and_explicit_cell_deltas() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    use zirql::{ConstructedValue as V, ValueKey as K, ValueKeyType};
+    let limits = ProgramLimits::default();
+    let bytes = include_bytes!("fixtures/keyed-comparison.dzn");
+    let input = Input::parse(bytes.to_vec(), FileMode::Data).unwrap();
+    let mut delta = Program::parse(include_str!("fixtures/keyed-comparison.zq"), limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let ReportValue::Constructed(V::KeyedArray { axes, entries }) = delta.emissions()[0].value()
+    else {
+        panic!("keyed delta")
+    };
+    assert!(
+        axes.iter()
+            .all(|axis| axis.key_type == ValueKeyType::Integer
+                && axis.keys == [K::Integer(1), K::Integer(2)])
+    );
+    assert_eq!(
+        entries
+            .iter()
+            .map(|entry| (&entry.key, &entry.value))
+            .collect::<Vec<_>>(),
+        vec![
+            (&vec![K::Integer(1), K::Integer(1)], &V::Integer(1)),
+            (&vec![K::Integer(1), K::Integer(2)], &V::Integer(2)),
+            (&vec![K::Integer(2), K::Integer(1)], &V::Integer(3)),
+            (&vec![K::Integer(2), K::Integer(2)], &V::Integer(4)),
+        ]
+    );
+    let pairs = Program::parse(
+        r#"source a=literal("before"); source b=literal("after");
+        report (pairs: zip_exact(a,b), cells: entries(zip_exact(a,b)));"#,
+        limits,
+    )
+    .unwrap()
+    .evaluate(&input, limits)
+    .unwrap();
+    let ReportValue::Constructed(V::Record(fields)) = pairs.emissions()[0].value() else {
+        panic!("pair record")
+    };
+    let V::KeyedArray {
+        axes: paired_axes,
+        entries: paired_entries,
+    } = &fields[0].1
+    else {
+        panic!("paired array")
+    };
+    assert_eq!(paired_axes, axes);
+    assert_eq!(paired_entries[0].key, entries[0].key);
+    assert_eq!(
+        paired_entries[0].value,
+        V::Tuple(vec![V::Integer(3), V::Integer(4)])
+    );
+    let V::Array(cells) = &fields[1].1 else {
+        panic!("entry records")
+    };
+    assert_eq!(
+        cells[3],
+        V::Record(vec![
+            ("key".into(), V::Tuple(vec![V::Integer(2), V::Integer(2)])),
+            (
+                "value".into(),
+                V::Tuple(vec![V::Integer(6), V::Integer(10)])
+            ),
+        ])
+    );
+    assert!(delta.is_complete() && pairs.is_complete());
+    let rendered = delta.render().unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&rendered).unwrap();
+    assert_eq!(json["result"]["indexing"], "explicit");
+    assert_eq!(json["result"]["entries"][3]["value"]["value"], 4);
+    let shifted = "report 7; report zip_exact([1:3,2:4], [2:3,3:4]);";
+    let error = Program::parse(shifted, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap_err();
+    assert_eq!(&shifted[error.range], "zip_exact([1:3,2:4], [2:3,3:4])");
+    assert!(error.message.contains("ordered axes"));
+}
+
+#[test]
 fn keyed_reports_retain_model_identity_axes_and_row_major_cells() {
     use std::rc::Rc;
     use zincite_query::{Program, ProgramLimits, ReportValue};
@@ -2279,7 +2362,7 @@ fn keyed_reports_retain_model_identity_axes_and_row_major_cells() {
         let members = {enum_member(Guest,"Alpha"), enum_member(Guest,"Zulu"), enum_member(Guest,"Zulu")};
         let cells = [(i,e): t[i-1,e] | i in index_set(tail), e in members];
         let zero = [(i,e): 1 | i in 1..0, e in members];
-        report (cells: cells, written: t, pair: (tail[3],matrix[2,1]), nested: [[1],[2,3]], members: members, zero: zero, vacant: vacant, empty: empty, info: info);"#;
+        report (cells: cells, written: t, pair: (tail[3],matrix[2,1]), nested: [[1],[2,3]], members: members, zero: zero, vacant: vacant, empty: empty, info: info, aligned: zip_exact(t,t), inspected: entries(zip_exact(t,t)), empty_pairs: zip_exact(empty,empty));"#;
     let limits = ProgramLimits::default();
     let program = Program::parse(source, limits).unwrap();
     let facts = Rc::new(zincite_lint::ModelFacts::new(&model));
@@ -2363,6 +2446,36 @@ fn keyed_reports_retain_model_identity_axes_and_row_major_cells() {
     };
     assert!(matches!(&axes[0].keys[0], K::Member(member) if member.member_name == "Zulu"));
     assert_eq!(entries[1].value, V::Integer(9));
+    let V::KeyedArray {
+        axes: paired_axes,
+        entries: pairs,
+    } = &fields[9].1
+    else {
+        panic!("nominal pairs")
+    };
+    let V::KeyedArray {
+        axes: original_axes,
+        ..
+    } = &fields[1].1
+    else {
+        panic!("original axes")
+    };
+    assert_eq!(paired_axes, original_axes);
+    assert!(
+        matches!(&paired_axes[1].keys[0], K::Member(member) if member.type_id.0 == enum_id && member.member_name == "Zulu")
+    );
+    assert_eq!(
+        pairs[0].value,
+        V::Tuple(vec![V::Integer(21), V::Integer(21)])
+    );
+    let V::Array(inspected) = &fields[10].1 else {
+        panic!("nominal entries")
+    };
+    assert!(
+        matches!(&inspected[0], V::Record(row) if matches!(&row[0].1,
+        V::Tuple(key) if matches!(&key[1], V::Member(member) if member.type_id.0 == enum_id && member.member_name == "Zulu")))
+    );
+    assert_eq!(fields[11].1, fields[7].1);
     assert!(result.is_complete());
     let bytes = result.render().unwrap();
     let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
@@ -2382,6 +2495,15 @@ fn keyed_reports_retain_model_identity_axes_and_row_major_cells() {
     assert!(
         matches!(projected.emissions()[0].value(), ReportValue::Constructed(V::KeyedArray { axes, entries }) if axes.len() == 2 && entries[0].value == V::Integer(21))
     );
+    let empty_delta = Program::parse(
+        r#"source a=literal("empty");
+        report [e.key: e.value.2 - e.value.1 | e in entries(zip_exact(a,a))];"#,
+        limits,
+    )
+    .unwrap()
+    .evaluate_with_facts(&input, Rc::clone(&facts), limits)
+    .unwrap_err();
+    assert!(empty_delta.message.contains("empty"));
     let literals = Program::parse(
         "let m = [| 2:1: | 4: 42,41 | 3:32,31 |]; report m[3,1];",
         limits,
@@ -2407,6 +2529,14 @@ fn keyed_reports_refuse_shape_identity_and_unestablished_empty_axes() {
         ),
         (
             "report [v | v in [(1,1):1,(1,2):2,(2,1):3]];",
+            "missing cells",
+        ),
+        (
+            "report entries([(1,1):1,(1,2):2,(2,1):3]);",
+            "missing cells",
+        ),
+        (
+            "report zip_exact([(1,1):1,(1,2):2,(2,1):3], [|1,2|3,4|]);",
             "missing cells",
         ),
         ("report [i: i | i in 1..3 where i != 2];", "contiguous"),
@@ -2900,11 +3030,32 @@ fn report_call_preflight_keeps_literal_messages_and_the_data_whitelist() {
         "report forall(i in 1..2)(true);",
         "report group_by([], 1);",
         "report group_by([]);",
+        "report entries();",
+        "report entries([1:1], [1:1]);",
+        "report entries([]);",
+        "report zip_exact([1:1]);",
+        "report zip_exact([1:1], [1:1], [1:1]);",
+        "report if true then 1 else zip_exact([1:1], []) endif;",
+        "report [i | i in entries(i)];",
+        "report [i | i in zip_exact([1:1], i)];",
     ] {
         assert!(Program::parse(source, limits).is_err(), "{source}");
     }
     for (source, call) in [
         ("let unused = sum([1]); replace a=[2]; emit;", "sum([1])"),
+        (
+            "let unused=entries([1:1]); replace a=[2]; emit_document;",
+            "entries([1:1])",
+        ),
+        (
+            "let unused=if false then zip_exact([1:1],[1:1]) else [1:1] endif; create b=1; emit;",
+            "zip_exact([1:1],[1:1])",
+        ),
+        ("create b=entries([1:1]); emit;", "entries([1:1])"),
+        (
+            "replace a=if true then [2] else zip_exact([1:1],[1:1]) endif; emit_document;",
+            "zip_exact([1:1],[1:1])",
+        ),
         (
             "let unused = group_by([], \"machine\"); replace a=[2]; emit;",
             "group_by([], \"machine\")",

@@ -527,7 +527,14 @@ impl Lower<'_, '_> {
                     K::IndexSet(Box::new(self.node(child(), depth + 1)?))
                 } else if matches!(
                     self.text(i),
-                    "length" | "sum" | "forall" | "exists" | "require" | "group_by"
+                    "length"
+                        | "sum"
+                        | "forall"
+                        | "exists"
+                        | "require"
+                        | "group_by"
+                        | "entries"
+                        | "zip_exact"
                 ) {
                     if self.policy == ExpressionPolicy::Data {
                         return Err(QueryError::query(
@@ -539,7 +546,27 @@ impl Lower<'_, '_> {
                     if self.first_report_call.is_none() {
                         self.first_report_call = Some(range.clone());
                     }
-                    if self.text(i) == "group_by" {
+                    if self.text(i) == "entries" {
+                        if node.child_nodes().count() != 1 {
+                            return Err(QueryError::query(range, "entries needs one argument"));
+                        }
+                        K::Entries(Box::new(self.node(child(), depth + 1)?))
+                    } else if self.text(i) == "zip_exact" {
+                        let mut args = node.child_nodes();
+                        let left = args.next().ok_or_else(|| {
+                            QueryError::query(range.clone(), "zip_exact needs two arguments")
+                        })?;
+                        let right = args.next().ok_or_else(|| {
+                            QueryError::query(range.clone(), "zip_exact needs two arguments")
+                        })?;
+                        if args.next().is_some() {
+                            return Err(QueryError::query(range, "zip_exact needs two arguments"));
+                        }
+                        K::ZipExact {
+                            left: Box::new(self.node(left, depth + 1)?),
+                            right: Box::new(self.node(right, depth + 1)?),
+                        }
+                    } else if self.text(i) == "group_by" {
                         let mut args = node.child_nodes();
                         let rows = args.next().ok_or_else(|| {
                             QueryError::query(range.clone(), "group_by needs two arguments")
@@ -861,11 +888,13 @@ fn references_binding(
         K::Unary { operand, .. }
         | K::One(operand)
         | K::IndexSet(operand)
+        | K::Entries(operand)
         | K::Reduce { array: operand, .. }
         | K::GroupBy { rows: operand, .. }
         | K::Field { value: operand, .. }
         | K::TupleAccess { value: operand, .. } => references_binding(operand, names, budget),
         K::Binary { left, right, .. }
+        | K::ZipExact { left, right }
         | K::Require {
             condition: left,
             value: right,

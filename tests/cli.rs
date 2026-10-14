@@ -554,7 +554,8 @@ fn keyed_program_files_keep_nominal_axes_and_buffer_later_errors() {
     )
     .unwrap();
     let report = r#"source table=literal("table"); let members={enum_member(Guest,"Alpha"),enum_member(Guest,"Zulu")};
-        let cells=[(i,e):table[i,e] | i in 2..3,e in members]; report cells;"#;
+        let cells=[(i,e):table[i,e] | i in 2..3,e in members];
+        let pairs=zip_exact(cells,cells); report [e.key:e.value.1 | e in entries(pairs)];"#;
     std::fs::write(&program, report).unwrap();
     let args = [
         "query",
@@ -1053,4 +1054,58 @@ fn native_composition_inline_and_file_keep_results_status_and_buffering() {
         }
     }
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn keyed_comparison_inline_and_file_agree_and_buffer_alignment_errors() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-root-comparison-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let data_path = directory.join("comparison.dzn");
+    let program_path = directory.join("comparison.zq");
+    let data = include_bytes!("../crates/zincite-query/tests/fixtures/keyed-comparison.dzn");
+    std::fs::write(&data_path, data).unwrap();
+    for source in [
+        include_str!("../crates/zincite-query/tests/fixtures/keyed-comparison.zq"),
+        "report entries([|3,4|5,6|]);",
+    ] {
+        std::fs::write(&program_path, source).unwrap();
+        let mut expected = None;
+        for args in [
+            vec!["query", "--program", source, data_path.to_str().unwrap()],
+            vec![
+                "query",
+                "--program-file",
+                program_path.to_str().unwrap(),
+                data_path.to_str().unwrap(),
+            ],
+        ] {
+            let output = run(&args, "");
+            assert_eq!(output.status.code(), Some(0), "{output:?}");
+            assert!(output.stderr.is_empty(), "{output:?}");
+            if let Some(expected) = &expected {
+                assert_eq!(&output.stdout, expected);
+            } else {
+                assert!(String::from_utf8_lossy(&output.stdout).contains("\"complete\":true"));
+                expected = Some(output.stdout);
+            }
+        }
+    }
+    let source = "report 7; report zip_exact([1:3,2:4], [2:3,3:4]);";
+    let output = run(
+        &["query", "--program", source, data_path.to_str().unwrap()],
+        "",
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let diagnostic = String::from_utf8_lossy(&output.stderr);
+    let call_start = source.find("zip_exact").unwrap();
+    assert!(
+        diagnostic.contains("<program>:1:")
+            && diagnostic.contains("identical ordered axes")
+            && diagnostic.contains(&format!("bytes {call_start}..{}", source.len() - 1)),
+        "{diagnostic}"
+    );
+    assert_eq!(std::fs::read(&data_path).unwrap(), data);
+    std::fs::remove_dir_all(directory).unwrap();
 }

@@ -6,7 +6,8 @@ right-hand side. Neither operation constructs a new value from query results.
 Read-only [query programs](reference.md#query-programs) support immutable `source`
 and `let` bindings, required scalar parameters, ordered query statements, native
 reports and the bounded expression/comprehension subset below. Zincite lowers its existing CST and uses
-Zirql for checked expressions, scopes, generators, array summaries and requirements.
+Zirql for checked expressions, scopes, generators, array summaries, requirements
+and keyed helpers.
 Model-backed `.dzn` edit batches use the common expression subset and evaluator;
 the report-only calls below are excluded from every edit expression.
 
@@ -94,7 +95,8 @@ a fixed set with the supported element types below, or a finite integer range.
 Set iteration uses type order: `false` before `true`, numeric order for numbers
 and declaration order for members. An `in` generator yields **values**;
 `a in records` does not yield keys or `(key, value)` pairs. Use `index_set(records)` and
-`records[i]` when keys matter. Multiple names before `in` each range over the
+`records[i]` for rank-one keys, or `entries(records)` to read full keys and values
+from any keyed rank. Multiple names before `in` each range over the
 same source, with the last name varying fastest. A single-name `=` generator
 evaluates its right side once for each preceding binding. Earlier generator
 bindings are visible in later sources and filters; a generator's own bindings
@@ -128,7 +130,8 @@ spelling (quoted when required). Serialization uses the declaration's member
 spelling; it never replaces matching text inside strings or field labels.
 
 Reports additionally accept `length(a)`, `sum(a)`, `forall(a)`, `exists(a)`,
-`require(condition, value, "message")` and `group_by(rows, "field")`.
+`require(condition, value, "message")`, `group_by(rows, "field")`, `entries(a)`
+and `zip_exact(a,b)`.
 Each reducer takes one ordinary array
 expression. The array materializes fully before reduction; generator-call
 spellings such as `forall(i in 1..3)(...)` are unsupported. Length counts present
@@ -160,6 +163,29 @@ may differ. Empty input returns an empty array. Missing fields fail when
 executed, while known incompatible keys fail preflight even in skipped branches.
 Key refusals point to the selector; non-array input and non-record rows point
 to the call. Keyed arrays need an explicit positional comprehension conversion.
+
+`entries` takes exactly one keyed array and returns positional records with
+`key` followed by `value` in present-cell order. Rank-one keys are scalar integers
+or resolved members; higher-rank keys are tuples in dimension order. Empty
+input gives an ordinary empty positional array. The source retains its axes.
+
+`zip_exact` takes exactly two keyed arrays whose ordered axes and present full
+keys are identical. It returns a keyed array of two-element tuple cells, left
+value followed by right value, retaining left axes and keys. Tuple components
+may have different value types. Equal empty axes are retained. Different rank,
+axis types/order, integer keys, nominal identity/metadata or key coverage causes
+a refusal; equal counts are insufficient. There is no truncation, filling,
+reindexing or data write. Both operands run once, left before right. Known input
+kinds and axis rank/types are preflighted in every branch; runtime alignment
+errors use the call range. Child errors keep their responsible ranges.
+
+Zincite validates every executed keyed operand for its existing contiguous axes
+and rectangular coverage before a helper consumes it. Shared sparse alignment
+does not relax this host policy. An empty indexed delta comprehension headed by
+`e.key` cannot infer axes after `entries`; the existing fallback needs simple
+generator key names. Report `zip_exact` directly to retain declared empty axes.
+The [matrix example](queries.md#compare-keyed-matrix-cells) computes nonempty
+cell deltas explicitly.
 
 These calls are reporting operations only. An edit program refuses them in
 preceding `let` bindings, including unused lets and skipped branches, and in every
@@ -479,6 +505,13 @@ possible row schemas, including schema-bearing empty projections, without
 claiming group membership or count. Later snapshots and rendering spend the
 same allowance. Completion and limitations remain with the report adapter.
 
+Entries and exact pairing charge ordered axis/full-key comparisons, nominal
+metadata checks, type facts, new containers and slots, copied labels and depth
+scans. Evaluated cell values move into records or tuples without another deep
+copy; pairing retains admitted left axes and keys. Later snapshots and rendering
+spend the same allowance. Completion and limitations remain with the existing
+report adapter.
+
 Parse errors, unsupported expressions, wrong types, missing fields or keys,
 duplicate keys/targets and arithmetic failures identify the host query byte
 range or the original source file/range responsible. For a generated value,
@@ -503,7 +536,8 @@ The report adapter supplies typed query results and renders the native value.
 The data adapter supplies literal RHS values, checks model ownership and target
 shape, serializes constructed MiniZinc literals, then calls the existing atomic
 edit preparation and complete-candidate reparse. Both adapters share the common subset, evaluator and budget. Reporting also
-admits the selected summaries and require; data lowering excludes those calls. Edit expressions are
+admits summaries, require, grouping and keyed helpers; data lowering excludes
+those calls. Edit expressions are
 validated at parse time and lowered again with declared target evidence during
 evaluation; this additional work spends the same request budget. Zincite has one CST frontend and uses the existing
 Zirql dependency for shared evaluation. It does not run a model, compiler or solver.

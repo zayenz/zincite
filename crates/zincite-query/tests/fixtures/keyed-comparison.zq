@@ -1,0 +1,4 @@
+source a = literal("before");
+source b = literal("after");
+let pairs = zip_exact(a, b);
+report [e.key: e.value.2 - e.value.1 | e in entries(pairs)];

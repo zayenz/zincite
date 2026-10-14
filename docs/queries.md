@@ -137,6 +137,61 @@ they do not run a MiniZinc model or solver. The
 [comprehension contract](query-comprehension-contract.md) defines types, eager
 arrays, requirements and request charges.
 
+## Compare keyed matrix cells
+
+`entries(a)` exposes each present keyed cell as a `key`/`value` record. Matrix
+keys are two-element tuples. For a short report, run either command:
+
+```sh
+zincite-query --program 'report entries([|3,4|5,6|]);' crates/zincite-query/tests/fixtures/keyed-comparison.dzn
+zincite query --program 'report entries([|3,4|5,6|]);' crates/zincite-query/tests/fixtures/keyed-comparison.dzn
+```
+
+The positional report contains keys `(1,1)`, `(1,2)`, `(2,1)`, `(2,2)` and values
+`3,4,5,6` in row-major order. `zip_exact(a,b)` pairs cells only when both keyed
+arrays have identical ordered axes and present keys. It retains those axes and
+keys, with the left and right values in each two-element tuple cell.
+
+The [comparison fixture](../crates/zincite-query/tests/fixtures/keyed-comparison.dzn)
+has these matrices:
+
+```minizinc
+before = [|3,4|5,6|];
+after = [|4,6|8,10|];
+```
+
+Its [saved program](../crates/zincite-query/tests/fixtures/keyed-comparison.zq)
+computes each cell's delta explicitly:
+
+```text
+source a = literal("before");
+source b = literal("after");
+let pairs = zip_exact(a, b);
+report [e.key: e.value.2 - e.value.1 | e in entries(pairs)];
+```
+
+Run `zincite query --program-file
+crates/zincite-query/tests/fixtures/keyed-comparison.zq
+crates/zincite-query/tests/fixtures/keyed-comparison.dzn`, or pass the same
+program through `zincite-query --program`. Both return a complete explicit array
+with the original two axes `1..2` and deltas `1,2,3,4`. Library callers use
+`Program::parse` and `evaluate`, inspect `ReportValue::Constructed` for native
+axes, keys and tuple cells, then render the tagged report. Input bytes stay
+unchanged. Different axes or key coverage cause a located refusal; a later
+failure leaves stdout empty.
+
+The helpers retain enum-member identity and declared empty axes. Empty
+`zip_exact` returns its typed keyed array; `entries` returns an empty positional
+array. An empty delta comprehension headed by `e.key` cannot infer its result
+axes: the existing empty-axis fallback needs simple generator key names. Report
+the paired array directly to retain known empty axes.
+
+Zincite still requires contiguous axes and complete rectangular coverage for
+every executed keyed operand. Entries cannot hide a sparse intermediate value.
+Both helpers are report-only and are refused in data-edit expressions and
+preceding edit lets. See the [expression contract](query-comprehension-contract.md#report-expressions-and-edit-grammar)
+for type, identity and budget rules.
+
 ## Group machine demands
 
 The [small data fixture](../crates/zincite-query/tests/fixtures/machine-groups.dzn)

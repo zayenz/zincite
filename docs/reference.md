@@ -535,7 +535,8 @@ strings, resolved enum members, positional/keyed arrays, matrices, tuples,
 ordered records and homogeneous Boolean/integer/float/nominal sets. Supported operations include checked arithmetic, exact
 numeric promotion, comparison, equality, membership, concatenation, access,
 finite inclusive integer ranges, rank-one `index_set`, `enum_member`, report-only
-`length`/`sum`/`forall`/`exists`/`require`/`group_by`, and `if`/`elseif` with mandatory
+`length`/`sum`/`forall`/`exists`/`require`/`group_by`/`entries`/`zip_exact`, and
+`if`/`elseif` with mandatory
 `else`. Unsupported forms and known incompatible types fail before evaluation,
 including in skipped branches. Skipped runtime branches perform no arithmetic
 or missing-access work. Overflow, zero division, inexact promotion, nonfinite
@@ -564,6 +565,18 @@ an explicit positional conversion. Grouping is report-only, including preceding
 unused lets and skipped edit branches. See [machine groups](queries.md#group-machine-demands)
 for short inline, file and native library examples.
 
+`entries(a)` takes one keyed array and returns positional records with `key`
+followed by `value` in stored entry order. Rank-one keys are integer or enum
+scalars; larger keys are tuples. `zip_exact(a,b)` takes two keyed arrays with
+identical ordered axes and present full keys. It returns a keyed array with
+left/right tuple cells and retains left axes and keys, including equal empty
+axes. Ordinary positional arrays are refused. Counts alone do not establish
+alignment; different axis order, types or keys cause a located error. The
+helpers perform no filling, reindexing or data writes. Both are report-only,
+including preceding unused lets and skipped edit branches. See
+[matrix comparison](queries.md#compare-keyed-matrix-cells) for short inline and
+file reports with an explicit per-cell delta.
+
 `query` sources project `Strings`, `Count` and `Literals` into pure values.
 Selections need an explicit `names`, `count` or `values` query projection.
 `literal` requires one original assignment and a supported written RHS; computed
@@ -584,13 +597,15 @@ without shifting keys. Known empty axes retain their rank and the other axes;
 uncertain keys cannot establish an empty fallback. Declared source axes may
 resolve bounded integer endpoints from unique original scalar literals. `enum_member` takes
 an enum identifier and a member-name string, and requires unique explicit model
-cases. Pure `.dzn` reports retain an explicitly supplied `--model` without using
+cases. Empty keyed comprehensions can infer axes only from supported simple key
+binders; a head key such as `e.key` after `entries` cannot recover empty axes.
+Direct `zip_exact` retains established empty axes. Pure `.dzn` reports retain an explicitly supplied `--model` without using
 the semantic query's `.mzn` root path.
 
 Model calls remain unsupported. Data batches use `create` and `replace`, followed
 by one `emit;` (`emit_document;` remains a compatibility alias). Sources and
 immutable `let` bindings precede the edits and read the original input. Their
-expression calls are exactly `index_set` and `enum_member`. The five report-only calls are refused in unused preceding lets,
+expression calls are exactly `index_set` and `enum_member`. Report-only calls are refused in unused preceding lets,
 skipped branches and edit RHSs. A batch cannot include report/query emissions or
 repeat a target name. Creation requires an absent assignment; replacement requires
 exactly one original assignment. Both require a unique fixed nonoptional model
