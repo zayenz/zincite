@@ -88,9 +88,6 @@ impl<'a> LiteralSelection<'a> {
     pub fn values(&self) -> &[LiteralValue<'a>] {
         &self.values
     }
-    pub(crate) fn truncate(&mut self, count: usize) {
-        self.values.truncate(count);
-    }
 }
 
 fn rhs<'a>(node: &'a SyntaxNode, input: &Input) -> Result<&'a SyntaxNode, QueryError> {

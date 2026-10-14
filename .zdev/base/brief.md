@@ -732,10 +732,10 @@ tasks retain their original boundary and do not acquire query acceptance work.
 
 ### Commands and ownership
 
-Zirql owns shared pipeline execution, program/binding rules and bounded report/data comprehension evaluation under its approved base task bundle. Zincite retains its syntax frontend, native CST/literal/semantic values, ModelFacts demand, rendering and edit safety. Zirql base-002 migrates existing read-only pipelines; base-004, base-005 and base-007 supply the program and report integrations needed by Zincite base-126. The consumer task remains open until its own library/CLI behavior and validation are accepted. Coordinate query source and dependency changes with the Zirql chat; do not develop a second program or comprehension evaluator.
+Zirql owns shared pipeline execution, program/binding rules and bounded report/data comprehension evaluation. Zincite retains its syntax frontend, native CST/literal/semantic values, ModelFacts demand, rendering and edit safety. Read-only and legacy editing Query entry points use shared sequencing; terminal edit candidates remain native host results. Zincite base-126 records accepted program/report behavior, base-127 records approved data construction, and base-128 records bounded reuse measurements at its stated revisions. Coordinate query source and dependency changes with the Zirql chat; do not develop a second program or comprehension evaluator.
 
 Add a package named `zincite` at the Cargo workspace root. Its binary dispatches
-`fmt`, `lint`, and, when implemented, `query` directly to callable CLI entry points.
+`fmt`, `lint`, and `query` directly to callable CLI entry points.
 Retain `zincite-fmt`, `zincite-lint`, and add `zincite-query`; both invocation forms
 use the same argument processing, settings, output and exit semantics. Adapt help
 to the invocation. Root help lists implemented subcommands; no subcommand shows
@@ -806,9 +806,12 @@ evaluation work and collection expansion, report exceeded limits, and never sile
 truncate results. Reuse Zirium's limit approach without importing its entire language.
 Read-only source/let bindings, native reports and bounded
 positional/keyed/multidimensional comprehensions use shared Zirql execution.
-Data-construction/edit batches retain their attended approval gate. Arbitrary query
-callbacks, fixed-point programs, semantic diff, Markdown reports and general MiniZinc
-expression evaluation remain deferred. Development uses an exact reviewed Zirql Git pin;
+The bounded model-backed data-construction contract in
+`docs/query-comprehension-contract.md` is approved and implemented through
+base-127. Its terminal `emit;` retains `emit_document;` as an alias. Broader data
+semantics need an attended decision. Arbitrary query callbacks, fixed-point
+programs, semantic diff, Markdown reports and general MiniZinc expression
+evaluation remain deferred. Development uses an exact reviewed Zirql Git pin;
 crate publication and registry packaging wait for an explicit release milestone.
 
 ### Data edits and structured values

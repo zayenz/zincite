@@ -1,8 +1,8 @@
-//! Lower the existing read-only syntax to shared execution, retaining native rows.
+//! Lower fixed query syntax to shared execution, retaining native rows and edits.
 use std::ops::Range;
 use std::rc::Rc;
 
-use zincite_lint::ModelFacts;
+use zincite_lint::{ModelContext, ModelFacts};
 use zincite_syntax::SyntaxNode;
 use zirql::{Budget, EvaluationError, Host, Located, NativeInput, NativeValue, Truth};
 
@@ -47,6 +47,8 @@ impl StreamKind {
 #[derive(Debug)]
 pub(crate) struct Context<'a> {
     input: &'a Input,
+    model: Option<&'a ModelContext>,
+    terminal: Option<SemanticStream<'a>>,
     limits: Limits,
     pub(crate) kind: StreamKind,
     pub(crate) document: bool,
@@ -86,10 +88,11 @@ pub(crate) fn evaluation_error(error: Failure) -> QueryError {
 
 // Lower query stages, prepare native input, execute with one budget, restore the
 // native result, then perform the host's terminal and completeness checks.
-pub(crate) fn evaluate_read_only<'a>(
+pub(crate) fn evaluate<'a>(
     query: &Query,
     input: &'a Input,
     facts: Option<Rc<ModelFacts<'a>>>,
+    model: Option<&'a ModelContext>,
     limits: Limits,
 ) -> Result<QueryResult<'a>, QueryError> {
     let pipeline = lower_pipeline(query)?;
@@ -100,6 +103,7 @@ pub(crate) fn evaluate_read_only<'a>(
         ..limits
     });
     let (mut context, rows) = prepare_context(query, input, facts, limits, &mut budget)?;
+    context.model = model;
     let input = NativeInput::from_admitted(
         &mut context,
         rows,
@@ -148,14 +152,12 @@ pub(crate) fn lower_pipeline(
                 | StageKind::Values
                 | StageKind::Fields
                 | StageKind::Elements
-                | StageKind::Keys => zirql::Stage::Host(stage),
-                StageKind::FilterElements(_)
+                | StageKind::Keys
+                | StageKind::FilterElements(_)
                 | StageKind::SetValue(_)
                 | StageKind::Remove
                 | StageKind::ReduceEnum(_, _)
-                | StageKind::EmitDocument => {
-                    unreachable!("editing queries retain their existing route")
-                }
+                | StageKind::EmitDocument => zirql::Stage::Host(stage),
             };
             Some(Located::new(value, stage.range.clone()))
         })
@@ -198,6 +200,8 @@ pub(crate) fn prepare_context<'a>(
     };
     let mut context = Context {
         input,
+        model: None,
+        terminal: None,
         limits,
         kind: StreamKind::Items,
         document: true,
@@ -218,7 +222,10 @@ fn finish_result<'a>(
     budget: &mut Budget,
 ) -> Result<QueryResult<'a>, QueryError> {
     let mut stream = match value {
-        NativeValue::Stream(rows) => context.restore_stream(rows),
+        NativeValue::Stream(rows) => context
+            .terminal
+            .take()
+            .unwrap_or_else(|| context.restore_stream(rows)),
         NativeValue::Count(count) => {
             SemanticStream::Inspection(Box::new(QueryResult::Count(count)))
         }
@@ -370,11 +377,13 @@ impl<'a> Context<'a> {
                     self.kind = StreamKind::Literals;
                     selection.values.into_iter().map(Row::Literal).collect()
                 }
+                result @ (QueryResult::Document(_) | QueryResult::Reduction(_)) => {
+                    self.terminal = Some(SemanticStream::Inspection(Box::new(result)));
+                    Vec::new()
+                }
                 QueryResult::Count(_)
                 | QueryResult::Tally(_)
                 | QueryResult::Json(_)
-                | QueryResult::Document(_)
-                | QueryResult::Reduction(_)
                 | QueryResult::Semantic(_) => unreachable!("host stages return native streams"),
             },
         }
@@ -664,7 +673,10 @@ impl<'a, 'q> Host<Row<'a>, &mut Context<'a>, Leaf<'q>, &'q Stage> for NativeHost
         budget: &mut Budget,
         _range: &Range<usize>,
     ) -> Result<Vec<Row<'a>>, Failure> {
-        let stream = context.restore_stream(rows);
+        let stream = context
+            .terminal
+            .take()
+            .unwrap_or_else(|| context.restore_stream(rows));
         let mut work = Work { budget };
         let stream = if let Some(report) = &mut context.report {
             report
@@ -684,7 +696,7 @@ impl<'a, 'q> Host<Row<'a>, &mut Context<'a>, Leaf<'q>, &'q Stage> for NativeHost
             SemanticStream::Inspection(Box::new(
                 crate::evaluate_stage(
                     context.input,
-                    None,
+                    context.model,
                     *result,
                     stage,
                     &mut work,

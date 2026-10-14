@@ -45,7 +45,7 @@ pub use structured::{
     LiteralSelection, LiteralValue,
 };
 
-use language::{Predicate, PredicateKind, Stage, StageKind};
+use language::{Stage, StageKind};
 
 /// Finite bounds for query evaluation and expansion.
 /// `work` counts stage visits and scans, including model tokens and CST nodes
@@ -430,13 +430,8 @@ impl Query {
         facts: std::rc::Rc<zincite_lint::ModelFacts<'a>>,
         limits: Limits,
     ) -> Result<QueryResult<'a>, QueryError> {
-        if !self.is_editing() {
-            pipeline::evaluate_read_only(self, input, Some(facts), limits)
-        } else if self.stages.iter().any(semantic::requests_facts) {
-            semantic::evaluate_with_facts(self, input, facts, limits)
-        } else {
-            self.evaluate_with_model(input, Some(facts.model()), limits)
-        }
+        let model = facts.model();
+        pipeline::evaluate(self, input, Some(facts), Some(model), limits)
     }
 
     /// Semantic inspection borrows the supplied model and requires exact root bytes.
@@ -447,46 +442,12 @@ impl Query {
         model: Option<&'a ModelContext>,
         limits: Limits,
     ) -> Result<QueryResult<'a>, QueryError> {
-        if !self.is_editing() {
-            let facts = if self.requires_model_facts() {
-                model.map(|model| std::rc::Rc::new(zincite_lint::ModelFacts::new(model)))
-            } else {
-                None
-            };
-            return pipeline::evaluate_read_only(self, input, facts, limits);
-        }
-        if self.stages.iter().any(semantic::requests_facts) {
-            return semantic::evaluate(self, input, model, limits);
-        }
-        let mut budget = pipeline::budget(limits);
-        let mut work = Work {
-            budget: &mut budget,
+        let facts = if self.stages.iter().any(semantic::requests_facts) {
+            model.map(|model| std::rc::Rc::new(zincite_lint::ModelFacts::new(model)))
+        } else {
+            None
         };
-        let mut result = QueryResult::Selection(Selection {
-            input,
-            items: collect_items(input, limits.collection, &mut work, &self.range, true)?,
-            document: true,
-        });
-        for stage in &self.stages {
-            work.visit(&stage.range)?;
-            result = evaluate_stage(input, model, result, stage, &mut work, limits)?;
-        }
-        if let QueryResult::Selection(selection) = &result
-            && !selection.document
-        {
-            validate_fragment_directives(input, &selection.items)?;
-        }
-        if let QueryResult::Literals(selection) = &result {
-            for value in selection.values() {
-                work.spend(value.range.len(), &self.range)?;
-            }
-        }
-        if let QueryResult::Nodes(selection) = &result {
-            for node in selection.nodes() {
-                work.spend(node.range.len(), &self.range)?;
-            }
-        }
-        Ok(result)
+        pipeline::evaluate(self, input, facts, model, limits)
     }
 }
 
@@ -507,66 +468,11 @@ fn evaluate_stage<'a>(
                 document: true,
             })
         }
-        StageKind::Filter(predicate) => match result {
-            QueryResult::Selection(mut selection) => {
-                let mut retained = Vec::new();
-                for item in selection.items {
-                    work.visit(&stage.range)?;
-                    if predicate.matches(&item, work)? {
-                        retained.push(item);
-                    }
-                }
-                selection.items = retained;
-                selection.document = false;
-                QueryResult::Selection(selection)
-            }
-            QueryResult::Nodes(selection) => {
-                inspection::filter(selection, predicate, work, &stage.range)?
-            }
-            _ => {
-                return Err(inspection::type_error(
-                    &stage.range,
-                    "filter requires selected nodes",
-                ));
-            }
-        },
-        StageKind::Head(count) => match result {
-            QueryResult::Selection(mut selection) => {
-                selection.items.truncate(*count);
-                selection.document = false;
-                QueryResult::Selection(selection)
-            }
-            QueryResult::Nodes(mut selection) => {
-                selection.truncate(*count);
-                QueryResult::Nodes(selection)
-            }
-            QueryResult::Literals(mut selection) => {
-                selection.truncate(*count);
-                QueryResult::Literals(selection)
-            }
-            QueryResult::Strings(mut strings) => {
-                strings.truncate(*count);
-                QueryResult::Strings(strings)
-            }
-            _ => {
-                return Err(inspection::type_error(
-                    &stage.range,
-                    "head requires a node, literal or string stream",
-                ));
-            }
-        },
-        StageKind::Count => QueryResult::Count(match &result {
-            QueryResult::Selection(selection) => selection.items.len(),
-            QueryResult::Nodes(selection) => selection.nodes().len(),
-            QueryResult::Strings(strings) => strings.len(),
-            QueryResult::Literals(selection) => selection.values().len(),
-            _ => {
-                return Err(inspection::type_error(
-                    &stage.range,
-                    "count requires a node, literal or string stream",
-                ));
-            }
-        }),
+        StageKind::Filter(_)
+        | StageKind::Head(_)
+        | StageKind::Count
+        | StageKind::Unique
+        | StageKind::Tally => unreachable!("the core evaluates common stages"),
         StageKind::Values => structured::values(result, stage, work, limits)?,
         StageKind::Fields | StageKind::Elements | StageKind::Keys => {
             structured::project(result, stage, work, limits)?
@@ -629,8 +535,6 @@ fn evaluate_stage<'a>(
         StageKind::Names | StageKind::CallNames | StageKind::AnnotationNames | StageKind::Text => {
             inspection::project(result, stage, work, limits.collection)?
         }
-        StageKind::Unique => inspection::unique(result, work, &stage.range)?,
-        StageKind::Tally => inspection::tally(result, work, &stage.range)?,
         StageKind::Json => inspection::json(result, work, &stage.range)?,
         StageKind::References
         | StageKind::Declarations
@@ -957,49 +861,6 @@ impl Work<'_> {
         self.budget
             .charge(amount, zirql::Location::Query(range.clone()))
             .map_err(pipeline::core_error)
-    }
-}
-
-impl Predicate {
-    fn matches(&self, item: &SelectedItem<'_>, work: &mut Work) -> Result<bool, QueryError> {
-        self.matches_values(item.kind.as_str(), item.name, work)
-    }
-
-    fn matches_values(
-        &self,
-        kind: &str,
-        name: Option<&str>,
-        work: &mut Work,
-    ) -> Result<bool, QueryError> {
-        work.visit(&self.range)?;
-        match &self.kind {
-            PredicateKind::Kind(expected) => Ok(kind == expected),
-            PredicateKind::Name(expected) => Ok(name == Some(identifier_identity(expected))),
-            PredicateKind::Type(_)
-            | PredicateKind::Instantiation(_)
-            | PredicateKind::SourceKind(_) => Err(QueryError::query(
-                self.range.clone(),
-                "predicate requires semantic inspection",
-            )),
-            PredicateKind::Not(predicate) => Ok(!predicate.matches_values(kind, name, work)?),
-            PredicateKind::Group(predicate) => predicate.matches_values(kind, name, work),
-            PredicateKind::And(predicates) => {
-                for predicate in predicates {
-                    if !predicate.matches_values(kind, name, work)? {
-                        return Ok(false);
-                    }
-                }
-                Ok(true)
-            }
-            PredicateKind::Or(predicates) => {
-                for predicate in predicates {
-                    if predicate.matches_values(kind, name, work)? {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
-            }
-        }
     }
 }
 

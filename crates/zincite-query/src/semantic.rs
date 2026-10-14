@@ -481,63 +481,6 @@ pub(crate) fn predicate_facts(predicate: &Predicate) -> bool {
     }
 }
 
-pub(crate) fn evaluate<'a>(
-    query: &Query,
-    input: &'a Input,
-    model: Option<&'a ModelContext>,
-    limits: Limits,
-) -> Result<QueryResult<'a>, QueryError> {
-    let model = model.ok_or_else(|| {
-        let requesting = query.stages.iter().find(|s| requests_facts(s)).unwrap();
-        QueryError::query(
-            requesting.range.clone(),
-            "semantic inspection requires a retained model context (--model for stdin)",
-        )
-    })?;
-    evaluate_with_facts(query, input, Rc::new(ModelFacts::new(model)), limits)
-}
-
-pub(crate) fn evaluate_with_facts<'a>(
-    query: &Query,
-    input: &'a Input,
-    facts: Rc<ModelFacts<'a>>,
-    limits: Limits,
-) -> Result<QueryResult<'a>, QueryError> {
-    let mut budget = crate::pipeline::budget(limits);
-    let mut work = Work {
-        budget: &mut budget,
-    };
-    let mut report = prepare(query, input, facts, &mut work, limits)?;
-    let requesting = query.stages.iter().find(|s| requests_facts(s)).unwrap();
-    let mut callable_references = Vec::new();
-    for stage in &query.stages {
-        work.visit(&stage.range)?;
-        let stream = std::mem::replace(&mut report.stream, SemanticStream::Entities(Vec::new()));
-        report.stream = report.evaluate_stage(
-            input,
-            stream,
-            stage,
-            &mut work,
-            limits,
-            &mut callable_references,
-        )?;
-    }
-    if let SemanticStream::Inspection(result) = &report.stream
-        && let QueryResult::Selection(selection) = result.as_ref()
-        && !selection.document
-    {
-        crate::validate_fragment_directives(input, &selection.items)?;
-    }
-    report.finish(
-        callable_references,
-        &mut work,
-        requesting,
-        &query.range,
-        limits,
-    )?;
-    Ok(QueryResult::Semantic(report))
-}
-
 pub(crate) fn prepare<'a>(
     query: &Query,
     input: &'a Input,
@@ -691,40 +634,11 @@ impl<'a> SemanticResult<'a> {
                 }
                 SemanticStream::Instantiations(rows)
             }
-            StageKind::Filter(predicate)
-                if predicate_facts(predicate)
-                    || !matches!(stream, SemanticStream::Inspection(_)) =>
-            {
-                self.filter(stream, predicate, work, stage, limits)?
-            }
-            StageKind::Head(count) => match stream {
-                SemanticStream::Entities(mut rows) => {
-                    rows.truncate(*count);
-                    SemanticStream::Entities(rows)
-                }
-                SemanticStream::Types(mut rows) => {
-                    rows.truncate(*count);
-                    SemanticStream::Types(rows)
-                }
-                SemanticStream::Instantiations(mut rows) => {
-                    rows.truncate(*count);
-                    SemanticStream::Instantiations(rows)
-                }
-                SemanticStream::Inspection(result) => SemanticStream::Inspection(Box::new(
-                    crate::evaluate_stage(input, Some(model), *result, stage, work, limits)?,
-                )),
-            },
-            StageKind::Count => match stream {
-                SemanticStream::Inspection(result) => SemanticStream::Inspection(Box::new(
-                    crate::evaluate_stage(input, Some(model), *result, stage, work, limits)?,
-                )),
-                other => {
-                    SemanticStream::Inspection(Box::new(QueryResult::Count(stream_len(&other))))
-                }
-            },
-            StageKind::Unique if !matches!(stream, SemanticStream::Inspection(_)) => {
-                unique(stream, work, stage)?
-            }
+            StageKind::Filter(_)
+            | StageKind::Head(_)
+            | StageKind::Count
+            | StageKind::Unique
+            | StageKind::Tally => unreachable!("the core evaluates common stages"),
             StageKind::Names | StageKind::Text
                 if !matches!(stream, SemanticStream::Inspection(_)) =>
             {
@@ -1542,40 +1456,6 @@ impl SemanticResult<'_> {
         Ok(outcome)
     }
 
-    fn predicate(
-        &mut self,
-        predicate: &Predicate,
-        subject: &SemanticSubject<'_>,
-        work: &mut Work,
-        stage: &Stage,
-        limits: Limits,
-    ) -> Result<Truth, QueryError> {
-        work.visit(&predicate.range)?;
-        Ok(match &predicate.kind {
-            PredicateKind::Group(p) => self.predicate(p, subject, work, stage, limits)?,
-            PredicateKind::Not(p) => self.predicate(p, subject, work, stage, limits)?.not(),
-            PredicateKind::And(ps) | PredicateKind::Or(ps) => {
-                let conjunction = matches!(predicate.kind, PredicateKind::And(_));
-                let mut unknown = false;
-                for p in ps {
-                    let truth = self.predicate(p, subject, work, stage, limits)?;
-                    if conjunction && truth == Truth::False {
-                        return Ok(Truth::False);
-                    }
-                    if !conjunction && truth == Truth::True {
-                        return Ok(Truth::True);
-                    }
-                    unknown |= truth == Truth::Unknown;
-                }
-                if unknown {
-                    Truth::Unknown
-                } else {
-                    Truth::from(conjunction)
-                }
-            }
-            _ => self.predicate_leaf(predicate, subject, work, stage, limits)?,
-        })
-    }
     pub(crate) fn guard_leaf(
         &mut self,
         predicate: &Predicate,
@@ -1671,92 +1551,6 @@ impl SemanticResult<'_> {
             | PredicateKind::And(_)
             | PredicateKind::Or(_) => {
                 unreachable!("Boolean predicates are evaluated by the pipeline")
-            }
-        })
-    }
-    fn filter<'a>(
-        &mut self,
-        stream: SemanticStream<'a>,
-        predicate: &Predicate,
-        work: &mut Work,
-        stage: &Stage,
-        limits: Limits,
-    ) -> Result<SemanticStream<'a>, QueryError> {
-        // Keep item attachments for syntax streams, and row facts for typed streams.
-        macro_rules! retain_rows {
-            ($rows:expr, $subject:expr, $variant:ident) => {{
-                let mut retained = Vec::new();
-                for row in $rows {
-                    work.visit(&stage.range)?;
-                    let subject = $subject(&row);
-                    if self.predicate(predicate, &subject, work, stage, limits)? == Truth::True {
-                        retained.push(row);
-                    }
-                }
-                SemanticStream::$variant(retained)
-            }};
-        }
-        Ok(match stream {
-            SemanticStream::Entities(rows) => retain_rows!(
-                rows,
-                |row: &SemanticEntity| SemanticSubject::Entity(*row),
-                Entities
-            ),
-            SemanticStream::Types(rows) => {
-                retain_rows!(rows, |row: &SemanticType<'a>| row.subject.clone(), Types)
-            }
-            SemanticStream::Instantiations(rows) => retain_rows!(
-                rows,
-                |row: &SemanticInstantiation<'a>| row.subject.clone(),
-                Instantiations
-            ),
-            SemanticStream::Inspection(result) => {
-                let root = self.model.root_file.unwrap();
-                let file = &self.model.files[root];
-                let result = match *result {
-                    QueryResult::Selection(mut selection) => {
-                        let mut retained = Vec::new();
-                        for item in selection.items {
-                            let subject = SemanticSubject::Node {
-                                file: root,
-                                node: item.node,
-                                location: file.location(item.node.range()),
-                            };
-                            if self.predicate(predicate, &subject, work, stage, limits)?
-                                == Truth::True
-                            {
-                                retained.push(item);
-                            }
-                        }
-                        selection.items = retained;
-                        selection.document = false;
-                        QueryResult::Selection(selection)
-                    }
-                    QueryResult::Nodes(mut selection) => {
-                        let mut retained = Vec::new();
-                        for node in selection.nodes {
-                            let subject = SemanticSubject::Node {
-                                file: root,
-                                node: node.node,
-                                location: file.location(node.node.range()),
-                            };
-                            if self.predicate(predicate, &subject, work, stage, limits)?
-                                == Truth::True
-                            {
-                                retained.push(node);
-                            }
-                        }
-                        selection.nodes = retained;
-                        QueryResult::Nodes(selection)
-                    }
-                    _ => {
-                        return Err(type_error(
-                            &stage.range,
-                            "filter requires selected nodes or semantic rows",
-                        ));
-                    }
-                };
-                SemanticStream::Inspection(Box::new(result))
             }
         })
     }
@@ -1896,13 +1690,6 @@ impl Truth {
     fn from(value: bool) -> Self {
         if value { Self::True } else { Self::False }
     }
-    fn not(self) -> Self {
-        match self {
-            Self::True => Self::False,
-            Self::False => Self::True,
-            Self::Unknown => Self::Unknown,
-        }
-    }
 }
 fn item_kind_name(kind: zincite_syntax::NodeKind) -> &'static str {
     use zincite_syntax::NodeKind::*;
@@ -1958,62 +1745,6 @@ fn instantiation_name(instantiation: Instantiation) -> &'static str {
         Instantiation::Decision => "var",
         Instantiation::Unknown => "unknown",
     }
-}
-fn stream_len(stream: &SemanticStream<'_>) -> usize {
-    match stream {
-        SemanticStream::Entities(rows) => rows.len(),
-        SemanticStream::Types(rows) => rows.len(),
-        SemanticStream::Instantiations(rows) => rows.len(),
-        _ => unreachable!(),
-    }
-}
-fn unique<'a>(
-    stream: SemanticStream<'a>,
-    work: &mut Work,
-    stage: &Stage,
-) -> Result<SemanticStream<'a>, QueryError> {
-    let mut seen = HashSet::new();
-    let mut retain = |subject: &SemanticSubject<'_>| -> Result<bool, QueryError> {
-        work.visit(&stage.range)?;
-        let key = match subject {
-            SemanticSubject::Entity(SemanticEntity::Declaration(id)) => (0, id.0, 0, 0),
-            SemanticSubject::Entity(SemanticEntity::Reference(id)) => (1, *id, 0, 0),
-            SemanticSubject::Node { file, location, .. } => {
-                (2, *file, location.range.start, location.range.end)
-            }
-        };
-        Ok(seen.insert(key))
-    };
-    Ok(match stream {
-        SemanticStream::Entities(rows) => {
-            let mut result = Vec::new();
-            for row in rows {
-                if retain(&SemanticSubject::Entity(row))? {
-                    result.push(row);
-                }
-            }
-            SemanticStream::Entities(result)
-        }
-        SemanticStream::Types(rows) => {
-            let mut result = Vec::new();
-            for row in rows {
-                if retain(&row.subject)? {
-                    result.push(row);
-                }
-            }
-            SemanticStream::Types(result)
-        }
-        SemanticStream::Instantiations(rows) => {
-            let mut result = Vec::new();
-            for row in rows {
-                if retain(&row.subject)? {
-                    result.push(row);
-                }
-            }
-            SemanticStream::Instantiations(result)
-        }
-        _ => unreachable!(),
-    })
 }
 pub(crate) fn known_type_kind(name: &str) -> bool {
     matches!(

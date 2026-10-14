@@ -1,11 +1,10 @@
 //! Direct CST navigation and source projections for the fixed query pipeline.
-use std::collections::{BTreeMap, HashSet};
 use std::ops::Range;
 
 use serde_json::{Value, json};
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind, is_utf8_boundary};
 
-use crate::language::{Predicate, Stage, StageKind};
+use crate::language::{Stage, StageKind};
 use crate::{Input, ItemKind, QueryError, QueryResult, Work, identifier_identity};
 
 /// One original CST node, with its original-file byte coordinates.
@@ -28,9 +27,6 @@ impl<'a> NodeSelection<'a> {
     }
     pub fn nodes(&self) -> &[SelectedNode<'a>] {
         &self.nodes
-    }
-    pub(crate) fn truncate(&mut self, count: usize) {
-        self.nodes.truncate(count);
     }
 }
 
@@ -169,27 +165,6 @@ pub(crate) fn check_collection(
     }
 }
 
-pub(crate) fn filter<'a>(
-    selection: NodeSelection<'a>,
-    predicate: &Predicate,
-    work: &mut Work,
-    range: &Range<usize>,
-) -> Result<QueryResult<'a>, QueryError> {
-    let mut nodes = Vec::new();
-    for node in selection.nodes {
-        work.visit(range)?;
-        work.spend(node.node.children().len(), range)?;
-        let names = direct_names(selection.input.syntax(), node.node);
-        if predicate.matches_values(&kind_name(node.node.kind()), names.first().copied(), work)? {
-            nodes.push(node);
-        }
-    }
-    Ok(QueryResult::Nodes(NodeSelection {
-        input: selection.input,
-        nodes,
-    }))
-}
-
 pub(crate) fn project<'a>(
     result: QueryResult<'a>,
     stage: &Stage,
@@ -283,67 +258,6 @@ pub(crate) fn original_text<'a>(
     range: &Range<usize>,
 ) -> Result<&'a str, QueryError> {
     std::str::from_utf8(&input.bytes[range.clone()]).map_err(|_| QueryError::input(range.clone(), "text and JSON inspection require UTF-8 source text; source emission preserves opaque comment bytes"))
-}
-
-pub(crate) fn unique<'a>(
-    result: QueryResult<'a>,
-    work: &mut Work,
-    range: &Range<usize>,
-) -> Result<QueryResult<'a>, QueryError> {
-    match result {
-        QueryResult::Selection(mut selection) => {
-            let mut seen = HashSet::new();
-            let mut items = Vec::new();
-            for item in selection.items {
-                work.visit(range)?;
-                if seen.insert(std::ptr::from_ref(item.node)) {
-                    items.push(item);
-                }
-            }
-            selection.items = items;
-            Ok(QueryResult::Selection(selection))
-        }
-        QueryResult::Nodes(mut selection) => {
-            let mut seen = HashSet::new();
-            let mut nodes = Vec::new();
-            for node in selection.nodes {
-                work.visit(range)?;
-                if seen.insert(std::ptr::from_ref(node.node)) {
-                    nodes.push(node);
-                }
-            }
-            selection.nodes = nodes;
-            Ok(QueryResult::Nodes(selection))
-        }
-        QueryResult::Strings(values) => {
-            let mut seen = HashSet::new();
-            let mut unique = Vec::new();
-            for value in values {
-                work.spend(value.len().max(1), range)?;
-                if seen.insert(value.clone()) {
-                    unique.push(value);
-                }
-            }
-            Ok(QueryResult::Strings(unique))
-        }
-        _ => Err(type_error(range, "unique requires a node or string stream")),
-    }
-}
-
-pub(crate) fn tally<'a>(
-    result: QueryResult<'a>,
-    work: &mut Work,
-    range: &Range<usize>,
-) -> Result<QueryResult<'a>, QueryError> {
-    let QueryResult::Strings(values) = result else {
-        return Err(type_error(range, "tally requires projected strings"));
-    };
-    let mut counts = BTreeMap::new();
-    for value in values {
-        work.spend(value.len().max(1), range)?;
-        *counts.entry(value).or_insert(0) += 1;
-    }
-    Ok(QueryResult::Tally(counts))
 }
 
 pub(crate) fn json<'a>(

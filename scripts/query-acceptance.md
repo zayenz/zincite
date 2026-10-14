@@ -690,3 +690,43 @@ Raw commands, statuses, output files and binary/input hashes remain under
 The earlier logs are retained separately and do not describe the final
 bounded-domain addition. Baseline compiler evidence is in
 `/private/tmp/zincite127-public-baseline/proof.json`.
+
+## Shared legacy edit adoption
+
+The base-010 acceptance uses Zincite `3b9869ab96bbc838cdc33539aee0407b84e52af5`
+plus the terminal-result adapter change, with Zirql pinned at
+`cef521687d81a1f23ab909cf2ea2e7d54a52784c`. The shared evaluator owns every
+legacy query's common stages, including the selection leading into an edit.
+Zincite retains `Document` and `Reduction` candidates in its pipeline context;
+assignment replacement, collection filtering, enum reduction, candidate
+validation and explicit writes remain native host operations. Optional model
+interpretation for enum reduction does not turn a data request into semantic
+model inspection. Program `create`/`replace` continues to use the existing
+shared report/data comprehension evaluator and coherent-candidate checks.
+
+Seventeen current main/control pairs, through both rebuilt CLI forms, reproduce
+the complete stdout, stderr and statuses of all four base-128 cases above.
+The 10,000-element literal program and positives control still reject at the
+same binder ranges; the 1,000-element companion still succeeds. These are
+current compatibility captures, not new timing samples. The base-128 timings,
+corrected demand observations and allocation scopes retain their original
+consumer `2efee899` / core `9c3ce81` revisions and environment labels.
+
+Eleven legacy recipes compare the preserved baseline and rebuilt commands:
+replacement and removal, empty selection, element filtering, model-only enum
+reduction, preview/diff/write, comment and stage refusals, and program-only
+limit-option refusals. Full output, status, resulting file bytes and permissions
+agree for each command form. Usage errors keep each command's own name prefix.
+Ten public library observations against a rebuilt baseline additionally compare
+native candidate kinds, emitter aliases, written predicate depth versus literal
+depth, exact work/collection/nesting error locations and semantic-edit refusal.
+Original input bytes remain unchanged by evaluation.
+
+The existing focused query and CLI coverage passes, followed by workspace
+formatting, warning-fatal Clippy and workspace tests. Candidate constructors and
+the approved data grammar are unchanged, so base-008's accepted native,
+MiniZinc instance-only and atomic-write evidence remains applicable. No solver,
+full measurement rerun, dependency update or publication is part of this check.
+Raw current captures, baseline/library build commands and hashes are retained
+under `/private/tmp/zirql010-author-evidence`; the historical base-128 artifacts
+remain read-only at their original location.
