@@ -19,6 +19,7 @@ use zirql::{
 pub(crate) enum ExpressionPolicy {
     Report,
     Data,
+    Functions,
 }
 
 #[derive(Debug)]
@@ -696,6 +697,12 @@ impl<Q> Lower<'_, '_, Q> {
                             array: Box::new(self.node(child(), depth + 1)?),
                         }
                     }
+                } else if self.policy == ExpressionPolicy::Functions {
+                    let function = self.name(i)?;
+                    K::Call {
+                        function,
+                        arguments: self.children(node, depth)?,
+                    }
                 } else {
                     return Err(unsupported());
                 }
@@ -904,7 +911,8 @@ fn references_binding<Q>(
     charge(budget, 1, &expression.range)?;
     match &expression.value {
         K::Name(name) => Ok(names.contains(name)),
-        K::Literal(_) | K::NativeQuery(_) => Ok(false),
+        K::Literal(_) | K::NativeQuery(_) | K::NativeValue(_) => Ok(false),
+        K::Call { arguments, .. } => any_binding(arguments.iter(), names, budget),
         K::Array(values) | K::Tuple(values) | K::Set(values) => {
             any_binding(values.iter(), names, budget)
         }
@@ -998,7 +1006,12 @@ pub(crate) fn eager_names<Q>(
                 .map_err(pipeline::core_error)?;
             names.insert(name.clone());
         }
-        K::Literal(_) | K::NativeQuery(_) => {}
+        K::Literal(_) | K::NativeQuery(_) | K::NativeValue(_) => {}
+        K::Call { arguments, .. } => {
+            for argument in arguments {
+                eager_names(argument, names, budget)?;
+            }
+        }
         K::Default { value, .. } => eager_names(value, names, budget)?,
         K::Array(values) | K::Tuple(values) | K::Set(values) => {
             for value in values {
@@ -1131,7 +1144,7 @@ fn model_error(location: zincite_lint::SourceLocation, message: impl Into<String
         message: message.into(),
     }
 }
-fn nominal_id(id: DeclarationId, range: &Range<usize>) -> Result<u64, QueryError> {
+pub(crate) fn nominal_id(id: DeclarationId, range: &Range<usize>) -> Result<u64, QueryError> {
     u64::try_from(id.0).map_err(|_| QueryError::query(range.clone(), "nominal identity overflow"))
 }
 pub(crate) fn unique_declaration<'a>(

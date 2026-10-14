@@ -465,6 +465,90 @@ are not scalar comprehension values.
 with their existing `emit` or `json` stage. An explicit emitter suppresses the
 statement's implicit emission. Bindings and record fields cannot emit. Program
 parsing checks names, emitters and supported result transitions before execution.
+#### Typed query functions
+
+Read-only programs accept named pure functions, including direct and mutual
+recursion. Declarations can appear before or after their callers. Each function
+has typed parameters, a result type, ordered local `let` bindings and one final
+value. MiniZinc `if`/`then`/`elseif`/`else`/`endif` and comprehensions keep their
+ordinary query-expression spelling. The shared `if condition { value } else
+{ value }` form is also accepted.
+
+```text
+fn accumulate(n: int, total: int) -> int {
+    if n = 0 then total else accumulate(n - 1, total + n) endif
+}
+report accumulate(1000, 0);
+```
+
+This reports the tagged integer `500500`. A compatible tail call reuses its
+active frame, including a mutual tail call. A pending operation such as
+`1 + accumulate(n - 1, 0)` needs another frame. Functions have a separate active
+call-depth limit of 64; library callers can use
+`Program::with_function_limits(zirql::FunctionLimits { active_depth: 1 })`.
+The tail example still succeeds at depth one with the default work allowance.
+Non-tail calls refuse at the limit. Tail calls still spend work, so a
+nonterminating function eventually refuses. Diagnostics keep the original
+query or model location and append bounded function-call context.
+
+| Signature form | Accepted values |
+| --- | --- |
+| `bool`, `int`, `float`, `string` | Checked fixed scalars. |
+| `EnumName` | A member of that actual enum in the current retained model. |
+| `opt T` | Absence or an admitted `T`. |
+| `sequence<T>` | A homogeneous positional sequence, including an empty sequence with its element contract. |
+| `tuple<T, U>` | Fixed positions with the declared types. |
+| `record{label: T, other: opt U}` | Declared labels; optional fields may be omitted. |
+| `set<T>` | Supported Boolean, integer, float or nominal set elements. |
+| `keyed<T>` | A keyed array with admitted cells and retained axes. |
+| `Node`, `Declaration` | One native syntax node or semantic declaration. |
+
+Constructors nest. Native node/declaration sequences retain their owners and
+original coordinates; a singleton and a sequence are distinct contracts.
+Native capture records can pass through `record{...}` and
+`sequence<record{...}>` without rendering their handles. Constructed records,
+tuples, arrays and nominal values retain their existing checked representation.
+Enum names resolve once per evaluation against its current `ModelFacts`,
+including nested and set signatures. A name alone never establishes enum
+identity. A `.dzn` request with nominal signatures needs `--model`.
+
+A function sees its parameters, earlier local lets, named query functions and
+registered pure operations. It cannot capture top-level bindings or parameters,
+shadow an existing local, emit, edit data, or call a model function. Every
+written body, native argument and branch is preflighted before statements run,
+including unused declarations and skipped branches. Argument and result
+contracts check actual selected data. A failure returns no partial report.
+Function declarations and calls are excluded from atomic Data programs,
+including unused declarations and skipped expressions.
+
+Three pure operations inspect explicit native nodes:
+
+| Operation | Result |
+| --- | --- |
+| `direct_children(node)` | `sequence<Node>` in direct containment order. |
+| `node_kind(node)` | The CST kind string, such as `call_expression` or `generator_call_expression`. |
+| `written_call_name(node)` | `opt string` containing the direct written call name. |
+
+These operations inspect syntax. They do not resolve or execute a MiniZinc
+model call or run a solver. [Count written calls](queries.md#count-written-calls-with-a-function)
+contains a complete recursive program and input. Declaration navigation still
+uses the semantic adapters, retaining incomplete facts and located Unknown
+refusals. Calls in projection fields, computed native arguments, dependent
+match sources, guards and path targets share the same prepared request and
+active call-depth allowance. Later match clauses see only earlier captures.
+Boolean guards and selected fallbacks remain lazy at runtime.
+
+The parsed program retains its immutable body trees. Each evaluation resolves
+small headers and prepares the written bodies and entries once, then reads
+admitted immutable arguments and locals through shared owners. Repeated calls
+with the same contract avoid deep argument copies and whole native-argument
+rescans. The first boundary checks every actual native element, owner and
+coordinate. Fresh or changed contracts check again. This reduces allocation
+charges for retained reads; materialization, fresh values, emission snapshots
+and rendering retain their budget charges. Existing limits and defaults stay
+the same. Reusing a parsed `Program` after failure starts a fresh evaluation
+with its current input, facts and allowances.
+
 #### Bounded declaration paths
 
 Read-only native programs accept

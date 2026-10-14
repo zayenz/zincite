@@ -1,0 +1,17 @@
+fn count_calls(node: Node, target: string) -> int {
+    let here = if (written_call_name(node) default "") = target then 1 else 0 endif;
+    here + sum([count_calls(child, target) | child in direct_children(node)])
+}
+fn accumulate(n: int, total: int) -> int {
+    if n = 0 then total else accumulate(n - 1, total + n) endif
+}
+fn even(n: int) -> bool {
+    if n = 0 then true else odd(n - 1) endif
+}
+fn odd(n: int) -> bool {
+    if n = 0 then false else even(n - 1) endif
+}
+let roots = items;
+report (sum_calls: sum([count_calls(root, "sum") | root in roots]),
+        accumulated: accumulate(1000, 0),
+        is_even: even(1000));

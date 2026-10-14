@@ -20,6 +20,79 @@ Syntax inspection does not need a standard library. For more substantial
 examples, use the [feature-extraction cookbook](query-cookbook.md), which creates
 its own inputs for counts, histograms, declaration types and literal shapes.
 
+## Count written calls with a function
+
+Save this input as `calls.mzn`:
+
+```minizinc
+int: first_total = sum([1, 2]);
+int: second_total = sum(i in 1..2)(i);
+int: largest = max([3, 4]);
+solve satisfy;
+```
+
+Save this query as `calls.zq`:
+
+```text
+fn count_calls(node: Node, target: string) -> int {
+    let here = if (written_call_name(node) default "") = target then 1 else 0 endif;
+    here + sum([count_calls(child, target) | child in direct_children(node)])
+}
+fn accumulate(n: int, total: int) -> int {
+    if n = 0 then total else accumulate(n - 1, total + n) endif
+}
+fn even(n: int) -> bool {
+    if n = 0 then true else odd(n - 1) endif
+}
+fn odd(n: int) -> bool {
+    if n = 0 then false else even(n - 1) endif
+}
+let roots = items;
+report (sum_calls: sum([count_calls(root, "sum") | root in roots]),
+        accumulated: accumulate(1000, 0),
+        is_even: even(1000));
+```
+
+```sh
+zincite query --program-file calls.zq calls.mzn
+zincite-query --program-file calls.zq calls.mzn
+```
+
+The result record contains `sum_calls = 2`, `accumulated = 500500` and
+`is_even = true`, using the tagged constructed-value JSON schema. The ordinary
+array call and the generator call both contribute to the count; `max` does
+not. Roots and direct children pass explicitly as native nodes. Traversal
+counts written syntax, regardless of what a model would execute.
+
+`accumulate` and `even`/`odd` reuse tail frames. The tree counter has pending
+addition and reduction, so its active depth grows with containment depth.
+All still spend the request work allowance. [Typed query functions](reference.md#typed-query-functions)
+defines signatures, scope and native ownership. The same saved source works
+with `--program TEXT` and the public `Program` API.
+
+Projection fields require scalar data. This example is an expected refusal:
+
+```text
+fn identity(node: Node) -> Node { node }
+let roots = items | head(1);
+report roots | project(root, {"node": identity(root)});
+```
+
+The field refuses the unprojected native node. Use `{"kind": node_kind(identity(root))}` for a constructed report,
+or `let first = items | head(1); report first | project(root, {"name": root | names});`
+for a written-name projection. To return a native result directly, use:
+
+```text
+fn keep(nodes: sequence<Node>) -> sequence<Node> { nodes }
+let roots = items;
+report keep(roots);
+```
+
+`report accumulate("wrong", 0);` refuses its argument contract.
+`fn bad() -> int { "wrong" } report bad();` refuses its result contract.
+A report followed by `report 1 div 0;` produces no stdout, because evaluation
+and rendering finish before the CLI writes its output buffer.
+
 ## Reuse results in a report
 
 Save this as `report.zq`:

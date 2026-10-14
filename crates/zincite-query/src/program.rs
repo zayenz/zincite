@@ -4,7 +4,7 @@ use crate::{
     comprehension, data, inspection, language, pipeline, semantic,
 };
 use serde_json::{Value, json};
-use std::{collections::BTreeMap, ops::Range, rc::Rc};
+use std::{collections::BTreeMap, ops::Range, rc::Rc, sync::Arc};
 use zincite_lint::{ModelContext, ModelFacts, SourceDiagnostic};
 use zirql::{
     Bindings, Budget, EmissionPolicy, ExpressionKind, ExpressionStep, Located, NativeInput,
@@ -12,12 +12,20 @@ use zirql::{
 };
 
 mod composition;
+mod functions;
 
 type Expression = zirql::Expression<Stage, (), Emitter>;
 
 #[derive(Debug)]
 enum Stage {
     Parameter(usize),
+    FunctionValue(zirql::ValueExpression<Expression>),
+    FunctionSource(zirql::ValueExpression<Expression>),
+    FunctionLiteral(zirql::ValueExpression<Expression>),
+    Primitive(
+        functions::Primitive,
+        Vec<zirql::ValueExpression<Expression>>,
+    ),
     Member(comprehension::MemberRequest),
     Query(usize, Rc<Vec<QueryArgument>>),
     Projection(composition::ProjectionStage),
@@ -81,6 +89,8 @@ enum Emitter {
 #[derive(Clone, Debug, PartialEq)]
 enum Kind {
     Nodes,
+    Node,
+    Declaration,
     Strings,
     Literals,
     Count,
@@ -101,24 +111,43 @@ enum Kind {
 /// Constructed values have no input-source ranges; record labels preserve order.
 #[derive(Debug)]
 pub enum ReportValue<'a> {
+    Retained(Arc<Self>),
+    Item(Box<Self>),
+    /// Retain the native entity element contract even for an empty stream.
+    EntitySequence {
+        declarations: bool,
+        value: Box<Self>,
+    },
     Query(SemanticStream<'a>),
     Record(Vec<(String, ReportValue<'a>)>),
     Capture(zirql::NativeCapture<ReportValue<'a>>),
     Captures(CaptureMatches<'a>),
     Constructed(zirql::ConstructedValue),
+    SharedConstructed(Arc<zirql::ConstructedValue>),
 }
 impl<'a> ReportValue<'a> {
     pub fn fields(&self) -> Option<&[(String, ReportValue<'a>)]> {
         match self {
+            Self::Retained(value) => value.fields(),
+            Self::Item(value) | Self::EntitySequence { value, .. } => value.fields(),
             Self::Record(fields) => Some(fields),
             Self::Capture(capture) => Some(&capture.fields),
-            Self::Query(_) | Self::Constructed(_) | Self::Captures(_) => None,
+            Self::Query(_)
+            | Self::Constructed(_)
+            | Self::SharedConstructed(_)
+            | Self::Captures(_) => None,
         }
     }
     pub fn stream(&self) -> Option<&SemanticStream<'a>> {
         match self {
+            Self::Retained(value) => value.stream(),
+            Self::Item(value) | Self::EntitySequence { value, .. } => value.stream(),
             Self::Query(stream) => Some(stream),
-            Self::Record(_) | Self::Constructed(_) | Self::Capture(_) | Self::Captures(_) => None,
+            Self::Record(_)
+            | Self::Constructed(_)
+            | Self::SharedConstructed(_)
+            | Self::Capture(_)
+            | Self::Captures(_) => None,
         }
     }
 }
@@ -351,6 +380,8 @@ pub struct Program {
     preflight_results: usize,
     preflight_range: Option<Range<usize>>,
     queries: Vec<ProgramQuery>,
+    functions: Vec<zirql::UnresolvedFunctionDeclaration<Expression>>,
+    function_limits: zirql::FunctionLimits,
     report_model_demand: bool,
     editing: bool,
 }
@@ -376,6 +407,10 @@ impl Program {
             limits,
             names: BTreeMap::new(),
             queries: Vec::new(),
+            functions: Vec::new(),
+            function_ranges: Vec::new(),
+            function_names: std::collections::BTreeSet::new(),
+            function_scope: None,
             report_model_demand: false,
             preflight: Budget::for_program(limits.core()),
             preflight_range: None,
@@ -383,6 +418,7 @@ impl Program {
             composition_error: None,
             lexed: zincite_syntax::lex(source),
         };
+        parser.collect_functions()?;
         let mut statements = Vec::new();
         let mut parameters = Vec::new();
         let mut edits = Vec::new();
@@ -396,6 +432,15 @@ impl Program {
         parser.cursor.space();
         while parser.cursor.position < source.len() {
             let start = parser.cursor.position;
+            if let Some(range) = parser
+                .function_ranges
+                .iter()
+                .find(|range| range.start == start)
+            {
+                parser.cursor.position = range.end;
+                parser.cursor.space();
+                continue;
+            }
             if document_seen {
                 return Err(parser.cursor.error("no statement may follow emit"));
             }
@@ -669,27 +714,40 @@ impl Program {
                         return Err(parser.cursor.error("expected one literal source wrapper"));
                     }
                     let argument_range = argument_start..closing;
-                    let (expression, names) = parser.pure_value(
-                        argument_range.clone(),
-                        comprehension::ExpressionPolicy::Report,
-                    )?;
-                    parser.value_names(
-                        &expression,
-                        &argument_range,
-                        Some(zirql::ParameterType::String),
-                    )?;
-                    if parser.first_report_call.is_none() {
-                        parser.first_report_call = expression.first_report_call.clone();
+                    if !parser.functions.is_empty() {
+                        let expression = parser.lower_function_value(argument_range)?;
+                        parser.cursor.position = expression_end;
+                        (
+                            value_stage(
+                                Stage::FunctionLiteral(expression),
+                                expression_start..expression_end,
+                            ),
+                            Kind::Constructed,
+                            false,
+                        )
+                    } else {
+                        let (expression, names) = parser.pure_value(
+                            argument_range.clone(),
+                            comprehension::ExpressionPolicy::Report,
+                        )?;
+                        parser.value_names(
+                            &expression,
+                            &argument_range,
+                            Some(zirql::ParameterType::String),
+                        )?;
+                        if parser.first_report_call.is_none() {
+                            parser.first_report_call = expression.first_report_call.clone();
+                        }
+                        parser.cursor.position = expression_end;
+                        (
+                            value_stage(
+                                Stage::LiteralValue { expression, names },
+                                expression_start..expression_end,
+                            ),
+                            Kind::Constructed,
+                            false,
+                        )
                     }
-                    parser.cursor.position = expression_end;
-                    (
-                        value_stage(
-                            Stage::LiteralValue { expression, names },
-                            expression_start..expression_end,
-                        ),
-                        Kind::Constructed,
-                        false,
-                    )
                 }
             } else if parser.composition_syntax(expression_start..expression_end) {
                 if parser.first_report_call.is_none() {
@@ -750,6 +808,12 @@ impl Program {
             return Err(parser.cursor.error("an edit batch must end with emit"));
         }
         if document_seen {
+            if !parser.functions.is_empty() {
+                return Err(QueryError::query(
+                    parser.functions[0].name.range.clone(),
+                    "query functions are unavailable in data programs",
+                ));
+            }
             if let Some(range) = invalid_binding {
                 return Err(QueryError::query(
                     range,
@@ -775,10 +839,15 @@ impl Program {
                 "expected a program statement",
             ));
         }
+        if !parser.functions.is_empty() {
+            statements = functions::wrap_program_entries(statements);
+        }
         Ok(Self {
             parameters,
             program: zirql::Program::new(statements, 0..source.len()),
             queries: parser.queries,
+            functions: parser.functions,
+            function_limits: zirql::FunctionLimits { active_depth: 64 },
             report_model_demand: parser.report_model_demand || document_seen,
             editing: document_seen,
             preflight_work: limits
@@ -835,6 +904,12 @@ impl Program {
             limits,
         )
     }
+    /// Set the independent active function depth; compatible tail calls reuse it.
+    pub fn with_function_limits(mut self, limits: zirql::FunctionLimits) -> Self {
+        self.function_limits = limits;
+        self
+    }
+
     /// Required scalar declarations retained by this program.
     pub fn parameters(&self) -> &[zirql::ParameterDeclaration] {
         &self.parameters
@@ -925,14 +1000,8 @@ impl Program {
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let host = NativeHost {
-            queries: &self.queries,
-            pipelines,
-            nesting: limits.nesting,
-            limits: limits.query(),
-            editing: self.editing,
-        };
         let mut context = Context {
+            functions: None,
             query: &mut context,
             input,
             facts,
@@ -942,6 +1011,32 @@ impl Program {
             candidate: None,
             guard_unknown: None,
         };
+        let signatures = functions::resolve_signatures(&self.functions, &mut context, &mut budget)?;
+        let host = NativeHost {
+            functions: !self.functions.is_empty(),
+            signatures: &signatures,
+            parameters: &self.parameters,
+            queries: &self.queries,
+            pipelines,
+            nesting: limits.nesting,
+            limits: limits.query(),
+            editing: self.editing,
+        };
+
+        let function_host = composition::CompositionHost(&host);
+        let session = if self.functions.is_empty() {
+            None
+        } else {
+            Some(functions::Session::new(
+                &self.functions,
+                &signatures,
+                &function_host,
+                &self.program,
+                self.function_limits,
+                &mut budget,
+            )?)
+        };
+        context.functions = session.as_ref();
         zirql::evaluate_program(
             &self.program,
             &host,
@@ -1025,6 +1120,7 @@ impl Program {
 
 impl Drop for Program {
     fn drop(&mut self) {
+        zirql::dispose_unresolved_functions(std::mem::take(&mut self.functions));
         let program = std::mem::replace(&mut self.program, zirql::Program::new(Vec::new(), 0..0));
         for statement in program.into_statements() {
             let expression = match statement.value {
@@ -1041,6 +1137,10 @@ struct Parser<'a> {
     limits: ProgramLimits,
     names: BTreeMap<String, Kind>,
     queries: Vec<ProgramQuery>,
+    functions: Vec<zirql::UnresolvedFunctionDeclaration<Expression>>,
+    function_ranges: Vec<Range<usize>>,
+    function_names: std::collections::BTreeSet<String>,
+    function_scope: Option<BTreeMap<String, Kind>>,
     report_model_demand: bool,
     preflight: Budget,
     preflight_range: Option<Range<usize>>,
@@ -1122,6 +1222,13 @@ impl<'a> Parser<'a> {
     ) -> Result<(comprehension::LoweredValue<Q>, Vec<Located<String>>), QueryError> {
         self.begin_pure(range.clone())?;
         self.admit_cst(&range)?;
+        let policy = if policy == comprehension::ExpressionPolicy::Report
+            && (!self.functions.is_empty() || self.function_scope.is_some())
+        {
+            comprehension::ExpressionPolicy::Functions
+        } else {
+            policy
+        };
         let expression = comprehension::lower(
             &self.cursor.source[range.clone()],
             range.clone(),
@@ -1171,6 +1278,14 @@ impl<'a> Parser<'a> {
         range: &Range<usize>,
         expected: Option<zirql::ParameterType>,
     ) -> Result<Vec<Located<String>>, QueryError> {
+        self.report_model_demand |= !expression.members.is_empty()
+            || self
+                .names
+                .values()
+                .any(|kind| matches!(kind, Kind::Literals));
+        if !self.functions.is_empty() || self.function_scope.is_some() {
+            return Ok(Vec::new());
+        }
         let mut types = self.scope_types(range)?;
         for member in &expression.members {
             self.preflight
@@ -1238,6 +1353,9 @@ impl<'a> Parser<'a> {
         &mut self,
         range: Range<usize>,
     ) -> Result<(Expression, Kind, bool), QueryError> {
+        if !self.functions.is_empty() {
+            return self.function_expression(range);
+        }
         let (expression, names) =
             self.pure_value(range.clone(), comprehension::ExpressionPolicy::Report)?;
         if self.first_report_call.is_none() {
@@ -1496,7 +1614,11 @@ impl<'a> Parser<'a> {
                         range.clone(),
                         &mut self.preflight,
                         self.limits.nesting,
-                        comprehension::ExpressionPolicy::Report,
+                        if self.function_names.is_empty() {
+                            comprehension::ExpressionPolicy::Report
+                        } else {
+                            comprehension::ExpressionPolicy::Functions
+                        },
                     )
                     .map_err(|mut error| {
                         error.range = map(error.range);
@@ -1516,8 +1638,17 @@ impl<'a> Parser<'a> {
                         member.enum_name.range = map(member.enum_name.range.clone());
                         member.member_name.range = map(member.member_name.range.clone());
                     }
-                    let eager_members = argument_members(&expression, &mut self.preflight)?;
+                    let eager_members = if self.function_names.is_empty() {
+                        argument_members(&expression, &mut self.preflight)?
+                    } else {
+                        Vec::new()
+                    };
                     map_value(&mut expression.expression, &map, &mut expression.members);
+                    functions::lower_primitives(
+                        &mut expression.expression,
+                        &self.names,
+                        &self.queries,
+                    );
                     expression.first_report_call = expression.first_report_call.map(&map);
                     if self.first_report_call.is_none() {
                         self.first_report_call = expression.first_report_call.clone();
@@ -1863,7 +1994,16 @@ fn map_value(
                 )));
             }
         }
-        K::Literal(_) | K::NativeQuery(_) => {}
+        K::Literal(_) | K::NativeQuery(_) | K::NativeValue(_) => {}
+        K::Call {
+            function,
+            arguments,
+        } => {
+            function.range = map(function.range.clone());
+            for argument in arguments {
+                map_value(argument, map, members);
+            }
+        }
         K::Array(values) | K::Tuple(values) | K::Set(values) => {
             for value in values {
                 map_value(value, map, members);
@@ -2056,6 +2196,11 @@ fn map_predicate(predicate: &mut language::Predicate, map: &impl Fn(Range<usize>
     }
 }
 fn validate_stages(query: &Query, mut kind: Kind) -> Result<Kind, QueryError> {
+    kind = match kind {
+        Kind::Node => Kind::Nodes,
+        Kind::Declaration => Kind::Declarations,
+        other => other,
+    };
     use language::StageKind as S;
     for stage in &query.stages {
         let accepts = match &stage.kind {
@@ -2206,6 +2351,7 @@ fn validate_stages(query: &Query, mut kind: Kind) -> Result<Kind, QueryError> {
 }
 
 struct Context<'c, 'a> {
+    functions: Option<&'c functions::Session<'c, 'a>>,
     query: &'c mut pipeline::Context<'a>,
     input: &'a Input,
     facts: Option<Rc<ModelFacts<'a>>>,
@@ -2334,6 +2480,9 @@ impl zirql::ValueQueryHost<()> for ReportReads<'_, '_, '_> {
     }
 }
 struct NativeHost<'q> {
+    functions: bool,
+    signatures: &'q [zirql::ResolvedFunctionSignature<Kind>],
+    parameters: &'q [zirql::ParameterDeclaration],
     queries: &'q [ProgramQuery],
     pipelines: Vec<Option<NativePipeline<'q>>>,
     editing: bool,
@@ -2353,6 +2502,14 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
         budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
+        if let ReportValue::SharedConstructed(owner) = value {
+            budget.charge(1, zirql::Location::Query(range.clone()))?;
+            return Ok(ReportValue::SharedConstructed(Arc::clone(owner)));
+        }
+        if let ReportValue::Retained(owner) = value {
+            budget.charge(1, zirql::Location::Query(range.clone()))?;
+            return Ok(ReportValue::Retained(Arc::clone(owner)));
+        }
         copy_value(value, budget, range).map_err(zirql::EvaluationError::Host)
     }
     fn evaluate_stage(
@@ -2365,6 +2522,31 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
         range: &Range<usize>,
     ) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
         let index = match stage {
+            Stage::FunctionValue(expression) | Stage::FunctionSource(expression) => {
+                let session = context.functions.ok_or_else(|| {
+                    zirql::EvaluationError::Host(QueryError::query(
+                        range.clone(),
+                        "function session is unavailable",
+                    ))
+                })?;
+                return session
+                    .run(expression, bindings, &value, context, budget)
+                    .map_err(zirql::EvaluationError::Host);
+            }
+            Stage::FunctionLiteral(_) => {
+                return Err(zirql::QueryError::query(
+                    range.clone(),
+                    "function literal argument requires its active runner",
+                )
+                .into());
+            }
+            Stage::Primitive(_, _) => {
+                return Err(zirql::QueryError::query(
+                    range.clone(),
+                    "native function primitive requires its active argument runner",
+                )
+                .into());
+            }
             Stage::Member(member) => {
                 let facts = context
                     .report_facts(budget, &member.range)
@@ -2564,6 +2746,8 @@ impl<'a> NativeHost<'_> {
         budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
+        let declarations =
+            self.functions && functions::query_declarations(&self.queries[index].query, &value);
         let resolved;
         let lowered;
         let pipeline = if let Some(pipeline) = &self.pipelines[index] {
@@ -2574,7 +2758,30 @@ impl<'a> NativeHost<'_> {
             lowered = pipeline::lower_pipeline(&resolved).map_err(zirql::EvaluationError::Host)?;
             &lowered
         };
-        self.execute_pipeline(pipeline, value, context, budget, range)
+        let result = self.execute_pipeline(pipeline, value, context, budget, range)?;
+        self.retain_entity_contract(result, declarations, budget, range)
+    }
+    fn retain_entity_contract(
+        &self,
+        value: ReportValue<'a>,
+        declarations: bool,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
+        if self.functions
+            && matches!(
+                functions::unretained(&value),
+                ReportValue::Query(SemanticStream::Entities(_))
+            )
+        {
+            budget.charge_results(1, zirql::Location::Query(range.clone()))?;
+            Ok(ReportValue::EntitySequence {
+                declarations,
+                value: Box::new(value),
+            })
+        } else {
+            Ok(value)
+        }
     }
     fn execute_pipeline(
         &self,
@@ -2587,6 +2794,7 @@ impl<'a> NativeHost<'_> {
         if pipeline.stages().is_empty() {
             return Ok(value);
         }
+        let value = functions::owned(value, budget, range).map_err(zirql::EvaluationError::Host)?;
         let ReportValue::Query(stream) = value else {
             return Err(zirql::EvaluationError::Host(QueryError::query(
                 range.clone(),
@@ -2777,7 +2985,12 @@ impl<'a> NativeHost<'_> {
                         .insert(name.value.clone(), std::sync::Arc::new(value));
                     ty
                 } else {
-                    match value {
+                    match functions::unretained(value) {
+                        ReportValue::Retained(_)
+                        | ReportValue::Item(_)
+                        | ReportValue::EntitySequence { .. } => {
+                            unreachable!("unwrapped report")
+                        }
                         ReportValue::Constructed(value) => {
                             comprehension::value_facts(value, budget, &name.range)?
                         }
@@ -2847,8 +3060,16 @@ impl<'a> NativeHost<'_> {
                 zirql::Location::Query(name.range.clone()),
             )?;
             let value = bindings.get(&name.value, name.range.clone())?;
-            let value = match value {
+            let value = match functions::unretained(value) {
+                ReportValue::Retained(_)
+                | ReportValue::Item(_)
+                | ReportValue::EntitySequence { .. } => unreachable!("unwrapped report"),
                 ReportValue::Constructed(value) => zirql::copy_constructed_value(
+                    value,
+                    budget,
+                    zirql::Location::Query(name.range.clone()),
+                )?,
+                ReportValue::SharedConstructed(value) => zirql::copy_constructed_value(
                     value,
                     budget,
                     zirql::Location::Query(name.range.clone()),
@@ -2938,6 +3159,21 @@ fn copy_value<'a>(
     range: &Range<usize>,
 ) -> Result<ReportValue<'a>, QueryError> {
     match value {
+        ReportValue::Retained(value) => return copy_value(value, budget, range),
+        ReportValue::EntitySequence {
+            declarations,
+            value,
+        } => {
+            return Ok(ReportValue::EntitySequence {
+                declarations: *declarations,
+                value: Box::new(copy_value(value, budget, range)?),
+            });
+        }
+        ReportValue::Item(value) => {
+            return Ok(ReportValue::Item(Box::new(copy_value(
+                value, budget, range,
+            )?)));
+        }
         ReportValue::Record(fields) => {
             budget
                 .charge(fields.len() + 1, zirql::Location::Query(range.clone()))
@@ -2981,6 +3217,11 @@ fn copy_value<'a>(
         }
         _ => {}
     }
+    if let ReportValue::SharedConstructed(value) = value {
+        return zirql::copy_constructed_value(value, budget, zirql::Location::Query(range.clone()))
+            .map(ReportValue::Constructed)
+            .map_err(pipeline::core_error);
+    }
     if let ReportValue::Constructed(value) = value {
         return zirql::copy_constructed_value(value, budget, zirql::Location::Query(range.clone()))
             .map(ReportValue::Constructed)
@@ -3017,7 +3258,21 @@ fn copy_capture<'a>(
 
 fn copy_admitted<'a>(value: &ReportValue<'a>) -> ReportValue<'a> {
     ReportValue::Query(match value {
-        ReportValue::Constructed(_) | ReportValue::Capture(_) | ReportValue::Captures(_) => {
+        ReportValue::Retained(value) => return ReportValue::Retained(Arc::clone(value)),
+        ReportValue::Item(value) => return ReportValue::Item(Box::new(copy_admitted(value))),
+        ReportValue::EntitySequence {
+            declarations,
+            value,
+        } => {
+            return ReportValue::EntitySequence {
+                declarations: *declarations,
+                value: Box::new(copy_admitted(value)),
+            };
+        }
+        ReportValue::Constructed(_)
+        | ReportValue::SharedConstructed(_)
+        | ReportValue::Capture(_)
+        | ReportValue::Captures(_) => {
             unreachable!("structured copies use admitted paths")
         }
         ReportValue::Record(fields) => {
@@ -3060,7 +3315,11 @@ fn copy_admitted<'a>(value: &ReportValue<'a>) -> ReportValue<'a> {
 }
 fn value_units(value: &ReportValue<'_>) -> usize {
     match value {
-        ReportValue::Constructed(_) => unreachable!("constructed admission uses the core"),
+        ReportValue::Retained(value) => value_units(value),
+        ReportValue::Item(value) | ReportValue::EntitySequence { value, .. } => value_units(value),
+        ReportValue::Constructed(_) | ReportValue::SharedConstructed(_) => {
+            unreachable!("constructed admission uses the core")
+        }
         ReportValue::Capture(capture) => {
             1 + capture
                 .fields
@@ -3136,7 +3395,11 @@ fn literal_units(value: &crate::LiteralValue<'_>) -> usize {
 }
 fn value_bytes(value: &ReportValue<'_>) -> usize {
     match value {
-        ReportValue::Constructed(_) => unreachable!("constructed admission uses the core"),
+        ReportValue::Retained(value) => value_bytes(value),
+        ReportValue::Item(value) | ReportValue::EntitySequence { value, .. } => value_bytes(value),
+        ReportValue::Constructed(_) | ReportValue::SharedConstructed(_) => {
+            unreachable!("constructed admission uses the core")
+        }
         ReportValue::Capture(capture) => capture
             .fields
             .iter()
@@ -3192,7 +3455,11 @@ fn admit_json<'a>(
     range: &Range<usize>,
 ) -> Result<(), QueryError> {
     match value {
-        ReportValue::Constructed(_) => {}
+        ReportValue::Retained(value) => return admit_json(value, semantic, work, range),
+        ReportValue::Item(value) | ReportValue::EntitySequence { value, .. } => {
+            return admit_json(value, semantic, work, range);
+        }
+        ReportValue::Constructed(_) | ReportValue::SharedConstructed(_) => {}
         ReportValue::Capture(capture) => {
             work.produce(1 + capture.fields.len(), range)?;
             for (label, value) in &capture.fields {
@@ -3231,7 +3498,14 @@ fn validate_value(
     range: &Range<usize>,
 ) -> Result<(), QueryError> {
     match value {
+        ReportValue::Retained(value) => return validate_value(value, json, budget, range),
+        ReportValue::Item(value) | ReportValue::EntitySequence { value, .. } => {
+            return validate_value(value, json, budget, range);
+        }
         ReportValue::Constructed(value) => {
+            comprehension::validate_report_shape(value, budget, range)?
+        }
+        ReportValue::SharedConstructed(value) => {
             comprehension::validate_report_shape(value, budget, range)?
         }
         ReportValue::Capture(capture) => {
@@ -3272,7 +3546,12 @@ fn report_json<'a>(
     range: &Range<usize>,
 ) -> Result<Value, QueryError> {
     match value {
+        ReportValue::Retained(value) => report_json(value, semantic, budget, range),
+        ReportValue::Item(value) | ReportValue::EntitySequence { value, .. } => {
+            report_json(value, semantic, budget, range)
+        }
         ReportValue::Constructed(value) => comprehension::json_value(value, budget, range),
+        ReportValue::SharedConstructed(value) => comprehension::json_value(value, budget, range),
         ReportValue::Capture(capture) => capture
             .fields
             .iter()
@@ -3328,7 +3607,13 @@ fn charge_render<'a>(
 
 fn render_bytes<'a>(value: &ReportValue<'a>, semantic: Option<&SemanticResult<'a>>) -> usize {
     match value {
-        ReportValue::Constructed(_) => unreachable!("constructed reports use tagged JSON"),
+        ReportValue::Retained(value) => render_bytes(value, semantic),
+        ReportValue::Item(value) | ReportValue::EntitySequence { value, .. } => {
+            render_bytes(value, semantic)
+        }
+        ReportValue::Constructed(_) | ReportValue::SharedConstructed(_) => {
+            unreachable!("constructed reports use tagged JSON")
+        }
         ReportValue::Capture(_) | ReportValue::Captures(_) => unreachable!("captures use JSON"),
         ReportValue::Record(fields) => fields
             .iter()

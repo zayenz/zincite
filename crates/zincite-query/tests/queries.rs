@@ -3832,3 +3832,305 @@ fn prepared_native_arguments_keep_selected_members_and_correlated_rows() {
             .is_err()
     );
 }
+
+#[test]
+fn typed_query_functions_share_native_trees_tail_frames_and_fresh_requests() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    use zirql::ConstructedValue as V;
+    let input = Input::parse(
+        include_bytes!("fixtures/recursive-functions.mzn").to_vec(),
+        FileMode::Model,
+    )
+    .unwrap();
+    let limits = ProgramLimits::default();
+    let program = Program::parse(include_str!("fixtures/recursive-functions.zq"), limits).unwrap();
+    let result = program.evaluate(&input, limits).unwrap();
+    let ReportValue::Constructed(V::Record(fields)) = result.emissions()[0].value() else {
+        panic!("constructed function report")
+    };
+    assert_eq!(
+        fields
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        ["sum_calls", "accumulated", "is_even"]
+    );
+    assert_eq!(fields[0].1.data(), &V::Integer(2));
+    assert_eq!(fields[1].1.data(), &V::Integer(500500));
+    assert_eq!(fields[2].1.data(), &V::Boolean(true));
+    let source = r#"
+        fn walk(n: int, node: Node) -> string {
+            let kind = node_kind(node);
+            if n = 0 then kind else walk(n - 1, node) endif
+        }
+        fn number(n: int) -> int { n }
+        fn even(n: int) -> bool { if n = 0 then true else odd(n - 1) endif }
+        fn odd(n: int) -> bool { if n = 0 then false else even(n - 1) endif }
+        let roots = items;
+        report roots | project(root, {"kind": walk(100, root), "even": even(1000), "direct":node_kind(root), "count":number(root | count)});
+    "#;
+    let program = Program::parse(source, limits)
+        .unwrap()
+        .with_function_limits(zirql::FunctionLimits { active_depth: 1 });
+    let error = program
+        .evaluate(
+            &input,
+            ProgramLimits {
+                work: 2000,
+                ..limits
+            },
+        )
+        .unwrap_err();
+    assert!(error.message.contains("work"), "{error:?}");
+    let fresh = Input::parse(
+        include_bytes!("fixtures/recursive-functions.mzn").to_vec(),
+        FileMode::Model,
+    )
+    .unwrap();
+    let mut result = program.evaluate(&fresh, limits).unwrap();
+    let output = String::from_utf8(result.render().unwrap()).unwrap();
+    assert!(output.contains("declaration"));
+    assert!(output.contains("true"));
+    let bom = Input::parse_named(
+        [b"\xef\xbb\xbf".as_slice(), input.source_bytes()].concat(),
+        FileMode::Model,
+        "calls.mzn",
+    )
+    .unwrap();
+    let mut bom_result = Program::parse(include_str!("fixtures/recursive-functions.zq"), limits)
+        .unwrap()
+        .evaluate(&bom, limits)
+        .unwrap();
+    assert!(
+        String::from_utf8(bom_result.render().unwrap())
+            .unwrap()
+            .contains("500500")
+    );
+    let aliases=Program::parse("fn identity(n: int) -> int { n } let n=items | count; let alias=n; report (value:identity(alias), unchanged:identity(n));",limits).unwrap();
+    aliases.evaluate(&input, limits).unwrap();
+    let native_alias=Program::parse("fn keep(xs:sequence<Node>)->sequence<Node> { xs } let xs=items; report keep(xs) | count; report xs | count;",limits).unwrap();
+    native_alias.evaluate(&input, limits).unwrap();
+    let common=Program::parse("fn countdown(n: int) -> int { if n == 0 { 0 } else { countdown(n - 1) } } report countdown(1000);",limits).unwrap().with_function_limits(zirql::FunctionLimits{active_depth:1});
+    common.evaluate(&input, limits).unwrap();
+    for source in [
+        "fn f(n:int)->int { if n in {1,2} then 1 else 0 endif } report f(1);",
+        r#"fn f(s:string)->int { if s = "{" then 1 else 0 endif } report f("{");"#,
+        "fn f(n:int)->int { if /* { */ n = 1 then 1 else 0 endif } report f(1);",
+        "fn f(n:int)->int { if n == 1 { 1 } else { 0 } } report f(1);",
+    ] {
+        let mut result = Program::parse(source, limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .unwrap();
+        let output: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
+        assert_eq!(output["result"]["value"], 1, "{source}");
+    }
+}
+
+#[test]
+fn typed_query_functions_refuse_written_scope_purity_kinds_and_limits() {
+    use zincite_query::{Program, ProgramLimits};
+    let limits = ProgramLimits::default();
+    let input = Input::parse(b"int: value = 1; solve satisfy;".to_vec(), FileMode::Model).unwrap();
+    for source in [
+        "fn wrong(x: int) -> int { x } report wrong(\"x\");",
+        "fn wrong() -> int { \"x\" } report wrong();",
+        "fn wrong(node: Node) -> int { 1 } let roots=items; report wrong(roots);",
+        "fn wrong(nodes: sequence<Declaration>) -> int { 1 } let empty=head(0); report wrong(empty);",
+        "fn unused() -> int { missing() } report 1;",
+        "fn unused() -> int { length(direct_children(1)) } report 1;",
+        "fn unused() -> int { length(direct_children([])) } report 1;",
+        "fn unused() -> int { if false then length(direct_children(1)) else 1 endif } report 1;",
+        "fn floating() -> float { 1.0 } report items | head(floating());",
+        "fn identity(n:int)->int { n } source unused=literal(7); report 1;",
+        "fn unused() -> int { if false then missing() else 1 endif } report 1;",
+        "let outer=7; fn unused() -> int { outer } report 1;",
+        "fn unused(x: int) -> int { let x=2; x } report 1;",
+        "fn unused() -> int { emit() } report 1;",
+        "fn wrong(x: int) -> int { x } report wrong();",
+        "fn count() -> int { 1 } report 1;",
+        "fn same() -> int { 1 } fn same() -> int { 2 } report same();",
+    ] {
+        let result =
+            Program::parse(source, limits).and_then(|program| program.evaluate(&input, limits));
+        assert!(result.is_err(), "accepted {source}");
+    }
+    let deep = Program::parse(
+        "fn deep(n: int) -> int { if n = 0 then 0 else 1 + deep(n - 1) endif } report deep(20);",
+        limits,
+    )
+    .unwrap()
+    .with_function_limits(zirql::FunctionLimits { active_depth: 1 });
+    let error = deep.evaluate(&input, limits).unwrap_err();
+    assert!(error.message.contains("active function depth"));
+    assert!(error.message.contains("in deep"));
+    for body in [
+        "again(n)",
+        "if n = 0 then 1 else again(n - 1) + again(n - 1) endif",
+    ] {
+        let source = format!("fn again(n: int) -> int {{ {body} }} report again(30);");
+        let program = Program::parse(&source, limits).unwrap();
+        let error = program
+            .evaluate(
+                &input,
+                ProgramLimits {
+                    work: 10000,
+                    ..limits
+                },
+            )
+            .unwrap_err();
+        assert!(error.message.contains("work"), "{error:?}");
+    }
+    let data = Program::parse("fn unused() -> int { 1 } create x=1; emit;", limits).unwrap_err();
+    assert!(data.message.contains("functions"));
+}
+
+#[test]
+fn typed_query_signatures_resolve_current_enum_identity_and_lazy_defaults() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    use zirql::ConstructedValue as V;
+    let limits = ProgramLimits::default();
+    let model = semantic_model(
+        "function-enums",
+        b"enum Colour={Red,Blue}; enum Shade={Dark}; solve satisfy;",
+        b"",
+        "",
+    );
+    let input = Input::parse(b"value=1;".to_vec(), FileMode::Data).unwrap();
+    let source = r#"fn identity(colour: Colour) -> Colour { colour } fn optional(value: opt int) -> int { value default (1 div 0) } report (member:identity(enum_member(Colour,"Red")), saved:optional(7));"#;
+    let result = Program::parse(source, limits)
+        .unwrap()
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap();
+    let ReportValue::Constructed(V::Record(fields)) = result.emissions()[0].value() else {
+        panic!("enum report")
+    };
+    let V::Member(member) = fields[0].1.data() else {
+        panic!("nominal member")
+    };
+    assert_eq!(member.member_name, "Red");
+    assert_eq!(fields[1].1.data(), &V::Integer(7));
+    let nested=Program::parse(r#"fn groups(xs:sequence<set<Colour>>)->sequence<set<Colour>> { xs } report groups([{enum_member(Colour,"Red")}]);"#,limits).unwrap();
+    nested
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap();
+    let wrong_nested=Program::parse(r#"fn groups(xs:sequence<set<Colour>>)->sequence<set<Colour>> { xs } report groups([{enum_member(Shade,"Dark")}]);"#,limits).unwrap();
+    assert!(
+        wrong_nested
+            .evaluate_with_model(&input, Some(&model), limits)
+            .is_err()
+    );
+    let wrapped = Program::parse(
+        r#"fn limit(n:int)->int { n } source selected=query("head(limit(1))"); report selected;"#,
+        limits,
+    )
+    .unwrap();
+    wrapped.evaluate(&input, limits).unwrap();
+    let wrong=Program::parse(r#"fn identity(colour: Colour) -> Colour { colour } report identity(enum_member(Shade,"Dark"));"#,limits).unwrap();
+    let error = wrong
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap_err();
+    assert!(error.message.contains("nominal"));
+    let lazy=Program::parse(r#"fn present(value: opt int) -> int { value default enum_member(Missing,"no") } report present(7);"#,limits).unwrap();
+    lazy.evaluate_with_model(&input, Some(&model), limits)
+        .unwrap();
+}
+
+#[test]
+fn typed_query_functions_keep_active_match_guards_paths_and_native_records() {
+    use zincite_query::{Program, ProgramLimits};
+    let limits = ProgramLimits::default();
+    let source = b"int: a=b; int: b=1; int: mixed=missing; solve satisfy;";
+    let input = Input::parse(source.to_vec(), FileMode::Model).unwrap();
+    let model = semantic_model("function-native-clauses", source, b"", "");
+    let empty_reference=Program::parse("fn accept(xs:sequence<Declaration>)->int {0} let empty=subtree | references | head(0); report accept(empty);",limits).unwrap();
+    let error = empty_reference
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap_err();
+    assert!(error.message.contains("element contract"), "{error:?}");
+    let empty_declaration=Program::parse("fn accept(xs:sequence<Declaration>)->int {0} let empty=subtree | declarations | head(0); report accept(empty);",limits).unwrap();
+    empty_declaration
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap();
+    let written = r#"
+        fn same(node: Node) -> Node { node }
+        fn label(value: string) -> string { value }
+        let matches=match { from first in items; bind second=same(first); where name(second,label("a")); };
+        report matches | project(row,{"name":row.second | names | one});
+        report subtree | declarations | filter(name(label("a"))) | paths(referenced_declarations,to=name(label("b")),max_depth=1);
+    "#;
+    let program = Program::parse(written, limits).unwrap();
+    let mut result = program
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap();
+    let output = String::from_utf8(result.render().unwrap()).unwrap();
+    assert!(output.contains("\"value\":\"a\""), "{output}");
+    assert!(output.contains("\"name\":\"b\""), "{output}");
+    let recursive = r#"
+        fn same(node: Node) -> Node { node }
+        fn select(node: Node) -> sequence<record{chosen: Node}> { match { bind chosen=same(node); } }
+        let roots=items | head(1); report roots | project(root,{"chosen":select(root) | project(pair,{"name":pair.chosen | names | one})});
+    "#;
+    let program = Program::parse(recursive, limits).unwrap();
+    program.evaluate(&input, limits).unwrap();
+    let shallow = program.with_function_limits(zirql::FunctionLimits { active_depth: 1 });
+    let error = shallow.evaluate(&input, limits).unwrap_err();
+    assert!(error.message.contains("active function depth"), "{error:?}");
+    for replacement in [
+        "where name(second,label(1));",
+        "where type(second,label(\"tuple\"));",
+    ] {
+        let source = written.replace("where name(second,label(\"a\"));", replacement);
+        assert!(
+            Program::parse(&source, limits)
+                .unwrap()
+                .evaluate_with_model(&input, Some(&model), limits)
+                .is_err()
+        );
+    }
+    let lazy = written.replace(
+        "where name(second,label(\"a\"));",
+        "where name(second,\"a\") or name(second,label(1 div 0));",
+    );
+    // The invalid call signature is still rejected in an unselected Boolean arm.
+    assert!(
+        Program::parse(&lazy, limits)
+            .unwrap()
+            .evaluate_with_model(&input, Some(&model), limits)
+            .is_err()
+    );
+}
+
+#[test]
+fn typed_query_path_targets_retain_unknown_and_selected_boolean_laziness() {
+    use zincite_query::{Program, ProgramLimits};
+    let limits = ProgramLimits::default();
+    let bytes = b"function $T: identity($T: x) = x; par tuple(int, $T): mixed; solve satisfy;";
+    let model = semantic_model("function-unknown-target", bytes, b"", "");
+    let input = Input::parse(bytes.to_vec(), FileMode::Model).unwrap();
+    let prefix = "fn label(value: string) -> string { value } fn skipped() -> string { if 1 div 0 = 0 then \"a\" else \"b\" endif } ";
+    let selected = r#"subtree | declarations | filter(name(label("mixed"))) | paths(referenced_declarations,to=type(label("tuple")) or name(label("mixed")) or name(skipped()),max_depth=0) | json"#;
+    let mut result = Program::parse(&format!("{prefix}{selected}"), limits)
+        .unwrap()
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap();
+    assert!(!result.is_complete());
+    assert!(!result.limitations().is_empty());
+    assert!(
+        String::from_utf8(result.render().unwrap())
+            .unwrap()
+            .contains("mixed")
+    );
+    let unknown = selected.replace(
+        "type(label(\"tuple\")) or name(label(\"mixed\")) or name(skipped())",
+        "not type(label(\"tuple\"))",
+    );
+    let error = Program::parse(&format!("{prefix}{unknown}"), limits)
+        .unwrap()
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap_err();
+    let ErrorLocation::Model(location) = error.location else {
+        panic!("located Unknown")
+    };
+    assert_eq!(&bytes[location.range], b"mixed");
+}

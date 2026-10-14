@@ -1319,3 +1319,51 @@ fn optional_reports_agree_inline_file_and_keep_failed_edits_atomic() {
     }
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn typed_functions_replay_inline_and_file_and_buffer_later_errors() {
+    let model = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/recursive-functions.mzn"
+    );
+    let file = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/recursive-functions.zq"
+    );
+    let source = include_str!("fixtures/recursive-functions.zq");
+    let inline = run(&["--program", source, model], b"");
+    assert!(
+        inline.status.success(),
+        "{}",
+        String::from_utf8_lossy(&inline.stderr)
+    );
+    let saved = run(&["--program-file", file, model], b"");
+    assert!(
+        saved.status.success(),
+        "{}",
+        String::from_utf8_lossy(&saved.stderr)
+    );
+    assert_eq!(inline.stdout, saved.stdout);
+    let output: serde_json::Value = serde_json::from_slice(&inline.stdout).unwrap();
+    assert_eq!(output["result"]["fields"][0]["value"]["value"], 2);
+    let failed = run(
+        &["--program", &format!("{source} report 1 div 0;"), model],
+        b"",
+    );
+    assert_eq!(failed.status.code(), Some(2));
+    assert!(failed.stdout.is_empty());
+    let mut opaque = include_bytes!("fixtures/recursive-functions.mzn").to_vec();
+    let position = opaque.iter().position(|byte| *byte == b'=').unwrap() + 1;
+    opaque.splice(position..position, b" /* opaque \xff */ ".iter().copied());
+    let failed = run(
+        &[
+            "--stdin-filepath",
+            "model.mzn",
+            "--program",
+            &format!("{source} report items;"),
+        ],
+        &opaque,
+    );
+    assert_eq!(failed.status.code(), Some(2));
+    assert!(failed.stdout.is_empty());
+}

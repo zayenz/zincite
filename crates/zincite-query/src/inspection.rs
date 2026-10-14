@@ -222,7 +222,7 @@ pub(crate) fn direct_names<'a>(
         .collect()
 }
 
-fn call_name<'a>(input: &'a Input, node: &SyntaxNode) -> Option<&'a str> {
+pub(crate) fn call_name<'a>(input: &'a Input, node: &SyntaxNode) -> Option<&'a str> {
     if !matches!(
         node.kind(),
         NodeKind::CallExpression | NodeKind::GeneratorCallExpression

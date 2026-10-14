@@ -22,6 +22,8 @@ Required where guards use type(d, \"int\") or instantiation(d, \"par\").
 Unknown guards refuse at their model location after shared Boolean evaluation.
 Projection/match are report-only; one requires exactly one projected value.
 Program input is exclusive with a legacy positional QUERY.
+Reports support typed pure fn declarations, direct/mutual recursion and explicit native inputs.
+Functions share work/results with reports; active call depth defaults to 64.
 Reports support length, checked integer sum, forall, exists and literal-message require.
 Array reducers are eager; these pure expressions do not execute a model or solver.
 Programs construct arrays, records and sets with bounded MiniZinc comprehensions.

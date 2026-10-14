@@ -7,7 +7,7 @@ Read-only [query programs](reference.md#query-programs) support immutable `sourc
 and `let` bindings, required scalar parameters, ordered query statements, native
 reports and the bounded expression/comprehension subset below. Zincite lowers its existing CST and uses
 Zirql for checked expressions, scopes, generators, array summaries, requirements
-and keyed helpers.
+and keyed helpers. Read-only programs also accept [typed query functions](reference.md#typed-query-functions) with explicit native inputs and bounded direct or mutual recursion.
 Model-backed `.dzn` edit batches use the common expression subset and evaluator;
 the report-only calls below are excluded from every edit expression.
 
@@ -238,8 +238,16 @@ permits broader fixed sets, but the tested MiniZinc 2.10.1 compiler rejects
 string set literals. This contract excludes them for both consumers.
 
 Model calls, arbitrary built-ins, generator calls, interpolation, annotations,
-`let` inside an expression, decision values, recursion,
+`let` inside a MiniZinc expression, decision values,
 floating ranges and every unlisted operator fail with a located explanation.
+
+Named query functions are the exception to the arbitrary-call exclusion.
+Their declarations use the common typed header and local-let structure, while
+bodies lower through the same MiniZinc CST adapter as report expressions.
+Functions do not execute model functions. They share the prepared value runner,
+work/result allowances and native callbacks described in the
+[function reference](reference.md#typed-query-functions). Atomic Data programs
+continue to reject every function declaration and call, even when unused.
 
 Numbers use signed 64-bit integers and finite binary64 decimal floats. Integer
 literals may use MiniZinc decimal, `0x` or `0o` spelling, including
