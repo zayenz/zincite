@@ -139,10 +139,19 @@ spelling (quoted when required). Serialization uses the declaration's member
 spelling; it never replaces matching text inside strings or field labels.
 
 Reports additionally accept `length(a)`, `sum(a)`, `forall(a)`, `exists(a)`,
-`require(condition, value, "message")`, `group_by(rows, "field")`, `entries(a)`
-and `zip_exact(a,b)`.
-Each reducer takes one ordinary array
-expression. The array materializes fully before reduction; generator-call
+`require(condition, value, "message")`, `group_by(rows, "field")`, `entries(a)`,
+`zip_exact(a,b)`, `contains(text, fragment)`, `starts_with(text, prefix)` and
+`ends_with(text, suffix)`.
+
+String matching accepts two strings and returns a fixed Boolean. Matching is
+exact and case-sensitive, without coercion, regex, case folding or Unicode
+normalization. Empty search strings match, including an empty text. Both
+operands evaluate in written order; known non-string operands fail preflight,
+including in skipped branches. Scans and failure diagnostics use the active
+request budget, and matching borrows existing text. These helpers remain
+report-only, including in unused lets and skipped data-edit branches.
+
+Each reducer takes one ordinary array expression. The array materializes fully before reduction; generator-call
 spellings such as `forall(i in 1..3)(...)` are unsupported. Length counts present
 values without flattening nested arrays. Sum accepts only integers and performs
 checked addition in stored order. The quantifiers require fixed Booleans and

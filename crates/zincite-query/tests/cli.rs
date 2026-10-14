@@ -1367,3 +1367,45 @@ fn typed_functions_replay_inline_and_file_and_buffer_later_errors() {
     assert_eq!(failed.status.code(), Some(2));
     assert!(failed.stdout.is_empty());
 }
+
+#[test]
+fn string_matching_agrees_inline_file_library_and_buffers_later_errors() {
+    use zincite_query::{Input, Program, ProgramLimits};
+    use zincite_syntax::FileMode;
+    let source = include_str!("fixtures/string-matching.zq");
+    let input = include_bytes!("fixtures/string-matching.mzn");
+    let file = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/string-matching.zq"
+    );
+    let model = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/string-matching.mzn"
+    );
+    let native = Input::parse(input.to_vec(), FileMode::Model).unwrap();
+    let limits = ProgramLimits::default();
+    let expected = Program::parse(source, limits)
+        .unwrap()
+        .evaluate(&native, limits)
+        .unwrap()
+        .render()
+        .unwrap();
+    for arguments in [
+        vec!["--program", source, model],
+        vec!["--program-file", file, model],
+    ] {
+        let output = run(&arguments, b"");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(output.stdout, expected);
+    }
+    let failed = run(
+        &[
+            "--program",
+            &format!("{source} report contains(\"x\", [\"z\"][2]);"),
+            model,
+        ],
+        b"",
+    );
+    assert_eq!(failed.status.code(), Some(2));
+    assert!(failed.stdout.is_empty());
+}

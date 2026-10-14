@@ -653,12 +653,35 @@ ordered records and homogeneous Boolean/integer/float/nominal sets. Supported op
 numeric promotion, comparison, equality, membership, concatenation, access,
 finite inclusive integer ranges, rank-one `index_set`, `enum_member`, report-only
 `length`/`sum`/`forall`/`exists`/`require`/`group_by`/`entries`/`zip_exact`,
+`contains`/`starts_with`/`ends_with`,
 absence `<>`, `occurs`/`absent`/`lookup`/`has_key`, lazy `default`, and
 `if`/`elseif` with mandatory
 `else`. Unsupported forms and known incompatible types fail before evaluation,
 including in skipped branches. Skipped runtime branches perform no arithmetic
 or missing-access work. Overflow, zero division, inexact promotion, nonfinite
 results and nonzero floating results rounded to zero are located errors.
+
+Use `contains(text, fragment)`, `starts_with(text, prefix)` and
+`ends_with(text, suffix)` to filter projected names. Each takes two strings and
+returns a fixed Boolean. Matching is exact and case-sensitive; it does not
+coerce values, interpret regex, fold case or normalize Unicode. Empty searches
+match. For example, `contains("Ångström", "ström")` is true,
+`starts_with("Ångström", "ång")` is false, and `ends_with("Ångström", "")`
+is true. Precomposed `é` does not contain decomposed `é`.
+
+```sh
+zincite query --program 'source labels = query("items | names"); report [n | n in labels where starts_with(n, "work") /\ contains(n, "load")];' model.mzn
+```
+
+The [saved string-matching program](../crates/zincite-query/tests/fixtures/string-matching.zq)
+adds a native record projection and the Unicode controls. Inline programs,
+`--program-file` and `Program::parse` share the evaluator. Both operands run in
+written order. Non-string operands fail with a query location, even in skipped
+branches when their types are known. Scans and diagnostics spend the continuing
+request budget; matching borrows the text without substring or normalization
+copies. These are report helpers and remain unavailable in data edits and
+preceding lets, including unused or skipped calls. Native `name(...)` selectors
+keep their existing host behavior.
 
 Array reducers take one fully evaluated positional or keyed array. `length`
 counts present values and permits any element type; nested arrays remain nested.

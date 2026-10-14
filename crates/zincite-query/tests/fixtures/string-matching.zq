@@ -1,0 +1,4 @@
+let rows = items | project(d, {"name": d | names | one});
+report (names: [r.name | r in rows where contains(r.name, "load") /\ starts_with(r.name, "work") /\ ends_with(r.name, "load")],
+        controls: [contains("Ångström", "ström"), starts_with("Ångström", "ång"),
+                   ends_with("Ångström", ""), contains("é", "é"), starts_with("", "")]);

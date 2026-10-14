@@ -584,6 +584,9 @@ impl<Q> Lower<'_, '_, Q> {
                         | "group_by"
                         | "entries"
                         | "zip_exact"
+                        | "contains"
+                        | "starts_with"
+                        | "ends_with"
                 ) {
                     if self.policy == ExpressionPolicy::Data {
                         return Err(QueryError::query(
@@ -595,7 +598,31 @@ impl<Q> Lower<'_, '_, Q> {
                     if self.first_report_call.is_none() {
                         self.first_report_call = Some(range.clone());
                     }
-                    if self.text(i) == "entries" {
+                    if matches!(self.text(i), "contains" | "starts_with" | "ends_with") {
+                        let mut args = node.child_nodes();
+                        let left = args.next().ok_or_else(|| {
+                            QueryError::query(range.clone(), "string matching needs two arguments")
+                        })?;
+                        let right = args.next().ok_or_else(|| {
+                            QueryError::query(range.clone(), "string matching needs two arguments")
+                        })?;
+                        if args.next().is_some() {
+                            return Err(QueryError::query(
+                                range,
+                                "string matching needs two arguments",
+                            ));
+                        }
+                        K::Binary {
+                            operator: match self.text(i) {
+                                "contains" => B::Contains,
+                                "starts_with" => B::StartsWith,
+                                "ends_with" => B::EndsWith,
+                                _ => unreachable!("string matching call"),
+                            },
+                            left: Box::new(self.node(left, depth + 1)?),
+                            right: Box::new(self.node(right, depth + 1)?),
+                        }
+                    } else if self.text(i) == "entries" {
                         if node.child_nodes().count() != 1 {
                             return Err(QueryError::query(range, "entries needs one argument"));
                         }

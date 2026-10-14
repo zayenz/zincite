@@ -4134,3 +4134,73 @@ fn typed_query_path_targets_retain_unknown_and_selected_boolean_laziness() {
     };
     assert_eq!(&bytes[location.range], b"mixed");
 }
+
+#[test]
+fn exact_string_matching_filters_projected_names_and_keeps_data_closed() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    use zirql::ConstructedValue as V;
+    let limits = ProgramLimits::default();
+    let input = Input::parse(
+        include_bytes!("fixtures/string-matching.mzn").to_vec(),
+        FileMode::Model,
+    )
+    .unwrap();
+    let result = Program::parse(include_str!("fixtures/string-matching.zq"), limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    assert!(
+        matches!(result.emissions()[0].value(), ReportValue::Constructed(value) if value == &V::Record(vec![
+            ("names".into(), V::Array(vec![V::String("work_load".into())])),
+            ("controls".into(), V::Array(vec![true, false, true, false, true].into_iter().map(V::Boolean).collect())),
+        ]))
+    );
+    let bad = r#"report if false then contains("x", 1) else false endif;"#;
+    let error = Program::parse(bad, limits).unwrap_err();
+    assert_eq!(&bad[error.range], r#"contains("x", 1)"#);
+    for source in [
+        r#"let unused=contains("x","x"); create b=1; emit;"#,
+        r#"replace a=if true then 2 else starts_with("x","x") endif; emit;"#,
+        r#"let unused=if false then ends_with("x","") else false endif; create b=1; emit;"#,
+    ] {
+        assert!(
+            Program::parse(source, limits)
+                .unwrap_err()
+                .message
+                .contains("report-only")
+        );
+    }
+    let function = Program::parse(
+        r#"fn has_part(text:string)->bool { contains(text,"str") } report has_part("Ångström");"#,
+        limits,
+    )
+    .unwrap()
+    .evaluate(&input, limits)
+    .unwrap();
+    assert!(
+        matches!(function.emissions()[0].value(), ReportValue::Constructed(value) if value.data() == &V::Boolean(true))
+    );
+    assert!(
+        Program::parse(
+            "fn contains(text:string)->bool { true } report true;",
+            limits
+        )
+        .unwrap()
+        .evaluate(&input, limits)
+        .is_err()
+    );
+    let long = "a".repeat(4_000);
+    let tight = ProgramLimits {
+        work: 20_000,
+        ..limits
+    };
+    let prefix = Program::parse(&format!("report starts_with(\"{long}\",\"a\");"), limits).unwrap();
+    prefix.evaluate(&input, tight).unwrap();
+    let scan = Program::parse(&format!("report contains(\"{long}\",\"z\");"), limits).unwrap();
+    assert!(
+        scan.evaluate(&input, tight)
+            .unwrap_err()
+            .message
+            .contains("work")
+    );
+}

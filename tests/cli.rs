@@ -1154,3 +1154,41 @@ fn keyed_comparison_inline_and_file_agree_and_buffer_alignment_errors() {
     assert_eq!(std::fs::read(&data_path).unwrap(), data);
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn string_matching_agrees_inline_file_library_and_buffers_later_errors() {
+    let source = include_str!("../crates/zincite-query/tests/fixtures/string-matching.zq");
+    let file = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/crates/zincite-query/tests/fixtures/string-matching.zq"
+    );
+    let model = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/crates/zincite-query/tests/fixtures/string-matching.mzn"
+    );
+    let mut expected = None;
+    for arguments in [
+        vec!["query", "--program", source, model],
+        vec!["query", "--program-file", file, model],
+    ] {
+        let output = run(&arguments, "");
+        assert!(output.status.success(), "{output:?}");
+        assert!(String::from_utf8_lossy(&output.stdout).contains("work_load"));
+        if let Some(expected) = &expected {
+            assert_eq!(&output.stdout, expected);
+        } else {
+            expected = Some(output.stdout);
+        }
+    }
+    let failed = run(
+        &[
+            "query",
+            "--program",
+            &format!("{source} report contains(\"x\", [\"z\"][2]);"),
+            model,
+        ],
+        "",
+    );
+    assert_eq!(failed.status.code(), Some(2));
+    assert!(failed.stdout.is_empty());
+}
