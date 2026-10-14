@@ -66,9 +66,9 @@ pub(crate) fn budget(limits: Limits) -> Budget {
 }
 
 pub(crate) fn core_error(error: zirql::QueryError) -> QueryError {
-    let message = match error.message.as_str() {
-        "work limit exceeded" => "query work limit exceeded".to_owned(),
-        "item limit exceeded" => "query collection limit exceeded".to_owned(),
+    let message = match error.category {
+        zirql::QueryErrorCategory::WorkLimit => "query work limit exceeded".to_owned(),
+        zirql::QueryErrorCategory::ItemLimit => "query collection limit exceeded".to_owned(),
         _ => error.message,
     };
     match error.location {
@@ -733,5 +733,48 @@ impl<'a, 'q> Host<Row<'a>, &mut Context<'a>, Leaf<'q>, &'q Stage> for NativeHost
             .spend(value.len().saturating_sub(1), range)
             .map_err(EvaluationError::Host)?;
         Ok(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn core_categories_translate_independently_of_wording_and_keep_locations() {
+        let mut allowance = budget(Limits {
+            work: 0,
+            collection: 0,
+            ..Limits::default()
+        });
+        let mut work = allowance
+            .charge(1, zirql::Location::Query(7..11))
+            .unwrap_err();
+        work.message = "changed work refusal".into();
+        assert_eq!(
+            core_error(work),
+            QueryError::query(7..11, "query work limit exceeded")
+        );
+        let mut items = allowance
+            .check_items(1, zirql::Location::Source(20..23))
+            .unwrap_err();
+        items.message = "changed stream refusal".into();
+        assert_eq!(
+            core_error(items),
+            QueryError::input(20..23, "query collection limit exceeded")
+        );
+        assert_eq!(
+            core_error(zirql::QueryError::query(3..9, "work limit exceeded")),
+            QueryError::query(3..9, "work limit exceeded")
+        );
+        assert_eq!(
+            core_error(zirql::QueryError::source(4..8, "specific source failure")),
+            QueryError::input(4..8, "specific source failure")
+        );
+        let native = QueryError::input(30..35, "native source error");
+        assert_eq!(
+            evaluation_error(EvaluationError::Host(native.clone())),
+            native
+        );
     }
 }

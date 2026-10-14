@@ -1042,6 +1042,14 @@ error without truncating the result. Library callers can change work/collection
 limits. Query nesting is checked during parsing; literal nesting and work/collection
 limits are checked during evaluation.
 
+The adapter translates Zirql's `WorkLimit` and `ItemLimit` categories into the
+existing query work and collection diagnostics. Other core failures keep their
+full message and query/input range. A final `UnknownPredicate` from a native
+match guard or path target uses the responsible model diagnostic when available;
+otherwise it retains the shared query error. Native host errors keep their file,
+range and message. These translations depend on categories, independently of
+human-readable wording.
+
 The commands take one query argument and one optional file or `-`.
 `--stdin-filepath PATH` selects stdin's language mode and diagnostic label;
 without it stdin uses model mode. Extra files and directory inputs are rejected.

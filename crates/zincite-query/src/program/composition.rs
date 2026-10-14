@@ -960,21 +960,7 @@ impl<'a> CompositionHost<'_, '_> {
         let previous = context.guard_unknown.take();
         let result = zirql::evaluate_paths(paths, self, input, context, bindings, budget);
         let responsible = std::mem::replace(&mut context.guard_unknown, previous);
-        let rows = match result {
-            Err(zirql::EvaluationError::Core(error))
-                if error.message == "path target is Unknown" =>
-            {
-                if let Some(diagnostic) = responsible {
-                    return Err(zirql::EvaluationError::Host(QueryError {
-                        range: diagnostic.location.range.clone(),
-                        location: crate::ErrorLocation::Model(diagnostic.location),
-                        message: diagnostic.message,
-                    }));
-                }
-                return Err(zirql::EvaluationError::Core(error));
-            }
-            result => result?,
-        };
+        let rows = result.map_err(|error| predicate_error(error, responsible))?;
         budget.charge(rows.len() + 1, zirql::Location::Query(paths.range.clone()))?;
         budget.charge_results(rows.len() + 1, zirql::Location::Query(paths.range.clone()))?;
         let rows = rows
@@ -1012,21 +998,7 @@ impl<'a> CompositionHost<'_, '_> {
         let previous = context.guard_unknown.take();
         let result = zirql::evaluate_match(matching, self, input, context, bindings, budget);
         let responsible = std::mem::replace(&mut context.guard_unknown, previous);
-        let rows = match result {
-            Err(zirql::EvaluationError::Core(error))
-                if error.message == "required match guard is Unknown" =>
-            {
-                if let Some(diagnostic) = responsible {
-                    return Err(zirql::EvaluationError::Host(QueryError {
-                        range: diagnostic.location.range.clone(),
-                        location: crate::ErrorLocation::Model(diagnostic.location),
-                        message: diagnostic.message,
-                    }));
-                }
-                return Err(zirql::EvaluationError::Core(error));
-            }
-            result => result?,
-        };
+        let rows = result.map_err(|error| predicate_error(error, responsible))?;
         budget.charge(
             rows.len() + 1,
             zirql::Location::Query(matching.range.clone()),
@@ -1156,5 +1128,77 @@ impl<'a> zirql::PathHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
             declarations.push(path_declaration(&step, range)?);
         }
         Ok(ReportValue::Query(SemanticStream::Entities(declarations)))
+    }
+}
+
+fn predicate_error(
+    error: zirql::EvaluationError<QueryError>,
+    responsible: Option<SourceDiagnostic>,
+) -> zirql::EvaluationError<QueryError> {
+    match error {
+        zirql::EvaluationError::Core(error)
+            if error.category == zirql::QueryErrorCategory::UnknownPredicate =>
+        {
+            match responsible {
+                Some(diagnostic) => zirql::EvaluationError::Host(QueryError {
+                    range: diagnostic.location.range.clone(),
+                    location: crate::ErrorLocation::Model(diagnostic.location),
+                    message: diagnostic.message,
+                }),
+                None => zirql::EvaluationError::Core(error),
+            }
+        }
+        error => error,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unknown_category_uses_the_responsible_model_diagnostic_or_retains_core_error() {
+        let responsible = SourceDiagnostic {
+            location: zincite_lint::SourceLocation {
+                path: "included/model.mzn".into(),
+                range: 20..27,
+                line: 3,
+                column: 5,
+            },
+            message: "model predicate is uncertain".into(),
+        };
+        let error = zirql::QueryError::query(7..14, "changed Unknown refusal")
+            .with_category(zirql::QueryErrorCategory::UnknownPredicate);
+        assert_eq!(
+            predicate_error(
+                zirql::EvaluationError::Core(error.clone()),
+                Some(responsible.clone())
+            ),
+            zirql::EvaluationError::Host(QueryError {
+                range: 20..27,
+                location: crate::ErrorLocation::Model(responsible.location.clone()),
+                message: responsible.message.clone(),
+            })
+        );
+        assert_eq!(
+            predicate_error(zirql::EvaluationError::Core(error.clone()), None),
+            zirql::EvaluationError::Core(error)
+        );
+        let other = zirql::QueryError::query(8..15, "path target is Unknown");
+        assert_eq!(
+            predicate_error(
+                zirql::EvaluationError::Core(other.clone()),
+                Some(responsible.clone())
+            ),
+            zirql::EvaluationError::Core(other)
+        );
+        let native = QueryError::input(30..35, "native source error");
+        assert_eq!(
+            predicate_error(
+                zirql::EvaluationError::Host(native.clone()),
+                Some(responsible)
+            ),
+            zirql::EvaluationError::Host(native)
+        );
     }
 }

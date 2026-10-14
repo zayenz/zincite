@@ -2155,6 +2155,7 @@ fn check_shape(
                         .ok_or_else(|| zirql::QueryError {
                             location: location.clone(),
                             message: "array axis product overflow".into(),
+                            category: zirql::QueryErrorCategory::Other,
                         })?;
                 for pair in axis.keys.windows(2) {
                     let contiguous = match (&pair[0], &pair[1]) {
@@ -2171,6 +2172,7 @@ fn check_shape(
                         return Err(zirql::QueryError {
                             location: location.clone(),
                             message: "array axis must be increasing and contiguous".into(),
+                            category: zirql::QueryErrorCategory::Other,
                         });
                     }
                 }
@@ -2182,6 +2184,7 @@ fn check_shape(
                 return Err(zirql::QueryError {
                     location: location.clone(),
                     message: "keyed array has missing cells in its rectangular axis product".into(),
+                    category: zirql::QueryErrorCategory::Other,
                 });
             }
             for entry in entries {
