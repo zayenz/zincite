@@ -568,7 +568,8 @@ strings, resolved enum members, positional/keyed arrays, matrices, tuples,
 ordered records and homogeneous Boolean/integer/float/nominal sets. Supported operations include checked arithmetic, exact
 numeric promotion, comparison, equality, membership, concatenation, access,
 finite inclusive integer ranges, rank-one `index_set`, `enum_member`, report-only
-`length`/`sum`/`forall`/`exists`/`require`/`group_by`/`entries`/`zip_exact`, and
+`length`/`sum`/`forall`/`exists`/`require`/`group_by`/`entries`/`zip_exact`,
+absence `<>`, `occurs`/`absent`/`lookup`/`has_key`, lazy `default`, and
 `if`/`elseif` with mandatory
 `else`. Unsupported forms and known incompatible types fail before evaluation,
 including in skipped branches. Skipped runtime branches perform no arithmetic
@@ -581,6 +582,17 @@ counts present values and permits any element type; nested arrays remain nested.
 all fixed Boolean elements. Empty results are `0`, `0`, `true` and `false`.
 A comprehension head failure occurs before reduction even after a decisive
 Boolean. Sets, tuples, float sum and generator-call shorthand are refused.
+
+`lookup(value,key)` returns absence for a compatible missing record label or
+array key. `has_key` distinguishes omitted storage from a stored `<>`.
+`occurs`/`absent` inspect presence; false, zero and empty containers are present.
+`value default fallback` selects its fallback only for absence, with scope and
+known-type checks on both branches and no skipped fallback data projection.
+Fixed model declarations constrain optional source values and record labels.
+Strict dot/bracket access still fails on missing data. These forms are read-only;
+external inputs stay required int/string/bool and data edits refuse optional
+sources, targets and values. See the [optional contract](query-comprehension-contract.md#optional-read-only-values)
+and [executable report](queries.md#read-optional-fields-and-sparse-cells).
 
 `require(condition, value, "message")` has exactly three arguments and a literal
 string message. It preflights both expressions, then evaluates the fixed Boolean
@@ -624,9 +636,10 @@ have no input-source ranges.
 
 Keyed reports retain integer/member axes and multidimensional access uses
 `a[i,j]`; `a[i][j]` retains nested-array access. Keys follow numeric or explicit
-enum declaration order, with the rightmost axis varying fastest. Every axis
-must be contiguous and every axis-product cell must exist. Filtered holes fail
-without shifting keys. Known empty axes retain their rank and the other axes;
+enum declaration order, with the rightmost axis varying fastest. Read-only
+reports permit noncontiguous axes and omitted cells; stored keys stay unchanged.
+Data edits require contiguous axes and full rectangular coverage. Invalid keys
+fail without shifting keys. Known empty axes retain their rank and the other axes;
 uncertain keys cannot establish an empty fallback. Declared source axes may
 resolve bounded integer endpoints from unique original scalar literals. `enum_member` takes
 an enum identifier and a member-name string, and requires unique explicit model

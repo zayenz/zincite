@@ -143,7 +143,7 @@ pub(crate) fn prepare_data_batch(
                 c::ExpressionPolicy::Data,
             )?;
             let value = evaluate(&lowered, &edit.names, budget, &edit.range)?;
-            if let V::Integer(n) = &value {
+            if let V::Integer(n) = value.data() {
                 scalars.insert(targets[i].0.0, *n);
             }
             values[i] = Some(value);
@@ -525,7 +525,7 @@ fn validate_target(
             "constructed value does not match its declared target type or axes",
         )
     };
-    match (value, &ty.kind) {
+    match (value.data(), &ty.kind) {
         (V::Integer(_), TypeKind::Int) | (V::Float(_), TypeKind::Float) => {
             validate_numeric_domain(value, metadata, input, scalars, facts, budget, range)
         }
@@ -632,7 +632,7 @@ fn validate_target(
             } else if axes[0].key_type != zirql::ValueKeyType::Integer {
                 return Err(fail());
             }
-            c::validate_report_shape(value, budget, range)?;
+            c::validate_data_shape(value, budget, range)?;
             for entry in entries {
                 validate_target(
                     &entry.value,
@@ -780,7 +780,7 @@ fn validate_numeric_domain(
         _ => unreachable!("validated interval/set constructor"),
     };
     charge(budget, values.len(), range)?;
-    if !values.iter().any(|allowed| allowed == value) {
+    if !values.iter().any(|allowed| allowed == value.data()) {
         return Err(QueryError::query(
             range.clone(),
             "constructed scalar is outside its declared domain",
@@ -1014,7 +1014,12 @@ fn serialize(
     output: &mut String,
 ) -> Result<(), QueryError> {
     charge(budget, 1, range)?;
-    match value {
+    match value.data() {
+        V::Declared { .. } => unreachable!("transparent annotation"),
+        V::Absent => Err(QueryError::query(
+            range.clone(),
+            "absence and optional values are unavailable in data edits",
+        )),
         V::Boolean(v) => append(output, if *v { "true" } else { "false" }, budget, range),
         V::Integer(v) => {
             charge(budget, 20, range)?;

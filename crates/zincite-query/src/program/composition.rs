@@ -131,6 +131,7 @@ impl Parser<'_> {
         let host = NativeHost {
             queries: &self.queries,
             pipelines: Vec::new(),
+            editing: false,
             nesting: self.limits.nesting,
             limits: self.limits.query(),
         };
@@ -563,10 +564,8 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
     ) -> Result<Kind, zirql::QueryError> {
         Ok(match value {
             ReportValue::Constructed(value) => {
-                Kind::Value(Rc::new(vec![zirql::constructed_value_type(
-                    value,
-                    budget,
-                    zirql::Location::Query(range.clone()),
+                Kind::Value(Rc::new(vec![comprehension::value_facts(
+                    value, budget, range,
                 )?]))
             }
             ReportValue::Record(_) => Kind::Record,

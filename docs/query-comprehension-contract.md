@@ -11,7 +11,7 @@ and keyed helpers.
 Model-backed `.dzn` edit batches use the common expression subset and evaluator;
 the report-only calls below are excluded from every edit expression.
 
-Reports accept positional and fully keyed arrays, matrices, tuples, ordered
+Reports accept positional and sparse keyed arrays, matrices, tuples, ordered
 records and homogeneous Boolean/integer/float/nominal sets. Sources may use
 existing query projections or one unique original literal assignment. Nested
 arrays stay nested. Integer starting-key tails use checked successors; enum
@@ -114,13 +114,13 @@ generator's source. The rightmost generator is innermost. `_` discards a value
 and cannot be referenced. Duplicate bindings, shadowing a source, `let` or
 visible parameter, and forward references fail at the name. Filters require a
 fixed Boolean.
-Neither missing values nor decision-dependent Booleans are admitted. These
+An absent value cannot act as a filter; decision-dependent Booleans remain unsupported. These
 scope and iteration rules follow the [specification's generator
 rules](https://docs.minizinc.dev/en/2.10.1/spec.html#set-comprehensions).
 
 `expression` is a MiniZinc 2.10.1 expression parsed by Zincite's existing CST,
 then checked against the following closed subset. Expressions may contain
-signed integer, decimal float, Boolean and string
+signed integer, decimal float, Boolean, string and absent (`<>`)
 literals; bound names; parenthesized expressions; field access (`r.field`),
 tuple access (`t.1`), array access (`a[i]` or `a[i,j]`); finite integer ranges
 (`lo..hi`); set, tuple, record, positional array and fully keyed array
@@ -146,8 +146,10 @@ expression. The array materializes fully before reduction; generator-call
 spellings such as `forall(i in 1..3)(...)` are unsupported. Length counts present
 values without flattening nested arrays. Sum accepts only integers and performs
 checked addition in stored order. The quantifiers require fixed Booleans and
-scan every element. Positional and fully keyed arrays use the same reducers;
-Zincite still validates axes and rectangular coverage before consumption.
+scan every stored element. Positional and keyed arrays use the same reducers;
+keyed reducers visit stored cells, including in sparse arrays. Generic axis and
+key invariants remain checked. Data edits require contiguous axes and complete
+rectangular coverage.
 
 | Call | Empty array result |
 | --- | --- |
@@ -188,9 +190,9 @@ reindexing or data write. Both operands run once, left before right. Known input
 kinds and axis rank/types are preflighted in every branch; runtime alignment
 errors use the call range. Child errors keep their responsible ranges.
 
-Zincite validates every executed keyed operand for its existing contiguous axes
-and rectangular coverage before a helper consumes it. Shared sparse alignment
-does not relax this host policy. An empty indexed delta comprehension headed by
+Read-only keyed operands may have noncontiguous axes and missing cells. Helpers
+retain their stored keys; they do not fill holes. Data edits still require
+contiguous axes and rectangular coverage. An empty indexed delta comprehension headed by
 `e.key` cannot infer axes after `entries`; the existing fallback needs simple
 generator key names. Report `zip_exact` directly to retain declared empty axes.
 The [matrix example](queries.md#compare-keyed-matrix-cells) computes nonempty
@@ -236,7 +238,7 @@ permits broader fixed sets, but the tested MiniZinc 2.10.1 compiler rejects
 string set literals. This contract excludes them for both consumers.
 
 Model calls, arbitrary built-ins, generator calls, interpolation, annotations,
-`let` inside an expression, decision values, optional values, recursion,
+`let` inside an expression, decision values, recursion,
 floating ranges and every unlisted operator fail with a located explanation.
 
 Numbers use signed 64-bit integers and finite binary64 decimal floats. Integer
@@ -251,15 +253,48 @@ fails if binary64 cannot represent it exactly, as in the existing
 nonzero finite mathematical result rounded to zero. No implicit string-to-number
 or string-to-member conversion is allowed.
 
+## Optional read-only values
+
+`<>` represents absence. `occurs(value)` and `absent(value)` inspect presence;
+zero, false, empty strings and empty containers remain present. Arithmetic,
+ordering and filters require present operands. Optional equality checks known
+underlying declarations before comparing presence.
+
+`lookup(value, key)` reads a record string label, a one-based positional index,
+or a scalar/tuple keyed-array key. A compatible missing key returns absence.
+`has_key(value, key)` reports whether storage contains the key, so a stored
+`<>` counts as present storage. Wrong containers, key types, ranks and enum
+identities fail. With a retained record declaration, an undeclared label also
+fails. Ordinary dot and bracket accesses still fail on missing data.
+
+`value default fallback` evaluates its left operand once and selects the
+fallback only for absence. Both branches receive syntax, scope, purity and
+known-type checks. A fallback-only binding is not projected, scanned or copied,
+and a fallback-only enum member is not resolved, until selected. Selected errors
+keep their original locations and share the request budget. Parenthesize mixed
+operators; `default` follows MiniZinc precedence and associates left to right.
+
+Fixed optional model sources retain their actual TypeInst contracts, including
+required and optional record labels. Omitted optional fields are permitted;
+missing required fields, extra labels and incompatible values fail admission.
+Zincite keeps these declarations with native constructed values; Rust callers
+can inspect data through `ConstructedValue::data()` without discarding the
+stored contract. Decision and computed source values remain unsupported.
+
+Tagged reports render absence as `{"kind":"absent"}`. Records emit only stored
+fields and keyed arrays only stored cells. Data requests refuse absence,
+optional source/target contracts and these new forms, including unused lets and
+skipped branches. External parameters remain required int/string/bool inputs.
+See the [optional report](queries.md#read-optional-fields-and-sparse-cells).
+
 ## Constructed shape and result
 
 `[value | ...]` has positions `1..n` in generation order, including after a
 filter. Fully keyed `[key: value | ...]` carries one integer or resolved enum
 key per dimension. A tuple key establishes its arity. Keys must be unique;
-each integer axis must be contiguous, each enum axis must have a known enum
-identity and a contiguous interval in its declared order, and every tuple-key
-product must have exactly one value at every combination. A keyed array that loses a cell fails rather than
-silently shifting keys. Keyed sources whose member names are merely syntactic
+integer axes retain numeric order and enum axes retain known identity and
+declaration order. Read-only arrays may omit axis keys or cells. Omission does
+not shift stored keys; data targets retain the contiguous rectangular policy. Keyed sources whose member names are merely syntactic
 identifiers need model facts before they can establish enum identity. The
 existing literal filter's syntactic key check alone cannot prove that identity
 or a target declaration's coverage.

@@ -31,6 +31,7 @@ pub struct LiteralValue<'a> {
 /// Recursive inspection data, without evaluating computed expressions.
 #[derive(Clone, Debug)]
 pub enum LiteralKind<'a> {
+    Absent,
     Integer,
     Float,
     Boolean(bool),
@@ -360,6 +361,7 @@ impl<'a> LiteralReader<'a, '_, '_> {
                     QueryError::input(range.clone(), "unsupported computed value")
                 })?;
                 match self.input.syntax().tokens()[index].kind {
+                    TokenKind::Absent => LiteralKind::Absent,
                     TokenKind::IntegerLiteral => LiteralKind::Integer,
                     TokenKind::FloatLiteral => LiteralKind::Float,
                     TokenKind::StringLiteral => LiteralKind::String,
@@ -565,6 +567,7 @@ pub(crate) fn validate_json(
 fn value_json(value: &LiteralValue<'_>) -> Value {
     let mut result = json!({"file":value.file, "range":{"start":value.range.start,"end":value.range.end}, "text":std::str::from_utf8(value.spelling).unwrap()});
     let (kind, content) = match &value.kind {
+        LiteralKind::Absent => ("absent", Value::Null),
         LiteralKind::Integer => ("integer", Value::Null),
         LiteralKind::Float => ("float", Value::Null),
         LiteralKind::Boolean(value) => ("boolean", json!({"value":value})),

@@ -640,8 +640,8 @@ fn keyed_program_files_keep_nominal_axes_and_buffer_later_errors() {
     );
     for later in [
         "report 1 div 0;",
-        "report [v|v in [(1,1):1,(1,2):2,(2,1):3]];",
-        "let bad=[(1,1):1,(1,2):2,(2,1):3]; report [x|x in bad];",
+        "report [(1,1):1,(1,2):2,(2,1):3][2,2];",
+        "let bad=[(1,1):1,(1,2):2,(2,1):3]; report lookup(bad,1);",
     ] {
         std::fs::write(&program, format!("{report} {later}")).unwrap();
         let output = run(&args, data);
@@ -664,9 +664,13 @@ fn keyed_program_files_keep_nominal_axes_and_buffer_later_errors() {
         &args,
         "\u{feff}table=[(2,Zulu):21,(3,Zulu):31,(2,Alpha):22];",
     );
-    assert_eq!(output.status.code(), Some(2));
-    assert!(output.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("report.dzn:1:8:"));
+    assert!(output.status.success(), "{:?}", output);
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout)
+            .matches("\"kind\":\"integer\",\"value\":21")
+            .count(),
+        1
+    );
     std::fs::write(
         &model,
         "\u{feff}enum Guest={Zulu} ++ anon_enum(2); solve satisfy;",

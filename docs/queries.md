@@ -47,7 +47,8 @@ Read-only programs also support `let` bindings, positional comprehensions and
 scalar expressions over query projections or a written literal assignment. The
 reference describes the accepted values, checked arithmetic and result schema.
 Reports also support keyed arrays, established enum-member identities and
-multidimensional access, with explicit axes and rectangular-shape checks.
+multidimensional access, with explicit axes and retained sparse cells. Data
+edits require contiguous axes and complete rectangular coverage.
 For new assignments and computed replacements, use a model-backed
 [data edit program](data-edits.md#construct-new-data). It uses the common bounded
 subset, with `index_set` and `enum_member` as its only expression calls, and
@@ -186,8 +187,9 @@ array. An empty delta comprehension headed by `e.key` cannot infer its result
 axes: the existing empty-axis fallback needs simple generator key names. Report
 the paired array directly to retain known empty axes.
 
-Zincite still requires contiguous axes and complete rectangular coverage for
-every executed keyed operand. Entries cannot hide a sparse intermediate value.
+Read-only keyed arrays may have noncontiguous axes and missing cells.
+`entries` returns stored cells; `zip_exact` requires identical ordered axes and
+stored keys. Data edits retain contiguous axes and complete rectangular coverage.
 Both helpers are report-only and are refused in data-edit expressions and
 preceding edit lets. See the [expression contract](query-comprehension-contract.md#report-expressions-and-edit-grammar)
 for type, identity and budget rules.
@@ -365,3 +367,51 @@ explains how to distinguish missing proof from input failure.
 To change instance values or reduce an enum, use the [data-edit guide](data-edits.md).
 The [query acceptance report](../scripts/query-acceptance.md) retains measured
 commands and remaining resource limits for its checked revision.
+
+## Read optional fields and sparse cells
+
+The development query API supports absence and lazy defaults in read-only
+reports. These fixture files keep a fixed model schema and sparse stored cells:
+
+```minizinc
+% optional-report.mzn
+array[1..2,1..2] of opt int: cells;
+record(int: id, opt int: missing, opt int: stored): info;
+solve satisfy;
+```
+
+```minizinc
+% optional-report.dzn
+cells=[(1,1):10,(1,2):<>,(2,1):30];
+info=(id:4,stored:<>);
+```
+
+```text
+source cells=literal("cells");
+source info=literal("info");
+report (id: lookup(info,"id") default 0,
+        omitted: absent(lookup(info,"missing")),
+        stored: has_key(info,"stored"), missing: has_key(info,"missing"),
+        stored_cell: has_key(cells,(1,2)), missing_cell: has_key(cells,(2,2)),
+        fallback: lookup(cells,(2,2)) default 8,
+        skip: 7 default (1 div 0), info: info, cells: cells);
+```
+
+Save the program as `optional-report.zq` and run:
+
+```sh
+zincite-query --model optional-report.mzn --program-file optional-report.zq optional-report.dzn
+```
+
+`stored` and `stored_cell` are true; `missing` and `missing_cell` are false.
+The fallback is 8 and `skip` is 7. The tagged output retains the stored absent
+field/cell and omits missing storage. A label outside `info`'s declared schema
+fails, as does strict `cells[2,2]`. The complete reusable control in
+`crates/zincite-query/tests/fixtures/optional-report.zq` also includes a native
+count and checks that false, zero and empty arrays remain present.
+
+The Rust `Program::parse` and `evaluate_with_model` entry points accept the same
+program. Constructed results keep their declaration annotations; use `.data()`
+when matching the stored data. These values do not expand data editing or
+external parameter types. Data edits still require nonoptional targets and
+complete rectangular arrays.

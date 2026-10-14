@@ -1,0 +1,10 @@
+source cells=literal("cells");
+source info=literal("info");
+source native=query("filter(name(\"cells\")) | count");
+report (id: lookup(info,"id") default 0,
+        omitted: absent(lookup(info,"missing")), stored: has_key(info,"stored"),
+        missing: has_key(info,"missing"),
+        stored_cell: has_key(cells,(1,2)), missing_cell: has_key(cells,(2,2)),
+        fallback: lookup(cells,(2,2)) default 8,
+        zero: 0 default 99, flag: false default true, empty: [] default [1],
+        skip: 7 default (1 div 0), native: native, info: info, cells: cells);

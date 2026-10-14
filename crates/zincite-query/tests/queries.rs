@@ -2373,7 +2373,7 @@ fn keyed_reports_retain_model_identity_axes_and_row_major_cells() {
     let ReportValue::Constructed(V::Record(fields)) = result.emissions()[0].value() else {
         panic!("native constructed record")
     };
-    let V::KeyedArray { axes, entries } = &fields[0].1 else {
+    let V::KeyedArray { axes, entries } = fields[0].1.data() else {
         panic!("native keyed result")
     };
     assert_eq!(axes.len(), 2);
@@ -2406,7 +2406,7 @@ fn keyed_reports_retain_model_identity_axes_and_row_major_cells() {
         .collect();
     assert_eq!(names, [("Zulu", 0), ("Alpha", 1)]);
     assert_eq!(
-        entries.iter().map(|e| &e.value).collect::<Vec<_>>(),
+        entries.iter().map(|e| e.value.data()).collect::<Vec<_>>(),
         [
             &V::Integer(21),
             &V::Integer(22),
@@ -2415,7 +2415,7 @@ fn keyed_reports_retain_model_identity_axes_and_row_major_cells() {
         ]
     );
     assert_eq!(entries[0].key[0], K::Integer(3));
-    let V::KeyedArray { axes, entries } = &fields[5].1 else {
+    let V::KeyedArray { axes, entries } = fields[5].1.data() else {
         panic!("known empty result")
     };
     assert_eq!(axes.len(), 2);
@@ -2425,38 +2425,38 @@ fn keyed_reports_retain_model_identity_axes_and_row_major_cells() {
     let V::Set {
         element_type: Some(zirql::SetElementType::Member(id)),
         elements,
-    } = &fields[6].1
+    } = fields[6].1.data()
     else {
         panic!("typed empty set")
     };
     assert_eq!(id.0, enum_id);
     assert!(elements.is_empty());
-    let V::KeyedArray { axes, entries } = &fields[7].1 else {
+    let V::KeyedArray { axes, entries } = fields[7].1.data() else {
         panic!("declared empty array")
     };
     assert_eq!(axes.len(), 2);
     assert!(axes[0].keys.is_empty());
     assert_eq!(axes[1].keys.len(), 2);
     assert!(entries.is_empty());
-    let V::Record(info) = &fields[8].1 else {
+    let V::Record(info) = fields[8].1.data() else {
         panic!("nested model-backed record")
     };
-    let V::KeyedArray { axes, entries } = &info[0].1 else {
+    let V::KeyedArray { axes, entries } = info[0].1.data() else {
         panic!("written alias field axes")
     };
     assert!(matches!(&axes[0].keys[0], K::Member(member) if member.member_name == "Zulu"));
-    assert_eq!(entries[1].value, V::Integer(9));
+    assert_eq!(entries[1].value.data(), &V::Integer(9));
     let V::KeyedArray {
         axes: paired_axes,
         entries: pairs,
-    } = &fields[9].1
+    } = fields[9].1.data()
     else {
         panic!("nominal pairs")
     };
     let V::KeyedArray {
         axes: original_axes,
         ..
-    } = &fields[1].1
+    } = fields[1].1.data()
     else {
         panic!("original axes")
     };
@@ -2464,18 +2464,18 @@ fn keyed_reports_retain_model_identity_axes_and_row_major_cells() {
     assert!(
         matches!(&paired_axes[1].keys[0], K::Member(member) if member.type_id.0 == enum_id && member.member_name == "Zulu")
     );
-    assert_eq!(
-        pairs[0].value,
-        V::Tuple(vec![V::Integer(21), V::Integer(21)])
-    );
-    let V::Array(inspected) = &fields[10].1 else {
+    let V::Tuple(pair) = pairs[0].value.data() else {
+        panic!("aligned tuple")
+    };
+    assert!(pair.iter().all(|value| value.data() == &V::Integer(21)));
+    let V::Array(inspected) = fields[10].1.data() else {
         panic!("nominal entries")
     };
     assert!(
         matches!(&inspected[0], V::Record(row) if matches!(&row[0].1,
         V::Tuple(key) if matches!(&key[1], V::Member(member) if member.type_id.0 == enum_id && member.member_name == "Zulu")))
     );
-    assert_eq!(fields[11].1, fields[7].1);
+    assert_eq!(fields[11].1.data(), fields[7].1.data());
     assert!(result.is_complete());
     let bytes = result.render().unwrap();
     let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
@@ -2493,7 +2493,7 @@ fn keyed_reports_retain_model_identity_axes_and_row_major_cells() {
     assert_eq!(shared.render().unwrap(), bytes);
     let projected = Program::parse(r#"source rows = query("filter(name(\"table\")) | values"); let row = rows[1]; report row;"#, limits).unwrap().evaluate_with_facts(&input, Rc::clone(&facts), limits).unwrap();
     assert!(
-        matches!(projected.emissions()[0].value(), ReportValue::Constructed(V::KeyedArray { axes, entries }) if axes.len() == 2 && entries[0].value == V::Integer(21))
+        matches!(projected.emissions()[0].value(), ReportValue::Constructed(value) if matches!(value.data(), V::KeyedArray { axes, entries } if axes.len() == 2 && entries[0].value.data() == &V::Integer(21)))
     );
     let empty_delta = Program::parse(
         r#"source a=literal("empty");
@@ -2523,23 +2523,6 @@ fn keyed_reports_refuse_shape_identity_and_unestablished_empty_axes() {
     let limits = ProgramLimits::default();
     let input = Input::parse(b"x=1;".to_vec(), FileMode::Data).unwrap();
     for (source, expected) in [
-        (
-            "let bad=[(1,1):1,(1,2):2,(2,1):3]; report [v | v in bad];",
-            "missing cells",
-        ),
-        (
-            "report [v | v in [(1,1):1,(1,2):2,(2,1):3]];",
-            "missing cells",
-        ),
-        (
-            "report entries([(1,1):1,(1,2):2,(2,1):3]);",
-            "missing cells",
-        ),
-        (
-            "report zip_exact([(1,1):1,(1,2):2,(2,1):3], [|1,2|3,4|]);",
-            "missing cells",
-        ),
-        ("report [i: i | i in 1..3 where i != 2];", "contiguous"),
         ("report [1:1,1:2];", "duplicate"),
         ("report [i+1: i | i in 1..0];", "empty"),
         ("report [(i,j):1 | i in 1..0,j in 1..i];", "empty"),
@@ -2582,10 +2565,6 @@ fn keyed_reports_refuse_shape_identity_and_unestablished_empty_axes() {
         (
             "report [1:1,enum_member(Guest,\"Zulu\"):2];",
             "incompatible",
-        ),
-        (
-            "report [enum_member(Guest,\"Zulu\"):1,enum_member(Guest,\"Beta\"):2];",
-            "contiguous",
         ),
         ("report enum_member(Guest,\"absent\");", "unavailable"),
         ("report enum_member(Other,\"Zulu\");", "another enum"),
@@ -3581,4 +3560,226 @@ fn bounded_paths_keep_proven_edge_order_cycles_incompleteness_and_unknown_refusa
     assert!(
         matches!(result.emissions()[0].value(), ReportValue::Captures(paths) if paths.rows().len()==1)
     );
+}
+
+#[test]
+fn optional_reports_keep_model_contracts_sparse_membership_and_lazy_projection() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    use zirql::ConstructedValue as V;
+    let limits = ProgramLimits::default();
+    let model = semantic_model(
+        "optional-report",
+        include_bytes!("fixtures/optional-report.mzn"),
+        b"",
+        "",
+    );
+    let input = Input::parse(
+        include_bytes!("fixtures/optional-report.dzn").to_vec(),
+        FileMode::Data,
+    )
+    .unwrap();
+    let mut result = Program::parse(include_str!("fixtures/optional-report.zq"), limits)
+        .unwrap()
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap();
+    let ReportValue::Constructed(V::Record(fields)) = result.emissions()[0].value() else {
+        panic!("constructed report")
+    };
+    assert_eq!(fields[0].1.data(), &V::Integer(4));
+    assert_eq!(fields[1].1.data(), &V::Boolean(true));
+    assert_eq!(fields[2].1.data(), &V::Boolean(true));
+    assert_eq!(fields[3].1.data(), &V::Boolean(false));
+    assert_eq!(fields[4].1.data(), &V::Boolean(true));
+    assert_eq!(fields[5].1.data(), &V::Boolean(false));
+    assert_eq!(fields[6].1.data(), &V::Integer(8));
+    assert_eq!(fields[7].1.data(), &V::Integer(0));
+    assert_eq!(fields[8].1.data(), &V::Boolean(false));
+    assert_eq!(fields[9].1.data(), &V::Array(vec![]));
+    assert_eq!(fields[10].1.data(), &V::Integer(7));
+    assert_eq!(fields[11].1.data(), &V::Integer(1));
+    let json: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
+    assert_eq!(
+        json["result"]["fields"][12]["value"]["fields"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        json["result"]["fields"][12]["value"]["fields"][1]["value"]["kind"],
+        "absent"
+    );
+    assert_eq!(
+        json["result"]["fields"][13]["value"]["entries"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    for source in [
+        r#"source info=literal("info"); report lookup(info,"outside");"#,
+        r#"source info=literal("info"); report lookup(info,"missing") default true;"#,
+        r#"source cells=literal("cells"); report cells[2,2];"#,
+        r#"source cells=literal("cells"); report lookup(cells,1);"#,
+    ] {
+        assert!(
+            Program::parse(source, limits)
+                .unwrap()
+                .evaluate_with_model(&input, Some(&model), limits)
+                .is_err(),
+            "{source}"
+        );
+    }
+    let projected = Program::parse(r#"source info=literal("info"); report items | project(d, {"fallback": lookup(info,"missing") default 8, "stored": <>, "native": d | count});"#, limits).unwrap()
+        .evaluate_with_model(&input, Some(&model), limits).unwrap();
+    let ReportValue::Constructed(V::Array(rows)) = projected.emissions()[0].value() else {
+        panic!("shared projection")
+    };
+    assert_eq!(rows.len(), 2);
+    let V::Record(fields) = &rows[0] else {
+        panic!("projected row")
+    };
+    assert_eq!(fields[0].1.data(), &V::Integer(8));
+    assert_eq!(fields[1].1.data(), &V::Absent);
+    assert_eq!(fields[2].1.data(), &V::Integer(1));
+    for value in [
+        "info=(stored:<>);",
+        "info=(id:4,extra:1);",
+        "info=(id:4,stored:true);",
+    ] {
+        let invalid = Input::parse(value.as_bytes().to_vec(), FileMode::Data).unwrap();
+        let program =
+            Program::parse(r#"source info=literal("info"); report info;"#, limits).unwrap();
+        let error = program
+            .evaluate_with_model(&invalid, Some(&model), limits)
+            .unwrap_err();
+        assert_eq!(error.location, ErrorLocation::Input);
+        assert!(error.range.end <= value.len());
+    }
+    // The written fallback member is not resolved until absence selects it.
+    let skipped = Program::parse(
+        r#"report 7 default enum_member(Missing,"unavailable");"#,
+        limits,
+    )
+    .unwrap();
+    assert!(skipped.evaluate(&input, limits).is_ok());
+    let selected = Program::parse(
+        r#"report <> default enum_member(Missing,"unavailable");"#,
+        limits,
+    )
+    .unwrap();
+    assert!(selected.evaluate(&input, limits).is_err());
+    let source = format!("values=[{}];", vec!["1"; 2000].join(","));
+    let large = Input::parse(source.into_bytes(), FileMode::Data).unwrap();
+    let skipped = Program::parse(
+        r#"source rows=query("values"); report [] default rows;"#,
+        limits,
+    )
+    .unwrap();
+    let selected = Program::parse(
+        r#"source rows=query("values"); report <> default rows;"#,
+        limits,
+    )
+    .unwrap();
+    let tight = ProgramLimits {
+        work: 30_000,
+        results: 20_000,
+        ..limits
+    };
+    assert!(skipped.evaluate(&large, tight).is_ok());
+    assert!(selected.evaluate(&large, tight).is_err());
+    for source in [
+        "let unused=<>; replace cells=[1]; emit;",
+        "let unused=7 default 9; replace cells=[1]; emit;",
+        "replace cells=[<>]; emit;",
+    ] {
+        assert!(Program::parse(source, limits).is_err(), "{source}");
+    }
+}
+
+#[test]
+fn source_declarations_preserve_nested_array_representation() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    use zirql::{ConstructedValue as V, ValueKey};
+    let limits = ProgramLimits::default();
+    let model = semantic_model("nested-source-contract", b"array[1..2] of record(array[int] of int: xs): rows; record(array[int] of int: xs): flat; array[1..2] of opt record(array[int] of int: xs): optional_rows; solve satisfy;", b"", "");
+    let source = r#"source rows=literal("rows"); source flat=literal("flat"); source optional_rows=literal("optional_rows"); report (nested:rows[1], flat:flat, empty:rows[2], optional:lookup(optional_rows,2), missing:lookup(optional_rows,1));"#;
+    let program = Program::parse(source, limits).unwrap();
+    let input = Input::parse(
+        b"rows=[(xs:[1,2]),(xs:[])]; flat=(xs:[1,2]); optional_rows=[<>,(xs:[1,2])];".to_vec(),
+        FileMode::Data,
+    )
+    .unwrap();
+    let result = program
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap();
+    let ReportValue::Constructed(V::Record(fields)) = result.emissions()[0].value() else {
+        panic!("source report")
+    };
+    assert_eq!(fields[0].1.data(), fields[1].1.data());
+    assert_eq!(fields[0].1.data(), fields[3].1.data());
+    let V::Record(record) = fields[0].1.data() else {
+        panic!("nested record")
+    };
+    assert_eq!(
+        record[0].1.data(),
+        &V::Array(vec![V::Integer(1), V::Integer(2)])
+    );
+    let V::Record(empty) = fields[2].1.data() else {
+        panic!("empty nested record")
+    };
+    assert_eq!(empty[0].1.data(), &V::Array(vec![]));
+    assert_eq!(fields[4].1.data(), &V::Absent);
+    let keyed = Input::parse(b"rows=[(xs:[3:7,4:8]),(xs:[3:9])]; flat=(xs:[3:7,4:8]); optional_rows=[<>,(xs:[3:7,4:8])];".to_vec(), FileMode::Data).unwrap();
+    let result = program
+        .evaluate_with_model(&keyed, Some(&model), limits)
+        .unwrap();
+    let ReportValue::Constructed(V::Record(fields)) = result.emissions()[0].value() else {
+        panic!("keyed source report")
+    };
+    assert_eq!(fields[0].1.data(), fields[1].1.data());
+    assert_eq!(fields[0].1.data(), fields[3].1.data());
+    let V::Record(record) = fields[0].1.data() else {
+        panic!("keyed nested record")
+    };
+    let V::KeyedArray { axes, entries } = record[0].1.data() else {
+        panic!("retained keyed representation")
+    };
+    assert_eq!(axes[0].keys, [ValueKey::Integer(3), ValueKey::Integer(4)]);
+    assert_eq!(entries[1].value.data(), &V::Integer(8));
+    let mixed = Input::parse(
+        b"rows=[(xs:[1,2]),(xs:[3:7,4:8])]; flat=(xs:[3:7,4:8]); optional_rows=[<>,(xs:[1,2])];"
+            .to_vec(),
+        FileMode::Data,
+    )
+    .unwrap();
+    let result = program
+        .evaluate_with_model(&mixed, Some(&model), limits)
+        .unwrap();
+    let ReportValue::Constructed(V::Record(fields)) = result.emissions()[0].value() else {
+        panic!("mixed source report")
+    };
+    assert_eq!(fields[0].1.data(), fields[3].1.data());
+    assert_eq!(fields[1].1.data(), fields[2].1.data());
+    let V::Record(positional) = fields[0].1.data() else {
+        panic!("positional sibling")
+    };
+    assert!(matches!(positional[0].1.data(), V::Array(_)));
+    let V::Record(keyed) = fields[2].1.data() else {
+        panic!("keyed sibling")
+    };
+    assert!(matches!(keyed[0].1.data(), V::KeyedArray { .. }));
+    // The model schema still rejects a missing/extra field or wrong nested element.
+    let admission = Program::parse(r#"source rows=literal("rows"); report rows;"#, limits).unwrap();
+    for data in [
+        "rows=[(xs:[1,2]),(xs:[3:true])];",
+        "rows=[(xs:[1,2]),(wrong:[3:7])];",
+    ] {
+        let input = Input::parse(data.as_bytes().to_vec(), FileMode::Data).unwrap();
+        let error = admission
+            .evaluate_with_model(&input, Some(&model), limits)
+            .unwrap_err();
+        assert_eq!(error.location, ErrorLocation::Input);
+        assert!(error.range.end <= data.len());
+    }
 }

@@ -297,6 +297,18 @@ impl Lower<'_, '_> {
         };
         Ok(Located::new(K::KeyedArray { axes, entries }, range))
     }
+    fn report_only(&mut self, range: &Range<usize>) -> Result<(), QueryError> {
+        if self.policy == ExpressionPolicy::Data {
+            return Err(QueryError::query(
+                range.clone(),
+                "report-only form is unavailable in data expressions",
+            ));
+        }
+        if self.first_report_call.is_none() {
+            self.first_report_call = Some(range.clone());
+        }
+        Ok(())
+    }
     fn node(&mut self, node: &SyntaxNode, depth: usize) -> Result<E, QueryError> {
         let range = self.range(node);
         if depth >= self.nesting.min(64) {
@@ -314,6 +326,10 @@ impl Lower<'_, '_> {
             N::Expression => {
                 let i = self.tokens(node).next().ok_or_else(unsupported)?;
                 match self.parsed.tokens()[i].kind {
+                    T::Absent => {
+                        self.report_only(&range)?;
+                        K::Literal(V::Absent)
+                    }
                     T::True => K::Literal(V::Boolean(true)),
                     T::False => K::Literal(V::Boolean(false)),
                     T::IntegerLiteral | T::FloatLiteral => {
@@ -369,6 +385,12 @@ impl Lower<'_, '_> {
                     K::Range {
                         lower: left,
                         upper: right,
+                    }
+                } else if self.parsed.tokens()[i].kind == T::Default {
+                    self.report_only(&range)?;
+                    K::Default {
+                        value: left,
+                        fallback: right,
                     }
                 } else {
                     let operator = match self.parsed.tokens()[i].kind {
@@ -523,6 +545,30 @@ impl Lower<'_, '_> {
                         range: range.clone(),
                     });
                     K::Name(slot)
+                } else if matches!(self.text(i), "occurs" | "absent" | "lookup" | "has_key") {
+                    self.report_only(&range)?;
+                    let unary = matches!(self.text(i), "occurs" | "absent");
+                    if node.child_nodes().count() != if unary { 1 } else { 2 } {
+                        return Err(QueryError::query(
+                            range,
+                            "presence/access call has the wrong argument count",
+                        ));
+                    }
+                    let mut args = node.child_nodes();
+                    let value = Box::new(self.node(args.next().unwrap(), depth + 1)?);
+                    match self.text(i) {
+                        "occurs" => K::Occurs(value),
+                        "absent" => K::Absent(value),
+                        _ => {
+                            let lookup = self.text(i) == "lookup";
+                            let key = Box::new(self.node(args.next().unwrap(), depth + 1)?);
+                            if lookup {
+                                K::Lookup { value, key }
+                            } else {
+                                K::HasKey { value, key }
+                            }
+                        }
+                    }
                 } else if self.text(i) == "index_set" && node.child_nodes().count() == 1 {
                     K::IndexSet(Box::new(self.node(child(), depth + 1)?))
                 } else if matches!(
@@ -886,6 +932,8 @@ fn references_binding(
                 || generator_binding(clauses, names, budget)?)
         }
         K::Unary { operand, .. }
+        | K::Occurs(operand)
+        | K::Absent(operand)
         | K::One(operand)
         | K::IndexSet(operand)
         | K::Entries(operand)
@@ -894,6 +942,18 @@ fn references_binding(
         | K::Field { value: operand, .. }
         | K::TupleAccess { value: operand, .. } => references_binding(operand, names, budget),
         K::Binary { left, right, .. }
+        | K::Lookup {
+            value: left,
+            key: right,
+        }
+        | K::HasKey {
+            value: left,
+            key: right,
+        }
+        | K::Default {
+            value: left,
+            fallback: right,
+        }
         | K::ZipExact { left, right }
         | K::Require {
             condition: left,
@@ -921,6 +981,118 @@ fn references_binding(
         ),
     }
 }
+/// Bindings outside default fallbacks retain the host's ordinary projection preflight.
+pub(crate) fn eager_names(
+    expression: &E,
+    names: &mut BTreeSet<String>,
+    budget: &mut Budget,
+) -> Result<(), QueryError> {
+    charge(budget, 1, &expression.range)?;
+    match &expression.value {
+        K::Name(name) => {
+            charge(budget, name.len() + 1, &expression.range)?;
+            budget
+                .charge_results(1, zirql::Location::Query(expression.range.clone()))
+                .map_err(pipeline::core_error)?;
+            names.insert(name.clone());
+        }
+        K::Literal(_) | K::NativeQuery(_) => {}
+        K::Default { value, .. } => eager_names(value, names, budget)?,
+        K::Array(values) | K::Tuple(values) | K::Set(values) => {
+            for value in values {
+                eager_names(value, names, budget)?;
+            }
+        }
+        K::Record(fields) => {
+            for (_, value) in fields {
+                eager_names(value, names, budget)?;
+            }
+        }
+        K::KeyedArray { entries, .. } => {
+            for (key, value) in entries {
+                eager_names(key, names, budget)?;
+                eager_names(value, names, budget)?;
+            }
+        }
+        K::Occurs(value)
+        | K::Absent(value)
+        | K::One(value)
+        | K::IndexSet(value)
+        | K::Entries(value)
+        | K::Unary { operand: value, .. }
+        | K::Field { value, .. }
+        | K::TupleAccess { value, .. }
+        | K::Reduce { array: value, .. }
+        | K::GroupBy { rows: value, .. } => eager_names(value, names, budget)?,
+        K::Lookup {
+            value: left,
+            key: right,
+        }
+        | K::HasKey {
+            value: left,
+            key: right,
+        }
+        | K::Binary { left, right, .. }
+        | K::ZipExact { left, right }
+        | K::Range {
+            lower: left,
+            upper: right,
+        }
+        | K::ArrayAccess {
+            array: left,
+            index: right,
+        }
+        | K::Require {
+            condition: left,
+            value: right,
+            ..
+        } => {
+            eager_names(left, names, budget)?;
+            eager_names(right, names, budget)?;
+        }
+        K::Conditional {
+            branches,
+            otherwise,
+        } => {
+            for (condition, value) in branches {
+                eager_names(condition, names, budget)?;
+                eager_names(value, names, budget)?;
+            }
+            eager_names(otherwise, names, budget)?;
+        }
+        K::Comprehension { clauses, head, .. } | K::KeyedComprehension { clauses, head, .. } => {
+            eager_names(head, names, budget)?;
+            if let K::KeyedComprehension {
+                key,
+                empty_axis_sources,
+                ..
+            } = &expression.value
+            {
+                eager_names(key, names, budget)?;
+                for value in empty_axis_sources.iter().flatten() {
+                    eager_names(value, names, budget)?;
+                }
+            }
+            for clause in clauses {
+                match &clause.value {
+                    ValueGenerator::In { source, filter, .. }
+                    | ValueGenerator::Bind {
+                        value: source,
+                        filter,
+                        ..
+                    } => {
+                        eager_names(source, names, budget)?;
+                        if let Some(filter) = filter {
+                            eager_names(filter, names, budget)?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn any_binding<'a>(
     children: impl Iterator<Item = &'a E>,
     names: &BTreeSet<String>,
@@ -1280,10 +1452,10 @@ pub(crate) fn declared_value<'a>(
         return Ok(None);
     };
     let ty = declaration_type(facts, owner.id, budget, range)?;
-    if ty.optional || ty.instantiation != zincite_lint::Instantiation::Parameter {
+    if ty.instantiation != zincite_lint::Instantiation::Parameter {
         return Err(QueryError::query(
             range.clone(),
-            "source requires a fixed nonoptional declaration",
+            "source requires a fixed declaration",
         ));
     }
     let node = declaration_node(facts, owner.id, budget, range)?
@@ -1693,6 +1865,7 @@ fn project_literal(
         .transpose()
         .map_err(input_error)?;
     let kind = match &literal.kind {
+        L::Absent => K::Literal(V::Absent),
         L::Integer | L::Float | L::String => K::Literal(written_scalar(literal, input, budget)?),
         L::Boolean(v) => K::Literal(V::Boolean(*v)),
         L::Member(name) => {
@@ -2025,6 +2198,194 @@ pub(crate) fn key_expression(
     };
     Ok(Located::new(K::Literal(value), range.clone()))
 }
+// Copy only the already available declaration, never the source's stored data.
+fn copy_declaration(
+    ty: &zirql::DeclaredType<()>,
+    budget: &mut Budget,
+    range: &Range<usize>,
+    depth: usize,
+) -> Result<zirql::DeclaredType<()>, zirql::QueryError> {
+    use zirql::DeclaredType as D;
+    let location = zirql::Location::Query(range.clone());
+    budget.charge(1, location.clone())?;
+    if depth >= 64 {
+        return Err(zirql::QueryError::query(
+            range.clone(),
+            "declaration nesting limit exceeded",
+        ));
+    }
+    Ok(match ty {
+        D::Optional(child) | D::Array(child) | D::Sequence(child) | D::Keyed(child) => {
+            budget.charge_results(1, location)?;
+            let child = Box::new(copy_declaration(child, budget, range, depth + 1)?);
+            match ty {
+                D::Optional(_) => D::Optional(child),
+                D::Array(_) => D::Array(child),
+                D::Sequence(_) => D::Sequence(child),
+                _ => D::Keyed(child),
+            }
+        }
+        D::Tuple(types) => {
+            budget.charge_results(types.len(), location)?;
+            D::Tuple(
+                types
+                    .iter()
+                    .map(|ty| copy_declaration(ty, budget, range, depth + 1))
+                    .collect::<Result<_, _>>()?,
+            )
+        }
+        D::Record(fields) => {
+            budget.charge_results(fields.len(), location.clone())?;
+            let mut output = Vec::with_capacity(fields.len());
+            for (name, ty) in fields {
+                budget.charge(name.len(), location.clone())?;
+                output.push((
+                    name.clone(),
+                    copy_declaration(ty, budget, range, depth + 1)?,
+                ));
+            }
+            D::Record(output)
+        }
+        D::Boolean => D::Boolean,
+        D::Integer => D::Integer,
+        D::Float => D::Float,
+        D::String => D::String,
+        D::Member(id) => D::Member(*id),
+        D::Set(ty) => D::Set(*ty),
+        D::Native(()) => {
+            return Err(zirql::QueryError::query(
+                range.clone(),
+                "native declaration requires its host",
+            ));
+        }
+    })
+}
+
+/// Available outer kinds and declared contracts, without inspecting stored data.
+pub(crate) fn value_facts(
+    value: &V,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<zirql::ValueType, zirql::QueryError> {
+    use zirql::ValueType as T;
+    budget.charge(1, zirql::Location::Query(range.clone()))?;
+    let actual = match value.data() {
+        V::Declared { .. } => unreachable!("transparent annotation"),
+        V::Absent => T::Absent,
+        V::Boolean(_) => T::Boolean,
+        V::Integer(_) => T::Integer,
+        V::Float(_) => T::Float,
+        V::String(_) => T::String,
+        V::Member(member) => T::Member(member.type_id),
+        V::Record(_) => T::RecordKind,
+        V::Tuple(_) => T::TupleKind,
+        V::Set { element_type, .. } => T::Set(*element_type),
+        V::Array(_) => T::Array(zirql::ArrayType::Elements(Vec::new())),
+        V::KeyedArray { .. } => T::KeyedArray(zirql::KeyedArrayType {
+            axes: None,
+            elements: Vec::new(),
+        }),
+    };
+    if let V::Declared { declaration, .. } = value {
+        budget.charge_results(1, zirql::Location::Query(range.clone()))?;
+        Ok(T::Declared {
+            actual: Box::new(actual),
+            declaration: copy_declaration(declaration, budget, range, 0)?,
+        })
+    } else {
+        Ok(actual)
+    }
+}
+
+// TypeInst owns model meaning. This bounded conversion retains only the supported
+// constructed contract; actual data still goes through declare_constructed.
+fn source_declaration(
+    ty: &TypeInst,
+    budget: &mut Budget,
+    range: &Range<usize>,
+    depth: usize,
+) -> Result<zirql::DeclaredType<()>, QueryError> {
+    use zirql::DeclaredType as D;
+    if depth >= 64 || ty.instantiation != zincite_lint::Instantiation::Parameter {
+        return Err(QueryError::input(
+            range.clone(),
+            "source requires a bounded fixed supported declaration",
+        ));
+    }
+    charge(budget, 1, range).map_err(input_error)?;
+    let declaration = match &ty.kind {
+        TypeKind::Bool => D::Boolean,
+        TypeKind::Int => D::Integer,
+        TypeKind::Float => D::Float,
+        TypeKind::String => D::String,
+        TypeKind::Enum(id) => D::Member(zirql::NominalTypeId(nominal_id(*id, range)?)),
+        TypeKind::Set(element)
+            if !element.optional
+                && element.instantiation == zincite_lint::Instantiation::Parameter =>
+        {
+            D::Set(match element.kind {
+                TypeKind::Bool => zirql::SetElementType::Boolean,
+                TypeKind::Int => zirql::SetElementType::Integer,
+                TypeKind::Float => zirql::SetElementType::Float,
+                TypeKind::Enum(id) => {
+                    zirql::SetElementType::Member(zirql::NominalTypeId(nominal_id(id, range)?))
+                }
+                _ => {
+                    return Err(QueryError::input(
+                        range.clone(),
+                        "unsupported declared set element",
+                    ));
+                }
+            })
+        }
+        TypeKind::Array { element, .. } => {
+            budget
+                .charge_results(1, zirql::Location::Query(range.clone()))
+                .map_err(pipeline::core_error)
+                .map_err(input_error)?;
+            D::Array(Box::new(source_declaration(
+                element,
+                budget,
+                range,
+                depth + 1,
+            )?))
+        }
+        TypeKind::Tuple(types) => {
+            let mut output = slots(budget, types.len(), range).map_err(input_error)?;
+            for ty in types {
+                output.push(source_declaration(ty, budget, range, depth + 1)?);
+            }
+            D::Tuple(output)
+        }
+        TypeKind::Record(fields) => {
+            let mut output = slots(budget, fields.len(), range).map_err(input_error)?;
+            for (label, ty) in fields {
+                charge(budget, label.len(), range).map_err(input_error)?;
+                output.push((
+                    label.clone(),
+                    source_declaration(ty, budget, range, depth + 1)?,
+                ));
+            }
+            D::Record(output)
+        }
+        _ => {
+            return Err(QueryError::input(
+                range.clone(),
+                "unsupported source declaration",
+            ));
+        }
+    };
+    if ty.optional {
+        budget
+            .charge_results(1, zirql::Location::Query(range.clone()))
+            .map_err(pipeline::core_error)
+            .map_err(input_error)?;
+        Ok(D::Optional(Box::new(declaration)))
+    } else {
+        Ok(declaration)
+    }
+}
+
 fn evaluate_literal(
     literal: &structured::LiteralValue<'_>,
     input: &Input,
@@ -2043,7 +2404,19 @@ fn evaluate_literal(
     .map_err(pipeline::core_error)
     .map_err(input_error)?;
     validate_report_shape(&value, budget, &literal.range).map_err(input_error)?;
-    Ok(value)
+    if let Some(metadata) = metadata {
+        let declaration = source_declaration(metadata.ty, budget, &literal.range, 0)?;
+        zirql::declare_constructed(
+            value,
+            declaration,
+            budget,
+            zirql::Location::Query(literal.range.clone()),
+        )
+        .map_err(pipeline::core_error)
+        .map_err(input_error)
+    } else {
+        Ok(value)
+    }
 }
 
 pub(crate) fn project(
@@ -2118,7 +2491,7 @@ pub(crate) fn project(
     }
 }
 
-/// Zincite's MiniZinc array policy is stricter than generic sparse core values.
+/// Read-only reports retain the generic sparse core value contract.
 pub(crate) fn validate_report_shape(
     value: &V,
     budget: &mut Budget,
@@ -2134,7 +2507,58 @@ pub(crate) fn validate_report_value(
     location: &zirql::Location,
 ) -> Result<(), zirql::QueryError> {
     zirql::constructed_value_type(value, budget, location.clone())?;
+    Ok(())
+}
+
+pub(crate) fn validate_data_value(
+    value: &V,
+    budget: &mut Budget,
+    location: &zirql::Location,
+) -> Result<(), zirql::QueryError> {
+    zirql::constructed_value_type(value, budget, location.clone())?;
     check_shape(value, budget, location)
+}
+
+pub(crate) fn validate_data_shape(
+    value: &V,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<(), QueryError> {
+    validate_data_value(value, budget, &zirql::Location::Query(range.clone()))
+        .map_err(pipeline::core_error)
+}
+
+fn check_data_declaration(
+    ty: &zirql::DeclaredType<()>,
+    budget: &mut Budget,
+    location: &zirql::Location,
+) -> Result<(), zirql::QueryError> {
+    use zirql::DeclaredType as D;
+    budget.charge(1, location.clone())?;
+    match ty {
+        D::Optional(_) => {
+            return Err(zirql::QueryError {
+                location: location.clone(),
+                message: "optional values are unavailable in data expressions".into(),
+                category: zirql::QueryErrorCategory::Other,
+            });
+        }
+        D::Array(child) | D::Sequence(child) | D::Keyed(child) => {
+            check_data_declaration(child, budget, location)?;
+        }
+        D::Tuple(types) => {
+            for ty in types {
+                check_data_declaration(ty, budget, location)?;
+            }
+        }
+        D::Record(fields) => {
+            for (_, ty) in fields {
+                check_data_declaration(ty, budget, location)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 fn check_shape(
@@ -2144,6 +2568,17 @@ fn check_shape(
 ) -> Result<(), zirql::QueryError> {
     budget.charge(1, location.clone())?;
     match value {
+        V::Declared { value, declaration } => {
+            check_data_declaration(declaration, budget, location)?;
+            check_shape(value, budget, location)?;
+        }
+        V::Absent => {
+            return Err(zirql::QueryError {
+                location: location.clone(),
+                message: "absence is unavailable in data expressions".into(),
+                category: zirql::QueryErrorCategory::Other,
+            });
+        }
         V::KeyedArray { axes, entries } => {
             budget.charge(axes.len(), location.clone())?;
             let mut product = usize::from(!axes.iter().any(|axis| axis.keys.is_empty()));
@@ -2231,7 +2666,9 @@ fn tagged(value: &V, budget: &mut Budget, range: &Range<usize>) -> Result<Value,
     budget
         .charge_results(8, zirql::Location::Query(range.clone()))
         .map_err(pipeline::core_error)?;
-    Ok(match value {
+    Ok(match value.data() {
+        V::Declared { .. } => unreachable!("transparent annotation"),
+        V::Absent => json!({"kind":"absent"}),
         V::Integer(v) => json!({"kind":"integer", "value":v}),
         V::Float(v) => json!({"kind":"float", "value":v}),
         V::Boolean(v) => json!({"kind":"boolean", "value":v}),

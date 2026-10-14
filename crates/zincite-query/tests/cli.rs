@@ -611,8 +611,8 @@ fn keyed_program_files_keep_nominal_axes_and_buffer_later_errors() {
     );
     for later in [
         "report 1 div 0;",
-        "report [v|v in [(1,1):1,(1,2):2,(2,1):3]];",
-        "let bad=[(1,1):1,(1,2):2,(2,1):3]; report [x|x in bad];",
+        "report [(1,1):1,(1,2):2,(2,1):3][2,2];",
+        "let bad=[(1,1):1,(1,2):2,(2,1):3]; report lookup(bad,1);",
     ] {
         std::fs::write(&program, format!("{report} {later}")).unwrap();
         let output = run(&args, data);
@@ -636,9 +636,9 @@ fn keyed_program_files_keep_nominal_axes_and_buffer_later_errors() {
         &args,
         b"\xef\xbb\xbftable=[(2,Zulu):21,(3,Zulu):31,(2,Alpha):22];",
     );
-    assert_eq!(output.status.code(), Some(2));
-    assert!(output.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("report.dzn:1:8:"));
+    assert!(output.status.success(), "{:?}", output);
+    let sparse: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(sparse["result"]["entries"].as_array().unwrap().len(), 3);
     std::fs::write(
         &model,
         "\u{feff}enum Guest={Zulu} ++ anon_enum(2); solve satisfy;",
@@ -1240,4 +1240,82 @@ fn keyed_comparison_inline_and_file_match_library_and_buffer_alignment_errors() 
     );
     assert_eq!(std::fs::read(&data_path).unwrap(), data);
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn optional_reports_agree_inline_file_and_keep_failed_edits_atomic() {
+    let dir = std::env::temp_dir().join(format!("zincite-query-optional-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(dir.join("library/std/stdlib.mzn"), "").unwrap();
+    let model = dir.join("model.mzn");
+    let included = dir.join("included.mzn");
+    let data = dir.join("input.dzn");
+    let program = dir.join("optional.zq");
+    let library = dir.join("library");
+    let model_bytes = b"include \"included.mzn\"; int: target; solve satisfy;";
+    let included_bytes = include_bytes!("fixtures/optional-report.mzn");
+    // The included declarations supply read-only source contracts.
+    std::fs::write(&model, model_bytes).unwrap();
+    std::fs::write(&included, included_bytes).unwrap();
+    let original = [
+        include_bytes!("fixtures/optional-report.dzn").as_slice(),
+        b"target=1;\n",
+    ]
+    .concat();
+    std::fs::write(&data, &original).unwrap();
+    let source = include_str!("fixtures/optional-report.zq");
+    std::fs::write(&program, source).unwrap();
+    let common = [
+        "--model",
+        model.to_str().unwrap(),
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+    ];
+    let mut inline_args = common.to_vec();
+    inline_args.extend(["--program", source, data.to_str().unwrap()]);
+    let inline = run(&inline_args, b"");
+    assert!(
+        inline.status.success(),
+        "{}",
+        String::from_utf8_lossy(&inline.stderr)
+    );
+    let mut file_args = common.to_vec();
+    file_args.extend([
+        "--program-file",
+        program.to_str().unwrap(),
+        data.to_str().unwrap(),
+    ]);
+    let file = run(&file_args, b"");
+    assert!(
+        file.status.success(),
+        "{}",
+        String::from_utf8_lossy(&file.stderr)
+    );
+    assert_eq!(file.stdout, inline.stdout);
+    std::fs::write(&program, format!("{source} report <> default (1 div 0);")).unwrap();
+    let failed = run(&file_args, b"");
+    assert_eq!(failed.status.code(), Some(2));
+    assert!(failed.stdout.is_empty());
+    let modes =
+        [&data, &model, &included].map(|path| std::fs::metadata(path).unwrap().permissions());
+    for request in [
+        r#"source info=literal("info"); replace target=2; replace cells=[1]; emit;"#,
+        "replace target=2; replace cells=[<>]; emit;",
+        "let unused=7 default 9; replace target=2; emit;",
+        "replace target=2; create invalid=(nested:<>); emit;",
+    ] {
+        std::fs::write(&program, request).unwrap();
+        let mut args = file_args.clone();
+        args.insert(0, "--write");
+        let failed = run(&args, b"");
+        assert_eq!(failed.status.code(), Some(2), "{request}: {failed:?}");
+        assert!(failed.stdout.is_empty());
+        assert_eq!(std::fs::read(&data).unwrap(), original);
+        assert_eq!(std::fs::read(&model).unwrap(), model_bytes);
+        assert_eq!(std::fs::read(&included).unwrap(), included_bytes);
+        for (path, mode) in [&data, &model, &included].into_iter().zip(&modes) {
+            assert_eq!(std::fs::metadata(path).unwrap().permissions(), *mode);
+        }
+    }
+    std::fs::remove_dir_all(dir).unwrap();
 }
