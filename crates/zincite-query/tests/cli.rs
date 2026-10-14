@@ -513,7 +513,7 @@ report rows;"#,
     );
     for source in [
         "report 7; report 1 div 0;",
-        "report if true then 1 else max([1]) endif;",
+        "report if true then 1 else unsupported_summary([1]) endif;",
     ] {
         std::fs::write(&path, source).unwrap();
         let output = run(&args, b"a = 1;");
@@ -1408,4 +1408,35 @@ fn string_matching_agrees_inline_file_library_and_buffers_later_errors() {
     );
     assert_eq!(failed.status.code(), Some(2));
     assert!(failed.stdout.is_empty());
+}
+
+#[test]
+fn report_ordering_inline_file_and_later_failure_keep_output_buffering() {
+    let source = include_str!("fixtures/report-ordering.zq");
+    let path =
+        std::env::temp_dir().join(format!("zincite-ordering-query-{}.zq", std::process::id()));
+    std::fs::write(&path, source).unwrap();
+    let common = ["--stdin-filepath", "input.dzn"];
+    let mut inline = common.to_vec();
+    inline.extend(["--program", source]);
+    let mut file = common.to_vec();
+    file.extend(["--program-file", path.to_str().unwrap()]);
+    let input = b"a=1;";
+    let inline = run(&inline, input);
+    let file = run(&file, input);
+    assert!(
+        inline.status.success() && inline.stderr.is_empty(),
+        "{inline:?}"
+    );
+    assert!(file.status.success() && file.stderr.is_empty(), "{file:?}");
+    assert_eq!(inline.stdout, file.stdout);
+    let mut failure = common.to_vec();
+    failure.extend([
+        "--program",
+        r#"report 7; report min_by([(score:1), (other:2)], "score");"#,
+    ]);
+    let failure = run(&failure, input);
+    assert!(!failure.status.success() && failure.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&failure.stderr).contains("missing ordering field"));
+    std::fs::remove_file(path).unwrap();
 }

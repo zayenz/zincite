@@ -12,7 +12,7 @@ use zincite_lint::{
 use zincite_syntax::{NodeKind as N, ParsedFile, SyntaxElement, SyntaxNode, TokenKind as T};
 use zirql::{
     Budget, ConstructedValue as V, Located, ValueBinaryOperator as B, ValueExpression as E,
-    ValueExpressionKind as K, ValueGenerator, ValueReducer, ValueUnaryOperator as U,
+    ValueExpressionKind as K, ValueExtremum, ValueGenerator, ValueReducer, ValueUnaryOperator as U,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -312,6 +312,73 @@ impl<Q> Lower<'_, '_, Q> {
         }
         Ok(())
     }
+    fn field_selector(
+        &mut self,
+        selector: &SyntaxNode,
+        depth: usize,
+    ) -> Result<Located<String>, QueryError> {
+        let token = self.tokens(selector).next();
+        if selector.kind() != N::Expression
+            || token.is_none_or(|token| self.parsed.tokens()[token].kind != T::StringLiteral)
+        {
+            return Err(QueryError::query(
+                self.range(selector),
+                "field selector must be a string literal",
+            ));
+        }
+        let lowered = self.node(selector, depth)?;
+        let K::Literal(V::String(text)) = lowered.value else {
+            unreachable!("string literal selector")
+        };
+        Ok(Located::new(text, lowered.range))
+    }
+    fn descending_option(&mut self, option: &SyntaxNode) -> Result<bool, QueryError> {
+        let failure = || {
+            QueryError::query(
+                self.range(option),
+                "expected descending=true or descending=false",
+            )
+        };
+        if option.kind() != N::BinaryExpression
+            || self
+                .tokens(option)
+                .next()
+                .is_none_or(|token| self.text(token) != "=")
+        {
+            return Err(failure());
+        }
+        let mut parts = option.child_nodes();
+        let (Some(name), Some(value)) = (parts.next(), parts.next()) else {
+            return Err(failure());
+        };
+        if parts.next().is_some()
+            || name.kind() != N::Expression
+            || self
+                .tokens(name)
+                .next()
+                .is_none_or(|token| self.text(token) != "descending")
+            || value.kind() != N::Expression
+        {
+            return Err(failure());
+        }
+        charge(
+            self.budget,
+            1 + option.children().len(),
+            &self.range(option),
+        )?;
+        match self
+            .tokens(value)
+            .next()
+            .map(|token| self.parsed.tokens()[token].kind)
+        {
+            Some(T::True) => Ok(true),
+            Some(T::False) => Ok(false),
+            _ => Err(QueryError::query(
+                self.range(value),
+                "descending needs a literal Boolean",
+            )),
+        }
+    }
     fn node(&mut self, node: &SyntaxNode, depth: usize) -> Result<E<Q>, QueryError> {
         let range = self.range(node);
         if depth >= self.nesting.min(64) {
@@ -582,6 +649,12 @@ impl<Q> Lower<'_, '_, Q> {
                         | "exists"
                         | "require"
                         | "group_by"
+                        | "sort"
+                        | "sort_by"
+                        | "min"
+                        | "max"
+                        | "min_by"
+                        | "max_by"
                         | "entries"
                         | "zip_exact"
                         | "contains"
@@ -642,6 +715,59 @@ impl<Q> Lower<'_, '_, Q> {
                             left: Box::new(self.node(left, depth + 1)?),
                             right: Box::new(self.node(right, depth + 1)?),
                         }
+                    } else if matches!(
+                        self.text(i),
+                        "sort" | "sort_by" | "min" | "max" | "min_by" | "max_by"
+                    ) {
+                        let sorting = matches!(self.text(i), "sort" | "sort_by");
+                        let by_field = self.text(i).ends_with("_by");
+                        let mut args = node.child_nodes();
+                        let array = args.next().ok_or_else(|| {
+                            QueryError::query(range.clone(), "ordering needs an array argument")
+                        })?;
+                        let array = Box::new(self.node(array, depth + 1)?);
+                        let field = if by_field {
+                            let selector = args.next().ok_or_else(|| {
+                                QueryError::query(
+                                    range.clone(),
+                                    "field ordering needs a string selector",
+                                )
+                            })?;
+                            Some(self.field_selector(selector, depth + 1)?)
+                        } else {
+                            None
+                        };
+                        let descending = if sorting {
+                            args.next()
+                                .map(|option| self.descending_option(option))
+                                .transpose()?
+                                .unwrap_or(false)
+                        } else {
+                            false
+                        };
+                        if args.next().is_some() {
+                            return Err(QueryError::query(
+                                range,
+                                "ordering has too many arguments",
+                            ));
+                        }
+                        if sorting {
+                            K::Sort {
+                                array,
+                                field,
+                                descending,
+                            }
+                        } else {
+                            K::Extremum {
+                                operator: if self.text(i).starts_with("min") {
+                                    ValueExtremum::Min
+                                } else {
+                                    ValueExtremum::Max
+                                },
+                                array,
+                                field,
+                            }
+                        }
                     } else if self.text(i) == "group_by" {
                         let mut args = node.child_nodes();
                         let rows = args.next().ok_or_else(|| {
@@ -654,22 +780,9 @@ impl<Q> Lower<'_, '_, Q> {
                             return Err(QueryError::query(range, "group_by needs two arguments"));
                         }
                         let rows = Box::new(self.node(rows, depth + 1)?);
-                        let token = self.tokens(selector).next().ok_or_else(unsupported)?;
-                        if selector.kind() != N::Expression
-                            || self.parsed.tokens()[token].kind != T::StringLiteral
-                        {
-                            return Err(QueryError::query(
-                                self.range(selector),
-                                "group_by selector must be a string literal",
-                            ));
-                        }
-                        let lowered = self.node(selector, depth + 1)?;
-                        let K::Literal(V::String(text)) = lowered.value else {
-                            unreachable!("string literal selector");
-                        };
                         K::GroupBy {
                             rows,
-                            field: Located::new(text, lowered.range),
+                            field: self.field_selector(selector, depth + 1)?,
                         }
                     } else if self.text(i) == "require" {
                         let mut args = node.child_nodes();
@@ -975,6 +1088,8 @@ fn references_binding<Q>(
         | K::IndexSet(operand)
         | K::Entries(operand)
         | K::Reduce { array: operand, .. }
+        | K::Sort { array: operand, .. }
+        | K::Extremum { array: operand, .. }
         | K::GroupBy { rows: operand, .. }
         | K::Field { value: operand, .. }
         | K::TupleAccess { value: operand, .. } => references_binding(operand, names, budget),
@@ -1065,6 +1180,8 @@ pub(crate) fn eager_names<Q>(
         | K::Field { value, .. }
         | K::TupleAccess { value, .. }
         | K::Reduce { array: value, .. }
+        | K::Sort { array: value, .. }
+        | K::Extremum { array: value, .. }
         | K::GroupBy { rows: value, .. } => eager_names(value, names, budget)?,
         K::Lookup {
             value: left,

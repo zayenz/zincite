@@ -2022,6 +2022,12 @@ fn map_value(
         | K::IndexSet(operand)
         | K::Entries(operand)
         | K::Reduce { array: operand, .. } => map_value(operand, map, members),
+        K::Sort { array, field, .. } | K::Extremum { array, field, .. } => {
+            if let Some(field) = field {
+                field.range = map(field.range.clone());
+            }
+            map_value(array, map, members);
+        }
         K::Field { value, field } | K::GroupBy { rows: value, field } => {
             field.range = map(field.range.clone());
             map_value(value, map, members);

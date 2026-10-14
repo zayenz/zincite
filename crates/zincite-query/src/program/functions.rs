@@ -219,6 +219,8 @@ pub(super) fn lower_primitives(
         | K::IndexSet(operand)
         | K::Entries(operand)
         | K::Reduce { array: operand, .. }
+        | K::Sort { array: operand, .. }
+        | K::Extremum { array: operand, .. }
         | K::GroupBy { rows: operand, .. }
         | K::Field { value: operand, .. }
         | K::TupleAccess { value: operand, .. } => lower_primitives(operand, names, queries),

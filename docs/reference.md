@@ -654,6 +654,7 @@ numeric promotion, comparison, equality, membership, concatenation, access,
 finite inclusive integer ranges, rank-one `index_set`, `enum_member`, report-only
 `length`/`sum`/`forall`/`exists`/`require`/`group_by`/`entries`/`zip_exact`,
 `contains`/`starts_with`/`ends_with`,
+`sort`/`sort_by`/`min`/`max`/`min_by`/`max_by`,
 absence `<>`, `occurs`/`absent`/`lookup`/`has_key`, lazy `default`, and
 `if`/`elseif` with mandatory
 `else`. Unsupported forms and known incompatible types fail before evaluation,
@@ -707,6 +708,17 @@ condition. True evaluates and returns the value; false fails at the require call
 with the literal message. False skips value arithmetic, access, construction and
 runtime host checks, while referenced values may still be projected or inspected
 during preflight. Undefined names and incompatible known types still fail.
+
+`sort(xs)` and `sort_by(rows, "field")` are stable ascending positional sorts.
+Their optional final `descending=true` reverses key order and keeps input ties;
+`descending=false` is the default. `min`/`max` and `min_by`/`max_by` select the
+first tied scalar or original record and return `<>` for empty input. Defaults
+are explicit, as in `min([]) default 0`. Keys must be present homogeneous int,
+finite float, exact string or one nominal type; no numeric coercion or automatic
+absence order. Nominal order follows the declaration. Missing/absent/incompatible
+fields point to the literal selector. These calls are report-only and share
+work, scratch, output-copy and comparison limits. See the [complete contract](query-comprehension-contract.md#report-expressions-and-edit-grammar)
+and [executable report](queries.md#sort-rows-and-select-extrema).
 
 `group_by(rows, "field")` groups positional records by a static string selector.
 Keys are homogeneous integers, strings or resolved members of one enum. The

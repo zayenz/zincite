@@ -488,3 +488,33 @@ program. Constructed results keep their declaration annotations; use `.data()`
 when matching the stored data. These values do not expand data editing or
 external parameter types. Data edits still require nonoptional targets and
 complete rectangular arrays.
+
+## Sort rows and select extrema
+
+The [ordering program](../crates/zincite-query/tests/fixtures/report-ordering.zq)
+uses rows A, B, C and D with scores `[2,1,2,1]`. Ascending IDs are B, D, A, C;
+descending IDs are A, C, B, D. Both retain input order for equal scores.
+`min_by` returns original row B and `max_by` row A. Scalar sorting/extrema and
+empty results/defaults appear in the same report.
+
+```sh
+zincite-query --program-file crates/zincite-query/tests/fixtures/report-ordering.zq crates/zincite-query/tests/fixtures/machine-groups.dzn
+zincite query --program 'report sort_by([(id:"A",score:2),(id:"B",score:1)], "score", descending=true);' crates/zincite-query/tests/fixtures/machine-groups.dzn
+```
+
+`sort` orders scalars; `sort_by` takes a literal record field. Keys require
+present homogeneous integers, finite floats, exact strings or one nominal type.
+Missing or absent keys fail. To choose a default key, construct it explicitly:
+
+```text
+let rows = [(id:1), (id:2, score:2)];
+let scored = [(id:r.id, score:lookup(r,"score") default 0) | r in rows];
+report sort_by(scored,"score");
+```
+
+Empty extrema return `<>`; `min([]) default 0` supplies zero. A later bad key
+still fails the entire request, and CLI output remains buffered. Keyed values
+need explicit positional conversion. The shared evaluator extracts each key
+once; sort uses budgeted O(n) scratch and O(n log n) comparisons, while extrema
+scan once and copy only the selected row when an owned result is needed.
+These helpers do not expand the data-edit whitelist.

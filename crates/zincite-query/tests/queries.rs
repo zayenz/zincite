@@ -2181,7 +2181,7 @@ fn positional_programs_validate_branches_and_preserve_failure_locations() {
     ));
     for expression in [
         "[i | i in i]",
-        "if true then 1 else max([1]) endif",
+        "if true then 1 else unsupported_summary([1]) endif",
         "if true then 1 else 1 + false endif",
         "if true then 1 else 1e-999 endif",
         "[true: 3]",
@@ -2999,7 +2999,7 @@ fn report_call_preflight_keeps_literal_messages_and_the_data_whitelist() {
         assert_eq!(&source[error.range], responsible);
     }
     for source in [
-        r#"report require(false, max([1]), "unused");"#,
+        r#"report require(false, unsupported_summary([1]), "unused");"#,
         r#"report require(false, sum([true]), "unused");"#,
         r#"report require(false, missing, "unused");"#,
         r#"report require(1, 2, "unused");"#,
@@ -4203,4 +4203,126 @@ fn exact_string_matching_filters_projected_names_and_keeps_data_closed() {
             .message
             .contains("work")
     );
+}
+
+#[test]
+fn report_ordering_keeps_rows_ties_optional_results_and_selector_ranges() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    use zirql::ConstructedValue as V;
+    let limits = ProgramLimits::default();
+    let input = Input::parse(b"a=1; b=2;".to_vec(), FileMode::Data).unwrap();
+    let result = Program::parse(include_str!("fixtures/report-ordering.zq"), limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let row = |id: &str, score| {
+        V::Record(vec![
+            ("id".into(), V::String(id.into())),
+            ("score".into(), V::Integer(score)),
+        ])
+    };
+    let expected = V::Record(vec![
+        (
+            "ascending".into(),
+            V::Array(vec![row("B", 1), row("D", 1), row("A", 2), row("C", 2)]),
+        ),
+        (
+            "descending".into(),
+            V::Array(vec![row("A", 2), row("C", 2), row("B", 1), row("D", 1)]),
+        ),
+        ("minimum".into(), row("B", 1)),
+        ("maximum".into(), row("A", 2)),
+        (
+            "scalar".into(),
+            V::Array(vec![
+                V::Integer(1),
+                V::Integer(1),
+                V::Integer(2),
+                V::Integer(2),
+            ]),
+        ),
+        ("scalar_min".into(), V::Integer(1)),
+        ("scalar_max".into(), V::Integer(2)),
+        ("empty_min".into(), V::Absent),
+        ("empty_max".into(), V::Absent),
+        ("fallback".into(), V::Integer(7)),
+    ]);
+    assert!(
+        matches!(result.emissions()[0].value(),ReportValue::Constructed(value) if value==&expected)
+    );
+    for source in [
+        r#"report min_by([(score: 1), (other: 2)], "score");"#,
+        r#"report max_by([(score: 1), (score: <>)], "score");"#,
+        r#"report sort_by([(score: 1), (score: "2")], "score");"#,
+    ] {
+        let failure = Program::parse(source, limits)
+            .and_then(|p| p.evaluate(&input, limits))
+            .unwrap_err();
+        assert_eq!(&source[failure.range], "\"score\"");
+    }
+    for source in [
+        "report sort([1], descending=1);",
+        "report sort([1], descending=true, descending=false);",
+        "report sort([1], other=true);",
+        "report min([1], descending=true);",
+        "report sort([1, 2.0]);",
+    ] {
+        assert!(
+            Program::parse(source, limits)
+                .and_then(|p| p.evaluate(&input, limits))
+                .is_err(),
+            "{source}"
+        );
+    }
+    let defaults=Program::parse(r#"report min_by([(id:1, score: lookup((id:1), "score") default 0), (id:2, score:2)], "score");"#,limits).unwrap().evaluate(&input,limits).unwrap();
+    assert!(
+        matches!(defaults.emissions()[0].value(), ReportValue::Constructed(value) if value==&V::Record(vec![("id".into(),V::Integer(1)),("score".into(),V::Integer(0))]))
+    );
+    let prepared=Program::parse("fn bound(n:int)->int { max(sort([n,1], descending=false)) default 0 } report items | head(bound(2)) | count;",limits).unwrap().evaluate(&input,limits).unwrap();
+    assert!(
+        matches!(prepared.emissions()[0].value(),ReportValue::Constructed(value) if value.data()==&V::Integer(2))
+    );
+    let model = semantic_model(
+        "ordering-enums",
+        b"enum Colour={Red,Blue}; enum Shade={Dark}; solve satisfy;",
+        b"",
+        "",
+    );
+    let nominal = Program::parse(
+        r#"report sort([enum_member(Colour,"Blue"),enum_member(Colour,"Red")]);"#,
+        limits,
+    )
+    .unwrap()
+    .evaluate_with_model(&input, Some(&model), limits)
+    .unwrap();
+    let ReportValue::Constructed(V::Array(values)) = nominal.emissions()[0].value() else {
+        panic!("nominal array")
+    };
+    let (V::Member(first), V::Member(second)) = (&values[0], &values[1]) else {
+        panic!("nominal members")
+    };
+    assert_eq!(
+        (first.member_name.as_str(), second.member_name.as_str()),
+        ("Red", "Blue")
+    );
+    assert_eq!(first.type_id, second.type_id);
+    assert_ne!(first.member_id, second.member_id);
+    let source = r#"report min_by([(score:enum_member(Colour,"Red")),(score:enum_member(Shade,"Dark"))],"score");"#;
+    let error = Program::parse(source, limits)
+        .unwrap()
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap_err();
+    assert_eq!(&source[error.range], "\"score\"");
+    let limited = Program::parse("report sort([4,3,2,1]);", limits)
+        .unwrap()
+        .evaluate(&input, ProgramLimits { work: 50, ..limits })
+        .unwrap_err();
+    assert!(limited.message.contains("work") && limited.range.end <= 25);
+    for source in [
+        "let unused=sort([1]); replace a=2; emit;",
+        "replace a=if true then 2 else min([1]) endif; emit;",
+    ] {
+        let error = Program::parse(source, limits).unwrap_err();
+        assert!(error.message.contains("report-only"));
+    }
 }

@@ -141,7 +141,7 @@ spelling; it never replaces matching text inside strings or field labels.
 Reports additionally accept `length(a)`, `sum(a)`, `forall(a)`, `exists(a)`,
 `require(condition, value, "message")`, `group_by(rows, "field")`, `entries(a)`,
 `zip_exact(a,b)`, `contains(text, fragment)`, `starts_with(text, prefix)` and
-`ends_with(text, suffix)`.
+`ends_with(text, suffix)`, plus report ordering and optional extrema below.
 
 String matching accepts two strings and returns a fixed Boolean. Matching is
 exact and case-sensitive, without coercion, regex, case folding or Unicode
@@ -151,8 +151,9 @@ including in skipped branches. Scans and failure diagnostics use the active
 request budget, and matching borrows existing text. These helpers remain
 report-only, including in unused lets and skipped data-edit branches.
 
-Each reducer takes one ordinary array expression. The array materializes fully before reduction; generator-call
-spellings such as `forall(i in 1..3)(...)` are unsupported. Length counts present
+Each reducer takes one ordinary array expression. The array materializes fully
+before reduction; generator-call spellings such as `forall(i in 1..3)(...)` are
+unsupported. Length counts present
 values without flattening nested arrays. Sum accepts only integers and performs
 checked addition in stored order. The quantifiers require fixed Booleans and
 scan every stored element. Positional and keyed arrays use the same reducers;
@@ -174,6 +175,31 @@ require call with the supplied message. False skips value arithmetic, access,
 construction and runtime host checks, while source projection and actual binding
 type discovery may still inspect or copy referenced values during preflight.
 A skipped operand cannot hide unsupported syntax or a known type mismatch.
+
+`sort(xs)` and `sort_by(rows, "field")` stably order positional scalar values
+or original records. They are ascending unless the final literal option is
+`descending=true`; `descending=false` is the default. Descending ties retain
+input order. The selector is one static string literal. This local option uses
+`=`, not a general named-argument or equality expression.
+
+`min(xs)`/`max(xs)` return an optional scalar, and `min_by(rows, "field")`/
+`max_by(rows, "field")` an optional original record. Empty input returns `<>`;
+the first input wins a tie. Use `min([]) default 0` for an explicit empty policy.
+Keys require present homogeneous integers, finite floats, exact strings or one
+nominal type. Integers and floats do not mix; nominal members use declaration
+order. Other row fields, declarations and member identities survive. A missing,
+absent or incompatible field fails at the selector, including a later bad key
+in extrema. Project a `lookup(row, "score") default 0` key first when intended.
+Keyed arrays need explicit positional conversion, such as `[e.value | e in
+entries(a)]`.
+
+All six calls are report-only, including unused lets and skipped edit branches.
+Data source/target admission and atomic edits retain their closed policy.
+Sorting extracts keys once, admits O(n) scratch and uses fallible O(n log n)
+comparisons. Extrema scan once and select only the winner without a whole-input
+copy. Field/string/nominal inspection, scratch, comparisons and owned output
+copies share the continuing request budget; refusal yields no partial output.
+See the [ordering report](queries.md#sort-rows-and-select-extrema).
 
 `group_by` takes exactly two arguments: a positional record array and one string
 literal field selector. Keys must be homogeneous integers, strings or resolved
