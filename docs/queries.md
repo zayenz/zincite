@@ -518,3 +518,56 @@ need explicit positional conversion. The shared evaluator extracts each key
 once; sort uses budgeted O(n) scratch and O(n log n) comparisons, while extrema
 scan once and copy only the selected row when an owned result is needed.
 These helpers do not expand the data-edit whitelist.
+
+## Combine functions, defaults and ordering
+
+This report combines a tail accumulator with optional scores, exact string
+matching and stable ordering. Save the program as `report.zq`:
+
+```text
+fn accumulate(n: int, total: int) -> int {
+    if n = 0 then total else accumulate(n - 1, total + n) endif
+}
+let rows = [(name:"beta",score:2), (name:"alpha",score:2),
+            (name:"gamma",score:<>)];
+let scored = [(name:r.name,score:(r.score default 0))
+              | r in rows where contains(r.name,"a")];
+report (total:accumulate(1000,0),rows:sort_by(scored,"score"),
+        first:min_by(scored,"score"));
+```
+
+Run from the repository root after creating a small input:
+
+```sh
+printf 'solve satisfy;\n' > model.mzn
+zincite-query --program-file report.zq model.mzn
+```
+
+The total is `500500`. Rows appear as `gamma` with score zero, then `beta`
+and `alpha` with score two; the equal scores retain input order. `first` is
+the original `gamma` record. Zincite wraps these values in its tagged report schema. The same
+program text can be passed with `--program`.
+
+The default handles absence before sorting; absence is not zero in ordinary
+arithmetic or ordering. It does not catch arithmetic, type, host or budget
+errors. String matching is case-sensitive, with no Unicode normalization or
+regex interpretation; an empty search string matches. Sorting requires present
+homogeneous keys and preserves ties even with `descending=true`. Empty extrema
+return absence, and extrema choose the first input on a tie.
+
+Typed function boundaries check actual selected arguments and results. They
+do not infer model types or validate every runtime fact statically. Native
+identity and document/source ownership stay with the host. External parameters
+remain `int`, `string` or `bool`. All written branches receive preflight checks;
+only selected lazy branches execute.
+
+The accumulator reuses its active frame; pending arithmetic in a recursive
+caller requires another frame. Neither form bypasses cumulative work/results
+limits, expression nesting or the native reentry guard. Bodies prepare once
+within the submitted evaluation and share unchanged admitted arguments. A new
+evaluation prepares against its current document and bindings. Owned results
+and rendering still pay their applicable costs.
+
+The [shared execution measurements](https://zayenz.se/zirql/guides/computation/)
+record both bounded tail state and small-query regressions. Those library
+measurements exclude host parsing/rendering and do not predict CLI latency.
