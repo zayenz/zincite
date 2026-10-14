@@ -45,6 +45,7 @@ Stages:
     declarations            Select owned declarations or proven reference targets
     uses                    Select occurrences referring to selected declarations
     transitive_references(N) Follow written declaration references for N waves
+    referenced_declarations Follow direct proven targets in an owning declaration
     types                   Inspect native declaration/expression type facts
     instantiations          Inspect available par/var facts and unknown reasons
     names                   Project direct identifier identities
@@ -110,7 +111,7 @@ attached comments. Separated section comments and a BOM stay in document output.
 Fragment selections that unbalance paired formatter markers fail.
 
 Options:
-    --program TEXT         Run an inline program with the same semantics as a file
+    --program TEXT         Run an inline program; one native expression needs no ';'
     --param name=value     Supply one required int, string or bool input (repeatable)
     -f, --program-file PATH Read bindings, reports or create/replace data batches
     --max-work N           Program work allowance (default 1000000)

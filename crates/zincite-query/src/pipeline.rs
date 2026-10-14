@@ -134,6 +134,7 @@ pub(crate) fn lower_pipeline(
                 | StageKind::Declarations
                 | StageKind::Uses
                 | StageKind::TransitiveReferences(_)
+                | StageKind::ReferencedDeclarations
                 | StageKind::Types
                 | StageKind::Instantiations
                 | StageKind::Expressions

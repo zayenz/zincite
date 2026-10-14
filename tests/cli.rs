@@ -409,6 +409,47 @@ fn prefer_enum_is_advisory_through_the_root_command_and_never_edits() {
 }
 
 #[test]
+fn bounded_paths_run_through_the_root_query_command() {
+    let dir = std::env::temp_dir().join(format!("zincite-root-paths-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(dir.join("library/std/stdlib.mzn"), "").unwrap();
+    let model = dir.join("model.mzn");
+    let source = include_bytes!("../crates/zincite-query/tests/fixtures/bounded-paths.mzn");
+    std::fs::write(&model, source).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_zincite"))
+        .args([
+            "query",
+            "--stdlib-dir",
+            dir.join("library").to_str().unwrap(),
+            "--program",
+            include_str!("../crates/zincite-query/tests/fixtures/bounded-paths.zq").trim(),
+            model.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let rendered = String::from_utf8(output.stdout).unwrap();
+    let steps = rendered
+        .split_once("\"steps\":[")
+        .unwrap()
+        .1
+        .split_once(']')
+        .unwrap()
+        .0;
+    let a = steps.find("\"name\":\"a\"").unwrap();
+    let b = steps.find("\"name\":\"b\"").unwrap();
+    let c = steps.find("\"name\":\"c\"").unwrap();
+    assert!(a < b && b < c);
+    assert_eq!(std::fs::read(model).unwrap(), source);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn program_files_report_native_results_and_buffer_later_failures() {
     let path = std::env::temp_dir().join(format!("zincite-root-program-{}.zq", std::process::id()));
     std::fs::write(&path, r#"source selected = query(""); source n = selected | query("count"); source h = selected | query("names | tally"); report (count: n, histogram: h, selected: selected);"#).unwrap();

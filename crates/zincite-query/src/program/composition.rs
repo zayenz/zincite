@@ -3,6 +3,22 @@ use super::*;
 use zirql::{MatchHost, ProjectionHost, ValueReaderHost};
 
 type Matching = zirql::NativeMatch<Expression, Guard>;
+type Paths = zirql::NativePaths<Stage, Guard>;
+
+#[derive(Debug)]
+pub(super) struct PathStage(Option<Box<Paths>>);
+impl PathStage {
+    pub(super) fn get(&self) -> &Paths {
+        self.0.as_ref().expect("retained paths")
+    }
+}
+impl Drop for PathStage {
+    fn drop(&mut self) {
+        if let Some(paths) = self.0.take() {
+            zirql::dispose_paths(*paths);
+        }
+    }
+}
 
 #[derive(Debug)]
 pub(super) struct ProjectionStage(Option<zirql::Projection<Expression>>);
@@ -76,7 +92,9 @@ impl Parser<'_> {
             .windows(2)
             .any(|pair| text(&pair[0]) == "match" && pair[1].kind == T::LeftBrace);
         let projection = tokens.windows(3).any(|pair| {
-            pair[0].kind == T::Pipe && text(&pair[1]) == "project" && pair[2].kind == T::LeftParen
+            pair[0].kind == T::Pipe
+                && matches!(text(&pair[1]), "project" | "paths")
+                && pair[2].kind == T::LeftParen
         });
         contextual_match
             || projection
@@ -176,6 +194,8 @@ fn domain_stage(name: &str) -> bool {
             | "declarations"
             | "uses"
             | "transitive_references"
+            | "referenced_declarations"
+            | "paths"
             | "types"
             | "instantiations"
             | "names"
@@ -217,6 +237,14 @@ impl ValueReaderHost for Parser<'_> {
         reader: &mut zirql::ArgumentReader<'_>,
         budget: &mut Budget,
     ) -> Result<ExpressionStep<Stage, Emitter>, zirql::QueryError> {
+        let mut probe = zirql::ArgumentReader::new(reader.source(), reader.position())?;
+        if probe.keyword("paths") {
+            let paths = zirql::read_paths(reader, self, budget, self.limits.nesting)?;
+            self.cursor.position = reader.position();
+            return Ok(ExpressionStep::Stage(Stage::Paths(PathStage(Some(
+                Box::new(paths),
+            )))));
+        }
         self.cursor.position = reader.position();
         let start = self.cursor.position;
         if self.cursor.take_word("query") {
@@ -432,6 +460,24 @@ impl ValueReaderHost for Parser<'_> {
     fn set_operator(&self, _: &str) -> Option<()> {
         None
     }
+    fn parse_path_edge(
+        &mut self,
+        edge: Located<&str>,
+        budget: &mut Budget,
+    ) -> Result<Stage, zirql::QueryError> {
+        if edge.value != "referenced_declarations" {
+            return Err(zirql::QueryError::query(
+                edge.range,
+                "unsupported path edge",
+            ));
+        }
+        budget.charge_results(1, zirql::Location::Query(edge.range.clone()))?;
+        let index = self.register(language::Stage {
+            kind: language::StageKind::ReferencedDeclarations,
+            range: edge.range,
+        });
+        Ok(Stage::Query(index))
+    }
 }
 fn query_error(error: QueryError) -> zirql::QueryError {
     zirql::QueryError::query(error.range, error.message)
@@ -536,7 +582,17 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
                 Kind::Captures(copy_schema(&captures.schema, budget, range)?)
             }
             ReportValue::Query(stream) => match stream {
-                SemanticStream::Entities(_) => Kind::Entities,
+                SemanticStream::Entities(rows) => {
+                    budget.charge(rows.len(), zirql::Location::Query(range.clone()))?;
+                    if rows
+                        .iter()
+                        .all(|entity| matches!(entity, semantic::SemanticEntity::Declaration(_)))
+                    {
+                        Kind::Declarations
+                    } else {
+                        Kind::Entities
+                    }
+                }
                 SemanticStream::Types(_) => Kind::Types,
                 SemanticStream::Instantiations(_) => Kind::Instantiations,
                 SemanticStream::Inspection(result) => match result.as_ref() {
@@ -606,6 +662,8 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
                 zirql::match_types(matching.get(), self, input, scope, budget)
                     .map(|schema| Kind::Captures(Rc::new(schema)))
             }
+            Stage::Paths(paths) => zirql::path_types(paths.get(), self, input, scope, budget)
+                .map(|schema| Kind::Captures(Rc::new(schema))),
             _ => Err(zirql::QueryError::query(
                 range.clone(),
                 "stage is unavailable in native composition",
@@ -687,6 +745,7 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
             Kind::Capture(_)
             | Kind::Nodes
             | Kind::Entities
+            | Kind::Declarations
             | Kind::Types
             | Kind::Instantiations
             | Kind::Strings
@@ -801,7 +860,7 @@ impl<'a> MatchHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         )?;
         if !matches!(
             kind,
-            Kind::Nodes | Kind::Entities | Kind::Types | Kind::Instantiations
+            Kind::Nodes | Kind::Entities | Kind::Declarations | Kind::Types | Kind::Instantiations
         ) {
             return Err(zirql::QueryError::query(
                 range.clone(),
@@ -883,6 +942,55 @@ impl<'a> MatchHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
     }
 }
 impl<'a> CompositionHost<'_, '_> {
+    pub(super) fn paths(
+        &self,
+        paths: &Paths,
+        input: ReportValue<'a>,
+        context: &mut Context<'_, 'a>,
+        bindings: &Bindings<ReportValue<'a>>,
+        budget: &mut Budget,
+    ) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
+        let kind = self.kind(&input, budget, &paths.range)?;
+        let mut scope = BTreeMap::new();
+        for (name, value) in bindings.iter() {
+            budget.charge(name.len() + 1, zirql::Location::Query(paths.range.clone()))?;
+            scope.insert(name.to_owned(), self.kind(value, budget, &paths.range)?);
+        }
+        let schema = zirql::path_types(paths, self, &kind, &scope, budget)?;
+        let previous = context.guard_unknown.take();
+        let result = zirql::evaluate_paths(paths, self, input, context, bindings, budget);
+        let responsible = std::mem::replace(&mut context.guard_unknown, previous);
+        let rows = match result {
+            Err(zirql::EvaluationError::Core(error))
+                if error.message == "path target is Unknown" =>
+            {
+                if let Some(diagnostic) = responsible {
+                    return Err(zirql::EvaluationError::Host(QueryError {
+                        range: diagnostic.location.range.clone(),
+                        location: crate::ErrorLocation::Model(diagnostic.location),
+                        message: diagnostic.message,
+                    }));
+                }
+                return Err(zirql::EvaluationError::Core(error));
+            }
+            result => result?,
+        };
+        budget.charge(rows.len() + 1, zirql::Location::Query(paths.range.clone()))?;
+        budget.charge_results(rows.len() + 1, zirql::Location::Query(paths.range.clone()))?;
+        let rows = rows
+            .into_iter()
+            .map(|row| {
+                let ReportValue::Capture(capture) = row else {
+                    unreachable!("native path record")
+                };
+                capture
+            })
+            .collect();
+        Ok(ReportValue::Captures(CaptureMatches {
+            rows,
+            schema: Rc::new(schema),
+        }))
+    }
     pub(super) fn matching(
         &self,
         matching: &Matching,
@@ -940,5 +1048,113 @@ impl<'a> CompositionHost<'_, '_> {
             rows,
             schema: Rc::new(schema),
         }))
+    }
+}
+
+fn path_declaration(
+    value: &ReportValue<'_>,
+    range: &Range<usize>,
+) -> Result<semantic::SemanticEntity, zirql::QueryError> {
+    if let ReportValue::Query(SemanticStream::Entities(rows)) = value
+        && let [entity @ semantic::SemanticEntity::Declaration(_)] = rows.as_slice()
+    {
+        return Ok(*entity);
+    }
+    Err(zirql::QueryError::query(
+        range.clone(),
+        "paths require native declarations",
+    ))
+}
+
+impl<'a> zirql::PathHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
+    type Target = Guard;
+    fn validate_path_edge(
+        &self,
+        edge: &Stage,
+        input: &Kind,
+        _: &BTreeMap<String, Kind>,
+        _: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<(), zirql::QueryError> {
+        if let Stage::Query(index) = edge
+            && matches!(input, Kind::Declarations)
+            && matches!(
+                self.0.queries[*index].query.stages.as_slice(),
+                [language::Stage {
+                    kind: language::StageKind::ReferencedDeclarations,
+                    ..
+                }]
+            )
+        {
+            return Ok(());
+        }
+        Err(zirql::QueryError::query(
+            range.clone(),
+            "path edge requires declarations",
+        ))
+    }
+    fn validate_target_leaf(
+        &self,
+        target: &Guard,
+        input: &Kind,
+        scope: &BTreeMap<String, Kind>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<(), zirql::QueryError> {
+        self.validate_guard_leaf(target, input, scope, budget, range)
+    }
+    fn evaluate_target_leaf(
+        &self,
+        target: &Guard,
+        input: &Self::Value,
+        context: &mut Context<'_, 'a>,
+        bindings: &Bindings<Self::Value>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<zirql::Truth, zirql::EvaluationError<QueryError>> {
+        path_declaration(input, range)?;
+        self.evaluate_guard_leaf(target, input, context, bindings, budget, range)
+    }
+    fn path_neighbors(
+        &self,
+        edge: &Stage,
+        input: &Self::Value,
+        context: &mut Context<'_, 'a>,
+        bindings: &Bindings<Self::Value>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<Vec<Self::Value>, zirql::EvaluationError<QueryError>> {
+        path_declaration(input, range)?;
+        let input = self.copy_value(input, context, budget, range)?;
+        let neighbors = self
+            .0
+            .evaluate_stage(edge, input, context, bindings, budget, range)?;
+        self.subjects(neighbors, context, budget, range)
+    }
+    fn same_path_identity(
+        &self,
+        left: &Self::Value,
+        right: &Self::Value,
+        _: &mut Context<'_, 'a>,
+        _: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<bool, zirql::EvaluationError<QueryError>> {
+        Ok(path_declaration(left, range)? == path_declaration(right, range)?)
+    }
+    fn path_steps(
+        &self,
+        steps: Vec<Self::Value>,
+        _: &mut Context<'_, 'a>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<Self::Value, zirql::EvaluationError<QueryError>> {
+        budget.check_items(steps.len(), zirql::Location::Query(range.clone()))?;
+        budget.charge(steps.len(), zirql::Location::Query(range.clone()))?;
+        budget.charge_results(steps.len() + 1, zirql::Location::Query(range.clone()))?;
+        let mut declarations = Vec::with_capacity(steps.len());
+        for step in steps {
+            declarations.push(path_declaration(&step, range)?);
+        }
+        Ok(ReportValue::Query(SemanticStream::Entities(declarations)))
     }
 }

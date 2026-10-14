@@ -290,6 +290,55 @@ selections still validate field names, scope, types and purity. These forms
 are available only in reports; data edits refuse them in preceding lets and
 edit operands before preparing a candidate.
 
+## Explain declaration connections
+
+For `paths.mzn` containing `int: c = 1; int: b = c; int: a = b; solve satisfy;`,
+this short program retains one witness with native declarations `[a, b, c]`:
+
+```sh
+zincite-query --program 'subtree | declarations | filter(name("a")) | paths(referenced_declarations, to=name("c"), max_depth=2) | json' paths.mzn
+```
+
+Save the same expression as `paths.zq` and run either command form:
+
+```sh
+zincite-query --program-file paths.zq paths.mzn
+zincite query --program-file paths.zq paths.mzn
+```
+
+The repository has [the model](../crates/zincite-query/tests/fixtures/bounded-paths.mzn)
+and [saved program](../crates/zincite-query/tests/fixtures/bounded-paths.zq).
+The single expression needs no binding, declaration or final semicolon. A bound
+of one gives no witness for `c`; a matching source gives one step at depth zero.
+Source and sink remain native singleton declaration streams, and steps contain
+both endpoints. Select `p.steps | names` inside `project(p, {...})` to construct
+a scalar report from those handles.
+
+Library callers use the same program and retain the model owner:
+
+```rust
+let limits = zincite_query::ProgramLimits::default();
+let program = zincite_query::Program::parse(program_source, limits)?;
+let result = program.evaluate_with_model(&input, Some(&model), limits)?;
+let zincite_query::ReportValue::Captures(paths) = result.emissions()[0].value()
+    else { unreachable!("native path result") };
+let native_fields = &paths.rows()[0].fields;
+```
+
+`native_fields` contains `source`, `sink` and `steps` with their DeclarationIds,
+file/range coordinates and retained model facts before JSON rendering.
+`referenced_declarations` follows proven written references within each owning
+region. It does not execute a model or prove a dataflow dependency. First-reference
+order chooses between shortest alternatives, and repeated source handles do not
+duplicate a source/sink pair.
+
+The explicit edge bound and request limits apply together. Use `--max-work` and
+`--max-results` for a smaller allowance, or supply `ProgramLimits` in Rust.
+Exhaustion refuses the complete request. No witness within this bound does not
+prove global disconnection. Unknown targets refuse; unresolved edges and missing
+standard-library context retain completeness limitations and status 1, as in
+[semantic inspection](reference.md#semantic-inspection). Source bytes stay unchanged.
+
 ## Inspect semantic facts
 
 To follow a declaration's uses in that model:

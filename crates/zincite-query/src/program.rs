@@ -21,6 +21,7 @@ enum Stage {
     Query(usize),
     Projection(composition::ProjectionStage),
     Match(composition::MatchStage),
+    Paths(composition::PathStage),
     Data(Vec<data::Edit>),
     Literal(Located<String>),
     LiteralValue {
@@ -85,6 +86,7 @@ enum Kind {
     Tally,
     Record,
     Entities,
+    Declarations,
     Types,
     Instantiations,
     Constructed,
@@ -598,7 +600,15 @@ impl Program {
             let report = binding.is_none() && parser.cursor.take_word("report");
             parser.cursor.space();
             let expression_start = parser.cursor.position;
-            let expression_end = parser.expression_end()?;
+            let compact_native = statements.is_empty()
+                && binding.is_none()
+                && !report
+                && parser.composition_syntax(expression_start..source.len());
+            let expression_end = match parser.expression_end() {
+                Ok(end) => end,
+                Err(_) if compact_native => source.len(),
+                Err(error) => return Err(error),
+            };
             if is_source
                 && !source[expression_start..expression_end]
                     .trim_start()
@@ -702,9 +712,11 @@ impl Program {
                     "a source binding cannot emit",
                 ));
             }
-            parser
-                .cursor
-                .punctuation(b';', "expected ';' after program statement")?;
+            if !(compact_native && parser.cursor.position == source.len()) {
+                parser
+                    .cursor
+                    .punctuation(b';', "expected ';' after program statement")?;
+            }
             output_seen |= binding.is_none();
             let statement = if let Some(name) = binding {
                 parser.names.insert(name.value.clone(), kind);
@@ -1932,6 +1944,7 @@ fn validate_stages(query: &Query, mut kind: Kind) -> Result<Kind, QueryError> {
                         | Kind::Strings
                         | Kind::Literals
                         | Kind::Entities
+                        | Kind::Declarations
                         | Kind::Types
                         | Kind::Instantiations
                 );
@@ -1945,7 +1958,12 @@ fn validate_stages(query: &Query, mut kind: Kind) -> Result<Kind, QueryError> {
             }
             S::Unique => matches!(
                 kind,
-                Kind::Nodes | Kind::Strings | Kind::Entities | Kind::Types | Kind::Instantiations
+                Kind::Nodes
+                    | Kind::Strings
+                    | Kind::Entities
+                    | Kind::Declarations
+                    | Kind::Types
+                    | Kind::Instantiations
             ),
             S::Head(_) => matches!(
                 kind,
@@ -1953,26 +1971,52 @@ fn validate_stages(query: &Query, mut kind: Kind) -> Result<Kind, QueryError> {
                     | Kind::Strings
                     | Kind::Literals
                     | Kind::Entities
+                    | Kind::Declarations
                     | Kind::Types
                     | Kind::Instantiations
             ),
             S::Range(_) => matches!(kind, Kind::Nodes),
             S::Filter(_) => matches!(
                 kind,
-                Kind::Nodes | Kind::Entities | Kind::Types | Kind::Instantiations
+                Kind::Nodes
+                    | Kind::Entities
+                    | Kind::Declarations
+                    | Kind::Types
+                    | Kind::Instantiations
             ),
-            S::References | S::Declarations | S::Uses | S::TransitiveReferences(_) => {
+            S::Declarations => {
                 let valid = matches!(
                     kind,
-                    Kind::Nodes | Kind::Entities | Kind::Types | Kind::Instantiations
+                    Kind::Nodes
+                        | Kind::Entities
+                        | Kind::Declarations
+                        | Kind::Types
+                        | Kind::Instantiations
+                );
+                kind = Kind::Declarations;
+                valid
+            }
+            S::References | S::Uses | S::TransitiveReferences(_) => {
+                let valid = matches!(
+                    kind,
+                    Kind::Nodes
+                        | Kind::Entities
+                        | Kind::Declarations
+                        | Kind::Types
+                        | Kind::Instantiations
                 );
                 kind = Kind::Entities;
                 valid
             }
+            S::ReferencedDeclarations => matches!(kind, Kind::Declarations),
             S::Types => {
                 let valid = matches!(
                     kind,
-                    Kind::Nodes | Kind::Entities | Kind::Types | Kind::Instantiations
+                    Kind::Nodes
+                        | Kind::Entities
+                        | Kind::Declarations
+                        | Kind::Types
+                        | Kind::Instantiations
                 );
                 kind = Kind::Types;
                 valid
@@ -1980,7 +2024,11 @@ fn validate_stages(query: &Query, mut kind: Kind) -> Result<Kind, QueryError> {
             S::Instantiations => {
                 let valid = matches!(
                     kind,
-                    Kind::Nodes | Kind::Entities | Kind::Types | Kind::Instantiations
+                    Kind::Nodes
+                        | Kind::Entities
+                        | Kind::Declarations
+                        | Kind::Types
+                        | Kind::Instantiations
                 );
                 kind = Kind::Instantiations;
                 valid
@@ -1993,7 +2041,11 @@ fn validate_stages(query: &Query, mut kind: Kind) -> Result<Kind, QueryError> {
             S::Names | S::Text => {
                 let valid = matches!(
                     kind,
-                    Kind::Nodes | Kind::Entities | Kind::Types | Kind::Instantiations
+                    Kind::Nodes
+                        | Kind::Entities
+                        | Kind::Declarations
+                        | Kind::Types
+                        | Kind::Instantiations
                 );
                 kind = Kind::Strings;
                 valid
@@ -2110,6 +2162,15 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
             Stage::Match(matching) => {
                 return composition::CompositionHost(self).matching(
                     matching.get(),
+                    value,
+                    context,
+                    bindings,
+                    budget,
+                );
+            }
+            Stage::Paths(paths) => {
+                return composition::CompositionHost(self).paths(
+                    paths.get(),
                     value,
                     context,
                     bindings,

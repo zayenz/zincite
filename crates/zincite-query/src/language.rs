@@ -20,6 +20,7 @@ pub(crate) enum StageKind {
     Declarations,
     Uses,
     TransitiveReferences(usize),
+    ReferencedDeclarations,
     Types,
     Instantiations,
     Filter(Predicate),
@@ -259,6 +260,7 @@ impl<'a> Parser<'a> {
         let kind = match name {
             "items" => StageKind::Items,
             "references" => StageKind::References,
+            "referenced_declarations" => StageKind::ReferencedDeclarations,
             "declarations" => StageKind::Declarations,
             "uses" => StageKind::Uses,
             "types" => StageKind::Types,

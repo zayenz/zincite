@@ -49,6 +49,14 @@ a row with its located limitation. Empty capture collections retain their field
 schema. Candidate admission, copies, metadata and rendering use the same
 continuing request budget as other reports.
 
+The shared `paths(referenced_declarations, to=predicate, max_depth=n)` form also
+returns native captures. Source, sink and declaration steps retain the model
+owner and original coordinates. The [path reference](reference.md#bounded-declaration-paths)
+defines shortest witnesses, edge bounds, Unknown refusal and incompleteness.
+Its traversal, native copies, field projection and rendering spend the same
+program budget. One standalone native expression can end at EOF without `;`;
+bindings, `report` statements, multiple statements and edits keep terminators.
+
 These forms are excluded from data expressions and preceding edit lets. The
 closed MiniZinc data grammar, complete-candidate validation and atomic write
 rules below continue to apply.

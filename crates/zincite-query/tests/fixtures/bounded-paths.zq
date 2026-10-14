@@ -1,0 +1,1 @@
+subtree | declarations | filter(name("a")) | paths(referenced_declarations, to=name("c"), max_depth=2) | json

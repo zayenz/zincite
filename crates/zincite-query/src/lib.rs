@@ -636,6 +636,7 @@ fn evaluate_stage<'a>(
         | StageKind::Declarations
         | StageKind::Uses
         | StageKind::TransitiveReferences(_)
+        | StageKind::ReferencedDeclarations
         | StageKind::Types
         | StageKind::Instantiations => {
             return Err(inspection::type_error(

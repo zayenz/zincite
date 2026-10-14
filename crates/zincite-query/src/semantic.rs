@@ -465,6 +465,7 @@ pub(crate) fn requests_facts(stage: &Stage) -> bool {
             | StageKind::Declarations
             | StageKind::Uses
             | StageKind::TransitiveReferences(_)
+            | StageKind::ReferencedDeclarations
             | StageKind::Types
             | StageKind::Instantiations
     ) || matches!(&stage.kind, StageKind::Filter(predicate) if predicate_facts(predicate))
@@ -633,6 +634,21 @@ impl<'a> SemanticResult<'a> {
                 let subjects = subjects(stream, model, stage, limits, work)?;
                 let declarations = self.declarations(&subjects, work, stage, limits)?;
                 SemanticStream::Entities(self.uses(&declarations, work, stage, limits)?)
+            }
+            StageKind::ReferencedDeclarations => {
+                self.ensure_bindings(work, stage)?;
+                let SemanticStream::Entities(declarations) = stream else {
+                    return Err(type_error(
+                        &stage.range,
+                        "referenced_declarations requires declarations",
+                    ));
+                };
+                SemanticStream::Entities(self.referenced_declarations(
+                    &declarations,
+                    work,
+                    stage,
+                    limits,
+                )?)
             }
             StageKind::TransitiveReferences(depth) => {
                 self.ensure_bindings(work, stage)?;
@@ -1176,6 +1192,87 @@ impl SemanticResult<'_> {
         }
         Ok(rows)
     }
+    fn ordered_references(
+        &self,
+        work: &mut Work,
+        stage: &Stage,
+        limits: Limits,
+    ) -> Result<Vec<usize>, QueryError> {
+        let references = &self.bindings().unwrap().references;
+        work.spend(
+            references
+                .len()
+                .saturating_mul(references.len().max(1).ilog2() as usize + 1),
+            &stage.range,
+        )?;
+        if references.len() > limits.collection {
+            return Err(type_error(&stage.range, "query collection limit exceeded"));
+        }
+        let mut order: Vec<_> = (0..references.len()).collect();
+        order.sort_by_key(|&id| {
+            let r = &references[id];
+            (
+                r.file,
+                r.location.range.start,
+                r.location.range.end,
+                reference_order(r.kind),
+            )
+        });
+        Ok(order)
+    }
+
+    fn referenced_declarations(
+        &mut self,
+        declarations: &[SemanticEntity],
+        work: &mut Work,
+        stage: &Stage,
+        limits: Limits,
+    ) -> Result<Vec<SemanticEntity>, QueryError> {
+        let order = self.ordered_references(work, stage, limits)?;
+        let mut rows = Vec::new();
+        for declaration in declarations {
+            let SemanticEntity::Declaration(id) = declaration else {
+                return Err(type_error(
+                    &stage.range,
+                    "referenced_declarations requires declarations",
+                ));
+            };
+            work.visit(&stage.range)?;
+            let declaration = &self.bindings().unwrap().declarations[id.0];
+            let file = declaration.file;
+            let offset = self.model.files[file].byte_offset;
+            let region =
+                declaration.syntax_range.start + offset..declaration.syntax_range.end + offset;
+            let mut selected = Vec::new();
+            for &reference in &order {
+                work.visit(&stage.range)?;
+                let occurrence = &self.bindings().unwrap().references[reference];
+                if occurrence.file != file || !contains(&region, &occurrence.location.range) {
+                    continue;
+                }
+                if let Some(target) = self.target(reference, work, stage, limits)? {
+                    let mut repeated = false;
+                    for previous in &selected {
+                        work.visit(&stage.range)?;
+                        if *previous == target {
+                            repeated = true;
+                            break;
+                        }
+                    }
+                    if repeated {
+                        continue;
+                    }
+                    check_collection(selected.len(), limits.collection, &stage.range)?;
+                    check_collection(rows.len(), limits.collection, &stage.range)?;
+                    work.produce(2, &stage.range)?;
+                    selected.push(target);
+                    rows.push(SemanticEntity::Declaration(target));
+                }
+            }
+        }
+        Ok(rows)
+    }
+
     fn transitive(
         &mut self,
         declarations: &[SemanticEntity],
@@ -1200,26 +1297,7 @@ impl SemanticResult<'_> {
                 frontier.push(*id);
             }
         }
-        let references = &self.bindings().unwrap().references;
-        work.spend(
-            references
-                .len()
-                .saturating_mul(references.len().max(1).ilog2() as usize + 1),
-            &stage.range,
-        )?;
-        if references.len() > limits.collection {
-            return Err(type_error(&stage.range, "query collection limit exceeded"));
-        }
-        let mut order: Vec<_> = (0..references.len()).collect();
-        order.sort_by_key(|&id| {
-            let r = &references[id];
-            (
-                r.file,
-                r.location.range.start,
-                r.location.range.end,
-                reference_order(r.kind),
-            )
-        });
+        let order = self.ordered_references(work, stage, limits)?;
         let mut emitted = HashSet::new();
         let mut rows = Vec::new();
         for _ in 0..depth {

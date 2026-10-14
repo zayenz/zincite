@@ -438,7 +438,9 @@ leaves CLI stdout empty and the input file unchanged.
 
 `Program::parse(source, ProgramLimits)` accepts ordered reports or one atomic
 data edit batch.
-Every statement ends with `;`. A source binding is immutable and can refer only
+One standalone native expression can end at EOF without `;`. Bindings, `report`
+statements, multiple statements and data edits keep their required terminators.
+A source binding is immutable and can refer only
 to earlier bindings. `query("pipeline")` uses the stages above; its string is
 parsed once and diagnostics retain the original program byte coordinates.
 A bare expression emits its result. `report expression;` emits JSON.
@@ -463,6 +465,37 @@ are not scalar comprehension values.
 with their existing `emit` or `json` stage. An explicit emitter suppresses the
 statement's implicit emission. Bindings and record fields cannot emit. Program
 parsing checks names, emitters and supported result transitions before execution.
+#### Bounded declaration paths
+
+Read-only native programs accept
+`paths(referenced_declarations, to=predicate, max_depth=n)`. The bound is a
+required nonnegative integer literal measured in declaration-to-declaration
+edges. The target uses ordinary semantic predicates and shared Boolean control.
+
+Each edge follows a proven target of a reference written anywhere in the owning
+declaration region, using `transitive_references`' file, range and reference-kind
+order. Resolved value/type bindings and exactly selected resolved calls can
+produce declaration edges; intrinsic endpoints produce none. Repeated targets
+keep their first occurrence. Reference occurrences are not extra path steps.
+
+Zirql supplies the only breadth-first evaluator. It returns one shortest witness
+per source/sink pair, suppresses repeated source identities and cycles, and uses
+edge order to choose equal-length ties. Matching sinks can lead to further sinks.
+Rows have native `source`, `sink` and ordered `steps` fields; steps include both
+endpoints. A matching root has `[source]` at depth zero. Empty path collections
+retain their field schema for later projection.
+
+Paths require declaration selections and never guess a target by spelling.
+Unresolved edges retain located limitations, `complete:false` and status 1.
+A final Unknown target, including under `not`, refuses at the responsible model
+location. A known Boolean alternative may retain a witness and its limitations.
+No witness within a bound does not establish global disconnection.
+
+Source/neighbor scans, comparisons, traversal slots, native copies, witnesses
+and rendering share the existing aggregate program budget. Paths remain
+report-only and are excluded from data expressions and preceding edit lets.
+See [the complete inline, file and library example](queries.md#explain-declaration-connections).
+
 #### Native projections and captures
 
 Read-only programs also accept domain stages directly:

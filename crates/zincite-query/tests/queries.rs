@@ -3446,3 +3446,139 @@ fn native_match_unknown_guards_keep_host_locations_and_boolean_control() {
             .contains("\"complete\":false")
     );
 }
+
+#[test]
+fn bounded_paths_keep_declaration_witnesses_owner_coordinates_and_projection() {
+    use std::rc::Rc;
+    use zincite_lint::ModelFacts;
+    use zincite_query::{Program, ProgramLimits, ReportValue, SemanticEntity, SemanticStream};
+    assert!(Program::parse(r#"subtree | references | filter(name("missing")) | paths(referenced_declarations, to=name("c"), max_depth=0) | json"#, ProgramLimits::default()).is_err());
+    let source = include_bytes!("fixtures/bounded-paths.mzn");
+    let model = semantic_model("bounded-paths", source, b"", "");
+    let input = Input::parse(source.to_vec(), FileMode::Model).unwrap();
+    let facts = Rc::new(ModelFacts::new(&model));
+    let short = include_str!("fixtures/bounded-paths.zq");
+    let program = Program::parse(short, ProgramLimits::default()).unwrap();
+    let mut result = program
+        .evaluate_with_facts(&input, Rc::clone(&facts), ProgramLimits::default())
+        .unwrap();
+    assert!(result.is_complete());
+    assert!(std::ptr::eq(result.model_facts().unwrap(), facts.as_ref()));
+    let ReportValue::Captures(paths) = result.emissions()[0].value() else {
+        panic!("native paths")
+    };
+    assert_eq!(paths.rows().len(), 1);
+    let fields = &paths.rows()[0].fields;
+    assert_eq!(
+        fields
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        ["source", "sink", "steps"]
+    );
+    let native = |index: usize| {
+        let ReportValue::Query(SemanticStream::Entities(ids)) = &fields[index].1 else {
+            panic!("native declarations")
+        };
+        ids.as_slice()
+    };
+    assert_eq!(native(0), &native(2)[..1]);
+    assert_eq!(native(1), &native(2)[2..]);
+    let report = result.semantic().unwrap();
+    for (entity, name) in native(2).iter().zip([b"a", b"b", b"c"]) {
+        assert!(matches!(entity, SemanticEntity::Declaration(_)));
+        let location = report.location(*entity);
+        assert_eq!(location.path, model.root);
+        assert_eq!(&source[location.range.clone()], name);
+    }
+    let json: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
+    assert_eq!(
+        json["result"][0]["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["name"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["a", "b", "c"]
+    );
+    let one = Program::parse(
+        &short.replace("max_depth=2", "max_depth=1"),
+        ProgramLimits::default(),
+    )
+    .unwrap();
+    let result = one
+        .evaluate_with_facts(&input, Rc::clone(&facts), ProgramLimits::default())
+        .unwrap();
+    assert!(
+        matches!(result.emissions()[0].value(), ReportValue::Captures(paths) if paths.rows().is_empty())
+    );
+    let projection = Program::parse(r#"let roots = subtree | declarations | filter(name("a")); let p = roots | paths(referenced_declarations, to=name("c"), max_depth=2); report p | project(w, {"source": w.source | names | one, "sink": w.sink | names | one, "steps": w.steps | names});"#, ProgramLimits::default()).unwrap();
+    let mut result = projection
+        .evaluate_with_facts(&input, facts, ProgramLimits::default())
+        .unwrap();
+    assert!(
+        String::from_utf8(result.render().unwrap())
+            .unwrap()
+            .contains("\"value\":\"b\"")
+    );
+    assert_eq!(input.source_bytes(), source);
+}
+
+#[test]
+fn bounded_paths_keep_proven_edge_order_cycles_incompleteness_and_unknown_refusals() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    let source =
+        b"int: c = a; int: b = c; int: a = (b + c + b); int: unresolved = missing; solve satisfy;";
+    let model = semantic_model("path-order", source, b"", "");
+    let input = Input::parse(source.to_vec(), FileMode::Model).unwrap();
+    let program = Program::parse(r#"subtree | declarations | filter(name("a")) | paths(referenced_declarations, to=name("c") or name("a"), max_depth=10) | json"#, ProgramLimits::default()).unwrap();
+    let mut result = program
+        .evaluate_with_model(&input, Some(&model), ProgramLimits::default())
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
+    assert_eq!(json["result"].as_array().unwrap().len(), 2);
+    assert_eq!(json["result"][0]["steps"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        json["result"][1]["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["name"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["a", "c"]
+    );
+    let incomplete = Program::parse(r#"subtree | declarations | filter(name("unresolved")) | paths(referenced_declarations, to=name("c"), max_depth=2) | json"#, ProgramLimits::default()).unwrap();
+    let result = incomplete
+        .evaluate_with_model(&input, Some(&model), ProgramLimits::default())
+        .unwrap();
+    assert!(!result.is_complete());
+    assert!(
+        matches!(result.emissions()[0].value(), ReportValue::Captures(paths) if paths.rows().is_empty())
+    );
+    assert!(
+        result
+            .limitations()
+            .iter()
+            .any(|d| &source[d.location.range.clone()] == b"missing")
+    );
+    let source = b"function $T: identity($T: x) = x; par tuple(int, $T): mixed; solve satisfy;";
+    let model = semantic_model("path-unknown", source, b"", "");
+    let input = Input::parse(source.to_vec(), FileMode::Model).unwrap();
+    let program = Program::parse(r#"subtree | declarations | filter(name("mixed")) | paths(referenced_declarations, to=not type("tuple"), max_depth=0) | json"#, ProgramLimits::default()).unwrap();
+    let error = program
+        .evaluate_with_model(&input, Some(&model), ProgramLimits::default())
+        .unwrap_err();
+    let ErrorLocation::Model(location) = error.location else {
+        panic!("located unknown")
+    };
+    assert_eq!(location.path, model.root);
+    assert_eq!(&source[location.range], b"mixed");
+    let known = Program::parse(r#"subtree | declarations | filter(name("mixed")) | paths(referenced_declarations, to=type("tuple") or name("mixed"), max_depth=0) | json"#, ProgramLimits::default()).unwrap();
+    let result = known
+        .evaluate_with_model(&input, Some(&model), ProgramLimits::default())
+        .unwrap();
+    assert!(!result.is_complete());
+    assert!(
+        matches!(result.emissions()[0].value(), ReportValue::Captures(paths) if paths.rows().len()==1)
+    );
+}

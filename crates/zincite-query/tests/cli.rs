@@ -1099,6 +1099,98 @@ fn native_composition_inline_and_file_keep_results_status_and_buffering() {
 }
 
 #[test]
+fn bounded_paths_compact_inline_and_file_keep_native_json_and_buffer_failures() {
+    let dir = std::env::temp_dir().join(format!("zincite-query-paths-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(dir.join("library/std/stdlib.mzn"), "").unwrap();
+    let model = dir.join("model.mzn");
+    let file = dir.join("paths.zq");
+    let source = include_bytes!("fixtures/bounded-paths.mzn");
+    let program = include_str!("fixtures/bounded-paths.zq");
+    std::fs::write(&model, source).unwrap();
+    std::fs::write(&file, program).unwrap();
+    let library = dir.join("library");
+    let inline = run(
+        &[
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            "--program",
+            program.trim(),
+            model.to_str().unwrap(),
+        ],
+        b"",
+    );
+    let saved = run(
+        &[
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            "-f",
+            file.to_str().unwrap(),
+            model.to_str().unwrap(),
+        ],
+        b"",
+    );
+    assert_eq!(
+        inline.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&inline.stderr)
+    );
+    assert_eq!(saved.status.code(), Some(0));
+    assert_eq!(inline.stdout, saved.stdout);
+    let value: serde_json::Value = serde_json::from_slice(&inline.stdout).unwrap();
+    assert_eq!(
+        value["result"][0]["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["name"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["a", "b", "c"]
+    );
+    let one = run(
+        &[
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            "--program",
+            &program.replace("max_depth=2", "max_depth=1"),
+            model.to_str().unwrap(),
+        ],
+        b"",
+    );
+    let value: serde_json::Value = serde_json::from_slice(&one.stdout).unwrap();
+    assert_eq!(value["result"], serde_json::json!([]));
+    let later = run(
+        &[
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            "--program",
+            &format!("{}; report 1 div 0;", program.trim()),
+            model.to_str().unwrap(),
+        ],
+        b"",
+    );
+    assert_eq!(later.status.code(), Some(2));
+    assert!(later.stdout.is_empty());
+    let limited = run(
+        &[
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            "--max-results",
+            "20",
+            "--program",
+            program,
+            model.to_str().unwrap(),
+        ],
+        b"",
+    );
+    assert_eq!(limited.status.code(), Some(2));
+    assert!(limited.stdout.is_empty());
+    assert_eq!(std::fs::read(&model).unwrap(), source);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn keyed_comparison_inline_and_file_match_library_and_buffer_alignment_errors() {
     use zincite_query::{Input, Program, ProgramLimits};
     let directory =
