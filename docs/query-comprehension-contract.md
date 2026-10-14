@@ -556,6 +556,25 @@ copy; pairing retains admitted left axes and keys. Later snapshots and rendering
 spend the same allowance. Completion and limitations remain with the existing
 report adapter.
 
+Native projections prepare their located bodies and embedded primitive arguments
+once per invocation. The CST frontend lowers those arguments into the same value
+tree; selected enum members still resolve through the current ModelFacts owner.
+Written branches retain scope/type/purity validation, and an unselected default
+fallback leaves its data and member resolution untouched. Native operations run
+fresh for the current subject and keep their source coordinates and completion
+status.
+
+A selected CST input projection can retain one immutable owner in its current
+input slot. Repeated reads inspect that owner; they charge reference/slot work
+without deep copied bytes or recursively produced entries. New selected data
+still receives admission. Owned fields, explicit copies, emission snapshots,
+data serialization and rendering retain their materialization charges. Preparation
+and scope metadata are charged before growth; dropping a frame never refunds
+spending. The work/result/nesting defaults are unchanged. Lower repeated analysis
+and copy charges can let a request near an earlier threshold complete or move
+its located limit refusal. DATA grammar, target admission, candidate reparse and
+atomic writes retain their existing rules.
+
 Parse errors, unsupported expressions, wrong types, missing fields or keys,
 duplicate keys/targets and arithmetic failures identify the host query byte
 range or the original source file/range responsible. For a generated value,

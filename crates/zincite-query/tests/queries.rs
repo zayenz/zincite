@@ -3783,3 +3783,52 @@ fn source_declarations_preserve_nested_array_representation() {
         assert!(error.range.end <= data.len());
     }
 }
+
+#[test]
+fn prepared_native_arguments_keep_selected_members_and_correlated_rows() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    use zirql::ConstructedValue as V;
+    let limits = ProgramLimits::default();
+    let input = Input::parse(b"x=2; y=3;".to_vec(), FileMode::Data).unwrap();
+    let source = r#"let limits=[1]; report items | project(d, {
+        "name": d | names | one,
+        "n": d | head(length(limits) default (if enum_member(Missing,"a") = enum_member(Missing,"a") then 1 else 0 endif)) | count
+    });"#;
+    let result = Program::parse(source, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let ReportValue::Constructed(V::Array(rows)) = result.emissions()[0].value() else {
+        panic!("constructed rows");
+    };
+    assert_eq!(
+        rows,
+        &vec![
+            V::Record(vec![
+                ("name".into(), V::String("x".into())),
+                ("n".into(), V::Integer(1))
+            ]),
+            V::Record(vec![
+                ("name".into(), V::String("y".into())),
+                ("n".into(), V::Integer(1))
+            ])
+        ]
+    );
+    let eager = source.replace(
+        "length(limits) default (if",
+        "(if true then length(limits) elseif",
+    );
+    assert!(
+        Program::parse(&eager, limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .is_err()
+    );
+    let selected = source.replace("length(limits) default", "<> default");
+    assert!(
+        Program::parse(&selected, limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .is_err()
+    );
+}

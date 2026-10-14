@@ -22,12 +22,12 @@ pub(crate) enum ExpressionPolicy {
 }
 
 #[derive(Debug)]
-pub(crate) struct LoweredValue {
-    pub expression: E,
+pub(crate) struct LoweredValue<Q = ()> {
+    pub expression: E<Q>,
     pub members: Vec<MemberRequest>,
     pub first_report_call: Option<Range<usize>>,
 }
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct MemberRequest {
     pub slot: String,
     pub enum_name: Located<String>,
@@ -55,13 +55,13 @@ fn slots<T>(budget: &mut Budget, len: usize, range: &Range<usize>) -> Result<Vec
 }
 
 /// Parse one complete expression using the host CST's assignment entry point.
-pub(crate) fn lower(
+pub(crate) fn lower<Q>(
     source: &str,
     range: Range<usize>,
     budget: &mut Budget,
     nesting: usize,
     policy: ExpressionPolicy,
-) -> Result<LoweredValue, QueryError> {
+) -> Result<LoweredValue<Q>, QueryError> {
     charge(
         budget,
         source
@@ -95,6 +95,7 @@ pub(crate) fn lower(
         members: Vec::new(),
         policy,
         first_report_call: None,
+        query: std::marker::PhantomData,
     };
     let expression = lower.node(rhs, 0)?;
     Ok(LoweredValue {
@@ -106,7 +107,7 @@ pub(crate) fn lower(
 fn map_range(range: Range<usize>, offset: usize, prefix: usize) -> Range<usize> {
     offset + range.start.saturating_sub(prefix)..offset + range.end.saturating_sub(prefix)
 }
-struct Lower<'a, 'b> {
+struct Lower<'a, 'b, Q> {
     parsed: &'a ParsedFile,
     offset: usize,
     prefix: usize,
@@ -115,8 +116,9 @@ struct Lower<'a, 'b> {
     members: Vec<MemberRequest>,
     policy: ExpressionPolicy,
     first_report_call: Option<Range<usize>>,
+    query: std::marker::PhantomData<Q>,
 }
-impl Lower<'_, '_> {
+impl<Q> Lower<'_, '_, Q> {
     fn range(&self, node: &SyntaxNode) -> Range<usize> {
         map_range(node.range(), self.offset, self.prefix)
     }
@@ -148,7 +150,7 @@ impl Lower<'_, '_> {
             range,
         ))
     }
-    fn children(&mut self, node: &SyntaxNode, depth: usize) -> Result<Vec<E>, QueryError> {
+    fn children(&mut self, node: &SyntaxNode, depth: usize) -> Result<Vec<E<Q>>, QueryError> {
         let mut values = slots(self.budget, node.child_nodes().count(), &self.range(node))?;
         for child in node.child_nodes() {
             values.push(self.node(child, depth + 1)?);
@@ -157,10 +159,10 @@ impl Lower<'_, '_> {
     }
     fn empty_sources(
         &mut self,
-        key: &E,
+        key: &E<Q>,
         generators: &SyntaxNode,
         depth: usize,
-    ) -> Result<Option<Vec<E>>, QueryError> {
+    ) -> Result<Option<Vec<E<Q>>>, QueryError> {
         let components = match &key.value {
             K::Tuple(parts) => parts.as_slice(),
             _ => std::slice::from_ref(key),
@@ -216,7 +218,7 @@ impl Lower<'_, '_> {
         }
         Ok(Some(sources))
     }
-    fn matrix(&mut self, node: &SyntaxNode, depth: usize) -> Result<E, QueryError> {
+    fn matrix(&mut self, node: &SyntaxNode, depth: usize) -> Result<E<Q>, QueryError> {
         let range = self.range(node);
         let header = node
             .child_nodes()
@@ -309,7 +311,7 @@ impl Lower<'_, '_> {
         }
         Ok(())
     }
-    fn node(&mut self, node: &SyntaxNode, depth: usize) -> Result<E, QueryError> {
+    fn node(&mut self, node: &SyntaxNode, depth: usize) -> Result<E<Q>, QueryError> {
         let range = self.range(node);
         if depth >= self.nesting.min(64) {
             return Err(QueryError::query(range, "value nesting limit exceeded"));
@@ -894,8 +896,8 @@ fn position(i: usize, range: &Range<usize>) -> Result<i64, QueryError> {
         .and_then(|n| i64::try_from(n).ok())
         .ok_or_else(|| QueryError::query(range.clone(), "integer key overflow"))
 }
-fn references_binding(
-    expression: &E,
+fn references_binding<Q>(
+    expression: &E<Q>,
     names: &BTreeSet<String>,
     budget: &mut Budget,
 ) -> Result<bool, QueryError> {
@@ -982,8 +984,8 @@ fn references_binding(
     }
 }
 /// Bindings outside default fallbacks retain the host's ordinary projection preflight.
-pub(crate) fn eager_names(
-    expression: &E,
+pub(crate) fn eager_names<Q>(
+    expression: &E<Q>,
     names: &mut BTreeSet<String>,
     budget: &mut Budget,
 ) -> Result<(), QueryError> {
@@ -1093,8 +1095,8 @@ pub(crate) fn eager_names(
     Ok(())
 }
 
-fn any_binding<'a>(
-    children: impl Iterator<Item = &'a E>,
+fn any_binding<'a, Q: 'a>(
+    children: impl Iterator<Item = &'a E<Q>>,
     names: &BTreeSet<String>,
     budget: &mut Budget,
 ) -> Result<bool, QueryError> {
@@ -1105,8 +1107,8 @@ fn any_binding<'a>(
     }
     Ok(false)
 }
-fn generator_binding(
-    clauses: &[Located<ValueGenerator>],
+fn generator_binding<Q>(
+    clauses: &[Located<ValueGenerator<Q>>],
     names: &BTreeSet<String>,
     budget: &mut Budget,
 ) -> Result<bool, QueryError> {

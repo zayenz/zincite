@@ -177,7 +177,7 @@ impl Parser<'_> {
                 range: range.clone(),
                 nesting_limit: self.limits.nesting,
             },
-            arguments: Vec::new(),
+            arguments: Rc::new(Vec::new()),
             copy_units: range.len() + 1,
         });
         index
@@ -273,20 +273,26 @@ impl ValueReaderHost for Parser<'_> {
         let source = self.cursor.source;
         std::mem::swap(&mut self.preflight, budget);
         let mut lower = |owner, kind: language::ArgumentKind, range: Range<usize>| {
-            let (expression, names) =
-                self.pure_value(range.clone(), comprehension::ExpressionPolicy::Report)?;
+            let (mut expression, _names) = self
+                .pure_value::<Expression>(range.clone(), comprehension::ExpressionPolicy::Report)?;
             self.value_names(&expression, &range, Some(kind.ty()))?;
             if self.first_report_call.is_none() {
                 self.first_report_call = expression.first_report_call.clone();
             }
+            let eager_members = argument_members(&expression, &mut self.preflight)?;
+            map_value(
+                &mut expression.expression,
+                &|range| range,
+                &mut expression.members,
+            );
             self.preflight
                 .charge_results(1, zirql::Location::Query(range))
                 .map_err(pipeline::core_error)?;
             arguments.push(QueryArgument {
                 owner,
                 kind,
-                expression,
-                names,
+                expression: expression.expression,
+                eager_members,
             });
             Ok(())
         };
@@ -319,8 +325,11 @@ impl ValueReaderHost for Parser<'_> {
             },
             _ => {
                 let index = self.register(stage);
-                self.queries[index].arguments = arguments;
-                ExpressionStep::Stage(Stage::Query(index))
+                self.queries[index].arguments = Rc::new(arguments);
+                ExpressionStep::Stage(Stage::Query(
+                    index,
+                    Rc::clone(&self.queries[index].arguments),
+                ))
             }
         })
     }
@@ -443,10 +452,11 @@ impl ValueReaderHost for Parser<'_> {
                 range: predicate.range,
             }
         }
-        Stage::Query(self.register(language::Stage {
+        let index = self.register(language::Stage {
             kind: language::StageKind::Filter(lower(predicate)),
             range,
-        }))
+        });
+        Stage::Query(index, Rc::clone(&self.queries[index].arguments))
     }
     fn projection(&mut self, projection: zirql::Projection<Expression>, _: Range<usize>) -> Stage {
         Stage::Projection(ProjectionStage(Some(projection)))
@@ -477,7 +487,10 @@ impl ValueReaderHost for Parser<'_> {
             kind: language::StageKind::ReferencedDeclarations,
             range: edge.range,
         });
-        Ok(Stage::Query(index))
+        Ok(Stage::Query(
+            index,
+            Rc::clone(&self.queries[index].arguments),
+        ))
     }
 }
 fn query_error(error: QueryError) -> zirql::QueryError {
@@ -556,6 +569,59 @@ impl<'a> ProgramHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
 }
 impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
     type Kind = Kind;
+    fn value_arguments<'s>(
+        &self,
+        stage: &'s Stage,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<zirql::NativeValueArguments<'s, Context<'_, 'a>, Self>, zirql::QueryError> {
+        let Stage::Query(_, arguments) = stage else {
+            return Ok(Vec::new());
+        };
+        budget.charge(arguments.len(), zirql::Location::Query(range.clone()))?;
+        budget.charge_results(arguments.len(), zirql::Location::Query(range.clone()))?;
+        Ok(arguments
+            .iter()
+            .map(|argument| (&argument.expression, Kind::Record))
+            .collect())
+    }
+    fn evaluate_stage_with_arguments(
+        &self,
+        stage: &Stage,
+        value: Self::Value,
+        arguments: &mut dyn zirql::NativeArguments<Context<'_, 'a>, Self>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<Self::Value, zirql::EvaluationError<QueryError>> {
+        if let Stage::Query(index, bodies) = stage
+            && !bodies.is_empty()
+        {
+            let query = self.0.resolve_query_by(
+                &self.0.queries[*index],
+                &mut |argument, budget| {
+                    admit_argument_members(argument, arguments.parts().0, budget)?;
+                    arguments
+                        .evaluate(
+                            &argument.expression,
+                            ReportValue::Record(Vec::new()),
+                            budget,
+                        )?
+                        .into_owned(budget)
+                        .map_err(Into::into)
+                },
+                budget,
+                range,
+            )?;
+            let pipeline =
+                pipeline::lower_pipeline(&query).map_err(zirql::EvaluationError::Host)?;
+            let (context, _) = arguments.parts();
+            return self
+                .0
+                .execute_pipeline(&pipeline, value, context, budget, range);
+        }
+        let (context, bindings) = arguments.parts();
+        self.evaluate_stage(stage, value, context, bindings, budget, range)
+    }
     fn kind(
         &self,
         value: &ReportValue<'a>,
@@ -641,7 +707,8 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         range: &Range<usize>,
     ) -> Result<Kind, zirql::QueryError> {
         match stage {
-            Stage::Query(index) => {
+            Stage::Member(_) => Ok(Kind::Value(Rc::new(vec![zirql::ValueType::Unestablished]))),
+            Stage::Query(index, _) => {
                 validate_stages(&self.0.queries[*index].query, input.clone()).map_err(query_error)
             }
             Stage::Projection(projection) => {
@@ -672,7 +739,7 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
     fn is_pure(&self, stage: &Stage) -> bool {
         match stage {
             Stage::Data(_) => false,
-            Stage::Query(index) => {
+            Stage::Query(index, _) => {
                 !self.0.queries[*index].query.is_editing()
                     && !self.0.queries[*index]
                         .query
@@ -1047,7 +1114,7 @@ impl<'a> zirql::PathHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         _: &mut Budget,
         range: &Range<usize>,
     ) -> Result<(), zirql::QueryError> {
-        if let Stage::Query(index) = edge
+        if let Stage::Query(index, _) = edge
             && matches!(input, Kind::Declarations)
             && matches!(
                 self.0.queries[*index].query.stages.as_slice(),

@@ -18,7 +18,8 @@ type Expression = zirql::Expression<Stage, (), Emitter>;
 #[derive(Debug)]
 enum Stage {
     Parameter(usize),
-    Query(usize),
+    Member(comprehension::MemberRequest),
+    Query(usize, Rc<Vec<QueryArgument>>),
     Projection(composition::ProjectionStage),
     Match(composition::MatchStage),
     Paths(composition::PathStage),
@@ -332,13 +333,13 @@ impl std::io::Write for BudgetWriter<'_> {
 struct QueryArgument {
     owner: usize,
     kind: language::ArgumentKind,
-    expression: comprehension::LoweredValue,
-    names: Vec<Located<String>>,
+    expression: zirql::ValueExpression<Expression>,
+    eager_members: Vec<comprehension::MemberRequest>,
 }
 #[derive(Debug)]
 struct ProgramQuery {
     query: Query,
-    arguments: Vec<QueryArgument>,
+    arguments: Rc<Vec<QueryArgument>>,
     copy_units: usize,
 }
 
@@ -510,7 +511,7 @@ impl Program {
                     .punctuation(b'=', "expected '=' after edit target")?;
                 parser.cursor.space();
                 let expression_range = parser.cursor.position..parser.expression_end()?;
-                let (_, names) = parser.pure_value(
+                let (_, names) = parser.pure_value::<()>(
                     expression_range.clone(),
                     comprehension::ExpressionPolicy::Data,
                 )?;
@@ -1047,6 +1048,38 @@ struct Parser<'a> {
     first_report_call: Option<Range<usize>>,
     composition_error: Option<QueryError>,
 }
+struct CstTypes;
+impl<Q> zirql::ValueQueryHost<Q> for CstTypes {
+    type Error = zirql::QueryError;
+    fn query_types(
+        &mut self,
+        _: &Q,
+        _: &[(&str, Vec<zirql::ValueType>)],
+        _: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<Vec<zirql::ValueType>, zirql::QueryError> {
+        Err(zirql::QueryError::query(
+            range.clone(),
+            "native leaves are unavailable in CST values",
+        ))
+    }
+    fn evaluate_query(
+        &mut self,
+        _: &Q,
+        _: &[(&str, zirql::ConstructedValue)],
+        _: &mut Budget,
+    ) -> Result<zirql::ConstructedValue, Self::Error> {
+        unreachable!("CST metadata bridge")
+    }
+    fn read_binding(
+        &mut self,
+        _: &str,
+        _: &Range<usize>,
+        _: &mut Budget,
+    ) -> Result<zirql::ConstructedValue, Self::Error> {
+        unreachable!("CST metadata bridge")
+    }
+}
 impl<'a> Parser<'a> {
     fn expression_end(&self) -> Result<usize, QueryError> {
         use zincite_syntax::TokenKind as T;
@@ -1082,11 +1115,11 @@ impl<'a> Parser<'a> {
         }
         Ok(())
     }
-    fn pure_value(
+    fn pure_value<Q>(
         &mut self,
         range: Range<usize>,
         policy: comprehension::ExpressionPolicy,
-    ) -> Result<(comprehension::LoweredValue, Vec<Located<String>>), QueryError> {
+    ) -> Result<(comprehension::LoweredValue<Q>, Vec<Located<String>>), QueryError> {
         self.begin_pure(range.clone())?;
         self.admit_cst(&range)?;
         let expression = comprehension::lower(
@@ -1132,9 +1165,9 @@ impl<'a> Parser<'a> {
         }
         Ok(types)
     }
-    fn value_names(
+    fn value_names<Q>(
         &mut self,
-        expression: &comprehension::LoweredValue,
+        expression: &comprehension::LoweredValue<Q>,
         range: &Range<usize>,
         expected: Option<zirql::ParameterType>,
     ) -> Result<Vec<Located<String>>, QueryError> {
@@ -1153,9 +1186,17 @@ impl<'a> Parser<'a> {
                 .names
                 .values()
                 .any(|kind| matches!(kind, Kind::Literals));
-        let mut names =
-            zirql::free_value_names(&expression.expression, &types, &mut self.preflight)
-                .map_err(pipeline::core_error)?;
+        let types = types
+            .into_iter()
+            .map(|(name, ty)| (name, vec![ty]))
+            .collect();
+        let mut names = zirql::free_query_value_names(
+            &expression.expression,
+            &types,
+            &mut CstTypes,
+            &mut self.preflight,
+        )
+        .map_err(pipeline::core_error)?;
         names.retain(|name| !name.value.starts_with('\0'));
         for name in &names {
             if !matches!(
@@ -1175,10 +1216,15 @@ impl<'a> Parser<'a> {
         }
         if let Some(expected) = expected {
             let expected: zirql::ValueType = expected.into();
-            if zirql::value_expression_types(&expression.expression, &types, &mut self.preflight)
-                .map_err(pipeline::core_error)?
-                .iter()
-                .any(|ty| *ty != expected)
+            if zirql::query_value_types(
+                &expression.expression,
+                &types,
+                &mut CstTypes,
+                &mut self.preflight,
+            )
+            .map_err(pipeline::core_error)?
+            .iter()
+            .any(|ty| *ty != expected)
             {
                 return Err(QueryError::query(
                     expression.expression.range.clone(),
@@ -1462,7 +1508,6 @@ impl<'a> Parser<'a> {
                             error.range = map(error.range);
                             error
                         })?;
-                    map_value(&mut expression.expression, &map);
                     for name in &mut names {
                         name.range = map(name.range.clone());
                     }
@@ -1471,6 +1516,8 @@ impl<'a> Parser<'a> {
                         member.enum_name.range = map(member.enum_name.range.clone());
                         member.member_name.range = map(member.member_name.range.clone());
                     }
+                    let eager_members = argument_members(&expression, &mut self.preflight)?;
+                    map_value(&mut expression.expression, &map, &mut expression.members);
                     expression.first_report_call = expression.first_report_call.map(&map);
                     if self.first_report_call.is_none() {
                         self.first_report_call = expression.first_report_call.clone();
@@ -1481,8 +1528,8 @@ impl<'a> Parser<'a> {
                     arguments.push(QueryArgument {
                         owner: map(owner..owner).start,
                         kind,
-                        expression,
-                        names,
+                        expression: expression.expression,
+                        eager_members,
                     });
                     Ok(())
                 })();
@@ -1532,11 +1579,14 @@ impl<'a> Parser<'a> {
         let index = self.queries.len();
         self.queries.push(ProgramQuery {
             query,
-            arguments,
+            arguments: Rc::new(arguments),
             copy_units: source.len().saturating_add(1),
         });
         let mut steps = vec![Located::new(
-            ExpressionStep::Stage(Stage::Query(index)),
+            ExpressionStep::Stage(Stage::Query(
+                index,
+                Rc::clone(&self.queries[index].arguments),
+            )),
             start..self.cursor.position,
         )];
         if let Some(emitter) = emitter {
@@ -1747,20 +1797,82 @@ fn admit_cst(
     }
     Ok(())
 }
-fn map_value(expression: &mut zirql::ValueExpression, map: &impl Fn(Range<usize>) -> Range<usize>) {
+fn argument_members(
+    expression: &comprehension::LoweredValue<Expression>,
+    budget: &mut Budget,
+) -> Result<Vec<comprehension::MemberRequest>, QueryError> {
+    let mut names = std::collections::BTreeSet::new();
+    comprehension::eager_names(&expression.expression, &mut names, budget)?;
+    budget
+        .charge_results(
+            expression.members.len(),
+            zirql::Location::Query(expression.expression.range.clone()),
+        )
+        .map_err(pipeline::core_error)?;
+    let mut members = Vec::with_capacity(expression.members.len());
+    for member in &expression.members {
+        if names.contains(&member.slot) {
+            budget
+                .charge(
+                    member.slot.len()
+                        + member.enum_name.value.len()
+                        + member.member_name.value.len()
+                        + 1,
+                    zirql::Location::Query(member.range.clone()),
+                )
+                .map_err(pipeline::core_error)?;
+            members.push(member.clone());
+        }
+    }
+    Ok(members)
+}
+fn admit_argument_members(
+    argument: &QueryArgument,
+    context: &mut Context<'_, '_>,
+    budget: &mut Budget,
+) -> Result<(), zirql::EvaluationError<QueryError>> {
+    for member in &argument.eager_members {
+        let facts = context
+            .report_facts(budget, &member.range)
+            .map_err(zirql::EvaluationError::Host)?;
+        comprehension::resolve_member(
+            facts.as_deref(),
+            Some(&member.enum_name.value),
+            &member.member_name.value,
+            budget,
+            &member.range,
+        )
+        .map_err(zirql::EvaluationError::Host)?;
+    }
+    Ok(())
+}
+fn map_value(
+    expression: &mut zirql::ValueExpression<Expression>,
+    map: &impl Fn(Range<usize>) -> Range<usize>,
+    members: &mut Vec<comprehension::MemberRequest>,
+) {
     use zirql::ValueExpressionKind as K;
     expression.range = map(expression.range.clone());
     match &mut expression.value {
-        K::Literal(_) | K::Name(_) | K::NativeQuery(_) => {}
+        K::Name(name) => {
+            if let Some(index) = members.iter().position(|member| member.slot == *name) {
+                let member = members.remove(index);
+                expression.value = K::NativeQuery(Box::new(value_stage(
+                    Stage::Member(member),
+                    expression.range.clone(),
+                )));
+            }
+        }
+        K::Literal(_) | K::NativeQuery(_) => {}
         K::Array(values) | K::Tuple(values) | K::Set(values) => {
             for value in values {
-                map_value(value, map);
+                map_value(value, map, members);
             }
         }
         K::Record(fields) => {
             for (name, value) in fields {
                 name.range = map(name.range.clone());
-                map_value(value, map);
+                map_value(value, map, members);
             }
         }
         K::Unary { operand, .. }
@@ -1769,14 +1881,14 @@ fn map_value(expression: &mut zirql::ValueExpression, map: &impl Fn(Range<usize>
         | K::One(operand)
         | K::IndexSet(operand)
         | K::Entries(operand)
-        | K::Reduce { array: operand, .. } => map_value(operand, map),
+        | K::Reduce { array: operand, .. } => map_value(operand, map, members),
         K::Field { value, field } | K::GroupBy { rows: value, field } => {
             field.range = map(field.range.clone());
-            map_value(value, map);
+            map_value(value, map, members);
         }
         K::TupleAccess { value, position } => {
             position.range = map(position.range.clone());
-            map_value(value, map);
+            map_value(value, map, members);
         }
         K::Binary { left, right, .. }
         | K::Lookup {
@@ -1800,8 +1912,8 @@ fn map_value(expression: &mut zirql::ValueExpression, map: &impl Fn(Range<usize>
             array: left,
             index: right,
         } => {
-            map_value(left, map);
-            map_value(right, map);
+            map_value(left, map, members);
+            map_value(right, map, members);
         }
         K::Require {
             condition,
@@ -1809,28 +1921,28 @@ fn map_value(expression: &mut zirql::ValueExpression, map: &impl Fn(Range<usize>
             message,
         } => {
             message.range = map(message.range.clone());
-            map_value(condition, map);
-            map_value(value, map);
+            map_value(condition, map, members);
+            map_value(value, map, members);
         }
         K::Conditional {
             branches,
             otherwise,
         } => {
             for (condition, value) in branches {
-                map_value(condition, map);
-                map_value(value, map);
+                map_value(condition, map, members);
+                map_value(value, map, members);
             }
-            map_value(otherwise, map);
+            map_value(otherwise, map, members);
         }
         K::KeyedArray { entries, .. } => {
             for (key, value) in entries {
-                map_value(key, map);
-                map_value(value, map);
+                map_value(key, map, members);
+                map_value(value, map, members);
             }
         }
         K::Comprehension { clauses, head, .. } => {
-            map_generators(clauses, map);
-            map_value(head, map);
+            map_generators(clauses, map, members);
+            map_value(head, map, members);
         }
         K::KeyedComprehension {
             clauses,
@@ -1838,18 +1950,19 @@ fn map_value(expression: &mut zirql::ValueExpression, map: &impl Fn(Range<usize>
             head,
             empty_axis_sources,
         } => {
-            map_generators(clauses, map);
-            map_value(key, map);
-            map_value(head, map);
+            map_generators(clauses, map, members);
+            map_value(key, map, members);
+            map_value(head, map, members);
             for value in empty_axis_sources.iter_mut().flatten() {
-                map_value(value, map);
+                map_value(value, map, members);
             }
         }
     }
 }
 fn map_generators(
-    clauses: &mut [Located<zirql::ValueGenerator>],
+    clauses: &mut [Located<zirql::ValueGenerator<Expression>>],
     map: &impl Fn(Range<usize>) -> Range<usize>,
+    members: &mut Vec<comprehension::MemberRequest>,
 ) {
     for clause in clauses {
         clause.range = map(clause.range.clone());
@@ -1862,9 +1975,9 @@ fn map_generators(
                 for name in binders {
                     name.range = map(name.range.clone());
                 }
-                map_value(source, map);
+                map_value(source, map, members);
                 if let Some(value) = filter {
-                    map_value(value, map);
+                    map_value(value, map, members);
                 }
             }
             zirql::ValueGenerator::Bind {
@@ -1873,9 +1986,9 @@ fn map_generators(
                 filter,
             } => {
                 binder.range = map(binder.range.clone());
-                map_value(value, map);
+                map_value(value, map, members);
                 if let Some(value) = filter {
-                    map_value(value, map);
+                    map_value(value, map, members);
                 }
             }
         }
@@ -2127,7 +2240,7 @@ struct ReportReads<'r, 'c, 'a> {
     context: &'r mut Context<'c, 'a>,
     bindings: &'r Bindings<ReportValue<'a>>,
     members: &'r [comprehension::MemberRequest],
-    projected: BTreeMap<String, zirql::ConstructedValue>,
+    projected: BTreeMap<String, std::sync::Arc<zirql::ConstructedValue>>,
     nesting: usize,
 }
 impl zirql::ValueQueryHost<()> for ReportReads<'_, '_, '_> {
@@ -2151,6 +2264,15 @@ impl zirql::ValueQueryHost<()> for ReportReads<'_, '_, '_> {
         _: &mut Budget,
     ) -> Result<zirql::ConstructedValue, Self::Error> {
         unreachable!("CST lowering has no native leaves")
+    }
+    fn read_shared_binding(
+        &mut self,
+        name: &str,
+        range: &Range<usize>,
+        budget: &mut Budget,
+    ) -> Result<Option<std::sync::Arc<zirql::ConstructedValue>>, Self::Error> {
+        budget.charge(1, zirql::Location::Query(range.clone()))?;
+        Ok(self.projected.get(name).map(std::sync::Arc::clone))
     }
     fn read_binding(
         &mut self,
@@ -2243,6 +2365,21 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
         range: &Range<usize>,
     ) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
         let index = match stage {
+            Stage::Member(member) => {
+                let facts = context
+                    .report_facts(budget, &member.range)
+                    .map_err(zirql::EvaluationError::Host)?;
+                return comprehension::resolve_member(
+                    facts.as_deref(),
+                    Some(&member.enum_name.value),
+                    &member.member_name.value,
+                    budget,
+                    &member.range,
+                )
+                .map(zirql::ConstructedValue::Member)
+                .map(ReportValue::Constructed)
+                .map_err(zirql::EvaluationError::Host);
+            }
             Stage::Parameter(index) => {
                 return Ok(ReportValue::Constructed(
                     context.parameters[*index]
@@ -2250,7 +2387,7 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
                         .expect("admitted parameter is bound once"),
                 ));
             }
-            Stage::Query(index) => *index,
+            Stage::Query(index, _) => *index,
             Stage::Projection(projection) => {
                 let host = composition::CompositionHost(self);
                 return zirql::evaluate_projection(
@@ -2437,6 +2574,16 @@ impl<'a> NativeHost<'_> {
             lowered = pipeline::lower_pipeline(&resolved).map_err(zirql::EvaluationError::Host)?;
             &lowered
         };
+        self.execute_pipeline(pipeline, value, context, budget, range)
+    }
+    fn execute_pipeline(
+        &self,
+        pipeline: &NativePipeline<'_>,
+        value: ReportValue<'a>,
+        context: &mut Context<'_, 'a>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
         if pipeline.stages().is_empty() {
             return Ok(value);
         }
@@ -2471,22 +2618,43 @@ impl<'a> NativeHost<'_> {
         budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<Query, zirql::EvaluationError<QueryError>> {
+        self.resolve_query_by(
+            template,
+            &mut |argument, budget| {
+                admit_argument_members(argument, context, budget)?;
+                zirql::evaluate_native_value(
+                    &argument.expression,
+                    &composition::CompositionHost(self),
+                    ReportValue::Record(Vec::new()),
+                    context,
+                    bindings,
+                    budget,
+                )
+            },
+            budget,
+            range,
+        )
+    }
+    fn resolve_query_by(
+        &self,
+        template: &ProgramQuery,
+        read: &mut impl FnMut(
+            &QueryArgument,
+            &mut Budget,
+        )
+            -> Result<zirql::ConstructedValue, zirql::EvaluationError<QueryError>>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<Query, zirql::EvaluationError<QueryError>> {
         let units = template.copy_units.checked_mul(2).ok_or_else(|| {
             zirql::QueryError::query(range.clone(), "query allocation size overflow")
         })?;
         budget.charge(units, zirql::Location::Query(range.clone()))?;
         budget.charge_results(units, zirql::Location::Query(range.clone()))?;
         let mut query = template.query.clone();
-        for argument in &template.arguments {
-            let range = &argument.expression.expression.range;
-            let value = self.constructed(
-                &argument.expression,
-                &argument.names,
-                context,
-                bindings,
-                budget,
-                range,
-            )?;
+        for argument in template.arguments.iter() {
+            let range = &argument.expression.range;
+            let value = read(argument, budget)?;
             if argument.kind.ty() == zirql::ParameterType::Int {
                 let zirql::ConstructedValue::Integer(value) = value.into_data() else {
                     return Err(zirql::EvaluationError::Host(QueryError::query(
@@ -2604,7 +2772,9 @@ impl<'a> NativeHost<'_> {
                         zirql::Location::Query(name.range.clone()),
                     )?;
                     budget.charge_results(1, zirql::Location::Query(name.range.clone()))?;
-                    reads.projected.insert(name.value.clone(), value);
+                    reads
+                        .projected
+                        .insert(name.value.clone(), std::sync::Arc::new(value));
                     ty
                 } else {
                     match value {
@@ -2649,7 +2819,9 @@ impl<'a> NativeHost<'_> {
                         zirql::Location::Query(member.range.clone()),
                     )?;
                     budget.charge_results(1, zirql::Location::Query(member.range.clone()))?;
-                    reads.projected.insert(member.slot.clone(), value);
+                    reads
+                        .projected
+                        .insert(member.slot.clone(), std::sync::Arc::new(value));
                     ty
                 } else {
                     zirql::ValueType::Unestablished
