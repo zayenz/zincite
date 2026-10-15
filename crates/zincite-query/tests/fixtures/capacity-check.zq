@@ -1,0 +1,12 @@
+let demand = items | filter(name("demand")) | values | one;
+let capacity = items | filter(name("capacity")) | values | one;
+let aligned_capacity = require(
+  index_set(demand) = index_set(capacity), capacity,
+  "demand and capacity must have the same index set"
+);
+require(
+  forall([demand[i] >= 0 /\ aligned_capacity[i] >= demand[i]
+          | i in index_set(demand)]),
+  true,
+  "each capacity must cover its nonnegative demand"
+)

@@ -195,6 +195,74 @@ evaluate query values, not the MiniZinc model. The
 [expression reference](query-comprehension-contract.md#report-expressions-and-edit-grammar)
 covers the supported operations and their error cases.
 
+## Use a query as a checker
+
+To reject insufficient capacity, put the condition inside `require`. Save this
+program as `capacity-check.zq`:
+
+```zirql title="capacity-check.zq"
+let demand = items | filter(name("demand")) | values | one;
+let capacity = items | filter(name("capacity")) | values | one;
+let aligned_capacity = require(
+  index_set(demand) = index_set(capacity), capacity,
+  "demand and capacity must have the same index set"
+);
+require(
+  forall([demand[i] >= 0 /\ aligned_capacity[i] >= demand[i]
+          | i in index_set(demand)]),
+  true,
+  "each capacity must cover its nonnegative demand"
+)
+```
+
+For `demand = [2, 3, 4]; capacity = [6, 8, 5];`, every cell fits and
+the program returns true. Changing the final capacity to `3` fails with
+`each capacity must cover its nonnegative demand` and exit status 2.
+Mismatched index sets fail before cell access.
+
+Both query commands accept the file or its text:
+
+```sh
+zincite query --program-file capacity-check.zq data.dzn
+zincite-query --program-file capacity-check.zq data.dzn
+zincite query --program "$(cat capacity-check.zq)" data.dzn
+zincite-query --program "$(cat capacity-check.zq)" data.dzn
+```
+
+Use the exit status in Bash. Redirect stdout to suppress the successful report;
+diagnostics still go to stderr, and a failed requirement selects the else branch.
+
+```sh
+if zincite query --program-file capacity-check.zq data.dzn >/dev/null; then
+    echo "capacity check passed"
+else
+    echo "capacity check failed" >&2
+    exit 1
+fi
+```
+
+A plain `false` expression is a successful report value. A checker must use
+`require` to turn a failed condition into an error. Unknown conditions and
+evaluation errors also fail; they cannot satisfy a requirement. As with other
+query failures, a later failed requirement leaves stdout empty even when an
+earlier statement requested output.
+
+Library callers use the same program:
+
+```rust,ignore
+use zincite_query::{Input, Program, ProgramLimits};
+use zincite_syntax::FileMode;
+
+let input = Input::parse(
+    b"demand=[2,3,4]; capacity=[6,8,5];".to_vec(),
+    FileMode::Data,
+)?;
+let limits = ProgramLimits::default();
+let checker = Program::parse(include_str!("capacity-check.zq"), limits)?;
+let checked = checker.evaluate(&input, limits)?;
+assert!(checked.is_complete());
+```
+
 ## Compare keyed matrix cells
 
 To compare two matrices, match cells by their indices before subtracting

@@ -2943,6 +2943,25 @@ fn scalar_summaries_report_capacity_and_short_literal_totals() {
     let report: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
     assert_eq!(report["complete"], true);
     assert_eq!(report["limitations"], serde_json::json!([]));
+    let checker = Program::parse(include_str!("fixtures/capacity-check.zq"), limits).unwrap();
+    let checked = checker.evaluate(&input, limits).unwrap();
+    assert!(checked.is_complete() && checked.limitations().is_empty());
+    assert!(matches!(
+        checked.emissions()[0].value(),
+        ReportValue::Constructed(V::Boolean(true))
+    ));
+    let invalid = Input::parse(
+        b"demand=[2,3,4]; capacity=[6,8,3];".to_vec(),
+        FileMode::Data,
+    )
+    .unwrap();
+    let error = checker.evaluate(&invalid, limits).err().unwrap();
+    assert!(
+        error
+            .message
+            .contains("each capacity must cover its nonnegative demand")
+    );
+
     let parameter_program =
         Program::parse(include_str!("fixtures/capacity-parameters.zq"), limits).unwrap();
     let typed = [("factor".into(), V::Integer(2))];
