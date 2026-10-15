@@ -443,6 +443,60 @@ back to the written string; it is useful when embedding a saved quoted query.
 `| emit` and `| json` are terminal emitters. An explicit emitter suppresses the
 statement's implicit emission. Bindings and record fields cannot emit. Program
 parsing checks names, emitters and supported result transitions before execution.
+
+#### Patterns and pure control values
+
+Immutable `let` bindings and function parameters accept names, `_`, nested
+fixed-length tuples and records, scalar literals, `present(pattern)` and
+`absent`. Record patterns use `{label, other: renamed}`; labels may be quoted
+strings. The shape is exact unless a final `..` ignores extra fields. There is
+no bound rest value. Tuple length is always exact. Bare `present` and `absent`
+remain ordinary binding names; `present(...)` selects the presence pattern.
+
+```zirql
+let {pair: (left, right), "label": title, ..} =
+    (pair: (3, 4), label: "sum", unused: true);
+report if left < right { left + right } else { 0 };
+```
+
+Each initializer and argument runs once in written order. A function checks
+whole parameter types before destructuring. A mismatch refuses the binding or
+call at its pattern; it never filters a selection. Names become visible only
+after the whole pattern succeeds. Duplicate names and prohibited shadowing fail
+before execution, including in unused arms.
+
+`match(subject) { pattern [if guard] => value, ..., _ => fallback }` evaluates
+its subject once and chooses the first successful pattern with a true guard.
+Shape, literal and presence mismatches try the next arm. Guards require known
+Booleans; absence, a non-Boolean, Unknown or an error refuses the request. Host
+admission failures and exhausted bounds also propagate. Matching does not catch
+errors. `match { from ... }` remains native capture enumeration.
+
+Function bodies, conditional branches and match arms accept blocks with local
+`let pattern = value;` declarations and one final value. The common spelling is
+`if condition { ... } else if condition { ... } else { ... }`, with a final
+else. MiniZinc `if ... then ... else ... endif`, records, operators and
+comprehensions retain their CST frontend. Only selected bodies run; all bodies
+receive scope, purity and type preparation. Final branch/arm calls retain
+compatible tail calls. Blocks and guards cannot emit or edit data.
+
+Rust callers can use
+`Program::from_values(functions, bindings, final_report, limits)` without
+serializing source. `ProgramFunction` is a shared unresolved pattern-function
+declaration. `ProgramValue` is a shared located value whose native leaves use
+`zirql::Expression<Query, (), ()>` wrappers. Bindings are ordered
+`(zirql::Pattern, ProgramValue)` pairs. Construction takes ownership of all
+input trees, including failures, and releases shared wrappers iteratively.
+Caller-supplied ranges survive lowering. Ordinary evaluation supplies the
+current input/model and performs the same preparation and shared execution.
+Native fields retain explicit capture views, handles and coordinates.
+
+These constructs are report-only. An atomic Data program refuses them in
+unused lets and skipped branches too. Loops, fold/scan and worklist types remain
+unavailable. The [two complete examples](queries.md#destructure-a-report)
+show a destructured native report and an optional guarded match through both
+query commands.
+
 #### Typed query functions
 
 Read-only programs accept named pure functions, including direct and mutual

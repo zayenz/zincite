@@ -301,6 +301,17 @@ floating ranges and every unlisted operator fail with a located explanation.
 Named query functions are the exception to the arbitrary-call exclusion.
 Their declarations use the common typed header and local-let structure, while
 bodies lower through the same MiniZinc CST adapter as report expressions.
+Functions support located tuple/record patterns in parameters and immutable
+bindings, guarded `match(subject)` values and lexical `if ... { ... } else
+{ ... }` blocks. MiniZinc conditionals, records and comprehensions retain their
+CST lowering. The shared prepared runner owns matching, scope, Boolean guard
+admission, lazy selected bodies and tail calls. Native record fields use
+explicit capture views and retain their input owners and coordinates. These
+forms, including unused lets and skipped branches, remain report-only. Data
+requests retain their closed grammar and atomic edit contract. See the
+[patterns reference](reference.md#patterns-and-pure-control-values) and
+[complete examples](queries.md#destructure-a-report).
+
 Functions do not execute model functions. They share the prepared value runner,
 work/result allowances and native callbacks described in the
 [function reference](reference.md#typed-query-functions). Atomic Data programs

@@ -1,0 +1,8 @@
+fn describe({pair: (a, b), label}: record{pair: tuple<int, int>, label: string}) -> record{total: int, label: string} {
+    (total: a + b, label: label)
+}
+let {total, label: title} = describe((pair: (3, 4), label: "sum"));
+fn keep(nodes: sequence<Node>) -> record{selected: sequence<Node>} { (selected: nodes) }
+let roots = items | head(1);
+let {selected: root} = keep(roots);
+report (total: total, title: title, root: root);

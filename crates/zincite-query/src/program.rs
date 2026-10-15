@@ -11,6 +11,8 @@ use zirql::{
     NativeValue, ProgramHost,
 };
 
+mod builder;
+pub use builder::{ProgramFunction, ProgramValue};
 mod composition;
 mod functions;
 
@@ -21,6 +23,8 @@ enum Stage {
     Parameter(usize),
     FunctionValue(zirql::ValueExpression<Expression>),
     FunctionSource(zirql::ValueExpression<Expression>),
+    PatternBinding(zirql::Pattern, zirql::ValueExpression<Expression>),
+    RecordValue(Vec<(Located<String>, zirql::ValueExpression<Expression>)>),
     Primitive(
         functions::Primitive,
         Vec<zirql::ValueExpression<Expression>>,
@@ -35,6 +39,47 @@ enum Stage {
         expression: comprehension::LoweredValue,
         names: Vec<Located<String>>,
     },
+}
+
+impl Drop for Stage {
+    fn drop(&mut self) {
+        let empty = || {
+            Located::new(
+                zirql::ValueExpressionKind::Literal(zirql::ConstructedValue::Absent),
+                0..0,
+            )
+        };
+        match self {
+            Self::FunctionValue(value) | Self::FunctionSource(value) => {
+                zirql::dispose_native_value(std::mem::replace(value, empty()))
+            }
+            Self::PatternBinding(pattern, value) => {
+                zirql::dispose_pattern(std::mem::replace(
+                    pattern,
+                    Located::new(zirql::PatternKind::Wildcard, 0..0),
+                ));
+                zirql::dispose_native_value(std::mem::replace(value, empty()));
+            }
+            Self::RecordValue(fields) => {
+                for (_, value) in std::mem::take(fields) {
+                    zirql::dispose_native_value(value);
+                }
+            }
+            Self::Primitive(_, values) => {
+                for value in std::mem::take(values) {
+                    zirql::dispose_native_value(value);
+                }
+            }
+            Self::Parameter(_)
+            | Self::Member(_)
+            | Self::Query(..)
+            | Self::Projection(_)
+            | Self::Match(_)
+            | Self::Paths(_)
+            | Self::Data(_)
+            | Self::Value { .. } => {}
+        }
+    }
 }
 
 /// Program bounds retain the single-pipeline stream ceiling and add a request
@@ -374,11 +419,12 @@ pub struct Program {
     preflight_results: usize,
     preflight_range: Option<Range<usize>>,
     queries: Vec<ProgramQuery>,
-    functions: Vec<zirql::UnresolvedFunctionDeclaration<Expression>>,
+    functions: Vec<zirql::UnresolvedPatternFunctionDeclaration<Expression>>,
     function_limits: zirql::FunctionLimits,
     report_model_demand: bool,
     editing: bool,
     prepared_values: bool,
+    prepared: bool,
 }
 impl Program {
     /// Parse immutable bindings, reports, or one terminal data edit batch.
@@ -407,6 +453,7 @@ impl Program {
             function_names: std::collections::BTreeSet::new(),
             function_scope: None,
             report_model_demand: false,
+            prepared: false,
             preflight: Budget::for_program(limits.core()),
             preflight_range: None,
             first_report_call: None,
@@ -415,6 +462,7 @@ impl Program {
             lexed: zincite_syntax::lex(source),
         };
         parser.collect_functions()?;
+        parser.prepared = !parser.functions.is_empty();
         let mut statements = Vec::new();
         let mut parameters = Vec::new();
         let mut edits = Vec::new();
@@ -596,7 +644,73 @@ impl Program {
             if !edits.is_empty() {
                 return Err(parser.cursor.error("an edit batch must end with emit"));
             }
-            let binding = if parser.cursor.take_word("let") {
+            let quoted_let = source[start..].starts_with("let")
+                && parser
+                    .lexed
+                    .tokens()
+                    .iter()
+                    .filter(|token| {
+                        token.range.start >= start
+                            && !matches!(
+                                token.kind,
+                                zincite_syntax::TokenKind::Whitespace
+                                    | zincite_syntax::TokenKind::LineComment
+                                    | zincite_syntax::TokenKind::BlockComment
+                            )
+                    })
+                    .nth(1)
+                    .is_some_and(|token| token.kind == zincite_syntax::TokenKind::QuotedIdentifier);
+            if quoted_let {
+                parser.cursor.take_word("let");
+            }
+            let mut reader =
+                zirql::ArgumentReader::new(source, start).map_err(pipeline::core_error)?;
+            let pattern = if quoted_let {
+                None
+            } else {
+                zirql::read_pattern_let(&mut reader, &mut parser.preflight, limits.nesting)
+                    .map_err(pipeline::core_error)?
+            };
+            let is_let = pattern.is_some() || quoted_let;
+            if let Some(pattern) = &pattern {
+                parser.cursor.position = reader.position();
+                for name in zirql::pattern_names(pattern, &mut parser.preflight)
+                    .map_err(pipeline::core_error)?
+                {
+                    if !parser.minizinc_identifier(&name.range) {
+                        invalid_binding = Some(name.range.clone());
+                    }
+                    if matches!(
+                        name.value.as_str(),
+                        "let"
+                            | "report"
+                            | "query"
+                            | "json"
+                            | "emit"
+                            | "create"
+                            | "replace"
+                            | "emit_document"
+                    ) {
+                        return Err(QueryError::query(
+                            name.range.clone(),
+                            "binding name is reserved by the program grammar",
+                        ));
+                    }
+                    if parser.names.contains_key(&name.value) {
+                        return Err(QueryError::query(
+                            name.range.clone(),
+                            "binding is already defined",
+                        ));
+                    }
+                }
+                if !matches!(pattern.value, zirql::PatternKind::Name(_)) {
+                    parser.prepared = true;
+                    parser
+                        .first_report_call
+                        .get_or_insert(pattern.range.clone());
+                }
+            }
+            let binding = if quoted_let {
                 let (name, range) = parser.identifier("expected a binding name")?;
                 if !parser.minizinc_identifier(&range) {
                     invalid_binding = Some(range.clone());
@@ -624,47 +738,69 @@ impl Program {
                     .cursor
                     .punctuation(b'=', "expected '=' after binding name")?;
                 Some(Located::new(name.to_owned(), range))
+            } else if let Some(Located {
+                value: zirql::PatternKind::Name(name),
+                ..
+            }) = &pattern
+            {
+                Some(name.clone())
             } else {
                 None
             };
-            let report = binding.is_none() && parser.cursor.take_word("report");
+            let report = !is_let && binding.is_none() && parser.cursor.take_word("report");
             parser.cursor.space();
             let expression_start = parser.cursor.position;
             let expression_end = match parser.expression_end() {
                 Ok(end) => end,
-                Err(_) if binding.is_none() => source.len(),
+                Err(_) if !is_let && binding.is_none() => source.len(),
                 Err(error) => return Err(error),
             };
-            let (expression, kind, emits) = if parser
-                .composition_syntax(expression_start..expression_end)
-            {
-                let parsed = parser.composition_expression(expression_start..expression_end)?;
-                if !parser.data_input(&parsed.0) {
-                    invalid_input = Some(expression_start..expression_end);
-                }
-                parsed
-            } else if parser.native_syntax(expression_start..expression_end, binding.is_some()) {
-                let parsed = parser.expression(0, Kind::Nodes)?;
-                if !parser.data_input(&parsed.0) {
-                    invalid_input = Some(expression_start..expression_end);
-                }
-                parsed
-            } else {
-                parser.pure_expression(expression_start..expression_end)?
-            };
-            if binding.is_some() && emits {
+            let (expression, kind, emits) =
+                if parser.composition_syntax(expression_start..expression_end) {
+                    let parsed = parser.composition_expression(expression_start..expression_end)?;
+                    if !parser.data_input(&parsed.0) {
+                        invalid_input = Some(expression_start..expression_end);
+                    }
+                    parsed
+                } else if parser.native_syntax(expression_start..expression_end, is_let) {
+                    let parsed = parser.expression(0, Kind::Nodes)?;
+                    if !parser.data_input(&parsed.0) {
+                        invalid_input = Some(expression_start..expression_end);
+                    }
+                    parsed
+                } else {
+                    parser.pure_expression(expression_start..expression_end)?
+                };
+            if (binding.is_some() || is_let) && emits {
                 return Err(QueryError::query(
                     expression.range.clone(),
                     "a binding cannot emit",
                 ));
             }
-            if !(binding.is_none() && parser.cursor.position == source.len()) {
+            if !(!is_let && binding.is_none() && parser.cursor.position == source.len()) {
                 parser
                     .cursor
                     .punctuation(b';', "expected ';' after program statement")?;
             }
-            output_seen |= binding.is_none();
-            let statement = if let Some(name) = binding {
+            output_seen |= binding.is_none() && !is_let;
+            let statement = if let Some(pattern) =
+                pattern.filter(|p| !matches!(p.value, zirql::PatternKind::Name(_)))
+            {
+                let names = zirql::pattern_names(&pattern, &mut parser.preflight)
+                    .map_err(pipeline::core_error)?
+                    .into_iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                for name in &names {
+                    parser.names.insert(name.value.clone(), Kind::Constructed);
+                }
+                let range = expression.range.clone();
+                let value = functions::into_value(expression);
+                zirql::Statement::BindFields {
+                    names,
+                    expression: value_stage(Stage::PatternBinding(pattern, value), range),
+                }
+            } else if let Some(name) = binding {
                 parser.names.insert(name.value.clone(), kind);
                 zirql::Statement::Bind { name, expression }
             } else {
@@ -720,18 +856,19 @@ impl Program {
                 "expected a program statement",
             ));
         }
-        if !parser.functions.is_empty() {
+        if parser.prepared {
             statements = functions::wrap_program_entries(statements);
         }
         Ok(Self {
             parameters,
             program: zirql::Program::new(statements, 0..source.len()),
-            queries: parser.queries,
-            functions: parser.functions,
+            queries: std::mem::take(&mut parser.queries),
+            functions: std::mem::take(&mut parser.functions),
             function_limits: zirql::FunctionLimits { active_depth: 64 },
             report_model_demand: parser.report_model_demand || document_seen,
             editing: document_seen,
             prepared_values: parser.prepared_values,
+            prepared: parser.prepared,
             preflight_work: limits
                 .work
                 .checked_sub(parser.preflight.remaining_work())
@@ -740,7 +877,7 @@ impl Program {
                 .results
                 .checked_sub(parser.preflight.remaining_results().unwrap())
                 .unwrap(),
-            preflight_range: parser.preflight_range,
+            preflight_range: parser.preflight_range.take(),
         })
     }
     pub fn is_editing(&self) -> bool {
@@ -895,7 +1032,7 @@ impl Program {
         };
         let signatures = functions::resolve_signatures(&self.functions, &mut context, &mut budget)?;
         let host = NativeHost {
-            functions: !self.functions.is_empty(),
+            functions: self.prepared,
             signatures: &signatures,
             parameters: &self.parameters,
             queries: &self.queries,
@@ -906,7 +1043,7 @@ impl Program {
         };
 
         let function_host = composition::CompositionHost(&host);
-        let session = if self.functions.is_empty() && !self.prepared_values {
+        let session = if !self.prepared && !self.prepared_values {
             None
         } else {
             Some(functions::Session::new(
@@ -1002,11 +1139,12 @@ impl Program {
 
 impl Drop for Program {
     fn drop(&mut self) {
-        zirql::dispose_unresolved_functions(std::mem::take(&mut self.functions));
+        zirql::dispose_unresolved_pattern_functions(std::mem::take(&mut self.functions));
         let program = std::mem::replace(&mut self.program, zirql::Program::new(Vec::new(), 0..0));
         for statement in program.into_statements() {
             let expression = match statement.value {
                 zirql::Statement::Bind { expression, .. }
+                | zirql::Statement::BindFields { expression, .. }
                 | zirql::Statement::Evaluate { expression, .. } => expression,
             };
             zirql::dispose_expression(expression);
@@ -1019,17 +1157,23 @@ struct Parser<'a> {
     limits: ProgramLimits,
     names: BTreeMap<String, Kind>,
     queries: Vec<ProgramQuery>,
-    functions: Vec<zirql::UnresolvedFunctionDeclaration<Expression>>,
+    functions: Vec<zirql::UnresolvedPatternFunctionDeclaration<Expression>>,
     function_ranges: Vec<Range<usize>>,
     function_names: std::collections::BTreeSet<String>,
     function_scope: Option<BTreeMap<String, Kind>>,
     report_model_demand: bool,
+    prepared: bool,
     preflight: Budget,
     preflight_range: Option<Range<usize>>,
     lexed: zincite_syntax::LexedSource,
     first_report_call: Option<Range<usize>>,
     composition_error: Option<QueryError>,
     prepared_values: bool,
+}
+impl Drop for Parser<'_> {
+    fn drop(&mut self) {
+        zirql::dispose_unresolved_pattern_functions(std::mem::take(&mut self.functions));
+    }
 }
 struct CstTypes;
 impl<Q> zirql::ValueQueryHost<Q> for CstTypes {
@@ -1106,7 +1250,7 @@ impl<'a> Parser<'a> {
         self.begin_pure(range.clone())?;
         self.admit_cst(&range)?;
         let policy = if policy == comprehension::ExpressionPolicy::Report
-            && (!self.functions.is_empty() || self.function_scope.is_some())
+            && (self.prepared || !self.functions.is_empty() || self.function_scope.is_some())
         {
             comprehension::ExpressionPolicy::Functions
         } else {
@@ -1166,7 +1310,7 @@ impl<'a> Parser<'a> {
                 .names
                 .values()
                 .any(|kind| matches!(kind, Kind::Literals));
-        if !self.functions.is_empty() || self.function_scope.is_some() {
+        if self.prepared || !self.functions.is_empty() || self.function_scope.is_some() {
             return Ok(Vec::new());
         }
         let mut types = self.scope_types(range)?;
@@ -1236,7 +1380,11 @@ impl<'a> Parser<'a> {
         &mut self,
         range: Range<usize>,
     ) -> Result<(Expression, Kind, bool), QueryError> {
-        if !self.functions.is_empty() {
+        if self.prepared
+            || self.control_syntax(range.clone())
+            || self.contextual_values(range.clone())
+        {
+            self.prepared = true;
             return self.function_expression(range);
         }
         let (expression, names) =
@@ -1499,7 +1647,7 @@ impl<'a> Parser<'a> {
                         range.clone(),
                         &mut self.preflight,
                         self.limits.nesting,
-                        if self.function_names.is_empty() {
+                        if !self.prepared && self.function_names.is_empty() {
                             comprehension::ExpressionPolicy::Report
                         } else {
                             comprehension::ExpressionPolicy::Functions
@@ -1523,7 +1671,7 @@ impl<'a> Parser<'a> {
                         member.enum_name.range = map(member.enum_name.range.clone());
                         member.member_name.range = map(member.member_name.range.clone());
                     }
-                    let eager_members = if self.function_names.is_empty() {
+                    let eager_members = if !self.prepared && self.function_names.is_empty() {
                         argument_members(&expression, &mut self.preflight)?
                     } else {
                         Vec::new()
@@ -1881,6 +2029,33 @@ fn map_value(
                 )));
             }
         }
+        K::Block { bindings, value } => {
+            for (pattern, initializer) in bindings {
+                map_pattern(pattern, map);
+                map_value(initializer, map, members);
+            }
+            map_value(value, map, members);
+        }
+        K::ValueMatch { subject, arms } => {
+            map_value(subject, map, members);
+            for arm in arms {
+                map_pattern(&mut arm.pattern, map);
+                if let Some(guard) = &mut arm.guard {
+                    map_value(guard, map, members);
+                }
+                map_value(&mut arm.value, map, members);
+            }
+        }
+        K::Queue { .. }
+        | K::PopFront(_)
+        | K::PushBackAll { .. }
+        | K::IdentitySet { .. }
+        | K::Insert { .. }
+        | K::Fold { .. }
+        | K::Scan { .. }
+        | K::Loop { .. }
+        | K::Break(_)
+        | K::Continue(_) => {}
         K::Literal(_) | K::NativeQuery(_) | K::NativeValue(_) => {}
         K::Call {
             function,
@@ -1903,6 +2078,8 @@ fn map_value(
             }
         }
         K::Unary { operand, .. }
+        | K::Unique(operand)
+        | K::Tally(operand)
         | K::Occurs(operand)
         | K::Absent(operand)
         | K::One(operand)
@@ -1990,6 +2167,26 @@ fn map_value(
                 map_value(value, map, members);
             }
         }
+    }
+}
+fn map_pattern(pattern: &mut zirql::Pattern, map: &impl Fn(Range<usize>) -> Range<usize>) {
+    use zirql::PatternKind as P;
+    pattern.range = map(pattern.range.clone());
+    match &mut pattern.value {
+        P::Name(name) => name.range = map(name.range.clone()),
+        P::Tuple(values) => {
+            for pattern in values {
+                map_pattern(pattern, map);
+            }
+        }
+        P::Record { fields, .. } => {
+            for (name, pattern) in fields {
+                name.range = map(name.range.clone());
+                map_pattern(pattern, map);
+            }
+        }
+        P::Present(pattern) => map_pattern(pattern, map),
+        P::Wildcard | P::Literal(_) | P::Absent => {}
     }
 }
 fn map_generators(
@@ -2374,7 +2571,7 @@ impl zirql::ValueQueryHost<()> for ReportReads<'_, '_, '_> {
 }
 struct NativeHost<'q> {
     functions: bool,
-    signatures: &'q [zirql::ResolvedFunctionSignature<Kind>],
+    signatures: &'q [zirql::ResolvedPatternFunctionSignature<'q, Kind>],
     parameters: &'q [zirql::ParameterDeclaration],
     queries: &'q [ProgramQuery],
     pipelines: Vec<Option<NativePipeline<'q>>>,
@@ -2426,7 +2623,13 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
                     .run(expression, bindings, &value, context, budget)
                     .map_err(zirql::EvaluationError::Host);
             }
-            Stage::Primitive(_, _) => {
+            Stage::PatternBinding(_, expression) => {
+                let session = context.functions.expect("prepared pattern program");
+                return session
+                    .bind(expression, bindings, &value, context, budget)
+                    .map_err(zirql::EvaluationError::Host);
+            }
+            Stage::RecordValue(_) | Stage::Primitive(_, _) => {
                 return Err(zirql::QueryError::query(
                     range.clone(),
                     "native function primitive requires its active argument runner",

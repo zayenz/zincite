@@ -198,7 +198,7 @@ impl Parser<'_> {
             }
         };
         let host = NativeHost {
-            functions: !self.function_names.is_empty(),
+            functions: self.prepared || !self.function_names.is_empty(),
             signatures: &[],
             parameters: &[],
             queries: &self.queries,
@@ -356,7 +356,7 @@ impl ValueReaderHost for Parser<'_> {
             .contains_key(name)
     }
     fn retains_native_values(&self) -> bool {
-        !self.function_names.is_empty()
+        self.prepared || !self.function_names.is_empty()
     }
     fn value_source(
         &mut self,
@@ -375,7 +375,6 @@ impl ValueReaderHost for Parser<'_> {
         reader.skip_whitespace();
         let start = reader.position();
         let end = self.function_value_end(start);
-        let source = &reader.source()[start..end];
         use zincite_syntax::TokenKind as T;
         let tokens = self.lexed.tokens().iter().filter(|token| {
             token.range.start >= start
@@ -401,7 +400,11 @@ impl ValueReaderHost for Parser<'_> {
             }
         }
         let common_if = conditional && !minizinc_if;
-        if common_if || top_pipe || source.trim_start().starts_with("match") {
+        if common_if
+            || top_pipe
+            || self.leading_control_syntax(start..end)
+            || reader.source()[start..].trim_start().starts_with("match {")
+        {
             return Ok(None);
         }
         let saved = self.function_scope.replace(
@@ -429,7 +432,7 @@ impl ValueReaderHost for Parser<'_> {
         locals: &[&str],
         budget: &mut Budget,
     ) -> Result<ExpressionStep<Stage, Emitter>, zirql::QueryError> {
-        if self.function_names.is_empty() {
+        if !self.prepared && self.function_names.is_empty() {
             return self.parse_stage(reader, budget);
         }
         let saved = self.function_scope.replace(
@@ -448,7 +451,7 @@ impl ValueReaderHost for Parser<'_> {
         locals: &[&str],
         budget: &mut Budget,
     ) -> Result<Guard, zirql::QueryError> {
-        if self.function_names.is_empty() {
+        if !self.prepared && self.function_names.is_empty() {
             return self.parse_predicate_leaf(reader, budget);
         }
         let saved = self.function_scope.replace(
@@ -565,7 +568,7 @@ impl ValueReaderHost for Parser<'_> {
             if self.first_report_call.is_none() {
                 self.first_report_call = expression.first_report_call.clone();
             }
-            let eager_members = if self.function_names.is_empty() {
+            let eager_members = if !self.prepared && self.function_names.is_empty() {
                 argument_members(&expression, &mut self.preflight)?
             } else {
                 Vec::new()
@@ -648,7 +651,10 @@ impl ValueReaderHost for Parser<'_> {
         reader.skip_whitespace();
         let first_end = self.guard_argument_end(reader.position());
         let explicit = reader.source().as_bytes().get(first_end) == Some(&b',');
-        if !self.function_names.is_empty() || (!explicit && !reader.remaining().starts_with('"')) {
+        if self.prepared
+            || !self.function_names.is_empty()
+            || (!explicit && !reader.remaining().starts_with('"'))
+        {
             let operand = if explicit {
                 let operand =
                     zirql::read_native_expression(reader, self, budget, self.limits.nesting)?;
@@ -841,7 +847,7 @@ impl ValueReaderHost for Parser<'_> {
         projection: zirql::Projection<Expression>,
         range: Range<usize>,
     ) -> Stage {
-        if !self.function_names.is_empty() {
+        if self.prepared || !self.function_names.is_empty() {
             let source = Located::new(
                 zirql::ValueExpressionKind::NativeValue(Box::new(Located::new(
                     ExpressionKind::Input,
@@ -877,7 +883,7 @@ impl ValueReaderHost for Parser<'_> {
         mut matching: Matching,
         _: Range<usize>,
     ) -> Result<Stage, zirql::QueryError> {
-        if !self.function_names.is_empty() {
+        if self.prepared || !self.function_names.is_empty() {
             for clause in &mut matching.clauses {
                 if let zirql::MatchClause::From { source, .. }
                 | zirql::MatchClause::Bind { value: source, .. } = &mut clause.value
@@ -972,10 +978,39 @@ impl<'a> ProgramHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         &self,
         fields: Vec<(String, Self::Value)>,
         _: &mut Context<'_, 'a>,
-        _: &mut Budget,
-        _: &Range<usize>,
+        budget: &mut Budget,
+        range: &Range<usize>,
     ) -> Result<Self::Value, zirql::EvaluationError<QueryError>> {
-        Ok(ReportValue::Capture(zirql::NativeCapture { fields }))
+        if fields.iter().all(|(_, value)| {
+            matches!(
+                functions::unretained(value),
+                ReportValue::Constructed(_) | ReportValue::SharedConstructed(_)
+            )
+        }) {
+            let mut values = Vec::with_capacity(fields.len());
+            for (name, value) in fields {
+                let value =
+                    functions::owned(value, budget, range).map_err(zirql::EvaluationError::Host)?;
+                let value = match value {
+                    ReportValue::Constructed(value) => value,
+                    ReportValue::SharedConstructed(owner) => match Arc::try_unwrap(owner) {
+                        Ok(value) => value,
+                        Err(owner) => zirql::copy_constructed_value(
+                            &owner,
+                            budget,
+                            zirql::Location::Query(range.clone()),
+                        )?,
+                    },
+                    _ => unreachable!("constructed fields checked above"),
+                };
+                values.push((name, value));
+            }
+            Ok(ReportValue::Constructed(zirql::ConstructedValue::Record(
+                values,
+            )))
+        } else {
+            Ok(ReportValue::Capture(zirql::NativeCapture { fields }))
+        }
     }
     fn capture_record<'v>(
         &self,
@@ -1009,6 +1044,12 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         match stage {
             Stage::FunctionValue(value) | Stage::FunctionSource(value) => {
                 return Ok(vec![(value, Kind::Nodes)]);
+            }
+            Stage::RecordValue(fields) => {
+                return Ok(fields
+                    .iter()
+                    .map(|(_, value)| (value, Kind::Nodes))
+                    .collect());
             }
             Stage::Match(matching) => {
                 let mut values = Vec::new();
@@ -1169,6 +1210,22 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
                     range,
                 );
             }
+            Stage::RecordValue(fields) => {
+                let mut values = Vec::with_capacity(fields.len());
+                for (name, expression) in fields {
+                    let value =
+                        arguments.evaluate_native(expression, value_placeholder(), budget)?;
+                    budget.charge(
+                        name.value.len() + 1,
+                        zirql::Location::Query(name.range.clone()),
+                    )?;
+                    values.push((
+                        name.value.clone(),
+                        ReportValue::Retained(value.into_shared()),
+                    ));
+                }
+                return self.construct_record(values, arguments.parts().0, budget, range);
+            }
             Stage::FunctionValue(expression) | Stage::FunctionSource(expression) => {
                 let selected = arguments.evaluate_native(expression, value, budget)?;
                 return Ok(ReportValue::Retained(selected.into_shared()));
@@ -1328,6 +1385,17 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         range: &Range<usize>,
     ) -> Result<Kind, zirql::QueryError> {
         match stage {
+            Stage::RecordValue(fields) => Ok(Kind::Capture(Rc::new(zirql::NativeCapture {
+                fields: fields
+                    .iter()
+                    .map(|(name, value)| {
+                        Ok((
+                            name.value.clone(),
+                            functions::value_kind(value, self, input, scope, budget)?,
+                        ))
+                    })
+                    .collect::<Result<_, zirql::QueryError>>()?,
+            }))),
             Stage::FunctionValue(value) | Stage::FunctionSource(value) => {
                 functions::value_kind(value, self, input, scope, budget)
             }
@@ -1412,7 +1480,10 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
     }
     fn is_explicit_source(&self, stage: &Stage) -> bool {
         match stage {
-            Stage::FunctionSource(_) | Stage::Primitive(..) | Stage::Member(_) => true,
+            Stage::FunctionSource(_)
+            | Stage::RecordValue(_)
+            | Stage::Primitive(..)
+            | Stage::Member(_) => true,
             Stage::Match(matching) => {
                 matching
                     .get()

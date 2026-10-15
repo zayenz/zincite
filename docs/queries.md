@@ -521,6 +521,79 @@ Recursion is limited by depth and total work. See the
 [function reference](reference.md#typed-query-functions) for scope, signatures
 and limits.
 
+## Destructure a report
+
+Save this input as `calls.mzn` for the two examples below. The first program
+retains its first declaration as a native selection:
+
+```minizinc
+int: first_total = sum([1, 2]);
+int: second_total = sum(i in 1..2)(i);
+int: largest = max([3, 4]);
+solve satisfy;
+```
+
+Save this program as `destructured-report.zq`:
+
+```zirql
+fn describe({pair: (a, b), label}: record{pair: tuple<int, int>, label: string}) -> record{total: int, label: string} {
+    (total: a + b, label: label)
+}
+let {total, label: title} = describe((pair: (3, 4), label: "sum"));
+fn keep(nodes: sequence<Node>) -> record{selected: sequence<Node>} { (selected: nodes) }
+let roots = items | head(1);
+let {selected: root} = keep(roots);
+report (total: total, title: title, root: root);
+```
+
+```sh
+zincite query --program-file destructured-report.zq calls.mzn
+zincite-query --program-file destructured-report.zq calls.mzn
+```
+
+The report has `total = 7`, `title = "sum"` and a native `root` selection of
+`first_total` at bytes `0..31`. The function admits the whole parameter before
+matching its nested tuple and record. The later pattern renames `label` to
+`title`. The native selection retains the input owner and original coordinates.
+It renders as native inspection JSON; the two scalar fields use tagged values.
+
+## Choose an optional value with guarded arms
+
+Save this program as `optional-match.zq` and use the same `calls.mzn`:
+
+```zirql
+let {value: candidate, ..} = (value: 7, ignored: "kept out");
+report match(candidate) {
+    absent => "missing",
+    present(value) if value < 0 => "negative",
+    present(value) if value > 0 => {
+        let (first, second) = (value, 2);
+        if first > second {
+            let result = first + second;
+            result
+        } else { 0 }
+    },
+    _ => 0,
+};
+```
+
+```sh
+zincite query --program-file optional-match.zq calls.mzn
+zincite-query --program-file optional-match.zq calls.mzn
+```
+
+Both commands report the tagged integer `9`. The final `..` ignores the extra
+record field. Match evaluates `candidate` once, tries arms in order, and runs
+only the first body whose pattern and guard succeed. `present(value)` admits a
+present scalar, while `absent` matches `<>`. The arm's `first`, `second` and
+`result` names are local to their blocks. A final unguarded `_` arm is required.
+
+Both saved programs also work with `--program TEXT`, which uses the same
+semantics as `--program-file`. Library callers can parse either program or use
+[`Program::from_values`](reference.md#patterns-and-pure-control-values) to
+transfer typed values and patterns directly. Native capture enumeration keeps
+its separate `match { from ...; bind ...; }` syntax.
+
 ## Combine functions, defaults and ordering
 
 Return to the staffing problem, this time with a missing availability value.

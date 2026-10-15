@@ -1311,3 +1311,52 @@ fn report_ordering_inline_file_and_later_failure_keep_output_buffering() {
     assert!(String::from_utf8_lossy(&failure.stderr).contains("missing ordering field"));
     std::fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn query_patterns_and_control_values_replay_inline_file_and_buffer_later_errors() {
+    let model = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/crates/zincite-query/tests/fixtures/recursive-functions.mzn"
+    );
+    for (source, file) in [
+        (
+            include_str!("../crates/zincite-query/tests/fixtures/destructured-report.zq"),
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/crates/zincite-query/tests/fixtures/destructured-report.zq"
+            ),
+        ),
+        (
+            include_str!("../crates/zincite-query/tests/fixtures/optional-match.zq"),
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/crates/zincite-query/tests/fixtures/optional-match.zq"
+            ),
+        ),
+    ] {
+        let mut expected = None;
+        for arguments in [
+            vec!["query", "--program", source, model],
+            vec!["query", "--program-file", file, model],
+        ] {
+            let output = run(&arguments, "");
+            assert!(output.status.success(), "{output:?}");
+            if let Some(expected) = &expected {
+                assert_eq!(&output.stdout, expected);
+            } else {
+                expected = Some(output.stdout);
+            }
+        }
+        let failed = run(
+            &[
+                "query",
+                "--program",
+                &format!("{source} report match(1){{ _ => 1 div 0 }};"),
+                model,
+            ],
+            "",
+        );
+        assert_eq!(failed.status.code(), Some(2));
+        assert!(failed.stdout.is_empty());
+    }
+}

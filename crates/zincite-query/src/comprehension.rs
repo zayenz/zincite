@@ -63,6 +63,19 @@ pub(crate) fn lower<Q>(
     nesting: usize,
     policy: ExpressionPolicy,
 ) -> Result<LoweredValue<Q>, QueryError> {
+    lower_with_values(source, range, budget, nesting, policy, Vec::new())
+}
+
+/// Keep shared control ASTs in place while the CST parses their surrounding
+/// MiniZinc syntax. The numeric slots are parsing markers, never runtime values.
+pub(crate) fn lower_with_values<Q>(
+    source: &str,
+    range: Range<usize>,
+    budget: &mut Budget,
+    nesting: usize,
+    policy: ExpressionPolicy,
+    values: Vec<E<Q>>,
+) -> Result<LoweredValue<Q>, QueryError> {
     charge(
         budget,
         source
@@ -71,8 +84,17 @@ pub(crate) fn lower<Q>(
             .ok_or_else(|| QueryError::query(range.clone(), "allocation size overflow"))?,
         &range,
     )?;
+    let mut text = format!("value = {source};").into_bytes();
+    let mut shared = BTreeMap::new();
+    for value in values {
+        let start = 8 + value.range.start - range.start;
+        let end = 8 + value.range.end - range.start;
+        text[start..end].fill(b' ');
+        text[start] = b'0';
+        shared.insert(value.range.start, value);
+    }
     let parsed = zincite_syntax::parse_with_mode(
-        format!("value = {source};"),
+        String::from_utf8(text).expect("control ranges end on UTF-8 boundaries"),
         zincite_syntax::FileMode::Data,
     );
     if let Some(error) = parsed.diagnostics().first() {
@@ -96,9 +118,15 @@ pub(crate) fn lower<Q>(
         members: Vec::new(),
         policy,
         first_report_call: None,
-        query: std::marker::PhantomData,
+        shared,
     };
     let expression = lower.node(rhs, 0)?;
+    if let Some((_, value)) = lower.shared.first_key_value() {
+        return Err(QueryError::query(
+            value.range.clone(),
+            "expected a value expression here",
+        ));
+    }
     Ok(LoweredValue {
         expression,
         members: lower.members,
@@ -117,7 +145,7 @@ struct Lower<'a, 'b, Q> {
     members: Vec<MemberRequest>,
     policy: ExpressionPolicy,
     first_report_call: Option<Range<usize>>,
-    query: std::marker::PhantomData<Q>,
+    shared: BTreeMap<usize, E<Q>>,
 }
 impl<Q> Lower<'_, '_, Q> {
     fn range(&self, node: &SyntaxNode) -> Range<usize> {
@@ -385,6 +413,12 @@ impl<Q> Lower<'_, '_, Q> {
             return Err(QueryError::query(range, "value nesting limit exceeded"));
         }
         charge(self.budget, 1 + node.children().len(), &range)?;
+        if node.kind() == N::Expression
+            && let Some(value) = self.shared.remove(&range.start)
+        {
+            self.report_only(&value.range)?;
+            return Ok(value);
+        }
         let child = || {
             node.child_nodes()
                 .next()
@@ -426,7 +460,9 @@ impl<Q> Lower<'_, '_, Q> {
                     _ => return Err(unsupported()),
                 };
                 // A written negative minimum cannot first become a positive i64.
-                if matches!(operator, U::Positive | U::Negative) && child().kind() == N::Expression
+                if matches!(operator, U::Positive | U::Negative)
+                    && child().kind() == N::Expression
+                    && !self.shared.contains_key(&self.range(child()).start)
                 {
                     let atom = self.tokens(child()).next().unwrap();
                     if matches!(
@@ -655,6 +691,7 @@ impl<Q> Lower<'_, '_, Q> {
                         | "max"
                         | "min_by"
                         | "max_by"
+                        | "one"
                         | "entries"
                         | "zip_exact"
                         | "contains"
@@ -695,6 +732,11 @@ impl<Q> Lower<'_, '_, Q> {
                             left: Box::new(self.node(left, depth + 1)?),
                             right: Box::new(self.node(right, depth + 1)?),
                         }
+                    } else if self.text(i) == "one" {
+                        if node.child_nodes().count() != 1 {
+                            return Err(QueryError::query(range, "one needs one argument"));
+                        }
+                        K::One(Box::new(self.node(child(), depth + 1)?))
                     } else if self.text(i) == "entries" {
                         if node.child_nodes().count() != 1 {
                             return Err(QueryError::query(range, "entries needs one argument"));
@@ -1050,6 +1092,21 @@ fn references_binding<Q>(
 ) -> Result<bool, QueryError> {
     charge(budget, 1, &expression.range)?;
     match &expression.value {
+        K::Block { .. }
+        | K::ValueMatch { .. }
+        | K::Queue { .. }
+        | K::PopFront(_)
+        | K::PushBackAll { .. }
+        | K::IdentitySet { .. }
+        | K::Insert { .. }
+        | K::Fold { .. }
+        | K::Scan { .. }
+        | K::Loop { .. }
+        | K::Break(_)
+        | K::Continue(_) => Err(QueryError::query(
+            expression.range.clone(),
+            "control values require a prepared report program",
+        )),
         K::Name(name) => Ok(names.contains(name)),
         K::Literal(_) | K::NativeQuery(_) | K::NativeValue(_) => Ok(false),
         K::Call { arguments, .. } => any_binding(arguments.iter(), names, budget),
@@ -1082,6 +1139,8 @@ fn references_binding<Q>(
                 || generator_binding(clauses, names, budget)?)
         }
         K::Unary { operand, .. }
+        | K::Unique(operand)
+        | K::Tally(operand)
         | K::Occurs(operand)
         | K::Absent(operand)
         | K::One(operand)
@@ -1141,6 +1200,23 @@ pub(crate) fn eager_names<Q>(
 ) -> Result<(), QueryError> {
     charge(budget, 1, &expression.range)?;
     match &expression.value {
+        K::Block { .. }
+        | K::ValueMatch { .. }
+        | K::Queue { .. }
+        | K::PopFront(_)
+        | K::PushBackAll { .. }
+        | K::IdentitySet { .. }
+        | K::Insert { .. }
+        | K::Fold { .. }
+        | K::Scan { .. }
+        | K::Loop { .. }
+        | K::Break(_)
+        | K::Continue(_) => {
+            return Err(QueryError::query(
+                expression.range.clone(),
+                "control values require a prepared report program",
+            ));
+        }
         K::Name(name) => {
             charge(budget, name.len() + 1, &expression.range)?;
             budget
@@ -1171,7 +1247,9 @@ pub(crate) fn eager_names<Q>(
                 eager_names(value, names, budget)?;
             }
         }
-        K::Occurs(value)
+        K::Unique(value)
+        | K::Tally(value)
+        | K::Occurs(value)
         | K::Absent(value)
         | K::One(value)
         | K::IndexSet(value)
@@ -2411,6 +2489,12 @@ fn copy_declaration(
         D::String => D::String,
         D::Member(id) => D::Member(*id),
         D::Set(ty) => D::Set(*ty),
+        D::Queue(_) | D::IdentitySet(()) => {
+            return Err(zirql::QueryError::query(
+                range.clone(),
+                "computational values are unavailable in Zincite",
+            ));
+        }
         D::Native(()) => {
             return Err(zirql::QueryError::query(
                 range.clone(),

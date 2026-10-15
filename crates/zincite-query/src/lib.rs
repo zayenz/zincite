@@ -28,7 +28,8 @@ mod language;
 mod pipeline;
 mod program;
 pub use program::{
-    CaptureMatches, Program, ProgramEmission, ProgramLimits, ProgramResult, ReportValue,
+    CaptureMatches, Program, ProgramEmission, ProgramFunction, ProgramLimits, ProgramResult,
+    ProgramValue, ReportValue,
 };
 pub use zirql::{ConstructedValue, ParameterDeclaration, ParameterInputs, ParameterType};
 mod reduction;

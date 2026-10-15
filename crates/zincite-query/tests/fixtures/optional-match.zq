@@ -1,0 +1,13 @@
+let {value: candidate, ..} = (value: 7, ignored: "kept out");
+report match(candidate) {
+    absent => "missing",
+    present(value) if value < 0 => "negative",
+    present(value) if value > 0 => {
+        let (first, second) = (value, 2);
+        if first > second {
+            let result = first + second;
+            result
+        } else { 0 }
+    },
+    _ => 0,
+};

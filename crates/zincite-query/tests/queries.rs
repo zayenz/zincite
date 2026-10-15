@@ -4459,3 +4459,416 @@ fn native_literal_extraction_and_final_values_share_one_request() {
         assert!(Program::parse(source, limits).is_err(), "{source}");
     }
 }
+
+#[test]
+fn patterns_and_control_values_agree_with_owned_typed_programs() {
+    use zincite_query::{Program, ProgramFunction, ProgramLimits, ProgramValue, ReportValue};
+    use zirql::{
+        ConstructedValue as V, Located as L, Pattern, PatternKind as P, SignatureType as S,
+        ValueBinaryOperator as B, ValueExpressionKind as K,
+    };
+    type Q = zirql::Expression<zincite_query::Query, (), ()>;
+    fn located<T>(value: T) -> L<T> {
+        L::new(value, 10..20)
+    }
+    fn e(value: K<Q>) -> ProgramValue {
+        located(value)
+    }
+    fn name(name: &str) -> ProgramValue {
+        e(K::Name(name.into()))
+    }
+    fn int(value: i64) -> ProgramValue {
+        e(K::Literal(V::Integer(value)))
+    }
+    fn pattern(name: &str) -> Pattern {
+        located(P::Name(located(name.into())))
+    }
+    fn record_pattern(fields: Vec<(&str, Pattern)>, ignore_rest: bool) -> Pattern {
+        located(P::Record {
+            fields: fields
+                .into_iter()
+                .map(|(n, p)| (located(n.into()), p))
+                .collect(),
+            ignore_rest,
+        })
+    }
+    fn record(fields: Vec<(&str, ProgramValue)>) -> ProgramValue {
+        e(K::Record(
+            fields
+                .into_iter()
+                .map(|(n, v)| (located(n.into()), v))
+                .collect(),
+        ))
+    }
+    fn call(function: &str, arguments: Vec<ProgramValue>) -> ProgramValue {
+        e(K::Call {
+            function: located(function.into()),
+            arguments,
+        })
+    }
+    fn binary(operator: B, left: ProgramValue, right: ProgramValue) -> ProgramValue {
+        e(K::Binary {
+            operator,
+            left: Box::new(left),
+            right: Box::new(right),
+        })
+    }
+    fn function(
+        function: &str,
+        parameter: Pattern,
+        declaration: S,
+        result: S,
+        value: ProgramValue,
+    ) -> ProgramFunction {
+        ProgramFunction {
+            name: located(function.into()),
+            parameters: vec![located(zirql::UnresolvedPatternFunctionParameter {
+                pattern: parameter,
+                declaration: located(declaration),
+            })],
+            result: located(result),
+            value,
+        }
+    }
+    let limits = ProgramLimits::default();
+    let input = Input::parse(
+        include_bytes!("fixtures/recursive-functions.mzn").to_vec(),
+        FileMode::Model,
+    )
+    .unwrap();
+    let scalar_fields = || {
+        S::Record(vec![
+            (located("total".into()), located(S::Integer)),
+            (located("label".into()), located(S::String)),
+        ])
+    };
+    let nodes = || S::Sequence(Box::new(located(S::Named(located("Node".into())))));
+    let native_fields = || S::Record(vec![(located("selected".into()), located(nodes()))]);
+    let describe = function(
+        "describe",
+        record_pattern(
+            vec![
+                ("pair", located(P::Tuple(vec![pattern("a"), pattern("b")]))),
+                ("label", pattern("label")),
+            ],
+            false,
+        ),
+        S::Record(vec![
+            (
+                located("pair".into()),
+                located(S::Tuple(vec![located(S::Integer), located(S::Integer)])),
+            ),
+            (located("label".into()), located(S::String)),
+        ]),
+        scalar_fields(),
+        record(vec![
+            ("total", binary(B::Add, name("a"), name("b"))),
+            ("label", name("label")),
+        ]),
+    );
+    let keep = function(
+        "keep",
+        pattern("nodes"),
+        nodes(),
+        native_fields(),
+        record(vec![("selected", name("nodes"))]),
+    );
+    let query =
+        zincite_query::Query::parse("items | head(1)", zincite_query::Limits::default()).unwrap();
+    let native = located(zirql::ExpressionKind::Sequence {
+        input: Box::new(located(zirql::ExpressionKind::Input)),
+        steps: vec![located(zirql::ExpressionStep::Stage(query))],
+    });
+    let typed = Program::from_values(
+        vec![describe, keep],
+        vec![
+            (
+                record_pattern(
+                    vec![("total", pattern("total")), ("label", pattern("title"))],
+                    false,
+                ),
+                call(
+                    "describe",
+                    vec![record(vec![
+                        ("pair", e(K::Tuple(vec![int(3), int(4)]))),
+                        ("label", e(K::Literal(V::String("sum".into())))),
+                    ])],
+                ),
+            ),
+            (pattern("roots"), e(K::NativeValue(Box::new(native)))),
+            (
+                record_pattern(vec![("selected", pattern("root"))], false),
+                call("keep", vec![name("roots")]),
+            ),
+        ],
+        record(vec![
+            ("total", name("total")),
+            ("title", name("title")),
+            ("root", name("root")),
+        ]),
+        limits,
+    )
+    .unwrap();
+    let mut actual = typed.evaluate(&input, limits).unwrap();
+    let mut written = Program::parse(include_str!("fixtures/destructured-report.zq"), limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    for result in [&actual, &written] {
+        assert!(result.is_complete());
+        let fields = result.emissions()[0].value().fields().unwrap();
+        let nodes = fields
+            .iter()
+            .find(|(name, _)| name == "root")
+            .unwrap()
+            .1
+            .stream()
+            .unwrap();
+        let zincite_query::SemanticStream::Inspection(nodes) = nodes else {
+            panic!("native nodes: {nodes:?}")
+        };
+        let zincite_query::QueryResult::Selection(nodes) = nodes.as_ref() else {
+            panic!("native selection")
+        };
+        assert_eq!(nodes.items()[0].range, 0..31);
+        assert!(std::ptr::eq(nodes.input(), &input));
+    }
+    assert_eq!(actual.render().unwrap(), written.render().unwrap());
+    let block = e(K::Block {
+        bindings: vec![(
+            located(P::Tuple(vec![pattern("first"), pattern("second")])),
+            e(K::Tuple(vec![name("value"), int(2)])),
+        )],
+        value: Box::new(e(K::Conditional {
+            branches: vec![(
+                binary(B::Greater, name("first"), name("second")),
+                e(K::Block {
+                    bindings: vec![(
+                        pattern("result"),
+                        binary(B::Add, name("first"), name("second")),
+                    )],
+                    value: Box::new(name("result")),
+                }),
+            )],
+            otherwise: Box::new(int(0)),
+        })),
+    });
+    let present = || located(P::Present(Box::new(pattern("value"))));
+    let typed = Program::from_values(
+        vec![],
+        vec![(
+            record_pattern(vec![("value", pattern("candidate"))], true),
+            record(vec![
+                ("value", int(7)),
+                ("ignored", e(K::Literal(V::String("kept out".into())))),
+            ]),
+        )],
+        e(K::ValueMatch {
+            subject: Box::new(name("candidate")),
+            arms: vec![
+                zirql::ValueMatchArm {
+                    pattern: located(P::Absent),
+                    guard: None,
+                    value: e(K::Literal(V::String("missing".into()))),
+                },
+                zirql::ValueMatchArm {
+                    pattern: present(),
+                    guard: Some(binary(B::Less, name("value"), int(0))),
+                    value: e(K::Literal(V::String("negative".into()))),
+                },
+                zirql::ValueMatchArm {
+                    pattern: present(),
+                    guard: Some(binary(B::Greater, name("value"), int(0))),
+                    value: block,
+                },
+                zirql::ValueMatchArm {
+                    pattern: located(P::Wildcard),
+                    guard: None,
+                    value: int(0),
+                },
+            ],
+        }),
+        limits,
+    )
+    .unwrap();
+    let mut actual = typed.evaluate(&input, limits).unwrap();
+    let mut written = Program::parse(include_str!("fixtures/optional-match.zq"), limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    assert!(matches!(
+        actual.emissions()[0].value(),
+        ReportValue::Constructed(V::Integer(9))
+    ));
+    assert_eq!(actual.render().unwrap(), written.render().unwrap());
+    let rejected = Program::from_values(
+        vec![],
+        vec![],
+        e(K::Loop {
+            states: vec![],
+            body: Box::new(int(0)),
+        }),
+        limits,
+    )
+    .unwrap_err();
+    assert_eq!(rejected.range, 10..20);
+    assert!(rejected.message.contains("unavailable"));
+    let mut deep = int(0);
+    for _ in 0..2000 {
+        deep = e(K::Tuple(vec![deep]));
+    }
+    let rejected = Program::from_values(vec![], vec![], deep, limits).unwrap_err();
+    assert_eq!(rejected.range, 10..20);
+    assert!(rejected.message.contains("nesting"));
+}
+
+#[test]
+fn patterns_and_control_values_preflight_scope_shapes_purity_and_tail_calls() {
+    use zincite_query::{Program, ProgramLimits};
+    let limits = ProgramLimits::default();
+    let input = Input::parse(b"int: value = 1; solve satisfy;".to_vec(), FileMode::Model).unwrap();
+    for source in [
+        "let (a,b)=(1,); report 0;",
+        "let {a}=(a:1,b:2); report a;",
+        "let {a,b}=(a:1); report a;",
+        "fn wrong((a,b):tuple<int,int>)->int{a} report wrong((1,\"x\"));",
+        "let a=1; report match(1){ present(a)=>0,_=>1 };",
+        "report match(1){ absent=>{let (a,a)=(1,2);0},_=>1 };",
+        "report match(1){ present(value) if 1=>value,_=>0 };",
+        "report match(1){ present(value) if <>=>value,_=>0 };",
+        "report match(1){ present(value)=>value };",
+        "report if true { 1 } else { emit() };",
+        "report match(1){ present(value)=>1 div 0,_=>0 };",
+        "let (a,b)=(1,2); create value=1; emit;",
+        "let a=if false { loop(n=0){break n} } else {0}; create value=1; emit;",
+        "fn unused(x:queue<Node>)->int{0} report 1;",
+        "fn unused()->int{loop(n=0){break n}} report 1;",
+    ] {
+        let result =
+            Program::parse(source, limits).and_then(|program| program.evaluate(&input, limits));
+        assert!(result.is_err(), "accepted {source}");
+        let error = result.unwrap_err();
+        assert!(error.range.end <= source.len(), "{source}: {error:?}");
+    }
+    let source = "fn down(n:int)->int { match(n) { 0=>0, _=>{ let next=n-1; if next >= 0 { down(next) } else {0} } } } report down(1000);";
+    let program = Program::parse(source, limits)
+        .unwrap()
+        .with_function_limits(zirql::FunctionLimits { active_depth: 1 });
+    program.evaluate(&input, limits).unwrap();
+    let error = program
+        .evaluate(
+            &input,
+            ProgramLimits {
+                work: 2000,
+                ..limits
+            },
+        )
+        .unwrap_err();
+    assert!(error.message.contains("work"), "{error:?}");
+    assert!(error.range.end <= source.len());
+    let mut contextual = Program::parse(
+        "let match=1; let if=2; let present=3; let absent=4; report (match,if,present,absent);",
+        limits,
+    )
+    .unwrap()
+    .evaluate(&input, limits)
+    .unwrap();
+    assert!(!contextual.render().unwrap().is_empty());
+    Program::parse("let 'quoted name'=1; report 'quoted name';", limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    Program::parse("report match(if /* subject */ true then (1,2) else (3,4) endif) { (a,b) if a in {1,3} => a+b, _ => 0 };",limits).unwrap().evaluate(&input,limits).unwrap();
+    Program::parse(
+        "let {a,..}=(a:1,b:2); report if a=1 { a } else { 1 div 0 };",
+        limits,
+    )
+    .unwrap()
+    .evaluate(&input, limits)
+    .unwrap();
+}
+
+#[test]
+fn shared_controls_compose_inside_minizinc_expressions() {
+    use zincite_query::{Program, ProgramLimits};
+    let limits = ProgramLimits::default();
+    let input = Input::parse(b"int: value = 1; solve satisfy;".to_vec(), FileMode::Model).unwrap();
+    let source = "fn f(x:int)->int{x} report (value: match(1){1=>7,_=>0}, choices: [if true {1} else {0}], call: f(match(1){1=>7,_=>0}), combined: -match(1){1=>7,_=>0} + sum([if i > 1 {i} else {0} | i in 1..3]) + if true then 1 else 0 endif);";
+    let mut result = Program::parse(source, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let rendered: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
+    let fields = &rendered["result"]["fields"];
+    assert_eq!(fields[0]["value"]["value"], 7);
+    assert_eq!(fields[1]["value"]["entries"][0]["value"]["value"], 1);
+    assert_eq!(fields[2]["value"]["value"], 7);
+    assert_eq!(fields[3]["value"]["value"], -1);
+}
+
+#[test]
+fn owned_typed_admission_bounds_literals_and_metadata_before_use() {
+    use zincite_query::{Program, ProgramFunction, ProgramLimits, ProgramValue};
+    use zirql::{
+        ConstructedValue as V, Located as L, SignatureType as S, ValueExpressionKind as K,
+    };
+    fn value() -> ProgramValue {
+        L::new(K::Literal(V::Integer(0)), 10..20)
+    }
+    std::thread::spawn(|| {
+        let mut literal = V::Integer(0);
+        for _ in 0..20_000 {
+            literal = V::Tuple(vec![literal]);
+        }
+        let error = Program::from_values(
+            vec![],
+            vec![],
+            L::new(K::Literal(literal), 10..20),
+            ProgramLimits::default(),
+        )
+        .unwrap_err();
+        assert_eq!(error.range, 10..20);
+        assert!(error.message.contains("limit"), "{error:?}");
+    })
+    .join()
+    .unwrap();
+    let limits = ProgramLimits {
+        work: 10,
+        results: 2,
+        ..ProgramLimits::default()
+    };
+    let function = ProgramFunction {
+        name: L::new("unused".into(), 10..20),
+        parameters: vec![],
+        result: L::new(
+            S::Tuple((0..128).map(|_| L::new(S::Integer, 10..20)).collect()),
+            10..20,
+        ),
+        value: value(),
+    };
+    assert!(Program::from_values(vec![function], vec![], value(), limits).is_err());
+    let array = L::new(K::Array((0..128).map(|_| value()).collect()), 10..20);
+    assert!(Program::from_values(vec![], vec![], array, limits).is_err());
+    let native = L::new(
+        zirql::ExpressionKind::Record(
+            (0..128)
+                .map(|i| {
+                    (
+                        L::new(format!("f{i}"), 10..20),
+                        L::new(zirql::ExpressionKind::Input, 10..20),
+                    )
+                })
+                .collect(),
+        ),
+        10..20,
+    );
+    assert!(
+        Program::from_values(
+            vec![],
+            vec![],
+            L::new(K::NativeValue(Box::new(native)), 10..20),
+            limits
+        )
+        .is_err()
+    );
+}

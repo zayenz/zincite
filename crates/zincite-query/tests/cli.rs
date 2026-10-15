@@ -1447,3 +1447,58 @@ fn report_ordering_inline_file_and_later_failure_keep_output_buffering() {
     assert!(String::from_utf8_lossy(&failure.stderr).contains("missing ordering field"));
     std::fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn patterns_and_control_values_replay_inline_file_and_buffer_later_errors() {
+    let model = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/recursive-functions.mzn"
+    );
+    for (source, file) in [
+        (
+            include_str!("fixtures/destructured-report.zq"),
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/destructured-report.zq"
+            ),
+        ),
+        (
+            include_str!("fixtures/optional-match.zq"),
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/optional-match.zq"
+            ),
+        ),
+    ] {
+        let inline = run(&["--program", source, model], b"");
+        assert!(inline.status.success(), "{inline:?}");
+        let saved = run(&["--program-file", file, model], b"");
+        assert!(saved.status.success(), "{saved:?}");
+        assert_eq!(inline.stdout, saved.stdout);
+        let input = zincite_query::Input::parse_named(
+            std::fs::read(model).unwrap(),
+            zincite_syntax::FileMode::Model,
+            model,
+        )
+        .unwrap();
+        let limits = zincite_query::ProgramLimits::default();
+        let expected = zincite_query::Program::parse(source, limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .unwrap()
+            .render()
+            .unwrap();
+        assert_eq!(inline.stdout, expected);
+        let failed = run(
+            &[
+                "--program",
+                &format!("{source} report match(1){{ _ => 1 div 0 }};"),
+                model,
+            ],
+            b"",
+        );
+        assert_eq!(failed.status.code(), Some(2));
+        assert!(failed.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&failed.stderr).contains("zero"));
+    }
+}
