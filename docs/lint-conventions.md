@@ -21,6 +21,8 @@ set of int: SHIFTS = 1 .. 7;
 array[SHIFTS] of var 0 .. 10: staffCount;
 ```
 
+<!-- zincite-lint: naming -->
+
 Here, `Shifts` and `staff_count` communicate the roles of the two declarations:
 
 ```minizinc

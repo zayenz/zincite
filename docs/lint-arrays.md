@@ -23,6 +23,8 @@ constraint forall (day in 1 .. 7) (
 );
 ```
 
+<!-- zincite-lint: index-set-mismatch -->
+
 The last iteration uses `required[7]`, but `required` ends at index 6. Decide
 whether both arrays should use the same days or whether an explicit mapping is
 needed. Using the correct array's `index_set` helps avoid repeated bounds, but

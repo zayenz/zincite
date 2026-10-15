@@ -21,8 +21,14 @@ promise that Zincite accepts every Zirql construct.
 
 ## Build and preview
 
-Website work needs Node.js 22.12 or later and npm. Rust contributors need only the
-Rust toolchain; no Cargo command invokes the site build.
+Website work needs Node.js 22.12 or later, npm, the Rust toolchain and MiniZinc's
+standard library. Content preparation builds the current `zincite-lint` and runs
+the marked lint examples. Set `MZN_STDLIB_DIR` to the MiniZinc library root
+containing `std/stdlib.mzn`, or put `minizinc` on `PATH` so preparation can read
+the path from `minizinc --config-dirs`. No solver is run.
+
+Rust contributors need only the Rust toolchain; no Cargo command invokes the
+site build.
 
 From the repository root:
 
@@ -73,6 +79,25 @@ tables should scroll within the content, without widening the page.
 
 No site build is wired into Rust checks. Build the website explicitly when its
 content, configuration or appearance changes.
+
+## Generated lint responses
+
+Put `<!-- zincite-lint: RULE-ID -->` immediately after a MiniZinc code block,
+separated by a blank line, to show the linter's current response on the site.
+The code block must demonstrate the selected rule without extra setup files.
+For example, the `naming` example in `../docs/lint-conventions.md` uses
+`<!-- zincite-lint: naming -->`.
+
+`scripts/lint-examples.mjs` builds the workspace's linter once per preparation,
+runs each marked block in a temporary directory with isolated settings and
+captures its stderr verbatim. Relative filenames keep machine-specific paths
+out of the response. It adds the command and diagnostic block to generated site
+content; the source Markdown keeps the example and marker. The build fails on
+an execution error or if the example no longer produces its named warning.
+
+`build`, `check` and `dev` all run content preparation. After changing Rust code
+or the source guides, rerun the command to regenerate the responses. Do not edit
+generated diagnostic text by hand.
 
 ## Publication
 

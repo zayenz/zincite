@@ -42,6 +42,8 @@ var 8 .. 10: morning_staff;
 var 0 .. 7: total_staff = morning_staff + 1;
 ```
 
+<!-- zincite-lint: suspicious-domain -->
+
 `morning_staff + 1` lies in `9..11`, which is disjoint from `0..7`. Check the
 definition and the destination domain. If the intended total is morning staff
 plus one supervisor, `var 9..11: total_staff` matches that calculation.

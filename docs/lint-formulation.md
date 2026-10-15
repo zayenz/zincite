@@ -113,6 +113,8 @@ constraint forall (i, j in 1 .. 3 where i < j) (
 );
 ```
 
+<!-- zincite-lint: global-constraint-opportunity -->
+
 Every pair of assignments must differ. The standard global states that intent
 directly:
 

@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile, copyFile } from 'node:fs/promises';
 import { resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { renderLintExamples } from './lint-examples.mjs';
 
 const site = fileURLToPath(new URL('../', import.meta.url));
 const root = resolve(site, '..');
@@ -15,7 +16,7 @@ await mkdir(output, { recursive: true });
 
 for (const name of guides) {
   const source = resolve(root, `docs/${name}.md`);
-  const markdown = await readFile(source, 'utf8');
+  const markdown = renderLintExamples(await readFile(source, 'utf8'));
   const title = markdown.match(/^# (.+)\r?\n/);
   if (!title) throw new Error(`Missing page title in ${source}`);
   const body = markdown.slice(title[0].length).replace(/\]\(([^\s)]+)\)/g, (link, target) => {
