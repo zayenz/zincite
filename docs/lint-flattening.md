@@ -39,11 +39,14 @@ max-candidates = 25000
 ```
 
 Known candidate counts or upper bounds warn only when strictly above the
-threshold. A symbolic product can receive informational advice without a numeric
-estimate; that advice alone does not fail lint. Suggestions to move a filter or
-aggregate earlier require supported parameter-only evaluation, retained guards
-and defined expressions. Decision filters, partial expressions and unknown
-crossed domains prevent that advice. There is no automatic reordering.
+threshold. When generator sizes depend on unknown input data, Zincite can give
+informational advice without a numeric estimate. That advice alone does not fail
+lint.
+
+Moving a filter or aggregate earlier can avoid repeated work, but it must
+preserve the result and keep expressions defined. Zincite suggests this only
+for supported parameter-only calculations whose guards and generator
+dependencies remain valid. It does not reorder the model automatically.
 
 ## decision-variable-operator
 

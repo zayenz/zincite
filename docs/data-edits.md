@@ -229,19 +229,20 @@ files are retained under `crates/zincite-query/tests/fixtures/` as
 `doubled.mzn`, `doubled.dzn` and `double.zq`. From the repository root:
 
 ```sh
-zincite query --model crates/zincite-query/tests/fixtures/doubled.mzn \
+zincite query --max-work 5000000 --model crates/zincite-query/tests/fixtures/doubled.mzn \
   -f crates/zincite-query/tests/fixtures/double.zq \
   crates/zincite-query/tests/fixtures/doubled.dzn
-zincite query --diff --model crates/zincite-query/tests/fixtures/doubled.mzn \
+zincite query --diff --max-work 5000000 --model crates/zincite-query/tests/fixtures/doubled.mzn \
   -f crates/zincite-query/tests/fixtures/double.zq \
   crates/zincite-query/tests/fixtures/doubled.dzn
 ```
 
-This larger example copies two entities into two independent pairs and copies
-their group. It changes the counts, per-entity arrays and references together.
+The higher work allowance covers loading the standard library and checking the
+dependent assignments. This example copies two entities into two independent
+pairs and copies their group. It changes the counts, per-entity arrays and references together.
 It retains weights, remaps peers to `2, 1, 4, 3` and groups to `1, 1, 2, 2`,
 copies the two-column capacity rows, and maps group membership to `{1,2}` and
 `{3,4}`. Changing only a count would leave the arrays with too few entries, so
-Zincite refuses that edit. Cross-copy relationships and enum member mappings require explicit
-caller choices. The program never adds enum members or edits model/include
-files. Syntax and bounded shape checks do not prove satisfiability.
+Zincite refuses that edit. The program must specify any relationships between
+copies and any enum member mappings. It never adds enum members or edits model
+or include files. Syntax and bounded shape checks do not prove satisfiability.

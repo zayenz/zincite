@@ -1,14 +1,15 @@
-# Callable analysis responsibilities and bounded follow-ups
+# Callable analysis responsibilities
 
-The historical base-094 recommendation kept the stages introduced by base-093
-and proposed tightening two local-initializer consumer contracts before extension.
-Callable analysis should provide bounded output guarantees and checked source
-prerequisites. It should not become a general value evaluator or a certificate
-that every selected analysis completed.
+Callable analysis supplies lint rules with facts about function and predicate
+calls. Knowing a call's signature is enough for some checks. Proving bounds,
+definedness or search coverage can also require facts about its body. This
+design record explains which analyses supply those facts and what they leave
+unknown. It does not propose a general MiniZinc value evaluator.
 
-The historical design below was inspected at
-`fda190e27e104538e9cbec236435c985235a573d`. It proposes future work; it changes no
-fact API, semantic behavior, brief policy or task graph. The
+The support policy below takes precedence over the historical base-093/base-094
+proposals recorded later in the document. Those proposals were inspected at
+`fda190e27e104538e9cbec236435c985235a573d`; they do not describe additional
+implemented behavior or reopen completed tasks. The
 [brief's Semantic analysis and Testing contracts](../.zdev/base/brief.md) and
 [thesis coverage contract](../.zdev/base/background/thesis-rule-coverage.md)
 remain authoritative. In source references below, `src/` and `tests/` mean
@@ -26,10 +27,10 @@ base-100/base-050 are completed historical work and are not reopened here.
 Required written user references, local/signature typing, known errors, possible
 assertion/partiality and ambiguity barriers remain. A selected typed callable may
 be deliberately opaque for bounds, truth, definedness, output and search proof.
-Former admission-only adapters and whole-owner walks may retire instead of
-interpreting arbitrary sources solely to turn Unsupported into Unknown. The
-semantic plan defines exactly which exclusions change and which remain Limited;
-its owner/consumer/guarantee/limit table and baseline govern future changes.
+Body inspections used only to turn Unsupported into Unknown may be removed.
+The semantic plan calls these admission-only inspections and defines which
+exclusions change and which remain Limited. Its analysis-responsibility table
+and baseline govern future changes.
 
 Keep useful finite summaries by semantic operation: selected scalar/whole-array
 outputs with complete enforced dependencies; transparent value/enforcement
@@ -41,11 +42,11 @@ uses them. These operations need not preserve every historical body shape.
 Removing a useful positive proof requires explicit review; retiring inspection
 that supplied only Unknown is authorized by this policy.
 
-The refusal-text query, whole-owner extraction and classification proposals below
-remain historical/deferred designs, not mandatory steps before simplification.
-No public facts, general evaluator, IR or fixed-point framework are introduced
-by this revision. Use ordinary per-analysis demand/reuse before considering
-Salsa under the semantic plan's separately scoped, measured decision.
+The proposals below for querying refusal messages, extracting whole callable
+bodies and classifying them remain historical or deferred. They are not
+prerequisites for simplifying the implementation. Reuse facts within an analysis
+before considering an incremental database; the semantic plan records the
+conditions for reconsidering Salsa.
 
 ## Current definition and boundary contracts
 
@@ -66,7 +67,7 @@ values remain unproved. `domains` classifies opaque union comprehension
 operands as Unknown. They retain known errors and useful concrete domain facts
 without an initialized-body admission certificate.
 
-`UnavailableCallableDefinition` now carries a typed status and operation beside
+`UnavailableCallableDefinition` carries a typed status and operation beside
 its source location, affected targets and diagnostic reason. Unknown means the
 source is supported but the operation remains unproved. Unsupported retains a
 failed or unsupported required source/operation. Source boundaries describe
@@ -75,15 +76,17 @@ stronger output proof that is unavailable. Search retains Unknown for affected
 targets and reports only Unsupported boundaries. Unbounded advice reads Source
 boundaries directly, so relevant opacity vetoes dependent advice while an Output
 refusal preserves advice for understood conditional or partial definitions.
-The reason is diagnostic payload, never a policy selector.
+Consumers use the typed status and operation to make these decisions. The reason
+string is only for diagnostics; changing its wording must not change analysis.
 
-Boundary targets follow conservative resolved references and existing
-actual/default/capture mapping. They do not infer relation direction. Unresolved
-attribution retains an empty target list as the necessary owner/root veto;
-closed actuals with no affected references supply no veto on independent
-values. An opaque private prerequisite can withhold its enclosing let's output,
-so that enclosing scope publishes its own Unknown boundary. Unknown boundaries
-supply no output, definition, bound or search seed.
+Boundary targets come from resolved references, with actual arguments, defaults
+and captures mapped into the call. They do not establish the direction of a
+relation. If the affected declarations cannot be identified, an empty target
+list prevents dependent conclusions for the whole owner or root. An argument
+with no affected references does not block conclusions about independent values.
+An opaque prerequisite inside a `let` can prevent proving that `let`'s output;
+the enclosing scope then publishes its own Unknown boundary. Unknown boundaries
+establish no output, definition, bound or starting point for search coverage.
 
 Base-117 adds a possible-reference boundary when a selected relation has no
 finite output summary. It reads written references and maps actuals, defaults
@@ -116,9 +119,10 @@ errors still veto dependent outputs; successful error observations supply no
 admission or value certificate. Constant-variable consumes direct definitions
 and requires Supported safety before advice or fixes.
 
-Guarded owns a typed `AbortingDefault` limitation kind. Partial-expression advice
-selects that data instead of comparing its rendered reason. Unknown/Unsupported
-and Source/Output boundary distinctions continue to govern consumers directly.
+`guarded` supplies the typed `AbortingDefault` limitation.
+Partial-expression advice checks that kind rather than comparing the message
+text. Consumers also distinguish Unknown from Unsupported and Source boundaries
+from Output boundaries through their types.
 
 The sections below preserve the recorded base-093/base-094 implementation map
 and observations. Every proposal, imperative instruction, line number and

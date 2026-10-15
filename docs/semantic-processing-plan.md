@@ -1,9 +1,10 @@
 # Bounded semantic processing
 
-Zincite provides a standalone, lint-oriented semantic front end for MiniZinc
-2.10.1. It retains complete target syntax and source-preserving processing
-obligations while promising bounded semantic facts and detection families.
-Valid syntax does not require unrestricted interpretation of the model.
+Zincite's lints and queries need to know which declaration a name refers to,
+which type an expression has and, for selected checks, what bounds or definitions
+can be established. This plan defines those analyses for MiniZinc 2.10.1.
+The parser must preserve source and accept the target syntax even when an
+analysis cannot interpret an expression's value or a callable's body.
 
 The [brief](../.zdev/base/brief.md) is the product authority. The user-approved
 base-114 revision adopts deliberate semantic opacity and the retained proof
@@ -19,9 +20,9 @@ Historical execution counts remain unchanged.
 
 ## Research basis
 
-Source research on 2026-10-11 supports separating reusable facts from individual
-lint proofs. These comparisons guide design; they establish no Zincite runtime,
-conformance, coverage or performance result.
+The source comparisons below, inspected on 2026-10-11, informed the separation
+between reusable facts and proofs needed by individual lints. They are design
+references, not measurements of Zincite's coverage or performance.
 
 | Reference | Observed boundary | Zincite decision |
 | --- | --- | --- |
@@ -78,26 +79,31 @@ advice and safe fixes keep their stronger safety obligations.
 
 ## Deliberate opacity
 
-Opacity is a supported conservative operation after required source resolution
-and typing. A uniquely selected signature may establish identity and types while
-its body supplies no bounds, truth, definedness, outputs or search proof. Retain
-argument facts and written reference/dependency edges, known relevant errors and
-possible assertions/partiality. Inspect written user-body references and required
-local/signature typing even when no body proof is requested. An unknown relevant
-edge vetoes an unused conclusion. Bodyless/native calls are not universally total.
+An analysis may know which function a call selects and what type it returns
+without interpreting its body. For example, a `var int` result establishes
+decision dependence even when its numeric bounds remain unknown. We call this
+deliberate opacity. It does not establish a value, truth, definedness, output
+definition or search coverage.
 
-Precisely the former admission-only exclusions become supported opacity: skipping
-arbitrary selected-body interpretation used solely to admit a typed expression;
-skipping whole-body/initialized-source walks used solely to change Unsupported to
-Unknown for symbolic bounds, generator membership/counts, local initializers,
-relation definedness or search dependencies; and declining exhaustive library-body
-execution, recursive execution or relation inversion when the consumer can retain
-conservative Unknown without those operations. This permission removes the
-admission prerequisite, not useful positive summaries or required source typing.
+Name resolution and required type checks still run. Keep argument facts,
+written references and dependencies, known relevant errors and possible
+assertions or undefined operations. Inspect written user-body references and
+required local and signature types even when no body proof is requested. An
+uncertain reference that might use a declaration prevents calling that
+declaration unused. A bodyless or native call is not automatically total.
+
+Older analyses sometimes interpreted a body solely to decide whether to accept
+an expression whose value would remain Unknown. This document calls that work
+admission-only inspection. It can be omitted under the opacity policy. This
+includes whole-body and initializer walks for symbolic bounds, generator
+membership or counts, local initializers, relation definedness and search
+dependencies. Exhaustive library-body execution, recursive execution and relation
+inversion can also be skipped when the consumer can safely keep Unknown.
+Useful positive summaries and required source typing must remain.
 The regular/regexp/sliding-sum/GCC admission adapters and metadata/selected-source
 adapters in the callable plan are examples, not mandatory replacement summaries.
-Do not suppress already known source errors or erase possible abort/partiality
-barriers; newly opaque bodies cannot acquire totality by being uninspected.
+Keep known source errors and possible aborts or undefined operations. Leaving a
+body uninspected cannot make it total.
 
 Remaining exclusions are explicit: unrestricted higher-order selection and
 recursively changing type instantiations outside first-order support; general
@@ -212,14 +218,16 @@ accounting consumer; a later repair needs an owner, witness and proof barrier.
 
 ## Warning and edit policy
 
-Failure to prove a bound, definition or use absence alone cannot justify
-`unbounded-variable`, `search-coverage` or `unused-declaration`. Keep scoped
-explicit-domain advice for simple supported bare numeric declarations, as in
-`tests/unbounded.rs`; this is advice about written domains, not proof of an
-infinite feasible set. Uncertain relevant relations veto dependent advice, even
-when opacity lets the selected analysis complete. A known uncovered independent
-decision can still warn. References required for unused analysis remain inspected;
-no execution proof is needed to establish a written use.
+An unknown bound, definition or use does not by itself justify
+`unbounded-variable`, `search-coverage` or `unused-declaration`. The explicit-domain
+advice for simple bare numeric declarations remains, as in `tests/unbounded.rs`.
+It asks for a written domain; it does not prove that the feasible set is infinite.
+
+An uncertain relation prevents advice that depends on understanding that relation,
+even when the selected analysis can complete with Unknown. An independent
+decision known to be uncovered can still warn. Unused-declaration analysis must
+still inspect the required references: establishing a written use needs no proof
+of the referenced code's execution.
 
 Unknown cannot enable a semantic query through negation or a safe fix. Preserve
 solution, objective, output, definedness, annotation, comment, index and exact

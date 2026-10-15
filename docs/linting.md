@@ -1,8 +1,8 @@
 # Linting MiniZinc with Zincite
 
-Use linting to review a model's conventions and look for concerns such as
-mismatched indices, shadowed names or operations such as division by zero. Each finding names
-a rule and points to a source location. Ordinary runs leave the files alone;
+Linting finds concerns such as mismatched array indices, names that hide other
+names and division by zero. It also checks modelling conventions. Each finding
+names a rule and points to a source location. Ordinary runs leave the files alone;
 explicit `--fix` applies eligible edits as described below.
 
 After [installation](getting-started.md), start with a model you know:
@@ -53,8 +53,8 @@ A warning includes the rule ID, source path and location. For an included file,
 `[root PATH]` identifies the model being analysed: the same include can have
 different findings when used by different models.
 
-CLI diagnostics show a source excerpt with the affected range underlined, using
-`annotate-snippets`. Excerpts come from the analysed input, including stdin and
+CLI diagnostics show a source excerpt with the affected range underlined.
+Excerpts come from the analysed input, including stdin and
 included files; diagnostics without available source retain their text location.
 
 Warnings produce exit status 1. Input or configuration errors produce 2.
@@ -113,8 +113,9 @@ line endings.
 
 ## Project settings
 
-Each root uses the nearest ancestor `zincite.toml`. Ancestor settings are not
-merged. Includes use their root's settings. `--config PATH` applies one explicit
+Each input model uses the nearest ancestor `zincite.toml`, including for files
+it includes. Settings from different ancestor directories are not merged.
+`--config PATH` applies one explicit
 file to all roots; `--isolated` disables discovery. These switches are mutually
 exclusive. Zincite validates every root's settings before analysis or writes.
 `--show-settings` prints effective settings without reading model or stdin bytes.

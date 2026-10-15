@@ -79,8 +79,8 @@ same unsuppressed access.
 
 ## missing-input-precondition
 
-Finds a function or predicate that relies on a condition its formal inputs do
-not establish.
+Finds a function or predicate whose arguments permit values that would make an
+operation undefined.
 
 ```minizinc
 function int: average_required(array[int] of int: required) = sum(required) div length(required);

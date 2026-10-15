@@ -17,8 +17,8 @@ See [linting](linting.md) for selection and fix settings.
 
 ## constant-variable
 
-Suggests a parameter when a decision variable has a complete, proved
-parameter-valued definition.
+Suggests a parameter when a decision variable's entire value is determined by
+input data or a parameter expression.
 
 ```minizinc
 var int: days_per_week = 7;
@@ -28,8 +28,8 @@ There is no decision to make about `days_per_week`. Write `int: days_per_week = 
 if that is the intended meaning. Zincite can also follow supported enforced
 equalities and complete, unfiltered `forall` definitions of array elements.
 
-A missing proof that a value varies is insufficient. Conditional, cyclic and
-partial definitions do not receive this recommendation.
+Zincite must establish the complete definition before recommending a parameter.
+Conditional, cyclic and partial definitions do not receive this recommendation.
 
 ## compact-if
 
@@ -123,9 +123,9 @@ include "all_different.mzn";
 constraint all_different(assigned_shift);
 ```
 
-The pairwise pattern must cover the whole array with compatible nonoptional
-equality types. Extra filters, shifted accesses or partial pairs can change
-the requirement and prevent the suggestion.
+The pairwise pattern must compare every pair of array positions. The compared
+values must have compatible, nonoptional types. Extra filters, shifted accesses
+or omitted pairs can change the requirement and prevent the suggestion.
 
 The rule also recognises supported whole-array occurrence bounds as candidates
 for the four-argument open `global_cardinality` constraint. Values outside its

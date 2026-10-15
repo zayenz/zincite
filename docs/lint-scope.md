@@ -37,8 +37,9 @@ ignore-names = ["i", "j"]
 
 ## unused-declaration
 
-Reports top-level declarations that cannot be reached through a complete model's
-constraints, solve item, output or annotations.
+Reports top-level declarations that a complete model does not use in its
+constraints, solve item, output or annotations, even indirectly through other
+declarations.
 
 ```minizinc
 int: old_staff_limit = 12;

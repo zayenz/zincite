@@ -1,66 +1,40 @@
-# Bounded comprehensions for reports and data
+# Query expressions and data construction
 
-`set_value("EXPRESSION")` inserts MiniZinc expression source into an existing
-assignment. `values` reads written literals, but does not evaluate a computed
-right-hand side. Neither operation constructs a new value from query results.
-Read-only [query programs](reference.md#query-programs) use immutable `let`
-bindings for input values and calculations.
-They support required scalar parameters, ordered query statements, native
-reports and the bounded expression/comprehension subset below. Zincite lowers its existing CST and uses
-Zirql for checked expressions, scopes, generators, array summaries, requirements
-and keyed helpers. Read-only programs also accept [typed query functions](reference.md#typed-query-functions) with explicit native inputs and bounded direct or mutual recursion.
-Model-backed `.dzn` edit batches use the common expression subset and evaluator;
-the report-only calls below are excluded from every edit expression.
+A query program can calculate values from MiniZinc data and either return a
+JSON report or construct a new `.dzn` file. It reads literal assignments,
+binds their values with `let`, and uses expressions and comprehensions to build
+the result. It does not evaluate the MiniZinc model or run a solver.
 
-Reports accept positional and sparse keyed arrays, matrices, tuples, ordered
-records and homogeneous Boolean/integer/float/nominal sets. Sources may use
-existing query projections or one unique original literal assignment. Nested
-arrays stay nested. Integer starting-key tails use checked successors; enum
-starting-key tails are refused. `index_set`
-returns established rank-one keys. `enum_member` resolves explicit declared
-members through a retained read-only model; use `--model` for `.dzn` programs.
-Input bindings may establish enum alignment and empty axes from written
-integer intervals or explicit enums. Bounded integer axis endpoints may read unique fixed integer literal assignments;
-computed dependency values and uncertain axes are refused.
-Native-only reports keep their existing untagged result; pure reports use the
-tagged schema in this contract.
+This page defines the supported expressions, result formats and edit rules.
+Start with [query reports](queries.md) or [data edits](data-edits.md) for a
+walkthrough. The [doubled-instance example](#a-complete-doubled-instance) below
+shows how to copy records while updating their indices and references together.
 
-The expression syntax follows the [MiniZinc 2.10.1 comprehension and generator
-grammar](https://docs.minizinc.dev/en/2.10.1/spec.html#set-comprehensions).
-MiniZinc itself permits more expressions and functions. This contract accepts
-only the subset stated here; syntactic acceptance by Zincite's parser alone
-does not imply that the constructor can evaluate an expression.
+Zincite uses [Zirql](https://zayenz.se/zirql/) to evaluate the queries. Its
+expressions follow MiniZinc 2.10.1 syntax where described here, but support only
+the operations listed on this page. A MiniZinc expression can parse correctly
+and still be unsupported in a query.
 
-## Native report composition
+## Combine source selections in a report
 
-Reports may use direct native pipeline stages and the shared `project(subject, {fields})`
-and `match { from ...; bind ...; where ...; }` forms described in the
-[query reference](reference.md#native-projections-and-captures). Their quoted
-projection fields use the shared value reader and explicit native scalar
-projections. Ordinary MiniZinc expressions, records and comprehensions retain
-the CST frontend described below. Native captures retain declaration/reference
-identity and their model owner; they are never constructed scalar handles.
+Source selections and semantic queries can feed a report directly. Use
+`project(subject, {fields})` to calculate fields for each selected item, or
+`match { from ...; bind ...; where ...; }` to relate declarations to their uses.
+The [projection examples](queries.md#correlate-declarations-with-their-uses)
+show both forms. Selections keep their declaration identity and source
+locations throughout the report.
 
-The shared evaluator owns capture scope, dependent generator order,
-exact-one bindings, field lookup and correlated projection. The adapter supplies
-Zincite stages, semantic predicate leaves and scalar conversion. A match guard
-keeps Unknown until shared Boolean control finishes: a final Unknown refuses
-at the responsible model location, while a known true alternative can retain
-a row with its located limitation. Empty capture collections retain their field
-schema. Candidate admission, copies, metadata and rendering use the same
-continuing request budget as other reports.
+A guard that remains unknown fails at the model location responsible. A known
+true alternative can still keep a row, with any analysis limitations attached.
+Empty matches keep their field names so later projections can be checked.
 
-The shared `paths(referenced_declarations, to=predicate, max_depth=n)` form also
-returns native captures. Source, sink and declaration steps retain the model
-owner and original coordinates. The [path reference](reference.md#bounded-declaration-paths)
-defines shortest witnesses, edge bounds, Unknown refusal and incompleteness.
-Its traversal, native copies, field projection and rendering spend the same
-program budget. The final expression emits its result and may end at EOF without `;`.
-Bindings and earlier statements require terminators; edits end with `emit;`.
+`paths(referenced_declarations, to=predicate, max_depth=n)` finds connections
+between declarations. Each result contains a source, a sink and the declarations
+along one shortest path between them. The [path reference](reference.md#bounded-declaration-paths)
+defines the depth bound, traversal order and incomplete-result behaviour.
 
-These forms are excluded from data expressions and preceding edit lets. The
-closed MiniZinc data grammar, complete-candidate validation and atomic write
-rules below continue to apply.
+These operations are available in read-only reports. Data-edit programs support
+the narrower set of input stages and expressions below.
 
 ## Report expressions and edit grammar
 
@@ -87,16 +61,18 @@ results. Use `let` for an intermediate calculation that should not print.
 
 A data request ends in one atomic edit batch and cannot include output
 expressions. Input reads and calculations may interleave before the batch;
-every read uses the original input. Native data reads admit `items`, `filter`,
+every read uses the original input. Native data reads support `items`, `filter`,
 `head`, `range`, `values`, `names`, `count`, `unique`, `fields`, `elements` and
 `keys`, followed by shared `one` when exactly one projected value is needed.
 Semantic filters, `project`, `match` and paths remain report-only. Calculations
 and native predicate arguments retain the closed data-expression policy below;
 report-only calls are refused even in unused bindings or unchosen branches.
 Each visible binding and parameter name must be unique. Parameters follow the
-[required input rules](reference.md#required-query-parameters).
+[required input rules](reference.md#required-query-parameters). The grammar below
+covers basic report statements and data edits; read-only [patterns and
+functions](reference.md#patterns-and-pure-control-values) have additional syntax.
 
-```ebnf
+```text title="Basic grammar"
 request        = (parameter | binding | output ";")* output [";"]
                | (parameter | binding)* edit-batch ;
 parameter      = "param" ascii-ident ":" ("int" | "string" | "bool") ";" ;
@@ -139,9 +115,7 @@ An absent value cannot act as a filter; decision-dependent Booleans remain unsup
 scope and iteration rules follow the [specification's generator
 rules](https://docs.minizinc.dev/en/2.10.1/spec.html#set-comprehensions).
 
-Calculated `expression` values use MiniZinc 2.10.1 syntax parsed by Zincite's
-existing CST, then checked against the following closed subset. Native input
-pipelines use the shared reader and the bounded read stages above. Expressions may contain
+Calculated values support the following MiniZinc 2.10.1 expressions:
 signed integer, decimal float, Boolean, string and absent (`<>`)
 literals; bound names; parenthesized expressions; field access (`r.field`),
 tuple access (`t.1`), array access (`a[i]` or `a[i,j]`); finite integer ranges
@@ -149,9 +123,8 @@ tuple access (`t.1`), array access (`a[i]` or `a[i,j]`); finite integer ranges
 literals; the three comprehensions above; and `if ... then ... elseif ... then
 ... else ... endif`. The `else` is mandatory in this subset. Records use
 MiniZinc labels, for example `(weight: 7, peer: 2)`; a label is not a string or
-member. The common expression calls are `index_set(a)` for a one-dimensional
-array's established keys and the host helper
-`enum_member(EnumName, "MemberName")` for an explicit enum member identity.
+member. Both reports and data edits accept `index_set(a)` for a one-dimensional
+array's keys and `enum_member(EnumName, "MemberName")` for a declared enum member.
 `enum_member` requires a unique model enum declaration and a
 member already declared there. Its arguments are an enum identifier and a
 string literal, not computed expressions. Written member references in source
@@ -168,20 +141,19 @@ Reports additionally accept `length(a)`, `sum(a)`, `forall(a)`, `exists(a)`,
 String matching accepts two strings and returns a fixed Boolean. Matching is
 exact and case-sensitive, without coercion, regex, case folding or Unicode
 normalization. Empty search strings match, including an empty text. Both
-operands evaluate in written order; known non-string operands fail preflight,
-including in skipped branches. Scans and failure diagnostics use the active
-request budget, and matching borrows existing text. These helpers remain
-report-only, including in unused lets and skipped data-edit branches.
+operands evaluate in written order. Known non-string operands are rejected
+before evaluation, including in skipped branches. String scans count towards
+the program's work limit. These helpers are report-only, including in unused
+bindings and skipped data-edit branches.
 
 Each reducer takes one ordinary array expression. The array materializes fully
 before reduction; generator-call spellings such as `forall(i in 1..3)(...)` are
-unsupported. Length counts present
-values without flattening nested arrays. Sum accepts only integers and performs
+unsupported. Length counts present values without flattening nested arrays. Sum accepts only integers and performs
 checked addition in stored order. The quantifiers require fixed Booleans and
 scan every stored element. Positional and keyed arrays use the same reducers;
-keyed reducers visit stored cells, including in sparse arrays. Generic axis and
-key invariants remain checked. Data edits require contiguous axes and complete
-rectangular coverage.
+keyed reducers visit stored cells, including in sparse arrays. Array indices
+must still be valid. Data edits require contiguous axes and complete rectangular
+coverage.
 
 | Call | Empty array result |
 | --- | --- |
@@ -190,13 +162,12 @@ rectangular coverage.
 | `forall([])` | `true` |
 | `exists([])` | `false` |
 
-Require takes exactly three arguments, with a string literal as its message.
-It preflights every operand, name and known type. Runtime evaluates its condition
-as a fixed Boolean. True evaluates and returns the value; false fails at the
-require call with the supplied message. False skips value arithmetic, access,
-construction and runtime host checks, while source projection and actual binding
-type discovery may still inspect or copy referenced values during preflight.
-A skipped operand cannot hide unsupported syntax or a known type mismatch.
+`require(condition, value, "message")` returns `value` when the condition is
+true. Otherwise, it stops the report with the supplied literal message. A false
+condition skips the value's arithmetic and array accesses. Syntax, names and
+known types are checked before evaluation, so the skipped value cannot hide an
+unsupported operation or a known type mismatch. Those checks may inspect input
+values even when the condition will be false.
 
 `sort(xs)` and `sort_by(rows, "field")` stably order positional scalar values
 or original records. They are ascending unless the final literal option is
@@ -215,12 +186,11 @@ in extrema. Project a `lookup(row, "score") default 0` key first when intended.
 Keyed arrays need explicit positional conversion, such as `[e.value | e in
 entries(a)]`.
 
-All six calls are report-only, including unused lets and skipped edit branches.
-Data source/target admission and atomic edits retain their closed policy.
-Sorting extracts keys once, admits O(n) scratch and uses fallible O(n log n)
-comparisons. Extrema scan once and select only the winner without a whole-input
-copy. Field/string/nominal inspection, scratch, comparisons and owned output
-copies share the continuing request budget; refusal yields no partial output.
+All six calls are report-only, including in unused bindings and skipped edit
+branches. Sorting extracts keys once and needs O(n) temporary storage and
+O(n log n) comparisons. Extrema scan the input once and select the winning
+value. This work, temporary storage and output copying count towards the program
+limits. A limit error produces no partial output.
 See the [ordering report](queries.md#sort-rows-and-select-extrema).
 
 `group_by` takes exactly two arguments: a positional record array and one string
@@ -228,7 +198,8 @@ literal field selector. Keys must be homogeneous integers, strings or resolved
 members of one enum. It returns positional `key`/`items` records in first-seen
 key order; each items array retains row order and duplicates. Other row fields
 may differ. Empty input returns an empty array. Missing fields fail when
-executed, while known incompatible keys fail preflight even in skipped branches.
+executed, while known incompatible keys fail before evaluation, even in skipped
+branches.
 Key refusals point to the selector; non-array input and non-record rows point
 to the call. Keyed arrays need an explicit positional comprehension conversion.
 
@@ -244,22 +215,23 @@ may have different value types. Equal empty axes are retained. Different rank,
 axis types/order, integer keys, nominal identity/metadata or key coverage causes
 a refusal; equal counts are insufficient. There is no truncation, filling,
 reindexing or data write. Both operands run once, left before right. Known input
-kinds and axis rank/types are preflighted in every branch; runtime alignment
-errors use the call range. Child errors keep their responsible ranges.
+kinds, ranks and index types are checked in every branch.
+Alignment errors point to the call; errors within an operand point to that
+operand.
 
 Read-only keyed operands may have noncontiguous axes and missing cells. Helpers
 retain their stored keys; they do not fill holes. Data edits still require
 contiguous axes and rectangular coverage. An empty indexed delta comprehension headed by
-`e.key` cannot infer axes after `entries`; the existing fallback needs simple
+`e.key` cannot infer axes after `entries`; empty-axis inference needs simple
 generator key names. Report `zip_exact` directly to retain declared empty axes.
 The [matrix example](queries.md#compare-keyed-matrix-cells) computes nonempty
 cell deltas explicitly.
 
 These calls are reporting operations only. An edit program refuses them in
 preceding `let` bindings, including unused lets and skipped branches, and in every
-`create` or `replace` RHS. Data expressions retain exactly `index_set` and
-`enum_member` as their call whitelist. Sources, binding order, target checks and
-the atomic candidate rules below remain the data contract.
+`create` or `replace` right-hand side. The only calls allowed in data expressions
+are `index_set` and `enum_member`.
+The edit rules below apply to the whole program, including its bindings.
 
 The operators below use the [MiniZinc 2.10.1 precedence and associativity
 table](https://docs.minizinc.dev/en/2.10.1/spec.html#operators). Parentheses
@@ -299,23 +271,20 @@ Model calls, arbitrary built-ins, generator calls, interpolation, annotations,
 floating ranges and every unlisted operator fail with a located explanation.
 
 Named query functions are the exception to the arbitrary-call exclusion.
-Their declarations use the common typed header and local-let structure, while
-bodies lower through the same MiniZinc CST adapter as report expressions.
-Functions support located tuple/record patterns in parameters and immutable
-bindings, guarded `match(subject)` values and lexical `if ... { ... } else
-{ ... }` blocks. MiniZinc conditionals, records and comprehensions retain their
-CST lowering. The shared prepared runner owns matching, scope, Boolean guard
-admission, lazy selected bodies and tail calls. Native record fields use
-explicit capture views and retain their input owners and coordinates. These
-forms, including unused lets and skipped branches, remain report-only. Data
-requests retain their closed grammar and atomic edit contract. See the
+They declare typed parameters and a result type, and can use local `let`
+bindings, conditionals and comprehensions.
+Function parameters and immutable bindings can destructure tuples and records.
+Guarded `match(subject)` expressions and `if ... { ... } else { ... }` blocks
+choose which value to calculate. Only the chosen body runs, although every body
+is checked for valid names, types and allowed operations. Native fields keep
+their declaration identity and source coordinates. These forms are report-only,
+including in unused bindings and skipped branches. See the
 [patterns reference](reference.md#patterns-and-pure-control-values) and
 [complete examples](queries.md#destructure-a-report).
 
-Functions do not execute model functions. They share the prepared value runner,
-work/result allowances and native callbacks described in the
-[function reference](reference.md#typed-query-functions). Atomic Data programs
-continue to reject every function declaration and call, even when unused.
+Query functions do not execute model functions. Their calls share the program's
+work and result limits; see the [function reference](reference.md#typed-query-functions).
+Data-edit programs reject function declarations and calls, even when unused.
 
 Numbers use signed 64-bit integers and finite binary64 decimal floats. Integer
 literals may use MiniZinc decimal, `0x` or `0o` spelling, including
@@ -324,8 +293,8 @@ arithmetic, range endpoints and index arithmetic fail on overflow. `div`,
 `mod` and `/` fail on zero divisors; `i64::MIN div -1` and the matching `mod`
 case fail on overflow. A nonzero decimal literal that rounds to zero fails,
 as does any nonfinite literal or result. Conversion of an integer to a float
-fails if binary64 cannot represent it exactly, as in the existing
-`filter_elements` numeric comparison. Floating arithmetic also refuses a
+fails if binary64 cannot represent it exactly. The same rule applies to
+`filter_elements` numeric comparisons. Floating arithmetic also refuses a
 nonzero finite mathematical result rounded to zero. No implicit string-to-number
 or string-to-member conversion is allowed.
 
@@ -350,16 +319,15 @@ and a fallback-only enum member is not resolved, until selected. Selected errors
 keep their original locations and share the request budget. Parenthesize mixed
 operators; `default` follows MiniZinc precedence and associates left to right.
 
-Fixed optional model sources retain their actual TypeInst contracts, including
-required and optional record labels. Omitted optional fields are permitted;
-missing required fields, extra labels and incompatible values fail admission.
-Zincite keeps these declarations with native constructed values; Rust callers
-can inspect data through `ConstructedValue::data()` without discarding the
-stored contract. Decision and computed source values remain unsupported.
+When a model declares a record's type, that declaration determines which fields
+are required or optional. Optional fields may be omitted. Missing required
+fields, extra labels and incompatible values are errors. Rust callers can use
+`ConstructedValue::data()` to inspect a value while keeping its declaration
+information. Decision values and computed source expressions are unsupported.
 
 Tagged reports render absence as `{"kind":"absent"}`. Records emit only stored
 fields and keyed arrays only stored cells. Data requests refuse absence,
-optional source/target contracts and these new forms, including unused lets and
+optional source or target declarations, and these operations, including unused lets and
 skipped branches. External parameters remain required int/string/bool inputs.
 See the [optional report](queries.md#read-optional-fields-and-sparse-cells).
 
@@ -370,10 +338,15 @@ filter. Fully keyed `[key: value | ...]` carries one integer or resolved enum
 key per dimension. A tuple key establishes its arity. Keys must be unique;
 integer axes retain numeric order and enum axes retain known identity and
 declaration order. Read-only arrays may omit axis keys or cells. Omission does
-not shift stored keys; data targets retain the contiguous rectangular policy. Keyed sources whose member names are merely syntactic
-identifiers need model facts before they can establish enum identity. The
-existing literal filter's syntactic key check alone cannot prove that identity
-or a target declaration's coverage.
+not shift stored keys; data edits require contiguous axes and complete
+rectangular coverage. A member name in a keyed source needs a matching model declaration to establish its enum
+identity. Matching the spelling alone is insufficient.
+
+A starting integer key can determine the following keys by checked addition.
+Enum starting keys cannot be used to infer a tail. Array axes can come from
+written integer intervals or explicit enums. Integer interval endpoints may
+refer to unique fixed integer literals in the input; computed or uncertain
+bounds are unsupported.
 
 Iteration over a multidimensional array yields its **values** in row-major
 axis order. `a[i,j]` uses a multidimensional key. `a[i][j]` accesses a nested
@@ -403,8 +376,25 @@ inspection keeps `complete:false` and its existing located limitation objects.
 Newly computed values do not invent source ranges. Source-backed query items
 may retain their existing file and range in a separate inspected result.
 
-For one assignment named `counts`, the second report example renders this
-complete object (shown with line breaks for readability):
+
+## Reports and data edit requests
+
+These two reports read assignment names. The first returns a list of records;
+the second keeps an explicit integer key for each record.
+
+```zirql
+let names = filter(kind("assignment")) | names;
+[(name: n, label: "data:" ++ n) | n in names]
+```
+
+```zirql
+let names = filter(kind("assignment")) | names;
+[i: (name: names[i]) | i in index_set(names)]
+```
+
+With just `counts = [3, 5];` in the input, the second report returns one record
+containing its name. Here is the complete JSON output, with line breaks added
+for readability:
 
 ```json
 {
@@ -425,30 +415,17 @@ complete object (shown with line breaks for readability):
 }
 ```
 
-## Reports and data edit requests
-
-Both reports are implemented. They use the current `names` projection as a
-source of strings; the keyed report preserves explicit positions.
-
-```zirql
-let names = filter(kind("assignment")) | names;
-[(name: n, label: "data:" ++ n) | n in names]
-```
-
-```zirql
-let names = filter(kind("assignment")) | names;
-[i: (name: names[i]) | i in index_set(names)]
-```
 
 Native input pipelines project a `Strings` result to a positional array of
 strings, `Count` to an integer, and `Literals` to a positional array of
 source-backed literal values. For one named RHS, use
 `items | filter(name("counts")) | values | one`; `one` checks the projection's
 cardinality and extracts the value. Item, node and semantic selections need an
-explicit, typed projection before use in a calculated expression;
-an ambiguous native result, `Tally`, `Json`, `Document` or `Reduction` is refused. Report
-construction over semantic results carries their completion status. A queried
-name is a string; it never becomes an enum member or record label by spelling.
+explicit value projection before use in a calculation. Histograms and rendered
+JSON or data documents cannot be used as calculation inputs. Reports derived
+from semantic queries keep their completeness status and limitations. A
+projected name is a string; its spelling does not make it an enum member or a
+record label.
 
 For a `.dzn` containing `counts = [3, 5];`, with `counts` and
 `doubled_counts` both declared as `array[1..2] of int` in a read-only model,
@@ -474,36 +451,41 @@ existing assignment. Duplicate targets fail; a request cannot create and
 replace the same name. All bindings read the original input,
 never a preceding edit in the same request. Creation appends a complete item
 after the last assignment, before trailing detached comments, using the input's
-line ending. An edit never changes model or include files. Without unique
-model ownership, type and axis obligations for a new or changed assignment
-remain unknown and the edit is refused.
+line ending. An edit never changes model or include files. If the model does not
+uniquely identify the target declaration and its type and indices, Zincite cannot
+validate the assignment and refuses the edit.
 
 An edit program constructs one atomic batch. It checks supported target types,
-written finite integer scalar domains and array shapes using read-only model
-declarations and the coherent candidate assignments after all edits. Thus the
-doubled example requires `entities` length 4, `groups` length 2 and
+written finite integer domains and array shapes against the model declarations
+and the combined result of all edits. The doubled example requires `entities`
+length 4, `groups` length 2 and
 `capacities` shape `4 × 2`, while input bindings still read the original
-`2`, `1` and `2 × 2` values. Resolve only supported literal scalar assignments
-and bounded declaration-axis expressions. A computed, ambiguous or unresolved
-axis dependency refuses the whole batch at its source range; this check does
-not establish full MiniZinc type validity or satisfiability.
+`2`, `1` and `2 × 2` values. Array bounds can depend on supported integer literal
+assignments. A computed, ambiguous or unresolved bound stops the whole batch at
+the relevant source location. These checks do not establish full MiniZinc type validity or
+satisfiability.
 
-Replacement changes only the original RHS range. An RHS with internal comments
-is refused until the caller chooses their placement; generated values inherit
-no comments. Existing comments outside replaced ranges, whitespace and all
-other source bytes stay in place. Created items have no inherited comments;
-creation fails if its placement would attach a directive to a different item.
-The entire batch uses original byte coordinates, rejects overlaps and directive
-damage, reparses the complete `.dzn` candidate, and uses the existing diff/write
-preconditions. There is no partial output or replacement on an error.
+Replacement changes only the original right-hand side. A right-hand side
+containing comments cannot be replaced automatically; move or remove those
+comments explicitly before making the edit. Comments outside replaced ranges,
+whitespace and all other source bytes stay in place. Created items have no
+inherited comments; creation fails if its placement would attach a directive to a different item.
+Zincite rejects overlapping edits and changes that would damage a directive,
+then reparses the complete `.dzn` candidate before previewing or writing it.
+An error leaves stdout empty and the original file unchanged.
 
 ## A complete doubled instance
 
-Here doubling creates a second copy of each entity **and** updates its peer,
-group, matrix row and group membership. Multiplying `entity_count` or the
-weights by two would leave references pointing at the wrong entities.
+The input below has two entities in one group. Each entity stores a weight,
+the index of its peer and the index of its group. The two entities refer to
+each other. Each also has a two-column capacity row.
 
-The public model and input data are:
+We want two independent copies of this instance: four entities in two groups.
+The copied entities need new indices, and their peer and group references must
+point into their own copy. Changing the counts alone would leave arrays and
+references inconsistent.
+
+Save the model and data as these two files:
 
 ```minizinc title="doubled.mzn"
 int: entity_count;
@@ -522,10 +504,13 @@ capacities = [| 3, 4 | 5, 6 |];
 groups = [{1, 2}];
 ```
 
-The request names the two maps. For copy `c` in `0..1`, an old entity `i`
-becomes `entity_map[i,c] = i + 2*c`, and an old group `g` becomes
-`group_map[g,c] = g + c`. Each input name binds an original literal value.
-The five replacements form one candidate.
+The query uses two index maps. Copy 0 keeps the original indices. Copy 1 maps
+entities 1 and 2 to 3 and 4, and group 1 to group 2. The peer of copied entity
+3 is therefore 4, rather than original entity 2.
+
+Save the program as `double.zq`. Its first three bindings read the original
+records, capacity matrix and group memberships. The replacements update the
+counts and all three collections in one batch.
 
 ```zirql title="double.zq"
 let old_entities = items | filter(name("entities")) | values | one;
@@ -558,30 +543,38 @@ emit;
 | Entity 2 | 2 | 4 |
 | Group 1 | 1 | 2 |
 
-The resulting complete `.dzn` is:
+With the [MiniZinc standard library configured](queries.md#inspect-semantic-facts),
+run:
 
-```minizinc
+```sh
+zincite query --max-work 5000000 --model doubled.mzn -f double.zq doubled.dzn
+```
+
+This example raises the work allowance because loading the standard library
+and checking several dependent assignments can exceed the default budget.
+The command prints the complete candidate without changing `doubled.dzn`:
+
+```minizinc title="Standard output" wrap
 entity_count = 4;
 group_count = 2;
-entities = [
-    (weight: 7, peer: 2, group: 1),
-    (weight: 11, peer: 1, group: 1),
-    (weight: 7, peer: 4, group: 2),
-    (weight: 11, peer: 3, group: 2)
-];
+entities = [(weight: 7, peer: 2, group: 1), (weight: 11, peer: 1, group: 1), (weight: 7, peer: 4, group: 2), (weight: 11, peer: 3, group: 2)];
 capacities = [| 3, 4 | 5, 6 | 3, 4 | 5, 6 |];
 groups = [1: {1, 2}, 2: {3, 4}];
 ```
 
-The four entity records retain weights `7, 11, 7, 11`; peer references are
-`2, 1, 4, 3`, and group references are `1, 1, 2, 2`. Capacity keys cover
-`1..4 × 1..2`, with each old two-column row copied unchanged. Group keys
-cover `1..2`, with memberships `{1,2}` and `{3,4}`. If a source also had a
-matrix indexed by **two** entity axes, the caller would have to state whether
-cross-copy pairs exist and what values they take. The constructor must not
-infer that policy from the one-axis copies above.
+Add `--diff` to inspect the changes or `--write` to apply them. The
+[data-edit guide](data-edits.md#construct-new-data) also shows how to redirect
+the candidate into a separate file.
 
-Integer positions are not enum identities. Suppose the read-only model
+The weights and capacity rows are copied unchanged. Peer indices become
+`2, 1, 4, 3`, and group indices become `1, 1, 2, 2`. The group memberships
+are `{1, 2}` and `{3, 4}`, so each pair stays together.
+
+A matrix indexed by entities on both axes would need another decision: what
+should its cells contain for pairs from different copies? That relationship
+must be written into the query; copying a single entity axis does not define it.
+
+Enum members need an explicit mapping too. Suppose the model
 declares `enum Guests = {A, B, A_copy, B_copy};`. This report binding names
 both sides of a separate member mapping:
 
@@ -592,100 +585,70 @@ let guest_map = [
 ];
 ```
 
-Changing a string `"A"` or an unrelated record label `A` would be wrong.
-This bounded constructor does not invent enum declarations or names. An
-absent or ambiguous member declaration refuses the mapping.
+The map relates actual enum members. A string `"A"` or a record field named
+`A` is a different value and is unaffected. Every mapped member must already
+be declared in the model; a missing or ambiguous declaration is an error.
 
-## Limits, diagnostics and implementation seam
+<a id="limits-diagnostics-and-implementation-seam"></a>
 
-One shared budget covers input reads, calculated bindings, generator
-candidates **before** filters, expression visits, nested values and keys,
-every copied byte, edit construction and final rendering. The recommended
-defaults reuse `Limits`: at most 64 nested expression/collection levels,
-1,000,000 work units and 100,000 aggregate produced entries across the
-request. A query source's model scan keeps its separate pre-allocation
-admission; raw loaded tokens do not count as produced report entries. Check
-products and byte lengths with overflow-safe arithmetic before allocating.
-Each repeated generator expansion and repeated serialization is charged again.
-On exhaustion, return a located limit error; never truncate a report or edit.
+## Work limits and errors
 
-Reducers pay full operand materialization, generator candidates and copies before
-scanning. Sum, forall and exists charge one work unit per inspected element;
-length charges one for the present-value count and checked `i64` conversion.
-Each summary scalar adds one aggregate result unit. Empty summaries still pay
-expression/preflight work and their scalar unit. Require preflight charges its
-literal message bytes; false diagnostic copying charges bytes before allocation.
-True require moves the admitted child with no additional result or copy charge.
-Emission snapshots and rendering charge again. Arithmetic errors retain their
-child ranges; requirement failures retain their call range and limit failures
-the active operation range.
+One program budget covers reading input, calculations, generator candidates,
+intermediate values, copying and rendering. Candidates count before filters,
+so a comprehension with a small result can still do substantial work. The
+default limits are 64 nested expression or collection levels, 1,000,000 work
+units and 100,000 aggregate result entries. See [program limits](reference.md#program-limits)
+for CLI overrides and the separate stream limit.
 
-Grouping evaluates rows once and charges row/depth scans, field/key comparisons,
-nominal metadata checks, new containers and slots, and copied group keys/labels.
-Rows move into items without another deep copy. Inferred group facts retain
-possible row schemas, including schema-bearing empty projections, without
-claiming group membership or count. Later snapshots and rendering spend the
-same allowance. Completion and limitations remain with the report adapter.
+Repeating an expansion or serialization spends more of the same budget. Reusing
+an immutable input value avoids copying all of its contents, but creating new
+values, snapshotting outputs and rendering them still consume work and result
+entries. Model scanning consumes work; raw model tokens do not count as report
+entries. A limit error stops the request and produces no truncated report or
+partially written data file.
 
-Entries and exact pairing charge ordered axis/full-key comparisons, nominal
-metadata checks, type facts, new containers and slots, copied labels and depth
-scans. Evaluated cell values move into records or tuples without another deep
-copy; pairing retains admitted left axes and keys. Later snapshots and rendering
-spend the same allowance. Completion and limitations remain with the existing
-report adapter.
+For library callers, the accounting rules are:
 
-Native projections prepare their located bodies and embedded primitive arguments
-once per invocation. The CST frontend lowers those arguments into the same value
-tree; selected enum members still resolve through the current ModelFacts owner.
-Written branches retain scope/type/purity validation, and an unselected default
-fallback leaves its data and member resolution untouched. Native operations run
-fresh for the current subject and keep their source coordinates and completion
-status.
+- Reducers first calculate their complete operand array. `sum`, `forall` and
+  `exists` spend one work unit per inspected element. `length` spends one for
+  counting present values and converting the count to an integer. Each summary
+  value uses one result entry, including for an empty input.
+- `require` checks its message and operands before evaluation. A failed
+  requirement spends work on copying its diagnostic message. A successful one
+  returns its child value without another copy charge.
+- Grouping, `entries` and `zip_exact` count field and key comparisons, enum
+  metadata checks, temporary containers and copied keys or labels. Moving an
+  already evaluated row or cell into its result does not deep-copy that value.
+- Native projections prepare their bodies and primitive arguments once per
+  invocation. Operations still run for each selected subject. Reusing an input
+  value spends reference and slot work; new input values and changed contracts
+  must be checked again.
+- Scope metadata and storage growth consume budget before allocation. Leaving
+  a scope does not refund work. Output snapshots and each rendering spend the
+  remaining budget, including repeated library calls to render the same result.
 
-A selected CST input projection can retain one immutable owner in its current
-input slot. Repeated reads inspect that owner; they charge reference/slot work
-without deep copied bytes or recursively produced entries. New selected data
-still receives admission. Owned fields, explicit copies, emission snapshots,
-data serialization and rendering retain their materialization charges. Preparation
-and scope metadata are charged before growth; dropping a frame never refunds
-spending. The work/result/nesting defaults are unchanged. Lower repeated analysis
-and copy charges can let a request near an earlier threshold complete or move
-its located limit refusal. DATA grammar, target admission, candidate reparse and
-atomic writes retain their existing rules.
+Errors point to the responsible query expression or original model/data
+location. These include invalid syntax, unsupported operations, incompatible
+types, missing keys, duplicate targets and arithmetic errors. A semantic report
+can return known results with `complete: false` and located limitations. An
+unknown filter condition remains unknown under negation and cannot become a
+match merely through `not`.
 
-Parse errors, unsupported expressions, wrong types, missing fields or keys,
-duplicate keys/targets and arithmetic failures identify the host query byte
-range or the original source file/range responsible. For a generated value,
-report the expression range. An uncertain literal, unresolved enum identity,
-unknown dependency or unsupported computed source value cannot be guessed into
-an edit. A semantic report may use known rows while retaining `complete:false`
-and located limitations. A filter with an unknown truth value fails at that
-condition even under `not`, so negation never turns uncertainty into a match.
-Incomplete candidates may be previewed only where the existing best-effort
-contract permits them; in-place write requires completeness. Any actual error
-buffers away the whole report or candidate.
+An edit needs enough information to validate every target. Unknown dependencies,
+unresolved enum identities and unsupported computed source values stop the
+batch. Some incomplete reductions can be previewed as described in the
+[enum-reduction reference](reference.md#enum-reduction); in-place writing always
+requires a complete candidate. An actual evaluation or rendering error leaves
+stdout empty.
 
-Zincite lowers its existing CST and projects native query/literal results into
-Zirql's bounded evaluator:
+Zincite parses the MiniZinc syntax and supplies source selections, model facts
+and literal values. Zirql evaluates the shared expressions, bindings and
+comprehensions. Zincite then renders a report or validates and serializes the
+complete edited data file. The report and edit forms share that evaluator and
+budget, while data edits allow fewer operations. Neither form runs a MiniZinc
+compiler or solver.
 
-```rust
-zirql::evaluate_value(expression, bindings, shared_budget)
-    -> Result<ConstructedValue, QueryError>
-```
-
-The report adapter supplies typed query results and renders the native value.
-The data adapter supplies literal RHS values, checks model ownership and target
-shape, serializes constructed MiniZinc literals, then calls the existing atomic
-edit preparation and complete-candidate reparse. Both adapters share the common subset, evaluator and budget. Reporting also
-admits summaries, require, grouping and keyed helpers; data lowering excludes
-those calls. Edit expressions are
-validated at parse time and lowered again with declared target evidence during
-evaluation; this additional work spends the same request budget. Zincite has one CST frontend and uses the existing
-Zirql dependency for shared evaluation. It does not run a model, compiler or solver.
-
-The user approved this exact bounded data contract on 2026-10-13. The library
-and both query commands implement it. Use `--model` to supply read-only target
-declarations, `--diff` to inspect changes, and `--write` only for an explicit
-regular data file. Model and include files are never edited. A candidate's type
-and axis checks cover this subset; they do not prove full MiniZinc validity or
-satisfiability.
+Use `--model` to supply target declarations, `--diff` to inspect changes and
+`--write` to update an explicit regular data file. Model and include files are
+read-only. The [Rust reference](reference.md#program-invocation-and-rust-results)
+describes `Program`, its result types and candidate handling.

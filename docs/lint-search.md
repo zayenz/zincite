@@ -11,7 +11,7 @@ See [linting](linting.md) for standard-library setup and analysis limitations.
 
 ## search-coverage
 
-Looks for decisions omitted from explicit search that are not derivable through
+Looks for decisions that an explicit search neither names nor determines through
 supported unconditional definitions.
 
 ```minizinc

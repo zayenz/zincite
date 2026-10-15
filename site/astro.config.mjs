@@ -36,7 +36,11 @@ export default defineConfig({
         { label: 'Search and symmetry breaking', slug: 'guides/lint-search' },
       ] },
       { label: 'Queries and data', items: ['guides/queries', 'guides/query-cookbook', 'guides/data-edits'] },
-      { label: 'Reference', items: ['guides/cli', 'guides/reference'] },
+      { label: 'Reference', items: [
+        'guides/cli',
+        { label: 'Query expressions', slug: 'guides/query-comprehension-contract' },
+        'guides/reference',
+      ] },
       { label: 'Zirql language', link: 'https://zayenz.se/zirql/' },
       { label: 'All projects on zayenz.se', link: 'https://zayenz.se/projects/' },
     ],

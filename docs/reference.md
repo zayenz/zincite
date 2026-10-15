@@ -428,8 +428,9 @@ let histogram = selected | names | tally;
 (count: n, histogram: histogram, selected: selected)
 ```
 
-Record fields use identifiers or nonempty single-quoted labels and preserve written order in the native
-`ReportValue::Record`. Duplicate labels fail. Parentheses also group expressions.
+Record fields use identifiers or nonempty single-quoted labels and preserve
+written order in `ReportValue::Record`. Duplicate labels fail. Parentheses also
+group expressions.
 A binding can hold a source selection, count, histogram or nested record. Counts
 render as integers; histograms render as string-to-count objects. Selections
 retain their original nodes or declaration/reference identities, file owners and
@@ -460,39 +461,41 @@ report if left < right { left + right } else { 0 };
 ```
 
 Each initializer and argument runs once in written order. A function checks
-whole parameter types before destructuring. A mismatch refuses the binding or
-call at its pattern; it never filters a selection. Names become visible only
+each parameter's full type before destructuring it. A mismatch reports an error
+at the pattern; it never filters a selection. Names become visible only
 after the whole pattern succeeds. Duplicate names and prohibited shadowing fail
 before execution, including in unused arms.
 
 `match(subject) { pattern [if guard] => value, ..., _ => fallback }` evaluates
 its subject once and chooses the first successful pattern with a true guard.
-Shape, literal and presence mismatches try the next arm. Guards require known
-Booleans; absence, a non-Boolean, Unknown or an error refuses the request. Host
-admission failures and exhausted bounds also propagate. Matching does not catch
-errors. `match { from ... }` remains native capture enumeration.
+Shape, literal and presence mismatches try the next arm. A guard must return a
+known Boolean. Absence, a non-Boolean result, Unknown or an evaluation error
+stops the request, as do failed input checks and exhausted limits. Matching
+does not catch errors. `match { from ... }` enumerates native captures.
 
 Function bodies, conditional branches and match arms accept blocks with local
 `let pattern = value;` declarations and one final value. The common spelling is
 `if condition { ... } else if condition { ... } else { ... }`, with a final
 else. MiniZinc `if ... then ... else ... endif`, records, operators and
-comprehensions retain their CST frontend. Only selected bodies run; all bodies
-receive scope, purity and type preparation. Final branch/arm calls retain
-compatible tail calls. Blocks and guards cannot emit or edit data.
+comprehensions keep their query-expression syntax. Only the selected bodies run,
+but all bodies are checked for valid scope, types and permitted operations before
+execution. A compatible function call at the end of a branch or arm can be a tail
+call. Blocks and guards cannot emit or edit data.
 
 Rust callers can use
-`Program::from_values(functions, bindings, final_report, limits)` without
-serializing source. `ProgramFunction` is a shared unresolved pattern-function
-declaration. `ProgramValue` is a shared located value whose native leaves use
+`Program::from_values(functions, bindings, final_report, limits)` to construct a
+program without generating and parsing query text. `ProgramFunction` stores a
+shared function declaration whose names have not yet been resolved.
+`ProgramValue` is a shared value with a source location; its native leaves use
 `zirql::Expression<Query, (), ()>` wrappers. Bindings are ordered
 `(zirql::Pattern, ProgramValue)` pairs. Construction takes ownership of all
-input trees, including failures, and releases shared wrappers iteratively.
-Caller-supplied ranges survive lowering. Ordinary evaluation supplies the
-current input/model and performs the same preparation and shared execution.
-Native fields retain explicit capture views, handles and coordinates.
+input trees, even if construction fails, and releases shared wrappers
+iteratively. Caller-supplied source ranges are preserved. Evaluation uses the
+current input and model, with the same checks as a parsed program. Native fields
+preserve their capture views, handles and source coordinates.
 
-These constructs are report-only. An atomic Data program refuses them in
-unused lets and skipped branches too. Loops, fold/scan and worklist types remain
+These constructs are report-only. Data edits reject them, including in unused
+bindings and skipped branches. Loops, fold/scan and worklist types remain
 unavailable. The [two complete examples](queries.md#destructure-a-report)
 show a destructured native report and an optional guarded match through both
 query commands.
@@ -527,12 +530,12 @@ query or model location and append bounded function-call context.
 | --- | --- |
 | `bool`, `int`, `float`, `string` | Checked fixed scalars. |
 | `EnumName` | A member of that actual enum in the current retained model. |
-| `opt T` | Absence or an admitted `T`. |
+| `opt T` | Absence or a value matching `T`. |
 | `sequence<T>` | A homogeneous positional sequence, including an empty sequence with its element contract. |
 | `tuple<T, U>` | Fixed positions with the declared types. |
 | `record{label: T, other: opt U}` | Declared labels; optional fields may be omitted. |
 | `set<T>` | Supported Boolean, integer, float or nominal set elements. |
-| `keyed<T>` | A keyed array with admitted cells and retained axes. |
+| `keyed<T>` | A keyed array whose cells match `T`, preserving its axes. |
 | `Node`, `Declaration` | One native syntax node or semantic declaration. |
 
 Constructors nest. Native node/declaration sequences retain their owners and
@@ -570,14 +573,16 @@ match sources, guards and path targets share the same prepared request and
 active call-depth allowance. Later match clauses see only earlier captures.
 Boolean guards and selected fallbacks remain lazy at runtime.
 
-The parsed program retains its immutable body trees. Each evaluation resolves
-small headers and prepares the written bodies and entries once, then reads
-admitted immutable arguments and locals through shared owners. Repeated calls
-with the same contract avoid deep argument copies and whole native-argument
-rescans. The first boundary checks every actual native element, owner and
-coordinate. Fresh or changed contracts check again. Reading a shared value avoids copying its contents. Materializing new values,
-snapshotting emissions and rendering output still consume the request budget. Reusing a parsed `Program` after failure starts a fresh evaluation
-with its current input, facts and allowances.
+A parsed `Program` can be reused with different inputs. Each evaluation prepares
+the function bodies once. Arguments and locals are immutable shared values, so
+repeated calls with the same type contract avoid copying their contents or
+rescanning native arguments. The first check validates every native element,
+its source owner and coordinates. A new value or changed contract requires
+another check.
+
+Creating values, snapshotting emissions and rendering output still consume the
+request budget. Reusing a parsed `Program` after an error starts a fresh
+evaluation with the current input, facts and limits.
 
 #### Bounded declaration paths
 
@@ -1080,21 +1085,25 @@ compiler type validity.
 
 ### Semantic inspection
 
-Semantic stages consume the public `load_model`, `resolve_bindings`,
-`resolve_source_callables` and `resolve_instantiations` APIs. Explicit navigation
-into a standard callable body requests its source occurrence typing through
-`resolve_source_callable_body`, without expanding transitive implementations for
-proofs. The public `resolve_callables` API retains its body-aware behavior.
-Semantic stages do not enable lint rules. An explicit model-mode input file is
-its own root by default; `--model` supplies another retained root. Semantic input must be in model mode and match
-that root's original bytes exactly, including the BOM and opaque comments.
+Semantic stages follow declaration identities and report available type and
+instantiation facts. They do not run lint rules. An explicit model input file is
+its own root by default; `--model` supplies another root. The query input must be
+in model mode and match that root's original bytes exactly, including the BOM
+and opaque comments.
 Stdin needs explicit `--model`; a matching `--stdin-filepath` label alone does
 not load a model. The library requires a `ModelContext` with a retained root.
 Syntax pipelines ignore an unused supplied model, including a missing path.
-Data reduction keeps its separate optional model interpretation contract.
+Data reduction uses its separate rules for optional model loading.
 
-`references` selects each written reference fully contained in a selected node's
-or declaration's owning region. A selected reference has its exact token region.
+These stages use the public `load_model`, `resolve_bindings`,
+`resolve_source_callables` and `resolve_instantiations` APIs. Explicit navigation
+into a standard callable body requests its source occurrence types through
+`resolve_source_callable_body`. It does not recursively inspect implementations
+to prove value properties. The public `resolve_callables` API also analyses
+bodies, as described in the [lint library](#lint-library).
+
+`references` selects each written reference fully contained in the source region
+of a selected node or declaration. A selected reference covers its exact token.
 `declarations` selects declarations whose owning CST range equals a selected
 node's range, preserves already selected declaration IDs, or follows proven
 reference targets. Use `subtree | declarations` to reach nested declarations.
@@ -1108,7 +1117,7 @@ remain available in the native facts and reference JSON.
 
 `transitive_references(n)` starts from selected declarations or proven reference
 targets. Each wave enumerates references fully contained in a declaration's
-written owning region, including types, signatures, defaults, initializers and
+source region, including types, signatures, defaults, initializers and
 nested bindings, then follows proven targets. `n=0` emits no references. Roots
 retain incoming order; within a root, references use retained FileId, original
 range and reference-kind order (value, callable, type). Targets expand in first
@@ -1342,12 +1351,12 @@ subset of the default. Semantic selections require the explicit model API below;
 Explicit model analysis uses `load_model(root_path, &ModelOptions)` and
 `analyze_model(&context, &LintOptions)`. For repeated or mixed requests, construct
 `ModelFacts::new(&context)` and call `analyze_model_with_facts(&facts, &LintOptions)`.
-The owner reuses requested facts; each call runs diagnostic policy for its own
-selection, options and suppressions. It borrows one immutable root and include
-closure. Source signatures and types establish neither bounds nor output proofs;
-selected proof consumers retain their own prerequisites. The context retains
-parsed sources, canonical file identities, include locations and file-local suppressions. It
-resolves includes from the including file's directory, then the ordered
+`ModelFacts` reuses requested facts, while each call applies its own rule
+selection, options and suppressions. It borrows one immutable model root and its
+included files. A source signature or type alone does not establish a bound or
+output definition; rules needing those proofs request them separately. The
+context stores parsed sources, canonical file identities, include locations and
+file-local suppressions. It resolves includes from the including file's directory, then the ordered
 `include_dirs`, then `stdlib_dir/std`. A configured library also loads
 `std/stdlib.mzn` and its core closure as implicitly available declarations.
 Standard-library source identity remains separate from explicit input selection;
@@ -1372,9 +1381,9 @@ model limitations and actual errors. Dynamic include paths produce an explicit
 incomplete-context limitation; missing or cyclic dependencies, invalid UTF-8,
 syntax and suppression failures produce errors. `write_analysis` supplies the
 library's full detailed renderer. Both lint command forms add `[root PATH]` to
-located model diagnostics. Their default presentation gives each root's exact
-limitation count and incomplete-analysis/detail guidance; `--show-limitations`
-renders the located limitations without changing the library result.
+located model diagnostics. By default they report each root's limitation count;
+`--show-limitations` also prints each limitation's location and reason. This
+changes presentation only, not the library result.
 Informational findings (`info`) alone keep status 0; unsuppressed warnings
 produce 1, and errors take precedence with 2. Symbolic Cartesian structure
 advice is informational; proved threshold exceedance remains a warning.
@@ -1386,6 +1395,8 @@ bindings, source callable signatures and raw domains, without demanding
 instantiations, definitions or selected standard-body proofs. Mixed selections
 keep its source facts separate from the body-aware proof route required by other
 rules. The analysis distinguishes candidate sets, their members and their use as
-array indices; its findings carry no fixes. See [integer sets and enums](linting.md#integer-identity-sets-and-enums). Fix support distinguishes
-available automatic edits from diagnostic-only rules; advisory wording remains
-separate from correctness, family, severity and individual fix safety.
+array indices; its findings carry no fixes. See
+[integer sets and enums](linting.md#integer-identity-sets-and-enums).
+A rule's fix support describes whether it can provide automatic edits. Each
+proposed edit still has its own safety classification; the rule's severity and
+advisory wording do not determine that safety.

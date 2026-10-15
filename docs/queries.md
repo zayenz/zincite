@@ -57,9 +57,9 @@ let histogram = selected | expressions | call_names | tally;
 ```
 
 Run `zincite query -f report.zq model.mzn` or
-`zincite-query --program-file report.zq model.mzn`. The JSON envelope contains
-`complete`, `limitations` and a record with the native count, histogram and
-selection. The selected nodes keep their file, byte range and exact source text.
+`zincite-query --program-file report.zq model.mzn`. The JSON output has
+`complete`, `limitations` and `result` fields. Here, `result` contains the count,
+histogram and selection. The selected nodes keep their file, byte range and exact source text.
 No model facts are needed for this syntax report. Use `declarations`
 in the input binding to select semantic declaration identities instead.
 
@@ -80,7 +80,9 @@ the library result and aggregate limits.
 
 The following examples build records and arrays from literal data. Their JSON
 uses explicit type tags and array keys, so the tables in this guide show the
-values rather than the full serialization. The
+values rather than the full serialization. The reference calls pipeline
+selections, counts and histograms native results to distinguish them from these
+calculated values. The
 [result schema](query-comprehension-contract.md#constructed-shape-and-result)
 describes how to read those reports from another program.
 
@@ -523,19 +525,22 @@ and limits.
 
 ## Destructure a report
 
-Save this input as `calls.mzn` for the two examples below. The first program
-retains its first declaration as a native selection:
+Record and tuple patterns let a report name the parts of a structured value
+without a separate binding for every field. This example adds the numbers in
+a pair, keeps its label and includes a source declaration in the result.
+Use this `calls.mzn` for both examples below:
 
-```minizinc
+```minizinc title="calls.mzn"
 int: first_total = sum([1, 2]);
 int: second_total = sum(i in 1..2)(i);
 int: largest = max([3, 4]);
 solve satisfy;
 ```
 
-Save this program as `destructured-report.zq`:
+The `describe` function takes the pair apart in its parameter pattern. The
+following `let` takes the result apart and renames `label` to `title`:
 
-```zirql
+```zirql title="destructured-report.zq"
 fn describe({pair: (a, b), label}: record{pair: tuple<int, int>, label: string}) -> record{total: int, label: string} {
     (total: a + b, label: label)
 }
@@ -551,17 +556,18 @@ zincite query --program-file destructured-report.zq calls.mzn
 zincite-query --program-file destructured-report.zq calls.mzn
 ```
 
-The report has `total = 7`, `title = "sum"` and a native `root` selection of
-`first_total` at bytes `0..31`. The function admits the whole parameter before
-matching its nested tuple and record. The later pattern renames `label` to
-`title`. The native selection retains the input owner and original coordinates.
-It renders as native inspection JSON; the two scalar fields use tagged values.
+The report has `total = 7`, `title = "sum"` and a `root` selection containing
+`first_total`. Passing the selection through `keep` preserves its original file
+and source range. In the JSON result, `root` contains that source information;
+`total` and `title` use the tagged values described in the
+[value reference](reference.md#values-and-report-expressions).
 
 ## Choose an optional value with guarded arms
 
-Save this program as `optional-match.zq` and use the same `calls.mzn`:
+Use a guarded `match` when a report needs different calculations for absent,
+negative and positive values. This program uses the same `calls.mzn`:
 
-```zirql
+```zirql title="optional-match.zq"
 let {value: candidate, ..} = (value: 7, ignored: "kept out");
 report match(candidate) {
     absent => "missing",
@@ -582,17 +588,19 @@ zincite query --program-file optional-match.zq calls.mzn
 zincite-query --program-file optional-match.zq calls.mzn
 ```
 
-Both commands report the tagged integer `9`. The final `..` ignores the extra
-record field. Match evaluates `candidate` once, tries arms in order, and runs
-only the first body whose pattern and guard succeed. `present(value)` admits a
-present scalar, while `absent` matches `<>`. The arm's `first`, `second` and
-`result` names are local to their blocks. A final unguarded `_` arm is required.
+Both commands report the tagged integer `9`. The record pattern binds
+`candidate` to `7`; its final `..` ignores `ignored`. The positive arm then adds
+`2`. With `<>` in place of `7`, the first arm would report `"missing"`.
 
-Both saved programs also work with `--program TEXT`, which uses the same
-semantics as `--program-file`. Library callers can parse either program or use
-[`Program::from_values`](reference.md#patterns-and-pure-control-values) to
-transfer typed values and patterns directly. Native capture enumeration keeps
-its separate `match { from ...; bind ...; }` syntax.
+`match` evaluates its subject once, tries arms in order and runs the first body
+whose pattern and guard succeed. `present(value)` binds a present value, while
+`absent` matches `<>`. The names `first`, `second` and `result` are local to
+their blocks. A final unguarded `_` arm is required; here it handles zero.
+
+Both saved programs also work with `--program TEXT`. For the complete pattern
+rules and Rust API, see the [pattern reference](reference.md#patterns-and-pure-control-values).
+Matching a value is separate from finding source structures with the
+[`match { from ...; bind ...; }` capture syntax](#correlate-declarations-with-their-uses).
 
 ## Combine functions, defaults and ordering
 
