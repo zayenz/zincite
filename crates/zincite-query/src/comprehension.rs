@@ -1127,7 +1127,7 @@ fn references_binding<Q>(
             "control values require a prepared report program",
         )),
         K::Name(name) => Ok(names.contains(name)),
-        K::Literal(_) | K::NativeQuery(_) | K::NativeValue(_) => Ok(false),
+        K::CurrentInput | K::Literal(_) | K::NativeQuery(_) | K::NativeValue(_) => Ok(false),
         K::Call { arguments, .. } => any_binding(arguments.iter(), names, budget),
         K::Array(values) | K::Tuple(values) | K::Set(values) => {
             any_binding(values.iter(), names, budget)
@@ -1158,6 +1158,7 @@ fn references_binding<Q>(
                 || generator_binding(clauses, names, budget)?)
         }
         K::Unary { operand, .. }
+        | K::FilterStartsWith { array: operand, .. }
         | K::Unique(operand)
         | K::Tally(operand)
         | K::Occurs(operand)
@@ -1243,7 +1244,7 @@ pub(crate) fn eager_names<Q>(
                 .map_err(pipeline::core_error)?;
             names.insert(name.clone());
         }
-        K::Literal(_) | K::NativeQuery(_) | K::NativeValue(_) => {}
+        K::CurrentInput | K::Literal(_) | K::NativeQuery(_) | K::NativeValue(_) => {}
         K::Call { arguments, .. } => {
             for argument in arguments {
                 eager_names(argument, names, budget)?;
@@ -1266,7 +1267,8 @@ pub(crate) fn eager_names<Q>(
                 eager_names(value, names, budget)?;
             }
         }
-        K::Unique(value)
+        K::FilterStartsWith { array: value, .. }
+        | K::Unique(value)
         | K::Tally(value)
         | K::Occurs(value)
         | K::Absent(value)

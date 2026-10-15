@@ -251,6 +251,7 @@ fn map_queries(
 ) -> E<Expression> {
     let range = value.range;
     let value = match value.value {
+        K::CurrentInput => K::CurrentInput,
         K::Literal(value) => K::Literal(value),
         K::Name(name) => K::Name(name),
         K::NativeQuery(query) => K::NativeQuery(Box::new(map_native(*query, lower))),
@@ -381,6 +382,10 @@ fn map_queries(
         K::Reduce { operator, array } => K::Reduce {
             operator,
             array: Box::new(map_queries(*array, lower)),
+        },
+        K::FilterStartsWith { array, prefix } => K::FilterStartsWith {
+            array: Box::new(map_queries(*array, lower)),
+            prefix,
         },
         K::Sort {
             array,

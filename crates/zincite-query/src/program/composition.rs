@@ -144,7 +144,8 @@ impl Parser<'_> {
             return true;
         }
         if prefix.starts_with('(') {
-            return !self.native_syntax(range.start..pipe, false);
+            return !self.native_syntax(range.start..pipe)
+                && !self.composition_syntax(range.start..pipe);
         }
         matches!(
             self.function_scope
@@ -222,7 +223,7 @@ impl Parser<'_> {
                     || self.function_names.contains(first)
                     || functions::Primitive::named(first).is_some()))
             || projection
-            || (domain_stage(first) && first != "query" && !self.names.contains_key(first))
+            || (domain_stage(first) && !self.names.contains_key(first))
             || matches!(
                 self.names.get(first),
                 Some(Kind::Capture(_) | Kind::Captures(_))
@@ -385,8 +386,7 @@ impl Parser<'_> {
 pub(super) fn domain_stage(name: &str) -> bool {
     matches!(
         name,
-        "query"
-            | "items"
+        "items"
             | "subtree"
             | "children"
             | "expressions"
@@ -566,7 +566,6 @@ impl ValueReaderHost for Parser<'_> {
         let mut probe = zirql::ArgumentReader::new(reader.source(), start)?;
         if let Ok(name) = probe.word()
             && !domain_stage(name.value)
-            && name.value != "query"
         {
             let name = reader.word()?;
             let function = Located::new(name.value.to_owned(), name.range);
@@ -611,26 +610,6 @@ impl ValueReaderHost for Parser<'_> {
             functions::lower_primitives(&mut value, &self.names, &self.queries);
             return Ok(ExpressionStep::Stage(Stage::FunctionSource(value)));
         }
-        if self.cursor.take_word("query") {
-            // The existing wrapper lowers checked MiniZinc arguments and maps decoded ranges.
-            std::mem::swap(&mut self.preflight, budget);
-            let result = self.query_with_kind(None);
-            std::mem::swap(&mut self.preflight, budget);
-            let (expression, _, emits) = result.map_err(query_error)?;
-            if emits {
-                zirql::dispose_expression(expression);
-                return Err(zirql::QueryError::query(
-                    start..self.cursor.position,
-                    "constructed expressions cannot emit",
-                ));
-            }
-            let ExpressionKind::Sequence { steps, .. } = expression.value else {
-                unreachable!()
-            };
-            let step = steps.into_iter().next().expect("query wrapper stage").value;
-            reader.advance(self.cursor.position - reader.position())?;
-            return Ok(step);
-        }
         let mut arguments = Vec::new();
         let limits = self.limits;
         let source = self.cursor.source;
@@ -660,11 +639,7 @@ impl ValueReaderHost for Parser<'_> {
                 } else {
                     Vec::new()
                 };
-                map_value(
-                    &mut expression.expression,
-                    &|range| range,
-                    &mut expression.members,
-                );
+                lower_members(&mut expression.expression, &mut expression.members);
                 functions::lower_primitives(&mut expression.expression, &self.names, &self.queries);
                 (expression.expression, eager_members)
             };
@@ -769,11 +744,7 @@ impl ValueReaderHost for Parser<'_> {
                 if self.first_report_call.is_none() {
                     self.first_report_call = lowered.first_report_call.clone();
                 }
-                map_value(
-                    &mut lowered.expression,
-                    &|range| range,
-                    &mut lowered.members,
-                );
+                lower_members(&mut lowered.expression, &mut lowered.members);
                 Ok(lowered.expression)
             } else {
                 self.prepared_values = true;

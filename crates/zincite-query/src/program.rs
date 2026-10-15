@@ -516,14 +516,7 @@ impl Program {
                 if parser.names.contains_key(&declaration.name.value)
                     || matches!(
                         declaration.name.value.as_str(),
-                        "let"
-                            | "report"
-                            | "query"
-                            | "json"
-                            | "emit"
-                            | "create"
-                            | "replace"
-                            | "emit_document"
+                        "let" | "report" | "json" | "emit" | "create" | "replace" | "emit_document"
                     )
                 {
                     return Err(QueryError::query(
@@ -697,14 +690,7 @@ impl Program {
                     }
                     if matches!(
                         name.value.as_str(),
-                        "let"
-                            | "report"
-                            | "query"
-                            | "json"
-                            | "emit"
-                            | "create"
-                            | "replace"
-                            | "emit_document"
+                        "let" | "report" | "json" | "emit" | "create" | "replace" | "emit_document"
                     ) {
                         return Err(QueryError::query(
                             name.range.clone(),
@@ -732,14 +718,7 @@ impl Program {
                 }
                 if matches!(
                     name,
-                    "let"
-                        | "report"
-                        | "query"
-                        | "json"
-                        | "emit"
-                        | "create"
-                        | "replace"
-                        | "emit_document"
+                    "let" | "report" | "json" | "emit" | "create" | "replace" | "emit_document"
                 ) {
                     return Err(QueryError::query(
                         range,
@@ -779,8 +758,8 @@ impl Program {
                         invalid_input = Some(expression_start..expression_end);
                     }
                     parsed
-                } else if parser.native_syntax(expression_start..expression_end, is_let) {
-                    let parsed = parser.expression(0, Kind::Nodes)?;
+                } else if !is_let && parser.native_syntax(expression_start..expression_end) {
+                    let parsed = parser.expression(0)?;
                     if !parser.data_input(&parsed.0) {
                         invalid_input = Some(expression_start..expression_end);
                     }
@@ -1444,7 +1423,7 @@ impl<'a> Parser<'a> {
             &[],
         )
     }
-    fn native_syntax(&self, range: Range<usize>, require_query: bool) -> bool {
+    fn native_syntax(&self, range: Range<usize>) -> bool {
         let tokens = self.lexed.tokens();
         let first = tokens.partition_point(|t| t.range.start < range.start);
         let last = tokens.partition_point(|t| t.range.end <= range.end);
@@ -1453,10 +1432,9 @@ impl<'a> Parser<'a> {
             source: self.cursor.source,
             names: self.function_scope.as_ref().unwrap_or(&self.names),
             position: 0,
-            query_seen: false,
         };
         // Keep ordinary let records and binding reads in the constructed grammar.
-        syntax.expression(0) && syntax.current().is_none() && (!require_query || syntax.query_seen)
+        syntax.expression(0) && syntax.current().is_none()
     }
     fn minizinc_identifier(&self, range: &Range<usize>) -> bool {
         let i = self
@@ -1498,19 +1476,13 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    fn expression(
-        &mut self,
-        depth: usize,
-        input: Kind,
-    ) -> Result<(Expression, Kind, bool), QueryError> {
+    fn expression(&mut self, depth: usize) -> Result<(Expression, Kind, bool), QueryError> {
         if depth > self.cursor.nesting_limit {
             return Err(self.cursor.error("query nesting limit exceeded"));
         }
         self.cursor.space();
         let start = self.cursor.position;
-        let (mut expression, mut kind, mut emits) = if self.cursor.take_word("query") {
-            self.query(input.clone())?
-        } else if self.cursor.current() == Some(b'(') {
+        let (mut expression, kind, mut emits) = if self.cursor.current() == Some(b'(') {
             self.cursor.position += 1;
             self.cursor.space();
             let saved = self.cursor.position;
@@ -1533,7 +1505,7 @@ impl<'a> Parser<'a> {
                     let label = Located::new(label.to_owned(), range);
                     self.cursor
                         .punctuation(b':', "expected ':' after report label")?;
-                    let (value, _, emits) = self.expression(depth + 1, input.clone())?;
+                    let (value, _, emits) = self.expression(depth + 1)?;
                     if emits {
                         return Err(QueryError::query(value.range, "a report field cannot emit"));
                     }
@@ -1552,7 +1524,7 @@ impl<'a> Parser<'a> {
                     false,
                 )
             } else {
-                let (expression, kind, emits) = self.expression(depth + 1, input.clone())?;
+                let (expression, kind, emits) = self.expression(depth + 1)?;
                 self.cursor
                     .punctuation(b')', "expected ')' after grouped expression")?;
                 (
@@ -1565,16 +1537,20 @@ impl<'a> Parser<'a> {
                 )
             }
         } else {
-            let (name, range) =
-                self.identifier("expected query(...), a binding or a report record")?;
-            let kind = self.names.get(name).cloned().ok_or_else(|| {
-                QueryError::query(range.clone(), format!("undefined binding: {name}"))
-            })?;
-            (
-                Located::new(ExpressionKind::Binding(name.to_owned()), range),
-                kind,
-                false,
-            )
+            let end = self.function_value_end(start);
+            let (name, range) = self.identifier("expected a binding or native expression")?;
+            self.cursor.space();
+            if self.cursor.position == end
+                && let Some(kind) = self.names.get(name)
+            {
+                return Ok((
+                    Located::new(ExpressionKind::Binding(name.to_owned()), range),
+                    kind.clone(),
+                    false,
+                ));
+            }
+            self.cursor.position = start;
+            return self.composition_expression(start..end);
         };
         let mut steps = Vec::new();
         self.cursor.space();
@@ -1585,36 +1561,21 @@ impl<'a> Parser<'a> {
             self.cursor.position += 1;
             self.cursor.space();
             let step_start = self.cursor.position;
-            if self.cursor.take_word("query") {
-                let (next, next_kind, next_emits) = self.query(kind)?;
-                let ExpressionKind::Sequence {
-                    steps: next_steps, ..
-                } = next.value
-                else {
-                    unreachable!()
-                };
-                steps.extend(next_steps);
-                kind = next_kind;
-                emits = next_emits;
+            let emitter = if self.cursor.take_word("json") {
+                Emitter::Json
+            } else if self.cursor.take_word("emit") {
+                Emitter::Source
             } else {
-                let emitter = if self.cursor.take_word("json") {
-                    Emitter::Json
-                } else if self.cursor.take_word("emit") {
-                    Emitter::Source
-                } else {
-                    return Err(self
-                        .cursor
-                        .error("expected query(...), json or emit after '|'"));
-                };
-                steps.push(Located::new(
-                    ExpressionStep::Emit {
-                        emitter,
-                        policy: EmissionPolicy::Terminal,
-                    },
-                    step_start..self.cursor.position,
-                ));
-                emits = true;
-            }
+                return Err(self.cursor.error("expected json or emit after '|'"));
+            };
+            steps.push(Located::new(
+                ExpressionStep::Emit {
+                    emitter,
+                    policy: EmissionPolicy::Terminal,
+                },
+                step_start..self.cursor.position,
+            ));
+            emits = true;
             self.cursor.space();
         }
         if !steps.is_empty() {
@@ -1628,180 +1589,6 @@ impl<'a> Parser<'a> {
         }
         Ok((expression, kind, emits))
     }
-    fn query(&mut self, input: Kind) -> Result<(Expression, Kind, bool), QueryError> {
-        self.query_with_kind(Some(input))
-    }
-    fn query_with_kind(
-        &mut self,
-        input: Option<Kind>,
-    ) -> Result<(Expression, Kind, bool), QueryError> {
-        let start = self.cursor.position.saturating_sub(5);
-        self.cursor.punctuation(b'(', "expected '(' after query")?;
-        let (source, written) = self.cursor.string()?;
-        let mapping = string_mapping(self.cursor.source, &written);
-        let map = |range: Range<usize>| {
-            mapping[range.start.min(mapping.len() - 1)]..mapping[range.end.min(mapping.len() - 1)]
-        };
-        let mut arguments = Vec::new();
-        let mut decoded_lexed = None;
-        let limits = self.limits.query();
-        let mut callback_error = false;
-        let parsed = {
-            let mut lower = |owner, kind: language::ArgumentKind, range: Range<usize>| {
-                let result = (|| {
-                    self.begin_pure(written.clone())?;
-                    if decoded_lexed.is_none() {
-                        self.preflight
-                            .charge(source.len() + 1, zirql::Location::Query(written.clone()))
-                            .map_err(pipeline::core_error)?;
-                        decoded_lexed = Some(zincite_syntax::lex(&source));
-                    }
-                    admit_cst(
-                        decoded_lexed.as_ref().unwrap(),
-                        &range,
-                        &mut self.preflight,
-                        self.limits.nesting,
-                        &[],
-                    )
-                    .map_err(|mut error| {
-                        error.range = map(error.range);
-                        error
-                    })?;
-                    let mut expression = comprehension::lower(
-                        &source[range.clone()],
-                        range.clone(),
-                        &mut self.preflight,
-                        self.limits.nesting,
-                        if !self.prepared && self.function_names.is_empty() {
-                            comprehension::ExpressionPolicy::Report
-                        } else {
-                            comprehension::ExpressionPolicy::Functions
-                        },
-                    )
-                    .map_err(|mut error| {
-                        error.range = map(error.range);
-                        error
-                    })?;
-                    let mut names = self.value_names(&expression, &range, Some(kind)).map_err(
-                        |mut error| {
-                            error.range = map(error.range);
-                            error
-                        },
-                    )?;
-                    for name in &mut names {
-                        name.range = map(name.range.clone());
-                    }
-                    for member in &mut expression.members {
-                        member.range = map(member.range.clone());
-                        member.enum_name.range = map(member.enum_name.range.clone());
-                        member.member_name.range = map(member.member_name.range.clone());
-                    }
-                    let eager_members = if !self.prepared && self.function_names.is_empty() {
-                        argument_members(&expression, &mut self.preflight)?
-                    } else {
-                        Vec::new()
-                    };
-                    map_value(&mut expression.expression, &map, &mut expression.members);
-                    functions::lower_primitives(
-                        &mut expression.expression,
-                        &self.names,
-                        &self.queries,
-                    );
-                    expression.first_report_call = expression.first_report_call.map(&map);
-                    if self.first_report_call.is_none() {
-                        self.first_report_call = expression.first_report_call.clone();
-                    }
-                    self.preflight
-                        .charge_results(1, zirql::Location::Query(written.clone()))
-                        .map_err(pipeline::core_error)?;
-                    arguments.push(QueryArgument {
-                        owner: map(owner..owner).start,
-                        kind,
-                        expression: expression.expression,
-                        eager_members,
-                    });
-                    Ok(())
-                })();
-                if result.is_err() {
-                    callback_error = true;
-                }
-                result
-            };
-            language::parse_scoped(&source, limits, &mut lower)
-        };
-        let mut query = parsed.map_err(|mut error| {
-            if !callback_error {
-                error.range = map(error.range);
-            }
-            error
-        })?;
-        if query.is_editing()
-            || query
-                .stages
-                .iter()
-                .any(|stage| matches!(stage.kind, language::StageKind::EmitDocument))
-        {
-            return Err(QueryError::query(
-                written,
-                "programs accept read-only query stages",
-            ));
-        }
-        for stage in &mut query.stages {
-            stage.range = map(stage.range.clone());
-            if let language::StageKind::Filter(predicate) = &mut stage.kind {
-                map_predicate(predicate, &map);
-            }
-        }
-        query.range = map(query.range);
-        self.cursor
-            .punctuation(b')', "expected ')' after query string")?;
-        let kind = input.map_or(Ok(Kind::Nodes), |input| validate_stages(&query, input))?;
-        let emitter = match query.stages.last().map(|stage| &stage.kind) {
-            Some(language::StageKind::Json) => Some(Emitter::Json),
-            Some(language::StageKind::Emit) => Some(Emitter::Source),
-            _ => None,
-        };
-        let emitter_range = query.stages.last().map(|stage| stage.range.clone());
-        if emitter.is_some() {
-            query.stages.pop();
-        }
-        let index = self.queries.len();
-        self.queries.push(ProgramQuery {
-            query,
-            arguments: Rc::new(arguments),
-            copy_units: source.len().saturating_add(1),
-        });
-        let mut steps = vec![Located::new(
-            ExpressionStep::Stage(Stage::Query(
-                index,
-                Rc::clone(&self.queries[index].arguments),
-            )),
-            start..self.cursor.position,
-        )];
-        if let Some(emitter) = emitter {
-            steps.push(Located::new(
-                ExpressionStep::Emit {
-                    emitter,
-                    policy: EmissionPolicy::Terminal,
-                },
-                emitter_range.unwrap(),
-            ));
-        }
-        Ok((
-            Located::new(
-                ExpressionKind::Sequence {
-                    input: Box::new(Located::new(
-                        ExpressionKind::Input,
-                        start..self.cursor.position,
-                    )),
-                    steps,
-                },
-                start..self.cursor.position,
-            ),
-            kind,
-            emitter.is_some(),
-        ))
-    }
 }
 fn value_stage(stage: Stage, range: Range<usize>) -> Expression {
     Located::new(
@@ -1813,14 +1600,13 @@ fn value_stage(stage: Stage, range: Range<usize>) -> Expression {
     )
 }
 
-// Recognize complete wrapped native query expressions before their parser
+// Recognize native binding records before their parser
 // performs name/type/purity validation. This never mutates the query table.
 struct NativeSyntax<'a> {
     tokens: &'a [zincite_syntax::Token],
     source: &'a str,
     names: &'a BTreeMap<String, Kind>,
     position: usize,
-    query_seen: bool,
 }
 impl NativeSyntax<'_> {
     fn current(&mut self) -> Option<zincite_syntax::TokenKind> {
@@ -1841,31 +1627,12 @@ impl NativeSyntax<'_> {
         self.position += 1;
         true
     }
-    fn text(&mut self) -> Option<&str> {
-        self.current()?;
-        self.tokens
-            .get(self.position)
-            .map(|t| crate::identifier_identity(&self.source[t.range.clone()]))
-    }
-    fn query(&mut self) -> bool {
-        use zincite_syntax::TokenKind as T;
-        if self.text() != Some("query") {
-            return false;
-        }
-        self.position += 1;
-        self.query_seen = true;
-        self.take(T::LeftParen) && self.take(T::StringLiteral) && self.take(T::RightParen)
-    }
     fn expression(&mut self, depth: usize) -> bool {
         use zincite_syntax::TokenKind as T;
         if depth > 64 {
             return false;
         }
-        if self.text() == Some("query") {
-            if !self.query() {
-                return false;
-            }
-        } else if self.take(T::LeftParen) {
+        if self.take(T::LeftParen) {
             let saved = self.position;
             let label = matches!(self.current(), Some(T::Identifier | T::QuotedIdentifier));
             if label {
@@ -1906,19 +1673,47 @@ impl NativeSyntax<'_> {
             if matches!(
                 self.names.get(name),
                 Some(Kind::Constructed | Kind::Scalar(_) | Kind::Value(_))
-            ) {
+            ) || (!self.names.contains_key(name) && !composition::domain_stage(name))
+            {
                 return false;
             }
             self.position += 1;
+            if !self.arguments(depth) {
+                return false;
+            }
         }
         while self.take(T::Pipe) {
-            if matches!(self.text(), Some("json" | "emit")) {
-                self.position += 1;
-            } else if !self.query() {
+            if !matches!(self.current(), Some(T::Identifier)) {
+                return false;
+            }
+            self.position += 1;
+            if !self.arguments(depth) {
                 return false;
             }
         }
         true
+    }
+    fn arguments(&mut self, depth: usize) -> bool {
+        use zincite_syntax::TokenKind as T;
+        if !self.take(T::LeftParen) {
+            return true;
+        }
+        let mut nested = 1;
+        while let Some(kind) = self.current() {
+            self.position += 1;
+            match kind {
+                T::LeftParen => nested += 1,
+                T::RightParen => nested -= 1,
+                _ => {}
+            }
+            if nested == 0 {
+                return true;
+            }
+            if depth + nested > 64 {
+                return false;
+            }
+        }
+        false
     }
 }
 fn admit_cst(
@@ -2051,13 +1846,11 @@ fn admit_argument_members(
     }
     Ok(())
 }
-fn map_value(
+fn lower_members(
     expression: &mut zirql::ValueExpression<Expression>,
-    map: &impl Fn(Range<usize>) -> Range<usize>,
     members: &mut Vec<comprehension::MemberRequest>,
 ) {
     use zirql::ValueExpressionKind as K;
-    expression.range = map(expression.range.clone());
     match &mut expression.value {
         K::Name(name) => {
             if let Some(index) = members.iter().position(|member| member.slot == *name) {
@@ -2069,29 +1862,22 @@ fn map_value(
             }
         }
         K::Block { bindings, value } => {
-            for (pattern, initializer) in bindings {
-                map_pattern(pattern, map);
-                map_value(initializer, map, members);
+            for (_, initializer) in bindings {
+                lower_members(initializer, members);
             }
-            map_value(value, map, members);
+            lower_members(value, members);
         }
         K::ValueMatch { subject, arms } => {
-            map_value(subject, map, members);
+            lower_members(subject, members);
             for arm in arms {
-                map_pattern(&mut arm.pattern, map);
                 if let Some(guard) = &mut arm.guard {
-                    map_value(guard, map, members);
+                    lower_members(guard, members);
                 }
-                map_value(&mut arm.value, map, members);
+                lower_members(&mut arm.value, members);
             }
         }
-        K::Queue { items, element } => {
-            if let Some(element) = element {
-                worklists::map_signature(element, map);
-            }
-            map_value(items, map, members);
-        }
-        K::PopFront(items) | K::Break(items) => map_value(items, map, members),
+        K::Queue { items, .. } => lower_members(items, members),
+        K::PopFront(items) | K::Break(items) => lower_members(items, members),
         K::PushBackAll {
             queue: left,
             items: right,
@@ -2100,59 +1886,44 @@ fn map_value(
             set: left,
             item: right,
         } => {
-            map_value(left, map, members);
-            map_value(right, map, members);
+            lower_members(left, members);
+            lower_members(right, members);
         }
         K::Loop { states, body } => {
-            for (name, value) in states {
-                name.range = map(name.range.clone());
-                map_value(value, map, members);
+            for (_, value) in states {
+                lower_members(value, members);
             }
-            map_value(body, map, members);
+            lower_members(body, members);
         }
         K::Continue(values) => {
             for value in values {
-                map_value(value, map, members);
+                lower_members(value, members);
             }
         }
-        K::IdentitySet { element } => worklists::map_signature(element, map),
-        K::Fold {
-            items,
-            initial,
-            step,
-        }
-        | K::Scan {
-            items,
-            initial,
-            step,
-        } => {
-            step.range = map(step.range.clone());
-            map_value(items, map, members);
-            map_value(initial, map, members);
+        K::IdentitySet { .. } => {}
+        K::Fold { items, initial, .. } | K::Scan { items, initial, .. } => {
+            lower_members(items, members);
+            lower_members(initial, members);
         }
 
-        K::Literal(_) | K::NativeQuery(_) | K::NativeValue(_) => {}
-        K::Call {
-            function,
-            arguments,
-        } => {
-            function.range = map(function.range.clone());
+        K::CurrentInput | K::Literal(_) | K::NativeQuery(_) | K::NativeValue(_) => {}
+        K::Call { arguments, .. } => {
             for argument in arguments {
-                map_value(argument, map, members);
+                lower_members(argument, members);
             }
         }
         K::Array(values) | K::Tuple(values) | K::Set(values) => {
             for value in values {
-                map_value(value, map, members);
+                lower_members(value, members);
             }
         }
         K::Record(fields) => {
-            for (name, value) in fields {
-                name.range = map(name.range.clone());
-                map_value(value, map, members);
+            for (_, value) in fields {
+                lower_members(value, members);
             }
         }
         K::Unary { operand, .. }
+        | K::FilterStartsWith { array: operand, .. }
         | K::Unique(operand)
         | K::Tally(operand)
         | K::Occurs(operand)
@@ -2160,20 +1931,15 @@ fn map_value(
         | K::One(operand)
         | K::IndexSet(operand)
         | K::Entries(operand)
-        | K::Reduce { array: operand, .. } => map_value(operand, map, members),
-        K::Sort { array, field, .. } | K::Extremum { array, field, .. } => {
-            if let Some(field) = field {
-                field.range = map(field.range.clone());
-            }
-            map_value(array, map, members);
+        | K::Reduce { array: operand, .. } => lower_members(operand, members),
+        K::Sort { array, .. } | K::Extremum { array, .. } => {
+            lower_members(array, members);
         }
-        K::Field { value, field } | K::GroupBy { rows: value, field } => {
-            field.range = map(field.range.clone());
-            map_value(value, map, members);
+        K::Field { value, .. } | K::GroupBy { rows: value, .. } => {
+            lower_members(value, members);
         }
-        K::TupleAccess { value, position } => {
-            position.range = map(position.range.clone());
-            map_value(value, map, members);
+        K::TupleAccess { value, .. } => {
+            lower_members(value, members);
         }
         K::Binary { left, right, .. }
         | K::Lookup {
@@ -2197,37 +1963,34 @@ fn map_value(
             array: left,
             index: right,
         } => {
-            map_value(left, map, members);
-            map_value(right, map, members);
+            lower_members(left, members);
+            lower_members(right, members);
         }
         K::Require {
-            condition,
-            value,
-            message,
+            condition, value, ..
         } => {
-            message.range = map(message.range.clone());
-            map_value(condition, map, members);
-            map_value(value, map, members);
+            lower_members(condition, members);
+            lower_members(value, members);
         }
         K::Conditional {
             branches,
             otherwise,
         } => {
             for (condition, value) in branches {
-                map_value(condition, map, members);
-                map_value(value, map, members);
+                lower_members(condition, members);
+                lower_members(value, members);
             }
-            map_value(otherwise, map, members);
+            lower_members(otherwise, members);
         }
         K::KeyedArray { entries, .. } => {
             for (key, value) in entries {
-                map_value(key, map, members);
-                map_value(value, map, members);
+                lower_members(key, members);
+                lower_members(value, members);
             }
         }
         K::Comprehension { clauses, head, .. } => {
-            map_generators(clauses, map, members);
-            map_value(head, map, members);
+            lower_generator_members(clauses, members);
+            lower_members(head, members);
         }
         K::KeyedComprehension {
             clauses,
@@ -2235,65 +1998,31 @@ fn map_value(
             head,
             empty_axis_sources,
         } => {
-            map_generators(clauses, map, members);
-            map_value(key, map, members);
-            map_value(head, map, members);
+            lower_generator_members(clauses, members);
+            lower_members(key, members);
+            lower_members(head, members);
             for value in empty_axis_sources.iter_mut().flatten() {
-                map_value(value, map, members);
+                lower_members(value, members);
             }
         }
     }
 }
-fn map_pattern(pattern: &mut zirql::Pattern, map: &impl Fn(Range<usize>) -> Range<usize>) {
-    use zirql::PatternKind as P;
-    pattern.range = map(pattern.range.clone());
-    match &mut pattern.value {
-        P::Name(name) => name.range = map(name.range.clone()),
-        P::Tuple(values) => {
-            for pattern in values {
-                map_pattern(pattern, map);
-            }
-        }
-        P::Record { fields, .. } => {
-            for (name, pattern) in fields {
-                name.range = map(name.range.clone());
-                map_pattern(pattern, map);
-            }
-        }
-        P::Present(pattern) => map_pattern(pattern, map),
-        P::Wildcard | P::Literal(_) | P::Absent => {}
-    }
-}
-fn map_generators(
+fn lower_generator_members(
     clauses: &mut [Located<zirql::ValueGenerator<Expression>>],
-    map: &impl Fn(Range<usize>) -> Range<usize>,
     members: &mut Vec<comprehension::MemberRequest>,
 ) {
     for clause in clauses {
-        clause.range = map(clause.range.clone());
         match &mut clause.value {
-            zirql::ValueGenerator::In {
-                binders,
-                source,
-                filter,
-            } => {
-                for name in binders {
-                    name.range = map(name.range.clone());
-                }
-                map_value(source, map, members);
+            zirql::ValueGenerator::In { source, filter, .. } => {
+                lower_members(source, members);
                 if let Some(value) = filter {
-                    map_value(value, map, members);
+                    lower_members(value, members);
                 }
             }
-            zirql::ValueGenerator::Bind {
-                binder,
-                value,
-                filter,
-            } => {
-                binder.range = map(binder.range.clone());
-                map_value(value, map, members);
+            zirql::ValueGenerator::Bind { value, filter, .. } => {
+                lower_members(value, members);
                 if let Some(value) = filter {
-                    map_value(value, map, members);
+                    lower_members(value, members);
                 }
             }
         }
@@ -2332,34 +2061,6 @@ fn set_predicate_argument(
     Ok(false)
 }
 
-fn string_mapping(source: &str, range: &Range<usize>) -> Vec<usize> {
-    let mut mapping = Vec::new();
-    let mut at = range.start + 1;
-    while at + 1 < range.end {
-        mapping.push(at);
-        if source.as_bytes()[at] == b'\\' {
-            at += 2;
-        } else {
-            at += 1;
-        }
-    }
-    mapping.push(range.end - 1);
-    mapping
-}
-fn map_predicate(predicate: &mut language::Predicate, map: &impl Fn(Range<usize>) -> Range<usize>) {
-    predicate.range = map(predicate.range.clone());
-    match &mut predicate.kind {
-        language::PredicateKind::Not(child) | language::PredicateKind::Group(child) => {
-            map_predicate(child, map)
-        }
-        language::PredicateKind::And(children) | language::PredicateKind::Or(children) => {
-            for child in children {
-                map_predicate(child, map);
-            }
-        }
-        _ => {}
-    }
-}
 fn validate_stages(query: &Query, mut kind: Kind) -> Result<Kind, QueryError> {
     kind = match kind {
         Kind::Node => Kind::Nodes,

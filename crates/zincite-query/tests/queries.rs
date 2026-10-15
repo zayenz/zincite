@@ -1973,10 +1973,10 @@ fn programs_retain_native_reports_and_one_fact_owner() {
     let input = Input::parse_named(source.to_vec(), FileMode::Model, "root.mzn").unwrap();
     let program = Program::parse(
         r#"
-        let selected = query("declarations");
-        let n = selected | query("count");
-        let histogram = selected | query("names | tally");
-        let references = query("references");
+        let selected = declarations;
+        let n = selected | count;
+        let histogram = selected | names | tally;
+        let references = references;
         report (count: n, histogram: histogram, 'selected rows': selected, references: references);
     "#,
         ProgramLimits::default(),
@@ -2034,11 +2034,11 @@ fn programs_retain_native_reports_and_one_fact_owner() {
 fn program_frontend_and_aggregate_refuse_invalid_requests() {
     use zincite_query::{Program, ProgramLimits};
     for source in [
-        "let a = b; let b = query(\"count\");",
-        "let a = query(\"count\"); let a = query(\"count\");",
-        "report (n: query(\"count\"), n: query(\"count\"));",
-        "query(\"count | items\");",
-        "source a = query(\"count\");",
+        "let a = b; let b = count;",
+        "let a = count; let a = count;",
+        "report (n: count, n: count);",
+        "count | items;",
+        "source a = count;",
     ] {
         let error = Program::parse(source, ProgramLimits::default()).unwrap_err();
         assert!(matches!(
@@ -2047,7 +2047,7 @@ fn program_frontend_and_aggregate_refuse_invalid_requests() {
         ));
     }
     let input = Input::parse_named(b"a = 1; b = 2;".to_vec(), FileMode::Data, "data.dzn").unwrap();
-    let program = Program::parse("let a = query(\"\"); a; a;", ProgramLimits::default()).unwrap();
+    let program = Program::parse("let a = items; a; a;", ProgramLimits::default()).unwrap();
     let error = program
         .evaluate(
             &input,
@@ -2069,9 +2069,9 @@ fn positional_programs_keep_constructed_order_and_native_projections() {
         FileMode::Data,
     )
     .unwrap();
-    let source = r#"let labels = query("names");
+    let source = r#"let labels = names;
         let numbers = items | filter(name("zeta")) | values | one;
-        let n = query("count");
+        let n = count;
         let rows = [(name: label, pair: (i,j), value: numbers[i] + k, total: n)
             | i,j in index_set(numbers), label in [labels[i]], k = i+(i,j).2, _ in 1..1 where j <= i];
         report rows;"#;
@@ -2136,7 +2136,7 @@ fn positional_programs_keep_constructed_order_and_native_projections() {
 
     // A record binding constructs a tagged value from a native count.
     let explicit = Program::parse(
-        r#"let n = query("count"); let r = (count: n); report r;"#,
+        r#"let n = count; let r = (count: n); report r;"#,
         ProgramLimits::default(),
     )
     .unwrap();
@@ -2150,7 +2150,7 @@ fn positional_programs_keep_constructed_order_and_native_projections() {
 
     // Literal inspection projects nested positional values from the same CST.
     let inspected = Program::parse(
-        r#"let written = query("values"); let r = written; report r;"#,
+        r#"let written = values; let r = written; report r;"#,
         ProgramLimits::default(),
     )
     .unwrap()
@@ -2254,7 +2254,7 @@ fn constructed_reports_retain_semantic_limitations() {
     let source = b"int: value = missing; solve satisfy;";
     let model = semantic_model("constructed-incomplete", source, b"", "");
     let input = Input::parse(source.to_vec(), FileMode::Model).unwrap();
-    let program = Program::parse(r#"let n = query("references | declarations | names | count"); let r = (count: n, cells: entries(zip_exact([1:n],[1:n]))); report r;"#, ProgramLimits::default()).unwrap();
+    let program = Program::parse(r#"let n = references | declarations | names | count; let r = (count: n, cells: entries(zip_exact([1:n],[1:n]))); report r;"#, ProgramLimits::default()).unwrap();
     let mut result = program
         .evaluate_with_model(&input, Some(&model), ProgramLimits::default())
         .unwrap();
@@ -2505,7 +2505,7 @@ fn keyed_reports_retain_model_identity_axes_and_row_major_cells() {
     ));
     assert_eq!(with_function.render().unwrap(), bytes);
     let projected = Program::parse(
-        r#"let rows = query("filter(name(\"table\")) | values"); let row = rows[1]; report row;"#,
+        r#"let rows = filter(name("table")) | values; let row = rows[1]; report row;"#,
         limits,
     )
     .unwrap()
@@ -3077,7 +3077,7 @@ fn report_call_preflight_keeps_literal_messages_and_the_data_whitelist() {
             r#"require(true,"a","hidden")"#,
         ),
         (
-            r#"let unused=query("head(sum([1]))"); replace a=[2]; emit;"#,
+            r#"let unused=head(sum([1])); replace a=[2]; emit;"#,
             "sum([1])",
         ),
         (
@@ -3215,7 +3215,8 @@ fn typed_parameters_and_native_arguments_keep_scope_and_locations() {
     ] {
         assert!(Program::parse(source, limits).is_err(), "{source}");
     }
-    let dynamic = Program::parse(r#"param selected:string; param limit:int; let n=limit+1; let names=query("filter(name(selected)) | head(n % ignored )\n + 0) | names"); report names;"#,limits).unwrap();
+    let dynamic = Program::parse(r#"param selected:string; param limit:int; let n=limit+1; let names=filter(name(selected)) | head(n % ignored )
+ + 0) | names; report names;"#,limits).unwrap();
     let result = dynamic
         .evaluate_with_parameters(
             &input,
@@ -3230,7 +3231,7 @@ fn typed_parameters_and_native_arguments_keep_scope_and_locations() {
         matches!(result.emissions()[0].value(),ReportValue::Query(zincite_query::SemanticStream::Inspection(value)) if matches!(&**value,zincite_query::QueryResult::Strings(names) if names==&vec!["x".to_owned()]))
     );
     let unicode = Program::parse(
-        r#"param n:int; let names=query("items | head(n /* é ) */) | names"); report names;"#,
+        r#"param n:int; let names=items | head(n /* é ) */) | names; report names;"#,
         limits,
     )
     .unwrap();
@@ -3240,12 +3241,10 @@ fn typed_parameters_and_native_arguments_keep_scope_and_locations() {
     assert!(
         matches!(unicode_result.emissions()[0].value(), ReportValue::Query(zincite_query::SemanticStream::Inspection(value)) if matches!(&**value,zincite_query::QueryResult::Strings(names) if names==&vec!["x".to_owned()]))
     );
-    let escaped =
-        r#"param n:int; let q=query("filter(name(\"x\")) | head(/* é */ \"bad\")"); report q;"#;
+    let escaped = r#"param n:int; let q=filter(name("x")) | head(/* é */ "bad"); report q;"#;
     let error = Program::parse(escaped, limits).unwrap_err();
-    assert_eq!(&escaped[error.range], r#"\"bad\""#);
-    let unchosen =
-        r#"param n:int; let q=query("filter(name(\"missing\") and name(n)) | head(0)"); report q;"#;
+    assert_eq!(&escaped[error.range], r#""bad""#);
+    let unchosen = r#"param n:int; let q=filter(name("missing") and name(n)) | head(0); report q;"#;
     let error = Program::parse(unchosen, limits).unwrap_err();
     assert_eq!(&unchosen[error.range], "n");
     let string = Program::parse("param text:string; report text;", limits).unwrap();
@@ -3356,10 +3355,10 @@ fn native_composition_preserves_correlated_declarations_captures_and_empty_schem
     let mut ids = Vec::new();
     let mut written = Vec::new();
     for capture in captures.rows() {
-        let ReportValue::Query(SemanticStream::Entities(d)) = &capture.fields[0].1 else {
+        let Some(SemanticStream::Entities(d)) = capture.fields[0].1.stream() else {
             panic!()
         };
-        let ReportValue::Query(SemanticStream::Entities(u)) = &capture.fields[1].1 else {
+        let Some(SemanticStream::Entities(u)) = capture.fields[1].1.stream() else {
             panic!()
         };
         assert!(matches!(d[0], SemanticEntity::Declaration(_)));
@@ -3472,7 +3471,7 @@ fn native_match_unknown_guards_keep_host_locations_and_boolean_control() {
     let incomplete_source = b"int: value = missing; solve satisfy;";
     let incomplete_model = semantic_model("composition-incomplete", incomplete_source, b"", "");
     let input = Input::parse(incomplete_source.to_vec(), FileMode::Model).unwrap();
-    let program = Program::parse(r#"let unresolved = query("references | declarations | names | count"); report match { from d in (subtree | declarations | unique); }; report subtree | declarations | unique | project(d, {"name": d | names | one});"#, ProgramLimits::default()).unwrap();
+    let program = Program::parse(r#"let unresolved = references | declarations | names | count; report match { from d in (subtree | declarations | unique); }; report subtree | declarations | unique | project(d, {"name": d | names | one});"#, ProgramLimits::default()).unwrap();
     let mut result = program
         .evaluate_with_model(&input, Some(&incomplete_model), ProgramLimits::default())
         .unwrap();
@@ -3733,16 +3732,8 @@ fn optional_reports_keep_model_contracts_sparse_membership_and_lazy_projection()
     assert!(selected.evaluate(&input, limits).is_err());
     let source = format!("values=[{}];", vec!["1"; 2000].join(","));
     let large = Input::parse(source.into_bytes(), FileMode::Data).unwrap();
-    let skipped = Program::parse(
-        r#"let rows=query("values"); report [] default rows;"#,
-        limits,
-    )
-    .unwrap();
-    let selected = Program::parse(
-        r#"let rows=query("values"); report <> default rows;"#,
-        limits,
-    )
-    .unwrap();
+    let skipped = Program::parse(r#"let rows=values; report [] default rows;"#, limits).unwrap();
+    let selected = Program::parse(r#"let rows=values; report <> default rows;"#, limits).unwrap();
     let tight = ProgramLimits {
         work: 30_000,
         results: 20_000,
@@ -4087,7 +4078,7 @@ fn typed_query_signatures_resolve_current_enum_identity_and_lazy_defaults() {
             .is_err()
     );
     let wrapped = Program::parse(
-        r#"fn limit(n:int)->int { n } let selected=query("head(limit(1))"); report selected;"#,
+        r#"fn limit(n:int)->int { n } let selected=head(limit(1)); report selected;"#,
         limits,
     )
     .unwrap();
@@ -4420,12 +4411,12 @@ fn native_input_bindings_interleave_with_calculations_and_keep_original_reads() 
             .contains(r#""value":1"#)
     );
     for request in [
-        r#"let a=query("count | json"); report a;"#,
-        r#"let a=query("items"); let b=a | query("count | json"); report b;"#,
+        r#"let a=count | json; report a;"#,
+        r#"let a=items; let b=a | count | json; report b;"#,
         r#"let a=items | project(d, {"n":d | count}); replace a=1; emit;"#,
         r#"let a=match { from d in items; }; replace a=1; emit;"#,
         r#"let a=items | paths(referenced_declarations,to=name("a"),max_depth=1); replace a=1; emit;"#,
-        r#"let a=(n:query("count")); replace a=1; emit;"#,
+        r#"let a=(n:count); replace a=1; emit;"#,
         r#"let a=items | filter(name("a")) | values | one; report a; replace b=1; emit;"#,
     ] {
         assert!(Program::parse(request, limits).is_err(), "{request}");
@@ -5360,6 +5351,44 @@ fn saved_native_and_minizinc_values_compose_with_shared_suffixes() {
             expected = Some(rendered);
         }
     }
+    let siblings = r#"let selected=items | head(1);
+        (saved:selected | count, current:count, names:selected | names)"#;
+    for prefix in ["", "fn unused(n:int)->int { n } "] {
+        let mut result = Program::parse(&format!("{prefix}{siblings}"), limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .unwrap();
+        let output: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
+        assert_eq!(output["result"]["saved"], 1);
+        assert_eq!(output["result"]["current"], 2);
+        assert_eq!(output["result"]["names"], serde_json::json!(["b"]));
+    }
+    let filtered = r#"fn words()->sequence<string> { ["ash","birch","apple","ash"] }
+        let saved=words();
+        let matching=(saved) | filter(starts_with("a"));
+        matching | sort | unique | count"#;
+    let result = Program::parse(filtered, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    assert!(
+        matches!(result.emissions()[0].value(), ReportValue::Constructed(value) if value.data()==&V::Integer(2))
+    );
+    for request in [
+        "let empty=[]; empty | names",
+        "let empty=items | head(0) | count; empty | items",
+        "query(\"count\")",
+    ] {
+        let error = Program::parse(request, limits)
+            .and_then(|program| program.evaluate(&input, limits))
+            .unwrap_err();
+        assert!(!error.range.is_empty(), "{error:?}");
+        if request.ends_with("names") {
+            assert_eq!(&request[error.range], "names");
+        } else if request.ends_with("items") {
+            assert_eq!(&request[error.range], "items");
+        }
+    }
     let function = r#"fn ordered(labels:sequence<string>)->sequence<string> {
         let rows=[label | label in labels]; [label | label in rows] | sort | unique
     } let selected=items; let labels=selected | names; ordered(labels); (ordered(labels)) | tally"#;
@@ -5617,7 +5646,7 @@ fn native_stream_controls_reuse_saved_values_and_scoped_arguments() {
     let input = Input::parse(b"a=1; b=2; c=3;".to_vec(), FileMode::Data).unwrap();
     let source = r#"param message:string; fn bound(n:int)->int { let chosen=n-1; chosen }
         let selected=items; let n=selected | count;
-        report selected | query("tail(bound(n)) | reverse | check(n-1, message) | check(message) | names");
+        report selected | tail(bound(n)) | reverse | check(n-1, message) | check(message) | names;
         report selected | names;
         report selected | project(row, {"n": row | tail(bound(2)) | check(node_kind(row)) | check(message) | count});"#;
     let mut result = Program::parse(source, limits)
@@ -5678,8 +5707,7 @@ fn native_stream_controls_reuse_saved_values_and_scoped_arguments() {
             "{source}"
         );
     }
-    let escaped =
-        r#"let unused=query("head(0) | check(1, \"bad\") | check(/* é */ true)"); report 1;"#;
+    let escaped = r#"let unused=head(0) | check(1, "bad") | check(/* é */ true); report 1;"#;
     let error = Program::parse(escaped, limits).unwrap_err();
     assert_eq!(&escaped[error.range], "true");
     for limited in [

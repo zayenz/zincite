@@ -7,4 +7,9 @@ let labels = selected | names;
 let n = selected | count;
 let rows = [label | label in labels];
 let ordered = (rows) | sort | unique;
-report (names: ordered, count: n, selected: selected);
+fn starting_with_a(labels: sequence<string>) -> sequence<string> {
+    (labels) | filter(starts_with("a"))
+}
+let matching = starting_with_a(["ash", "birch", "apple", "ash"]);
+let matching_count = (matching) | sort | unique | count;
+report (names: ordered, count: n, selected: selected, matching_count: matching_count);

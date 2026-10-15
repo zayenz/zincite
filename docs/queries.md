@@ -147,6 +147,20 @@ value. For string frequencies, replace the last binding with
 `let ordered = (rows) | tally;`. Its result is a record with lexical string
 labels and integer counts.
 
+To count only names beginning with `a`, continue the calculated array:
+
+```zirql
+let selected = items | filter(kind("assignment"));
+let labels = selected | names;
+let rows = [label | label in labels];
+let matching = (rows) | filter(starts_with("a"));
+(matching) | count
+```
+
+The filter uses exact, case-sensitive prefixes. `count` counts the retained
+strings, including duplicates. The same suffixes work on a saved function
+result: bind `let labels = make_labels();`, then continue `(labels)`.
+
 Parenthesize a saved calculated value or function call when continuing it as a
 constructed array: `(rows) | sort | unique` or `(make_rows()) | tally`.
 Native pipelines such as `selected | names` retain their existing meaning.

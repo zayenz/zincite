@@ -437,7 +437,7 @@ fn semantic_cli_loads_only_requested_models_and_keeps_incomplete_and_error_statu
 fn program_files_report_native_results_and_buffer_later_failures() {
     let path =
         std::env::temp_dir().join(format!("zincite-query-program-{}.zq", std::process::id()));
-    std::fs::write(&path, r#"let selected = query(""); let n = selected | query("count"); let h = selected | query("names | tally"); report (count: n, histogram: h, selected: selected);"#).unwrap();
+    std::fs::write(&path, r#"let selected = items; let n = selected | count; let h = selected | names | tally; report (count: n, histogram: h, selected: selected);"#).unwrap();
     let output = run(
         &["--stdin-filepath", "data.dzn", "-f", path.to_str().unwrap()],
         b"a = 1; b = 2;",
@@ -452,7 +452,7 @@ fn program_files_report_native_results_and_buffer_later_failures() {
     assert_eq!(report["result"]["count"], 2);
     assert_eq!(report["result"]["histogram"]["a"], 1);
     assert_eq!(report["result"]["selected"][0]["range"]["start"], 0);
-    std::fs::write(&path, r#"query("count | json"); query("values");"#).unwrap();
+    std::fs::write(&path, r#"count | json; values;"#).unwrap();
     let output = run(
         &[
             "--stdin-filepath",
@@ -467,7 +467,7 @@ fn program_files_report_native_results_and_buffer_later_failures() {
     let diagnostic = String::from_utf8_lossy(&output.stderr);
     assert!(diagnostic.contains("literal"), "{diagnostic}");
     assert!(diagnostic.contains("data.dzn"), "{diagnostic}");
-    std::fs::write(&path, r#"query("count | json"); query("count | items");"#).unwrap();
+    std::fs::write(&path, r#"count | json; count | items;"#).unwrap();
     let output = run(
         &["--stdin-filepath", "data.dzn", "-f", path.to_str().unwrap()],
         b"a = 1; b = 2;",
@@ -486,9 +486,9 @@ fn positional_program_files_share_order_and_buffer_value_failures() {
     ));
     std::fs::write(
         &path,
-        r#"let labels = query("names");
+        r#"let labels = names;
 let numbers = items | filter(name("zeta")) | values | one;
-let n = query("count");
+let n = count;
 let rows = [(name: label, pair: (i,j), value: numbers[i] + k, total: n)
   | i,j in index_set(numbers), label in [labels[i]], k = i+(i,j).2,
     _ in 1..1 where j <= i];
@@ -1053,6 +1053,7 @@ fn native_composition_inline_and_file_keep_results_status_and_buffering() {
         .map(|line| serde_json::from_slice::<serde_json::Value>(line).unwrap())
         .collect::<Vec<_>>();
     assert_eq!(outputs.len(), 4);
+    assert_eq!(outputs[3]["result"]["matching_count"]["value"], 2);
     let rows = outputs[0]["result"]["entries"].as_array().unwrap();
     for (row, (name, uses)) in rows.iter().zip([
         ("capacity", 2),
@@ -1120,7 +1121,7 @@ fn native_composition_inline_and_file_keep_results_status_and_buffering() {
     }
     let incomplete = b"int: value = missing; solve satisfy;";
     std::fs::write(&model_path, incomplete).unwrap();
-    let known = r#"let unresolved = query("references | declarations | names | count"); report match { from d in (subtree | declarations | unique); };"#;
+    let known = r#"let unresolved = references | declarations | names | count; report match { from d in (subtree | declarations | unique); };"#;
     for (program_source, expected_status) in [
         (known.to_owned(), 1),
         (format!("{known} report 1 div 0;"), 2),

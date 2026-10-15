@@ -467,9 +467,6 @@ ranges. A constructed record has no input-source range. These inspection leaves
 are not scalar comprehension values.
 
 `expression | names` runs a stage against that expression's native result.
-The explicit `query("pipeline")` adapter embeds a standalone query string as one
-native expression. It uses the standalone query grammar and maps diagnostics
-back to the written string; it is useful when embedding a saved quoted query.
 `| emit` and `| json` are terminal emitters. An explicit emitter suppresses the
 statement's implicit emission. Bindings and record fields cannot emit. Program
 parsing checks names, emitters and supported result transitions before execution.
@@ -708,7 +705,7 @@ matches | project(m, {"name": m.d | names | one, "text": m.u | text | one})
 order. Field labels are static quoted strings. The explicit subject is local
 to the projection and cannot shadow a visible binding. Native handles need
 `names`, `text`, `count` or another supported scalar projection before entering
-a constructed field; `one` extracts exactly one projected value. `query("...")` wrappers can also supply native results. Ordinary MiniZinc
+a constructed field; `one` extracts exactly one projected value. Ordinary MiniZinc
 records and field access use the syntax shown in the value examples below.
 
 `match { ... }` returns `ReportValue::Captures`. `CaptureMatches::rows()` borrows
@@ -834,8 +831,10 @@ fields point to the literal selector. These calls are report-only and share
 work, scratch, output-copy and comparison limits. See the [complete contract](query-comprehension-contract.md#report-expressions-and-edit-grammar)
 and [executable report](queries.md#sort-rows-and-select-extrema).
 
-Constructed positional arrays also accept bare `| sort`, `| unique` and
-terminal `| tally`. `sort` uses the scalar ordering above; `unique` keeps first
+Constructed positional arrays also accept `| filter(starts_with("a"))`,
+`| count`, `| sort`, `| unique` and terminal `| tally`. The filter retains strings
+with an exact, case-sensitive prefix; `count` returns the number of present
+array entries. `sort` uses the scalar ordering above; `unique` keeps first
 occurrences; string-only `tally` produces a lexical field-order count record.
 Use grouping for saved values or calls, such as `(rows) | sort | unique`.
 MiniZinc comprehension pipes stay inside brackets. Keyed inputs need an explicit

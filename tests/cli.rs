@@ -533,7 +533,7 @@ fn bounded_paths_run_through_the_root_query_command() {
 #[test]
 fn program_files_report_native_results_and_buffer_later_failures() {
     let path = std::env::temp_dir().join(format!("zincite-root-program-{}.zq", std::process::id()));
-    std::fs::write(&path, r#"let selected = query(""); let n = selected | query("count"); let h = selected | query("names | tally"); report (count: n, histogram: h, selected: selected);"#).unwrap();
+    std::fs::write(&path, r#"let selected = items; let n = selected | count; let h = selected | names | tally; report (count: n, histogram: h, selected: selected);"#).unwrap();
     let output = run(
         &[
             "query",
@@ -554,7 +554,7 @@ fn program_files_report_native_results_and_buffer_later_failures() {
     assert!(report.contains("\"count\":2"));
     assert!(report.contains("\"histogram\":{\"a\":1,\"b\":1}"));
     assert!(report.contains("\"selected\":["));
-    std::fs::write(&path, r#"query("count | json"); query("values");"#).unwrap();
+    std::fs::write(&path, r#"count | json; values;"#).unwrap();
     let output = run(
         &[
             "query",
@@ -570,7 +570,7 @@ fn program_files_report_native_results_and_buffer_later_failures() {
     let diagnostic = String::from_utf8_lossy(&output.stderr);
     assert!(diagnostic.contains("literal"), "{diagnostic}");
     assert!(diagnostic.contains("data.dzn"), "{diagnostic}");
-    std::fs::write(&path, r#"query("count | json"); query("count | items");"#).unwrap();
+    std::fs::write(&path, r#"count | json; count | items;"#).unwrap();
     let output = run(
         &[
             "query",
@@ -593,9 +593,9 @@ fn positional_program_files_share_order_and_buffer_value_failures() {
         std::env::temp_dir().join(format!("zincite-root-positional-{}.zq", std::process::id()));
     std::fs::write(
         &path,
-        r#"let labels = query("names");
+        r#"let labels = names;
 let numbers = items | filter(name("zeta")) | values | one;
-let n = query("count");
+let n = count;
 let rows = [(name: label, pair: (i,j), value: numbers[i] + k, total: n)
   | i,j in index_set(numbers), label in [labels[i]], k = i+(i,j).2,
     _ in 1..1 where j <= i];
@@ -1140,6 +1140,7 @@ fn native_composition_inline_and_file_keep_results_status_and_buffering() {
 
     let output = String::from_utf8(inline.stdout).unwrap();
     assert_eq!(output.lines().count(), 4);
+    assert!(output.contains(r#""matching_count":{"kind":"integer","value":2}"#));
     assert!(output.contains("\"value\":\"capacity\""));
     assert!(output.contains("\"value\":2"));
     assert_eq!(std::fs::read(&model_path).unwrap(), source);
@@ -1203,7 +1204,7 @@ fn native_composition_inline_and_file_keep_results_status_and_buffering() {
     }
     let incomplete = b"int: value = missing; solve satisfy;";
     std::fs::write(&model_path, incomplete).unwrap();
-    let known = r#"let unresolved = query("references | declarations | names | count"); report match { from d in (subtree | declarations | unique); };"#;
+    let known = r#"let unresolved = references | declarations | names | count; report match { from d in (subtree | declarations | unique); };"#;
     for (program_source, expected_status) in [
         (known.to_owned(), 1),
         (format!("{known} report 1 div 0;"), 2),

@@ -129,6 +129,14 @@ impl Parser<'_> {
                 | K::KeyedComprehension { .. } => {
                     Kind::Value(Rc::new(vec![zirql::ValueType::Unestablished]))
                 }
+                K::Call { function, .. }
+                    if self.functions.iter().any(|declaration| {
+                        declaration.name.value == function.value
+                            && is_constructed_signature(&declaration.result.value)
+                    }) =>
+                {
+                    Kind::Value(Rc::new(vec![zirql::ValueType::Unestablished]))
+                }
                 K::Name(name) => self.names.get(name).cloned().unwrap_or(Kind::Constructed),
                 _ => Kind::Constructed,
             };
@@ -191,11 +199,7 @@ impl Parser<'_> {
             shared,
         )?;
         self.report_model_demand |= !lowered.members.is_empty();
-        map_value(
-            &mut lowered.expression,
-            &|range| range,
-            &mut lowered.members,
-        );
+        lower_members(&mut lowered.expression, &mut lowered.members);
         lower_primitives(&mut lowered.expression, &self.names, &self.queries);
         Ok(lowered.expression)
     }
@@ -609,6 +613,7 @@ pub(super) fn lower_primitives(
             )));
         }
         K::Unary { operand, .. }
+        | K::FilterStartsWith { array: operand, .. }
         | K::Unique(operand)
         | K::Tally(operand)
         | K::Occurs(operand)
@@ -737,7 +742,7 @@ pub(super) fn lower_primitives(
             }
         }
         K::IdentitySet { .. } => {}
-        K::Literal(_) | K::Name(_) | K::NativeQuery(_) | K::NativeValue(_) => {}
+        K::CurrentInput | K::Literal(_) | K::Name(_) | K::NativeQuery(_) | K::NativeValue(_) => {}
     }
 }
 fn take_source_call(query: &mut Expression) -> Option<E<Expression>> {
@@ -916,6 +921,12 @@ impl<'r, 'a> Session<'r, 'a> {
                     };
                 }
                 Ok(kind)
+            }
+            ExpressionKind::Record(fields) => {
+                for (_, value) in fields {
+                    self.prepare_expression(value, input.clone(), scope, host, budget)?;
+                }
+                Ok(Kind::Record)
             }
             _ => zirql::native_expression_kind(expression, host, &input, scope, budget)
                 .map_err(pipeline::core_error),
@@ -1681,6 +1692,16 @@ pub(super) fn into_value(mut expression: Expression) -> E<Expression> {
     }
 }
 
+fn is_native_record(expression: &Expression) -> bool {
+    match &expression.value {
+        ExpressionKind::Record(_) => true,
+        ExpressionKind::Group(value) | ExpressionKind::Sequence { input: value, .. } => {
+            is_native_record(value)
+        }
+        _ => false,
+    }
+}
+
 pub(super) fn wrap_program_entries(
     statements: Vec<Located<zirql::Statement<Stage, (), Emitter>>>,
 ) -> Vec<Located<zirql::Statement<Stage, (), Emitter>>> {
@@ -1700,6 +1721,14 @@ pub(super) fn wrap_program_entries(
                     implicit_output,
                 } => (expression, None, implicit_output),
             };
+            // Native report fields share the statement input and keep native leaves.
+            if is_native_record(&expression) {
+                let value = match binding {
+                    Some(name) => zirql::Statement::Bind { name, expression },
+                    None => zirql::Statement::Evaluate { expression, implicit_output },
+                };
+                return Located::new(value, statement.range);
+            }
             let terminal = if let ExpressionKind::Sequence { steps, .. } = &mut expression.value {
                 if steps
                     .last()
@@ -1850,6 +1879,23 @@ pub(super) fn parsed_native_kind(
             kind
         }
         _ => Kind::Constructed,
+    }
+}
+
+fn is_constructed_signature(signature: &zirql::SignatureType) -> bool {
+    use zirql::SignatureType as S;
+    match signature {
+        S::Boolean | S::Integer | S::Float | S::String => true,
+        S::Optional(value) | S::Sequence(value) | S::Set(value) | S::Keyed(value) => {
+            is_constructed_signature(&value.value)
+        }
+        S::Tuple(values) => values
+            .iter()
+            .all(|value| is_constructed_signature(&value.value)),
+        S::Record(fields) => fields
+            .iter()
+            .all(|(_, value)| is_constructed_signature(&value.value)),
+        S::Named(_) | S::Queue(_) | S::IdentitySet(_) => false,
     }
 }
 
@@ -2027,7 +2073,11 @@ pub(super) fn check_value<'v, Q>(
                 .saturating_mul(2)
                 .saturating_add(2)
                 .saturating_add(empty_axis_sources.as_ref().map_or(0, Vec::len)),
-            K::Literal(_) | K::Name(_) | K::NativeQuery(_) | K::NativeValue(_) => 0,
+            K::CurrentInput
+            | K::Literal(_)
+            | K::Name(_)
+            | K::NativeQuery(_)
+            | K::NativeValue(_) => 0,
             _ => 2,
         };
         let location = zirql::Location::Query(value.range.clone());
@@ -2080,7 +2130,7 @@ pub(super) fn check_value<'v, Q>(
                 )
                 .map_err(pipeline::core_error)?;
             }
-            K::Name(_) => {}
+            K::CurrentInput | K::Name(_) => {}
             K::NativeQuery(query) | K::NativeValue(query) => natives.push(query.as_ref()),
             K::Call { arguments, .. }
             | K::Array(arguments)
@@ -2088,6 +2138,7 @@ pub(super) fn check_value<'v, Q>(
             | K::Set(arguments) => children.extend(arguments),
             K::Record(fields) => children.extend(fields.iter().map(|(_, value)| value)),
             K::Unary { operand, .. }
+            | K::FilterStartsWith { array: operand, .. }
             | K::Unique(operand)
             | K::Tally(operand)
             | K::Occurs(operand)

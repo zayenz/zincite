@@ -240,7 +240,7 @@ version = "0.1.0"
 [[package]]
 name = "zirql"
 version = "0.1.0-alpha.5"
-source = "git+https://github.com/zayenz/zirql?rev=a784e426e1512fa87402e2d3ac1a798a4ae8869d#a784e426e1512fa87402e2d3ac1a798a4ae8869d"
+source = "git+https://github.com/zayenz/zirql?rev=d0370ca6f9bf5c2e5fa228c6963a7e2621789a1a#d0370ca6f9bf5c2e5fa228c6963a7e2621789a1a"
 dependencies = [
  "serde_json",
 ]

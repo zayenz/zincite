@@ -195,32 +195,3 @@ impl<'a> composition::CompositionHost<'_, '_> {
         }
     }
 }
-
-pub(super) fn map_signature(
-    value: &mut Located<zirql::SignatureType>,
-    map: &impl Fn(Range<usize>) -> Range<usize>,
-) {
-    use zirql::SignatureType as S;
-    value.range = map(value.range.clone());
-    match &mut value.value {
-        S::Named(name) => name.range = map(name.range.clone()),
-        S::Optional(value)
-        | S::Sequence(value)
-        | S::Set(value)
-        | S::Keyed(value)
-        | S::Queue(value)
-        | S::IdentitySet(value) => map_signature(value, map),
-        S::Tuple(values) => {
-            for value in values {
-                map_signature(value, map);
-            }
-        }
-        S::Record(values) => {
-            for (name, value) in values {
-                name.range = map(name.range.clone());
-                map_signature(value, map);
-            }
-        }
-        S::Boolean | S::Integer | S::Float | S::String => {}
-    }
-}

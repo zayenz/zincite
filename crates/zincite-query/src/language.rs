@@ -175,20 +175,6 @@ type ArgumentReader<'a> =
     dyn FnMut(usize, ArgumentKind, Range<usize>) -> Result<(), QueryError> + 'a;
 
 pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
-    parse_arguments(source, limits, None)
-}
-pub(crate) fn parse_scoped<'a>(
-    source: &'a str,
-    limits: Limits,
-    arguments: &'a mut ArgumentReader<'a>,
-) -> Result<Query, QueryError> {
-    parse_arguments(source, limits, Some(arguments))
-}
-fn parse_arguments<'a>(
-    source: &'a str,
-    limits: Limits,
-    arguments: Option<&'a mut ArgumentReader<'a>>,
-) -> Result<Query, QueryError> {
     if source.len() > MAX_QUERY_BYTES {
         return Err(QueryError::query(
             0..0,
@@ -200,7 +186,7 @@ fn parse_arguments<'a>(
         position: 0,
         nesting_limit: limits.nesting.min(MAX_NESTING),
         collection_limit: limits.collection,
-        arguments,
+        arguments: None,
     };
     let mut stages = Vec::new();
     let mut editing = false;
