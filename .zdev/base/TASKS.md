@@ -2,8 +2,8 @@
 
 # Tasks: base
 
-- Total: 139
-- Ready: 0
+- Total: 140
+- Ready: 1
 - Blocked: 0
 - Done: 139
 
@@ -148,3 +148,4 @@
 | [base-137](tasks/137-broaden-the-default-lint-preset-with-three-focused-checks.md) | Broaden the default lint preset with three focused checks | done | base-136 |
 | [base-138](tasks/138-measure-current-lint-runtime-on-a-small-varied-model-set.md) | Measure current lint runtime on a small varied model set | done | base-137 |
 | [base-139](tasks/139-profile-java-routing-thesis-and-all-lint-cost-within-a-fixed.md) | Profile java-routing thesis and all lint cost within a fixed budget | done | base-138 |
+| [base-140](tasks/140-use-let-for-immutable-input-and-calculated-query-bindings.md) | Use let for immutable input and calculated query bindings | ready | — |

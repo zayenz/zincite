@@ -788,8 +788,12 @@ for the existing tools. `--model PATH` supplies optional model declarations for
 data interpretation; use the existing `-I`/`--stdlib-dir` include rules when a
 query requires semantic context. Syntax queries require no library installation.
 Model/include files supply facts and are never implicit transformation targets.
-Read-only query programs accept -f/--program-file, immutable source and let bindings,
-ordered query/report statements and native or constructed reports. Literal sources read
+Read-only query programs accept -f/--program-file and immutable `let` bindings for
+input values and calculations, with `source` retained as a compatibility spelling
+for existing input bindings. The right-hand expression determines the input role;
+edit requests keep input bindings before calculated bindings, and all reads use
+the original input. Programs retain ordered query/report statements and native or
+constructed reports. Literal sources read
 one original assignment; query sources use supported native projections. Zincite lowers
 its MiniZinc CST into Zirql for checked scalar expressions, scopes and generators. Pure
 values use tagged scalar, member, set, tuple, record and positional or explicit-array
@@ -837,7 +841,7 @@ Keep results native in the library until rendering. Query errors identify query 
 ranges; input/semantic limitations identify source file/ranges. Bound query nesting,
 evaluation work and collection expansion, report exceeded limits, and never silently
 truncate results. Reuse Zirium's limit approach without importing its entire language.
-Read-only source/let bindings, native reports and bounded
+Read-only immutable bindings, native reports and bounded
 positional/keyed/multidimensional comprehensions use shared Zirql execution.
 The bounded model-backed data-construction contract in
 `docs/query-comprehension-contract.md` is approved and implemented through
