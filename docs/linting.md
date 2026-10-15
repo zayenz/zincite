@@ -33,13 +33,13 @@ only once.
 
 | Preset | Rules |
 | --- | --- |
-| `conventions` | `naming`, `missing-constraint-label`, `array-index-start` |
-| `scope` | `suspicious-shadowing`, `unused-declaration`, `unused-generator-binding`, `global-variable-in-function` |
-| `arrays` | `index-set-mismatch`, `hidden-optionality`, `prefer-array-comprehension` |
-| `domains` | `unbounded-variable`, `suspicious-domain`, `partial-expression`, `missing-input-precondition` |
-| `formulation` | `constant-variable`, `compact-if`, `effective-zero-one`, `element-predicate`, `global-constraint-opportunity`, `prefer-enum`, `vacuous-constraint` |
-| `flattening` | `expensive-comprehension`, `decision-variable-operator`, `decision-variable-generator`, `decision-variable-condition`, `reified-global` |
-| `search` | `search-coverage`, `unmarked-symmetry-breaking` |
+| [`conventions`](lint-conventions.md) | `naming`, `missing-constraint-label`, `array-index-start` |
+| [`scope`](lint-scope.md) | `suspicious-shadowing`, `unused-declaration`, `unused-generator-binding`, `global-variable-in-function` |
+| [`arrays`](lint-arrays.md) | `index-set-mismatch`, `hidden-optionality`, `prefer-array-comprehension` |
+| [`domains`](lint-domains.md) | `unbounded-variable`, `suspicious-domain`, `partial-expression`, `missing-input-precondition` |
+| [`formulation`](lint-formulation.md) | `constant-variable`, `compact-if`, `effective-zero-one`, `element-predicate`, `global-constraint-opportunity`, `prefer-enum`, `vacuous-constraint` |
+| [`flattening`](lint-flattening.md) | `expensive-comprehension`, `decision-variable-operator`, `decision-variable-generator`, `decision-variable-condition`, `reified-global` |
+| [`search`](lint-search.md) | `search-coverage`, `unmarked-symmetry-breaking` |
 
 `--rules default` selects the default rules, `--rules thesis` selects the
 fourteen rules based on Erik Rimskog's thesis, and `--rules all` selects all
@@ -157,73 +157,32 @@ To restrict automatic edits, use `fixable` and `unfixable` in `[lint]`. They
 accept rule IDs and families; `unfixable` wins if both select the same rule.
 These settings affect edits, not which diagnostics are reported.
 
-## Selected rules
+## Rule reference
 
-These checks illustrate the kinds of feedback available. Use
-`zincite lint --explain RULE` for the conditions of an individual rule.
+Every rule has an example, advice on what to review and its analysis limits in
+one of the group pages below. The tables on those pages identify default checks
+and automatic fix support. An example illustrates the named rule; it may also
+trigger other rules when you select a broader preset.
 
-| Rule | What to look at |
+| Group | What to review |
 | --- | --- |
-| `prefer-array-comprehension` | An `array1d`, `array2d` or `array3d` wrapper that could be a direct comprehension. A fix is offered only when indices, values and comments can be preserved. |
-| `prefer-enum` | An integer set used to identify things rather than represent numbers. See the enum discussion below. |
-| `index-set-mismatch` | An array access or traversal whose indices conflict with the array's declared index set. |
-| `hidden-optionality` | A length check on a comprehension filtered by a decision variable, where array capacity can differ from the number of present values. |
-| `partial-expression` | Division by zero, an invalid index, a minimum or maximum over an empty array or another operation whose required condition is known to fail. |
-| `suspicious-shadowing` | A local binding that hides a visible enclosing binding. |
-| `vacuous-constraint` | An empty quantifier, a filter that rejects every candidate, or a condition known to be always true or false. |
-| `unused-generator-binding` | A generator name that is never used. Removing the generator could change multiplicity; an eligible fix changes only the name to `_`. |
-| `global-constraint-opportunity` | Pairwise disequalities or occurrence bounds that may be clearer as `all_different` or `global_cardinality`. This is modelling advice, not a promised speedup. |
-| `expensive-comprehension` | Large products of generator sizes, or filters that may be applied too late. |
-| `missing-input-precondition` | A function or predicate that relies on input conditions such as nonempty arrays, compatible indices or a nonzero divisor. |
-| `suspicious-domain` | A value definition that conflicts with, or may exceed, its declared integer domain. |
+| [Conventions](lint-conventions.md) | Names, constraint labels and numeric index origins. |
+| [Scope](lint-scope.md) | Hidden names and dependencies, unused declarations and generator bindings. |
+| [Arrays](lint-arrays.md) | Index compatibility, optional elements and array-construction wrappers. |
+| [Domains](lint-domains.md) | Variable bounds, conflicting definitions and conditions required by expressions. |
+| [Formulation](lint-formulation.md) | Constant decisions, Boolean formulations, globals, identity sets and vacuous constraints. |
+| [Flattening](lint-flattening.md) | Comprehension size and decision-dependent operations, generators, conditions and globals. |
+| [Search](lint-search.md) | Search coverage and possible symmetry-breaking intent. |
 
-These rules use facts that Zincite can establish from the source. They do not
-evaluate arbitrary MiniZinc functions or prove whether a model is satisfiable.
+For a single check, use its ID, for example `zincite lint --rules
+hidden-optionality model.mzn`. `zincite lint --explain hidden-optionality` gives
+the command-line explanation of the same rule.
 
-## Definitions and domain advice
+### Integer identity sets and enums
 
-A declaration such as `var int: staff;` gives no explicit bound. The
-`unbounded-variable` rule can recommend an explicit domain when it can establish that the
-variable lacks a complete bounded definition. It can also recognise supported
-definitions elsewhere in the model, including matching per-element bounds.
-
-Sometimes a function or relation defines a value in a way Zincite cannot
-interpret. In that case, the rule withholds advice about affected variables.
-It does not assume that an unknown definition provides no bounds. An unrelated
-variable can still receive a warning.
-
-The same distinction matters for constant-variable and search checks. A missing
-proof that a variable changes is not proof that it is constant; a missing
-proof that a relation defines a variable is not proof that search omits it.
-Known source errors are still reported. The [analysis limits](support.md)
-explain when an unknown result is expected and when Zincite reports a limitation.
-
-## Integer identity sets and enums
-
-Select `prefer-enum`, `family:style` or `all` to enable this advisory rule.
-It remains outside `default` and `thesis`, and it offers no automatic fix.
-The finding points to the set name and asks the modeller to consider an enum;
-it does not establish an equivalent migration or compatibility with external
-instances or output consumers.
-
-For example, machine numbers may be better represented by an enum if the
-model uses them only to index costs or test whether two assignments use the
-same machine. Names such as `Lathe` and `Press` can explain those identities
-better than `1` and `2`.
-
-The rule checks uses throughout a complete model before making that suggestion.
-Arithmetic on a member, ordering comparisons or integer-specific function
-contracts can make its numeric representation significant. Arithmetic on a
-payload is different: `cost[machine] + 1` changes a cost, not the machine ID.
-
-Output matters too. Replacing integer indices with enum members can change
-printed values and array output, even when the payloads are Booleans. The rule
-withholds advice for affected output uses and for unsupported or unresolved
-uses. It also skips fragments without a solve item and standalone data files,
-where it cannot inspect a complete model's uses.
-
-If you make the conversion, review external data and consumers of the model's
-output as well as the source. Zincite offers no automatic enum migration.
+The [`prefer-enum` reference](lint-formulation.md#prefer-enum) explains when
+integer IDs may be clearer as enum members, with an example and the implications
+for external data and output consumers.
 
 ## Suppression and explicit fixes
 

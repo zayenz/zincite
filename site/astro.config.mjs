@@ -25,7 +25,16 @@ export default defineConfig({
     sidebar: [
       { label: 'Start here', items: ['guides/getting-started', 'guides/first-model', 'guides/support'] },
       { label: 'Formatting', items: ['guides/formatting', 'guides/formatting-style', 'guides/format-on-save'] },
-      { label: 'Linting', items: ['guides/linting'] },
+      { label: 'Linting', items: [
+        { label: 'Running the linter', slug: 'guides/linting' },
+        { label: 'Conventions', slug: 'guides/lint-conventions' },
+        { label: 'Scope and unused names', slug: 'guides/lint-scope' },
+        { label: 'Arrays', slug: 'guides/lint-arrays' },
+        { label: 'Domains and preconditions', slug: 'guides/lint-domains' },
+        { label: 'Model formulation', slug: 'guides/lint-formulation' },
+        { label: 'Comprehensions and flattening', slug: 'guides/lint-flattening' },
+        { label: 'Search and symmetry breaking', slug: 'guides/lint-search' },
+      ] },
       { label: 'Queries and data', items: ['guides/queries', 'guides/query-cookbook', 'guides/data-edits'] },
       { label: 'Reference', items: ['guides/cli', 'guides/reference'] },
       { label: 'Zirql language', link: 'https://zayenz.se/zirql/' },

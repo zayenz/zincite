@@ -1,0 +1,107 @@
+# Domains and expression preconditions
+
+These rules review variable bounds and the conditions needed for operations such
+as indexing and division. Select them with `--rules preset:domains`.
+See [linting](linting.md) for model setup and diagnostic limitations.
+
+| Rule | Default | Automatic fix |
+| --- | --- | --- |
+| [`unbounded-variable`](#unbounded-variable) | No | No |
+| [`suspicious-domain`](#suspicious-domain) | No | No |
+| [`partial-expression`](#partial-expression) | Yes | No |
+| [`missing-input-precondition`](#missing-input-precondition) | No | No |
+
+## unbounded-variable
+
+Recommends an explicit domain for a numeric decision variable when Zincite cannot
+find bounds or a complete definition that supplies them.
+
+```minizinc
+var int: staff;
+constraint staff >= 4;
+solve minimize staff;
+```
+
+The lower bound does not supply an upper bound. If at most ten people can work
+the shift, write `var 0..10: staff;`. The upper bound must come from the actual
+problem; choosing an arbitrary small number can remove valid solutions.
+
+The rule considers scalar and array element domains, aliases and supported
+definitions elsewhere in the model. A complete bounded definition can make an
+explicit bound unnecessary. Conditional, cyclic or partial equalities do not
+establish such a definition. When an unknown relation might define the value,
+Zincite withholds advice about the affected variable and reports the analysis
+limitation.
+
+## suspicious-domain
+
+Compares an integer value's definition with its declared domain.
+
+```minizinc
+var 8 .. 10: morning_staff;
+var 0 .. 7: total_staff = morning_staff + 1;
+```
+
+`morning_staff + 1` lies in `9..11`, which is disjoint from `0..7`. Check the
+definition and the destination domain. If the intended total is morning staff
+plus one supervisor, `var 9..11: total_staff` matches that calculation.
+
+The rule covers supported initializers, immutable `let` locals and enforced
+equalities. A disjoint value range establishes a contradiction in that
+definition. An overlapping range that extends outside the destination domain
+gets weaker advice about a possible conflict; it does not prove that a failing
+value can occur. Unknown parameter values, parameter defaults and arithmetic
+overflow do not justify a conflict claim.
+
+## partial-expression
+
+Reports an operation whose required condition is known to fail, or an access
+with incompatible candidate indices.
+
+```minizinc
+array[1 .. 7] of int: required;
+int: next_week = required[8];
+```
+
+Index 8 is outside the array. Review whether the intended value belongs to a
+different array, whether the array is too short or whether the access should
+have been guarded. The rule also covers division or modulo by zero, `min` or
+`max` of an empty array and `deopt` of an absent value.
+
+Zincite considers guards, assertions, inactive branches, empty iterations and
+supported `default` expressions. A warning explains what fails if the operation
+is evaluated; it does not predict a crash or prove that the model is infeasible.
+Unknown data alone does not trigger a warning. Index findings shared with
+[`index-set-mismatch`](lint-arrays.md#index-set-mismatch) are deduplicated at the
+same unsuppressed access.
+
+## missing-input-precondition
+
+Finds a function or predicate that relies on a condition its formal inputs do
+not establish.
+
+```minizinc
+function int: average_required(array[int] of int: required) = sum(required) div length(required);
+```
+
+An empty array gives a zero divisor. If empty input is invalid, state that
+contract in the function:
+
+```minizinc
+function int: average_required(array[int] of int: required) =
+    assert(
+        length(required) > 0,
+        "At least one day is required",
+        sum(required) div length(required),
+    );
+```
+
+Another design might return a chosen value for empty input. That choice belongs
+to the function's author. Conditions elsewhere in the model and default input
+values do not validate a general function's arguments.
+
+Supported checks include valid array indices, matching array dimensions,
+nonempty inputs to `min` and `max`, nonzero divisors and positive integer inputs
+to scalar `ln`, `log10` and `log2`, including through `int2float`. Guards and
+successful local assertions can satisfy a condition. General floating-point
+logarithm contracts and unresolved operations remain outside this analysis.

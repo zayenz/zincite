@@ -6,7 +6,9 @@ const site = fileURLToPath(new URL('../', import.meta.url));
 const root = resolve(site, '..');
 const guides = [
   'getting-started', 'first-model', 'formatting', 'formatting-style', 'format-on-save',
-  'linting', 'queries', 'query-cookbook', 'data-edits', 'cli', 'support', 'reference',
+  'linting', 'lint-conventions', 'lint-scope', 'lint-arrays', 'lint-domains',
+  'lint-formulation', 'lint-flattening', 'lint-search',
+  'queries', 'query-cookbook', 'data-edits', 'cli', 'support', 'reference',
 ];
 const output = resolve(site, 'src/content/docs/guides');
 await mkdir(output, { recursive: true });
