@@ -1,5 +1,10 @@
 # Batch performance checkpoint
 
+Save-budget conclusions below retain the criteria used in their dated campaigns.
+Use the [current save checkpoint](save-performance-current.md) for the 2026-10-15
+ordinary-file target and separate dense-data/stress reporting. Historical
+size-based misses alone do not require a large-data optimization.
+
 The [base-078 source-location repair below](#source-location-repair--base-078) records fresh current measurements and coverage. Base-074 and base-049 remain historical evidence; their finite cutoffs and limitations are preserved.
 
 The base-049 sequential default-lint command visited all 6,417 discovered roots in 146.1–162.3 seconds. Formatter checks and semantic lint commands retain their finite deadline results below; incomplete commands have no completed-root count or full-batch throughput. The targeted controls identify repeated source-prefix scans in lint and repeated matrix row classification in formatting. Their follow-ups remain separate from the existing dense-save work.

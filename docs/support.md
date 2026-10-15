@@ -32,9 +32,11 @@ feasibility. Data transformations change the instance and establish syntax only.
 ## Performance
 
 The [format-on-save guide](format-on-save.md#measured-behavior) links the current
-bounded checkpoint and historical results separately. The current default dense
-case misses the 100 ms p95 budget; overall interactive acceptance remains open.
-Named latency and memory checks do not establish full-corpus performance.
+bounded checkpoint and historical results separately. Each named ordinary editing
+case in the 2026-10-12 campaign meets the 100 ms p95 target clarified on
+2026-10-15. Dense/generated data and synthetic stress cases remain supported and
+measured separately for throughput, peak RSS and growth. Named checks do not
+establish full-corpus performance or performance of a later build.
 
 ## Evidence and future work
 

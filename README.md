@@ -56,8 +56,9 @@ See the [command reference](docs/cli.md#exit-codes).
 ## Current limitations
 
 The [support guide](docs/support.md) distinguishes current behavior, supported
-Unknown, located limitations, input failures and future work. The current dense
-format-on-save case still misses its 100 ms p95 budget.
+Unknown, located limitations, input failures and future work. The
+[save checkpoint](scripts/save-performance-current.md) applies the 100 ms p95
+target to named ordinary editing cases and reports dense data separately.
 
 ## Libraries
 

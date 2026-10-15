@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 138
-- Ready: 4
+- Ready: 3
 - Blocked: 2
-- Done: 132
+- Done: 133
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -143,7 +143,7 @@
 | [base-132](tasks/132-publish-and-verify-the-approved-zincite-documentation-site.md) | Publish and verify the approved Zincite documentation site | done | base-131 |
 | [base-133](tasks/133-reject-stale-formatter-write-targets.md) | Reject stale formatter write targets | ready | — |
 | [base-134](tasks/134-keep-nested-collections-compact-and-reduce-deep-layout-expan.md) | Keep nested collections compact and reduce deep layout expansion | ready | — |
-| [base-135](tasks/135-apply-the-ordinary-file-latency-target-and-separate-large-da.md) | Apply the ordinary-file latency target and separate large-data reporting | ready | — |
+| [base-135](tasks/135-apply-the-ordinary-file-latency-target-and-separate-large-da.md) | Apply the ordinary-file latency target and separate large-data reporting | done | — |
 | [base-136](tasks/136-expose-semantic-lint-groups-as-built-in-presets.md) | Expose semantic lint groups as built-in presets | ready | — |
 | [base-137](tasks/137-broaden-the-default-lint-preset-with-three-focused-checks.md) | Broaden the default lint preset with three focused checks | blocked | base-136 |
 | [base-138](tasks/138-measure-current-lint-runtime-on-a-small-varied-model-set.md) | Measure current lint runtime on a small varied model set | blocked | base-137 |

@@ -1,5 +1,10 @@
 # Layout measurement performance checkpoint
 
+Save-budget conclusions below retain the criteria used in their dated campaigns.
+Use the [current save checkpoint](save-performance-current.md) for the 2026-10-15
+ordinary-file target and separate dense-data/stress reporting. Historical
+size-based misses alone do not require a large-data optimization.
+
 The formatter stops a prefix preview after it has rendered the first relevant
 line and established that a remainder exists. The final release comparison
 reduces the dense 966,669-byte save p95 from 137.99 to 125.57 ms with defaults,

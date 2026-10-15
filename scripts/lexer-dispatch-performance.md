@@ -1,5 +1,10 @@
 # Lexer symbol dispatch comparison
 
+Save-budget conclusions below retain the criteria used in their dated campaigns.
+Use the [current save checkpoint](save-performance-current.md) for the 2026-10-15
+ordinary-file target and separate dense-data/stress reporting. Historical
+size-based misses alone do not require a large-data optimization.
+
 On 2026-09-30, selecting symbol candidates by their first UTF-8 byte reduced the
 measured CPU cost of token-dense input. Candidate groups retain longest-match
 order and compare complete Unicode spellings; singleton ASCII punctuation returns

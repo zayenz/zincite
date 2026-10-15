@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-135"
 key = "ordinary-save-budget"
 area = "base"
-status = "open"
+status = "done"
 complexity = "routine"
 afk = true
 priority = "normal"
@@ -21,11 +21,19 @@ The user clarified on2026-10-15 that100ms targets ordinary files, not megabytes 
 
 ## Done when
 
-- [ ] Name a small ordinary-file case set and distinguish dense/generated data and synthetic stress cases without a new universal size threshold.
-- [ ] Current summaries apply100ms p95 to ordinary cases; large data reports throughput, RSS and growth separately. Historical measurements and former criteria remain accurately dated.
-- [ ] No large-data optimization task is required solely because the old100ms criterion was exceeded.
+- [x] Name a small ordinary-file case set and distinguish dense/generated data and synthetic stress cases without a new universal size threshold.
+- [x] Current summaries apply100ms p95 to ordinary cases; large data reports throughput, RSS and growth separately. Historical measurements and former criteria remain accurately dated.
+- [x] No large-data optimization task is required solely because the old100ms criterion was exceeded.
 
 ## Validation
 
 - Check all current performance claims and case classifications against the revised brief. Existing results may be reused with their dates and scope; no fresh timings or new tests are required for documentation-only work.
 - Run zdev check base --format json.
+
+## Result
+
+Applied the ordinary-file latency target and separated dense data and stress reporting while preserving dated observations.
+
+Validation:
+
+- Independent review passed; zdev check base and staged diff check passed. Documentation-only change reused retained measurements.

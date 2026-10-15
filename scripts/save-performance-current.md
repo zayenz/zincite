@@ -1,10 +1,24 @@
 # Current bounded save checkpoint
 
-The current release completes all fourteen retained save cases with their
-expected output or error status. The default
-966,669-byte dense case misses the unchanged 100 ms p95 budget at 111.014 ms.
-The nested-settings dense case and the public wide matrix pass. Overall
-interactive acceptance remains open because of that measured miss.
+The 2026-10-12 release campaign completes all fourteen retained save cases with
+their expected output or error status. Each named ordinary editing case meets
+the 100 ms end-to-end p95 target clarified on 2026-10-15, using the retained
+measurements below. This documentation update adds no new timings and does not
+establish performance of a later build.
+
+The ordinary set is `ordinary-changed`, `ordinary-formatted`, `invalid-edited`,
+`matrix`, `external-0-atsp.mzn` and `external-1-trip_7_4.mzn`. They cover changed
+and already formatted models, comments, malformed edits and an ordinary matrix.
+`matrix-grown` measures matrix growth; `nested` and `nested-grown` are synthetic
+nesting stress cases. All `dense-*` cases and the public wide matrix
+`external-2-u7g2pref1.dzn` measure generated/dense data throughput, memory and
+scaling outside the ordinary-file target. These are workload classifications,
+not a byte-size cutoff. All cases remain supported and retained.
+
+The default 966,669-byte dense result remains 111.014 ms p95. It exceeded the
+former size-based criterion used when this campaign ran; it does not create an
+ordinary-file acceptance failure or require an optimization task solely for
+exceeding 100 ms.
 
 This base-129 campaign is separate from the
 [historical save checkpoints](save-performance.md). It ran on 2026-10-12 from
@@ -63,19 +77,32 @@ RSS is a separate single observation per row, not a percentile or allocation cou
 | external-2-u7g2pref1.dzn | D | 885,733 | 91.700 | 93.651 | 90.454–95.687 | 51.234375 |
 | external-2-u7g2pref1.dzn | N | 885,733 | 91.816 | 93.113 | 90.581–94.287 | 51.234375 |
 
-Every case up to 100 KiB passes 50 ms / 32 MiB. The two cases above 100 KiB and
-within 1 MiB stay below 64 MiB; default dense latency is the sole p95 miss.
-Its median is 85.011 ms, but its 256.909 ms maximum and all slower samples remain
-in the report. The nested dense maximum is 225.935 ms although its p95 passes.
-These observations do not identify the cause of the default miss. A bounded
-follow-up must compare this same dense save case under a quiet release campaign
-and, if the miss persists, attribute its cost before choosing a fix. The budget
-and hard case stay unchanged.
+## Ordinary latency and data scaling
 
-The 1,933,338-byte dense case exceeds the interactive size range. It remains
-supported, with about 10.8/10.7 MiB/s input throughput and roughly twice the
-median latency and RSS of the smaller dense case. This pair does not establish
-bounds for other large shapes or batch memory accumulation.
+The six named ordinary cases have per-case p95 values from 4.918 to 17.331 ms
+across D/N settings. Each row has 50 samples, and each meets the 100 ms target;
+invalid edits retain exit 2 with no stdout. The table preserves sample spread
+and RSS alongside latency.
+
+Dense/generated data and stress cases retain their latency observations without
+an ordinary-file pass/fail gate. The default 966,669-byte dense median is
+85.011 ms, with a 256.909 ms maximum; the nested-settings maximum is 225.935 ms.
+No samples were removed, and these observations do not identify the tail's cause.
+
+For the 966,669-byte dense case, median input throughput is about 10.8 MiB/s in
+both settings and RSS is 47.812500/47.828125 MiB. At 1,933,338 bytes, throughput
+is about 10.8/10.7 MiB/s and RSS is 92.000000/92.015625 MiB. Median latency and
+RSS roughly double across this pair. The 885,733-byte public wide matrix has
+about 9.2 MiB/s median input throughput and 51.234375 MiB RSS in both settings.
+Throughput here is input MiB divided by the retained median seconds. These
+points do not establish bounds for other large shapes or batch memory
+accumulation. Unexplained superlinear growth or accumulation still needs a
+bounded investigation.
+
+When measured on 2026-10-12, every case up to 100 KiB met the former 50 ms /
+32 MiB criteria, while default dense p95 exceeded the former 100 ms criterion
+for inputs through 1 MiB. Those dated comparisons remain historical evidence;
+the 2026-10-15 contract applies 100 ms only to the named ordinary workloads.
 
 All 1,400 timed saves and 28 native saves complete without a timeout. Successful
 cases exit 0 with empty stderr; invalid syntax exits 2 with zero stdout and a

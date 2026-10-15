@@ -1,5 +1,10 @@
 # Syntax memory performance checkpoint
 
+Save-budget conclusions below retain the criteria used in their dated campaigns.
+Use the [current save checkpoint](save-performance-current.md) for the 2026-10-15
+ordinary-file target and separate dense-data/stress reporting. Historical
+size-based misses alone do not require a large-data optimization.
+
 The first section retains the base-047 checkpoint. The base-077 section below
 records the current measurements and closes the measured dense-save budgets.
 Syntax and semantic coverage gaps remain explicit.

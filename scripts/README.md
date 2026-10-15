@@ -15,7 +15,22 @@ calculation and native RSS probes are outside the measured interval. Nothing
 writes the input files. Reports default to ignored `target/benchmarks/`; an
 existing report path is refused. `--output PATH` selects a local report.
 
-The named cases are deliberately small:
+The 2026-10-15 performance contract applies a 100 ms end-to-end p95 target
+per named ordinary editing case on the user's M1 Max with a release build.
+The ordinary set is `ordinary-changed`, `ordinary-formatted`, `invalid-edited`,
+`matrix`, and the external ATSP and java-routing `trip_7_4.mzn` models used in
+the [current checkpoint](save-performance-current.md). These cover changed and
+already formatted models, comments, malformed edits and an ordinary matrix.
+The external models retain their explicit paths in the repeat command there.
+
+`matrix-grown` measures matrix growth. `nested` and `nested-grown` are synthetic
+nesting stress cases; all `dense-*` cases measure generated token/CST density.
+The external groupsplitter `u7g2pref1.dzn` is a large wide-matrix workload.
+These cases remain supported and measured for throughput, RSS and scaling outside
+the ordinary-file target. Classification follows workload, with no universal
+byte-size cutoff. Unexpected slow shapes remain in the case set for investigation.
+
+The driver supplies these built-in cases:
 
 | Case | Input | Purpose |
 | --- | --- | --- |
@@ -65,9 +80,14 @@ python3 scripts/bench-save.py --samples 1 --case ordinary-changed --case invalid
 Counts below 50 are smoke evidence only. `--timeout SECONDS` bounds each process;
 timeouts and unexpected statuses remain failures. Successful invalid-buffer
 responsiveness means the expected error status, not successful formatting.
-Budget comparisons apply per case: up to 100 KiB, p95 ≤50 ms and RSS ≤32 MiB;
-above 100 KiB through 1 MiB, p95 ≤100 ms and RSS ≤64 MiB. Larger inputs report
-throughput, memory and growth rather than claiming the interactive budget.
+Compare each named ordinary case with the 100 ms p95 target separately; do not
+pool files. Report first use separately and retain invalid edits' error status.
+Report throughput, peak RSS and growth for dense/generated data and stress cases,
+including inputs over 1 MiB, and investigate unexplained superlinear growth or
+memory accumulation across independent files. The driver records measurements
+and expected output/error status; it does not enforce latency or RSS thresholds.
+The former size-based 50/100 ms and 32/64 MiB criteria remain historical evidence
+in the dated reports below, not current acceptance requirements.
 
 ## Developer phase probe
 
@@ -95,6 +115,10 @@ probes and must not replace the uninstrumented CLI baseline. Profiling adds no
 production instrumentation, allocator or dependency.
 
 ## Release baseline, 2026-09-30
+
+This historical baseline uses the former size-based latency/RSS criteria.
+Its budget conclusions below describe that campaign; use the ordinary-file
+classification above for current comparisons.
 
 Source revision `ed4f940d11b73d78dae5b73347a01bf51bef1d23`; Rust 1.98.1;
 stock optimized release build; Apple M1 Max, arm64, 64 GiB RAM; macOS 26.6.2.

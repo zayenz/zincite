@@ -1,14 +1,15 @@
 # Save command acceptance checkpoint
 
-The base-048 and base-079 results below are historical. The current base-081
-recheck at the end passes the unchanged save budgets on every retained
-representative case. Current full-corpus validation remains deferred; the
-older full-corpus report does not pin the current formatter source.
+These checkpoints retain measurements and acceptance conclusions from their
+dated campaigns under the former size-based latency/RSS criteria. References
+to current results and unchanged budgets below describe those campaigns.
+The [current bounded checkpoint](save-performance-current.md) applies the
+2026-10-15 ordinary-file classification and 100 ms p95 target; dense/generated
+data and synthetic stress cases are reported separately for throughput, RSS and
+growth. Historical budget misses alone do not require a large-data optimization.
 
-The existing one-shot release command meets the unchanged repeated-save budgets
-on the user's M1 Max. No Rust, CLI configuration or benchmark-driver change was
-needed. The [editor recipe](../docs/format-on-save.md) uses the edited buffer on
-stdin, its destination in `--stdin-filepath`, separate stdout/stderr and buffer
+The [editor recipe](../docs/format-on-save.md) uses the edited buffer on stdin,
+its destination in `--stdin-filepath`, separate stdout/stderr and buffer
 replacement only after status 0 and complete output capture.
 
 Measurements ran on 2026-10-02 at HEAD
@@ -412,7 +413,7 @@ frozen source/binary pins and complete terminal child receipts. Save acceptance
 remains open because the wall-time gates are unmet.
 
 
-## Base-081: current save recheck, 2026-10-10
+## Base-081: save recheck, 2026-10-10
 
 The existing renderer and syntax storage meet the unchanged save budgets on the
 retained public wide input and all established representative cases in this
