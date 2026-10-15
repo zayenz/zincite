@@ -43,7 +43,10 @@ fn catalogue_exposes_current_capabilities_and_preserves_presets() {
                 FixSupport::None
             }
         );
-        assert!(metadata.options.is_empty());
+        assert_eq!(
+            metadata.options.is_empty(),
+            rule != Rule::SuspiciousShadowing
+        );
         assert!(!metadata.purpose.is_empty() && !metadata.limitations.is_empty());
     }
     assert_eq!(
@@ -71,7 +74,7 @@ fn catalogue_exposes_current_capabilities_and_preserves_presets() {
             .rules
             .contains(&Rule::PartialExpression)
     );
-    assert_eq!(Rule::DEFAULT.len(), 3);
+    assert_eq!(Rule::DEFAULT.len(), 6);
     assert_eq!(Rule::THESIS.len(), 14);
     assert!(Rule::from_id("unknown-rule").is_none());
 }
@@ -331,7 +334,14 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
         "naming",
         "missing-constraint-label",
         "prefer-array-comprehension",
+        "index-set-mismatch",
+        "suspicious-shadowing",
+        "partial-expression",
     ];
+    assert_eq!(
+        LintOptions::default().rules,
+        LintOptions::from_selection("preset:default").unwrap().rules
+    );
     let thesis = [
         "array-index-start",
         "compact-if",
@@ -353,23 +363,27 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
         ("thesis", thesis.to_vec()),
         (
             "all",
-            defaults
-                .into_iter()
-                .chain(thesis)
-                .chain([
-                    "suspicious-shadowing",
-                    "expensive-comprehension",
-                    "index-set-mismatch",
-                    "hidden-optionality",
-                    "partial-expression",
-                    "vacuous-constraint",
-                    "unused-generator-binding",
-                    "global-constraint-opportunity",
-                    "missing-input-precondition",
-                    "suspicious-domain",
-                    "prefer-enum",
-                ])
-                .collect(),
+            [
+                "naming",
+                "missing-constraint-label",
+                "prefer-array-comprehension",
+            ]
+            .into_iter()
+            .chain(thesis)
+            .chain([
+                "suspicious-shadowing",
+                "expensive-comprehension",
+                "index-set-mismatch",
+                "hidden-optionality",
+                "partial-expression",
+                "vacuous-constraint",
+                "unused-generator-binding",
+                "global-constraint-opportunity",
+                "missing-input-precondition",
+                "suspicious-domain",
+                "prefer-enum",
+            ])
+            .collect(),
         ),
     ] {
         let options = LintOptions::from_selection(selection).unwrap();
@@ -507,7 +521,9 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
             Rule::ArrayIndexStart,
             Rule::PreferArrayComprehension,
             Rule::PreferEnum,
-            Rule::IndexSetMismatch
+            Rule::IndexSetMismatch,
+            Rule::SuspiciousShadowing,
+            Rule::PartialExpression
         ]
     );
     assert_eq!(
@@ -758,7 +774,12 @@ fn personal_presets_merge_typed_options_and_reject_ambiguous_or_invalid_settings
     let exclusions = LintSettings::from_toml("[lint]\nselect=['default']\nignore=['preset:a','preset:b']\n[lint.presets.a]\nselect=['naming']\n[lint.presets.b]\nselect=['missing-constraint-label']").unwrap();
     assert_eq!(
         exclusions.resolve().unwrap().rules,
-        [Rule::PreferArrayComprehension]
+        [
+            Rule::PreferArrayComprehension,
+            Rule::IndexSetMismatch,
+            Rule::SuspiciousShadowing,
+            Rule::PartialExpression
+        ]
     );
     let bundles = LintSettings::from_toml("[lint]\nselect=['preset:a']\n[lint.presets.a]\nselect=['naming']\n[lint.presets.a.options.suspicious-shadowing]\nignore-names=['a']\n[lint.presets.b]\nselect=['naming']\n[lint.presets.b.options.suspicious-shadowing]\nignore-names=['b']").unwrap();
     assert_eq!(

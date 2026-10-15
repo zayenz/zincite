@@ -112,10 +112,13 @@ pub enum Rule {
 }
 
 impl Rule {
-    pub const DEFAULT: [Self; 3] = [
+    pub const DEFAULT: [Self; 6] = [
         Self::Naming,
         Self::MissingConstraintLabel,
         Self::PreferArrayComprehension,
+        Self::IndexSetMismatch,
+        Self::SuspiciousShadowing,
+        Self::PartialExpression,
     ];
     pub const THESIS: [Self; 14] = [
         Self::ArrayIndexStart,
@@ -136,23 +139,27 @@ impl Rule {
 
     pub const ADDITIONAL: [Self; 2] = [Self::SuspiciousShadowing, Self::ExpensiveComprehension];
 
-    /// Every registered rule, including unavailable rules; built-in presets stay fixed.
+    /// Every registered rule in stable catalogue order, independent of preset membership.
     pub fn all() -> impl Iterator<Item = Self> {
-        Self::DEFAULT
-            .into_iter()
-            .chain(Self::THESIS)
-            .chain(Self::ADDITIONAL)
-            .chain([
-                Self::IndexSetMismatch,
-                Self::HiddenOptionality,
-                Self::PartialExpression,
-                Self::VacuousConstraint,
-                Self::UnusedGeneratorBinding,
-                Self::GlobalConstraintOpportunity,
-                Self::MissingInputPrecondition,
-                Self::SuspiciousDomain,
-                Self::PreferEnum,
-            ])
+        [
+            Self::Naming,
+            Self::MissingConstraintLabel,
+            Self::PreferArrayComprehension,
+        ]
+        .into_iter()
+        .chain(Self::THESIS)
+        .chain(Self::ADDITIONAL)
+        .chain([
+            Self::IndexSetMismatch,
+            Self::HiddenOptionality,
+            Self::PartialExpression,
+            Self::VacuousConstraint,
+            Self::UnusedGeneratorBinding,
+            Self::GlobalConstraintOpportunity,
+            Self::MissingInputPrecondition,
+            Self::SuspiciousDomain,
+            Self::PreferEnum,
+        ])
     }
 
     /// Return the single catalogue entry for this rule. Extend this match when
@@ -491,7 +498,7 @@ pub(crate) fn preset_memberships(rule: Rule) -> Vec<&'static str> {
     .collect()
 }
 
-/// Selected rules. The default includes syntax rules and bounded model-backed style advice.
+/// Selected rules. The default includes syntax rules and bounded model-backed checks.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LintOptions {
     pub rules: Vec<Rule>,

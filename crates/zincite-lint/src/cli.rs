@@ -56,7 +56,8 @@ Every candidate must parse and its original file must still match before replace
 Unused-generator-binding and element-predicate offer Safe edits only when their conditions hold.
 Other advice, and these rules when required facts are unproved, remains diagnostic-only.
 The thesis preset selects its fourteen rules; all includes every registered rule,
-including unavailable rules that fail execution. Default selects naming, missing-constraint-label and prefer-array-comprehension.
+including unavailable rules that fail execution. Default selects naming, missing-constraint-label,
+prefer-array-comprehension, index-set-mismatch, suspicious-shadowing and partial-expression, in that order.
 --list-rules lists rule IDs, families, availability, fix support and preset membership.
 --explain RULE describes a rule's purpose, required facts, limitations and options.
 These inspection commands run alone, write to stdout and do not read input.
@@ -67,13 +68,15 @@ Rule entries report availability, implemented fix support and current options.
 The root must contain std/stdlib.mzn. Missing library dependencies suggest this setup.
 On macOS, MiniZincIDE commonly uses /Applications/MiniZincIDE.app/Contents/Resources/share/minizinc.
 Zincite does not discover installations or run a MiniZinc compiler or solver.
-Default model analysis loads includes and standard callable signatures for comprehension advice.
+Default model analysis loads the root and include closure for comprehension advice,
+index-set checks, lexical shadowing and partial expressions. Supply matching include
+and standard-library paths when the model needs them. Unsupported required semantics
+remain explicit analysis limitations.
 Select naming,missing-constraint-label for source-local analysis.
 Stdin has no model context: selected semantic analysis reports a limitation;
 standalone .dzn inputs mark semantic rules inapplicable.
 
 Prefer-enum is opt-in advisory advice and offers no automatic fix.
-Default rules are naming, missing-constraint-label and prefer-array-comprehension.
 Symbolic Cartesian advice from expensive-comprehension is informational when no numeric
 count or threshold exceedance is established. Numeric threshold and proven placement
 advice remain warnings. Informational advice alone does not fail lint.

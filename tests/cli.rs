@@ -172,6 +172,48 @@ fn lint_selection_and_settings_keep_standalone_behavior() {
 }
 
 #[test]
+fn default_lint_checks_included_shadowing_without_writing() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-root-default-{}", std::process::id()));
+    std::fs::create_dir_all(directory.join("library/std")).unwrap();
+    std::fs::write(directory.join("library/std/stdlib.mzn"), "").unwrap();
+    let shared = directory.join("shared.mzn");
+    let root = directory.join("root.mzn");
+    let library = directory.join("library");
+    let outer = "int: value = 1;\r\n";
+    std::fs::write(&shared, outer).unwrap();
+    for (parameter, status) in [("value", 1), ("item", 0)] {
+        let source = format!(
+            "include \"shared.mzn\";\r\nfunction int: identity(int: {parameter}) = {parameter};\r\nsolve satisfy;\r\n"
+        );
+        std::fs::write(&root, &source).unwrap();
+        for selection in [None, Some("default"), Some("preset:default")] {
+            let mut arguments = vec![
+                "lint",
+                "--isolated",
+                "--stdlib-dir",
+                library.to_str().unwrap(),
+            ];
+            if let Some(selection) = selection {
+                arguments.extend(["--rules", selection]);
+            }
+            arguments.push(root.to_str().unwrap());
+            let output = run(&arguments, "");
+            let diagnostics = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status.code(), Some(status), "{diagnostics}");
+            assert!(output.stdout.is_empty());
+            assert_eq!(
+                diagnostics.contains("warning [suspicious-shadowing]"),
+                status == 1
+            );
+            assert_eq!(std::fs::read(&root).unwrap(), source.as_bytes());
+            assert_eq!(std::fs::read(&shared).unwrap(), outer.as_bytes());
+        }
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn help_uses_the_invocation_and_usage_errors_exit_two() {
     for arguments in [&[][..], &["--help"][..], &["-h"][..]] {
         let output = run(arguments, "");

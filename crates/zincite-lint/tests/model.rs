@@ -408,7 +408,7 @@ fn incomplete_context_and_shared_reporter_keep_rule_execution_and_status_distinc
     let result = analyze_model(&context, &defaults);
     assert!(result.findings.is_empty() && result.errors.is_empty());
     assert!(result.rules.iter().all(|rule| {
-        if rule.rule == zincite_lint::Rule::PreferArrayComprehension {
+        if rule.rule.requires_model() {
             matches!(rule.outcome, RuleOutcome::Limited { .. })
         } else {
             rule.outcome == RuleOutcome::Completed

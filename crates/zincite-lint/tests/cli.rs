@@ -157,9 +157,9 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     assert_eq!(list.lines().count(), 29);
     assert!(list.contains("naming\tstyle\tavailable\tnone\tdefault,conventions,all"));
     assert!(list.contains("search-coverage\tmodelling\tavailable\tnone\tthesis,search,all"));
-    assert!(list.contains("index-set-mismatch\tcorrectness\tavailable\tnone\tarrays,all"));
+    assert!(list.contains("index-set-mismatch\tcorrectness\tavailable\tnone\tdefault,arrays,all"));
     assert!(list.contains("hidden-optionality\tsuspicious\tavailable\tnone\tarrays,all"));
-    assert!(list.contains("partial-expression\tsuspicious\tavailable\tnone\tdomains,all"));
+    assert!(list.contains("partial-expression\tsuspicious\tavailable\tnone\tdefault,domains,all"));
     assert!(list.contains("vacuous-constraint\tsuspicious\tavailable\tnone\tformulation,all"));
     assert!(
         list.contains("global-constraint-opportunity\tmodelling\tavailable\tnone\tformulation,all")
@@ -415,7 +415,8 @@ fn rule_selection_preserves_defaults_and_runs_available_catalogue_rules() {
     assert_eq!(default.status.code(), Some(1));
     for selection in [
         "default",
-        "naming,missing-constraint-label,prefer-array-comprehension",
+        "preset:default",
+        "naming,missing-constraint-label,prefer-array-comprehension,index-set-mismatch,suspicious-shadowing,partial-expression",
     ] {
         let output = run(&["--rules", selection], source);
         assert_eq!(output.status.code(), Some(1));
@@ -1508,7 +1509,9 @@ fn index_mismatch_selection_and_suppression_keep_status_and_source_contracts() {
         assert!(text.contains("array 'a' dimension 1") && text.contains("declared at"));
         assert!(!text.contains("analysis limitation:"), "{text}");
     }
-    assert_eq!(run(&[root.to_str().unwrap()], "").status.code(), Some(0));
+    let default = run(&[root.to_str().unwrap()], "");
+    assert_eq!(default.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&default.stderr).contains("warning [index-set-mismatch]"));
     let explanation = run(&["--explain", "index-set-mismatch"], "invalid input");
     assert!(explanation.status.success() && explanation.stderr.is_empty());
     let explanation = String::from_utf8(explanation.stdout).unwrap();
@@ -1617,7 +1620,11 @@ fn hidden_optionality_selection_suppression_and_limits_keep_status_and_source_co
             "{text}"
         );
     }
-    assert_eq!(run(&[root.to_str().unwrap()], "").status.code(), Some(0));
+    let default = run(&[root.to_str().unwrap()], "");
+    assert_eq!(default.status.code(), Some(1));
+    let diagnostics = String::from_utf8_lossy(&default.stderr);
+    assert!(diagnostics.contains("warning [index-set-mismatch]"));
+    assert!(!diagnostics.contains("warning [hidden-optionality]"));
     let explanation = run(&["--explain", "hidden-optionality"], "invalid input");
     assert!(explanation.status.success() && explanation.stderr.is_empty());
     let explanation = String::from_utf8(explanation.stdout).unwrap();

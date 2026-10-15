@@ -69,7 +69,7 @@ fn lexical_shadowing_uses_enclosing_identity_and_keeps_scope_exceptions_quiet() 
     assert_eq!(excepted.findings.len(), 1);
     assert_eq!(&source[excepted.findings[0].location.range.clone()], "i");
     assert!(Rule::SuspiciousShadowing.is_available());
-    assert_eq!(Rule::DEFAULT.len(), 3);
+    assert_eq!(Rule::DEFAULT.len(), 6);
     assert_eq!(Rule::THESIS.len(), 14);
     assert_eq!(std::fs::read_to_string(&shared).unwrap(), outer);
     assert_eq!(std::fs::read_to_string(&root).unwrap(), source);

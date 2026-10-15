@@ -14,7 +14,10 @@ cargo build --release -p zincite -p zincite-lint
 ./target/release/zincite lint --rules preset:scope model.mzn
 ```
 
-The default selects `naming`, `missing-constraint-label` and `prefer-array-comprehension`. `thesis` keeps its
+The default selects `naming`, `missing-constraint-label`,
+`prefer-array-comprehension`, `index-set-mismatch`, `suspicious-shadowing` and
+`partial-expression`, in that order. Omitted selection, `default` and
+`preset:default` are equivalent. Other rules stay opt-in. `thesis` keeps its
 fourteen original rules; `all` selects all 28 currently available rules. IDs,
 `family:NAME` and `preset:NAME` can be combined with commas. Expansion keeps the
 first occurrence of each ID. `default`, `thesis` and `all` remain accepted legacy
@@ -88,9 +91,12 @@ that matches the model:
 ```
 
 `--stdlib-dir` overrides `MZN_STDLIB_DIR`; `-I` adds ordered include directories.
-The default loads model context for `prefer-array-comprehension`, using source and
-callable signatures without expanding selected standard bodies. Selecting only
-`naming,missing-constraint-label` keeps analysis local to the source.
+The default loads the root and include closure for comprehension advice, index-set
+checks, lexical shadowing and partial expressions. Supply matching include and
+standard-library paths when the model needs them. Unsupported required semantics
+remain explicit analysis limitations; a quiet result does not prove expressions
+are total or index sets agree. Selecting only `naming,missing-constraint-label`
+keeps analysis local to the source.
 Standalone `.dzn` files use assignment-only syntax and mark semantic rules
 inapplicable. Plain stdin lacks model context; semantic selections report a
 limitation. `--stdin-filepath PATH` sets language mode, diagnostic path and the

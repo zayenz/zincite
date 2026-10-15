@@ -1271,9 +1271,13 @@ warnings with rule, severity, message and byte range, or owned syntax/suppressio
 diagnostics without partial warnings. `LintOptions::from_selection` resolves
 presets and explicit IDs; `lint_with_options(&parsed, &options)` runs a selected
 set. `Rule::DEFAULT` and `Rule::THESIS` expose preset membership. The default
-selects naming, constraint labels and model-backed direct-comprehension advice;
-`thesis` selects fourteen rules and `all` selects all 28 implemented rules. Semantic selections require the explicit model
-API below; `lint_with_options` rejects them without that context.
+selects `naming`, `missing-constraint-label`, `prefer-array-comprehension`,
+`index-set-mismatch`, `suspicious-shadowing` and `partial-expression`, in that
+order. Omitted selection, `default` and `preset:default` are equivalent. Other
+rules stay opt-in; `thesis` selects fourteen rules and `all` selects all 28
+implemented rules. The `lint` convenience function runs only the source-local
+subset of the default. Semantic selections require the explicit model API below;
+`lint_with_options` rejects them without that context.
 
 Explicit model analysis uses `load_model(root_path, &ModelOptions)` and
 `analyze_model(&context, &LintOptions)`. For repeated or mixed requests, construct
@@ -1293,8 +1297,13 @@ from names or bodyless user declarations.
 
 `ModelOptions` takes its configuration from the caller. The CLI accepts ordered
 `-I DIR` options and `--stdlib-dir DIR`, with `MZN_STDLIB_DIR` as the fallback for
-the latter. The default loads model context for comprehension advice; selecting only
-`naming,missing-constraint-label` keeps analysis source-local.
+the latter. The default loads the root and include closure for comprehension
+advice, index-set checks, lexical shadowing and partial expressions. Supply
+matching include and standard-library paths when needed. Selecting only
+`naming,missing-constraint-label` keeps analysis source-local. Default analysis
+retains explicit limitations for unsupported required semantics; a quiet result
+does not establish totality or index-set agreement. Ordinary analysis writes
+nothing; fixes require an explicit request.
 Implemented rule availability is separate from a particular analysis's
 `Completed`, `Limited` or `Inapplicable` outcome.
 

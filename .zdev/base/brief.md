@@ -31,9 +31,11 @@ baseline; the Corpus and thesis expansion section explicitly extends them.
 - Prefer simple modules and direct tree traversal. Add crates, generic interfaces,
   semantic machinery, and tests when an actual consumer or risk justifies them.
 - Target MiniZinc 2.10.1, including `.mzn` models and `.dzn` data files.
-- Retain the existing naming and constraint-label rules as defaults. Add all
-  fourteen thesis rules through the explicitly selected `--rules thesis` preset.
-  Build name resolution and semantic facts only as those rules need them.
+- Use naming, missing-constraint-label, prefer-array-comprehension,
+  index-set-mismatch, suspicious-shadowing and partial-expression as the default
+  rules, in that order. Keep all other rules opt-in and preserve the fourteen-rule
+  `--rules thesis` preset. Build name resolution and semantic facts only as
+  selected rules need them.
 - Accept explicit file paths and stdin. Extend linting and formatter check mode
   to directories in the next bundle. Provide formatter stdout, check and explicit
   file-write modes, with text diagnostics. JSON output remains deferred.
@@ -263,10 +265,10 @@ preservation. Review representative rendered examples, not stability alone.
 Keep the existing primary lint families and add built-in semantic presets:
 conventions, scope, arrays, domains, formulation, flattening and search. Keep
 thesis as a cross-cutting fourteen-rule preset. The grouping task defines the
-exact rule mapping. Broaden default from its existing three rules by adding
-index-set-mismatch, suspicious-shadowing and partial-expression. Other broad
-modelling/performance advice stays opt-in. This planned six-rule default
-supersedes earlier three-rule default requirements when implemented. Fix
+exact rule mapping. Default retains naming, missing-constraint-label and
+prefer-array-comprehension, followed by index-set-mismatch, suspicious-shadowing
+and partial-expression. Other rules stay opt-in. This six-rule default
+supersedes the earlier three-rule default. Fix
 availability, safety, severity and analysis completeness remain separate.
 
 Formatter explicit writes must reject a file changed since reading before
@@ -383,9 +385,12 @@ symlink-directory cycles and deduplicate overlapping inputs. Do not recursively
 write directories in this bundle. Explicit file writes retain their current
 contract. Reading included files for semantic linting never formats them.
 
-`--rules default` selects naming, missing-constraint-label and prefer-array-comprehension; omitted `--rules` is equivalent.
+`--rules default` and `--rules preset:default` select naming,
+missing-constraint-label, prefer-array-comprehension, index-set-mismatch,
+suspicious-shadowing and partial-expression, in that order; omitted `--rules`
+is equivalent.
 `--rules thesis` selects exactly the fourteen thesis rules, and `--rules all`
-selects both groups. A comma-separated list of stable rule IDs selects exactly
+selects every registered rule. A comma-separated list of stable rule IDs selects exactly
 those rules. Reject unknown IDs and repeated `--rules`; keep the existing text
 output and 0/1/2 exit semantics. Extend existing next-item suppressions to every
 rule ID, including rules currently disabled. The Linter expansion section extends
@@ -597,8 +602,9 @@ Keep the exit status policy: unsuppressed warnings fail; informational advice
 alone does not. For `expensive-comprehension`, symbolic Cartesian structure
 without a proven count or threshold exceedance is informational advice; reserve
 warnings for stronger evidence. Broad heuristic advice stays
-opt-in; the `default` preset includes naming, missing-constraint-label and
-prefer-array-comprehension. Preserve the fourteen-rule `thesis` preset.
+opt-in; the `default` preset includes naming, missing-constraint-label,
+prefer-array-comprehension, index-set-mismatch, suspicious-shadowing and
+partial-expression, in that order. Preserve the fourteen-rule `thesis` preset.
 `all` expands to every registered rule and still diagnoses unavailable selections.
 
 Selectors accept exact IDs, `family:NAME`, `preset:NAME`, and legacy
