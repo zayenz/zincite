@@ -30,6 +30,49 @@ fn run_bytes(arguments: &[&str], source: &[u8], library: Option<&str>) -> std::p
 }
 
 #[test]
+fn stdin_snippets_underline_existing_ranges_after_bom_and_comment_bytes() {
+    for (source, displayed_comment) in [
+        (
+            "\u{feff}% heading\r\n/* é */ int: BadName = 1;\r\n".as_bytes(),
+            "é",
+        ),
+        (
+            b"\xef\xbb\xbf% heading\r\n/* \xff */ int: BadName = 1;\r\n".as_slice(),
+            "�",
+        ),
+    ] {
+        let output = run_bytes(
+            &[
+                "--isolated",
+                "--rules",
+                "naming",
+                "--stdin-filepath",
+                "unsaved.mzn",
+            ],
+            source,
+            None,
+        );
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8(output.stderr).unwrap();
+        let start = source
+            .windows(7)
+            .position(|bytes| bytes == b"BadName")
+            .unwrap();
+        assert!(
+            text.contains(&format!("unsaved.mzn:2:14: bytes {start}..{}:", start + 7)),
+            "{text}"
+        );
+        assert!(
+            text.contains(&format!(
+                "2 | /* {displayed_comment} */ int: BadName = 1;\n  |              ^^^^^^^"
+            )),
+            "{text}"
+        );
+    }
+}
+
+#[test]
 fn shared_include_reports_keep_roots_distinct_and_limitations_compact() {
     let directory =
         std::env::temp_dir().join(format!("zincite-lint-root-reports-{}", std::process::id()));
@@ -69,6 +112,12 @@ fn shared_include_reports_keep_roots_distinct_and_limitations_compact() {
         assert_eq!(output.status.code(), Some(1));
         assert!(output.stdout.is_empty());
         let text = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            text.contains(
+                "1 | function var int: BadName() = global;\n  |                   ^^^^^^^"
+            ),
+            "{text}"
+        );
         for root in [&decision, &parameter] {
             assert!(
                 text.contains(&format!(
@@ -2599,6 +2648,13 @@ fn diagnostic_only_rules_keep_native_fix_diff_bytes_and_statuses() {
                 String::from_utf8_lossy(&result.stderr)
             );
             assert!(result.stdout.is_empty());
+            if status == 1 {
+                let text = String::from_utf8_lossy(&result.stderr);
+                assert!(
+                    text.contains("1 | int:BadName=1; solve satisfy;\n  |     ^^^^^^^"),
+                    "{text}"
+                );
+            }
             assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
         }
     }

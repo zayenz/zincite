@@ -94,7 +94,7 @@ performance are not checked.
 Code and literals use UTF-8; opaque comment bytes are preserved by fixes.
 Syntax errors omit lint rules for that file. Independent files are processed.
 Exit codes: 0 no warnings/errors, 1 unsuppressed warnings, 2 input/parse/directive/configuration/usage/dependency errors.
-Diagnostics label the analysis root alongside the source location.
+Diagnostics label the analysis root alongside the source location and underline the affected source.
 Analysis limitations are counted per root by default; --show-limitations prints their locations and reasons.
 Analysis limitations alone retain status 0 or 1 and do not establish complete analysis.
 -h, --help shows this help.
@@ -205,6 +205,13 @@ fn execute(arguments: Vec<std::ffi::OsString>, invocation: &str) -> Result<u8, S
                 &analyze_model(&context, &options),
                 &path,
                 show_limitations,
+                |path| {
+                    context
+                        .files
+                        .iter()
+                        .find(|file| file.path == path)
+                        .map(|file| (file.source_bytes(), file.byte_offset))
+                },
                 &mut io::stderr(),
             )
             .map_err(|error| format!("stderr: {error}"))
@@ -275,15 +282,33 @@ fn explicit_fix_paths(paths: &[PathBuf], model: &ModelOptions) -> Result<Vec<Pat
 
 // Retain original bytes only when a root finding supplies an edit. Semantic
 // include contexts are dropped on return; include-only findings are diagnostic.
+// When requested, render before dropping the loaded sources.
 fn analyze_fix_root(
     path: &Path,
     options: &LintOptions,
     model: &ModelOptions,
     retain: bool,
+    report: Option<bool>,
 ) -> Result<(AnalysisResult, Option<SourceSnapshot>), String> {
     if options.requires_model() && FileMode::from_path(path) == FileMode::Model {
         let context = load_model(path, model);
         let result = analyze_model(&context, options);
+        if let Some(show_limitations) = report {
+            write_root_analysis(
+                &result,
+                path,
+                show_limitations,
+                |path| {
+                    context
+                        .files
+                        .iter()
+                        .find(|file| file.path == path)
+                        .map(|file| (file.source_bytes(), file.byte_offset))
+                },
+                &mut io::stderr(),
+            )
+            .map_err(|error| format!("stderr: {error}"))?;
+        }
         let snapshot = if retain
             && result
                 .findings
@@ -301,6 +326,16 @@ fn analyze_fix_root(
     let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
     let (parsed, offset) = parse_source(&path.to_string_lossy(), bytes, FileMode::from_path(path))?;
     let result = analyze_file(parsed.analysis_file(), path, offset, options);
+    if let Some(show_limitations) = report {
+        write_root_analysis(
+            &result,
+            path,
+            show_limitations,
+            |_| Some((parsed.source_bytes(), offset)),
+            &mut io::stderr(),
+        )
+        .map_err(|error| format!("stderr: {error}"))?;
+    }
     let snapshot =
         (retain && result.findings.iter().any(|finding| finding.fix.is_some())).then(|| {
             let mut source = Vec::with_capacity(parsed.source_bytes().len() + offset);
@@ -323,7 +358,13 @@ fn run_fixes(
     let mut status = 0;
     let mut prepared: Vec<(SourceSnapshot, PreparedFixes)> = Vec::new();
     for (path, settings) in paths.iter().zip(settings) {
-        let analyzed = analyze_fix_root(path, &settings.options, model, true);
+        let analyzed = analyze_fix_root(
+            path,
+            &settings.options,
+            model,
+            true,
+            (mode == Mode::Diff).then_some(show_limitations),
+        );
         match analyzed {
             Err(error) => {
                 writeln!(io::stderr(), "{error}").map_err(|error| format!("stderr: {error}"))?;
@@ -331,10 +372,7 @@ fn run_fixes(
             }
             Ok((result, snapshot)) => {
                 if mode == Mode::Diff {
-                    status = status.max(
-                        write_root_analysis(&result, path, show_limitations, &mut io::stderr())
-                            .map_err(|error| format!("stderr: {error}"))?,
-                    );
+                    status = status.max(result.status());
                 } else if !result.errors.is_empty() {
                     status = 2;
                 }
@@ -382,13 +420,14 @@ fn run_fixes(
     // All explicit writes finish before any final include closure is loaded.
     // The final diagnostics never feed another preparation/application pass.
     for (path, settings) in paths.iter().zip(settings) {
-        match analyze_fix_root(path, &settings.options, model, false) {
-            Ok((result, _)) => {
-                status = status.max(
-                    write_root_analysis(&result, path, show_limitations, &mut io::stderr())
-                        .map_err(|error| format!("stderr: {error}"))?,
-                )
-            }
+        match analyze_fix_root(
+            path,
+            &settings.options,
+            model,
+            false,
+            Some(show_limitations),
+        ) {
+            Ok((result, _)) => status = status.max(result.status()),
             Err(error) => {
                 writeln!(io::stderr(), "{error}").map_err(|error| format!("stderr: {error}"))?;
                 status = 2;
@@ -817,6 +856,7 @@ fn check_source(
         &analyze_file(parsed.analysis_file(), label, offset, options),
         Path::new(label),
         show_limitations,
+        |_| Some((parsed.source_bytes(), offset)),
         &mut io::stderr(),
     )
     .map_err(|error| format!("stderr: {error}"))

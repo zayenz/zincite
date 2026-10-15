@@ -1,4 +1,5 @@
 //! File-aware selected results and the shared text diagnostic renderer.
+use annotate_snippets::{AnnotationKind, Group, Level, Renderer, Snippet};
 use std::io::{self, Write};
 use std::path::Path;
 use zincite_syntax::{FileMode, ParsedFile};
@@ -567,27 +568,29 @@ pub fn analyze_model_with_facts(
     result
 }
 
-/// Render only to the supplied diagnostic writer (stderr in the CLI). Model
+/// Render compact diagnostics without source excerpts to the supplied writer. Model
 /// limitations alone retain status 0/1; actual errors take precedence with 2.
 pub fn write_analysis(result: &AnalysisResult, output: &mut impl Write) -> io::Result<u8> {
-    write_report(result, None, true, output)
+    write_report(result, None, true, |_| None, output)
 }
 
 /// CLI presentation keeps each root's conclusions separate, while retaining
 /// located limitations in the analysis result and the public detailed renderer.
-pub(crate) fn write_root_analysis(
+pub(crate) fn write_root_analysis<'a>(
     result: &AnalysisResult,
     root: &Path,
     show_limitations: bool,
+    source: impl Fn(&Path) -> Option<(&'a [u8], usize)>,
     output: &mut impl Write,
 ) -> io::Result<u8> {
-    write_report(result, Some(root), show_limitations, output)
+    write_report(result, Some(root), show_limitations, source, output)
 }
 
-fn write_report(
+fn write_report<'a>(
     result: &AnalysisResult,
     root: Option<&Path>,
     show_limitations: bool,
+    source: impl Fn(&Path) -> Option<(&'a [u8], usize)>,
     output: &mut impl Write,
 ) -> io::Result<u8> {
     for finding in &result.findings {
@@ -600,6 +603,7 @@ fn write_report(
             root,
             &finding.location,
             &format!("{severity} [{}]: {}", finding.rule.id(), finding.message),
+            source(&finding.location.path),
         )?;
     }
     if show_limitations {
@@ -609,6 +613,7 @@ fn write_report(
                 root,
                 &limitation.location,
                 &format!("analysis limitation: {}", limitation.message),
+                source(&limitation.location.path),
             )?;
         }
     } else if !result.limitations.is_empty() {
@@ -630,6 +635,7 @@ fn write_report(
             root,
             &error.location,
             &format!("error: {}", error.message),
+            source(&error.location.path),
         )?;
     }
     Ok(result.status())
@@ -640,6 +646,7 @@ fn write_diagnostic(
     root: Option<&Path>,
     location: &SourceLocation,
     message: &str,
+    source: Option<(&[u8], usize)>,
 ) -> io::Result<()> {
     if let Some(root) = root {
         write!(output, "[root {}] ", root.display())?;
@@ -652,5 +659,46 @@ fn write_diagnostic(
         location.column,
         location.range.start,
         location.range.end
-    )
+    )?;
+    if let Some((source, offset)) = source {
+        write_snippet(output, source, offset, location)?;
+    }
+    Ok(())
+}
+
+fn write_snippet(
+    output: &mut impl Write,
+    source: &[u8],
+    offset: usize,
+    location: &SourceLocation,
+) -> io::Result<()> {
+    let Some(start) = location.range.start.checked_sub(offset) else {
+        return Ok(());
+    };
+    let Some(end) = location.range.end.checked_sub(offset) else {
+        return Ok(());
+    };
+    if start > end || end > source.len() {
+        return Ok(());
+    }
+    // Limit rendering to the affected lines. Convert opaque comment bytes only
+    // for display, mapping the existing byte span into that displayed excerpt.
+    let line_start = source[..start]
+        .iter()
+        .rposition(|&byte| byte == b'\n' || byte == b'\r')
+        .map_or(0, |position| position + 1);
+    let line_end = source[end..]
+        .iter()
+        .position(|&byte| byte == b'\n' || byte == b'\r')
+        .map_or(source.len(), |position| end + position);
+    let prefix = String::from_utf8_lossy(&source[line_start..start]);
+    let marked = String::from_utf8_lossy(&source[start..end]);
+    let excerpt = String::from_utf8_lossy(&source[line_start..line_end]);
+    let span = prefix.len()..prefix.len() + marked.len();
+    let report = [Group::with_level(Level::WARNING).element(
+        Snippet::source(excerpt.as_ref())
+            .line_start(location.line)
+            .annotation(AnnotationKind::Primary.span(span)),
+    )];
+    writeln!(output, "{}", Renderer::plain().render(&report))
 }

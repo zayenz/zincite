@@ -53,6 +53,10 @@ A warning includes the rule ID, source path and location. For an included file,
 `[root PATH]` identifies the model being analysed: the same include can have
 different findings when used by different models.
 
+CLI diagnostics show a source excerpt with the affected range underlined, using
+`annotate-snippets`. Excerpts come from the analysed input, including stdin and
+included files; diagnostics without available source retain their text location.
+
 Warnings produce exit status 1. Input or configuration errors produce 2.
 Informational advice alone produces 0. For example, `expensive-comprehension`
 can point out a product of symbolic generator sizes without claiming that it
