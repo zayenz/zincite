@@ -19,6 +19,10 @@ pub enum ProgramNative {
     Mapping(zirql::NativeMap<zirql::Expression<Self, zirql::NativeSetOperator, ()>>),
     /// Stably sort dictionary values with the native typed scalar key contract.
     MapSorting,
+    /// Keep original subjects whose pure native relation is nonempty.
+    Exists(Box<zirql::Expression<Self, zirql::NativeSetOperator, ()>>),
+    /// Replace the native selection until its ordered identities are unchanged.
+    FixedPoint(Box<zirql::Expression<Self, zirql::NativeSetOperator, ()>>),
 }
 
 impl ProgramNative {
@@ -38,6 +42,10 @@ impl ProgramNative {
                     Located::new(ExpressionKind::Input, 0..0),
                 ));
             }
+            Self::Exists(body) | Self::FixedPoint(body) => pending.push(*std::mem::replace(
+                body,
+                Box::new(Located::new(ExpressionKind::Input, 0..0)),
+            )),
             Self::Query(_) | Self::MapSorting => {}
         }
     }
@@ -323,6 +331,22 @@ fn map_native(
                                     })),
                                     step.range.clone(),
                                 ),
+                                ProgramNative::Exists(body) | ProgramNative::FixedPoint(body) => {
+                                    let body = map_native(
+                                        *std::mem::replace(
+                                            body,
+                                            Box::new(Located::new(ExpressionKind::Input, 0..0)),
+                                        ),
+                                        lower,
+                                    );
+                                    let body = native::BodyStage::new(body);
+                                    let stage = if matches!(stage, ProgramNative::Exists(_)) {
+                                        Stage::WhereExists(body)
+                                    } else {
+                                        Stage::FixedPoint(body)
+                                    };
+                                    value_stage(stage, step.range.clone())
+                                }
                                 ProgramNative::MapSorting => {
                                     value_stage(Stage::MapSorting, step.range.clone())
                                 }
@@ -696,6 +720,9 @@ fn check_native(
                             pending.push((&mapping.key, depth + 1));
                             pending.push((&mapping.value, depth + 1));
                         }
+                        ExpressionStep::Stage(
+                            ProgramNative::Exists(body) | ProgramNative::FixedPoint(body),
+                        ) => pending.push((body, depth + 1)),
                         ExpressionStep::Stage(ProgramNative::MapSorting) => {}
                         ExpressionStep::Stage(ProgramNative::Ordering(ordering)) => {
                             if let Some(selector) = &ordering.selector {

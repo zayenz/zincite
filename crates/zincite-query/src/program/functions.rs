@@ -908,6 +908,17 @@ impl<'r, 'a> Session<'r, 'a> {
                         Stage::FunctionValue(value) | Stage::FunctionSource(value) => {
                             self.prepare_value(value, kind, scope, budget)?
                         }
+                        Stage::WhereExists(body) | Stage::FixedPoint(body) => {
+                            let relative = if matches!(stage, Stage::WhereExists(_)) {
+                                host.subject_kind(&kind, budget, &step.range)
+                                    .map_err(pipeline::core_error)?
+                            } else {
+                                kind.clone()
+                            };
+                            self.prepare_value(&body.expression, relative, scope, budget)?;
+                            host.stage_kind(stage, &kind, scope, budget, &step.range)
+                                .map_err(pipeline::core_error)?
+                        }
                         Stage::Mapping(mapping) => {
                             let relative = host
                                 .subject_kind(&kind, budget, &step.range)
@@ -1056,9 +1067,9 @@ pub(super) fn unretained<'v, 'a>(mut value: &'v ReportValue<'a>) -> &'v ReportVa
     loop {
         match value {
             ReportValue::Retained(owner) => value = owner,
-            ReportValue::Item(item) | ReportValue::EntitySequence { value: item, .. } => {
-                value = item
-            }
+            ReportValue::Item(item)
+            | ReportValue::EntitySequence { value: item, .. }
+            | ReportValue::IncompleteSelection { value: item, .. } => value = item,
             _ => return value,
         }
     }
@@ -1066,7 +1077,8 @@ pub(super) fn unretained<'v, 'a>(mut value: &'v ReportValue<'a>) -> &'v ReportVa
 pub(super) fn is_item(value: &ReportValue<'_>) -> bool {
     match value {
         ReportValue::Retained(owner) => is_item(owner),
-        ReportValue::EntitySequence { value, .. } => is_item(value),
+        ReportValue::EntitySequence { value, .. }
+        | ReportValue::IncompleteSelection { value, .. } => is_item(value),
         ReportValue::Item(_) => true,
         _ => false,
     }
@@ -1082,7 +1094,9 @@ pub(super) fn owned<'a>(
                 Ok(value) => value,
                 Err(owner) => copy_value(unretained(&owner), budget, range)?,
             },
-            ReportValue::Item(item) | ReportValue::EntitySequence { value: item, .. } => *item,
+            ReportValue::Item(item)
+            | ReportValue::EntitySequence { value: item, .. }
+            | ReportValue::IncompleteSelection { value: item, .. } => *item,
             _ => return Ok(value),
         }
     }
@@ -1935,7 +1949,10 @@ pub(super) fn parsed_native_kind(
             for step in steps {
                 if let ExpressionStep::Stage(stage) = &step.value {
                     kind = match stage {
-                        Stage::Ordering(_) | Stage::MapSorting => kind,
+                        Stage::WhereExists(_) => {
+                            native::set_kind(&kind, &step.range).unwrap_or(Kind::Constructed)
+                        }
+                        Stage::FixedPoint(_) | Stage::Ordering(_) | Stage::MapSorting => kind,
                         Stage::Mapping(_) => Kind::Dictionary(Rc::new(vec![Kind::Constructed])),
                         Stage::Query(index, _) => validate_stages(&queries[*index].query, kind)
                             .unwrap_or(Kind::Constructed),
@@ -2023,6 +2040,7 @@ fn native_declaration(declaration: &D<Kind>) -> bool {
 pub(super) fn entity_contract(value: &ReportValue<'_>) -> Option<bool> {
     match value {
         ReportValue::Retained(value) => entity_contract(value),
+        ReportValue::IncompleteSelection { value, .. } => entity_contract(value),
         ReportValue::Item(value) => entity_contract(value),
         ReportValue::EntitySequence { declarations, .. } => Some(*declarations),
         ReportValue::Query(SemanticStream::Entities(rows)) if !rows.is_empty() => Some(

@@ -869,7 +869,8 @@ library iteration, including nested dictionaries. See the
 These operations are read-only program forms. Known unsupported kinds and
 impure selectors fail preflight even for empty inputs or unused branches.
 Typed programs use `ProgramNative::Query` leaves, `ProgramNative::Ordering`,
-`ProgramNative::Mapping`, `ProgramNative::MapSorting` and `NativeSetOperator`
+`ProgramNative::Mapping`, `ProgramNative::MapSorting`, `ProgramNative::Exists`,
+`ProgramNative::FixedPoint` and `NativeSetOperator`
 in `ProgramValue`; they lower to the same execution.
 Native owners, source coordinates and analysis limitations survive ordering
 and set operations, and every selector shares the request budget.
@@ -1037,6 +1038,45 @@ The parser checks expression nesting and operator chains before building the
 CST. Separate sibling values and conditional branches have separate depth
 counts. JSON construction also reserves bounded space for metadata before
 allocating it.
+
+### Native existence and fixed points
+
+`where_exists(relation)` evaluates a pure native relation against each singleton
+subject. It returns the original subjects with nonempty complete relations, in
+incoming order with duplicates retained. Relations can inspect another admitted
+native kind and read the surrounding lexical scope. A singular node or
+declaration becomes its corresponding possibly empty selection.
+
+`fixpoint(body)` uses replacement, exact native kind and owner, and ordered,
+duplicate-sensitive identity equality. Use `input union successors` inside the
+body to accumulate. Stable empty selections succeed. Repeated non-fixed
+selections fail under the bounded checkpoint policy. Both operators share the
+active work, collection and nesting budgets with their bodies.
+
+Only existing identity-bearing native selections are admitted. Counts,
+dictionaries, constructed values, literal streams and computational
+`identity_set` values do not gain native identity. Bodies preflight kinds,
+lexical names and purity before empty-input shortcuts. They cannot emit, edit
+or make report-only operations legal in data expressions.
+
+A complete empty relation establishes absence. Uncertain adjacency and final
+unknown predicates refuse at the responsible model location, even after the
+same limitation was recorded or the partial result was saved. Ordinary
+best-effort reports keep their output and limitations. A transparent
+`ReportValue::IncompleteSelection` retains one responsible error through native
+copies, aliases, ordering and set results, including discarded or empty results;
+strict nested observations refuse that value.
+
+The [walkthrough](queries.md#filter-connections-and-accumulate-declarations)
+shows both forms. From the repository root, the saved program also runs as:
+
+```sh
+zincite-query --program-file crates/zincite-query/tests/fixtures/native-fixed-points.zq crates/zincite-query/tests/fixtures/worklist-reachability.mzn
+```
+
+`Program::from_values` uses `ProgramNative::Exists` and
+`ProgramNative::FixedPoint` with retained native expression bodies. Typed,
+text, ordinary and prepared function paths use the same native algorithms.
 
 ### Assignment edits
 

@@ -243,7 +243,11 @@ impl Parser<'_> {
                 | "max_all_by"
         ) && (tokens.get(1).is_none_or(|token| token.kind != T::LeftParen)
             || first.ends_with("_by") && !argument_comma);
-        let native_operator = first == "map_by"
+        let native_operator = tokens.windows(2).any(|pair| {
+            matches!(pair[0].kind, T::Identifier | T::QuotedIdentifier)
+                && matches!(text(&pair[0]), "where_exists" | "fixpoint")
+                && pair[1].kind == T::LeftParen
+        }) || first == "map_by"
             || tokens.iter().any(|token| text(token) == "map_by")
             || ordering
             || tokens
@@ -436,7 +440,9 @@ impl Parser<'_> {
 pub(super) fn domain_stage(name: &str) -> bool {
     matches!(
         name,
-        "items"
+        "where_exists"
+            | "fixpoint"
+            | "items"
             | "subtree"
             | "children"
             | "expressions"
@@ -511,6 +517,17 @@ impl ValueReaderHost for Parser<'_> {
                 && token.range.end <= end
                 && !matches!(token.kind, T::Whitespace | T::LineComment | T::BlockComment)
         });
+        let native_body = tokens
+            .clone()
+            .zip(tokens.clone().skip(1))
+            .any(|(token, next)| {
+                matches!(token.kind, T::Identifier | T::QuotedIdentifier)
+                    && matches!(
+                        crate::identifier_identity(&self.cursor.source[token.range.clone()]),
+                        "where_exists" | "fixpoint"
+                    )
+                    && next.kind == T::LeftParen
+            });
         let conditional = tokens
             .clone()
             .next()
@@ -539,7 +556,8 @@ impl ValueReaderHost for Parser<'_> {
         let common_if = conditional && !minizinc_if;
         let current_input =
             reader.source()[start..end].trim() == "input" && !self.is_binding("input");
-        if current_input
+        if native_body
+            || current_input
             || common_if
             || native_set
             || (top_pipe && !self.composed_value_syntax(start..end))
@@ -1033,6 +1051,22 @@ impl ValueReaderHost for Parser<'_> {
         }
         Ok(Stage::Match(MatchStage(Some(matching))))
     }
+    fn where_exists(
+        &mut self,
+        query: Expression,
+        _: Range<usize>,
+    ) -> Result<Stage, zirql::QueryError> {
+        self.prepared_values = true;
+        Ok(Stage::WhereExists(native::BodyStage::new(query)))
+    }
+    fn fixed_point(
+        &mut self,
+        query: Expression,
+        _: Range<usize>,
+    ) -> Result<Stage, zirql::QueryError> {
+        self.prepared_values = true;
+        Ok(Stage::FixedPoint(native::BodyStage::new(query)))
+    }
     fn ordering(
         &mut self,
         ordering: zirql::NativeOrdering<Expression>,
@@ -1197,6 +1231,9 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         range: &Range<usize>,
     ) -> Result<zirql::NativeValueArguments<'s, Context<'_, 'a>, Self>, zirql::QueryError> {
         match stage {
+            Stage::WhereExists(body) | Stage::FixedPoint(body) => {
+                return Ok(vec![(&body.expression, Kind::Nodes)]);
+            }
             Stage::Mapping(mapping) => {
                 return Ok(vec![
                     (&mapping.key, Kind::Nodes),
@@ -1281,6 +1318,17 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         .then(|| input.clone());
         let mut result = Vec::new();
         match stage {
+            Stage::WhereExists(body) | Stage::FixedPoint(body) => {
+                result.push(zirql::ScopedNativeArgument {
+                    expression: &body.expression,
+                    relative: Some(if matches!(stage, Stage::WhereExists(_)) {
+                        self.subject_kind(input, budget, range)?
+                    } else {
+                        input.clone()
+                    }),
+                    locals: Vec::new(),
+                })
+            }
             Stage::Mapping(mapping) => {
                 let relative = Some(self.subject_kind(input, budget, range)?);
                 for expression in [&mapping.key, &mapping.value] {
@@ -1376,113 +1424,129 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<Self::Value, zirql::EvaluationError<QueryError>> {
-        match stage {
-            Stage::Mapping(mapping) => {
-                return self.map_with_arguments(mapping, value, arguments, budget, range);
-            }
-            Stage::MapSorting => return self.sort_map(value, arguments.parts().0, budget, range),
-            Stage::Ordering(ordering) => {
-                return self.order_with_arguments(ordering, value, arguments, budget, range);
-            }
-            Stage::Match(matching) => {
-                return self.composed_with_arguments(
-                    Some(matching.get()),
-                    None,
-                    value,
-                    arguments,
-                    budget,
-                    range,
-                );
-            }
-            Stage::Paths(paths) => {
-                return self.composed_with_arguments(
-                    None,
-                    Some(paths.get()),
-                    value,
-                    arguments,
-                    budget,
-                    range,
-                );
-            }
-            Stage::RecordValue(fields) => {
-                let mut values = Vec::with_capacity(fields.len());
-                for (name, expression) in fields {
-                    let value =
-                        arguments.evaluate_native(expression, value_placeholder(), budget)?;
-                    budget.charge(
-                        name.value.len() + 1,
-                        zirql::Location::Query(name.range.clone()),
-                    )?;
-                    values.push((
-                        name.value.clone(),
-                        ReportValue::Retained(value.into_shared()),
-                    ));
+        let partial = native::selection_error(&value).cloned();
+        if arguments.parts().0.query.complete_observations {
+            native::require_complete(&value, budget, range)?;
+        }
+        let result = (|| {
+            match stage {
+                Stage::WhereExists(body) => {
+                    return self.exists_with_arguments(body, value, arguments, budget, range);
                 }
-                return self.construct_record(values, arguments.parts().0, budget, range);
-            }
-            Stage::FunctionValue(expression) | Stage::FunctionSource(expression) => {
-                let selected = arguments.evaluate_native(expression, value, budget)?;
-                return Ok(ReportValue::Retained(selected.into_shared()));
-            }
-            Stage::Primitive(primitive, values) => {
-                budget.charge_results(
-                    values.len().saturating_mul(2),
-                    zirql::Location::Query(range.clone()),
-                )?;
-                let mut selected = Vec::with_capacity(values.len());
-                for expression in values {
-                    selected.push(arguments.evaluate_native(
-                        expression,
-                        value_placeholder(),
+                Stage::FixedPoint(body) => {
+                    return self.fixed_point_with_arguments(body, value, arguments, budget, range);
+                }
+                Stage::Mapping(mapping) => {
+                    return self.map_with_arguments(mapping, value, arguments, budget, range);
+                }
+                Stage::MapSorting => {
+                    return self.sort_map(value, arguments.parts().0, budget, range);
+                }
+                Stage::Ordering(ordering) => {
+                    return self.order_with_arguments(ordering, value, arguments, budget, range);
+                }
+                Stage::Match(matching) => {
+                    return self.composed_with_arguments(
+                        Some(matching.get()),
+                        None,
+                        value,
+                        arguments,
                         budget,
-                    )?);
+                        range,
+                    );
                 }
-                return functions::primitive(
-                    *primitive,
-                    &selected
-                        .iter()
-                        .map(|value| value.value())
-                        .collect::<Vec<_>>(),
-                    arguments.parts().0,
+                Stage::Paths(paths) => {
+                    return self.composed_with_arguments(
+                        None,
+                        Some(paths.get()),
+                        value,
+                        arguments,
+                        budget,
+                        range,
+                    );
+                }
+                Stage::RecordValue(fields) => {
+                    let mut values = Vec::with_capacity(fields.len());
+                    for (name, expression) in fields {
+                        let value =
+                            arguments.evaluate_native(expression, value_placeholder(), budget)?;
+                        budget.charge(
+                            name.value.len() + 1,
+                            zirql::Location::Query(name.range.clone()),
+                        )?;
+                        values.push((
+                            name.value.clone(),
+                            ReportValue::Retained(value.into_shared()),
+                        ));
+                    }
+                    return self.construct_record(values, arguments.parts().0, budget, range);
+                }
+                Stage::FunctionValue(expression) | Stage::FunctionSource(expression) => {
+                    let selected = arguments.evaluate_native(expression, value, budget)?;
+                    return Ok(ReportValue::Retained(selected.into_shared()));
+                }
+                Stage::Primitive(primitive, values) => {
+                    budget.charge_results(
+                        values.len().saturating_mul(2),
+                        zirql::Location::Query(range.clone()),
+                    )?;
+                    let mut selected = Vec::with_capacity(values.len());
+                    for expression in values {
+                        selected.push(arguments.evaluate_native(
+                            expression,
+                            value_placeholder(),
+                            budget,
+                        )?);
+                    }
+                    return functions::primitive(
+                        *primitive,
+                        &selected
+                            .iter()
+                            .map(|value| value.value())
+                            .collect::<Vec<_>>(),
+                        arguments.parts().0,
+                        budget,
+                        range,
+                        self,
+                    );
+                }
+                _ => {}
+            }
+            if let Stage::Query(index, bodies) = stage
+                && !bodies.is_empty()
+            {
+                let query = self.0.resolve_query_by(
+                    &self.0.queries[*index],
+                    &mut |argument, budget| {
+                        admit_argument_members(argument, arguments.parts().0, budget)?;
+                        arguments
+                            .evaluate(
+                                &argument.expression,
+                                ReportValue::Record(Vec::new()),
+                                budget,
+                            )?
+                            .into_owned(budget)
+                            .map_err(Into::into)
+                    },
                     budget,
                     range,
-                    self,
-                );
+                )?;
+                let declarations =
+                    self.0.functions && functions::query_declarations(&query, &value);
+                let pipeline = pipeline::lower_pipeline(&query, budget)
+                    .map_err(zirql::EvaluationError::Host)?;
+                let (context, _) = arguments.parts();
+                let result = self
+                    .0
+                    .execute_pipeline(&pipeline, value, context, budget, range)?;
+                return self
+                    .0
+                    .retain_entity_contract(result, declarations, context, budget, range);
             }
-            _ => {}
-        }
-        if let Stage::Query(index, bodies) = stage
-            && !bodies.is_empty()
-        {
-            let query = self.0.resolve_query_by(
-                &self.0.queries[*index],
-                &mut |argument, budget| {
-                    admit_argument_members(argument, arguments.parts().0, budget)?;
-                    arguments
-                        .evaluate(
-                            &argument.expression,
-                            ReportValue::Record(Vec::new()),
-                            budget,
-                        )?
-                        .into_owned(budget)
-                        .map_err(Into::into)
-                },
-                budget,
-                range,
-            )?;
-            let declarations = self.0.functions && functions::query_declarations(&query, &value);
-            let pipeline =
-                pipeline::lower_pipeline(&query, budget).map_err(zirql::EvaluationError::Host)?;
-            let (context, _) = arguments.parts();
-            let result = self
-                .0
-                .execute_pipeline(&pipeline, value, context, budget, range)?;
-            return self
-                .0
-                .retain_entity_contract(result, declarations, context, budget, range);
-        }
-        let (context, bindings) = arguments.parts();
-        self.evaluate_stage(stage, value, context, bindings, budget, range)
+            let (context, bindings) = arguments.parts();
+            self.evaluate_stage(stage, value, context, bindings, budget, range)
+        })();
+        result.and_then(|value| native::incomplete(value, partial, budget, range))
     }
     fn kind(
         &self,
@@ -1505,6 +1569,9 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
             )),
             ReportValue::Sequence(value) => Kind::Sequence(Rc::clone(&value.element)),
             ReportValue::Retained(value) => return self.kind(value, budget, range),
+            ReportValue::IncompleteSelection { value, .. } => {
+                return self.kind(value, budget, range);
+            }
             ReportValue::EntitySequence { declarations, .. } => {
                 if *declarations {
                     Kind::Declarations
@@ -1615,6 +1682,8 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         range: &Range<usize>,
     ) -> Result<Kind, zirql::QueryError> {
         match stage {
+            Stage::WhereExists(body) => self.body_kind(body, input, scope, budget, range, true),
+            Stage::FixedPoint(body) => self.body_kind(body, input, scope, budget, range, false),
             Stage::Ordering(ordering) => self.order_kind(ordering, input, scope, budget, range),
             Stage::Mapping(mapping) => self.map_kind(mapping, input, scope, budget, range),
             Stage::MapSorting => native::map_sort_kind(input, range),

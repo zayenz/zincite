@@ -404,6 +404,13 @@ impl<'a> composition::CompositionHost<'_, '_> {
         budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<ReportValue<'a>, Failure> {
+        let partial = selection_error(&left)
+            .or_else(|| selection_error(&right))
+            .cloned();
+        if context.query.complete_observations {
+            require_complete(&left, budget, range)?;
+            require_complete(&right, budget, range)?;
+        }
         let left_kind = self.kind(&left, budget, range)?;
         let right_kind = self.kind(&right, budget, range)?;
         let left_kind = set_kind(&left_kind, range)?;
@@ -472,7 +479,8 @@ impl<'a> composition::CompositionHost<'_, '_> {
                     .value
             })
             .collect();
-        shape.restore(values, context, budget, range)
+        let value = shape.restore(values, context, budget, range)?;
+        incomplete(value, partial, budget, range)
     }
 }
 
@@ -958,5 +966,304 @@ pub(super) fn bound_map<'a>(
             ))))
         }
         _ => unreachable!("admitted dictionary"),
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct BodyStage {
+    pub(super) expression: zirql::ValueExpression<Expression>,
+}
+impl BodyStage {
+    pub(super) fn new(expression: Expression) -> Self {
+        let range = expression.range.clone();
+        Self {
+            expression: selector_value(Located::new(
+                ExpressionKind::Sequence {
+                    input: Box::new(expression),
+                    steps: vec![Located::new(
+                        ExpressionStep::Stage(Stage::RetainPayload),
+                        range.clone(),
+                    )],
+                },
+                range,
+            )),
+        }
+    }
+}
+impl Drop for BodyStage {
+    fn drop(&mut self) {
+        zirql::dispose_native_value(std::mem::replace(&mut self.expression, empty_selector()));
+    }
+}
+
+pub(super) fn selection_error<'v>(value: &'v ReportValue<'_>) -> Option<&'v Arc<QueryError>> {
+    match value {
+        ReportValue::IncompleteSelection { error, .. } => Some(error),
+        ReportValue::Retained(value) => selection_error(value),
+        ReportValue::Item(value) | ReportValue::EntitySequence { value, .. } => {
+            selection_error(value)
+        }
+        _ => None,
+    }
+}
+fn error_copy_units(error: &QueryError) -> usize {
+    let path = if let crate::ErrorLocation::Model(location) = &error.location {
+        location.path.as_os_str().len()
+    } else {
+        0
+    };
+    error.message.len().saturating_add(path).saturating_add(1)
+}
+
+pub(super) fn require_complete(
+    value: &ReportValue<'_>,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<(), Failure> {
+    if let Some(error) = selection_error(value) {
+        budget.charge(error_copy_units(error), Location::Query(range.clone()))?;
+        budget.charge_results(1, Location::Query(range.clone()))?;
+        return Err(zirql::EvaluationError::Host(error.as_ref().clone()));
+    }
+    Ok(())
+}
+pub(super) fn incomplete<'a>(
+    value: ReportValue<'a>,
+    error: Option<Arc<QueryError>>,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<ReportValue<'a>, Failure> {
+    match error {
+        Some(error) if selection_error(&value).is_none() => {
+            budget.charge(1, Location::Query(range.clone()))?;
+            budget.charge_results(1, Location::Query(range.clone()))?;
+            Ok(ReportValue::IncompleteSelection {
+                value: Box::new(value),
+                error,
+            })
+        }
+        _ => Ok(value),
+    }
+}
+
+impl<'a> composition::CompositionHost<'_, '_> {
+    pub(super) fn body_kind(
+        &self,
+        body: &BodyStage,
+        input: &Kind,
+        scope: &BTreeMap<String, Kind>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+        exists: bool,
+    ) -> Result<Kind, zirql::QueryError> {
+        let output = set_kind(input, range)?;
+        let relative = if exists {
+            self.subject_kind(input, budget, range)?
+        } else {
+            input.clone()
+        };
+        let Kind::Payload(result) =
+            functions::value_kind(&body.expression, self, &relative, scope, budget)?
+        else {
+            unreachable!("retained native body")
+        };
+        set_kind(&result, range)?;
+        if !exists && result.as_ref() != input {
+            return Err(zirql::QueryError::query(
+                range.clone(),
+                "fixpoint body must preserve the exact native kind",
+            ));
+        }
+        Ok(if exists { output } else { input.clone() })
+    }
+    fn admitted_copy(
+        &self,
+        value: &ReportValue<'a>,
+        context: &mut Context<'_, 'a>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<ReportValue<'a>, Failure> {
+        require_complete(value, budget, range)?;
+        let kind = self.kind(value, budget, range)?;
+        set_kind(&kind, range)?;
+        let value = self.copy_value(value, context, budget, range)?;
+        let (shape, rows) = self.rows(value, context, budget, range)?;
+        shape.restore(rows, context, budget, range)
+    }
+    fn same_selection(
+        &self,
+        left: &ReportValue<'a>,
+        right: &ReportValue<'a>,
+        context: &mut Context<'_, 'a>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<bool, Failure> {
+        require_complete(left, budget, range)?;
+        require_complete(right, budget, range)?;
+        if self.kind(left, budget, range)? != self.kind(right, budget, range)? {
+            return Err(zirql::QueryError::query(
+                range.clone(),
+                "fixpoint body changed the native kind",
+            )
+            .into());
+        }
+        let left_owner = worklists::owner(left);
+        let right_owner = worklists::owner(right);
+        if left_owner.map(Rc::as_ptr) != right_owner.map(Rc::as_ptr) {
+            return Err(zirql::QueryError::query(
+                range.clone(),
+                "fixpoint body changed the native owner",
+            )
+            .into());
+        }
+        let left = self.copy_value(left, context, budget, range)?;
+        let right = self.copy_value(right, context, budget, range)?;
+        let (_, left) = self.rows(left, context, budget, range)?;
+        let (_, right) = self.rows(right, context, budget, range)?;
+        zirql::ordered_native_equal(
+            &left,
+            &right,
+            budget,
+            Location::Query(range.clone()),
+            |left, right, budget| {
+                if let (
+                    ReportValue::Query(SemanticStream::Inspection(a)),
+                    ReportValue::Query(SemanticStream::Inspection(b)),
+                ) = (functions::unretained(left), functions::unretained(right))
+                    && let (QueryResult::Strings(a), QueryResult::Strings(b)) =
+                        (a.as_ref(), b.as_ref())
+                {
+                    budget.charge(a[0].len() + b[0].len(), Location::Query(range.clone()))?;
+                    return Ok(a[0] == b[0]);
+                }
+                Ok(row_identity(left, budget, range)? == row_identity(right, budget, range)?)
+            },
+        )
+    }
+    pub(super) fn where_exists(
+        &self,
+        body: &BodyStage,
+        value: ReportValue<'a>,
+        context: &mut Context<'_, 'a>,
+        bindings: &Bindings<ReportValue<'a>>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<ReportValue<'a>, Failure> {
+        require_complete(&value, budget, range)?;
+        let (mut shape, rows) = self.rows(value, context, budget, range)?;
+        if let Shape::Stream { item, .. } = &mut shape {
+            *item = false;
+        }
+        let zirql::ValueExpressionKind::NativeValue(expression) = &body.expression.value else {
+            unreachable!()
+        };
+        let rows = zirql::filter_native_exists(
+            rows,
+            budget,
+            Location::Query(range.clone()),
+            |row, budget| {
+                let input = self.admitted_copy(row, context, budget, range)?;
+                let previous = std::mem::replace(&mut context.query.complete_observations, true);
+                let result =
+                    zirql::evaluate_expression(expression, self, input, context, bindings, budget);
+                context.query.complete_observations = previous;
+                let value = result?;
+                require_complete(&value, budget, range)?;
+                self.rows(value, context, budget, range)
+                    .map(|(_, rows)| rows)
+            },
+        )?;
+        shape.restore(rows, context, budget, range)
+    }
+    pub(super) fn exists_with_arguments(
+        &self,
+        body: &BodyStage,
+        value: ReportValue<'a>,
+        arguments: &mut dyn zirql::NativeArguments<Context<'_, 'a>, Self>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<ReportValue<'a>, Failure> {
+        require_complete(&value, budget, range)?;
+        let (mut shape, rows) = self.rows(value, arguments.parts().0, budget, range)?;
+        if let Shape::Stream { item, .. } = &mut shape {
+            *item = false;
+        }
+        let rows = zirql::filter_native_exists(
+            rows,
+            budget,
+            Location::Query(range.clone()),
+            |row, budget| {
+                let input = self.admitted_copy(row, arguments.parts().0, budget, range)?;
+                let previous =
+                    std::mem::replace(&mut arguments.parts().0.query.complete_observations, true);
+                let result = arguments.evaluate_native(&body.expression, input, budget);
+                arguments.parts().0.query.complete_observations = previous;
+                let value = ReportValue::Retained(result?.into_shared());
+                require_complete(&value, budget, range)?;
+                self.rows(value, arguments.parts().0, budget, range)
+                    .map(|(_, rows)| rows)
+            },
+        )?;
+        shape.restore(rows, arguments.parts().0, budget, range)
+    }
+    pub(super) fn fixed_point(
+        &self,
+        body: &BodyStage,
+        value: ReportValue<'a>,
+        context: &mut Context<'_, 'a>,
+        bindings: &Bindings<ReportValue<'a>>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<ReportValue<'a>, Failure> {
+        let value = self.admitted_copy(&value, context, budget, range)?;
+        let zirql::ValueExpressionKind::NativeValue(expression) = &body.expression.value else {
+            unreachable!()
+        };
+        zirql::evaluate_native_fixed_point(
+            value,
+            context,
+            budget,
+            Location::Query(range.clone()),
+            |current, context, budget| {
+                let input = self.admitted_copy(current, context, budget, range)?;
+                let previous = std::mem::replace(&mut context.query.complete_observations, true);
+                let result =
+                    zirql::evaluate_expression(expression, self, input, context, bindings, budget);
+                context.query.complete_observations = previous;
+                let result = result?;
+                Ok(result)
+            },
+            |value, context, budget| self.admitted_copy(value, context, budget, range),
+            |a, b, context, budget| self.same_selection(a, b, context, budget, range),
+        )
+    }
+    pub(super) fn fixed_point_with_arguments(
+        &self,
+        body: &BodyStage,
+        value: ReportValue<'a>,
+        mut arguments: &mut dyn zirql::NativeArguments<Context<'_, 'a>, Self>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<ReportValue<'a>, Failure> {
+        let value = self.admitted_copy(&value, arguments.parts().0, budget, range)?;
+        zirql::evaluate_native_fixed_point(
+            value,
+            &mut arguments,
+            budget,
+            Location::Query(range.clone()),
+            |current, arguments, budget| {
+                let input = self.admitted_copy(current, arguments.parts().0, budget, range)?;
+                let previous =
+                    std::mem::replace(&mut arguments.parts().0.query.complete_observations, true);
+                let result = arguments.evaluate_native(&body.expression, input, budget);
+                arguments.parts().0.query.complete_observations = previous;
+                let result = ReportValue::Retained(result?.into_shared());
+                Ok(result)
+            },
+            |value, arguments, budget| {
+                self.admitted_copy(value, arguments.parts().0, budget, range)
+            },
+            |a, b, arguments, budget| self.same_selection(a, b, arguments.parts().0, budget, range),
+        )
     }
 }

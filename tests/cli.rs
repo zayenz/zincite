@@ -1530,3 +1530,51 @@ fn native_dictionaries_replay_inline_files_and_buffer_duplicate_values() {
     );
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn native_existence_and_fixed_points_replay_files_and_buffer_nested_failures() {
+    let dir = std::env::temp_dir().join(format!("zincite-native-root-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(dir.join("library/std/stdlib.mzn"), "").unwrap();
+    let library = dir.join("library");
+    let input = include_bytes!("../crates/zincite-query/tests/fixtures/worklist-reachability.mzn");
+    let source = include_str!("../crates/zincite-query/tests/fixtures/native-fixed-points.zq");
+    let model = dir.join("model.mzn");
+    let file = dir.join("report.zq");
+    std::fs::write(&model, input).unwrap();
+    std::fs::write(&file, source).unwrap();
+    let common = vec![
+        "query",
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        model.to_str().unwrap(),
+    ];
+    let mut args = common.clone();
+    args.extend(["--program", source]);
+    let inline = run(&args, "");
+    assert!(inline.status.success(), "{inline:?}");
+    let mut args = common.clone();
+    args.extend(["--program-file", file.to_str().unwrap()]);
+    let saved = run(&args, "");
+    assert!(saved.status.success(), "{saved:?}");
+    assert_eq!(inline.stdout, saved.stdout);
+
+    for source in [
+        r#"report 7; declarations | filter(not name("E")) | reverse | where_exists(referenced_declarations | check(1));"#,
+        "report 7; declarations | fixpoint(reverse);",
+    ] {
+        std::fs::write(&file, source).unwrap();
+        for (flag, value) in [
+            ("--program", source),
+            ("--program-file", file.to_str().unwrap()),
+        ] {
+            let mut args = common.clone();
+            args.extend([flag, value]);
+            let output = run(&args, "");
+            assert_eq!(output.status.code(), Some(2), "{output:?}");
+            assert!(output.stdout.is_empty());
+            assert!(!output.stderr.is_empty());
+        }
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

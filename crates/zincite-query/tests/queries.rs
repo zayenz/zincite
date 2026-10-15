@@ -4094,6 +4094,19 @@ fn typed_query_functions_keep_active_match_guards_paths_and_native_records() {
     let source = b"int: a=b; int: b=1; int: mixed=missing; solve satisfy;";
     let input = Input::parse(source.to_vec(), FileMode::Model).unwrap();
     let model = semantic_model("function-native-clauses", source, b"", "");
+    let fields = "fn f()->record{fixpoint:int,where_exists:int}{let x=(fixpoint:1,where_exists:2); (fixpoint:x.fixpoint,where_exists:x.where_exists)} f()";
+    let mut result = Program::parse(fields, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let output: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
+    assert_eq!(
+        output["result"],
+        serde_json::json!({
+            "fixpoint": {"kind":"integer", "value":1},
+            "where_exists": {"kind":"integer", "value":2}
+        })
+    );
     let empty_reference=Program::parse("fn accept(xs:sequence<Declaration>)->int {0} let empty=subtree | references | head(0); report accept(empty);",limits).unwrap();
     let error = empty_reference
         .evaluate_with_model(&input, Some(&model), limits)
@@ -6501,4 +6514,194 @@ fn native_dictionaries_keep_payloads_order_and_preflight_contracts() {
         ),
         "{output}"
     );
+}
+
+#[test]
+fn native_existence_and_fixed_points_keep_subjects_and_replacement_order() {
+    use zincite_query::{Program, ProgramLimits, ProgramNative, SemanticStream};
+    let limits = ProgramLimits::default();
+    let bytes = include_bytes!("fixtures/worklist-reachability.mzn");
+    let model = semantic_model("native-fixed-point", bytes, b"", "");
+    let input = Input::parse(bytes.to_vec(), FileMode::Model).unwrap();
+    let ids = |source: &str| {
+        let result = Program::parse(source, limits)
+            .unwrap()
+            .evaluate_with_model(&input, Some(&model), limits)
+            .unwrap();
+        let SemanticStream::Entities(rows) = result.emissions()[0].value().stream().unwrap() else {
+            panic!("native declarations")
+        };
+        rows.clone()
+    };
+    let originals = ids("declarations | filter(name(\"A\") or name(\"C\"))");
+    assert_eq!(
+        ids("declarations | where_exists(referenced_declarations | filter(name(\"B\")))"),
+        originals
+    );
+    assert!(
+        ids("declarations | where_exists(referenced_declarations | filter(name(\"E\")))")
+            .is_empty()
+    );
+    let repeated = "declarations | filter(name(\"B\")) | uses | declarations | reverse";
+    let before = ids(repeated);
+    assert!(before.len() > 1);
+    assert_eq!(ids(&format!("{repeated} | where_exists(input)")), before);
+    let saved = "let target=declarations | filter(name(\"B\")); fn related(d:Declaration, wanted:sequence<Declaration>)->sequence<Declaration>{d | where_exists(referenced_declarations intersect wanted)} declarations | where_exists(related(input,target))";
+    assert_eq!(ids(saved), originals);
+    let single = "let ds=declarations | filter(name(\"A\")); let present((d,_))=pop_front(queue<Declaration>(ds));";
+    assert_eq!(
+        ids(&format!(
+            "{single} d | where_exists(referenced_declarations)"
+        )),
+        ids("declarations | filter(name(\"A\"))")
+    );
+    assert!(
+        ids(&format!(
+            "{single} d | where_exists(referenced_declarations | filter(name(\"E\")))"
+        ))
+        .is_empty()
+    );
+    let closure = "let seed=declarations | filter(name(\"A\")); seed | fixpoint(input union referenced_declarations)";
+    assert_eq!(ids(closure), ids("declarations | filter(not name(\"E\"))"));
+    assert_eq!(
+        ids(
+            "fn reach(ds:sequence<Declaration>)->sequence<Declaration>{ds | fixpoint(input union referenced_declarations)} let seed=declarations | filter(name(\"A\")); reach(seed)"
+        ),
+        ids(closure)
+    );
+    assert_eq!(ids("declarations | fixpoint(input)"), ids("declarations"));
+    assert!(
+        ids("declarations | filter(name(\"E\")) | fixpoint(referenced_declarations)").is_empty()
+    );
+    for (source, expected) in [
+        ("declarations | fixpoint(reverse)", "cycles"),
+        (
+            "declarations | head(0) | fixpoint(names)",
+            "exact native kind",
+        ),
+        (
+            "declarations | head(0) | where_exists(count)",
+            "identity-bearing",
+        ),
+        ("declarations | head(0) | where_exists(emit)", "emit"),
+        ("declarations | head(0) | fixpoint(emit)", "emit"),
+    ] {
+        let error = Program::parse(source, limits)
+            .and_then(|p| p.evaluate_with_model(&input, Some(&model), limits))
+            .unwrap_err();
+        assert!(error.message.contains(expected), "{source}: {error:?}");
+        assert!(!error.range.is_empty());
+    }
+    let program = Program::parse(closure, limits).unwrap();
+    assert!(
+        program
+            .evaluate_with_model(
+                &input,
+                Some(&model),
+                ProgramLimits {
+                    work: 100,
+                    ..limits
+                }
+            )
+            .is_err()
+    );
+    type Q = zirql::Expression<ProgramNative, zirql::NativeSetOperator, ()>;
+    fn l<T>(value: T) -> zirql::Located<T> {
+        zirql::Located::new(value, 10..20)
+    }
+    fn native(source: &str) -> Q {
+        l(zirql::ExpressionKind::Sequence {
+            input: Box::new(l(zirql::ExpressionKind::Input)),
+            steps: vec![l(zirql::ExpressionStep::Stage(ProgramNative::Query(
+                Query::parse(source, Limits::default()).unwrap(),
+            )))],
+        })
+    }
+    let body = l(zirql::ExpressionKind::Set {
+        operator: zirql::NativeSetOperator::Union,
+        left: Box::new(l(zirql::ExpressionKind::Input)),
+        right: Box::new(native("referenced_declarations")),
+    });
+    let expression = l(zirql::ExpressionKind::Sequence {
+        input: Box::new(native("declarations | filter(name(\"A\"))")),
+        steps: vec![
+            l(zirql::ExpressionStep::Stage(ProgramNative::FixedPoint(
+                Box::new(body),
+            ))),
+            l(zirql::ExpressionStep::Stage(ProgramNative::Exists(
+                Box::new(native("referenced_declarations")),
+            ))),
+        ],
+    });
+    let program = Program::from_values(
+        vec![],
+        vec![],
+        l(zirql::ValueExpressionKind::NativeValue(Box::new(
+            expression,
+        ))),
+        limits,
+    )
+    .unwrap();
+    let typed = program
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap();
+    let SemanticStream::Entities(rows) = typed.emissions()[0].value().stream().unwrap() else {
+        panic!("typed native declarations")
+    };
+    assert_eq!(*rows, ids(closure));
+}
+
+#[test]
+fn native_nested_observations_refuse_saved_partial_results_and_final_unknown() {
+    use zincite_query::{Program, ProgramLimits};
+    let limits = ProgramLimits::default();
+    let bytes = b"\xef\xbb\xbfint: A=missing; int: E=+1; solve satisfy;";
+    let model = semantic_model("native-partial", bytes, b"", "");
+    let input = Input::parse(bytes.to_vec(), FileMode::Model).unwrap();
+    let prefix = "let ds=declarations | filter(name(\"A\")); let old=ds | referenced_declarations;";
+    for suffix in [
+        "ds | where_exists(referenced_declarations)",
+        "declarations | filter(name(\"E\")) | where_exists(old)",
+        "old | fixpoint(input)",
+        "let alias=old | reverse | head(0); declarations | filter(name(\"E\")) | where_exists(alias)",
+        "let empty=declarations | head(0); let discarded=empty intersect old; empty | fixpoint(discarded)",
+    ] {
+        let source = format!("{prefix}{suffix}");
+        let error = Program::parse(&source, limits)
+            .unwrap()
+            .evaluate_with_model(&input, Some(&model), limits)
+            .unwrap_err();
+        assert!(
+            matches!(error.location, ErrorLocation::Model(_)),
+            "{source}: {error:?}"
+        );
+        assert_eq!(&bytes[error.range], b"missing");
+    }
+    let mut result = Program::parse(
+        &format!("{prefix}declarations | filter(name(\"E\")) | where_exists(input)"),
+        limits,
+    )
+    .unwrap()
+    .evaluate_with_model(&input, Some(&model), limits)
+    .unwrap();
+    assert!(!result.is_complete());
+    assert!(!result.render().unwrap().is_empty());
+    let bytes = b"function $T: identity($T:x)=x; par tuple(int,$T): mixed; solve satisfy;";
+    let model = semantic_model("native-final-unknown", bytes, b"", "");
+    let input = Input::parse(bytes.to_vec(), FileMode::Model).unwrap();
+    let source = "declarations | filter(name(\"mixed\")) | where_exists(filter(type(\"tuple\")))";
+    let error = Program::parse(source, limits)
+        .unwrap()
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap_err();
+    assert!(
+        matches!(error.location, ErrorLocation::Model(_)),
+        "{error:?}"
+    );
+    let source = "declarations | filter(name(\"mixed\")) | where_exists(filter(type(\"tuple\") or name(\"mixed\")))";
+    let mut result = Program::parse(source, limits)
+        .unwrap()
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap();
+    assert!(!result.render().unwrap().is_empty());
 }

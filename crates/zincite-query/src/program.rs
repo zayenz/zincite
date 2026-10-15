@@ -35,6 +35,8 @@ enum Stage {
     Member(comprehension::MemberRequest),
     Query(usize, Rc<Vec<QueryArgument>>),
     Ordering(native::OrderingStage),
+    WhereExists(native::BodyStage),
+    FixedPoint(native::BodyStage),
     Mapping(native::MappingStage),
     MapSorting,
     RetainPayload,
@@ -81,6 +83,8 @@ impl Drop for Stage {
             | Self::Member(_)
             | Self::Query(..)
             | Self::Ordering(_)
+            | Self::WhereExists(_)
+            | Self::FixedPoint(_)
             | Self::Mapping(_)
             | Self::MapSorting
             | Self::RetainPayload
@@ -167,6 +171,12 @@ enum Kind {
 #[derive(Debug)]
 pub enum ReportValue<'a> {
     Retained(Arc<Self>),
+    /// A best-effort native selection that skipped an uncertain observation.
+    /// Ordinary output remains available; required nested observations refuse it.
+    IncompleteSelection {
+        value: Box<Self>,
+        error: Arc<QueryError>,
+    },
     Computational(Computational<'a>),
     Tuple(NativeTuple<'a>),
     Sequence(NativeSequence<'a>),
@@ -188,7 +198,9 @@ impl<'a> ReportValue<'a> {
     pub fn fields(&self) -> Option<&[(String, ReportValue<'a>)]> {
         match self {
             Self::Retained(value) => value.fields(),
-            Self::Item(value) | Self::EntitySequence { value, .. } => value.fields(),
+            Self::Item(value)
+            | Self::EntitySequence { value, .. }
+            | Self::IncompleteSelection { value, .. } => value.fields(),
             Self::Record(fields) => Some(fields),
             Self::Capture(capture) => Some(&capture.fields),
             Self::Computational(_)
@@ -203,7 +215,9 @@ impl<'a> ReportValue<'a> {
     pub fn stream(&self) -> Option<&SemanticStream<'a>> {
         match self {
             Self::Retained(value) => value.stream(),
-            Self::Item(value) | Self::EntitySequence { value, .. } => value.stream(),
+            Self::Item(value)
+            | Self::EntitySequence { value, .. }
+            | Self::IncompleteSelection { value, .. } => value.stream(),
             Self::Query(stream) => Some(stream),
             Self::Computational(_)
             | Self::Tuple(_)
@@ -2386,10 +2400,13 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
     fn copy_value(
         &self,
         value: &ReportValue<'a>,
-        _: &mut Context<'_, 'a>,
+        context: &mut Context<'_, 'a>,
         budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
+        if context.query.complete_observations {
+            native::require_complete(value, budget, range)?;
+        }
         if let ReportValue::SharedConstructed(owner) = value {
             budget.charge(1, zirql::Location::Query(range.clone()))?;
             return Ok(ReportValue::SharedConstructed(Arc::clone(owner)));
@@ -2409,128 +2426,144 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
         budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
-        let index = match stage {
-            Stage::FunctionValue(expression) | Stage::FunctionSource(expression) => {
-                let session = context.functions.ok_or_else(|| {
-                    zirql::EvaluationError::Host(QueryError::query(
+        let partial = native::selection_error(&value).cloned();
+        if context.query.complete_observations {
+            native::require_complete(&value, budget, range)?;
+        }
+        let result = (|| {
+            let index = match stage {
+                Stage::FunctionValue(expression) | Stage::FunctionSource(expression) => {
+                    let session = context.functions.ok_or_else(|| {
+                        zirql::EvaluationError::Host(QueryError::query(
+                            range.clone(),
+                            "function session is unavailable",
+                        ))
+                    })?;
+                    return session
+                        .run(expression, bindings, &value, context, budget)
+                        .map_err(zirql::EvaluationError::Host);
+                }
+                Stage::PatternBinding(_, expression) => {
+                    let session = context.functions.expect("prepared pattern program");
+                    return session
+                        .bind(expression, bindings, &value, context, budget)
+                        .map_err(zirql::EvaluationError::Host);
+                }
+                Stage::RecordValue(_) | Stage::Primitive(_, _) => {
+                    return Err(zirql::QueryError::query(
                         range.clone(),
-                        "function session is unavailable",
-                    ))
-                })?;
-                return session
-                    .run(expression, bindings, &value, context, budget)
+                        "native function primitive requires its active argument runner",
+                    )
+                    .into());
+                }
+                Stage::Member(member) => {
+                    let facts = context
+                        .report_facts(budget, &member.range)
+                        .map_err(zirql::EvaluationError::Host)?;
+                    return comprehension::resolve_member(
+                        facts.as_deref(),
+                        Some(&member.enum_name.value),
+                        &member.member_name.value,
+                        budget,
+                        &member.range,
+                    )
+                    .map(zirql::ConstructedValue::Member)
+                    .map(ReportValue::Constructed)
                     .map_err(zirql::EvaluationError::Host);
-            }
-            Stage::PatternBinding(_, expression) => {
-                let session = context.functions.expect("prepared pattern program");
-                return session
-                    .bind(expression, bindings, &value, context, budget)
-                    .map_err(zirql::EvaluationError::Host);
-            }
-            Stage::RecordValue(_) | Stage::Primitive(_, _) => {
-                return Err(zirql::QueryError::query(
-                    range.clone(),
-                    "native function primitive requires its active argument runner",
-                )
-                .into());
-            }
-            Stage::Member(member) => {
-                let facts = context
-                    .report_facts(budget, &member.range)
-                    .map_err(zirql::EvaluationError::Host)?;
-                return comprehension::resolve_member(
-                    facts.as_deref(),
-                    Some(&member.enum_name.value),
-                    &member.member_name.value,
-                    budget,
-                    &member.range,
-                )
-                .map(zirql::ConstructedValue::Member)
-                .map(ReportValue::Constructed)
-                .map_err(zirql::EvaluationError::Host);
-            }
-            Stage::Parameter(index) => {
-                return Ok(ReportValue::Constructed(
-                    context.parameters[*index]
-                        .take()
-                        .expect("admitted parameter is bound once"),
-                ));
-            }
-            Stage::Query(index, _) => *index,
-            Stage::RetainPayload => return Ok(value),
-            Stage::Mapping(mapping) => {
-                return composition::CompositionHost(self)
-                    .mapping(mapping, value, context, bindings, budget, range);
-            }
-            Stage::MapSorting => {
-                return composition::CompositionHost(self).sort_map(value, context, budget, range);
-            }
-            Stage::Ordering(ordering) => {
-                return composition::CompositionHost(self)
-                    .order(ordering, value, context, bindings, budget, range);
-            }
-            Stage::Projection(projection) => {
-                let host = composition::CompositionHost(self);
-                return zirql::evaluate_projection(
-                    projection.get(),
-                    &host,
-                    value,
-                    context,
-                    bindings,
-                    budget,
-                )
-                .map(ReportValue::Constructed);
-            }
-            Stage::Match(matching) => {
-                return composition::CompositionHost(self).matching(
-                    matching.get(),
-                    value,
-                    context,
-                    bindings,
-                    budget,
-                );
-            }
-            Stage::Paths(paths) => {
-                return composition::CompositionHost(self).paths(
-                    paths.get(),
-                    value,
-                    context,
-                    bindings,
-                    budget,
-                );
-            }
-            Stage::Value { expression, names } => {
-                return self
-                    .constructed(expression, names, context, bindings, budget, range)
+                }
+                Stage::Parameter(index) => {
+                    return Ok(ReportValue::Constructed(
+                        context.parameters[*index]
+                            .take()
+                            .expect("admitted parameter is bound once"),
+                    ));
+                }
+                Stage::Query(index, _) => *index,
+                Stage::RetainPayload => return Ok(value),
+                Stage::Mapping(mapping) => {
+                    return composition::CompositionHost(self)
+                        .mapping(mapping, value, context, bindings, budget, range);
+                }
+                Stage::MapSorting => {
+                    return composition::CompositionHost(self)
+                        .sort_map(value, context, budget, range);
+                }
+                Stage::WhereExists(body) => {
+                    return composition::CompositionHost(self)
+                        .where_exists(body, value, context, bindings, budget, range);
+                }
+                Stage::FixedPoint(body) => {
+                    return composition::CompositionHost(self)
+                        .fixed_point(body, value, context, bindings, budget, range);
+                }
+                Stage::Ordering(ordering) => {
+                    return composition::CompositionHost(self)
+                        .order(ordering, value, context, bindings, budget, range);
+                }
+                Stage::Projection(projection) => {
+                    let host = composition::CompositionHost(self);
+                    return zirql::evaluate_projection(
+                        projection.get(),
+                        &host,
+                        value,
+                        context,
+                        bindings,
+                        budget,
+                    )
                     .map(ReportValue::Constructed);
-            }
-            Stage::Data(edits) => {
-                let facts = context
-                    .report_facts(budget, range)
+                }
+                Stage::Match(matching) => {
+                    return composition::CompositionHost(self).matching(
+                        matching.get(),
+                        value,
+                        context,
+                        bindings,
+                        budget,
+                    );
+                }
+                Stage::Paths(paths) => {
+                    return composition::CompositionHost(self).paths(
+                        paths.get(),
+                        value,
+                        context,
+                        bindings,
+                        budget,
+                    );
+                }
+                Stage::Value { expression, names } => {
+                    return self
+                        .constructed(expression, names, context, bindings, budget, range)
+                        .map(ReportValue::Constructed);
+                }
+                Stage::Data(edits) => {
+                    let facts = context
+                        .report_facts(budget, range)
+                        .map_err(zirql::EvaluationError::Host)?;
+                    let facts = facts.ok_or_else(|| {
+                        zirql::EvaluationError::Host(QueryError::query(
+                            range.clone(),
+                            "data construction requires read-only model context (--model)",
+                        ))
+                    })?;
+                    let candidate = data::prepare_data_batch(
+                        context.input,
+                        &facts,
+                        edits,
+                        budget,
+                        self.limits,
+                        |expression, names, budget, range| {
+                            self.constructed(expression, names, context, bindings, budget, range)
+                                .map_err(pipeline::evaluation_error)
+                        },
+                    )
                     .map_err(zirql::EvaluationError::Host)?;
-                let facts = facts.ok_or_else(|| {
-                    zirql::EvaluationError::Host(QueryError::query(
-                        range.clone(),
-                        "data construction requires read-only model context (--model)",
-                    ))
-                })?;
-                let candidate = data::prepare_data_batch(
-                    context.input,
-                    &facts,
-                    edits,
-                    budget,
-                    self.limits,
-                    |expression, names, budget, range| {
-                        self.constructed(expression, names, context, bindings, budget, range)
-                            .map_err(pipeline::evaluation_error)
-                    },
-                )
-                .map_err(zirql::EvaluationError::Host)?;
-                context.candidate = Some(candidate);
-                return Ok(value);
-            }
-        };
-        self.execute_query(index, value, context, bindings, budget, range)
+                    context.candidate = Some(candidate);
+                    return Ok(value);
+                }
+            };
+            self.execute_query(index, value, context, bindings, budget, range)
+        })();
+        result.and_then(|value| native::incomplete(value, partial, budget, range))
     }
     fn combine(
         &self,
@@ -2939,7 +2972,8 @@ impl<'a> NativeHost<'_> {
             )?;
             let value = bindings.get(&name.value, name.range.clone())?;
             let value = match functions::unretained(value) {
-                ReportValue::Retained(_)
+                ReportValue::IncompleteSelection { .. }
+                | ReportValue::Retained(_)
                 | ReportValue::Item(_)
                 | ReportValue::EntitySequence { .. } => unreachable!("unwrapped report"),
                 ReportValue::Constructed(value) => zirql::copy_constructed_value(
@@ -3015,6 +3049,7 @@ impl<'a> NativeHost<'_> {
         budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
+        let previous = context.query.incomplete_observation.take();
         let rows = context.query.take_rows(stream);
         let input = NativeInput::from_admitted(
             &mut *context.query,
@@ -3022,7 +3057,10 @@ impl<'a> NativeHost<'_> {
             budget,
             zirql::Location::Query(range.clone()),
         )?;
-        let value = zirql::evaluate(pipeline, &pipeline::NativeHost, input, budget)?.value;
+        let result = zirql::evaluate(pipeline, &pipeline::NativeHost, input, budget)
+            .map(|result| result.value);
+        let partial = std::mem::replace(&mut context.query.incomplete_observation, previous);
+        let value = result?;
         let stream = match value {
             NativeValue::Stream(rows) => context.query.restore_stream(rows),
             NativeValue::Count(value) => {
@@ -3032,7 +3070,11 @@ impl<'a> NativeHost<'_> {
                 SemanticStream::Inspection(Box::new(QueryResult::Tally(value)))
             }
         };
-        Ok(ReportValue::Query(stream))
+        let value = native::incomplete(ReportValue::Query(stream), partial, budget, range)?;
+        if context.query.complete_observations {
+            native::require_complete(&value, budget, range)?;
+        }
+        Ok(value)
     }
 }
 
@@ -3052,6 +3094,11 @@ fn copy_value<'a>(
     }
     match value {
         ReportValue::Retained(value) => return copy_value(value, budget, range),
+        ReportValue::IncompleteSelection { value, error } => {
+            let value = copy_value(value, budget, range)?;
+            return native::incomplete(value, Some(Arc::clone(error)), budget, range)
+                .map_err(pipeline::evaluation_error);
+        }
         ReportValue::EntitySequence {
             declarations,
             owner,
@@ -3157,6 +3204,12 @@ fn copy_admitted<'a>(value: &ReportValue<'a>) -> ReportValue<'a> {
     ReportValue::Query(match value {
         ReportValue::Retained(value) => return ReportValue::Retained(Arc::clone(value)),
         ReportValue::Item(value) => return ReportValue::Item(Box::new(copy_admitted(value))),
+        ReportValue::IncompleteSelection { value, error } => {
+            return ReportValue::IncompleteSelection {
+                value: Box::new(copy_admitted(value)),
+                error: Arc::clone(error),
+            };
+        }
         ReportValue::EntitySequence {
             declarations,
             owner,
@@ -3219,7 +3272,9 @@ fn value_units(value: &ReportValue<'_>) -> usize {
     match value {
         ReportValue::Computational(_) | ReportValue::Tuple(_) | ReportValue::Sequence(_) => 1,
         ReportValue::Retained(value) => value_units(value),
-        ReportValue::Item(value) | ReportValue::EntitySequence { value, .. } => value_units(value),
+        ReportValue::Item(value)
+        | ReportValue::EntitySequence { value, .. }
+        | ReportValue::IncompleteSelection { value, .. } => value_units(value),
         ReportValue::Constructed(_) | ReportValue::SharedConstructed(_) => {
             unreachable!("constructed admission uses the core")
         }
@@ -3299,7 +3354,9 @@ fn literal_units(value: &crate::LiteralValue<'_>) -> usize {
 fn value_bytes(value: &ReportValue<'_>) -> usize {
     match value {
         ReportValue::Retained(value) => value_bytes(value),
-        ReportValue::Item(value) | ReportValue::EntitySequence { value, .. } => value_bytes(value),
+        ReportValue::Item(value)
+        | ReportValue::EntitySequence { value, .. }
+        | ReportValue::IncompleteSelection { value, .. } => value_bytes(value),
         ReportValue::Constructed(_) | ReportValue::SharedConstructed(_) => {
             unreachable!("constructed admission uses the core")
         }
@@ -3377,7 +3434,9 @@ fn admit_json<'a>(
             }
         }
         ReportValue::Retained(value) => return admit_json(value, semantic, work, range),
-        ReportValue::Item(value) | ReportValue::EntitySequence { value, .. } => {
+        ReportValue::Item(value)
+        | ReportValue::EntitySequence { value, .. }
+        | ReportValue::IncompleteSelection { value, .. } => {
             return admit_json(value, semantic, work, range);
         }
         ReportValue::Constructed(_) | ReportValue::SharedConstructed(_) => {}
@@ -3432,7 +3491,9 @@ fn validate_value(
             }
         }
         ReportValue::Retained(value) => return validate_value(value, json, budget, range),
-        ReportValue::Item(value) | ReportValue::EntitySequence { value, .. } => {
+        ReportValue::Item(value)
+        | ReportValue::EntitySequence { value, .. }
+        | ReportValue::IncompleteSelection { value, .. } => {
             return validate_value(value, json, budget, range);
         }
         ReportValue::Constructed(value) => {
@@ -3501,7 +3562,9 @@ fn report_json<'a>(
             .collect::<Result<Vec<_>, _>>()
             .map(Value::Array),
         ReportValue::Retained(value) => report_json(value, semantic, budget, range),
-        ReportValue::Item(value) | ReportValue::EntitySequence { value, .. } => {
+        ReportValue::Item(value)
+        | ReportValue::EntitySequence { value, .. }
+        | ReportValue::IncompleteSelection { value, .. } => {
             report_json(value, semantic, budget, range)
         }
         ReportValue::Constructed(value) => comprehension::json_value(value, budget, range),
@@ -3565,9 +3628,9 @@ fn render_bytes<'a>(value: &ReportValue<'a>, semantic: Option<&SemanticResult<'a
             unreachable!("native containers use JSON")
         }
         ReportValue::Retained(value) => render_bytes(value, semantic),
-        ReportValue::Item(value) | ReportValue::EntitySequence { value, .. } => {
-            render_bytes(value, semantic)
-        }
+        ReportValue::Item(value)
+        | ReportValue::EntitySequence { value, .. }
+        | ReportValue::IncompleteSelection { value, .. } => render_bytes(value, semantic),
         ReportValue::Constructed(_) | ReportValue::SharedConstructed(_) => {
             unreachable!("constructed reports use tagged JSON")
         }

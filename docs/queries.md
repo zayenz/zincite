@@ -551,6 +551,53 @@ limitations. These paths follow written references; they do not describe
 compiler-generated dataflow. See [bounded paths](reference.md#bounded-declaration-paths)
 for ordering and result fields.
 
+## Filter connections and accumulate declarations
+
+`where_exists(query)` keeps each original subject when its singleton-relative
+query returns a nonempty native selection. It preserves the incoming order and
+duplicates. For this model, saved as `connections.mzn`:
+
+```minizinc title="connections.mzn"
+int: A = if true then B else C endif;
+int: B = D;
+int: C = B;
+int: D = A;
+int: E = 0;
+solve satisfy;
+```
+
+This query keeps `A` and `C`, which refer directly to `B`:
+
+```sh
+zincite query --program 'declarations | where_exists(referenced_declarations | filter(name("B"))) | names' connections.mzn
+```
+
+The relation can read saved bindings and function parameters. A complete empty
+relation rejects the subject. An unresolved endpoint or a final unknown filter
+condition refuses the nested observation at its responsible source location,
+including when an earlier query already recorded the limitation. Saving a
+partial result does not make it complete. Other report limitations remain
+attached to successful complete observations.
+
+`fixpoint(query)` repeatedly replaces the current selection. Accumulation uses
+an explicit union:
+
+```sh
+zincite query --program 'let seed = declarations | filter(name("A")); seed | fixpoint(input union referenced_declarations) | names' connections.mzn
+```
+
+This returns `A`, `B`, `C`, `D` in that order. The body must keep the exact native
+kind and owner. Equality compares identities in order, including duplicates.
+An unchanged or stable empty selection succeeds; an alternating selection such
+as `declarations | fixpoint(reverse)` fails as a cycle. The runner retains one
+checkpoint and uses the continuing request budget.
+
+Both bodies are pure report queries. Unsupported result kinds and effects fail
+during preparation, even on empty input. Filtering a single `Node` or
+`Declaration` returns the corresponding selection, which can be empty. Fixed
+points preserve the exact singleton contract. These operators do not extend the
+data-edit expression allowlist.
+
 ## Read optional fields and sparse cells
 
 Reports can distinguish a stored absent value (`<>`) from a field or cell

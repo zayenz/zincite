@@ -1828,3 +1828,70 @@ fn native_dictionaries_replay_inline_files_and_buffer_duplicate_values() {
     );
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn native_existence_and_fixed_points_replay_files_and_buffer_nested_failures() {
+    let dir = std::env::temp_dir().join(format!("zincite-native-query-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(dir.join("library/std/stdlib.mzn"), "").unwrap();
+    let library = dir.join("library");
+    let input = include_bytes!("fixtures/worklist-reachability.mzn");
+    let source = include_str!("fixtures/native-fixed-points.zq");
+    let model = dir.join("model.mzn");
+    let file = dir.join("report.zq");
+    std::fs::write(&model, input).unwrap();
+    std::fs::write(&file, source).unwrap();
+    let common = vec![
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        model.to_str().unwrap(),
+    ];
+    let mut args = common.clone();
+    args.extend(["--program", source]);
+    let inline = run(&args, b"");
+    assert!(inline.status.success(), "{inline:?}");
+    let mut args = common.clone();
+    args.extend(["--program-file", file.to_str().unwrap()]);
+    let saved = run(&args, b"");
+    assert!(saved.status.success(), "{saved:?}");
+    assert_eq!(inline.stdout, saved.stdout);
+    let input = zincite_query::Input::parse_named(
+        input.to_vec(),
+        zincite_syntax::FileMode::Model,
+        model.to_str().unwrap(),
+    )
+    .unwrap();
+    let context = zincite_lint::load_model(
+        &model,
+        &zincite_lint::ModelOptions {
+            include_dirs: vec![],
+            stdlib_dir: Some(library.clone()),
+        },
+    );
+    let limits = zincite_query::ProgramLimits::default();
+    let expected = zincite_query::Program::parse(source, limits)
+        .unwrap()
+        .evaluate_with_model(&input, Some(&context), limits)
+        .unwrap()
+        .render()
+        .unwrap();
+    assert_eq!(inline.stdout, expected);
+    for source in [
+        r#"report 7; declarations | filter(not name("E")) | reverse | where_exists(referenced_declarations | check(1));"#,
+        "report 7; declarations | fixpoint(reverse);",
+    ] {
+        std::fs::write(&file, source).unwrap();
+        for (flag, value) in [
+            ("--program", source),
+            ("--program-file", file.to_str().unwrap()),
+        ] {
+            let mut args = common.clone();
+            args.extend([flag, value]);
+            let output = run(&args, b"");
+            assert_eq!(output.status.code(), Some(2), "{output:?}");
+            assert!(output.stdout.is_empty());
+            assert!(!output.stderr.is_empty());
+        }
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

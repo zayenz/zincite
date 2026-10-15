@@ -1,6 +1,7 @@
 //! Lower fixed query syntax to shared execution, retaining native rows and edits.
 use std::ops::Range;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use zincite_lint::{ModelContext, ModelFacts};
 use zincite_syntax::SyntaxNode;
@@ -57,6 +58,9 @@ pub(crate) struct Context<'a> {
     filter_subject: Option<SemanticSubject<'a>>,
     semantic_filter: bool,
     syntax_filter: Option<(String, Option<&'a str>)>,
+    pub(crate) complete_observations: bool,
+    pub(crate) incomplete_observation: Option<Arc<QueryError>>,
+    filter_unknown: Option<Arc<QueryError>>,
 }
 
 pub(crate) fn budget(limits: Limits) -> Budget {
@@ -228,6 +232,9 @@ pub(crate) fn prepare_context<'a>(
         filter_subject: None,
         semantic_filter: false,
         syntax_filter: None,
+        complete_observations: false,
+        incomplete_observation: None,
+        filter_unknown: None,
     };
     let rows = context.take_rows(stream);
     Ok((context, rows))
@@ -601,6 +608,7 @@ impl<'a, 'q> Host<Row<'a>, &mut Context<'a>, Leaf<'q>, &'q Stage> for NativeHost
         budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<(), Failure> {
+        context.filter_unknown = None;
         let mut work = Work { budget };
         // Semantic syntax filters historically charge predicate visits only;
         // semantic rows and ordinary syntax filters also charge one row visit.
@@ -648,11 +656,11 @@ impl<'a, 'q> Host<Row<'a>, &mut Context<'a>, Leaf<'q>, &'q Stage> for NativeHost
                 .filter_subject
                 .as_ref()
                 .expect("semantic filter row was prepared");
-            let truth = context
+            let (truth, diagnostic) = context
                 .report
                 .as_mut()
                 .unwrap()
-                .predicate_leaf(
+                .guard_leaf(
                     predicate,
                     subject,
                     &mut Work { budget },
@@ -660,6 +668,13 @@ impl<'a, 'q> Host<Row<'a>, &mut Context<'a>, Leaf<'q>, &'q Stage> for NativeHost
                     context.limits,
                 )
                 .map_err(EvaluationError::Host)?;
+            if let Some(diagnostic) = diagnostic {
+                context.filter_unknown = Some(Arc::new(QueryError {
+                    range: diagnostic.location.range.clone(),
+                    location: crate::ErrorLocation::Model(diagnostic.location),
+                    message: diagnostic.message,
+                }));
+            }
             return Ok(match truth {
                 semantic::Truth::True => Truth::True,
                 semantic::Truth::False => Truth::False,
@@ -689,6 +704,42 @@ impl<'a, 'q> Host<Row<'a>, &mut Context<'a>, Leaf<'q>, &'q Stage> for NativeHost
         Ok(if matches { Truth::True } else { Truth::False })
     }
 
+    fn filter_truth(
+        &self,
+        truth: Truth,
+        context: &mut &mut Context<'a>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<bool, Failure> {
+        if truth == Truth::Unknown {
+            let error = context.filter_unknown.take().unwrap_or_else(|| {
+                Arc::new(QueryError::query(
+                    range.clone(),
+                    "semantic filter fact is unknown",
+                ))
+            });
+            if context.complete_observations {
+                budget.charge(
+                    error.message.len()
+                        + match &error.location {
+                            crate::ErrorLocation::Model(location) => {
+                                location.path.as_os_str().len()
+                            }
+                            _ => 0,
+                        }
+                        + 1,
+                    zirql::Location::Query(range.clone()),
+                )?;
+                budget.charge_results(1, zirql::Location::Query(range.clone()))?;
+                return Err(EvaluationError::Host(error.as_ref().clone()));
+            }
+            if context.incomplete_observation.is_none() {
+                context.incomplete_observation = Some(error);
+            }
+        }
+        Ok(truth == Truth::True)
+    }
+
     fn evaluate_stage(
         &self,
         stage: &&'q Stage,
@@ -702,6 +753,43 @@ impl<'a, 'q> Host<Row<'a>, &mut Context<'a>, Leaf<'q>, &'q Stage> for NativeHost
             .take()
             .unwrap_or_else(|| context.restore_stream(rows));
         let mut work = Work { budget };
+        if context.complete_observations && matches!(stage.kind, StageKind::ReferencedDeclarations)
+        {
+            let SemanticStream::Entities(declarations) = stream else {
+                return Err(EvaluationError::Host(QueryError::query(
+                    stage.range.clone(),
+                    "referenced_declarations requires declarations",
+                )));
+            };
+            let mut rows = Vec::new();
+            let report = context
+                .report
+                .as_mut()
+                .ok_or_else(|| {
+                    QueryError::query(
+                        stage.range.clone(),
+                        "referenced_declarations requires model facts",
+                    )
+                })
+                .map_err(EvaluationError::Host)?;
+            for declaration in declarations {
+                let SemanticEntity::Declaration(id) = declaration else {
+                    return Err(EvaluationError::Host(QueryError::query(
+                        stage.range.clone(),
+                        "referenced_declarations requires declarations",
+                    )));
+                };
+                rows.extend(
+                    report
+                        .complete_targets(id, &mut work, &stage.range, context.limits)
+                        .map_err(EvaluationError::Host)?,
+                );
+            }
+            return Ok(context.take_rows(SemanticStream::Entities(rows)));
+        }
+        if let Some(report) = &mut context.report {
+            report.incomplete_observation = None;
+        }
         let stream = if let Some(report) = &mut context.report {
             report
                 .evaluate_stage(
@@ -729,6 +817,12 @@ impl<'a, 'q> Host<Row<'a>, &mut Context<'a>, Leaf<'q>, &'q Stage> for NativeHost
                 .map_err(EvaluationError::Host)?,
             ))
         };
+        if let Some(report) = &mut context.report
+            && let Some(error) = report.incomplete_observation.take()
+            && context.incomplete_observation.is_none()
+        {
+            context.incomplete_observation = Some(error);
+        }
         Ok(context.take_rows(stream))
     }
 

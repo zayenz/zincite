@@ -72,7 +72,7 @@ pub(super) fn copy<'a>(value: &ReportValue<'a>) -> Option<ReportValue<'a>> {
 pub(super) fn owner<'v, 'a>(value: &'v ReportValue<'a>) -> Option<&'v Rc<ModelFacts<'a>>> {
     match value {
         ReportValue::Retained(value) => owner(value),
-        ReportValue::Item(value) => owner(value),
+        ReportValue::Item(value) | ReportValue::IncompleteSelection { value, .. } => owner(value),
         ReportValue::EntitySequence { owner, .. } => owner.as_ref(),
         _ => None,
     }

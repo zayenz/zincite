@@ -72,6 +72,7 @@ pub struct SemanticResult<'a> {
     pub(crate) stream: SemanticStream<'a>,
     limitations: Vec<SourceDiagnostic>,
     json: bool,
+    pub(crate) incomplete_observation: Option<std::sync::Arc<QueryError>>,
 }
 
 enum ReferenceEndpoint {
@@ -539,6 +540,7 @@ pub(crate) fn prepare<'a>(
         stream: SemanticStream::Inspection(Box::new(QueryResult::Selection(selection))),
         limitations: Vec::new(),
         json: false,
+        incomplete_observation: None,
     };
     for limitation in &model.limitations {
         report.limit(
@@ -1063,6 +1065,18 @@ impl SemanticResult<'_> {
             ReferenceEndpoint::Declaration(id) => Ok(Some(id)),
             ReferenceEndpoint::Intrinsic => Ok(None),
             ReferenceEndpoint::Uncertain(location, reason) => {
+                if self.incomplete_observation.is_none() {
+                    work.spend(
+                        location.path.as_os_str().len() + reason.len() + 1,
+                        &stage.range,
+                    )?;
+                    work.produce(1, &stage.range)?;
+                    self.incomplete_observation = Some(std::sync::Arc::new(QueryError {
+                        range: location.range.clone(),
+                        location: crate::ErrorLocation::Model(location.clone()),
+                        message: reason.clone(),
+                    }));
+                }
                 self.limit(location, reason, work, stage, limits)?;
                 Ok(None)
             }

@@ -1,0 +1,5 @@
+let seed = declarations | filter(name("A"));
+report (
+  related: declarations | where_exists(referenced_declarations | filter(name("B"))) | names,
+  reached: seed | fixpoint(input union referenced_declarations) | names
+);

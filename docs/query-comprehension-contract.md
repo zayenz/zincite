@@ -726,3 +726,28 @@ Native and constructed tally dictionaries retain first-seen keys through saved,
 nested and JSON results. Ordering, identity work, copying and temporary storage
 use the active request budget. Data-edit input and expression permissions remain
 the closed subset described above.
+
+## Native existence and fixed points
+
+Native `where_exists(relation)` and `fixpoint(body)` are pure report operations.
+Their bodies use the current runner, lexical scope and continuing request
+budget. Preparation checks known kinds, names and effects even when the input
+is empty. Existing data-expression permissions remain unchanged.
+
+Existence keeps original subjects in input order, retaining duplicates. Its
+relation runs against each singleton and must return an admitted native
+selection. Complete empty results reject a subject; uncertain adjacency and
+final unknown predicates refuse. A saved partial selection retains its
+responsible error through copies, aliases, ordering and set operations, even
+when an operation discards all rows. Unrelated report limitations do not refuse
+a complete observation. Singular nodes and declarations normalize to their
+possibly empty selection kinds at the existence boundary.
+
+Fixed points replace the selection until ordered identities and duplicate
+multiplicity are unchanged. The body keeps the exact native kind, element
+contract and source owner, including for empty results. Explicit `input union`
+provides accumulation. Stable empty selections succeed; repeated non-fixed
+selections refuse with one bounded checkpoint. Native copying, comparison and
+nested evaluation spend the active budget. See the
+[walkthrough](queries.md#filter-connections-and-accumulate-declarations) and
+[reference](reference.md#native-existence-and-fixed-points).
