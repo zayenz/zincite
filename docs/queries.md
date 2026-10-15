@@ -523,6 +523,118 @@ Recursion is limited by depth and total work. See the
 [function reference](reference.md#typed-query-functions) for scope, signatures
 and limits.
 
+## Walk declaration references
+
+A custom worklist can follow declaration references while skipping duplicate
+routes and cycles. Save this source as `worklist.mzn`:
+
+```minizinc title="worklist.mzn"
+int: A = if true then B else C endif;
+int: B = D;
+int: C = B;
+int: D = A;
+int: E = 0;
+solve satisfy;
+```
+
+This static graph is A → [B, C], B → D, C → B, D → A, with disconnected E.
+The conditional contributes both written references. The query inspects those
+source relationships; it does not evaluate the cyclic MiniZinc definitions.
+Save this program as `worklist.zq`:
+
+```zirql title="worklist.zq"
+fn reaches((start, target): tuple<Declaration, Declaration>) -> bool {
+    loop (pending = queue([start]), seen = identity_set<Declaration>()) {
+        match (pop_front(pending)) {
+            present((current, remaining)) => {
+                if current in seen {
+                    continue (remaining, seen);
+                } else if same_declaration(current, target) {
+                    break true;
+                } else {
+                    let {targets, ..} = reference_info(current);
+                    continue (push_back_all(remaining, targets), insert(seen, current));
+                }
+            },
+            _ => break false
+        }
+    }
+}
+let starts = declarations | filter(name("A"));
+let targets = declarations | filter(name("D"));
+let others = declarations | filter(name("E"));
+(zero_edges: one([reaches((start, start)) | start in starts]),
+ reachable: one([reaches((start, target)) | start in starts, target in targets]),
+ disconnected: one([reaches((start, disconnected)) | start in starts, disconnected in others]));
+```
+
+```sh
+zincite query --program-file worklist.zq worklist.mzn
+zincite-query --program-file worklist.zq worklist.mzn
+```
+
+With a configured standard library, both commands return a complete report with
+`zero_edges = true`, `reachable = true` and `disconnected = false`. Native
+comprehension elements supply the explicit Declaration arguments. Queue order
+preserves target order, and the identity set prevents repeated expansion.
+`reference_info` refuses uncertain adjacency at its source location; an unknown
+edge cannot become a false reachability result.
+
+## Retain reducer states
+
+A named reducer can destructure its state parameter. Save this as `fold-scan.zq`
+and run it against `worklist.mzn` with either query command:
+
+```zirql title="fold-scan.zq"
+fn step((count, total): tuple<int, int>, item: int) -> tuple<int, int> {
+    (count + 1, total + item)
+}
+(folded: fold([2, 3, 5], (0, 0), step),
+ scanned: scan([2, 3, 5], (0, 0), step),
+ empty_fold: fold([], (0, 0), step),
+ empty_scan: scan([], (0, 0), step));
+```
+
+`folded` is `(3, 10)`, and `scanned` contains `(1, 2)`, `(2, 5)` and `(3, 10)`.
+The empty fold returns `(0, 0)`; the empty scan has no states. Steps run in input
+order and must preserve the state contract. The same rules apply to retained
+native queue/set states. Those states can be inspected in the library, while
+rendering a queue or identity set is a located error.
+
+Rust callers construct these same nodes with `Program::from_values`. For example,
+this typed loop returns 3 without parsing query text:
+
+```rust
+use zincite_query::{Program, ProgramLimits, ProgramValue, Query};
+use zirql::{ConstructedValue as V, Located, ValueBinaryOperator as B,
+            ValueExpressionKind as K};
+fn e(value: K<zirql::Expression<Query, (), ()>>) -> ProgramValue {
+    Located::new(value, 0..1)
+}
+let n = || e(K::Name("n".into()));
+let integer = |v| e(K::Literal(V::Integer(v)));
+let program = Program::from_values(vec![], vec![], e(K::Loop {
+    states: vec![(Located::new("n".into(), 0..1), integer(0))],
+    body: Box::new(e(K::Conditional {
+        branches: vec![(e(K::Binary {
+            operator: B::Less, left: Box::new(n()), right: Box::new(integer(3)),
+        }), e(K::Continue(vec![e(K::Binary {
+            operator: B::Add, left: Box::new(n()), right: Box::new(integer(1)),
+        })])))],
+        otherwise: Box::new(e(K::Break(Box::new(n())))),
+    })),
+}), ProgramLimits::default())?;
+```
+
+`K::Fold { items, initial, step }` and `K::Scan { items, initial, step }` take
+boxed value nodes plus a located function name. `ProgramFunction` carries the
+named step and its located parameter patterns and declarations. Native query
+leaves use `zirql::Expression<Query, (), ()>`, just as other typed reports.
+Evaluate with the original `Input` and retained model facts, then inspect
+`result.emissions()[0].value()` before rendering. Tuple/sequence `values()`
+borrow native members; computational `len()` inspects retained queues and sets.
+The library and CLI share preparation, native ownership checks and allowances.
+
 ## Destructure a report
 
 Record and tuple patterns let a report name the parts of a structured value

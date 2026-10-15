@@ -7,10 +7,14 @@ pub(super) enum Primitive {
     DirectChildren,
     NodeKind,
     WrittenCallName,
+    SameDeclaration,
+    ReferenceInfo,
 }
 impl Primitive {
     pub(super) fn named(name: &str) -> Option<Self> {
         match name {
+            "same_declaration" => Some(Self::SameDeclaration),
+            "reference_info" => Some(Self::ReferenceInfo),
             "direct_children" => Some(Self::DirectChildren),
             "node_kind" => Some(Self::NodeKind),
             "written_call_name" => Some(Self::WrittenCallName),
@@ -155,8 +159,14 @@ impl Parser<'_> {
         range: Range<usize>,
     ) -> Result<E<Expression>, QueryError> {
         self.begin_pure(range.clone())?;
-        self.admit_cst(&range)?;
         let shared = self.nested_controls(range.clone())?;
+        admit_cst(
+            &self.lexed,
+            &range,
+            &mut self.preflight,
+            self.limits.nesting,
+            &shared,
+        )?;
         let mut lowered = comprehension::lower_with_values::<Expression>(
             &self.cursor.source[range.clone()],
             range.clone(),
@@ -181,8 +191,20 @@ impl Parser<'_> {
             .filter(|token| token.range.start >= range.start && token.range.end <= range.end)
             .any(|token| {
                 let name = &self.cursor.source[token.range.clone()];
-                matches!(name, "if" | "match" | "present" | "absent")
-                    && self.names.contains_key(name)
+                matches!(
+                    name,
+                    "if" | "match"
+                        | "present"
+                        | "absent"
+                        | "loop"
+                        | "queue"
+                        | "identity_set"
+                        | "pop_front"
+                        | "push_back_all"
+                        | "insert"
+                        | "fold"
+                        | "scan"
+                ) && self.names.contains_key(name)
             })
     }
     fn next_value_token(&self, index: usize, end: usize) -> Option<usize> {
@@ -237,6 +259,26 @@ impl Parser<'_> {
         let Some(next) = self.next_value_token(index + 1, end) else {
             return false;
         };
+        if matches!(
+            &self.cursor.source[token.range.clone()],
+            "loop" | "break" | "continue"
+        ) {
+            return true;
+        }
+        if Primitive::named(&self.cursor.source[token.range.clone()]).is_some()
+            || matches!(
+                &self.cursor.source[token.range.clone()],
+                "queue"
+                    | "identity_set"
+                    | "pop_front"
+                    | "push_back_all"
+                    | "insert"
+                    | "fold"
+                    | "scan"
+            )
+        {
+            return matches!(self.lexed.tokens()[next].kind, T::LeftParen | T::Less);
+        }
         if token.kind == T::If {
             return self.control_block(next, end, true).is_some();
         }
@@ -309,6 +351,43 @@ impl Parser<'_> {
     }
     fn control_end(&self, index: usize, end: usize) -> Result<usize, QueryError> {
         use zincite_syntax::TokenKind as T;
+        let name = &self.cursor.source[self.lexed.tokens()[index].range.clone()];
+        if Primitive::named(name).is_some()
+            || matches!(
+                name,
+                "queue"
+                    | "identity_set"
+                    | "pop_front"
+                    | "push_back_all"
+                    | "insert"
+                    | "fold"
+                    | "scan"
+            )
+        {
+            let mut depth = 0usize;
+            for token in self.lexed.tokens().iter().skip(index + 1) {
+                if token.range.start >= end {
+                    break;
+                }
+                match token.kind {
+                    T::LeftParen => depth += 1,
+                    T::RightParen if depth > 0 => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return Ok(token.range.end);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return Err(QueryError::query(
+                self.lexed.tokens()[index].range.clone(),
+                "expected closing call",
+            ));
+        }
+        if matches!(name, "break" | "continue") {
+            return Ok(self.function_value_end(self.lexed.tokens()[index].range.start));
+        }
         let conditional = self.lexed.tokens()[index].kind == T::If;
         let mut block = self
             .control_block(index + 1, end, conditional)
@@ -561,16 +640,42 @@ pub(super) fn lower_primitives(
                 lower_primitives(&mut arm.value, names, queries);
             }
         }
-        K::Queue { .. }
-        | K::PopFront(_)
-        | K::PushBackAll { .. }
-        | K::IdentitySet { .. }
-        | K::Insert { .. }
-        | K::Fold { .. }
-        | K::Scan { .. }
-        | K::Loop { .. }
-        | K::Break(_)
-        | K::Continue(_) => {}
+        K::Queue { items, .. } | K::PopFront(items) | K::Break(items) => {
+            lower_primitives(items, names, queries)
+        }
+        K::PushBackAll {
+            queue: left,
+            items: right,
+        }
+        | K::Insert {
+            set: left,
+            item: right,
+        }
+        | K::Fold {
+            items: left,
+            initial: right,
+            ..
+        }
+        | K::Scan {
+            items: left,
+            initial: right,
+            ..
+        } => {
+            lower_primitives(left, names, queries);
+            lower_primitives(right, names, queries);
+        }
+        K::Loop { states, body } => {
+            for (_, value) in states {
+                lower_primitives(value, names, queries);
+            }
+            lower_primitives(body, names, queries);
+        }
+        K::Continue(values) => {
+            for value in values {
+                lower_primitives(value, names, queries);
+            }
+        }
+        K::IdentitySet { .. } => {}
         K::Literal(_) | K::Name(_) | K::NativeQuery(_) | K::NativeValue(_) => {}
     }
 }
@@ -889,6 +994,133 @@ impl<'a> zirql::FunctionHost<Context<'_, 'a>> for composition::CompositionHost<'
     fn retains_native_admission(&self) -> bool {
         true
     }
+    fn resolve_type_name(
+        &self,
+        name: Located<&str>,
+        budget: &mut Budget,
+    ) -> Result<D<Kind>, zirql::QueryError> {
+        budget.charge(
+            name.value.len() + 1,
+            zirql::Location::Query(name.range.clone()),
+        )?;
+        match name.value {
+            "Node" => Ok(D::Native(Kind::Node)),
+            "Declaration" => Ok(D::Native(Kind::Declaration)),
+            _ => Err(zirql::QueryError::query(
+                name.range,
+                "constructor type requires Node or Declaration",
+            )),
+        }
+    }
+    fn prepare_computational(
+        &self,
+        declaration: Option<&D<Kind>>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<(), zirql::QueryError> {
+        budget.charge(1, zirql::Location::Query(range.clone()))?;
+        if let Some(declaration) = declaration {
+            if matches!(declaration, D::IdentitySet(kind) if !matches!(kind, Kind::Node | Kind::Declaration))
+            {
+                return Err(zirql::QueryError::query(
+                    range.clone(),
+                    "identity_set requires Node or Declaration",
+                ));
+            }
+            self.declaration_kind(declaration, budget, range)?;
+        }
+        Ok(())
+    }
+    fn computational_value<'v>(
+        &self,
+        value: &'v ReportValue<'a>,
+    ) -> Option<&'v zirql::ComputationalValue<ReportValue<'a>, Kind>> {
+        if let ReportValue::Computational(value) = unretained(value) {
+            Some(&value.value)
+        } else {
+            None
+        }
+    }
+    fn lift_computational(
+        &self,
+        value: zirql::ComputationalValue<ReportValue<'a>, Kind>,
+        _: &mut Context<'_, 'a>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
+        budget.charge_results(1, zirql::Location::Query(range.clone()))?;
+        Ok(ReportValue::Computational(worklists::Computational {
+            value: Rc::new(value),
+            range: range.clone(),
+        }))
+    }
+    fn construct_tuple(
+        &self,
+        values: Vec<ReportValue<'a>>,
+        _: &mut Context<'_, 'a>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
+        budget.charge_results(values.len() + 1, zirql::Location::Query(range.clone()))?;
+        Ok(ReportValue::Tuple(worklists::NativeTuple {
+            values: Rc::new(values),
+            range: range.clone(),
+        }))
+    }
+    fn sequence_items(
+        &self,
+        value: &ReportValue<'a>,
+        element: &D<Kind>,
+        context: &mut Context<'_, 'a>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<Vec<ReportValue<'a>>, zirql::EvaluationError<QueryError>> {
+        self.sequence_values(value, element, context, budget, range)
+    }
+    fn construct_sequence(
+        &self,
+        values: Vec<ReportValue<'a>>,
+        element: &D<Kind>,
+        _: &mut Context<'_, 'a>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
+        budget.charge_results(values.len() + 1, zirql::Location::Query(range.clone()))?;
+        Ok(ReportValue::Sequence(worklists::NativeSequence {
+            values: Rc::new(values),
+            element: worklists::declaration(element, budget, range)?,
+            range: range.clone(),
+        }))
+    }
+    fn worklist_context(
+        &self,
+        context: &mut Context<'_, 'a>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<zirql::NativeContextId, zirql::EvaluationError<QueryError>> {
+        budget.charge(1, zirql::Location::Query(range.clone()))?;
+        context
+            .report_facts(budget, range)
+            .map_err(zirql::EvaluationError::Host)?;
+        Ok(zirql::NativeContextId([
+            context.input as *const _ as usize as u64,
+            context
+                .facts
+                .as_ref()
+                .map_or(0, |f| f.bindings() as *const _ as usize as u64),
+            0,
+        ]))
+    }
+    fn native_identity(
+        &self,
+        value: &ReportValue<'a>,
+        expected: &Kind,
+        context: &mut Context<'_, 'a>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<zirql::NativeIdentity, zirql::EvaluationError<QueryError>> {
+        self.identity(value, expected, context, budget, range)
+    }
     fn declaration_kind(
         &self,
         declaration: &D<Kind>,
@@ -902,6 +1134,15 @@ impl<'a> zirql::FunctionHost<Context<'_, 'a>> for composition::CompositionHost<'
             D::String => Kind::Scalar(zirql::ParameterType::String),
             D::Float => Kind::Value(Rc::new(vec![zirql::ValueType::Float])),
             D::Native(kind) => kind.clone(),
+            D::Queue(_) | D::IdentitySet(_) => {
+                Kind::Computational(worklists::declaration(declaration, budget, range)?)
+            }
+            D::Tuple(fields) if native_declaration(declaration) => Kind::Tuple(Rc::new(
+                fields
+                    .iter()
+                    .map(|d| self.declaration_kind(d, budget, range))
+                    .collect::<Result<_, _>>()?,
+            )),
             D::Optional(inner) => self.declaration_kind(inner, budget, range)?,
             D::Sequence(inner) | D::Array(inner)
                 if matches!(inner.as_ref(), D::Native(Kind::Node)) =>
@@ -934,6 +1175,9 @@ impl<'a> zirql::FunctionHost<Context<'_, 'a>> for composition::CompositionHost<'
                 };
                 Kind::Captures(schema)
             }
+            D::Sequence(inner) | D::Array(inner) if native_declaration(inner) => {
+                Kind::Sequence(worklists::declaration(inner, budget, range)?)
+            }
             _ => Kind::Constructed,
         })
     }
@@ -963,6 +1207,12 @@ impl<'a> zirql::RuntimeTypeHost<Context<'_, 'a>> for composition::CompositionHos
         budget: &mut Budget,
         location: zirql::Location,
     ) -> Result<(), zirql::EvaluationError<QueryError>> {
+        if let D::Native(Kind::Computational(declaration)) = expected {
+            return self.admit_native(value, declaration, context, budget, location);
+        }
+        if zirql::admit_computational(value, expected, self, context, budget, location.clone())? {
+            return Ok(());
+        }
         let range = match &location {
             zirql::Location::Query(range) | zirql::Location::Source(range) => range,
         };
@@ -1026,6 +1276,30 @@ impl<'a> zirql::RuntimeTypeHost<Context<'_, 'a>> for composition::CompositionHos
             _ => {}
         }
         match (expected, unretained(value)) {
+            (D::Tuple(fields), ReportValue::Tuple(tuple)) => {
+                if fields.len() != tuple.values().len() {
+                    return Err(
+                        zirql::QueryError::query(range.clone(), "tuple length mismatch").into(),
+                    );
+                }
+                for (value, field) in tuple.values().iter().zip(fields) {
+                    zirql::admit_value(value, field, self, context, budget, location.clone())?;
+                }
+                return Ok(());
+            }
+            (D::Sequence(inner) | D::Array(inner), ReportValue::Sequence(sequence)) => {
+                if sequence.element.as_ref() != inner.as_ref() {
+                    return Err(zirql::QueryError::query(
+                        range.clone(),
+                        "native sequence element contract mismatch",
+                    )
+                    .into());
+                }
+                for value in sequence.values() {
+                    zirql::admit_value(value, inner, self, context, budget, location.clone())?;
+                }
+                return Ok(());
+            }
             (D::Record(fields), ReportValue::Capture(capture)) => {
                 return admit_capture(capture, fields, self, context, budget, location);
             }
@@ -1148,6 +1422,15 @@ impl<'a> zirql::RuntimeTypeHost<Context<'_, 'a>> for composition::CompositionHos
                     )
                     .into());
                 }
+                if !worklists::owner(value)
+                    .is_some_and(|owner| std::ptr::eq(owner.bindings(), facts.bindings()))
+                {
+                    return Err(zirql::QueryError::query(
+                        range.clone(),
+                        "foreign or unavailable declaration owner",
+                    )
+                    .into());
+                }
                 for row in rows {
                     budget.charge(1, location.clone())?;
                     let semantic::SemanticEntity::Declaration(id) = row else {
@@ -1157,18 +1440,15 @@ impl<'a> zirql::RuntimeTypeHost<Context<'_, 'a>> for composition::CompositionHos
                         )
                         .into());
                     };
-                    let mut owned = false;
-                    for declaration in &facts.bindings().declarations {
-                        budget.charge(1, location.clone())?;
-                        if declaration.id == *id {
-                            owned = true;
-                            break;
-                        }
-                    }
-                    if !owned {
+                    if !facts
+                        .bindings()
+                        .declarations
+                        .get(id.0)
+                        .is_some_and(|d| d.id == *id)
+                    {
                         return Err(zirql::QueryError::query(
                             range.clone(),
-                            "unavailable declaration owner",
+                            "unavailable declaration identity",
                         )
                         .into());
                     }
@@ -1222,12 +1502,46 @@ fn admit_capture<'a>(
 
 pub(super) fn primitive<'a>(
     primitive: Primitive,
-    value: &ReportValue<'a>,
+    values: &[&ReportValue<'a>],
     context: &mut Context<'_, 'a>,
     budget: &mut Budget,
     range: &Range<usize>,
     host: &composition::CompositionHost<'_, '_>,
 ) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
+    let value = values[0];
+    if matches!(primitive, Primitive::SameDeclaration) {
+        return Ok(ReportValue::Constructed(zirql::ConstructedValue::Boolean(
+            host.identity(value, &Kind::Declaration, context, budget, range)?
+                == host.identity(values[1], &Kind::Declaration, context, budget, range)?,
+        )));
+    }
+    if matches!(primitive, Primitive::ReferenceInfo) {
+        host.identity(value, &Kind::Declaration, context, budget, range)?;
+        let ReportValue::Query(SemanticStream::Entities(rows)) = unretained(value) else {
+            unreachable!("admitted declaration")
+        };
+        let semantic::SemanticEntity::Declaration(id) = rows[0] else {
+            unreachable!("admitted declaration")
+        };
+        let owner = worklists::owner(value).cloned();
+        let report = context.query.report.as_mut().ok_or_else(|| {
+            zirql::QueryError::query(range.clone(), "reference_info requires model facts")
+        })?;
+        let rows = report
+            .complete_targets(id, &mut Work { budget }, range, host.0.limits)
+            .map_err(zirql::EvaluationError::Host)?;
+        budget.charge_results(3, zirql::Location::Query(range.clone()))?;
+        return Ok(ReportValue::Capture(zirql::NativeCapture {
+            fields: vec![(
+                "targets".to_owned(),
+                ReportValue::EntitySequence {
+                    declarations: true,
+                    owner,
+                    value: Box::new(ReportValue::Query(SemanticStream::Entities(rows))),
+                },
+            )],
+        }));
+    }
     zirql::admit_value(
         value,
         &D::Native(Kind::Node),
@@ -1246,6 +1560,9 @@ pub(super) fn primitive<'a>(
     };
     let input = context.input;
     let value = match primitive {
+        Primitive::SameDeclaration | Primitive::ReferenceInfo => {
+            unreachable!("declaration primitives returned above")
+        }
         Primitive::DirectChildren => {
             let count = node.child_nodes().count();
             budget.charge(count, zirql::Location::Query(range.clone()))?;
@@ -1335,13 +1652,17 @@ pub(super) fn wrap_program_entries(
                 None
             };
             let range = expression.range.clone();
-            expression = value_stage(
-                Stage::FunctionValue(Located::new(
-                    K::NativeValue(Box::new(expression)),
-                    range.clone(),
-                )),
-                range.clone(),
-            );
+            // Keep existing native pipeline/capture boundaries intact. Control
+            // and computational entries need their prepared result contracts.
+            let pure = if let ExpressionKind::Sequence { steps, .. } = &expression.value {
+                steps.len() == 1 && matches!(&steps[0].value,
+                    ExpressionStep::Stage(Stage::FunctionValue(value)) if matches!(value.value,
+                        K::Queue { .. } | K::IdentitySet { .. } | K::PopFront(_) | K::PushBackAll { .. } |
+                        K::Insert { .. } | K::Fold { .. } | K::Scan { .. } | K::Loop { .. } | K::Tuple(_) |
+                        K::Conditional { .. } | K::ValueMatch { .. } | K::Block { .. }))
+            } else { false };
+            let value = if pure { into_value(expression) } else { Located::new(K::NativeValue(Box::new(expression)), range.clone()) };
+            expression = value_stage(Stage::FunctionValue(value), range.clone());
             if let Some(terminal) = terminal {
                 expression = Located::new(
                     ExpressionKind::Sequence {
@@ -1475,9 +1796,12 @@ pub(super) fn signature_needs_model(signature: &zirql::SignatureType) -> bool {
     use zirql::SignatureType as S;
     match signature {
         S::Named(name) => !matches!(name.value.as_str(), "Node" | "Declaration"),
-        S::Optional(inner) | S::Sequence(inner) | S::Set(inner) | S::Keyed(inner) => {
-            signature_needs_model(&inner.value)
-        }
+        S::Optional(inner)
+        | S::Sequence(inner)
+        | S::Set(inner)
+        | S::Keyed(inner)
+        | S::Queue(inner)
+        | S::IdentitySet(inner) => signature_needs_model(&inner.value),
         S::Tuple(fields) => fields
             .iter()
             .any(|field| signature_needs_model(&field.value)),
@@ -1511,7 +1835,7 @@ pub(super) fn check_scalar(
 
 fn native_declaration(declaration: &D<Kind>) -> bool {
     match declaration {
-        D::Native(_) => true,
+        D::Native(_) | D::Queue(_) | D::IdentitySet(_) => true,
         D::Optional(inner) | D::Sequence(inner) | D::Array(inner) | D::Keyed(inner) => {
             native_declaration(inner)
         }
@@ -1561,7 +1885,12 @@ pub(super) fn check_signature(
             ));
         }
         let width = match &signature.value {
-            S::Optional(_) | S::Sequence(_) | S::Set(_) | S::Keyed(_) => 1,
+            S::Optional(_)
+            | S::Sequence(_)
+            | S::Set(_)
+            | S::Keyed(_)
+            | S::Queue(_)
+            | S::IdentitySet(_) => 1,
             S::Tuple(values) => values.len(),
             S::Record(fields) => fields.len(),
             _ => 0,
@@ -1574,15 +1903,12 @@ pub(super) fn check_signature(
             .charge_results(width.saturating_add(1), location)
             .map_err(pipeline::core_error)?;
         match &signature.value {
-            S::Queue(_) | S::IdentitySet(_) => {
-                return Err(QueryError::query(
-                    signature.range.clone(),
-                    "worklist types are unavailable in Zincite",
-                ));
-            }
-            S::Optional(value) | S::Sequence(value) | S::Set(value) | S::Keyed(value) => {
-                pending.push((value, depth + 1))
-            }
+            S::Queue(value)
+            | S::IdentitySet(value)
+            | S::Optional(value)
+            | S::Sequence(value)
+            | S::Set(value)
+            | S::Keyed(value) => pending.push((value, depth + 1)),
             S::Tuple(values) => pending.extend(values.iter().map(|value| (value, depth + 1))),
             S::Record(fields) => pending.extend(fields.iter().map(|(_, value)| (value, depth + 1))),
             S::Boolean | S::Integer | S::Float | S::String | S::Named(_) => {}
@@ -1614,10 +1940,12 @@ pub(super) fn check_value<'v, Q>(
             K::Call { arguments, .. }
             | K::Array(arguments)
             | K::Tuple(arguments)
-            | K::Set(arguments) => arguments.len(),
+            | K::Set(arguments)
+            | K::Continue(arguments) => arguments.len(),
             K::Record(fields) => fields.len(),
             K::Conditional { branches, .. } => branches.len().saturating_mul(2).saturating_add(1),
             K::Block { bindings, .. } => bindings.len().saturating_add(1),
+            K::Loop { states, .. } => states.len().saturating_add(1),
             K::ValueMatch { arms, .. } => arms.len().saturating_mul(2).saturating_add(1),
             K::KeyedArray { entries, .. } => entries.len().saturating_mul(2),
             K::Comprehension { clauses, .. } => clauses.len().saturating_mul(2).saturating_add(1),
@@ -1640,23 +1968,41 @@ pub(super) fn check_value<'v, Q>(
         budget
             .charge_results(width.saturating_add(1), location)
             .map_err(pipeline::core_error)?;
-        let mut children = Vec::with_capacity(width);
+        let mut children: Vec<&E<Q>> = Vec::with_capacity(width);
         match &value.value {
-            K::Queue { .. }
-            | K::PopFront(_)
-            | K::PushBackAll { .. }
-            | K::IdentitySet { .. }
-            | K::Insert { .. }
-            | K::Fold { .. }
-            | K::Scan { .. }
-            | K::Loop { .. }
-            | K::Break(_)
-            | K::Continue(_) => {
-                return Err(QueryError::query(
-                    value.range.clone(),
-                    "worklist and loop values are unavailable in Zincite",
-                ));
+            K::Queue { items, element } => {
+                if let Some(element) = element {
+                    check_signature(element, budget, nesting.saturating_sub(depth + 1))?;
+                }
+                children.push(items);
             }
+            K::IdentitySet { element } => {
+                check_signature(element, budget, nesting.saturating_sub(depth + 1))?;
+            }
+            K::PopFront(value) | K::Break(value) => children.push(value),
+            K::PushBackAll {
+                queue: left,
+                items: right,
+            }
+            | K::Insert {
+                set: left,
+                item: right,
+            }
+            | K::Fold {
+                items: left,
+                initial: right,
+                ..
+            }
+            | K::Scan {
+                items: left,
+                initial: right,
+                ..
+            } => children.extend([left.as_ref(), right.as_ref()]),
+            K::Loop { states, body } => {
+                children.extend(states.iter().map(|(_, v)| v));
+                children.push(body);
+            }
+            K::Continue(values) => children.extend(values),
             K::Literal(literal) => {
                 zirql::constructed_value_type(
                     literal,

@@ -1502,3 +1502,96 @@ fn patterns_and_control_values_replay_inline_file_and_buffer_later_errors() {
         assert!(String::from_utf8_lossy(&failed.stderr).contains("zero"));
     }
 }
+
+#[test]
+fn worklist_and_reducer_programs_match_inline_files_and_library() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-query-worklists-{}", std::process::id()));
+    std::fs::create_dir_all(directory.join("library/std")).unwrap();
+    std::fs::write(directory.join("library/std/stdlib.mzn"), b"").unwrap();
+    let library = directory.join("library");
+    let model = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/worklist-reachability.mzn"
+    );
+    for (source, file) in [
+        (
+            include_str!("fixtures/worklist-reachability.zq"),
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/worklist-reachability.zq"
+            ),
+        ),
+        (
+            include_str!("fixtures/fold-scan.zq"),
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fold-scan.zq"),
+        ),
+    ] {
+        let inline = run(
+            &[
+                "--stdlib-dir",
+                library.to_str().unwrap(),
+                "--program",
+                source,
+                model,
+            ],
+            b"",
+        );
+        assert!(inline.status.success(), "{inline:?}");
+        let saved = run(
+            &[
+                "--stdlib-dir",
+                library.to_str().unwrap(),
+                "--program-file",
+                file,
+                model,
+            ],
+            b"",
+        );
+        assert!(saved.status.success(), "{saved:?}");
+        assert_eq!(inline.stdout, saved.stdout);
+        let input = zincite_query::Input::parse_named(
+            std::fs::read(model).unwrap(),
+            zincite_syntax::FileMode::Model,
+            model,
+        )
+        .unwrap();
+        let context = zincite_lint::load_model(
+            model,
+            &zincite_lint::ModelOptions {
+                include_dirs: vec![],
+                stdlib_dir: Some(library.clone()),
+            },
+        );
+        let limits = zincite_query::ProgramLimits::default();
+        let expected = zincite_query::Program::parse(source, limits)
+            .unwrap()
+            .evaluate_with_model(&input, Some(&context), limits)
+            .unwrap()
+            .render()
+            .unwrap();
+        assert_eq!(inline.stdout, expected);
+        let later = run(
+            &[
+                "--stdlib-dir",
+                library.to_str().unwrap(),
+                "--program",
+                &format!("{source} report 1 div 0;"),
+                model,
+            ],
+            b"",
+        );
+        assert_eq!(later.status.code(), Some(2));
+        assert!(later.stdout.is_empty());
+    }
+    for source in ["queue<int>([1])", "(nested:queue<int>([1]))"] {
+        let output = run(&["--program", source, model], b"");
+        assert_eq!(output.status.code(), Some(2), "{output:?}");
+        assert!(output.stdout.is_empty());
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("cannot be rendered"),
+            "{output:?}"
+        );
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

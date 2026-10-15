@@ -420,16 +420,49 @@ fn map_queries(
             lower: Box::new(map_queries(*start, lower)),
             upper: Box::new(map_queries(*upper, lower)),
         },
-        K::Queue { .. }
-        | K::PopFront(_)
-        | K::PushBackAll { .. }
-        | K::IdentitySet { .. }
-        | K::Insert { .. }
-        | K::Fold { .. }
-        | K::Scan { .. }
-        | K::Loop { .. }
-        | K::Break(_)
-        | K::Continue(_) => unreachable!("deferred values rejected before lowering"),
+        K::Queue { items, element } => K::Queue {
+            items: Box::new(map_queries(*items, lower)),
+            element,
+        },
+        K::PopFront(value) => K::PopFront(Box::new(map_queries(*value, lower))),
+        K::Break(value) => K::Break(Box::new(map_queries(*value, lower))),
+        K::Continue(values) => {
+            K::Continue(values.into_iter().map(|v| map_queries(v, lower)).collect())
+        }
+        K::PushBackAll { queue, items } => K::PushBackAll {
+            queue: Box::new(map_queries(*queue, lower)),
+            items: Box::new(map_queries(*items, lower)),
+        },
+        K::IdentitySet { element } => K::IdentitySet { element },
+        K::Insert { set, item } => K::Insert {
+            set: Box::new(map_queries(*set, lower)),
+            item: Box::new(map_queries(*item, lower)),
+        },
+        K::Fold {
+            items,
+            initial,
+            step,
+        } => K::Fold {
+            items: Box::new(map_queries(*items, lower)),
+            initial: Box::new(map_queries(*initial, lower)),
+            step,
+        },
+        K::Scan {
+            items,
+            initial,
+            step,
+        } => K::Scan {
+            items: Box::new(map_queries(*items, lower)),
+            initial: Box::new(map_queries(*initial, lower)),
+            step,
+        },
+        K::Loop { states, body } => K::Loop {
+            states: states
+                .into_iter()
+                .map(|(n, v)| (n, map_queries(v, lower)))
+                .collect(),
+            body: Box::new(map_queries(*body, lower)),
+        },
     };
     Located::new(value, range)
 }

@@ -730,3 +730,166 @@ full measurement rerun, dependency update or publication is part of this check.
 Raw current captures, baseline/library build commands and hashes are retained
 under `/private/tmp/zirql010-author-evidence`; the historical base-128 artifacts
 remain read-only at their original location.
+
+## Explicit worklists and reducers (2026-10-15)
+The declaration graph and destructured fold/scan fixtures pass through text,
+`Program::from_values`, both query commands, inline programs and program files.
+The graph returns true for A→A and A→D and false for A→E, including its cycle
+and duplicate route. Native target inspection returns B then C. The identity
+comparison and identity-set membership agree. Native queue aliases and earlier
+scan states retain their original owners and lengths. Focused controls cover
+uncertain and ambiguous adjacency, a known intrinsic endpoint, BOM locations,
+wrong elements, empty-input reducer validation, simultaneous state updates,
+nested transfers, tail-call exits, limits and output buffering. Rendering a
+queue/set directly or inside a record refuses before CLI stdout is committed.
+The reducer check also confirms that annotated tuple results retain the `tuple`
+JSON tag rather than being tagged as sets.
+
+The inspected product source is Zincite
+`9eebe3c2d69bdba201d3d1dc523a2aaa1c45bb72`, based on
+`8e2b14982efd4c91337facb2bcbab047ddcc7acb`. Its exact Zirql Git pin is
+`ea30035e010cea2e12047a1aa4e5bf39a3ac983e`; the baseline uses
+`6734a8535702298ad257203c69fec88ce3a9c6d6`. No solver, rewrite effect, release
+or publication runs. The frozen source passes workspace formatting, Clippy with
+warnings denied, all workspace tests, and the source site's check/build.
+
+### Measurement method and identities
+
+The temporary probe uses the existing counting `System` allocator from the
+formatter phase probe and the existing `scripts/bench-save.py::file_invoke`
+exact-child `wait4` wrapper. Both variants use release builds, Rust 1.98.1,
+identical locked transitive versions apart from the intended Zirql pin, and
+matching allocation counters. Measurements ran serially in a coordinated quiet
+window on an Apple M1 Max (10 CPU cores, 64 GB RAM), arm64 Darwin 25.6.0.
+Allocator counters add overhead; these are instrumented comparisons, not
+production CLI latency claims.
+
+The final capture contains 231 complete records: one separately retained
+first-use observation and ten measured processes for each of 21 cases. The two
+small queries alternate baseline/candidate order. Each small process batches 100
+queries; its phase result is a per-query mean, and the table summarizes the ten
+process means. The growing cases execute once per process. All 231 outputs pass
+their expected-result/refusal checks: 198 successes and 33 separate refusals,
+including first-use observations. There are no timeouts or unfinished records.
+
+`parse` times `Program::parse`, including CST lowering and syntax preflight.
+`evaluate` includes request preparation, native admission, demanded model facts
+and shared execution; the public API does not separate preparation from execution.
+Input parsing and model loading occur outside those phase timers, but inside the
+whole-process wall/RSS boundary. `render` is measured separately for renderable
+reports. Native alias/scan cases retain library results and inspect them after the
+evaluation timer; rendering is deliberately absent from their throughput samples.
+Every raw record includes process argv, exact input/query hashes, full captured
+streams, status, phase/allocation metrics and result-drop telemetry. Peak RSS is
+the exact child's Darwin high-water value, converted from bytes to MiB.
+
+The baseline probe binary SHA256 is
+`672d981c73f9aa1ae0ed690763d3b3b0a8cc0f115f637b1ddc22565ff9b7aff7`;
+the candidate probe binary SHA256 is
+`2c39e707bb29e4a7add3bd6bc314a4baf90326a3e514faa82622dbf94e345c7c`.
+These binaries contain temporary measurement code and are distinct from shipped
+commands. Their shared probe source SHA256 is
+`3a19a14355bc5bffd8794094dd351057f56296d59b510bc61ff928e230fca376`.
+The local evidence is under
+`target/benchmarks/base046/runs/final/`, with the resumable driver in
+`target/benchmarks/base046/measure.py`. The complete saved identity, command and
+environment record is `/private/tmp/zirql046-measurement-identities.json`.
+`run --name final` resumes unchanged work, while `analyze --name final`
+regenerates statistics from saved records. A disposable smoke run confirmed
+unchanged completed records, rerunning one missing record with partial streams
+retained, rejection of a changed configuration, and analysis without execution.
+
+### Small-query comparison
+
+Times are microseconds per query: median [minimum–maximum] over ten process
+means. The tiny report sums three integers. The eight-read report repeatedly
+reads the same 64-element binding. Both variants produce identical output.
+
+| Case | Variant | Parse µs | Prepare/evaluate µs | Render µs |
+| --- | --- | ---: | ---: | ---: |
+| tiny | baseline | 7.290 [7.151–8.001] | 5.024 [4.920–5.276] | 2.620 [2.480–2.880] |
+| tiny | candidate | 7.292 [7.164–7.695] | 5.047 [4.886–5.234] | 2.467 [2.408–2.530] |
+| eight_reads | baseline | 40.033 [39.126–41.883] | 35.060 [34.619–36.684] | 15.231 [14.354–16.421] |
+| eight_reads | candidate | 40.551 [40.313–42.804] | 34.553 [34.461–36.492] | 14.592 [14.369–15.017] |
+
+The phase ranges overlap. Tiny evaluation changes by +0.023 µs (+0.46%);
+eight-read evaluation changes by −0.507 µs (−1.45%). These observations do not
+establish a meaningful small-query speed change.
+
+### Growing native work
+
+Successful rows below explicitly enlarge work to 100,000,000 and aggregate
+results to 20,000,000. Nesting stays 64 and the stream ceiling stays 100,000.
+Defaults remain 1,000,000 work and 100,000 results. The wide graph has N leaf
+declarations, A pointing to every leaf, every leaf pointing back to A, and
+unreachable E. It therefore has N+2 declarations and 2N written edges. The
+input files contain 3,413 / 17,813 / 73,815 bytes. Other cases use N syntax-node
+items in 1,280 / 7,280 / 31,780-byte files. Queue alias retains the original
+queue while draining another view. Set alias retains a populated set while
+performing duplicate insertions. Scan retains all N queue snapshots.
+
+Evaluation times are milliseconds, median [minimum–maximum] over ten processes.
+Requested allocation bytes count traffic during preparation/evaluation, including
+freed temporary storage; peak RSS covers the complete process.
+
+| Case | N | Prepare/evaluate ms | Requested MB | Maximum RSS MiB |
+| --- | ---: | ---: | ---: | ---: |
+| wide_cycle | 100 | 2.516 [2.493–2.555] | 2.226 | 5.89 |
+| wide_cycle | 500 | 12.525 [12.347–12.936] | 10.598 | 8.62 |
+| wide_cycle | 2000 | 67.021 [66.636–69.527] | 41.662 | 19.22 |
+| queue_alias | 100 | 0.612 [0.606–0.667] | 0.565 | 4.58 |
+| queue_alias | 500 | 2.365 [2.333–2.471] | 2.622 | 5.42 |
+| queue_alias | 2000 | 8.814 [8.728–9.007] | 9.639 | 7.78 |
+| set_alias | 100 | 1.272 [1.240–1.339] | 1.327 | 4.89 |
+| set_alias | 500 | 5.471 [5.407–5.642] | 6.327 | 6.77 |
+| set_alias | 2000 | 21.646 [21.293–23.593] | 24.385 | 13.64 |
+| scan | 100 | 0.495 [0.486–0.521] | 0.607 | 4.66 |
+| scan | 500 | 1.864 [1.847–2.007] | 2.902 | 6.44 |
+| scan | 2000 | 6.965 [6.876–7.184] | 10.842 | 11.98 |
+
+The queue-drain allocation traffic grows with input size while its original
+queue remains retained. Scan similarly retains lengths 1 through N without
+changing earlier states. Source inspection confirms that optional-pop tuples
+first enter `admit_computational`, which checks the owner and element metadata
+without enumerating the remaining queue. Host copies share computational roots.
+This combination gives allocation and native-behavior evidence against copying
+or rescanning the remaining queue at every pop; it is not a timing assertion in
+the permanent tests.
+
+All queue/set alias and scan evaluation-retained bytes are freed when their
+result drops. For example, scan at N=500 retains and frees exactly 304,552 bytes.
+The wide graph retains an additional 1,024 / 4,096 / 16,384 bytes after result
+drop. Those amounts match the lazy line-index capacities owned by the retained
+model's parsed source, outside the result. A separately labelled control that
+preconstructs binding facts before evaluation removes this difference: its
+evaluation-retained/drop-freed amounts are exactly 2,056 / 8,456 / 32,456 bytes.
+The probe's top-level live-byte field also includes accumulated telemetry and
+must not be read as result storage.
+
+### Host selection cost and refusals
+
+The wide query's initial `declarations | filter(name(...))` selections each
+convert every item to declarations. The existing host conversion scans the
+retained declaration table for each syntax-node subject, before the loop starts.
+That node-by-declaration cost remains in the reported timings. Binding-fact
+construction alone is 0.132 / 0.518 / 2.025 ms in a five-process-per-size
+attribution control, so it does not explain the extra largest-size cost.
+
+A second bounded control uses the same frozen candidate binary, graph, limits
+and output, moving only each initial name filter before `declarations`. Five
+samples per size give 2.440 / 11.444 / 44.700 ms evaluation medians, compared
+with 2.516 / 12.525 / 67.021 ms above. This isolates the broad initial selection
+cost. The implementation preserves existing selection semantics. These graphs
+use proven value references; they do not measure overload-heavy callable
+resolution. The raw attribution records are
+`/private/tmp/zirql046-attribution.json` and
+`/private/tmp/zirql046-selection-attribution.json`.
+
+Default allowances are measured separately at N=2000. Wide reachability refuses
+with `query work limit exceeded`; the set-alias computation refuses with
+`result limit exceeded`. Queue alias and scan complete under defaults and keep
+their separately labelled successful rows. Direct nested computational rendering
+refuses at the responsible query range. Every refusal has ten measured samples
+plus its first-use observation and is excluded from successful throughput
+statistics. The existing broad initial declaration conversion remains a named
+host scaling concern; the worklist runtime and defaults are unchanged.

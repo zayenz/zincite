@@ -1,0 +1,23 @@
+fn reaches((start, target): tuple<Declaration, Declaration>) -> bool {
+    loop (pending = queue([start]), seen = identity_set<Declaration>()) {
+        match (pop_front(pending)) {
+            present((current, remaining)) => {
+                if current in seen {
+                    continue (remaining, seen);
+                } else if same_declaration(current, target) {
+                    break true;
+                } else {
+                    let {targets, ..} = reference_info(current);
+                    continue (push_back_all(remaining, targets), insert(seen, current));
+                }
+            },
+            _ => break false
+        }
+    }
+}
+let starts = declarations | filter(name("A"));
+let targets = declarations | filter(name("D"));
+let others = declarations | filter(name("E"));
+(zero_edges: one([reaches((start, start)) | start in starts]),
+ reachable: one([reaches((start, target)) | start in starts, target in targets]),
+ disconnected: one([reaches((start, disconnected)) | start in starts, disconnected in others]));

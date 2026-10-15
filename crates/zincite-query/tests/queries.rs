@@ -2881,6 +2881,7 @@ fn data_programs_double_entities_and_validate_final_scalar_axes() {
                 .is_err()
         );
     }
+    drop(result);
     let computed = Input::parse(
         include_str!("fixtures/doubled.dzn")
             .replace("entity_count = 2", "entity_count = 1+1")
@@ -4701,18 +4702,6 @@ fn patterns_and_control_values_agree_with_owned_typed_programs() {
         ReportValue::Constructed(V::Integer(9))
     ));
     assert_eq!(actual.render().unwrap(), written.render().unwrap());
-    let rejected = Program::from_values(
-        vec![],
-        vec![],
-        e(K::Loop {
-            states: vec![],
-            body: Box::new(int(0)),
-        }),
-        limits,
-    )
-    .unwrap_err();
-    assert_eq!(rejected.range, 10..20);
-    assert!(rejected.message.contains("unavailable"));
     let mut deep = int(0);
     for _ in 0..2000 {
         deep = e(K::Tuple(vec![deep]));
@@ -4741,8 +4730,6 @@ fn patterns_and_control_values_preflight_scope_shapes_purity_and_tail_calls() {
         "report match(1){ present(value)=>1 div 0,_=>0 };",
         "let (a,b)=(1,2); create value=1; emit;",
         "let a=if false { loop(n=0){break n} } else {0}; create value=1; emit;",
-        "fn unused(x:queue<Node>)->int{0} report 1;",
-        "fn unused()->int{loop(n=0){break n}} report 1;",
     ] {
         let result =
             Program::parse(source, limits).and_then(|program| program.evaluate(&input, limits));
@@ -4871,4 +4858,437 @@ fn owned_typed_admission_bounds_literals_and_metadata_before_use() {
         )
         .is_err()
     );
+}
+
+mod worklists {
+    use super::*;
+    use zincite_query::{Program, ProgramFunction, ProgramLimits, ProgramValue, ReportValue};
+    use zirql::{
+        ConstructedValue as V, Located as L, PatternKind as P, SignatureType as S,
+        ValueExpressionKind as K,
+    };
+    type Q = zirql::Expression<Query, (), ()>;
+    fn l<T>(value: T) -> L<T> {
+        L::new(value, 10..20)
+    }
+    fn e(value: K<Q>) -> ProgramValue {
+        l(value)
+    }
+    fn name(value: &str) -> ProgramValue {
+        e(K::Name(value.into()))
+    }
+    fn pattern(value: &str) -> zirql::Pattern {
+        l(P::Name(l(value.into())))
+    }
+    fn call(value: &str, arguments: Vec<ProgramValue>) -> ProgramValue {
+        e(K::Call {
+            function: l(value.into()),
+            arguments,
+        })
+    }
+    fn boolean(value: bool) -> ProgramValue {
+        e(K::Literal(V::Boolean(value)))
+    }
+    fn native(query: &str) -> ProgramValue {
+        e(K::NativeValue(Box::new(l(
+            zirql::ExpressionKind::Sequence {
+                input: Box::new(l(zirql::ExpressionKind::Input)),
+                steps: vec![l(zirql::ExpressionStep::Stage(
+                    Query::parse(query, Limits::default()).unwrap(),
+                ))],
+            },
+        ))))
+    }
+    fn value<'v, 'a>(mut value: &'v ReportValue<'a>) -> &'v ReportValue<'a> {
+        loop {
+            match value {
+                ReportValue::Retained(v) => value = v,
+                ReportValue::Item(v) | ReportValue::EntitySequence { value: v, .. } => value = v,
+                _ => return value,
+            }
+        }
+    }
+    fn transfer(pending: ProgramValue, seen: ProgramValue) -> ProgramValue {
+        e(K::Continue(vec![pending, seen]))
+    }
+    fn reaches() -> ProgramFunction {
+        let advance = e(K::Block {
+            bindings: vec![(
+                l(P::Record {
+                    fields: vec![(l("targets".into()), pattern("targets"))],
+                    ignore_rest: true,
+                }),
+                call("reference_info", vec![name("current")]),
+            )],
+            value: Box::new(transfer(
+                e(K::PushBackAll {
+                    queue: Box::new(name("remaining")),
+                    items: Box::new(name("targets")),
+                }),
+                e(K::Insert {
+                    set: Box::new(name("seen")),
+                    item: Box::new(name("current")),
+                }),
+            )),
+        });
+        let body = e(K::ValueMatch {
+            subject: Box::new(e(K::PopFront(Box::new(name("pending"))))),
+            arms: vec![
+                zirql::ValueMatchArm {
+                    pattern: l(P::Present(Box::new(l(P::Tuple(vec![
+                        pattern("current"),
+                        pattern("remaining"),
+                    ]))))),
+                    guard: None,
+                    value: e(K::Conditional {
+                        branches: vec![
+                            (
+                                e(K::Binary {
+                                    operator: zirql::ValueBinaryOperator::In,
+                                    left: Box::new(name("current")),
+                                    right: Box::new(name("seen")),
+                                }),
+                                transfer(name("remaining"), name("seen")),
+                            ),
+                            (
+                                call("same_declaration", vec![name("current"), name("target")]),
+                                e(K::Break(Box::new(boolean(true)))),
+                            ),
+                        ],
+                        otherwise: Box::new(advance),
+                    }),
+                },
+                zirql::ValueMatchArm {
+                    pattern: l(P::Wildcard),
+                    guard: None,
+                    value: e(K::Break(Box::new(boolean(false)))),
+                },
+            ],
+        });
+        ProgramFunction {
+            name: l("reaches".into()),
+            parameters: vec![l(zirql::UnresolvedPatternFunctionParameter {
+                pattern: l(P::Tuple(vec![pattern("start"), pattern("target")])),
+                declaration: l(S::Tuple(vec![
+                    l(S::Named(l("Declaration".into()))),
+                    l(S::Named(l("Declaration".into()))),
+                ])),
+            })],
+            result: l(S::Boolean),
+            value: e(K::Loop {
+                states: vec![
+                    (
+                        l("pending".into()),
+                        e(K::Queue {
+                            items: Box::new(e(K::Array(vec![name("start")]))),
+                            element: None,
+                        }),
+                    ),
+                    (
+                        l("seen".into()),
+                        e(K::IdentitySet {
+                            element: l(S::Named(l("Declaration".into()))),
+                        }),
+                    ),
+                ],
+                body: Box::new(body),
+            }),
+        }
+    }
+    fn reach_report(target: &str) -> ProgramValue {
+        let clause = |name: &str, source| {
+            l(zirql::ValueGenerator::In {
+                binders: vec![l(Some(name.into()))],
+                source,
+                filter: None,
+            })
+        };
+        e(K::One(Box::new(e(K::Comprehension {
+            constructor: zirql::ValueConstructor::Array,
+            clauses: vec![
+                clause("start", name("starts")),
+                clause("target", name(target)),
+            ],
+            head: Box::new(call(
+                "reaches",
+                vec![e(K::Tuple(vec![name("start"), name("target")]))],
+            )),
+        }))))
+    }
+    #[test]
+    fn declaration_graph_text_and_owned_trees_agree_before_rendering() {
+        let source = include_bytes!("fixtures/worklist-reachability.mzn");
+        let model = semantic_model("worklist-graph", source, b"", "");
+        let input = Input::parse(source.to_vec(), FileMode::Model).unwrap();
+        let limits = ProgramLimits::default();
+        let mut written = Program::parse(include_str!("fixtures/worklist-reachability.zq"), limits)
+            .unwrap()
+            .evaluate_with_model(&input, Some(&model), limits)
+            .unwrap();
+        let typed = Program::from_values(
+            vec![reaches()],
+            vec![
+                (
+                    pattern("starts"),
+                    native("declarations | filter(name(\"A\"))"),
+                ),
+                (pattern("A"), name("starts")),
+                (pattern("D"), native("declarations | filter(name(\"D\"))")),
+                (pattern("E"), native("declarations | filter(name(\"E\"))")),
+            ],
+            e(K::Record(vec![
+                (l("zero_edges".into()), reach_report("A")),
+                (l("reachable".into()), reach_report("D")),
+                (l("disconnected".into()), reach_report("E")),
+            ])),
+            limits,
+        )
+        .unwrap();
+        let mut typed = typed
+            .evaluate_with_model(&input, Some(&model), limits)
+            .unwrap();
+        let ReportValue::Constructed(V::Record(fields)) = value(typed.emissions()[0].value())
+        else {
+            panic!("native Boolean report")
+        };
+        assert_eq!(
+            fields.iter().map(|(_, v)| v.data()).collect::<Vec<_>>(),
+            [&V::Boolean(true), &V::Boolean(true), &V::Boolean(false)]
+        );
+        assert_eq!(typed.render().unwrap(), written.render().unwrap());
+        let inspected = "let ds=declarations | filter(name(\"A\")); let present((d,_))=pop_front(queue<Declaration>(ds)); reference_info(d)";
+        let info = Program::parse(inspected, limits)
+            .unwrap()
+            .evaluate_with_model(&input, Some(&model), limits)
+            .unwrap();
+        let targets = info.emissions()[0].value().fields().unwrap()[0]
+            .1
+            .stream()
+            .unwrap();
+        let zincite_query::SemanticStream::Entities(targets) = targets else {
+            panic!("native targets")
+        };
+        let facts = info.model_facts().unwrap();
+        let names = targets
+            .iter()
+            .map(|entity| match entity {
+                zincite_query::SemanticEntity::Declaration(id) => {
+                    facts.bindings().declarations[id.0].name.as_str()
+                }
+                _ => panic!(),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["B", "C"]);
+        let identity = "let ds=declarations | filter(name(\"A\")); let present((a,_))=pop_front(queue<Declaration>(ds)); let other_ds=declarations | filter(name(\"D\")); let present((b,_))=pop_front(queue<Declaration>(other_ds)); (same:same_declaration(a,a),different:same_declaration(a,b),member:a in insert(identity_set<Declaration>(),a),other:b in insert(identity_set<Declaration>(),a))";
+        let result = Program::parse(identity, limits)
+            .unwrap()
+            .evaluate_with_model(&input, Some(&model), limits)
+            .unwrap();
+        let ReportValue::Constructed(V::Record(fields)) = value(result.emissions()[0].value())
+        else {
+            panic!()
+        };
+        assert_eq!(
+            fields.iter().map(|(_, v)| v.data()).collect::<Vec<_>>(),
+            [
+                &V::Boolean(true),
+                &V::Boolean(false),
+                &V::Boolean(true),
+                &V::Boolean(false)
+            ]
+        );
+    }
+    #[test]
+    fn reducers_keep_destructured_state_and_native_snapshots() {
+        let input =
+            Input::parse(b"int: a=1; int: b=2; int: c=3;".to_vec(), FileMode::Model).unwrap();
+        let limits = ProgramLimits::default();
+        let mut result = Program::parse(include_str!("fixtures/fold-scan.zq"), limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .unwrap();
+        let integer = |v| e(K::Literal(V::Integer(v)));
+        let tuple = |a, b| e(K::Tuple(vec![integer(a), integer(b)]));
+        let add = |a, b| {
+            e(K::Binary {
+                operator: zirql::ValueBinaryOperator::Add,
+                left: Box::new(a),
+                right: Box::new(b),
+            })
+        };
+        let step = ProgramFunction {
+            name: l("step".into()),
+            parameters: vec![
+                l(zirql::UnresolvedPatternFunctionParameter {
+                    pattern: l(P::Tuple(vec![pattern("count"), pattern("total")])),
+                    declaration: l(S::Tuple(vec![l(S::Integer), l(S::Integer)])),
+                }),
+                l(zirql::UnresolvedPatternFunctionParameter {
+                    pattern: pattern("item"),
+                    declaration: l(S::Integer),
+                }),
+            ],
+            result: l(S::Tuple(vec![l(S::Integer), l(S::Integer)])),
+            value: e(K::Tuple(vec![
+                add(name("count"), integer(1)),
+                add(name("total"), name("item")),
+            ])),
+        };
+        let reduce = |scan, empty| {
+            let items = Box::new(e(K::Array(if empty {
+                vec![]
+            } else {
+                vec![integer(2), integer(3), integer(5)]
+            })));
+            let initial = Box::new(tuple(0, 0));
+            let step = l("step".into());
+            e(if scan {
+                K::Scan {
+                    items,
+                    initial,
+                    step,
+                }
+            } else {
+                K::Fold {
+                    items,
+                    initial,
+                    step,
+                }
+            })
+        };
+        let typed = Program::from_values(
+            vec![step],
+            vec![],
+            e(K::Record(vec![
+                (l("folded".into()), reduce(false, false)),
+                (l("scanned".into()), reduce(true, false)),
+                (l("empty_fold".into()), reduce(false, true)),
+                (l("empty_scan".into()), reduce(true, true)),
+            ])),
+            limits,
+        )
+        .unwrap();
+        let mut typed = typed.evaluate(&input, limits).unwrap();
+        let rendered = result.render().unwrap();
+        assert_eq!(typed.render().unwrap(), rendered);
+        let json: serde_json::Value = serde_json::from_slice(&rendered).unwrap();
+        assert_eq!(json["result"]["fields"][0]["value"]["kind"], "tuple");
+        assert_eq!(
+            json["result"]["fields"][0]["value"]["elements"][1]["value"],
+            10
+        );
+        let source = "fn append(q:queue<Node>,item:Node)->queue<Node>{push_back_all(q,[item])} let nodes=items; let original=queue<Node>(nodes); let present((first,rest))=pop_front(original); report (original:original, rest:rest, snapshots:scan(nodes,queue<Node>([]),append));";
+        let mut result = Program::parse(source, limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .unwrap();
+        let fields = result.emissions()[0].value().fields().unwrap();
+        let ReportValue::Computational(original) = value(&fields[0].1) else {
+            panic!("queue alias")
+        };
+        let ReportValue::Computational(rest) = value(&fields[1].1) else {
+            panic!("queue tail")
+        };
+        assert_eq!((original.len(), rest.len()), (3, 2));
+        let ReportValue::Sequence(states) = value(&fields[2].1) else {
+            panic!("native scan states")
+        };
+        assert_eq!(
+            states
+                .values()
+                .iter()
+                .map(|state| match value(state) {
+                    ReportValue::Computational(q) => q.len(),
+                    _ => panic!(),
+                })
+                .collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
+        let error = result.render().unwrap_err();
+        assert!(error.message.contains("cannot be rendered"));
+        assert!(source[error.range].contains("queue"));
+    }
+    #[test]
+    fn uncertain_adjacency_is_a_located_error_even_after_legacy_lookup() {
+        let limits = ProgramLimits::default();
+        let source = b"\xef\xbb\xbfint: A=missing; int: E=+1; solve satisfy;";
+        let model = semantic_model("worklist-unknown", source, b"", "");
+        let input = Input::parse(source.to_vec(), FileMode::Model).unwrap();
+        let query = "fn info(d:Declaration)->record{targets:sequence<Declaration>}{reference_info(d)} let ds=declarations | filter(name(\"A\")); let old=ds | referenced_declarations; [info(d) | d in ds]";
+        let error = Program::parse(query, limits)
+            .unwrap()
+            .evaluate_with_model(&input, Some(&model), limits)
+            .unwrap_err();
+        assert!(error.message.contains("complete adjacency"), "{error:?}");
+        assert_eq!(&source[error.range.clone()], b"missing");
+        assert!(matches!(
+            error.location,
+            zincite_query::ErrorLocation::Model(_)
+        ));
+        let known = "let ds=declarations | filter(name(\"E\")); let present((d,_))=pop_front(queue<Declaration>(ds)); reference_info(d)";
+        let mut result = Program::parse(known, limits)
+            .unwrap()
+            .evaluate_with_model(&input, Some(&model), limits)
+            .unwrap();
+        assert!(result.is_complete());
+        assert!(!result.render().unwrap().is_empty());
+    }
+    #[test]
+    fn transfers_and_new_children_keep_purity_and_runtime_limits() {
+        let limits = ProgramLimits::default();
+        let input = Input::parse(b"int: value=1;".to_vec(), FileMode::Model).unwrap();
+        for source in [
+            "break 1",
+            "continue(1)",
+            "loop(n=0){n}",
+            "loop(n=0){continue()}",
+            "loop(n=0){continue(\"wrong\")}",
+            "fn bad(a:int)->int{a} fold([],0,bad)",
+            "fn bad(a:int,b:int)->int{emit()} scan([],0,bad)",
+            "let unused=queue<int>([]); create value=1; emit;",
+            "replace value=if true then 1 else fold([],0,missing) endif; emit;",
+            "let bad=if false { loop(n=0){break n} } else {0}; create value=1; emit;",
+            "queue<int>([\"wrong\"])",
+        ] {
+            assert!(
+                Program::parse(source, limits)
+                    .and_then(|p| p.evaluate(&input, limits))
+                    .is_err(),
+                "accepted {source}"
+            );
+        }
+        let source = "loop(a=1,b=2,n=0){if n=1{break (a,b)}else{continue(b,a,n+1)}}";
+        let mut result = Program::parse(source, limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .unwrap();
+        let ReportValue::Constructed(tuple) = value(result.emissions()[0].value()) else {
+            panic!("simultaneous state")
+        };
+        let V::Tuple(values) = tuple.data() else {
+            panic!("tuple state")
+        };
+        assert_eq!(
+            values.iter().map(V::data).collect::<Vec<_>>(),
+            [&V::Integer(2), &V::Integer(1)]
+        );
+        assert!(!result.render().unwrap().is_empty());
+        let nested = "(values:[loop(n=i){if n>0{break n}else{continue(n+1)}} | i in [0,1]], count:length(scan([],0,step)))";
+        let source = format!("fn step(a:int,b:int)->int{{a+b}} {nested}");
+        Program::parse(&source, limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .unwrap();
+        let looping = Program::parse("loop(n=0){continue(n+1)}", limits).unwrap();
+        let error = looping
+            .evaluate(
+                &input,
+                ProgramLimits {
+                    work: 2000,
+                    ..limits
+                },
+            )
+            .unwrap_err();
+        assert!(error.message.contains("work"), "{error:?}");
+    }
 }

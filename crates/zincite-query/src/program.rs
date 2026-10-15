@@ -15,6 +15,8 @@ mod builder;
 pub use builder::{ProgramFunction, ProgramValue};
 mod composition;
 mod functions;
+mod worklists;
+pub use worklists::{Computational, NativeSequence, NativeTuple};
 
 type Expression = zirql::Expression<Stage, (), Emitter>;
 
@@ -129,6 +131,9 @@ enum Emitter {
 enum Kind {
     Nodes,
     Node,
+    Computational(Rc<zirql::DeclaredType<Kind>>),
+    Tuple(Rc<Vec<Kind>>),
+    Sequence(Rc<zirql::DeclaredType<Kind>>),
     Declaration,
     Strings,
     Literals,
@@ -151,10 +156,14 @@ enum Kind {
 #[derive(Debug)]
 pub enum ReportValue<'a> {
     Retained(Arc<Self>),
+    Computational(Computational<'a>),
+    Tuple(NativeTuple<'a>),
+    Sequence(NativeSequence<'a>),
     Item(Box<Self>),
     /// Retain the native entity element contract even for an empty stream.
     EntitySequence {
         declarations: bool,
+        owner: Option<Rc<ModelFacts<'a>>>,
         value: Box<Self>,
     },
     Query(SemanticStream<'a>),
@@ -171,7 +180,10 @@ impl<'a> ReportValue<'a> {
             Self::Item(value) | Self::EntitySequence { value, .. } => value.fields(),
             Self::Record(fields) => Some(fields),
             Self::Capture(capture) => Some(&capture.fields),
-            Self::Query(_)
+            Self::Computational(_)
+            | Self::Tuple(_)
+            | Self::Sequence(_)
+            | Self::Query(_)
             | Self::Constructed(_)
             | Self::SharedConstructed(_)
             | Self::Captures(_) => None,
@@ -182,7 +194,10 @@ impl<'a> ReportValue<'a> {
             Self::Retained(value) => value.stream(),
             Self::Item(value) | Self::EntitySequence { value, .. } => value.stream(),
             Self::Query(stream) => Some(stream),
-            Self::Record(_)
+            Self::Computational(_)
+            | Self::Tuple(_)
+            | Self::Sequence(_)
+            | Self::Record(_)
             | Self::Constructed(_)
             | Self::SharedConstructed(_)
             | Self::Capture(_)
@@ -1418,7 +1433,13 @@ impl<'a> Parser<'a> {
         ))
     }
     fn admit_cst(&mut self, range: &Range<usize>) -> Result<(), QueryError> {
-        admit_cst(&self.lexed, range, &mut self.preflight, self.limits.nesting)
+        admit_cst(
+            &self.lexed,
+            range,
+            &mut self.preflight,
+            self.limits.nesting,
+            &[],
+        )
     }
     fn native_syntax(&self, range: Range<usize>, require_query: bool) -> bool {
         let tokens = self.lexed.tokens();
@@ -1637,6 +1658,7 @@ impl<'a> Parser<'a> {
                         &range,
                         &mut self.preflight,
                         self.limits.nesting,
+                        &[],
                     )
                     .map_err(|mut error| {
                         error.range = map(error.range);
@@ -1901,6 +1923,7 @@ fn admit_cst(
     range: &Range<usize>,
     budget: &mut Budget,
     nesting: usize,
+    shared: &[zirql::ValueExpression<Expression>],
 ) -> Result<(), QueryError> {
     use zincite_syntax::TokenKind as T;
     let tokens = lexed.tokens();
@@ -1916,7 +1939,19 @@ fn admit_cst(
     let mut depth = 0usize;
     let mut path = 1usize;
     let limit = nesting.min(64);
+    let mut shared_index = 0;
     for token in &tokens[first..last] {
+        while shared
+            .get(shared_index)
+            .is_some_and(|value| value.range.end <= token.range.start)
+        {
+            shared_index += 1;
+        }
+        if shared.get(shared_index).is_some_and(|value| {
+            value.range.start <= token.range.start && token.range.end <= value.range.end
+        }) {
+            continue;
+        }
         match token.kind {
             T::Whitespace | T::LineComment | T::BlockComment => continue,
             T::Let | T::StringHead | T::StringMiddle | T::StringTail => {
@@ -2046,16 +2081,52 @@ fn map_value(
                 map_value(&mut arm.value, map, members);
             }
         }
-        K::Queue { .. }
-        | K::PopFront(_)
-        | K::PushBackAll { .. }
-        | K::IdentitySet { .. }
-        | K::Insert { .. }
-        | K::Fold { .. }
-        | K::Scan { .. }
-        | K::Loop { .. }
-        | K::Break(_)
-        | K::Continue(_) => {}
+        K::Queue { items, element } => {
+            if let Some(element) = element {
+                worklists::map_signature(element, map);
+            }
+            map_value(items, map, members);
+        }
+        K::PopFront(items) | K::Break(items) => map_value(items, map, members),
+        K::PushBackAll {
+            queue: left,
+            items: right,
+        }
+        | K::Insert {
+            set: left,
+            item: right,
+        } => {
+            map_value(left, map, members);
+            map_value(right, map, members);
+        }
+        K::Loop { states, body } => {
+            for (name, value) in states {
+                name.range = map(name.range.clone());
+                map_value(value, map, members);
+            }
+            map_value(body, map, members);
+        }
+        K::Continue(values) => {
+            for value in values {
+                map_value(value, map, members);
+            }
+        }
+        K::IdentitySet { element } => worklists::map_signature(element, map),
+        K::Fold {
+            items,
+            initial,
+            step,
+        }
+        | K::Scan {
+            items,
+            initial,
+            step,
+        } => {
+            step.range = map(step.range.clone());
+            map_value(items, map, members);
+            map_value(initial, map, members);
+        }
+
         K::Literal(_) | K::NativeQuery(_) | K::NativeValue(_) => {}
         K::Call {
             function,
@@ -2796,12 +2867,13 @@ impl<'a> NativeHost<'_> {
             &lowered
         };
         let result = self.execute_pipeline(pipeline, value, context, budget, range)?;
-        self.retain_entity_contract(result, declarations, budget, range)
+        self.retain_entity_contract(result, declarations, context, budget, range)
     }
     fn retain_entity_contract(
         &self,
         value: ReportValue<'a>,
         declarations: bool,
+        context: &mut Context<'_, 'a>,
         budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
@@ -2814,6 +2886,7 @@ impl<'a> NativeHost<'_> {
             budget.charge_results(1, zirql::Location::Query(range.clone()))?;
             Ok(ReportValue::EntitySequence {
                 declarations,
+                owner: context.facts.clone(),
                 value: Box::new(value),
             })
         } else {
@@ -3119,7 +3192,12 @@ impl<'a> NativeHost<'_> {
                     self.nesting,
                 )
                 .map_err(zirql::EvaluationError::Host)?,
-                ReportValue::Record(_) | ReportValue::Capture(_) | ReportValue::Captures(_) => {
+                ReportValue::Computational(_)
+                | ReportValue::Tuple(_)
+                | ReportValue::Sequence(_)
+                | ReportValue::Record(_)
+                | ReportValue::Capture(_)
+                | ReportValue::Captures(_) => {
                     return Err(zirql::EvaluationError::Host(QueryError::query(
                         name.range.clone(),
                         "native records require explicit scalar projections",
@@ -3195,14 +3273,25 @@ fn copy_value<'a>(
     budget: &mut Budget,
     range: &Range<usize>,
 ) -> Result<ReportValue<'a>, QueryError> {
+    if let Some(value) = worklists::copy(value) {
+        budget
+            .charge(1, zirql::Location::Query(range.clone()))
+            .map_err(pipeline::core_error)?;
+        budget
+            .charge_results(1, zirql::Location::Query(range.clone()))
+            .map_err(pipeline::core_error)?;
+        return Ok(value);
+    }
     match value {
         ReportValue::Retained(value) => return copy_value(value, budget, range),
         ReportValue::EntitySequence {
             declarations,
+            owner,
             value,
         } => {
             return Ok(ReportValue::EntitySequence {
                 declarations: *declarations,
+                owner: owner.clone(),
                 value: Box::new(copy_value(value, budget, range)?),
             });
         }
@@ -3294,19 +3383,27 @@ fn copy_capture<'a>(
 }
 
 fn copy_admitted<'a>(value: &ReportValue<'a>) -> ReportValue<'a> {
+    if let Some(value) = worklists::copy(value) {
+        return value;
+    }
     ReportValue::Query(match value {
         ReportValue::Retained(value) => return ReportValue::Retained(Arc::clone(value)),
         ReportValue::Item(value) => return ReportValue::Item(Box::new(copy_admitted(value))),
         ReportValue::EntitySequence {
             declarations,
+            owner,
             value,
         } => {
             return ReportValue::EntitySequence {
                 declarations: *declarations,
+                owner: owner.clone(),
                 value: Box::new(copy_admitted(value)),
             };
         }
-        ReportValue::Constructed(_)
+        ReportValue::Computational(_)
+        | ReportValue::Tuple(_)
+        | ReportValue::Sequence(_)
+        | ReportValue::Constructed(_)
         | ReportValue::SharedConstructed(_)
         | ReportValue::Capture(_)
         | ReportValue::Captures(_) => {
@@ -3352,6 +3449,7 @@ fn copy_admitted<'a>(value: &ReportValue<'a>) -> ReportValue<'a> {
 }
 fn value_units(value: &ReportValue<'_>) -> usize {
     match value {
+        ReportValue::Computational(_) | ReportValue::Tuple(_) | ReportValue::Sequence(_) => 1,
         ReportValue::Retained(value) => value_units(value),
         ReportValue::Item(value) | ReportValue::EntitySequence { value, .. } => value_units(value),
         ReportValue::Constructed(_) | ReportValue::SharedConstructed(_) => {
@@ -3492,6 +3590,24 @@ fn admit_json<'a>(
     range: &Range<usize>,
 ) -> Result<(), QueryError> {
     match value {
+        ReportValue::Computational(value) => {
+            return Err(QueryError::query(
+                value.range(),
+                "queue and identity_set values cannot be rendered",
+            ));
+        }
+        ReportValue::Tuple(value) => {
+            work.produce(value.values().len() + 1, range)?;
+            for value in value.values() {
+                admit_json(value, semantic, work, range)?;
+            }
+        }
+        ReportValue::Sequence(value) => {
+            work.produce(value.values().len() + 1, range)?;
+            for value in value.values() {
+                admit_json(value, semantic, work, range)?;
+            }
+        }
         ReportValue::Retained(value) => return admit_json(value, semantic, work, range),
         ReportValue::Item(value) | ReportValue::EntitySequence { value, .. } => {
             return admit_json(value, semantic, work, range);
@@ -3535,6 +3651,18 @@ fn validate_value(
     range: &Range<usize>,
 ) -> Result<(), QueryError> {
     match value {
+        // Computational values are valid retained library results. Rendering
+        // rejects them recursively in admit_json, before any bytes escape.
+        ReportValue::Tuple(value) => {
+            for value in value.values() {
+                validate_value(value, true, budget, range)?;
+            }
+        }
+        ReportValue::Sequence(value) => {
+            for value in value.values() {
+                validate_value(value, true, budget, range)?;
+            }
+        }
         ReportValue::Retained(value) => return validate_value(value, json, budget, range),
         ReportValue::Item(value) | ReportValue::EntitySequence { value, .. } => {
             return validate_value(value, json, budget, range);
@@ -3583,6 +3711,22 @@ fn report_json<'a>(
     range: &Range<usize>,
 ) -> Result<Value, QueryError> {
     match value {
+        ReportValue::Computational(value) => Err(QueryError::query(
+            value.range(),
+            "queue and identity_set values cannot be rendered",
+        )),
+        ReportValue::Tuple(value) => value
+            .values()
+            .iter()
+            .map(|v| report_json(v, semantic, budget, range))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Array),
+        ReportValue::Sequence(value) => value
+            .values()
+            .iter()
+            .map(|v| report_json(v, semantic, budget, range))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Array),
         ReportValue::Retained(value) => report_json(value, semantic, budget, range),
         ReportValue::Item(value) | ReportValue::EntitySequence { value, .. } => {
             report_json(value, semantic, budget, range)
@@ -3644,6 +3788,9 @@ fn charge_render<'a>(
 
 fn render_bytes<'a>(value: &ReportValue<'a>, semantic: Option<&SemanticResult<'a>>) -> usize {
     match value {
+        ReportValue::Computational(_) | ReportValue::Tuple(_) | ReportValue::Sequence(_) => {
+            unreachable!("native containers use JSON")
+        }
         ReportValue::Retained(value) => render_bytes(value, semantic),
         ReportValue::Item(value) | ReportValue::EntitySequence { value, .. } => {
             render_bytes(value, semantic)

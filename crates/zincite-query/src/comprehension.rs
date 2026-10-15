@@ -413,11 +413,28 @@ impl<Q> Lower<'_, '_, Q> {
             return Err(QueryError::query(range, "value nesting limit exceeded"));
         }
         charge(self.budget, 1 + node.children().len(), &range)?;
-        if node.kind() == N::Expression
-            && let Some(value) = self.shared.remove(&range.start)
-        {
-            self.report_only(&value.range)?;
-            return Ok(value);
+        if !self.shared.is_empty() {
+            let shared_start = self
+                .tokens(node)
+                .next()
+                .map(|index| {
+                    map_range(
+                        self.parsed.tokens()[index].range.clone(),
+                        self.offset,
+                        self.prefix,
+                    )
+                    .start
+                })
+                .unwrap_or(range.start);
+            if self
+                .shared
+                .get(&shared_start)
+                .is_some_and(|value| range.end <= value.range.end)
+                && let Some(value) = self.shared.remove(&shared_start)
+            {
+                self.report_only(&value.range)?;
+                return Ok(value);
+            }
         }
         let child = || {
             node.child_nodes()
@@ -3013,7 +3030,7 @@ fn tagged(value: &V, budget: &mut Budget, range: &Range<usize>) -> Result<Value,
                 (
                     "kind",
                     Value::String(
-                        if matches!(value, V::Tuple(_)) {
+                        if matches!(value.data(), V::Tuple(_)) {
                             "tuple"
                         } else {
                             "set"

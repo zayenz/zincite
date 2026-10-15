@@ -277,8 +277,13 @@ Function parameters and immutable bindings can destructure tuples and records.
 Guarded `match(subject)` expressions and `if ... { ... } else { ... }` blocks
 choose which value to calculate. Only the chosen body runs, although every body
 is checked for valid names, types and allowed operations. Native fields keep
-their declaration identity and source coordinates. These forms are report-only,
-including in unused bindings and skipped branches. See the
+their declaration identity and source coordinates.
+
+Reports also support explicit-state `loop`, `break` and `continue`, named
+`fold`/`scan` steps, typed queues and native identity sets. These calls compose
+inside MiniZinc records, calls and comprehensions. The same scope and type checks
+apply to nested inputs, and native values keep their owners and source locations.
+These forms are report-only, including in unused bindings and skipped branches. See the
 [patterns reference](reference.md#patterns-and-pure-control-values) and
 [complete examples](queries.md#destructure-a-report).
 

@@ -1012,6 +1012,13 @@ impl<'a> ProgramHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
             Ok(ReportValue::Capture(zirql::NativeCapture { fields }))
         }
     }
+    fn tuple_view<'v>(&self, value: &'v Self::Value) -> Option<&'v [Self::Value]> {
+        if let ReportValue::Tuple(value) = functions::unretained(value) {
+            Some(value.values())
+        } else {
+            None
+        }
+    }
     fn capture_record<'v>(
         &self,
         value: &'v Self::Value,
@@ -1231,11 +1238,24 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
                 return Ok(ReportValue::Retained(selected.into_shared()));
             }
             Stage::Primitive(primitive, values) => {
-                let selected =
-                    arguments.evaluate_native(&values[0], value_placeholder(), budget)?;
+                budget.charge_results(
+                    values.len().saturating_mul(2),
+                    zirql::Location::Query(range.clone()),
+                )?;
+                let mut selected = Vec::with_capacity(values.len());
+                for expression in values {
+                    selected.push(arguments.evaluate_native(
+                        expression,
+                        value_placeholder(),
+                        budget,
+                    )?);
+                }
                 return functions::primitive(
                     *primitive,
-                    selected.value(),
+                    &selected
+                        .iter()
+                        .map(|value| value.value())
+                        .collect::<Vec<_>>(),
                     arguments.parts().0,
                     budget,
                     range,
@@ -1272,7 +1292,7 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
                 .execute_pipeline(&pipeline, value, context, budget, range)?;
             return self
                 .0
-                .retain_entity_contract(result, declarations, budget, range);
+                .retain_entity_contract(result, declarations, context, budget, range);
         }
         let (context, bindings) = arguments.parts();
         self.evaluate_stage(stage, value, context, bindings, budget, range)
@@ -1284,6 +1304,19 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         range: &Range<usize>,
     ) -> Result<Kind, zirql::QueryError> {
         Ok(match value {
+            ReportValue::Computational(value) => Kind::Computational(Rc::new(
+                value
+                    .value
+                    .declaration(budget, &zirql::Location::Query(range.clone()))?,
+            )),
+            ReportValue::Tuple(value) => Kind::Tuple(Rc::new(
+                value
+                    .values()
+                    .iter()
+                    .map(|v| self.kind(v, budget, range))
+                    .collect::<Result<_, _>>()?,
+            )),
+            ReportValue::Sequence(value) => Kind::Sequence(Rc::clone(&value.element)),
             ReportValue::Retained(value) => return self.kind(value, budget, range),
             ReportValue::EntitySequence { declarations, .. } => {
                 if *declarations {
@@ -1400,40 +1433,62 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
                 functions::value_kind(value, self, input, scope, budget)
             }
             Stage::Primitive(primitive, values) => {
-                if values.len() != 1 {
+                let expected = if matches!(
+                    primitive,
+                    functions::Primitive::SameDeclaration | functions::Primitive::ReferenceInfo
+                ) {
+                    Kind::Declaration
+                } else {
+                    Kind::Node
+                };
+                let arity = if matches!(primitive, functions::Primitive::SameDeclaration) {
+                    2
+                } else {
+                    1
+                };
+                if values.len() != arity {
                     return Err(zirql::QueryError::query(
                         range.clone(),
-                        "native node primitive needs one argument",
+                        "native primitive argument count mismatch",
                     ));
                 }
-                let kind = functions::value_kind(&values[0], self, input, scope, budget)?;
-                use zirql::ValueExpressionKind as V;
-                let constructed_syntax = matches!(
-                    values[0].value,
-                    V::Literal(_)
-                        | V::Array(_)
-                        | V::Tuple(_)
-                        | V::Record(_)
-                        | V::Set(_)
-                        | V::Unary { .. }
-                        | V::Binary { .. }
-                        | V::KeyedArray { .. }
-                        | V::KeyedComprehension { .. }
-                        | V::Comprehension { .. }
-                );
-                let unknown = matches!(kind, Kind::Constructed)
-                    || matches!(&kind,Kind::Value(types) if types.iter().all(|ty|matches!(ty,zirql::ValueType::Unestablished)));
-                if kind != Kind::Node && (!unknown || constructed_syntax) {
-                    return Err(zirql::QueryError::query(
-                        values[0].range.clone(),
-                        "native node primitive requires one Node",
-                    ));
+                for value in values {
+                    let kind = functions::value_kind(value, self, input, scope, budget)?;
+                    let unknown = matches!(kind, Kind::Constructed)
+                        || matches!(&kind, Kind::Value(types) if types.iter().all(|ty| matches!(ty, zirql::ValueType::Unestablished)));
+                    let constructed = matches!(
+                        value.value,
+                        zirql::ValueExpressionKind::Literal(_)
+                            | zirql::ValueExpressionKind::Array(_)
+                            | zirql::ValueExpressionKind::Tuple(_)
+                            | zirql::ValueExpressionKind::Record(_)
+                            | zirql::ValueExpressionKind::Set(_)
+                            | zirql::ValueExpressionKind::Unary { .. }
+                            | zirql::ValueExpressionKind::Binary { .. }
+                            | zirql::ValueExpressionKind::KeyedArray { .. }
+                            | zirql::ValueExpressionKind::KeyedComprehension { .. }
+                            | zirql::ValueExpressionKind::Comprehension { .. }
+                    );
+                    if kind != expected && (!unknown || constructed) {
+                        return Err(zirql::QueryError::query(
+                            value.range.clone(),
+                            "native primitive argument type mismatch",
+                        ));
+                    }
                 }
                 Ok(match primitive {
                     functions::Primitive::DirectChildren => Kind::Nodes,
                     functions::Primitive::NodeKind => Kind::Scalar(zirql::ParameterType::String),
                     functions::Primitive::WrittenCallName => {
                         Kind::Value(Rc::new(vec![zirql::ValueType::Unestablished]))
+                    }
+                    functions::Primitive::SameDeclaration => {
+                        Kind::Scalar(zirql::ParameterType::Bool)
+                    }
+                    functions::Primitive::ReferenceInfo => {
+                        Kind::Capture(Rc::new(zirql::NativeCapture {
+                            fields: vec![("targets".to_owned(), Kind::Declarations)],
+                        }))
                     }
                 })
             }
@@ -1531,7 +1586,23 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<Vec<Self::Value>, zirql::EvaluationError<QueryError>> {
+        let owner = worklists::owner(&input).cloned();
         let input = functions::owned(input, budget, range).map_err(zirql::EvaluationError::Host)?;
+        if let ReportValue::Sequence(sequence) = input {
+            budget.check_items(
+                sequence.values().len(),
+                zirql::Location::Query(range.clone()),
+            )?;
+            budget.charge_results(
+                sequence.values().len(),
+                zirql::Location::Query(range.clone()),
+            )?;
+            return sequence
+                .values()
+                .iter()
+                .map(|value| self.copy_value(value, context, budget, range))
+                .collect();
+        }
         if let ReportValue::Captures(captures) = input {
             budget.charge(captures.rows.len(), zirql::Location::Query(range.clone()))?;
             budget.charge_results(captures.rows.len(), zirql::Location::Query(range.clone()))?;
@@ -1566,6 +1637,15 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
             .into_iter()
             .map(|row| {
                 let value = ReportValue::Query(context.query.restore_stream(vec![row]));
+                let value = if let Some(owner) = &owner {
+                    ReportValue::EntitySequence {
+                        declarations: true,
+                        owner: Some(Rc::clone(owner)),
+                        value: Box::new(value),
+                    }
+                } else {
+                    value
+                };
                 if self.0.functions {
                     ReportValue::Item(Box::new(value))
                 } else {
@@ -1584,6 +1664,10 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
             return Ok(input.clone());
         }
         match input {
+            Kind::Sequence(element) => {
+                use zirql::FunctionHost;
+                self.declaration_kind(element, budget, range)
+            }
             Kind::Nodes => Ok(Kind::Node),
             Kind::Declarations => Ok(Kind::Declaration),
             Kind::Node | Kind::Declaration => Ok(input.clone()),
@@ -1598,6 +1682,13 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
                 range.clone(),
                 "native subjects require a selection",
             )),
+        }
+    }
+    fn tuple_view_kind<'k>(&self, kind: &'k Kind) -> Option<&'k [Kind]> {
+        if let Kind::Tuple(values) = kind {
+            Some(values)
+        } else {
+            None
         }
     }
     fn capture_record_kind<'k>(&self, kind: &'k Kind) -> Option<&'k zirql::NativeCapture<Kind>> {

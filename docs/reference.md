@@ -495,10 +495,54 @@ current input and model, with the same checks as a parsed program. Native fields
 preserve their capture views, handles and source coordinates.
 
 These constructs are report-only. Data edits reject them, including in unused
-bindings and skipped branches. Loops, fold/scan and worklist types remain
-unavailable. The [two complete examples](queries.md#destructure-a-report)
+bindings and skipped branches. The [pattern examples](queries.md#destructure-a-report)
 show a destructured native report and an optional guarded match through both
 query commands.
+
+#### Explicit loops and worklists
+
+`loop (name = initial, ...) { body }` binds immutable state. Initializers read
+the outer scope. Every body path ends in `break result` or `continue (next, ...)`;
+all next values read the old state, then replace it together. State contracts
+are established at initialization and checked on every advance. Nested transfers
+target the innermost loop, and transfers cannot cross a function boundary.
+Iterations spend work without adding call depth; nontermination ends with the
+ordinary located work-limit error.
+
+`fold(items, initial, step)` and `scan(items, initial, step)` call a named pure
+function as `step(state, item)` from left to right. Both evaluate items and
+initial once. The step's two parameter declarations, purity and state result
+contract are checked even for empty input. Fold returns initial for empty input;
+scan returns the post-step states, excludes initial and is empty for empty input.
+Native earlier states retain their owners and remain unchanged.
+
+`queue(items)` infers its element contract from admitted nonempty input;
+`queue<T>(items)` supports empty input. `pop_front(q)` is absent when empty or
+present with `(first, remaining)`. `push_back_all(q, items)` appends in source
+order. `identity_set<Declaration>()` and `identity_set<Node>()` create empty
+sets; `item in seen` tests native identity and `insert(seen, item)` is idempotent.
+Queue/set updates preserve retained aliases. Optional-pop decomposition borrows
+tuple fields and shares the remaining queue's roots.
+
+`same_declaration(a, b)` uses the exact retained binding owner and declaration ID,
+matching identity-set membership. `reference_info(d)` returns an explicit native
+record with `targets`. Targets use the established `referenced_declarations`
+meaning: proven targets of references wholly inside the owning CST region,
+ordered by file, source range and reference kind, with first-target deduplication.
+Known intrinsic endpoints have no declaration target. Unresolved, ambiguous or
+unsupported endpoints refuse at their model location, including a repeat lookup
+after an earlier diagnostic. Legacy `referenced_declarations` keeps its partial
+result and limitation behavior. No model function or solver executes.
+
+Queues and identity sets can remain in library results, tuple fields and scan
+states. Their direct or nested rendering fails at the computational expression's
+query range. Inspect native results through `ReportValue::Computational`,
+`ReportValue::Tuple` and `ReportValue::Sequence`; `len()`, `values()` and `range()`
+borrow their retained data. `ReportValue::Retained` transparently retains an
+owner; `fields()` and `stream()` already follow it. Native declarations and
+nodes retain their source coordinates. Metadata, fresh elements, native scans,
+operations and rendering spend the same cumulative request allowance. See the
+[executable graph and reducer examples](queries.md#walk-declaration-references).
 
 #### Typed query functions
 

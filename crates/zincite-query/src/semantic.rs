@@ -68,9 +68,16 @@ pub struct SemanticResult<'a> {
     callables_requested: bool,
     instantiations_requested: bool,
     body_callables: Option<CallableFacts>,
+    reference_order: Option<Vec<usize>>,
     pub(crate) stream: SemanticStream<'a>,
     limitations: Vec<SourceDiagnostic>,
     json: bool,
+}
+
+enum ReferenceEndpoint {
+    Declaration(DeclarationId),
+    Intrinsic,
+    Uncertain(SourceLocation, String),
 }
 
 impl<'a> SemanticResult<'a> {
@@ -528,6 +535,7 @@ pub(crate) fn prepare<'a>(
         callables_requested: false,
         instantiations_requested: false,
         body_callables: None,
+        reference_order: None,
         stream: SemanticStream::Inspection(Box::new(QueryResult::Selection(selection))),
         limitations: Vec::new(),
         json: false,
@@ -994,13 +1002,13 @@ impl SemanticResult<'_> {
         }
         Ok(rows)
     }
-    fn target(
+    fn endpoint(
         &mut self,
         id: usize,
         work: &mut Work,
         stage: &Stage,
-        limits: Limits,
-    ) -> Result<Option<DeclarationId>, QueryError> {
+        _limits: Limits,
+    ) -> Result<ReferenceEndpoint, QueryError> {
         work.visit(&stage.range)?;
         if self.bindings().unwrap().references[id].kind == ReferenceKind::Callable {
             self.ensure_occurrence_callables(
@@ -1023,8 +1031,10 @@ impl SemanticResult<'_> {
                     continue;
                 }
                 match &call.outcome {
-                    CallOutcome::Resolved { declaration, .. } => return Ok(Some(*declaration)),
-                    CallOutcome::Intrinsic { .. } => return Ok(None),
+                    CallOutcome::Resolved { declaration, .. } => {
+                        return Ok(ReferenceEndpoint::Declaration(*declaration));
+                    }
+                    CallOutcome::Intrinsic { .. } => return Ok(ReferenceEndpoint::Intrinsic),
                     CallOutcome::NoMatch { reason: r }
                     | CallOutcome::Unresolved { reason: r }
                     | CallOutcome::Unsupported { reason: r, .. } => reason = r.clone(),
@@ -1035,10 +1045,93 @@ impl SemanticResult<'_> {
                 break;
             }
         } else if let BindingResolution::Resolved(declaration) = reference.resolution {
-            return Ok(Some(declaration));
+            return Ok(ReferenceEndpoint::Declaration(declaration));
         }
-        self.limit(location, reason, work, stage, limits)?;
-        Ok(None)
+        Ok(ReferenceEndpoint::Uncertain(location, reason))
+    }
+    fn target(
+        &mut self,
+        id: usize,
+        work: &mut Work,
+        stage: &Stage,
+        limits: Limits,
+    ) -> Result<Option<DeclarationId>, QueryError> {
+        match self.endpoint(id, work, stage, limits)? {
+            ReferenceEndpoint::Declaration(id) => Ok(Some(id)),
+            ReferenceEndpoint::Intrinsic => Ok(None),
+            ReferenceEndpoint::Uncertain(location, reason) => {
+                self.limit(location, reason, work, stage, limits)?;
+                Ok(None)
+            }
+        }
+    }
+
+    /// Complete adjacency in the legacy edge order, refusing any uncertain endpoint.
+    /// The request-local index bounds each lookup to its owning file and region.
+    pub(crate) fn complete_targets(
+        &mut self,
+        id: DeclarationId,
+        work: &mut Work,
+        range: &Range<usize>,
+        limits: Limits,
+    ) -> Result<Vec<SemanticEntity>, QueryError> {
+        let stage = Stage {
+            kind: StageKind::ReferencedDeclarations,
+            range: range.clone(),
+        };
+        self.ensure_bindings(work, &stage)?;
+        let declaration = self
+            .bindings()
+            .unwrap()
+            .declarations
+            .get(id.0)
+            .ok_or_else(|| type_error(range, "unavailable declaration identity"))?;
+        let file = declaration.file;
+        let offset = self.model.files[file].byte_offset;
+        let region = declaration.syntax_range.start + offset..declaration.syntax_range.end + offset;
+        if self.reference_order.is_none() {
+            work.produce(self.bindings().unwrap().references.len(), range)?;
+            self.reference_order = Some(self.ordered_references(work, &stage, limits)?);
+        }
+        let references = &self.bindings().unwrap().references;
+        let order = self.reference_order.as_ref().unwrap();
+        work.spend(order.len().max(1).ilog2() as usize + 1, range)?;
+        let first = order.partition_point(|&i| {
+            (references[i].file, references[i].location.range.start) < (file, region.start)
+        });
+        let mut selected = HashSet::new();
+        let mut rows = Vec::new();
+        let mut index = first;
+        while let Some(&reference) = self.reference_order.as_ref().unwrap().get(index) {
+            index += 1;
+            work.visit(range)?;
+            let occurrence = &self.bindings().unwrap().references[reference];
+            if occurrence.file != file || occurrence.location.range.start >= region.end {
+                break;
+            }
+            if !contains(&region, &occurrence.location.range) {
+                continue;
+            }
+            match self.endpoint(reference, work, &stage, limits)? {
+                ReferenceEndpoint::Declaration(target) => {
+                    if selected.contains(&target.0) {
+                        continue;
+                    }
+                    check_collection(rows.len(), limits.collection, range)?;
+                    work.produce(2, range)?;
+                    selected.insert(target.0);
+                    rows.push(SemanticEntity::Declaration(target));
+                }
+                ReferenceEndpoint::Intrinsic => {}
+                ReferenceEndpoint::Uncertain(location, reason) => {
+                    return Err(model_error(
+                        location,
+                        format!("reference_info cannot provide complete adjacency: {reason}"),
+                    ));
+                }
+            }
+        }
+        Ok(rows)
     }
     fn uses(
         &mut self,

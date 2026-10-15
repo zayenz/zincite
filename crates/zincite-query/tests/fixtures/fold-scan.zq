@@ -1,0 +1,7 @@
+fn step((count, total): tuple<int, int>, item: int) -> tuple<int, int> {
+    (count + 1, total + item)
+}
+(folded: fold([2, 3, 5], (0, 0), step),
+ scanned: scan([2, 3, 5], (0, 0), step),
+ empty_fold: fold([], (0, 0), step),
+ empty_scan: scan([], (0, 0), step));
