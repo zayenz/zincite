@@ -2,8 +2,8 @@
 
 # Tasks: base
 
-- Total: 138
-- Ready: 0
+- Total: 139
+- Ready: 1
 - Blocked: 0
 - Done: 138
 
@@ -147,3 +147,4 @@
 | [base-136](tasks/136-expose-semantic-lint-groups-as-built-in-presets.md) | Expose semantic lint groups as built-in presets | done | — |
 | [base-137](tasks/137-broaden-the-default-lint-preset-with-three-focused-checks.md) | Broaden the default lint preset with three focused checks | done | base-136 |
 | [base-138](tasks/138-measure-current-lint-runtime-on-a-small-varied-model-set.md) | Measure current lint runtime on a small varied model set | done | base-137 |
+| [base-139](tasks/139-profile-java-routing-thesis-and-all-lint-cost-within-a-fixed.md) | Profile java-routing thesis and all lint cost within a fixed budget | ready | base-138 |
