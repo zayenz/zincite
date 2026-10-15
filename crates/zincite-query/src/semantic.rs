@@ -644,6 +644,9 @@ impl<'a> SemanticResult<'a> {
             }
             StageKind::Filter(_)
             | StageKind::Head(_)
+            | StageKind::Tail(_)
+            | StageKind::Reverse
+            | StageKind::Check { .. }
             | StageKind::Count
             | StageKind::Unique
             | StageKind::Tally => unreachable!("the core evaluates common stages"),

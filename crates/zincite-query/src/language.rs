@@ -25,6 +25,12 @@ pub(crate) enum StageKind {
     Instantiations,
     Filter(Predicate),
     Head(usize),
+    Tail(usize),
+    Reverse,
+    Check {
+        expected: Option<usize>,
+        message: Option<String>,
+    },
     Count,
     Emit,
     Expressions,
@@ -77,6 +83,10 @@ pub(crate) enum PredicateKind {
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ArgumentKind {
     Head,
+    Tail,
+    CheckCount,
+    CheckMessage,
+    CheckOperand,
     RangeStart,
     RangeEnd,
     TransitiveReferences,
@@ -87,14 +97,22 @@ pub(crate) enum ArgumentKind {
     SourceKind,
 }
 impl ArgumentKind {
-    pub(crate) fn ty(self) -> zirql::ParameterType {
+    pub(crate) fn admits(self, ty: &zirql::ValueType) -> bool {
+        use zirql::ValueType as T;
         match self {
-            Self::Head | Self::RangeStart | Self::RangeEnd | Self::TransitiveReferences => {
-                zirql::ParameterType::Int
-            }
-            Self::Kind | Self::Name | Self::Type | Self::Instantiation | Self::SourceKind => {
-                zirql::ParameterType::String
-            }
+            Self::Head
+            | Self::Tail
+            | Self::CheckCount
+            | Self::RangeStart
+            | Self::RangeEnd
+            | Self::TransitiveReferences => matches!(ty, T::Integer),
+            Self::CheckOperand => matches!(ty, T::Integer | T::String),
+            Self::CheckMessage
+            | Self::Kind
+            | Self::Name
+            | Self::Type
+            | Self::Instantiation
+            | Self::SourceKind => matches!(ty, T::String),
         }
     }
     pub(crate) fn predicate(
@@ -140,8 +158,15 @@ impl ArgumentKind {
                 PredicateKind::SourceKind(value)
             }
             Self::Name => PredicateKind::Name(value),
-            Self::Head | Self::RangeStart | Self::RangeEnd | Self::TransitiveReferences => {
-                unreachable!("integer stage operand is not a predicate")
+            Self::Head
+            | Self::Tail
+            | Self::CheckCount
+            | Self::CheckMessage
+            | Self::CheckOperand
+            | Self::RangeStart
+            | Self::RangeEnd
+            | Self::TransitiveReferences => {
+                unreachable!("stage control operand is not a predicate")
             }
         })
     }
@@ -297,6 +322,40 @@ impl<'a> Parser<'a> {
                 };
                 self.punctuation(b')', "expected ')' after head count")?;
                 StageKind::Head(count)
+            }
+            "tail" => {
+                self.punctuation(b'(', "expected '(' after tail")?;
+                let count = self.integer_argument(start, ArgumentKind::Tail)?;
+                self.punctuation(b')', "expected ')' after tail count")?;
+                StageKind::Tail(count)
+            }
+            "reverse" => StageKind::Reverse,
+            "check" => {
+                self.space();
+                let mut expected = None;
+                let mut message = None;
+                if self.current() == Some(b'(') {
+                    self.position += 1;
+                    self.space();
+                    let operand_start = self.position;
+                    self.scalar_range()?;
+                    self.space();
+                    let pair = self.current() == Some(b',');
+                    self.position = operand_start;
+                    if pair {
+                        expected = Some(self.integer_argument(start, ArgumentKind::CheckCount)?);
+                        self.punctuation(b',', "expected ',' before check message")?;
+                        message = Some(self.string_argument(start, ArgumentKind::CheckMessage)?.0);
+                    } else if self.current() == Some(b'"') {
+                        message = Some(self.string_argument(start, ArgumentKind::CheckOperand)?.0);
+                    } else if self.arguments.is_some() {
+                        expected = Some(self.integer_argument(start, ArgumentKind::CheckOperand)?);
+                    } else {
+                        expected = Some(self.integer()?);
+                    }
+                    self.punctuation(b')', "expected ')' after check operand")?;
+                }
+                StageKind::Check { expected, message }
             }
             "expressions" => StageKind::Expressions,
             "children" => StageKind::Children,

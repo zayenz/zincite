@@ -4114,7 +4114,7 @@ fn typed_query_functions_keep_active_match_guards_paths_and_native_records() {
         .evaluate_with_model(&input, Some(&model), limits)
         .unwrap_err();
     assert!(error.message.contains("element contract"), "{error:?}");
-    let empty_declaration=Program::parse("fn accept(xs:sequence<Declaration>)->int {0} let empty=subtree | declarations | head(0); report accept(empty);",limits).unwrap();
+    let empty_declaration=Program::parse("fn accept(xs:sequence<Declaration>)->int {0} let empty=subtree | declarations | tail(0) | reverse | check(0); report accept(empty);",limits).unwrap();
     empty_declaration
         .evaluate_with_model(&input, Some(&model), limits)
         .unwrap();
@@ -4593,8 +4593,11 @@ fn patterns_and_control_values_agree_with_owned_typed_programs() {
         native_fields(),
         record(vec![("selected", name("nodes"))]),
     );
-    let query =
-        zincite_query::Query::parse("items | head(1)", zincite_query::Limits::default()).unwrap();
+    let query = zincite_query::Query::parse(
+        "items | head(1) | tail(1) | reverse | check(1)",
+        zincite_query::Limits::default(),
+    )
+    .unwrap();
     let native = located(zirql::ExpressionKind::Sequence {
         input: Box::new(located(zirql::ExpressionKind::Input)),
         steps: vec![located(zirql::ExpressionStep::Stage(query))],
@@ -5498,4 +5501,231 @@ fn saved_native_and_minizinc_values_compose_with_shared_suffixes() {
         )
         .unwrap_err();
     assert!(error.message.contains("work limit"));
+}
+
+#[test]
+fn native_stream_controls_keep_suffix_order_duplicates_and_original_ranges() {
+    let source = b"% first\r\nx=1;\r\n% zincite-fmt: skip\r\ny=2;\r\n";
+    let input = Input::parse(source.to_vec(), FileMode::Data).unwrap();
+    let original = query(&input, "items");
+    let QueryResult::Selection(original) = &original else {
+        panic!()
+    };
+    let checked = query(
+        &input,
+        "check | check(2) | check(\"rows\") | check(2, \"rows\")",
+    );
+    assert_eq!(checked.render(), source);
+    let QueryResult::Selection(checked) = checked else {
+        panic!()
+    };
+    assert!(checked.is_document());
+    assert!(std::ptr::eq(checked.input(), &input));
+    let reversed = query(&input, "tail(99) | reverse | check(2)");
+    assert_eq!(
+        reversed.render(),
+        b"% zincite-fmt: skip\r\ny=2;\r\n% first\r\nx=1;\r\n"
+    );
+    let QueryResult::Selection(reversed) = reversed else {
+        panic!()
+    };
+    for (item, original) in reversed.items().iter().zip(original.items().iter().rev()) {
+        assert_eq!(item.range, original.range);
+        assert_eq!(item.source_range, original.source_range);
+        assert!(std::ptr::eq(item.node, original.node));
+    }
+    assert_eq!(query(&input, "tail(1) | names").render(), b"y\n");
+    assert!(
+        query(&input, "tail(0) | reverse | check(0)")
+            .render()
+            .is_empty()
+    );
+    let nodes = query(&input, "subtree | subtree");
+    let reversed = query(&input, "subtree | subtree | reverse | tail(3) | check(3)");
+    let (QueryResult::Nodes(nodes), QueryResult::Nodes(reversed)) = (nodes, reversed) else {
+        panic!()
+    };
+    assert!(nodes.nodes().iter().enumerate().any(|(i, node)| {
+        nodes.nodes()[..i]
+            .iter()
+            .any(|other| other.range == node.range)
+    }));
+    assert!(std::ptr::eq(reversed.input(), &input));
+    for (node, original) in reversed.nodes().iter().zip(nodes.nodes()[..3].iter().rev()) {
+        assert_eq!(node.range, original.range);
+        assert!(std::ptr::eq(node.node, original.node));
+    }
+    let literals = query(&input, "values | reverse | tail(1) | check(1)");
+    let QueryResult::Literals(literals) = literals else {
+        panic!()
+    };
+    assert!(std::ptr::eq(literals.input(), &input));
+    assert_eq!(
+        &input.source_bytes()[literals.values()[0].range.clone()],
+        b"1"
+    );
+    for (expression, diagnostic) in [
+        ("tail(0) | check", "expected at least one item, got 0"),
+        (
+            "check(1, \"need one\")",
+            "expected 1 items, got 2: need one",
+        ),
+        (
+            "tail(0) | check(\"need rows\")",
+            "expected at least one item, got 0: need rows",
+        ),
+    ] {
+        let error = Query::parse(expression, Limits::default())
+            .unwrap()
+            .evaluate(&input, Limits::default())
+            .unwrap_err();
+        assert!(error.message.contains(diagnostic), "{error:?}");
+        assert_eq!(
+            expression[error.range].trim(),
+            expression.split(" | ").last().unwrap()
+        );
+    }
+    for expression in [
+        "check()",
+        "check(1,2)",
+        "check(1,\"x\",2)",
+        "reverse()",
+        "tail(-1)",
+    ] {
+        assert!(
+            Query::parse(expression, Limits::default()).is_err(),
+            "{expression}"
+        );
+    }
+    let paired = Input::parse(
+        b"% zincite-fmt: off\nx=1;\ny=2;\n% zincite-fmt: on\nz=3;\n".to_vec(),
+        FileMode::Data,
+    )
+    .unwrap();
+    let error = Query::parse("reverse", Limits::default())
+        .unwrap()
+        .evaluate(&paired, Limits::default())
+        .unwrap_err();
+    assert_eq!(error.location, ErrorLocation::Input);
+    assert!(error.message.contains("unbalance"));
+}
+
+#[test]
+fn native_stream_controls_reuse_saved_values_and_scoped_arguments() {
+    use zincite_query::{ConstructedValue as V, ParameterInputs, Program, ProgramLimits};
+    let limits = ProgramLimits::default();
+    let input = Input::parse(b"a=1; b=2; c=3;".to_vec(), FileMode::Data).unwrap();
+    let source = r#"param message:string; fn bound(n:int)->int { let chosen=n-1; chosen }
+        let selected=items; let n=selected | count;
+        report selected | query("tail(bound(n)) | reverse | check(n-1, message) | check(message) | names");
+        report selected | names;
+        report selected | project(row, {"n": row | tail(bound(2)) | check(node_kind(row)) | check(message) | count});"#;
+    let mut result = Program::parse(source, limits)
+        .unwrap()
+        .evaluate_with_parameters(
+            &input,
+            ParameterInputs::Typed(&[("message".into(), V::String("rows".into()))]),
+            limits,
+        )
+        .unwrap();
+    let json = String::from_utf8(result.render().unwrap()).unwrap();
+    let reports: Vec<serde_json::Value> = json
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(
+        reports[0]["result"]["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["value"]["value"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["c", "b"]
+    );
+    assert_eq!(
+        reports[1]["result"]["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["value"]["value"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["a", "b", "c"]
+    );
+    assert_eq!(
+        reports[2]["result"]["entries"][0]["value"]["fields"][0]["value"]["value"],
+        1
+    );
+    let direct = Program::parse(
+        r#"let message="rows"; let selected=items; let n=selected | count;
+        selected | tail(n-1) | reverse | check(message) | check(2,message) | names"#,
+        limits,
+    )
+    .unwrap();
+    assert_eq!(
+        direct.evaluate(&input, limits).unwrap().render().unwrap(),
+        b"c\nb\n"
+    );
+    for source in [
+        r#"let unused=head(0) | check(true); report 1;"#,
+        r#"fn unused()->int { let bad=head(0) | check(false); 1 } report 1;"#,
+        r#"report [1,2] | tail(1);"#,
+        r#"let unused=items | reverse; replace a=2; emit;"#,
+    ] {
+        assert!(
+            Program::parse(source, limits)
+                .and_then(|program| program.evaluate(&input, limits))
+                .is_err(),
+            "{source}"
+        );
+    }
+    let escaped =
+        r#"let unused=query("head(0) | check(1, \"bad\") | check(/* é */ true)"); report 1;"#;
+    let error = Program::parse(escaped, limits).unwrap_err();
+    assert_eq!(&escaped[error.range], "true");
+    for limited in [
+        ProgramLimits { work: 20, ..limits },
+        ProgramLimits {
+            results: 1,
+            ..limits
+        },
+    ] {
+        let error = direct.evaluate(&input, limited).unwrap_err();
+        assert!(error.message.contains("limit"), "{error:?}");
+    }
+}
+
+#[test]
+fn native_stream_checks_preserve_incomplete_semantic_rows() {
+    use zincite_query::SemanticStream;
+    let source = b"int:a=1; int:b=a+missing; int:c=b; solve satisfy;";
+    let model = semantic_model("native-stream-controls", source, b"", "");
+    let input = Input::parse(source.to_vec(), FileMode::Model).unwrap();
+    let original = semantic(&input, &model, "references | declarations");
+    let checked = semantic(
+        &input,
+        &model,
+        "references | declarations | tail(2) | reverse | check(2)",
+    );
+    assert!(!checked.is_complete());
+    assert!(std::ptr::eq(checked.model(), &model));
+    assert_eq!(checked.limitations(), original.limitations());
+    assert!(
+        checked
+            .limitations()
+            .iter()
+            .any(|limitation| &source[limitation.location.range.clone()] == b"missing")
+    );
+    let (SemanticStream::Entities(original_rows), SemanticStream::Entities(rows)) =
+        (original.stream(), checked.stream())
+    else {
+        panic!()
+    };
+    assert_eq!(
+        rows,
+        &original_rows.iter().rev().copied().collect::<Vec<_>>()
+    );
+    for &row in rows {
+        assert_eq!(checked.location(row), original.location(row));
+        assert_eq!(checked.location(row).path, model.root);
+    }
 }

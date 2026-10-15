@@ -45,6 +45,41 @@ and histograms and adds declaration types and literal shapes. The
 [query reference](reference.md#query-library) defines stages, selection order
 and result formats.
 
+## Keep a suffix, reverse it and check its size
+
+Native selections support `tail(n)`, `reverse` and pass-through cardinality checks:
+
+```zirql
+let selected = items;
+let n = selected | count;
+let expected = n - 1;
+let message = "selection size changed";
+selected | tail(expected) | reverse | check(expected, message) | names
+```
+
+`tail` keeps a suffix in its current order; `reverse` then reverses those rows,
+including duplicate occurrences. Zero keeps no rows and an oversized bound keeps
+all rows. Saved `selected` retains its original rows for later use. These stages
+keep native identities and original source ranges. Reordered item output carries
+its attached comments, with unsafe formatter directive pairs still refused.
+
+Bare `check` requires a nonempty stream. `check(n)` requires exactly `n` rows;
+`check(message)` and `check(n, message)` add a failure message. Success passes the
+stream through unchanged; failure reports the expected and actual counts. An
+empty stream passes `check(0)` and fails bare `check`. `check()` is invalid.
+Program counts and messages can refer to parameters, bindings and local scopes.
+Positional queries use literal counts and double-quoted messages:
+
+```sh
+zincite query 'items | tail(2) | reverse | check(2, "need two items") | names' data.dzn
+```
+
+A check counts returned rows, including when a semantic result has limitations.
+It does not prove complete domain knowledge or count the cells inside a literal
+array. Use `elements` to select those cells. The Boolean `require` expression
+checks a condition separately. These controls apply to native streams; they do
+not add constructed-array operations or new data-edit stages.
+
 ## Reuse results in a report
 
 Save this as `report.zq`:

@@ -1872,20 +1872,21 @@ pub(super) fn signature_needs_model(signature: &zirql::SignatureType) -> bool {
         _ => false,
     }
 }
-pub(super) fn check_scalar(
+pub(super) fn check_argument(
     expression: &E<Expression>,
-    expected: zirql::ParameterType,
+    expected: language::ArgumentKind,
     host: &composition::CompositionHost<'_, '_>,
     input: &Kind,
     scope: &BTreeMap<String, Kind>,
     budget: &mut Budget,
 ) -> Result<(), zirql::QueryError> {
     let kind = value_kind(expression, host, input, scope, budget)?;
-    if let Some(types) = host.scalar_types(&kind, budget, &expression.range)?
-        && types
+    let types = host.scalar_types(&kind, budget, &expression.range)?;
+    if types.as_ref().is_none_or(|types| {
+        types
             .iter()
-            .any(|ty| !matches!(ty, zirql::ValueType::Unestablished) && *ty != expected.into())
-    {
+            .any(|ty| !matches!(ty, zirql::ValueType::Unestablished) && !expected.admits(ty))
+    }) {
         return Err(zirql::QueryError::query(
             expression.range.clone(),
             "primitive argument has an incompatible scalar type",
@@ -1924,7 +1925,14 @@ pub(super) fn query_declarations(query: &Query, input: &ReportValue<'_>) -> bool
     for stage in &query.stages {
         match &stage.kind {
             S::Declarations | S::ReferencedDeclarations => declarations = true,
-            S::Head(_) | S::Filter(_) | S::Unique | S::Json | S::Emit => {}
+            S::Head(_)
+            | S::Tail(_)
+            | S::Reverse
+            | S::Check { .. }
+            | S::Filter(_)
+            | S::Unique
+            | S::Json
+            | S::Emit => {}
             _ => declarations = false,
         }
     }

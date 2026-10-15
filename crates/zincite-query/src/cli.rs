@@ -41,6 +41,12 @@ Stages:
     items                   Select all top-level items (initial selection)
     filter(PREDICATE)       Keep matching items; not > and > or, with parentheses
     head(N)                 Keep the first N nodes, literal values or strings
+    tail(N)                 Keep the last N rows in their current order
+    reverse                 Reverse current row order, retaining duplicates
+    check                   Require at least one row; pass the stream through
+    check(N)                Require exactly N rows; pass the stream through
+    check(MESSAGE)          Require a nonempty stream with a failure message
+    check(N,MESSAGE)        Require exactly N rows with a failure message
     count                   Return a count; only json may follow
     emit                    Emit selected source or the complete edit candidate; terminal stage
     expressions             Select expression nodes in each selected subtree
@@ -89,13 +95,13 @@ Explicit enum keys establish identity; positional axes require model domains.
 Supported sets prune removed members; array[int] groups drop newly empty entries.
 Literal group accesses use original-to-retained indices; required empty cells stay.
 Remaining scalar/computed dependence makes the candidate incomplete.
-values accepts head/count/json/emit; other projections continue as node streams.
+values accepts head/tail/reverse/check/count/json/emit; other projections continue as node streams.
 Predicates: kind(\"assignment\"), name(\"capacity\"); names compare identifier identity.
 Semantic predicates: type(\"int\"), instantiation(\"par\"|\"var\"),
     source_kind(\"user\"|\"standard_library\"). Unknown stays unknown under not.
 Type kinds: bool, int, float, string, annotation, enum, set, array, tuple, record,
     bottom. Nested unknown types/type variables cannot match a type predicate.
-Semantic streams accept filter/head/count/names/text/unique/json/emit;
+Semantic streams accept filter/head/tail/reverse/check/count/names/text/unique/json/emit;
     names/text yield strings and may use tally. Unrelated CST/edit stages fail.
 Semantic source uses actual retained file owners and original BOM coordinates.
 references/declarations/uses preserve root order and duplicates; unique uses IDs.
@@ -112,9 +118,13 @@ These inspect static written relationships; they do not run lint policy or solve
 Item kinds: assignment, declaration, enum, type_alias, function, predicate, test,
        annotation, constraint, include, output, solve.
 Navigated node kinds use CST names in snake_case, such as call_expression.
-Untouched items emit the whole document; filter/head emit item fragments with
+Untouched items emit the whole document; filter/head/tail/reverse emit fragments with
 attached comments. Separated section comments and a BOM stay in document output.
 Fragment selections that unbalance paired formatter markers fail.
+Tail zero is empty; an oversized tail keeps all rows. Reverse keeps duplicates.
+Check counts returned rows, including on incomplete semantic results. It does
+not inspect literal array elements. Program counts/messages accept scoped values;
+positional queries use nonnegative integer counts and double-quoted messages.
 
 Options:
     --program TEXT         Run an inline program; one native expression needs no ';'

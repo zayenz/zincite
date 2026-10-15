@@ -408,6 +408,9 @@ pub(super) fn domain_stage(name: &str) -> bool {
             | "keys"
             | "range"
             | "head"
+            | "tail"
+            | "reverse"
+            | "check"
             | "count"
             | "unique"
             | "tally"
@@ -648,7 +651,7 @@ impl ValueReaderHost for Parser<'_> {
                     range.clone(),
                     comprehension::ExpressionPolicy::Report,
                 )?;
-                self.value_names(&expression, &range, Some(kind.ty()))?;
+                self.value_names(&expression, &range, Some(kind))?;
                 if self.first_report_call.is_none() {
                     self.first_report_call = expression.first_report_call.clone();
                 }
@@ -761,7 +764,7 @@ impl ValueReaderHost for Parser<'_> {
                 let (mut lowered, _) = self
                     .pure_value::<Expression>(start..end, comprehension::ExpressionPolicy::Report)
                     .map_err(query_error)?;
-                self.value_names(&lowered, &(start..end), Some(argument.ty()))
+                self.value_names(&lowered, &(start..end), Some(argument))
                     .map_err(query_error)?;
                 if self.first_report_call.is_none() {
                     self.first_report_call = lowered.first_report_call.clone();
@@ -1376,7 +1379,7 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
             )?;
             let declarations = self.0.functions && functions::query_declarations(&query, &value);
             let pipeline =
-                pipeline::lower_pipeline(&query).map_err(zirql::EvaluationError::Host)?;
+                pipeline::lower_pipeline(&query, budget).map_err(zirql::EvaluationError::Host)?;
             let (context, _) = arguments.parts();
             let result = self
                 .0
@@ -1588,9 +1591,9 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
             Stage::Member(_) => Ok(Kind::Value(Rc::new(vec![zirql::ValueType::Unestablished]))),
             Stage::Query(index, arguments) => {
                 for argument in arguments.iter() {
-                    functions::check_scalar(
+                    functions::check_argument(
                         &argument.expression,
-                        argument.kind.ty(),
+                        argument.kind,
                         self,
                         input,
                         scope,
@@ -1917,15 +1920,8 @@ impl<'a> MatchHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<(), zirql::QueryError> {
-        if let Some((_, expression)) = &guard.argument {
-            functions::check_scalar(
-                expression,
-                zirql::ParameterType::String,
-                self,
-                input,
-                scope,
-                budget,
-            )?;
+        if let Some((kind, expression)) = &guard.argument {
+            functions::check_argument(expression, *kind, self, input, scope, budget)?;
         }
         let kind = zirql::native_expression_kind(guard.operand(), self, input, scope, budget)?;
         if !matches!(

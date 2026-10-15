@@ -95,13 +95,13 @@ pub(crate) fn evaluate<'a>(
     model: Option<&'a ModelContext>,
     limits: Limits,
 ) -> Result<QueryResult<'a>, QueryError> {
-    let pipeline = lower_pipeline(query)?;
     // Written predicate depth belongs to parsing; literal depth uses the
     // evaluation limits retained in the host context.
     let mut budget = budget(Limits {
         nesting: query.nesting_limit,
         ..limits
     });
+    let pipeline = lower_pipeline(query, &mut budget)?;
     let (mut context, rows) = prepare_context(query, input, facts, limits, &mut budget)?;
     context.model = model;
     let input = NativeInput::from_admitted(
@@ -117,9 +117,21 @@ pub(crate) fn evaluate<'a>(
     finish_result(query, context, value, &mut budget)
 }
 
-pub(crate) fn lower_pipeline(
-    query: &Query,
-) -> Result<zirql::Pipeline<Leaf<'_>, &Stage>, QueryError> {
+pub(crate) fn lower_pipeline<'q>(
+    query: &'q Query,
+    budget: &mut Budget,
+) -> Result<zirql::Pipeline<Leaf<'q>, &'q Stage>, QueryError> {
+    for stage in &query.stages {
+        if let StageKind::Check {
+            message: Some(message),
+            ..
+        } = &stage.kind
+        {
+            budget
+                .charge(message.len(), zirql::Location::Query(stage.range.clone()))
+                .map_err(core_error)?;
+        }
+    }
     let stages = query
         .stages
         .iter()
@@ -129,6 +141,12 @@ pub(crate) fn lower_pipeline(
                     zirql::Stage::Filter(lower_predicate(predicate, stage))
                 }
                 StageKind::Head(count) => zirql::Stage::Head(*count),
+                StageKind::Tail(count) => zirql::Stage::Tail(*count),
+                StageKind::Reverse => zirql::Stage::Reverse,
+                StageKind::Check { expected, message } => zirql::Stage::Check {
+                    expected: *expected,
+                    message: message.clone(),
+                },
                 StageKind::Count => zirql::Stage::Count,
                 StageKind::Unique => zirql::Stage::Unique,
                 StageKind::Tally => zirql::Stage::Tally,
@@ -265,7 +283,12 @@ fn finish_result<'a>(
         && let QueryResult::Selection(selection) = result.as_ref()
         && !selection.document
     {
-        crate::validate_fragment_directives(context.input, &selection.items)?;
+        crate::validate_fragment_directives(
+            context.input,
+            &selection.items,
+            &mut work,
+            &query.range,
+        )?;
     }
     if let Some(mut report) = context.report {
         report.stream = stream;
@@ -548,15 +571,13 @@ impl<'a, 'q> Host<Row<'a>, &mut Context<'a>, Leaf<'q>, &'q Stage> for NativeHost
                     None
                 }
             }
-            zirql::Stage::Head(_) => {
+            zirql::Stage::Head(_) | zirql::Stage::Tail(_) | zirql::Stage::Reverse => {
                 if matches!(context.kind, StreamKind::Items) {
                     context.document = false;
                 }
                 None
             }
-            zirql::Stage::Tail(_) | zirql::Stage::Reverse | zirql::Stage::Check { .. } => {
-                Some("native stage is unavailable in Zincite")
-            }
+            zirql::Stage::Check { .. } => None,
             zirql::Stage::Count => None,
             zirql::Stage::Unique => matches!(context.kind, StreamKind::Literals)
                 .then_some("unique requires a node or string stream"),

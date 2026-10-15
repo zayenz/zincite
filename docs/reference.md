@@ -208,6 +208,9 @@ library and both commands use the same pipeline stages:
 | `items` | Reset to all top-level items in written order |
 | `filter(predicate)` | Keep matching items in their existing order |
 | `head(n)` | Keep the first `n` items of the computed selection |
+| `tail(n)` | Keep the last `n` rows in their current order |
+| `reverse` | Reverse current row order, retaining duplicates |
+| `check`, `check(n)`, `check(message)`, `check(n, message)` | Require nonempty or exactly `n` rows, then pass the stream through |
 | `count` | Return a native count; render as decimal text followed by LF |
 | `expressions` | Select expression nodes in each selected subtree |
 | `children` | Replace nodes with immediate CST child nodes |
@@ -244,6 +247,28 @@ edits. `emit_document` remains a compatibility alias requiring a transformation.
 `head` does not avoid parsing or evaluating the earlier selection. No input items
 produces an empty selection or count 0; the untouched selection of a comment-only
 document still emits its original bytes.
+
+`tail(0)` returns no rows; a bound larger than the stream keeps all rows.
+`reverse` uses the stream's current order and retains duplicate occurrences.
+These controls preserve native owners, original source ranges and semantic
+limitations. Reversing item fragments also moves their attached comments;
+unsafe formatter directive pairing remains an error.
+
+Bare `check` and `check(message)` require at least one returned row.
+`check(n)` and `check(n, message)` require exactly `n`, including `check(0)`
+on an empty stream. Success returns the original stream unchanged. Failure
+reports the expected and actual counts with the optional message. `check()`
+is invalid; `reverse` takes no parentheses. Positional queries require literal
+nonnegative integer bounds and double-quoted messages. In programs, counts and
+messages can be scoped expressions; a single `check(value)` accepts an integer
+count or a string message. Known wrong types fail during preparation, including
+unused code and empty selections.
+
+A cardinality check counts returned rows, without proving complete semantic
+knowledge. A literal array is one row unless `elements` selects its contents.
+The Boolean `require(condition, value, message)` expression keeps its separate
+contract. These native controls do not accept constructed arrays or records and
+do not expand the stages allowed in data-edit programs.
 
 Predicates are `kind("assignment")` and `name("capacity")`, combined with
 parentheses and `not`, `and`, `or` in that precedence order. Query strings are
@@ -295,7 +320,8 @@ Item filters keep the kind aliases above. Navigated node filters and JSON use
 original CST kinds in snake_case, such as `call_expression`,
 `annotation_declaration`, `annotation`, `solve_minimize` and `solve_maximize`.
 `name` on navigated nodes compares the first direct identifier identity.
-`head` and `count` accept node, literal or string streams. `unique` accepts node or string streams. Navigation,
+`head`, `tail`, `reverse`, `check` and `count` accept node, literal or string
+streams. `unique` accepts node or string streams. Navigation,
 filtering and projections require nodes; `tally` requires projected strings.
 `items` resets a node selection. Invalid stage types produce located query
 errors even for empty streams. Assignment transformations require an item selection.
@@ -318,8 +344,10 @@ names.
 
 The untouched initial selection and any final reset with `items` emit the exact
 document, including a leading UTF-8 BOM, section comments and all whitespace.
-`filter` and `head` produce fragment selections, even if every item survives.
-Fragments emit original item bytes and attached comments in written order:
+`filter`, `head`, `tail` and `reverse` produce fragment selections, even if every
+item survives. Successful `check` preserves the selection, including
+whole-document output.
+Fragments emit original item bytes and attached comments in the selected order:
 
 - A comment after an item on the same line belongs to that item, including a
   block comment that starts on that line. The following first line ending and
@@ -372,6 +400,7 @@ references and shadowing it in a local comprehension fail at the name.
 
 Native pipeline stages retain their original program coordinates.
 Checked primitive arguments such as `name(selected)`, `head(limit + 1)`,
+`tail(limit)`, `check(expected, message)`,
 `range(start, end)` and `transitive_references(depth)` use the existing MiniZinc
 expression subset and shared evaluator. String `kind`, `type`, `instantiation`
 and `source_kind` predicates also accept checked expressions. Native accepted
@@ -1010,7 +1039,8 @@ original spelling bytes and `LiteralKind`. Records expose separate labels
 (identity, range and spelling) and values. Arrays expose key/value entries and
 `ArrayIndexing::{Positional, Explicit, StartingKey}`. Matrices expose column
 keys, row keys and cells separately. Sets and tuples retain ordered elements.
-`values` accepts `head`, `count`, `json` and `emit`; implicit/explicit source
+`values` accepts `head`, `tail`, `reverse`, `check`, `count`, `json` and `emit`;
+implicit/explicit source
 emission concatenates the original value spans. Node navigation and editing
 require original node streams rather than these inspection values.
 
@@ -1203,7 +1233,8 @@ three-valued Boolean rules and short circuit. An encountered unknown remains a
 located report limitation even if another branch establishes the filter result.
 `kind("declaration")` and `kind("reference")` distinguish semantic identities;
 `name` compares the retained identifier identity. Semantic rows accept
-`filter`, `head`, `count`, `names`, `text`, `unique`, `emit` and `json`; projected
+`filter`, `head`, `tail`, `reverse`, `check`, `count`, `names`, `text`, `unique`,
+`emit` and `json`; projected
 strings also accept `tally`. Unrelated CST navigation and data edits produce
 located stage-type errors.
 

@@ -471,6 +471,9 @@ fn evaluate_stage<'a>(
         }
         StageKind::Filter(_)
         | StageKind::Head(_)
+        | StageKind::Tail(_)
+        | StageKind::Reverse
+        | StageKind::Check { .. }
         | StageKind::Count
         | StageKind::Unique
         | StageKind::Tally => unreachable!("the core evaluates common stages"),
@@ -1068,8 +1071,23 @@ fn directive(bytes: &[u8]) -> Option<Directive> {
 fn validate_fragment_directives(
     input: &Input,
     items: &[SelectedItem<'_>],
+    work: &mut Work<'_>,
+    query_range: &Range<usize>,
 ) -> Result<(), QueryError> {
-    for pair in items.windows(2) {
+    // Source order is only for attachment lookup; rendering keeps the selected order.
+    let search_work = items
+        .len()
+        .checked_mul(items.len().max(1).ilog2() as usize + 1)
+        .and_then(|units| units.checked_mul(2))
+        .ok_or_else(|| {
+            QueryError::query(query_range.clone(), "fragment validation size overflow")
+        })?;
+    work.spend(search_work, query_range)?;
+    work.produce(items.len(), query_range)?;
+    let mut source_order: Vec<_> = items.iter().collect();
+    source_order.sort_unstable_by_key(|item| item.source_range.start);
+    for pair in source_order.windows(2) {
+        work.visit(query_range)?;
         if pair[0].source_range.end > pair[1].source_range.start {
             return Err(QueryError::input(
                 pair[1].source_range.clone(),
@@ -1077,60 +1095,81 @@ fn validate_fragment_directives(
             ));
         }
     }
-    let mut open = None;
     let mut selected = 0;
     let mut root_items = input.syntax().tree().child_nodes().peekable();
     for (index, token) in input.syntax().tokens().iter().enumerate() {
+        work.visit(query_range)?;
         if !matches!(token.kind, TokenKind::LineComment | TokenKind::BlockComment) {
             continue;
         }
         let range = input.token_range(index);
+        work.spend(range.len(), query_range)?;
         while root_items
             .peek()
             .is_some_and(|node| node.range().end + input.syntax_offset <= range.start)
         {
+            work.visit(query_range)?;
             root_items.next();
         }
-        while items
+        while source_order
             .get(selected)
             .is_some_and(|item| item.source_range.end <= range.start)
         {
+            work.visit(query_range)?;
             selected += 1;
         }
-        let retained = items.get(selected).is_some_and(|item| {
+        let retained = source_order.get(selected).filter(|item| {
             item.source_range.start <= range.start && range.end <= item.source_range.end
         });
-        let marker = directive(input.token_bytes(index));
-        if matches!(marker, Some(Directive::Next))
+        if matches!(directive(input.token_bytes(index)), Some(Directive::Next))
             && standalone(&input.bytes, range.start, input.syntax_offset)
             && root_items
                 .peek()
                 .is_some_and(|node| node.range().start + input.syntax_offset >= range.end)
         {
             let target = root_items.peek().unwrap().range().start + input.syntax_offset;
-            let target_retained = items
+            work.spend(items.len().max(1).ilog2() as usize + 1, query_range)?;
+            let target_item = source_order
                 .binary_search_by_key(&target, |item| item.range.start)
-                .is_ok();
-            if retained != target_retained {
+                .ok();
+            if retained.is_some() != target_item.is_some()
+                || target_item.is_some_and(|index| retained.is_some() && index != selected)
+            {
                 return Err(QueryError::input(
                     range,
                     "fragment selection would separate a next-item directive from its target",
                 ));
             }
         }
-        if !retained {
-            continue;
-        }
-        match marker {
-            Some(Directive::Off) if open.is_none() => open = Some(range),
-            Some(Directive::On) if open.is_some() => open = None,
-            Some(Directive::Off | Directive::On) => {
-                return Err(QueryError::input(
-                    range,
-                    "fragment selection would unbalance paired formatter directives",
-                ));
+    }
+    let mut open = None;
+    let tokens = input.syntax().tokens();
+    for item in items {
+        work.spend(tokens.len().max(1).ilog2() as usize + 1, query_range)?;
+        let first = tokens.partition_point(|token| {
+            token.range.end + input.syntax_offset <= item.source_range.start
+        });
+        for (index, token) in tokens.iter().enumerate().skip(first) {
+            work.visit(query_range)?;
+            let range = input.token_range(index);
+            if range.start >= item.source_range.end {
+                break;
             }
-            _ => {}
+            if !matches!(token.kind, TokenKind::LineComment | TokenKind::BlockComment) {
+                continue;
+            }
+            work.spend(range.len(), query_range)?;
+            match directive(input.token_bytes(index)) {
+                Some(Directive::Off) if open.is_none() => open = Some(range),
+                Some(Directive::On) if open.is_some() => open = None,
+                Some(Directive::Off | Directive::On) => {
+                    return Err(QueryError::input(
+                        range,
+                        "fragment selection would unbalance paired formatter directives",
+                    ));
+                }
+                _ => {}
+            }
         }
     }
     if let Some(range) = open {

@@ -1030,7 +1030,7 @@ impl Program {
             .iter()
             .map(|query| {
                 if query.arguments.is_empty() {
-                    pipeline::lower_pipeline(&query.query).map(Some)
+                    pipeline::lower_pipeline(&query.query, &mut budget).map(Some)
                 } else {
                     Ok(None)
                 }
@@ -1320,7 +1320,7 @@ impl<'a> Parser<'a> {
         &mut self,
         expression: &comprehension::LoweredValue<Q>,
         range: &Range<usize>,
-        expected: Option<zirql::ParameterType>,
+        expected: Option<language::ArgumentKind>,
     ) -> Result<Vec<Located<String>>, QueryError> {
         self.report_model_demand |= !expression.members.is_empty()
             || self
@@ -1373,9 +1373,8 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
-        if let Some(expected) = expected {
-            let expected: zirql::ValueType = expected.into();
-            if zirql::query_value_types(
+        if let Some(expected) = expected
+            && zirql::query_value_types(
                 &expression.expression,
                 &types,
                 &mut CstTypes,
@@ -1383,13 +1382,12 @@ impl<'a> Parser<'a> {
             )
             .map_err(pipeline::core_error)?
             .iter()
-            .any(|ty| *ty != expected)
-            {
-                return Err(QueryError::query(
-                    expression.expression.range.clone(),
-                    "primitive argument has an incompatible scalar type",
-                ));
-            }
+            .any(|ty| !expected.admits(ty))
+        {
+            return Err(QueryError::query(
+                expression.expression.range.clone(),
+                "primitive argument has an incompatible scalar type",
+            ));
         }
         Ok(names)
     }
@@ -1684,12 +1682,12 @@ impl<'a> Parser<'a> {
                         error.range = map(error.range);
                         error
                     })?;
-                    let mut names = self
-                        .value_names(&expression, &range, Some(kind.ty()))
-                        .map_err(|mut error| {
+                    let mut names = self.value_names(&expression, &range, Some(kind)).map_err(
+                        |mut error| {
                             error.range = map(error.range);
                             error
-                        })?;
+                        },
+                    )?;
                     for name in &mut names {
                         name.range = map(name.range.clone());
                     }
@@ -2405,7 +2403,7 @@ fn validate_stages(query: &Query, mut kind: Kind) -> Result<Kind, QueryError> {
                     | Kind::Types
                     | Kind::Instantiations
             ),
-            S::Head(_) => matches!(
+            S::Head(_) | S::Tail(_) | S::Reverse | S::Check { .. } => matches!(
                 kind,
                 Kind::Nodes
                     | Kind::Strings
@@ -2874,7 +2872,8 @@ impl<'a> NativeHost<'_> {
         } else {
             resolved =
                 self.resolve_query(&self.queries[index], context, bindings, budget, range)?;
-            lowered = pipeline::lower_pipeline(&resolved).map_err(zirql::EvaluationError::Host)?;
+            lowered = pipeline::lower_pipeline(&resolved, budget)
+                .map_err(zirql::EvaluationError::Host)?;
             &lowered
         };
         let result = self.execute_pipeline(pipeline, value, context, budget, range)?;
@@ -2984,13 +2983,24 @@ impl<'a> NativeHost<'_> {
         for argument in template.arguments.iter() {
             let range = &argument.expression.range;
             let value = read(argument, budget)?;
-            if argument.kind.ty() == zirql::ParameterType::Int {
-                let zirql::ConstructedValue::Integer(value) = value.into_data() else {
+            let value = value.into_data();
+            let ty = match &value {
+                zirql::ConstructedValue::Integer(_) => zirql::ValueType::Integer,
+                zirql::ConstructedValue::String(_) => zirql::ValueType::String,
+                _ => {
                     return Err(zirql::EvaluationError::Host(QueryError::query(
                         range.clone(),
-                        "primitive argument needs an int",
+                        "primitive argument has an incompatible scalar type",
                     )));
-                };
+                }
+            };
+            if !argument.kind.admits(&ty) {
+                return Err(zirql::EvaluationError::Host(QueryError::query(
+                    range.clone(),
+                    "primitive argument has an incompatible scalar type",
+                )));
+            }
+            if let zirql::ConstructedValue::Integer(value) = value {
                 let value = usize::try_from(value).map_err(|_| {
                     zirql::EvaluationError::Host(QueryError::query(
                         range.clone(),
@@ -3004,10 +3014,15 @@ impl<'a> NativeHost<'_> {
                     .expect("stage argument came from this template");
                 match (&mut stage.kind, argument.kind) {
                     (language::StageKind::Head(count), language::ArgumentKind::Head)
+                    | (language::StageKind::Tail(count), language::ArgumentKind::Tail)
                     | (
                         language::StageKind::TransitiveReferences(count),
                         language::ArgumentKind::TransitiveReferences,
                     ) => *count = value,
+                    (
+                        language::StageKind::Check { expected, .. },
+                        language::ArgumentKind::CheckCount | language::ArgumentKind::CheckOperand,
+                    ) => *expected = Some(value),
                     (language::StageKind::Range(bounds), language::ArgumentKind::RangeStart) => {
                         bounds.start = value
                     }
@@ -3016,13 +3031,25 @@ impl<'a> NativeHost<'_> {
                     }
                     _ => unreachable!("integer argument target came from this native stage"),
                 }
-            } else {
-                let zirql::ConstructedValue::String(value) = value.into_data() else {
-                    return Err(zirql::EvaluationError::Host(QueryError::query(
-                        range.clone(),
-                        "primitive argument needs a string",
-                    )));
-                };
+            } else if let zirql::ConstructedValue::String(value) = value {
+                if matches!(
+                    argument.kind,
+                    language::ArgumentKind::CheckMessage | language::ArgumentKind::CheckOperand
+                ) {
+                    let stage = query
+                        .stages
+                        .iter_mut()
+                        .find(|stage| stage.range.start == argument.owner)
+                        .expect("stage argument came from this template");
+                    let language::StageKind::Check { expected, message } = &mut stage.kind else {
+                        unreachable!()
+                    };
+                    if matches!(argument.kind, language::ArgumentKind::CheckOperand) {
+                        *expected = None;
+                    }
+                    *message = Some(value);
+                    continue;
+                }
                 let mut kind = Some(
                     argument
                         .kind
@@ -3705,7 +3732,12 @@ fn validate_value(
             if let QueryResult::Selection(selection) = value.as_ref()
                 && !selection.document
             {
-                crate::validate_fragment_directives(selection.input, &selection.items)?;
+                crate::validate_fragment_directives(
+                    selection.input,
+                    &selection.items,
+                    &mut Work { budget },
+                    range,
+                )?;
             }
             if json {
                 inspection::validate_json(value, &mut Work { budget }, range)?;

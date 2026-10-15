@@ -1652,3 +1652,46 @@ fn worklist_and_reducer_programs_match_inline_files_and_library() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn native_stream_controls_share_inline_file_and_positional_execution() {
+    let source = r#"let saved=items; let n=saved | count; let message="rows";
+        saved | tail(n-1) | reverse | check(message) | check(2,message) | names"#;
+    let path = std::env::temp_dir().join(format!(
+        "zincite-stream-controls-query-{}.zq",
+        std::process::id()
+    ));
+    std::fs::write(&path, source).unwrap();
+    let common = ["--stdin-filepath", "input.dzn"];
+    let mut inline = common.to_vec();
+    inline.extend(["--program", source]);
+    let mut file = common.to_vec();
+    file.extend(["--program-file", path.to_str().unwrap()]);
+    let input = b"a=1; b=2; c=3;";
+    let inline = run(&inline, input);
+    let file = run(&file, input);
+    assert!(
+        inline.status.success() && inline.stderr.is_empty(),
+        "{inline:?}"
+    );
+    assert!(file.status.success() && file.stderr.is_empty(), "{file:?}");
+    assert_eq!(inline.stdout, b"c\nb\n");
+    assert_eq!(inline.stdout, file.stdout);
+    let mut positional = common.to_vec();
+    positional.push("tail(2) | reverse | check(2, \"rows\") | names");
+    let positional = run(&positional, input);
+    assert!(
+        positional.status.success() && positional.stderr.is_empty(),
+        "{positional:?}"
+    );
+    assert_eq!(inline.stdout, positional.stdout);
+    let failed = r#"report 7; items | tail(2) | check(1,"need one")"#;
+    std::fs::write(&path, failed).unwrap();
+    let mut failure = common.to_vec();
+    failure.extend(["--program-file", path.to_str().unwrap()]);
+    let failure = run(&failure, input);
+    assert_eq!(failure.status.code(), Some(2));
+    assert!(failure.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&failure.stderr).contains("expected 1 items, got 2: need one"));
+    std::fs::remove_file(path).unwrap();
+}
