@@ -410,6 +410,17 @@ fn map_queries(
         K::Array(values) => K::Array(values.into_iter().map(|v| map_queries(v, lower)).collect()),
         K::Tuple(values) => K::Tuple(values.into_iter().map(|v| map_queries(v, lower)).collect()),
         K::Set(values) => K::Set(values.into_iter().map(|v| map_queries(v, lower)).collect()),
+        K::Dictionary(entries) => K::Dictionary(
+            entries
+                .into_iter()
+                .map(|(key, value)| (map_queries(key, lower), map_queries(value, lower)))
+                .collect(),
+        ),
+        K::DictionaryComprehension { clauses, key, head } => K::DictionaryComprehension {
+            clauses: map_clauses(clauses, lower),
+            key: Box::new(map_queries(*key, lower)),
+            head: Box::new(map_queries(*head, lower)),
+        },
         K::Record(fields) => K::Record(
             fields
                 .into_iter()

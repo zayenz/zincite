@@ -553,6 +553,19 @@ impl ValueReaderHost for Parser<'_> {
                 _ => {}
             }
         }
+        let first = self
+            .lexed
+            .tokens()
+            .partition_point(|token| token.range.start < start);
+        if self
+            .next_value_token(first, end)
+            .and_then(|index| self.common_collection_range(index, end))
+            .is_some()
+        {
+            // The common reader owns this collection. Returning it to CST
+            // lowering here would re-enter the same callback indefinitely.
+            return Ok(None);
+        }
         let common_if = conditional && !minizinc_if;
         let current_input =
             reader.source()[start..end].trim() == "input" && !self.is_binding("input");
@@ -1732,6 +1745,8 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
                             | zirql::ValueExpressionKind::Array(_)
                             | zirql::ValueExpressionKind::Tuple(_)
                             | zirql::ValueExpressionKind::Record(_)
+                            | zirql::ValueExpressionKind::Dictionary(_)
+                            | zirql::ValueExpressionKind::DictionaryComprehension { .. }
                             | zirql::ValueExpressionKind::Set(_)
                             | zirql::ValueExpressionKind::Unary { .. }
                             | zirql::ValueExpressionKind::Binary { .. }

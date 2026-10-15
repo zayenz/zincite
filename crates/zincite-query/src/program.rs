@@ -1400,6 +1400,11 @@ impl<'a> Parser<'a> {
         &mut self,
         range: Range<usize>,
     ) -> Result<(Expression, Kind, bool), QueryError> {
+        if self.common_collections(range.clone()) {
+            self.first_report_call.get_or_insert(range.clone());
+            self.prepared = true;
+            return self.function_expression(range);
+        }
         if self.prepared_values && self.first_report_call.is_some() {
             return self.function_expression(range);
         }
@@ -2008,7 +2013,7 @@ fn lower_members(
             }
             lower_members(otherwise, members);
         }
-        K::KeyedArray { entries, .. } => {
+        K::Dictionary(entries) | K::KeyedArray { entries, .. } => {
             for (key, value) in entries {
                 lower_members(key, members);
                 lower_members(value, members);
@@ -2016,6 +2021,11 @@ fn lower_members(
         }
         K::Comprehension { clauses, head, .. } => {
             lower_generator_members(clauses, members);
+            lower_members(head, members);
+        }
+        K::DictionaryComprehension { clauses, key, head } => {
+            lower_generator_members(clauses, members);
+            lower_members(key, members);
             lower_members(head, members);
         }
         K::KeyedComprehension {

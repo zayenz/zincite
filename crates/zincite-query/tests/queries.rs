@@ -4314,6 +4314,48 @@ fn report_ordering_keeps_rows_ties_optional_results_and_selector_ranges() {
     assert!(
         matches!(result.emissions()[0].value(),ReportValue::Constructed(value) if value==&expected)
     );
+    let dictionary_sorts = r#"
+        let key="pear";
+        let dictionary={key:2,"ash":1,"elm":2};
+        report (
+            literal:sort_by({"pear":2,"ash":1},value),
+            computed:sort_by({key:2,"ash":1},value),
+            saved:sort_by(dictionary,value),
+            descending:sort_by(dictionary,value,descending=true),
+            cost:sort_by({"pear":{"cost":2},"ash":{"cost":1}},"cost"),
+            quoted:sort_by({"pear":{"value":2},"ash":{"value":1}},"value")
+        );"#;
+    let result = Program::parse(dictionary_sorts, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let ReportValue::Constructed(value) = result.emissions()[0].value() else {
+        panic!("constructed dictionary sorts")
+    };
+    let V::Record(fields) = value.data() else {
+        panic!("dictionary sort report")
+    };
+    let order = |value: &V| {
+        let V::Record(entries) = value.data() else {
+            panic!("same-kind dictionary")
+        };
+        entries
+            .iter()
+            .map(|(key, _)| key.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(order(&fields[0].1), ["ash", "pear"]);
+    assert_eq!(order(&fields[1].1), ["ash", "pear"]);
+    assert_eq!(order(&fields[2].1), ["ash", "pear", "elm"]);
+    assert_eq!(order(&fields[3].1), ["pear", "elm", "ash"]);
+    assert_eq!(order(&fields[4].1), ["ash", "pear"]);
+    assert_eq!(order(&fields[5].1), ["ash", "pear"]);
+    let quoted_failure = r#"sort_by({"pear":2,"ash":1}, "value")"#;
+    let error = Program::parse(quoted_failure, limits)
+        .and_then(|p| p.evaluate(&input, limits))
+        .unwrap_err();
+    assert_eq!(&quoted_failure[error.range], "\"value\"");
+    assert!(error.message.contains("record rows"));
     for source in [
         r#"report min_by([(score: 1), (other: 2)], "score");"#,
         r#"report max_by([(score: 1), (score: <>)], "score");"#,
@@ -6704,4 +6746,69 @@ fn native_nested_observations_refuse_saved_partial_results_and_final_unknown() {
         .evaluate_with_model(&input, Some(&model), limits)
         .unwrap();
     assert!(!result.render().unwrap().is_empty());
+}
+
+#[test]
+fn brace_collections_keep_data_order_function_locals_and_minizinc_forms() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    use zirql::ConstructedValue as V;
+    let limits = ProgramLimits::default();
+    let input = Input::parse(b"n=1;".to_vec(), FileMode::Data).unwrap();
+    let result = Program::parse(include_str!("fixtures/brace-collections.zirql"), limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let ReportValue::Constructed(value) = result.emissions()[0].value() else {
+        panic!("constructed report")
+    };
+    let V::Record(fields) = value.data() else {
+        panic!("dictionary")
+    };
+    assert_eq!(
+        fields
+            .iter()
+            .map(|(key, _)| key.as_str())
+            .collect::<Vec<_>>(),
+        ["set", "dictionary", "access", "empty", "typed", "sorted"]
+    );
+    let V::Record(entries) = fields[1].1.data() else {
+        panic!("computed entries")
+    };
+    assert_eq!(
+        entries
+            .iter()
+            .map(|(key, _)| key.as_str())
+            .collect::<Vec<_>>(),
+        ["pear!", "apple!"]
+    );
+    assert!(
+        matches!(fields[0].1.data(),V::Set {elements,..} if elements == &[V::Integer(3),V::Integer(1)])
+    );
+    assert!(
+        Program::parse(r#"let held={"pear":1}; create report=held; emit;"#, limits)
+            .unwrap_err()
+            .message
+            .contains("report-only")
+    );
+    let source = r#"fn make(k:string) -> record {"pear":set<int>} { let key=k; {key:{3,1,3}} } let saved=make("pear"); report saved["pear"]; report [{3,1,3}, {n mod 3 | n in 1..5}, (score: 7)];"#;
+    let result = Program::parse(source, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let ReportValue::Constructed(value) = result.emissions()[0].value() else {
+        panic!("function result")
+    };
+    assert!(
+        matches!(value.data(),V::Set {elements,..} if elements == &[V::Integer(3),V::Integer(1)])
+    );
+    let ReportValue::Constructed(value) = result.emissions()[1].value() else {
+        panic!("natural forms")
+    };
+    let V::Array(values) = value.data() else {
+        panic!("array")
+    };
+    assert!(
+        matches!(values[1].data(),V::Set {elements,..} if elements == &[V::Integer(1),V::Integer(2),V::Integer(0)])
+    );
+    assert!(matches!(values[2].data(),V::Record(fields) if fields[0].0=="score"));
 }

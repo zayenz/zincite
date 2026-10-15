@@ -959,6 +959,30 @@ The single-pipeline `Query` API also supports the assignment edits described
 below. Build from the source checkout; `Cargo.lock` selects the Zirql revision
 used by this implementation.
 
+#### Brace collections in reports
+
+`{3, 1, 3}` constructs an integer set in first-insertion order, removing
+repeated values. `{k: value}` constructs a dictionary using the string value
+of `k`; quoted keys remain literal strings. Repeated `for name in source`
+clauses and optional `if condition` filters use the shared evaluator:
+
+```zirql
+{k: {n mod 3 for n in 1..5}
+ for w in ["pear", "apple"]
+ for k in [w, w ++ "!"] if ends_with(k, "!")}
+```
+
+The keys are `pear!`, then `apple!`; both sets keep `1, 2, 0`. Each dictionary
+key runs and is checked for a collision before its value runs. Keys require
+present strings. Strict `.field` and `[key]` access fail on a missing stored
+field; `lookup` is optional. Declared record schemas still constrain labels.
+
+Empty `{}` is a dictionary. `set<int>()`, `set<bool>()` and `set<float>()`
+construct typed empty scalar sets. Natural MiniZinc set/comprehension/record
+forms remain supported. These common report forms do not expand data-edit
+syntax, model evaluation or serialization. See the
+[dictionary example](queries.md#build-a-dictionary-from-string-keys).
+
 #### Program invocation and Rust results
 
 Use `zincite-query --program TEXT [FILE|-]` or `zincite query --program TEXT

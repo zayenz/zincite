@@ -1895,3 +1895,56 @@ fn native_existence_and_fixed_points_replay_files_and_buffer_nested_failures() {
     }
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn brace_reports_match_inline_files_and_buffer_duplicate_failures() {
+    let path = std::env::temp_dir().join(format!("zincite-brace-{}.zirql", std::process::id()));
+    for (source, success) in [
+        (include_str!("fixtures/brace-collections.zirql"), true),
+        (
+            r#"report {3,1}; let k="pear"; report {k:1,(k ++ ""):1 div 0};"#,
+            false,
+        ),
+    ] {
+        std::fs::write(&path, source).unwrap();
+        let inline = run(
+            &["--program", source, "--stdin-filepath", "data.dzn"],
+            b"n=1;",
+        );
+        let file = run(
+            &[
+                "--program-file",
+                path.to_str().unwrap(),
+                "--stdin-filepath",
+                "data.dzn",
+            ],
+            b"n=1;",
+        );
+        assert_eq!(inline.status.success(), success, "{inline:?}");
+        assert_eq!(file.status.success(), success, "{file:?}");
+        assert_eq!(inline.stdout, file.stdout);
+        if success {
+            let output: serde_json::Value = serde_json::from_slice(&inline.stdout).unwrap();
+            assert_eq!(
+                output["result"]["dictionary"]
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
+                ["pear!", "apple!"]
+            );
+        } else {
+            assert!(inline.stdout.is_empty());
+            for result in [inline, file] {
+                let message = String::from_utf8_lossy(&result.stderr);
+                assert!(
+                    message.contains("duplicate dictionary key: pear"),
+                    "{message}"
+                );
+                assert!(message.contains("40..49"));
+            }
+        }
+    }
+    std::fs::remove_file(path).unwrap();
+}

@@ -226,7 +226,7 @@ impl Parser<'_> {
                 ) && self.names.contains_key(name)
             })
     }
-    fn next_value_token(&self, index: usize, end: usize) -> Option<usize> {
+    pub(super) fn next_value_token(&self, index: usize, end: usize) -> Option<usize> {
         use zincite_syntax::TokenKind as T;
         (index..self.lexed.tokens().len()).find(|&index| {
             let token = &self.lexed.tokens()[index];
@@ -464,6 +464,74 @@ impl Parser<'_> {
         }
         None
     }
+    pub(super) fn common_collections(&self, range: Range<usize>) -> bool {
+        self.lexed
+            .tokens()
+            .iter()
+            .enumerate()
+            .any(|(index, token)| {
+                token.range.start >= range.start
+                    && token.range.end <= range.end
+                    && self.common_collection_range(index, range.end).is_some()
+            })
+    }
+
+    pub(super) fn common_collection_range(&self, index: usize, end: usize) -> Option<Range<usize>> {
+        use zincite_syntax::TokenKind as T;
+        let tokens = self.lexed.tokens();
+        let first = tokens.get(index)?;
+        if first.kind == T::Identifier && &self.cursor.source[first.range.clone()] == "set" {
+            let mut reader =
+                zirql::ArgumentReader::new(&self.cursor.source[..end], first.range.start).ok()?;
+            reader.word().ok()?;
+            if reader.consume('<')
+                && reader.word().is_ok()
+                && reader.consume('>')
+                && reader.consume('(')
+                && reader.consume(')')
+            {
+                return Some(first.range.start..reader.position());
+            }
+            return None;
+        }
+        if first.kind != T::LeftBrace {
+            return None;
+        }
+        let mut depth = 0usize;
+        let mut colon = false;
+        let mut pipe = false;
+        let mut common_for = false;
+        let mut nonempty = false;
+        for token in &tokens[index..] {
+            if token.range.end > end {
+                break;
+            }
+            if depth == 1
+                && !matches!(
+                    token.kind,
+                    T::Whitespace | T::LineComment | T::BlockComment | T::RightBrace
+                )
+            {
+                nonempty = true;
+                common_for |= &self.cursor.source[token.range.clone()] == "for";
+            }
+            match token.kind {
+                T::LeftParen | T::LeftBracket | T::LeftBrace | T::MatrixStart => depth += 1,
+                T::RightParen | T::RightBracket | T::RightBrace | T::MatrixEnd => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return (colon || !pipe && (common_for || !nonempty))
+                            .then_some(first.range.start..token.range.end);
+                    }
+                }
+                T::Colon if depth == 1 => colon = true,
+                T::Pipe if depth == 1 => pipe = true,
+                _ => {}
+            }
+        }
+        None
+    }
+
     fn nested_controls(&mut self, range: Range<usize>) -> Result<Vec<EmbeddedValue>, QueryError> {
         let mut values = Vec::new();
         let mut index = self
@@ -473,11 +541,14 @@ impl Parser<'_> {
         while let Some(next) = self.next_value_token(index, range.end) {
             index = next + 1;
             let grouped = self.grouped_composed_range(next, range.end);
-            if !self.control_at(next, range.end) && grouped.is_none() {
+            let collection = self.common_collection_range(next, range.end);
+            if !self.control_at(next, range.end) && grouped.is_none() && collection.is_none() {
                 continue;
             }
             let start = self.lexed.tokens()[next].range.start;
             let end = if let Some((_, span)) = &grouped {
+                span.end
+            } else if let Some(span) = &collection {
                 span.end
             } else {
                 self.control_end(next, range.end)?
@@ -672,6 +743,11 @@ pub(super) fn lower_primitives(
             lower_generators(clauses, names, queries);
             lower_primitives(head, names, queries);
         }
+        K::DictionaryComprehension { clauses, key, head } => {
+            lower_generators(clauses, names, queries);
+            lower_primitives(key, names, queries);
+            lower_primitives(head, names, queries);
+        }
         K::KeyedComprehension {
             clauses,
             key,
@@ -685,7 +761,7 @@ pub(super) fn lower_primitives(
                 lower_primitives(value, names, queries);
             }
         }
-        K::KeyedArray { entries, .. } => {
+        K::Dictionary(entries) | K::KeyedArray { entries, .. } => {
             for (key, value) in entries {
                 lower_primitives(key, names, queries);
                 lower_primitives(value, names, queries);
@@ -2147,8 +2223,13 @@ pub(super) fn check_value<'v, Q>(
             K::Block { bindings, .. } => bindings.len().saturating_add(1),
             K::Loop { states, .. } => states.len().saturating_add(1),
             K::ValueMatch { arms, .. } => arms.len().saturating_mul(2).saturating_add(1),
-            K::KeyedArray { entries, .. } => entries.len().saturating_mul(2),
+            K::Dictionary(entries) | K::KeyedArray { entries, .. } => {
+                entries.len().saturating_mul(2)
+            }
             K::Comprehension { clauses, .. } => clauses.len().saturating_mul(2).saturating_add(1),
+            K::DictionaryComprehension { clauses, .. } => {
+                clauses.len().saturating_mul(2).saturating_add(2)
+            }
             K::KeyedComprehension {
                 clauses,
                 empty_axis_sources,
@@ -2286,12 +2367,16 @@ pub(super) fn check_value<'v, Q>(
                     children.push(&arm.value);
                 }
             }
-            K::KeyedArray { entries, .. } => {
+            K::Dictionary(entries) | K::KeyedArray { entries, .. } => {
                 children.extend(entries.iter().flat_map(|(a, b)| [a, b]))
             }
             K::Comprehension { clauses, head, .. }
+            | K::DictionaryComprehension { clauses, head, .. }
             | K::KeyedComprehension { clauses, head, .. } => {
                 children.push(head);
+                if let K::DictionaryComprehension { key, .. } = &value.value {
+                    children.push(key);
+                }
                 if let K::KeyedComprehension {
                     key,
                     empty_axis_sources,

@@ -1037,3 +1037,33 @@ requirement instead.
 Functions cannot capture top-level bindings, so the required and available
 counts are passed as arguments. The report leaves the original staffing files
 unchanged.
+
+## Build a dictionary from string keys
+
+Bare braces construct a set or a string dictionary in a read-only report.
+A colon separates each dictionary key expression from its value. This query
+needs no model facts and works with the existing `data.dzn` fixture:
+
+```sh
+zincite query --program 'let words=["pear","apple"]; {w: {n mod 3 for n in 1..5} for w in words}' data.dzn
+```
+
+The dictionary keeps `pear`, then `apple`; each value is a set iterating as
+`1, 2, 0`. Zincite renders that set with its existing `kind` and `elements`
+fields inside the complete report envelope. Saving a dictionary retains its
+keys, values and insertion order. `{w: 1}` reads the bound string `w`;
+`{"w": 1}` uses the literal key `w`.
+
+Each key must be a present string. A duplicate key fails before evaluating
+its value. `d["pear"]` is strict and fails if the stored entry is missing;
+`lookup(d, "pear")` returns absence for a valid missing entry. A present absent
+value remains distinct from a missing entry.
+
+`{3, 1, 3}` keeps `3, 1`, and `sort({3, 1, 3})` keeps the set kind in order
+`1, 3`. Empty `{}` is a dictionary. Use `set<int>()`, `set<bool>()` or
+`set<float>()` for typed empty scalar sets. Nominal values and empty nominal
+sets retain their host-supplied type identity. Strings are not set elements.
+Natural MiniZinc sets, `(field: value)` records and `|` comprehensions remain
+available. The common dictionary and typed empty syntax is report-only; the
+[data-edit expression rules](query-comprehension-contract.md#report-expressions-and-edit-grammar)
+retain their existing closed subset.

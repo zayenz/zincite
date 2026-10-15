@@ -36,6 +36,27 @@ defines the depth bound, traversal order and incomplete-result behaviour.
 These operations are available in read-only reports. Data-edit programs support
 the narrower set of input stages and expressions below.
 
+## Common brace forms in read-only reports
+
+Read-only reports also accept `{key: value}` dictionaries and
+`{key: value for name in source if condition}` comprehensions. Keys are
+expressions that must return present strings. Each key is checked for a
+duplicate before its value runs. The dictionary keeps successful generation
+order and uses the same record data and declared schemas as quoted static
+fields. `d[key]` and `d.field` fail on a missing stored field; `lookup(d,key)`
+returns absence for a valid missing key.
+
+Bare sets accept `{3, 1, 3}` and `{n mod 3 for n in 1..5}`. They keep `3, 1`
+and `1, 2, 0` respectively. Empty `{}` is a dictionary in this report syntax;
+`set<int>()`, `set<bool>()` and `set<float>()` supply typed empty scalar sets.
+Nominal identities and empty nominal sets remain supplied by the host. String
+sets remain unsupported. Arrays, tuples, grouping and function/control blocks
+compose with these values; a final collection inside a block has its own braces.
+
+Natural MiniZinc records and `|` comprehensions retain the forms below. The
+common dictionary and typed empty forms are read-only report syntax. Data edits
+retain the closed MiniZinc subset and serialization checks below.
+
 ## Report expressions and edit grammar
 
 Read-only requests may interleave parameters, immutable bindings and output
@@ -98,8 +119,8 @@ The brackets, key prefix and generator forms match the pinned [array and
 indexed array comprehensions](https://docs.minizinc.dev/en/2.10.1/spec.html#indexed-array-comprehensions).
 A generator's `in` source must be a finite constructed or source-backed array,
 a fixed set with the supported element types below, or a finite integer range.
-Set iteration uses type order: `false` before `true`, numeric order for numbers
-and declaration order for members. An `in` generator yields **values**;
+Sets iterate in first-insertion order. Explicit `sort` uses `false` before
+`true`, numeric order for numbers and declaration order for members. An `in` generator yields **values**;
 `a in records` does not yield keys or `(key, value)` pairs. Use `index_set(records)` and
 `records[i]` for rank-one keys, or `entries(records)` to read full keys and values
 from any keyed rank. Multiple names before `in` each range over the
@@ -259,7 +280,7 @@ those checks run before evaluation. At runtime a skipped branch does not
 produce arithmetic or missing-key errors. Set construction, set generators and
 set membership accept only homogeneous fixed Booleans, signed integers, finite
 floats or resolved members of one enum. A constructed set removes duplicates
-by typed identity and renders in type order. A string set, or a set with another
+by typed identity and renders in first-insertion order. A string set, or a set with another
 unsupported element, fails at the set expression or source literal range before report or `.dzn`
 serialization. Strings remain ordinary scalars, array elements and `++`
 operands. The [pinned specification](https://docs.minizinc.dev/en/2.10.1/spec.html#sets)

@@ -362,6 +362,25 @@ impl<Q> Lower<'_, '_, Q> {
         };
         Ok(Located::new(text, lowered.range))
     }
+    fn sort_selector(
+        &mut self,
+        selector: &SyntaxNode,
+        depth: usize,
+    ) -> Result<Located<zirql::SortSelector>, QueryError> {
+        if selector.kind() == N::Expression
+            && self.tokens(selector).next().is_some_and(|token| {
+                self.parsed.tokens()[token].kind == T::Identifier && self.text(token) == "value"
+            })
+        {
+            let lowered = self.node(selector, depth)?;
+            return Ok(Located::new(zirql::SortSelector::Value, lowered.range));
+        }
+        let field = self.field_selector(selector, depth)?;
+        Ok(Located::new(
+            zirql::SortSelector::Field(field.value),
+            field.range,
+        ))
+    }
     fn descending_option(&mut self, option: &SyntaxNode) -> Result<bool, QueryError> {
         let failure = || {
             QueryError::query(
@@ -787,14 +806,27 @@ impl<Q> Lower<'_, '_, Q> {
                             QueryError::query(range.clone(), "ordering needs an array argument")
                         })?;
                         let array = Box::new(self.node(array, depth + 1)?);
-                        let field = if by_field {
-                            let selector = args.next().ok_or_else(|| {
+                        let selector = if by_field {
+                            Some(args.next().ok_or_else(|| {
                                 QueryError::query(
                                     range.clone(),
                                     "field ordering needs a string selector",
                                 )
-                            })?;
-                            Some(self.field_selector(selector, depth + 1)?)
+                            })?)
+                        } else {
+                            None
+                        };
+                        let field = if sorting {
+                            None
+                        } else {
+                            selector
+                                .map(|value| self.field_selector(value, depth + 1))
+                                .transpose()?
+                        };
+                        let selector = if sorting {
+                            selector
+                                .map(|value| self.sort_selector(value, depth + 1))
+                                .transpose()?
                         } else {
                             None
                         };
@@ -815,12 +847,7 @@ impl<Q> Lower<'_, '_, Q> {
                         if sorting {
                             K::Sort {
                                 array,
-                                selector: field.map(|field| {
-                                    Located::new(
-                                        zirql::SortSelector::Field(field.value),
-                                        field.range,
-                                    )
-                                }),
+                                selector,
                                 descending,
                             }
                         } else {
@@ -1138,8 +1165,14 @@ fn references_binding<Q>(
             any_binding(values.iter(), names, budget)
         }
         K::Record(fields) => any_binding(fields.iter().map(|(_, v)| v), names, budget),
-        K::KeyedArray { entries, .. } => {
+        K::Dictionary(entries) | K::KeyedArray { entries, .. } => {
             any_binding(entries.iter().flat_map(|(k, v)| [k, v]), names, budget)
+        }
+        K::DictionaryComprehension { clauses, key, head } => {
+            Ok(
+                any_binding([key.as_ref(), head.as_ref()].into_iter(), names, budget)?
+                    || generator_binding(clauses, names, budget)?,
+            )
         }
         K::KeyedComprehension {
             clauses,
@@ -1266,7 +1299,7 @@ pub(crate) fn eager_names<Q>(
                 eager_names(value, names, budget)?;
             }
         }
-        K::KeyedArray { entries, .. } => {
+        K::Dictionary(entries) | K::KeyedArray { entries, .. } => {
             for (key, value) in entries {
                 eager_names(key, names, budget)?;
                 eager_names(value, names, budget)?;
@@ -1323,8 +1356,13 @@ pub(crate) fn eager_names<Q>(
             }
             eager_names(otherwise, names, budget)?;
         }
-        K::Comprehension { clauses, head, .. } | K::KeyedComprehension { clauses, head, .. } => {
+        K::Comprehension { clauses, head, .. }
+        | K::DictionaryComprehension { clauses, head, .. }
+        | K::KeyedComprehension { clauses, head, .. } => {
             eager_names(head, names, budget)?;
+            if let K::DictionaryComprehension { key, .. } = &expression.value {
+                eager_names(key, names, budget)?;
+            }
             if let K::KeyedComprehension {
                 key,
                 empty_axis_sources,
