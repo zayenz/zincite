@@ -137,6 +137,68 @@ Short, simple comprehensions remain compact when they fit. A long generator
 header expands to one generator per line; a `where` filter goes below its own
 generator. Generator order and filter attachment stay intact.
 
+## Nested arrays and parentheses
+
+Singleton arrays and parentheses share adjacent delimiters. Short conditional
+bodies stay compact when they fit, including inside several array dimensions.
+The brackets and parentheses still represent every written wrapper.
+
+Before:
+
+```minizinc
+any: value=[[[if p then 1 else 0 endif]]];
+any: choices=[[if p then [i|i in Position] else [0] endif]];
+```
+
+After:
+
+```minizinc
+any: value = [[[if p then 1 else 0 endif]]];
+any: choices = [[if p then [i | i in Position] else [0] endif]];
+```
+
+A longer body wraps its operands or branches while keeping adjacent brackets
+together. With `--max-line-length 60`:
+
+Before:
+
+```minizinc
+any: value=[[[first_operand+second_operand+third_operand+fourth_operand+fifth_operand]]];
+```
+
+After:
+
+```minizinc
+any: value = [[[first_operand + second_operand +
+    third_operand + fourth_operand + fifth_operand]]];
+```
+
+With `--max-line-length 40`, an outer conditional expands while its short inner
+conditional remains compact:
+
+Before:
+
+```minizinc
+any: value=[[[if p then (if q then 1 else 2 endif) else 0 endif]]];
+```
+
+After:
+
+```minizinc
+any: value = [[[if p then
+    (if q then 1 else 2 endif)
+else
+    0
+endif]]];
+```
+
+A comment, blank-line group or explicitly expanded comma list keeps its own
+layout boundary. Surrounding singleton wrappers still share adjacent delimiters.
+Delimiter chains that exceed the configured width split across lines. Deeply nested conditional
+branches retain their structural indentation; the
+[nested layout measurements](../scripts/nested-layout-performance.md) show the
+remaining output growth.
+
 ## Matrices
 
 Two-dimensional literals use one logical row per line and aligned columns.

@@ -117,6 +117,7 @@ fn format_output(
         break_before_code: false,
         suffix_columns: 0,
         preserve_binary_breaks: false,
+        compact_conditionals: false,
     };
     let mut ranges = protected.iter().peekable();
     let mut protected_output = Vec::new();
@@ -191,6 +192,7 @@ struct Formatter<'a> {
     break_before_code: bool,
     suffix_columns: usize,
     preserve_binary_breaks: bool,
+    compact_conditionals: bool,
 }
 
 struct MatrixCell {
@@ -386,6 +388,10 @@ impl<'a> Formatter<'a> {
     }
 
     fn expression_contents(&mut self, node: &SyntaxNode, leading_space: bool) {
+        if self.wrapper_child(node).is_some() {
+            self.delimiter_chain(node, leading_space);
+            return;
+        }
         if is_binary(node.kind()) {
             self.binary_expression_layout(node, leading_space, false);
             return;
@@ -398,7 +404,12 @@ impl<'a> Formatter<'a> {
             node.kind(),
             NodeKind::ConditionalExpression | NodeKind::LetExpression
         ) {
-            self.control_expression(node, leading_space, false);
+            let compact = self.compact_conditionals
+                && node.kind() == NodeKind::ConditionalExpression
+                && self.conditional_can_inline(node)
+                && (self.measuring && !self.measuring_prefix
+                    || self.conditional_fits_inline(node, leading_space));
+            self.control_expression(node, leading_space, compact);
             return;
         }
         if matches!(
@@ -645,6 +656,162 @@ impl<'a> Formatter<'a> {
                 matches!(child, SyntaxElement::Token(index)
                     if self.parsed.tokens()[*index].kind == TokenKind::And)
             })
+    }
+
+    // A singleton wrapper adds delimiters, not another block around its child.
+    // Comments, commas and explicitly expanded scalar entries retain list layout.
+    fn wrapper_child<'n>(&self, node: &'n SyntaxNode) -> Option<&'n SyntaxNode> {
+        if !matches!(
+            node.kind(),
+            NodeKind::ArrayLiteral | NodeKind::ParenthesizedExpression
+        ) {
+            return None;
+        }
+        let mut children = node.child_nodes();
+        let child = children.next()?;
+        if children.next().is_some()
+            || node.children().iter().any(|element| {
+                let SyntaxElement::Token(index) = element else {
+                    return false;
+                };
+                let token = &self.parsed.tokens()[*index];
+                match token.kind {
+                    TokenKind::LeftBracket
+                    | TokenKind::RightBracket
+                    | TokenKind::LeftParen
+                    | TokenKind::RightParen => false,
+                    TokenKind::Whitespace => {
+                        let text = &self.parsed.source()[token.range.clone()];
+                        text.contains(['\r', '\n'])
+                            && text.replace("\r\n", "\n").matches(['\r', '\n']).count() > 1
+                    }
+                    _ => true,
+                }
+            })
+        {
+            return None;
+        }
+        if node.kind() == NodeKind::ArrayLiteral
+            && self.has_line_break(node)
+            && !matches!(
+                child.kind(),
+                NodeKind::ArrayLiteral | NodeKind::ParenthesizedExpression
+            )
+            && !self.parsed.source()[child.range()].contains(['\r', '\n'])
+        {
+            return None;
+        }
+        Some(child)
+    }
+
+    fn delimiter_chain(&mut self, node: &SyntaxNode, leading_space: bool) {
+        let mut wrappers = Vec::new();
+        let mut body = node;
+        while let Some(child) = self.wrapper_child(body) {
+            wrappers.push(body);
+            body = child;
+        }
+        // Closing chains can split to width. Reserve the first close for the
+        // body, and reserve surrounding punctuation at the final close below.
+        let body_suffix = 1 + if wrappers.len() == 1 {
+            self.suffix_columns
+        } else {
+            0
+        };
+        let compact = self.compact_conditionals;
+        self.compact_conditionals = true;
+        for (position, wrapper) in wrappers.iter().enumerate() {
+            if position + 1 == wrappers.len()
+                && self.prefix_exceeds_width(body, false, body_suffix + 1)
+            {
+                self.newlines(self.pending_breaks.max(1));
+            }
+            let opening = wrapper
+                .children()
+                .iter()
+                .find_map(|element| match element {
+                    SyntaxElement::Token(index)
+                        if !is_trivia(self.parsed.tokens()[*index].kind) =>
+                    {
+                        Some(*index)
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            self.chain_delimiter(opening, position == 0 && leading_space, 0);
+        }
+        self.expression_before(body, false, body_suffix);
+        self.compact_conditionals = compact;
+        for (position, wrapper) in wrappers.iter().rev().enumerate() {
+            let closing = wrapper
+                .children()
+                .iter()
+                .rev()
+                .find_map(|element| match element {
+                    SyntaxElement::Token(index)
+                        if !is_trivia(self.parsed.tokens()[*index].kind) =>
+                    {
+                        Some(*index)
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            let suffix = if position + 1 == wrappers.len() {
+                self.suffix_columns
+            } else {
+                0
+            };
+            self.chain_delimiter(closing, false, suffix);
+        }
+    }
+
+    fn chain_delimiter(&mut self, token: usize, space: bool, suffix: usize) {
+        if self.options.max_line_length.is_some_and(|width| {
+            self.current_columns() + usize::from(space) + 1 + suffix > width.get()
+        }) {
+            self.newlines(self.pending_breaks.max(1));
+        }
+        self.token_with_space(token, space);
+    }
+
+    fn conditional_can_inline(&self, node: &SyntaxNode) -> bool {
+        let range = node.range();
+        if self.parsed.source()[range.clone()].contains(['\r', '\n']) {
+            return false;
+        }
+        let tokens = self.parsed.tokens();
+        let start = tokens.partition_point(|token| token.range.end <= range.start);
+        !tokens[start..]
+            .iter()
+            .take_while(|token| token.range.start < range.end)
+            .any(|token| matches!(token.kind, TokenKind::LineComment | TokenKind::BlockComment))
+    }
+
+    fn conditional_fits_inline(&self, node: &SyntaxNode, leading_space: bool) -> bool {
+        // Literal/token columns alone can rule out a long conditional. Avoid
+        // rendering its entire nested body for each enclosing fit decision.
+        if let Some(width) = self.options.max_line_length {
+            let range = node.range();
+            let tokens = self.parsed.tokens();
+            let start = tokens.partition_point(|token| token.range.end <= range.start);
+            let mut columns = self.suffix_columns;
+            for token in tokens[start..]
+                .iter()
+                .take_while(|token| token.range.start < range.end)
+            {
+                if !is_trivia(token.kind) {
+                    columns += self.parsed.source()[token.range.clone()].chars().count();
+                    if columns > width.get() {
+                        return false;
+                    }
+                }
+            }
+        }
+        let mut preview = self.preview();
+        let start = preview.output.len();
+        preview.control_expression(node, leading_space, true);
+        !preview.output[start..].contains('\n')
+            && !preview.exceeds_width(self.current_columns(), self.suffix_columns)
     }
 
     fn parenthesized(&mut self, node: &SyntaxNode, leading_space: bool) {
@@ -1412,6 +1579,7 @@ impl<'a> Formatter<'a> {
             break_before_code: self.break_before_code,
             suffix_columns: self.suffix_columns,
             preserve_binary_breaks: self.preserve_binary_breaks,
+            compact_conditionals: self.compact_conditionals,
         }
     }
 

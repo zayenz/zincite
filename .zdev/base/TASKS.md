@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 138
-- Ready: 2
+- Ready: 1
 - Blocked: 0
-- Done: 136
+- Done: 137
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -142,7 +142,7 @@
 | [base-131](tasks/131-build-an-astro-documentation-site-with-zincite-branding.md) | Build an Astro documentation site with Zincite branding | done | base-130 |
 | [base-132](tasks/132-publish-and-verify-the-approved-zincite-documentation-site.md) | Publish and verify the approved Zincite documentation site | done | base-131 |
 | [base-133](tasks/133-reject-stale-formatter-write-targets.md) | Reject stale formatter write targets | done | — |
-| [base-134](tasks/134-keep-nested-collections-compact-and-reduce-deep-layout-expan.md) | Keep nested collections compact and reduce deep layout expansion | ready | — |
+| [base-134](tasks/134-keep-nested-collections-compact-and-reduce-deep-layout-expan.md) | Keep nested collections compact and reduce deep layout expansion | done | — |
 | [base-135](tasks/135-apply-the-ordinary-file-latency-target-and-separate-large-da.md) | Apply the ordinary-file latency target and separate large-data reporting | done | — |
 | [base-136](tasks/136-expose-semantic-lint-groups-as-built-in-presets.md) | Expose semantic lint groups as built-in presets | done | — |
 | [base-137](tasks/137-broaden-the-default-lint-preset-with-three-focused-checks.md) | Broaden the default lint preset with three focused checks | done | base-136 |

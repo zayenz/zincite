@@ -362,6 +362,86 @@ fn structure(node: &zincite_syntax::SyntaxNode, parsed: &zincite_syntax::ParsedF
 }
 
 #[test]
+fn nested_delimiters_keep_fitting_bodies_compact_and_wrap_long_bodies() {
+    use std::num::NonZeroUsize;
+    use zincite_fmt::{FormatOptions, format_with_options};
+
+    for (source, width, expected) in [
+        ("any: x=[[[1]]];", 120, "any: x = [[[1]]];\n"),
+        (
+            "any: x=[[[if p then 1 else 0 endif]]];",
+            120,
+            "any: x = [[[if p then 1 else 0 endif]]];\n",
+        ),
+        (
+            "any: x=[[[if p then 1 else 0 endif]]];",
+            30,
+            "any: x = [[[if p then\n    1\nelse\n    0\nendif]]];\n",
+        ),
+        (
+            "any: x=[[[first_operand+second_operand+third_operand+fourth_operand+fifth_operand]]];",
+            60,
+            "any: x = [[[first_operand + second_operand + third_operand +\n    fourth_operand + fifth_operand]]];\n",
+        ),
+        (
+            "any: x=[[[if p then (if q then 1 else 2 endif) else 0 endif]]];",
+            40,
+            "any: x = [[[if p then\n    (if q then 1 else 2 endif)\nelse\n    0\nendif]]];\n",
+        ),
+    ] {
+        let options = FormatOptions {
+            max_line_length: NonZeroUsize::new(width),
+            ..FormatOptions::default()
+        };
+        let parsed = parse(source);
+        let formatted = format_with_options(&parsed, &options).unwrap();
+        assert_eq!(formatted, expected);
+        assert!(formatted.lines().all(|line| line.len() <= width));
+        let reparsed = parse(&formatted);
+        assert_eq!(
+            structure(parsed.tree(), &parsed),
+            structure(reparsed.tree(), &reparsed)
+        );
+        assert_eq!(format_with_options(&reparsed, &options).unwrap(), formatted);
+    }
+}
+
+#[test]
+fn nested_delimiters_retain_comments_explicit_lists_and_protected_items() {
+    use std::num::NonZeroUsize;
+    use zincite_fmt::{FormatOptions, IndentStyle, format_with_options};
+
+    let source = "any: x=[[[% Keep  boundary\n1]]];\nany: y=[[[\n1,\n]]];\nany: z=[[if p then [i|i in Position] else [0] endif]];\nany: groups=[\n\n[1,2]];\n% zincite-fmt: skip\nany: protected=[[[ 1 ]]];";
+    let options = FormatOptions {
+        indent_style: IndentStyle::Tab,
+        max_line_length: NonZeroUsize::new(40),
+        ..FormatOptions::default()
+    };
+    let parsed = parse(source);
+    let formatted = format_with_options(&parsed, &options).unwrap();
+    assert!(
+        formatted.contains("[[[ % Keep  boundary\n\t1,\n]]]"),
+        "{formatted}"
+    );
+    assert!(formatted.contains("[[[\n\t1,\n]]]"), "{formatted}");
+    assert!(
+        formatted.contains("\n\t[i | i in Position]\n"),
+        "{formatted}"
+    );
+    assert!(
+        formatted.contains("groups = [\n\n\t[1, 2],\n];"),
+        "{formatted}"
+    );
+    assert!(formatted.ends_with("any: protected=[[[ 1 ]]];"));
+    let reparsed = parse(&formatted);
+    assert_eq!(
+        structure(parsed.tree(), &parsed),
+        structure(reparsed.tree(), &reparsed)
+    );
+    assert_eq!(format_with_options(&reparsed, &options).unwrap(), formatted);
+}
+
+#[test]
 fn formats_nested_expressions_with_stable_structure_and_multiline_calls() {
     let source = "int:x=-2^2+2^3^2; string:s=\"a\"++\"b\"++\"c\";\nany:v::tag(1)=f(1,'arg name': '+'(2,3,),z:empty(),)::(a::b);\nconstraint::\"label\" not(x)::a -> 'not'(x)::b;\nany:r=..3 union 1..<; any:i=C^-1(v)+C⁻¹(v)+v⁻¹;\nany:n=+ +2; any:m=f(\n1, % Keep  comment\n nested(2,3),\n); solve satisfy;";
     let parsed = parse(source);
@@ -971,6 +1051,15 @@ else false endif;
                                 formatted.contains(&format!("\n{condition}(if is_fixed(")),
                                 "{formatted}"
                             );
+                            let compact = format!(
+                                "{condition}(if is_fixed(c[max(index_set(c))]) then fix(c[max(index_set(c))]) else false endif) then"
+                            );
+                            if keyword == "elseif"
+                                && width >= outer + offset + compact.trim_start().len()
+                            {
+                                assert!(formatted.lines().any(|line| line == compact));
+                                continue;
+                            }
                             assert!(
                                 formatted.contains(&format!(
                                     "\n{}fix(c[",
