@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 138
-- Ready: 1
+- Ready: 0
 - Blocked: 0
-- Done: 137
+- Done: 138
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -146,4 +146,4 @@
 | [base-135](tasks/135-apply-the-ordinary-file-latency-target-and-separate-large-da.md) | Apply the ordinary-file latency target and separate large-data reporting | done | — |
 | [base-136](tasks/136-expose-semantic-lint-groups-as-built-in-presets.md) | Expose semantic lint groups as built-in presets | done | — |
 | [base-137](tasks/137-broaden-the-default-lint-preset-with-three-focused-checks.md) | Broaden the default lint preset with three focused checks | done | base-136 |
-| [base-138](tasks/138-measure-current-lint-runtime-on-a-small-varied-model-set.md) | Measure current lint runtime on a small varied model set | ready | base-137 |
+| [base-138](tasks/138-measure-current-lint-runtime-on-a-small-varied-model-set.md) | Measure current lint runtime on a small varied model set | done | base-137 |

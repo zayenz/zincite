@@ -59,6 +59,8 @@ The [support guide](docs/support.md) distinguishes current behavior, supported
 Unknown, located limitations, input failures and future work. The
 [save checkpoint](scripts/save-performance-current.md) applies the 100 ms p95
 target to named ordinary editing cases and reports dense data separately.
+The [current lint measurements](scripts/lint-performance-current.md) report
+fresh-process runtime, memory and analysis completeness for five model roots.
 
 ## Libraries
 
