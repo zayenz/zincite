@@ -246,6 +246,33 @@ Lint reports diagnostics on stderr and does not rewrite files. It exits 0 when
 clean, 1 for unsuppressed warnings, and 2 for input, parse, directive or usage
 errors. On parse errors, omit lint rules for that file and report syntax errors.
 
+## Approved usability follow-up (2026-10-15)
+
+The new tasks deliver compact nested layouts, formatter stale-file protection,
+domain-oriented lint presets and a modestly broader default. These are requested
+outcomes until their implementation tasks complete; earlier acceptance records
+remain historical evidence.
+
+Prefer compact nested array delimiters such as `[[[ expr ]]]` when the entire
+expression fits and comments/directives permit it. Consider nested conditionals
+and multiline inner expressions as well: avoid unnecessary delimiter-only
+staircases without flattening array dimensions or changing expression structure.
+Retain the settled explicit/implicit comprehension correspondence and source
+preservation. Review representative rendered examples, not stability alone.
+
+Keep the existing primary lint families and add built-in semantic presets:
+conventions, scope, arrays, domains, formulation, flattening and search. Keep
+thesis as a cross-cutting fourteen-rule preset. The grouping task defines the
+exact rule mapping. Broaden default from its existing three rules by adding
+index-set-mismatch, suspicious-shadowing and partial-expression. Other broad
+modelling/performance advice stays opt-in. This planned six-rule default
+supersedes earlier three-rule default requirements when implemented. Fix
+availability, safety, severity and analysis completeness remain separate.
+
+Formatter explicit writes must reject a file changed since reading before
+replacing it, using the existing lint-fix replacement approach where practical.
+This is stale-edit protection, not a promise of cross-process locking.
+
 ## Remaining layout defaults
 
 These defaults complete the agreed formatting direction without adding style
@@ -946,12 +973,13 @@ The editor replaces its buffer only on success; syntax/configuration/directive
 errors leave it intact. Saving does not run lint rules, resolve includes, invoke
 MiniZinc, or scan the workspace. Existing no-partial-output behavior remains.
 
-Use these proposed acceptance budgets on the user's M1 Max with a release build:
-
-| Representative edited model/data size | End-to-end p95 | Peak child RSS |
-| --- | ---: | ---: |
-| Up to 100 KiB | 50 ms | 32 MiB |
-| Above 100 KiB, up to 1 MiB | 100 ms | 64 MiB |
+The 2026-10-15 clarification sets a 100 ms end-to-end p95 target for
+representative ordinary edited files on the user's M1 Max with a release build.
+Classify a small named set of ordinary editing cases by workload, not a blanket
+byte-size cutoff. Megabytes of dense/generated data and synthetic nesting stress
+cases remain supported and measured for throughput, memory and scaling; they
+are not subject to the ordinary-file 100 ms target. Retain historical budgets
+and measurements as dated evidence, not current acceptance requirements.
 
 Latency includes process startup, stdin/stdout transfer, EditorConfig lookup,
 parsing and formatting. Measure repeated saves with a fresh process each time
@@ -966,7 +994,7 @@ covering ordinary models, dense data, matrices, comments and nested expressions,
 with exact sizes and a few synthetic growing families. Add newly discovered slow
 shapes to that set instead of excluding them. Use at least 50 measured save
 samples per small case for reported p95, reporting sample count and spread. The
-budgets apply to each representative case, not a percentile pooled across files.
+ordinary-file target applies to each named ordinary editing case, not a percentile pooled across files.
 Include invalid edited buffers in responsiveness checks while retaining their
 error status. Inputs over 1 MiB stay fully supported: measure representative
 large cases and growth, report throughput and peak RSS, and require no unexplained
