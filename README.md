@@ -7,15 +7,22 @@
 </picture>
 
 Zincite formats, lints and queries MiniZinc model (`.mzn`) and data (`.dzn`)
-files. The Rust commands share a source-preserving parser and need no compiler
-or solver. Zincite is under development, targeting MiniZinc 2.10.1; formatting
-may change before a stable release.
+files. Use it to keep layout consistent, get feedback on modelling choices,
+and inspect source or data without running a compiler or solver. The Rust
+commands share a source-preserving parser. Zincite is under development,
+targeting MiniZinc 2.10.1; formatting may change before a stable release.
+
+The [documentation site](https://zayenz.se/zincite/) introduces the tools.
+Start with the [staffing walkthrough](docs/first-model.md): format a model,
+give its constraints useful labels, then find a day where the data cannot
+meet the demand.
 
 ## Start here
 
 | Task | Documentation |
 | --- | --- |
-| Install and try the commands | [Getting started](docs/getting-started.md) |
+| Install the commands | [Installation](docs/getting-started.md) |
+| Follow a model through formatting, linting and a data query | [Staffing walkthrough](docs/first-model.md) |
 | Format files and configure layout | [Formatting guide](docs/formatting.md), [style gallery](docs/formatting-style.md) |
 | Set up formatting in an editor | [Format on save](docs/format-on-save.md) |
 | Select lint rules, understand categories and apply fixes | [Linting guide](docs/linting.md) |

@@ -23,29 +23,31 @@ Formatter stdout mode accepts one input. Multiple files require `--check` or
 `--write`; directories support `--check` only. Formatter diagnostics go to stderr.
 Lint diagnostics go to stderr; ordinary analysis preserves files.
 
-Queries accept one query and at most one file or `-`; omitted input reads stdin.
-The [query reference](reference.md#query-library) defines pipeline output and
-semantic model loading. `--program TEXT`, `-f PROGRAM` or `--program-file PROGRAM`
-selects a [query program](reference.md#query-programs). Inline and file programs
-share evaluation, results, limits and buffered output. Select exactly one source;
-program options are exclusive with each other and the legacy positional query.
-Program mode accepts at most one file or `-`, with no positional query slot.
-Programs have immutable bindings followed
-by reports or one `create`/`replace` batch ending in `emit;`. Data
-programs require `.dzn` mode and `--model` for target declarations. Query
-diagnostics go to stderr. Inline errors use `<program>` and file errors name the
-program file; both retain byte ranges. `--max-work`, `--max-results`, `--max-items`
-and `--max-nesting` apply to either program form and are unavailable for legacy
-queries. Read-only programs refuse `--diff` and `--write`.
+Queries accept one input file or `-`. With no input file, they read stdin.
+Choose one way to supply the query:
 
-```sh
-zincite-query --program 'source d = literal("demand"); report sum(d);' data.dzn
-zincite query --program 'source d = literal("demand"); report sum(d);' data.dzn
-```
+| Form | Example |
+| --- | --- |
+| Positional pipeline | `zincite query 'filter(kind("constraint")) | count' model.mzn` |
+| Inline program | `zincite query --program 'report 2 + 3;' model.mzn` |
+| Program file | `zincite query --program-file report.zq model.mzn` |
 
-For `demand = [2,3,4];`, these return the tagged integer `9`. Reports support eager
-array length, checked integer sum, Boolean forall/exists and literal-message
-require. These expressions do not execute a MiniZinc model or solver.
+`-f` is short for `--program-file`. These forms cannot be combined in one
+invocation. Query diagnostics go to stderr and identify the query location;
+errors in an input file retain that file's path and range.
+
+Programs support bindings, reports and explicit data edits. A data edit
+program requires `.dzn` input and `--model` for target declarations. Read-only
+programs reject `--diff` and `--write`. See the [query guide](queries.md) for
+reports and the [data-edit guide](data-edits.md) for transformations.
+
+Program options `--max-work`, `--max-results`, `--max-items` and `--max-nesting`
+limit evaluation and output. They are not available for positional pipelines.
+An exceeded limit fails the request; it does not silently truncate the result.
+The [program reference](reference.md#query-programs) defines the default limits.
+
+Query output is buffered until evaluation and rendering succeed. If a later
+statement fails, the command produces no partial report on stdout.
 
 ## Explicit writes
 

@@ -1,9 +1,10 @@
 # Syntax and library reference
 
-Zincite targets MiniZinc 2.10.1 model (`.mzn`) and data (`.dzn`) files.
-For installation and command usage, see the [README](../README.md).
+This reference describes accepted MiniZinc syntax, query operations and the
+Rust library interfaces. Zincite targets MiniZinc 2.10.1 model (`.mzn`) and
+data (`.dzn`) files.
 
-For command workflows, start with [installation](getting-started.md),
+For worked command examples, start with [installation](getting-started.md),
 [formatting](formatting.md), [linting](linting.md), [queries](queries.md) or
 [data edits](data-edits.md). [Support limits](support.md) separate current
 capabilities from incomplete analysis and planned work.
@@ -98,34 +99,11 @@ The parser supports:
   attached to those expressions.
 
 Items use semicolon separators; the last semicolon is optional on input.
-Comments may occur between tokens. Formatting preserves comment, literal and
-operator spelling and explicit parentheses. It puts a labelled constraint's
-expression on the following line and retains explicitly multiline comma-separated
-lists with one entry per line and a trailing comma. A multiline nested entry does
-not expand its enclosing list. Generator calls use spaces before their header and
-body parentheses. `forall` bodies use block indentation, including quoted
-`'forall'` calls. A direct `if` or `elseif` condition with a single short body can
-stay inline when the complete condition fits; comments and multiline expressions
-retain their layout. Other short bodies stay compact; explicitly expanded bodies stay
-expanded. Generator headers exceeding 120 columns or written with line breaks
-use one generator per line, with each `where` filter indented beneath its generator.
-Expanded headers have a trailing comma; bodies contain a single expression without
-an added comma. Ordinary expressions, annotations, lists and item continuations
-wrap using their actual line prefix and following delimiters. Broken binary
-operators end the preceding line; continuation indentation stays consistent
-through a chain. Parentheses, precedence and annotation order are preserved.
-Indivisible identifiers, literals and preserved comments may exceed the width
-without a warning.
-Conditional branch bodies and `let` blocks/bodies use block indentation;
-local item order, separators, parentheses and annotation attachment are retained.
-Generic type-inst syntax is shared by local, top-level and callable declarations.
-No local name resolution or checks of branch types or declaration initializers are
-performed. Adjacent include groups sort with their attached comments, retaining
-written paths and group boundaries; included files are never loaded.
-Matrices align columns and wrap rows at shared column boundaries when needed,
-retaining their logical row boundaries, indices and comments. It normalizes
-editable spacing, defaults to LF with a final newline, and preserves blank-line
-groups while collapsing excess blank layout lines.
+Comments may occur between tokens. The parser keeps their original spelling,
+as well as literal/operator spelling and explicit parentheses. Formatting
+changes layout and sorts adjacent include groups; it does not load includes
+or check types. See the [formatting style guide](formatting-style.md) for the
+layout rules and before-and-after examples.
 
 Tuple and record types, literals and chained field/tuple access are supported,
 including nested types, `var`/`par`/`opt` qualifiers, array fields, aliases, callable
@@ -137,7 +115,6 @@ including `(value,)`; this follows the pinned grammar despite its prose excludin
 unary tuples. Record literals also accept `(field: value)` without a comma,
 matching MiniZinc 2.10.1 beyond the printed record production. They retain a
 record node and field-label nodes rather than becoming parenthesized expressions.
-The structured fixture and its formatted output pass MiniZinc 2.10.1 model checks.
 `variant_record` and `case` are reserved keywords without productions in the
 pinned grammar; they remain unsupported and produce diagnostics. Unsupported
 input produces diagnostics. Range-type bounds follow the numeric-expression
@@ -152,7 +129,6 @@ Parsing checks syntax only: it does not resolve includes or names, require a
 solve item, infer types or check semantic validity. For example, accepting a
 named argument does not establish that a callable has that parameter, and
 accepting a range expression does not establish that its bounds have valid types.
-The enum/alias fixture and its formatted output pass MiniZinc 2.10.1 model checks.
 Type-inst concatenation examples establish syntax and format stability only:
 MiniZinc rejects an enum-target `type Joined = Left ++ Right` with a type error.
 Zincite retains the pinned concatenation syntax without imposing that semantic
@@ -163,19 +139,13 @@ index tuple `()` as a key, although the installed MiniZinc 2.10.1 compiler rejec
 it. That compiler also crashes on a mixed binder/plain-index declaration during
 `--model-check-only`; Zincite accepts these forms from the specification.
 
-The comparison with the pinned [full grammar](https://docs.minizinc.dev/en/2.10.1/spec.html#full-grammar)
-covers its item families, ordinary and parameter type-inst forms, general and
-numeric expressions, collection/structured literals and access, control and
-call expressions, interpolation and annotations. All planned families have
-shared parser/formatter paths; the integration fixture combines them, rather
-than treating each family as an isolated syntax subset. This is family coverage,
-not a claim of complete compiler compatibility: the grammar/compiler differences
-and syntax-only exclusions above still apply. `variant_record` and `case` have
-no productions in this grammar. JSON data and solver output formats are outside
-the `.mzn`/`.dzn` target.
+The [MiniZinc 2.10.1 grammar](https://docs.minizinc.dev/en/2.10.1/spec.html#full-grammar)
+is the syntax target. The grammar/compiler differences above still apply:
+accepting its syntax does not establish full compiler compatibility.
+`variant_record` and `case` have no productions in that grammar. JSON data
+and solver output are outside the `.mzn`/`.dzn` inputs.
 
-The model/data pair and cross-family integration fixture, both original and
-formatted, pass MiniZinc 2.10.1 `--model-check-only`. Data assignment expressions
+Data assignment expressions
 use the same expression grammar as models, without evaluation or type checking.
 The specification forbids user-defined operation calls in data files; deciding
 whether a call is user-defined requires model name resolution, so syntax-only
@@ -408,8 +378,7 @@ and `source_kind` predicates also accept checked expressions. Native accepted
 names, nonnegative indices and range order are still checked. Known wrong
 types fail before a query executes, including empty or unchosen predicates.
 `source data = literal(field);` accepts a checked string assignment name.
-Literal pipeline arguments and short positional queries keep their behavior;
-legacy positional queries have no parameter declarations and reject inputs.
+Positional pipelines have no parameter declarations and reject `--param`.
 
 Rust `Program::parameters()` exposes declaration metadata.
 `evaluate_with_parameters`, `evaluate_with_model_and_parameters` and
@@ -428,11 +397,10 @@ let result = program.evaluate_with_parameters(
 )?;
 ```
 
-Existing evaluation methods supply an empty input set. Input conversion and
-admission share the request work and aggregate result allowance with evaluation
-and rendering. Data edits keep their closed type and call policy, complete
-candidate validation and atomic write boundary. Any admission or later failure
-leaves CLI stdout empty and the input file unchanged.
+Evaluation methods without a parameter argument supply an empty input set. Input conversion and validation use the same work and result budgets as
+evaluation and rendering. Parameterized data edits have the same supported
+types, calls and candidate checks as other edits. Any failure leaves CLI
+stdout empty and the input file unchanged.
 
 ### Query programs
 
@@ -445,7 +413,7 @@ to earlier bindings. `query("pipeline")` uses the stages above; its string is
 parsed once and diagnostics retain the original program byte coordinates.
 A bare expression emits its result. `report expression;` emits JSON.
 
-```text
+```zirql
 source selected = query("declarations");
 source n = selected | query("count");
 source histogram = selected | query("names | tally");
@@ -454,7 +422,7 @@ report (count: n, histogram: histogram, selected: selected);
 
 Record fields use identifiers or nonempty single-quoted labels and preserve written order in the native
 `ReportValue::Record`. Duplicate labels fail. Parentheses also group expressions.
-A binding can hold a native selection, count, histogram or nested record. Counts
+A binding can hold a source selection, count, histogram or nested record. Counts
 render as integers; histograms render as string-to-count objects. Selections
 retain their original nodes or declaration/reference identities, file owners and
 ranges. A constructed record has no input-source range. These inspection leaves
@@ -474,7 +442,7 @@ value. MiniZinc `if`/`then`/`elseif`/`else`/`endif` and comprehensions keep thei
 ordinary query-expression spelling. The shared `if condition { value } else
 { value }` form is also accepted.
 
-```text
+```zirql
 fn accumulate(n: int, total: int) -> int {
     if n = 0 then total else accumulate(n - 1, total + n) endif
 }
@@ -486,7 +454,7 @@ active frame, including a mutual tail call. A pending operation such as
 `1 + accumulate(n - 1, 0)` needs another frame. Functions have a separate active
 call-depth limit of 64; library callers can use
 `Program::with_function_limits(zirql::FunctionLimits { active_depth: 1 })`.
-The tail example still succeeds at depth one with the default work allowance.
+The example succeeds at depth one with the default work allowance.
 Non-tail calls refuse at the limit. Tail calls still spend work, so a
 nonterminating function eventually refuses. Diagnostics keep the original
 query or model location and append bounded function-call context.
@@ -543,10 +511,8 @@ small headers and prepares the written bodies and entries once, then reads
 admitted immutable arguments and locals through shared owners. Repeated calls
 with the same contract avoid deep argument copies and whole native-argument
 rescans. The first boundary checks every actual native element, owner and
-coordinate. Fresh or changed contracts check again. This reduces allocation
-charges for retained reads; materialization, fresh values, emission snapshots
-and rendering retain their budget charges. Existing limits and defaults stay
-the same. Reusing a parsed `Program` after failure starts a fresh evaluation
+coordinate. Fresh or changed contracts check again. Reading a shared value avoids copying its contents. Materializing new values,
+snapshotting emissions and rendering output still consume the request budget. Reusing a parsed `Program` after failure starts a fresh evaluation
 with its current input, facts and allowances.
 
 #### Bounded declaration paths
@@ -562,7 +528,7 @@ order. Resolved value/type bindings and exactly selected resolved calls can
 produce declaration edges; intrinsic endpoints produce none. Repeated targets
 keep their first occurrence. Reference occurrences are not extra path steps.
 
-Zirql supplies the only breadth-first evaluator. It returns one shortest witness
+Paths are evaluated breadth-first by Zirql. It returns one shortest witness
 per source/sink pair, suppresses repeated source identities and cycles, and uses
 edge order to choose equal-length ties. Matching sinks can lead to further sinks.
 Rows have native `source`, `sink` and ordered `steps` fields; steps include both
@@ -575,16 +541,16 @@ A final Unknown target, including under `not`, refuses at the responsible model
 location. A known Boolean alternative may retain a witness and its limitations.
 No witness within a bound does not establish global disconnection.
 
-Source/neighbor scans, comparisons, traversal slots, native copies, witnesses
-and rendering share the existing aggregate program budget. Paths remain
+Source and neighbor scans, comparisons, traversal storage, native copies,
+returned paths and rendering share one program budget. Paths remain
 report-only and are excluded from data expressions and preceding edit lets.
-See [the complete inline, file and library example](queries.md#explain-declaration-connections).
+See the [declaration-path example](queries.md#explain-declaration-connections).
 
 #### Native projections and captures
 
 Read-only programs also accept domain stages directly:
 
-```text
+```zirql
 report subtree | declarations | unique | project(d, {
   "name": d | names | one,
   "uses": d | uses | count
@@ -600,9 +566,8 @@ report matches | project(m, {"name": m.d | names | one, "text": m.u | text | one
 order. Field labels are static quoted strings. The explicit subject is local
 to the projection and cannot shadow a visible binding. Native handles need
 `names`, `text`, `count` or another supported scalar projection before entering
-a constructed field; `one` extracts exactly one projected value. Existing
-`query("...")` wrappers remain valid native leaves, and ordinary MiniZinc
-records and their field access keep their existing syntax.
+a constructed field; `one` extracts exactly one projected value. `query("...")` wrappers can also supply native results. Ordinary MiniZinc
+records and field access use the syntax shown in the value examples below.
 
 `match { ... }` returns `ReportValue::Captures`. `CaptureMatches::rows()` borrows
 its ordered `zirql::NativeCapture<ReportValue>` rows. The retained schema checks
@@ -629,17 +594,20 @@ request refuses them in preceding lets or edit expressions. See the
 [declaration/use example](queries.md#correlate-declarations-with-their-uses)
 for inline and file commands.
 
-Programs accept `source name = literal("assignment");`, immutable `let` bindings
-and pure positional or keyed reports. For input `zeta = [3, 5]; alpha = 2;`, this request
-constructs records in source order:
+#### Values and report expressions
 
-```text
-source labels = query("names");
-source numbers = literal("zeta");
-let rows = [(name: labels[i], doubled: numbers[i] * 2)
-  | i in index_set(numbers)];
+`source name = literal("assignment");` reads a written literal assignment.
+`let` binds a calculated value. For input `weights = [3, 5];`, this program
+doubles each weight and keeps its original position:
+
+```zirql
+source weights = literal("weights");
+let rows = [(index: i, doubled: weights[i] * 2)
+  | i in index_set(weights)];
 report rows;
 ```
+
+The rows contain `(index: 1, doubled: 6)` and `(index: 2, doubled: 10)`.
 
 Zirql evaluates scalar expressions, scopes and generators after Zincite lowers
 its existing MiniZinc CST. Later generators see earlier bindings. Multiple
@@ -727,7 +695,7 @@ and items retain input order and duplicates. Empty input returns an empty array.
 Missing fields and incompatible keys fail at the selector. Keyed arrays require
 an explicit positional conversion. Grouping is report-only, including preceding
 unused lets and skipped edit branches. See [machine groups](queries.md#group-machine-demands)
-for short inline, file and native library examples.
+for a complete input, query and result.
 
 `entries(a)` takes one keyed array and returns positional records with `key`
 followed by `value` in stored entry order. Rank-one keys are integer or enum
@@ -782,19 +750,18 @@ unknown or computed dependencies refuse the batch. Declared
 targets can establish empty axes; they cannot repair nonempty keys or holes.
 See the [data-edit guide](data-edits.md#construct-new-data) and the
 [explicit doubled instance](query-comprehension-contract.md#a-complete-doubled-instance).
-The existing single `Query` API retains its edit routes. Development
-uses a pinned Git revision of Zirql. The published alpha.5 release lacks the
-runtime host-validation API, so this integration has no registry version
-fallback until release work supplies one. Consumer release packaging also needs
-sibling dependency version metadata and registry readiness; it belongs to a
-release milestone.
+The single-pipeline `Query` API also supports the assignment edits described
+below. Build from the source checkout; `Cargo.lock` selects the Zirql revision
+used by this implementation.
+
+#### Program invocation and Rust results
 
 Use `zincite-query --program TEXT [FILE|-]` or `zincite query --program TEXT
 [FILE|-]` for inline programs. `-f PROGRAM` and `--program-file PROGRAM` read a
 file through the same Program API. Select one source: inline text, a program file
 or a legacy positional query. Repeated or mixed program sources fail. Program
 mode accepts at most one input file or `-` and has no positional query slot.
-Input, stdin and model options have their existing meanings. Report programs
+Input and model options follow the [command reference](cli.md). Report programs
 reject `--diff` and `--write`; editing programs use the existing preview and
 complete-candidate write rules. Both commands evaluate and render all requested
 outputs before writing stdout. A later runtime or rendering error leaves stdout
@@ -828,32 +795,44 @@ Call `render(&mut self)` to obtain one output buffer, then write those bytes onl
 after success. Every JSON emission uses `{complete, limitations, result}`, including
 syntax-only reports. Repeated rendering spends the same remaining allowance again.
 
-`ProgramLimits` defaults to 1,000,000 work units, 100,000 aggregate result units,
-100,000 items per stream and 64 nesting levels. CLI programs accept `--max-work`,
-`--max-results`, `--max-items` and `--max-nesting`. Aggregate units cover produced
-and copied native or constructed entries, generator candidates before filters,
-nested containers/fields, emission snapshots and JSON storage. Pure-expression
-lowering, validation and free-name discovery share the parse allowance across
-statements; evaluation admits those costs before input/fact preparation, and
-repeated evaluation pays them again. Data edits lower their original RHS text
-again with declared target evidence during evaluation; this work shares the
-request allowance. Candidate assembly, full reparsing and source rendering spend
-that allowance too. Reducers retain full materialization/candidate/copy costs,
-then sum/forall/exists pay one work unit per scanned element and length pays one
-for its count/conversion. Each summary pays one scalar result unit, including
-empty arrays. Require preflight pays literal message bytes; false diagnostic
-copying pays bytes before allocation. True require moves its child without
-another result or copy charge. Emission snapshots and rendering pay again.
-Grouping charges field/key comparisons, nominal checks, new containers/slots
-and copied keys/labels; rows move into items under the continuing budget.
-Before building the CST, parsing applies
-the nesting allowance conservatively to enclosed expression segments and their
-operator chains; sibling values and conditional branches reset local counts.
-JSON metadata reserves a bounded amount before construction. Work also covers
-copied strings/source text and encoded output bytes. Raw model tokens and
-CST nodes consume work when facts are first demanded; they do not consume result
-units. A warm fact owner still pays the current request's admission. These bounds
-refuse an entire request rather than truncate individual streams.
+#### Program limits
+
+`ProgramLimits` bounds the work and memory used by a query program. The CLI
+exposes the same settings:
+
+| CLI option | Default | What it limits |
+| --- | --- | --- |
+| `--max-work` | 1,000,000 | Evaluation work, including traversal, copying and rendering. |
+| `--max-results` | 100,000 | Aggregate result units across statements, nested values and output. |
+| `--max-items` | 100,000 | Items in any one stream. |
+| `--max-nesting` | 64 | Nesting of expressions and values. |
+
+Exceeding a limit fails the whole request. Zincite does not return a truncated
+stream. These are operation counts, not byte or elapsed-time limits.
+
+A small final report can still require substantial work. Generator candidates
+count before filtering, and reducers such as `sum`, `forall` and `exists`
+count the elements they scan. Constructing, copying and serializing a value
+also consume the budget. Nested containers and fields count toward the
+aggregate result limit; emission snapshots and rendering count separately.
+
+Parsing, expression validation and free-name discovery share an allowance
+across statements. Evaluation counts that preparation work again for each
+request. For data edits, type-aware expression processing, candidate assembly,
+reparsing and source rendering use the same request budget. Grouping counts
+key comparisons, type-identity checks, containers and copied keys or labels.
+`require` counts message bytes before preparing a failure diagnostic; a
+successful `require` returns its value without an extra copy.
+
+Work includes inspected model tokens and CST nodes when a query needs model
+facts, as well as copied source text, strings and encoded output. Reusing
+cached facts does not bypass the new request's limits. Model tokens and CST
+nodes do not count as result units.
+
+The parser checks expression nesting and operator chains before building the
+CST. Separate sibling values and conditional branches have separate depth
+counts. JSON construction also reserves bounded space for metadata before
+allocating it.
 
 ### Assignment edits
 
@@ -913,15 +892,21 @@ Arrays include `indexing` (`positional`, `explicit` or `starting_key`) and
 source spelling, rather than a normalized JSON value. Literal JSON is recursive
 inspection data and also rejects opaque invalid UTF-8 comment bytes.
 
-For example, inspect a keyed record's nested data with:
+For example, save these keyed records as `records.dzn`:
+
+```minizinc
+jobs = [A: (duration: 2, cost: 5), B: (duration: 3, cost: 4)];
+```
+
+Inspect the literal, record field names or array keys:
 
 ```sh
 zincite query 'values | json' records.dzn
 zincite query 'elements | fields | names | json' records.dzn
 zincite query 'keys | names | json' records.dzn
-zincite query 'filter(name("weights")) | filter_elements(gt(0))' instance.dzn
 ```
 
+To edit literal collections, see the [data-edit examples](data-edits.md).
 `filter_elements` compares direct scalar elements with `eq(VALUE)`, `lt(NUMBER)`,
 `le(NUMBER)`, `gt(NUMBER)` or `ge(NUMBER)`. Equality accepts numbers, Booleans,
 double-quoted strings and explicit member identity, for example
@@ -1325,8 +1310,7 @@ explicit limitations; analysis does not guess missing parameter values.
 bindings, source callable signatures and raw domains, without demanding
 instantiations, definitions or selected standard-body proofs. Mixed selections
 keep its source facts separate from the body-aware proof route required by other
-rules. The private member classifier keeps nominal candidate sets, scalar members and array axes separate;
-its findings never carry fixes. See [the supported identity-use and output
-boundary](linting.md#integer-identity-sets-and-enums). Fix support distinguishes
+rules. The analysis distinguishes candidate sets, their members and their use as
+array indices; its findings carry no fixes. See [integer sets and enums](linting.md#integer-identity-sets-and-enums). Fix support distinguishes
 available automatic edits from diagnostic-only rules; advisory wording remains
 separate from correctness, family, severity and individual fix safety.

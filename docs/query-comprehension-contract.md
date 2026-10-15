@@ -397,12 +397,12 @@ complete object (shown with line breaks for readability):
 Both reports are implemented. They use the current `names` projection as a
 source of strings; the keyed report preserves explicit positions.
 
-```text
+```zirql
 source names = query("filter(kind(\"assignment\")) | names");
 report [(name: n, label: "data:" ++ n) | n in names];
 ```
 
-```text
+```zirql
 source names = query("filter(kind(\"assignment\")) | names");
 report [i: (name: names[i]) | i in index_set(names)];
 ```
@@ -419,13 +419,13 @@ For a `.dzn` containing `counts = [3, 5];`, with `counts` and
 `doubled_counts` both declared as `array[1..2] of int` in a read-only model,
 these requests make different kinds of data edit:
 
-```text
+```zirql
 source old_counts = literal("counts");
 create doubled_counts = [old_counts[i] * 2 | i in index_set(old_counts)];
 emit;
 ```
 
-```text
+```zirql
 source old_counts = literal("counts");
 replace counts = [old_counts[i] + 1 | i in index_set(old_counts)];
 emit;
@@ -492,7 +492,7 @@ becomes `entity_map[i,c] = i + 2*c`, and an old group `g` becomes
 `group_map[g,c] = g + c`. Each source name binds an original literal value.
 The five replacements form one candidate.
 
-```text
+```zirql
 source old_entities = literal("entities");
 source old_capacities = literal("capacities");
 source old_groups = literal("groups");
@@ -550,7 +550,7 @@ Integer positions are not enum identities. Suppose the read-only model
 declares `enum Guests = {A, B, A_copy, B_copy};`. This report binding names
 both sides of a separate member mapping:
 
-```text
+```zirql
 let guest_map = [
     enum_member(Guests, "A"): enum_member(Guests, "A_copy"),
     enum_member(Guests, "B"): enum_member(Guests, "B_copy")

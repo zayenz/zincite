@@ -1,5 +1,10 @@
 # Format MiniZinc files
 
+Use the formatter to give models a consistent layout while keeping comments,
+identifier names and literal spelling. Preview a file before writing it, or
+check a directory as part of CI. The [staffing walkthrough](first-model.md#formatting-the-model)
+shows the input and output together.
+
 ```sh
 # Print formatted source to stdout.
 zincite fmt model.mzn
@@ -16,8 +21,8 @@ With no input argument, or with `-`, the formatter reads stdin. Multiple files
 require `--check` or `--write`; directories support `--check` only. Directory
 checks include hidden and Git-ignored `.mzn` and `.dzn` files and skip `.git`.
 
-See the [formatting style gallery](formatting-style.md) for the settled layout
-rules and reproducible examples.
+See the [formatting style gallery](formatting-style.md) for before-and-after examples
+of constraints, comprehensions, matrices and comments.
 
 Syntax or formatting-directive errors leave the affected file untouched.
 `--write` preserves file permissions and refuses symlinks. Other independent
@@ -27,7 +32,7 @@ files are still processed when one fails.
 
 Use the [format-on-save recipe](format-on-save.md) for stdin invocation, buffer
 replacement and failure handling. The [support page](support.md#performance)
-describes the current interactive acceptance limit.
+links to performance measurements.
 
 ## Configuration
 

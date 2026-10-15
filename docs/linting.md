@@ -1,30 +1,35 @@
 # Linting MiniZinc with Zincite
 
-Ordinary `zincite-lint` analysis reports diagnostics and preserves files.
-Explicit `--fix` applies eligible edits as described below. The parser targets
-MiniZinc 2.10.1 model and data syntax. Syntax support does not establish complete
-semantic validity, model feasibility or solver performance.
+Use linting to review a model's conventions and look for concerns such as
+mismatched indices, shadowed names or operations such as division by zero. Each finding names
+a rule and points to a source location. Ordinary runs leave the files alone;
+explicit `--fix` applies eligible edits as described below.
+
+After [installation](getting-started.md), start with a model you know:
 
 ```sh
-cargo build --release -p zincite -p zincite-lint
-./target/release/zincite-lint model.mzn
-./target/release/zincite-lint --list-rules
-./target/release/zincite-lint --explain hidden-optionality
-./target/release/zincite-lint --rules preset:arrays,preset:domains model.mzn
-./target/release/zincite lint --rules preset:scope model.mzn
+zincite lint model.mzn
+zincite lint --list-rules
+zincite lint --explain hidden-optionality
+zincite lint --rules preset:arrays,preset:domains model.mzn
 ```
 
-The default selects `naming`, `missing-constraint-label`,
-`prefer-array-comprehension`, `index-set-mismatch`, `suspicious-shadowing` and
-`partial-expression`, in that order. Omitted selection, `default` and
-`preset:default` are equivalent. Other rules stay opt-in. `thesis` keeps its
-fourteen original rules; `all` selects all 28 currently available rules. IDs,
-`family:NAME` and `preset:NAME` can be combined with commas. Expansion keeps the
-first occurrence of each ID. `default`, `thesis` and `all` remain accepted legacy
-selectors. `--list-rules` gives family, availability, fix support and membership.
+The [staffing walkthrough](first-model.md#linting-constraint-labels)
+shows a small example with two label warnings and a revision that addresses
+them. Passing those checks does not establish that the model has a solution.
 
-Choose a semantic preset for a MiniZinc concern. These seven groups cover all
-28 rules. Each row lists its rules in expansion order.
+## Choose the checks
+
+The default checks naming, constraint labels, array-construction wrappers,
+index compatibility, shadowing and partial expressions. Their rule IDs are
+`naming`, `missing-constraint-label`, `prefer-array-comprehension`,
+`index-set-mismatch`, `suspicious-shadowing` and `partial-expression`.
+
+Use `--rules` to select individual IDs or a preset. For example,
+`--rules naming,missing-constraint-label` runs only the two checks in the
+staffing walkthrough. `--rules preset:arrays` selects the array-related checks
+below. You can combine presets and IDs with commas; a rule selected twice runs
+only once.
 
 | Preset | Rules |
 | --- | --- |
@@ -36,76 +41,73 @@ Choose a semantic preset for a MiniZinc concern. These seven groups cover all
 | `flattening` | `expensive-comprehension`, `decision-variable-operator`, `decision-variable-generator`, `decision-variable-condition`, `reified-global` |
 | `search` | `search-coverage`, `unmarked-symmetry-breaking` |
 
-Use `preset:NAME` in `--rules` or settings. Combine groups with families and
-individual IDs, for example `preset:arrays,family:suspicious,partial-expression`.
-The `thesis` preset still contains exactly its original fourteen rules across
-these groups. `--list-rules` and `--explain RULE` show every built-in preset a
-rule belongs to, including `default`, `thesis` and `all` where applicable.
+`--rules default` selects the default rules, `--rules thesis` selects the
+fourteen rules based on Erik Rimskog's thesis, and `--rules all` selects all
+28 rules. The presets above organise them by modelling concern. Use
+`--list-rules` to see their membership and `--explain RULE` for a rule's
+meaning and limits.
 
-Families are `correctness`, `suspicious`, `modelling`, `performance` and `style`.
-Selection does not change severity. Symbolic Cartesian advice from
-`expensive-comprehension` is informational (`info`); a proved threshold
-exceedance is a warning. Informational findings alone retain status 0.
-Unsuppressed warnings produce 1. Usage, settings, input, syntax, directive or
-dependency errors produce 2, taking precedence over warnings and information.
-Limitations alone retain status 0 or 1.
-Independent input files continue after errors. A rule's `Completed`,
-`Inapplicable`, `Limited` or `NotRun` library result describes its analysis;
-command status 0 does not promise complete semantic coverage.
+## Reading diagnostics
 
-Both `zincite-lint` and `zincite lint` label model diagnostics with
-`[root PATH]` as well as the actual source path and original range. A shared
-include can have different findings under different roots. By default each root
-with limitations reports their exact count and says analysis is incomplete.
-Use `--show-limitations` to see every located limitation. This changes only
-presentation; library findings, limitations and rule outcomes remain available
-in full.
+A warning includes the rule ID, source path and location. For an included file,
+`[root PATH]` identifies the model being analysed: the same include can have
+different findings when used by different models.
 
-## Choose a category and inspect fix support
+Warnings produce exit status 1. Input or configuration errors produce 2.
+Informational advice alone produces 0. For example, `expensive-comprehension`
+can point out a product of symbolic generator sizes without claiming that it
+exceeds a numeric threshold or will be slow in practice.
 
-Use a family to select a kind of concern, then inspect individual rules with
-`--list-rules` or `--explain RULE`:
+Analysis can also be incomplete. Zincite prints the number of limitations for
+each affected model; use `--show-limitations` to read their locations and
+reasons. Limitations do not change the warning-based exit status, so a run with
+status 0 may still need attention. The [support guide](support.md) explains
+the difference between an unknown fact and incomplete analysis.
 
-| Family | Reader's question |
+## Rule families
+
+Use a family to select a kind of concern, for example
+`zincite lint --rules family:suspicious model.mzn`. Inspect individual rules
+with `--list-rules` or `--explain RULE`:
+
+| Family | What it checks |
 | --- | --- |
-| `correctness` | Is a supported source relationship inconsistent, such as an index-set mismatch? |
-| `suspicious` | Does the code contain a likely unintended construct, such as shadowing or hidden optionality? |
-| `modelling` | Is there a modelling concern, such as a missing input precondition or search coverage? |
-| `performance` | Does supported structure suggest expensive work? This does not estimate runtime or promise a speedup. |
-| `style` | Does the code depart from naming or layout-related modelling conventions? |
+| `correctness` | Inconsistent source relationships, such as incompatible array indices. |
+| `suspicious` | Constructs that may be unintended, such as shadowing or hidden optional values. |
+| `modelling` | Input assumptions, formulation choices and search coverage. |
+| `performance` | Source structure that may create expensive work during flattening. These checks do not predict solver runtime. |
+| `style` | Naming and source conventions. |
 
-A correctness-family finding is still a warning. Advisory wording asks for a
-modelling decision, and a rule with no fix may still diagnose a concrete concern.
-Use the [fix guide](#suppression-and-explicit-fixes) to distinguish Safe,
-conditional and diagnostic-only support before applying changes.
+Families describe the concern, not its severity or whether it can be fixed
+automatically. A correctness finding is still reported as a warning.
+[Fix support](#suppression-and-explicit-fixes) is listed separately.
 
 ## Model context and source preservation
 
-Semantic rules load the root and its include closure. Supply the library root
-that matches the model:
+Checks that need types or declaration uses read the model and the files it
+includes. Point Zincite at the matching MiniZinc standard library and any
+project include directories:
 
 ```sh
-./target/release/zincite-lint --rules all \
+zincite lint --rules all \
   --stdlib-dir /Applications/MiniZincIDE.app/Contents/Resources/share/minizinc \
   -I project/includes model.mzn
 ```
 
 `--stdlib-dir` overrides `MZN_STDLIB_DIR`; `-I` adds ordered include directories.
-The default loads the root and include closure for comprehension advice, index-set
-checks, lexical shadowing and partial expressions. Supply matching include and
-standard-library paths when the model needs them. Unsupported required semantics
-remain explicit analysis limitations; a quiet result does not prove expressions
-are total or index sets agree. Selecting only `naming,missing-constraint-label`
+The default rules need this context for array comprehensions, indices, shadowing
+and partial expressions. If required information is unavailable, Zincite reports
+a limitation instead of guessing the result. Selecting only `naming,missing-constraint-label`
 keeps analysis local to the source.
 Standalone `.dzn` files use assignment-only syntax and mark semantic rules
 inapplicable. Plain stdin lacks model context; semantic selections report a
 limitation. `--stdin-filepath PATH` sets language mode, diagnostic path and the
-settings anchor, including for an unsaved file. Directories discover `.mzn` and
+starting directory for settings lookup, including for an unsaved file. Directories discover `.mzn` and
 `.dzn` recursively, including hidden files, skip `.git`, and deduplicate canonical
 paths. Ordinary analysis preserves original bytes, comments, spelling, BOM and
 line endings.
 
-## Per-root settings and typed options
+## Project settings
 
 Each root uses the nearest ancestor `zincite.toml`. Ancestor settings are not
 merged. Includes use their root's settings. `--config PATH` applies one explicit
@@ -113,91 +115,88 @@ file to all roots; `--isolated` disables discovery. These switches are mutually
 exclusive. Zincite validates every root's settings before analysis or writes.
 `--show-settings` prints effective settings without reading model or stdin bytes.
 
+For example, this `zincite.toml` adds scope checks to the defaults and permits
+shadowing the short loop names `i` and `j`:
+
 ```toml
 [lint]
-select = ["preset:review"]
-extend-select = ["index-set-mismatch"]
-ignore = ["naming"]
-fixable = ["unused-generator-binding", "element-predicate"]
-unfixable = ["element-predicate"]
-
-[lint.presets.review]
-select = ["family:suspicious", "preset:flattening"]
-ignore = ["decision-variable-operator"]
-
-[lint.presets.review.options.expensive-comprehension]
-max-candidates = 50000
-
-[lint.options.expensive-comprehension]
-max-candidates = 25000
+select = ["default", "preset:scope"]
 
 [lint.options.suspicious-shadowing]
 ignore-names = ["i", "j"]
 ```
 
-Absent `select` uses default; `select = []` selects none. Zincite expands the
-selection, extends it, then removes ignored IDs. Personal presets are flat and
-cannot include another personal preset. Built-in preset names, rule IDs and
-family names are reserved; a personal preset with one of those names is a
-configuration error. Options merge defaults, the selected
-personal preset, then root overrides. `max-candidates` must be a positive integer
-and defaults to 1,000,000; threshold advice requires a known upper bound strictly
-above it. Symbolic structure advice does not establish a threshold exceedance. `ignore-names` contains exact binding names and defaults to empty.
+Without `select`, the defaults apply; `select = []` selects no rules.
+`extend-select` adds rules and `ignore` removes them. An explicit `--rules`
+replaces all three selection settings, while keeping rule options and fix
+restrictions.
 
-`--rules` replaces configured selection, extensions and exclusions after
-validating the configuration. It retains effective typed options and fix
-restrictions. Choosing a personal preset selects its option bundle. `fixable`
-and `unfixable` restrict edits independently of diagnostics; exclusions win.
+For a named review configuration, replace the example above with:
 
-## Additional rules
+```toml
+[lint]
+select = ["preset:review"]
 
-| ID | Family | Supported advice and important boundary |
-| --- | --- | --- |
-| `prefer-array-comprehension` | style | Standard `array1d`, `array2d` and `array3d` wrappers around matching independent comprehensions. Safe explicit fixes preserve body text and Cartesian axis order. Plain 1D requires proved contiguous `1..n`; other 1D keeps its key and 2D/3D keep ordered tuple keys, with every axis proved nonempty. Filters, dependent generators, annotations and unknown callable/set identity stay unchanged. Comments in removed wrapper text withhold a fix. |
-| `prefer-enum` | style | Opt-in advisory recommendation for finite integer identity sets. Requires supported member/index use throughout a complete model; numeric member observations and representation-sensitive output withhold advice. No automatic fix. |
-| `index-set-mismatch` | correctness | Written index ranges, offsets and enum/dimension identities incompatible with declared index sets. Candidate traversal is distinct from an exact bad index; no executed-value or runtime-error claim. |
-| `hidden-optionality` | suspicious | Core length comparisons consuming a decision-filtered/membership comprehension, including supported aliases, where slot capacity can differ from present values. Capacity use and all-present/empty/inactive cases stay quiet. |
-| `partial-expression` | suspicious | Proved failed nonzero/index/nonempty/presence obligations or demonstrated incompatible candidate indices. Unknown-only requirements stay quiet; guards, assertions, defaults and nearest Boolean context retain their distinct meanings. |
-| `suspicious-shadowing` | suspicious | A binding concealing a visible enclosing value binding, with exact exceptions. Disjoint scopes and ambiguous identity do not supply a guessed rename. |
-| `vacuous-constraint` | suspicious | Proved empty quantifiers, rejecting filters, tautological constraints and contradictory conditions. Optional present counts and upstream partiality/assertion abort remain explicit; no model-feasibility or removal advice. |
-| `unused-generator-binding` | suspicious | A membership name unused throughout its valid scope. Evaluation, multiplicity and later-generator/filter/annotation uses remain relevant; only supported comprehension forms can be fixed. |
-| `global-constraint-opportunity` | modelling | Complete pairwise disequality or matching whole-array occurrence bounds with actual coverage, types and totality. Advice names `all_different` or open four-argument `global_cardinality`; no speedup or automatic edit. |
-| `expensive-comprehension` | performance | Known candidate upper bounds and symbolic ordered dimensions. Earlier-prefix advice additionally needs retained guards, raw totality, nonempty crossed domains and safe evaluation. No runtime estimate, hoisting fix or count invented from symbolic data. |
-| `missing-input-precondition` | modelling | Supported general callable-body operations requiring matching array dimensions/membership, nonempty present values, nonzero division/modulus or positive integer-input logarithms. Defaults/global assumptions do not validate formal inputs; opaque meaning stays unsupported. |
-| `suspicious-domain` | suspicious | Complete integer RHS contracts against explicit scalar destinations. Exact/disjoint contradictions differ from conservative overlapping interval advice. Sparse members, immutable locals and enforced equality retain identity; defaults, unknowns and overflow prove no conflict. |
+[lint.presets.review]
+select = ["preset:arrays", "preset:domains", "expensive-comprehension"]
 
-Rules can report located limitations for unsupported required facts. Zincite
-invokes neither a compiler nor a solver and does not infer arbitrary callee
-meaning, symbolic algebra, feasibility or optimization benefit. Current installed-library and corpus limitations are
-recorded in [the expansion checkpoint](../scripts/lint-expansion-checkpoint.md).
+[lint.presets.review.options.expensive-comprehension]
+max-candidates = 25000
+```
+
+This reviews arrays and domains and warns when a known upper bound on
+comprehension candidates exceeds 25,000. The default threshold is 1,000,000.
+The threshold must be a positive integer; it is not a runtime estimate.
+
+A personal preset can include built-in presets, families and rule IDs, but
+not another personal preset. Its name must not duplicate a built-in name.
+Options in `[lint.options.RULE]` override options from the selected preset.
+`ignore-names` matches exact binding names.
+
+To restrict automatic edits, use `fixable` and `unfixable` in `[lint]`. They
+accept rule IDs and families; `unfixable` wins if both select the same rule.
+These settings affect edits, not which diagnostics are reported.
+
+## Selected rules
+
+These checks illustrate the kinds of feedback available. Use
+`zincite lint --explain RULE` for the conditions of an individual rule.
+
+| Rule | What to look at |
+| --- | --- |
+| `prefer-array-comprehension` | An `array1d`, `array2d` or `array3d` wrapper that could be a direct comprehension. A fix is offered only when indices, values and comments can be preserved. |
+| `prefer-enum` | An integer set used to identify things rather than represent numbers. See the enum discussion below. |
+| `index-set-mismatch` | An array access or traversal whose indices conflict with the array's declared index set. |
+| `hidden-optionality` | A length check on a comprehension filtered by a decision variable, where array capacity can differ from the number of present values. |
+| `partial-expression` | Division by zero, an invalid index, a minimum or maximum over an empty array or another operation whose required condition is known to fail. |
+| `suspicious-shadowing` | A local binding that hides a visible enclosing binding. |
+| `vacuous-constraint` | An empty quantifier, a filter that rejects every candidate, or a condition known to be always true or false. |
+| `unused-generator-binding` | A generator name that is never used. Removing the generator could change multiplicity; an eligible fix changes only the name to `_`. |
+| `global-constraint-opportunity` | Pairwise disequalities or occurrence bounds that may be clearer as `all_different` or `global_cardinality`. This is modelling advice, not a promised speedup. |
+| `expensive-comprehension` | Large products of generator sizes, or filters that may be applied too late. |
+| `missing-input-precondition` | A function or predicate that relies on input conditions such as nonempty arrays, compatible indices or a nonzero divisor. |
+| `suspicious-domain` | A value definition that conflicts with, or may exceed, its declared integer domain. |
+
+These rules use facts that Zincite can establish from the source. They do not
+evaluate arbitrary MiniZinc functions or prove whether a model is satisfiable.
 
 ## Definitions and domain advice
 
-`value_safety` and `definitions` retain Unknown for typed nonoptional integer
-selections and array comprehensions whose membership, iteration or values are
-unproved. `domains` does the same for opaque union comprehension operands,
-while keeping named set identity, union operands and useful closed minima.
-These facts need no body interpreter to certify admission. Unknown proves no
-member, bound, whole-array definition or safe edit.
+A declaration such as `var int: staff;` gives no explicit bound. The
+`unbounded-variable` rule can recommend an explicit domain when it can establish that the
+variable lacks a complete bounded definition. It can also recognise supported
+definitions elsewhere in the model, including matching per-element bounds.
 
-`unbounded-variable` still advises on simple bare numeric declarations and
-understood conditional or partial definitions. Complete anchored definitions
-and explicit scalar or matching per-element ranges suppress that advice.
-An opaque initializer or relation withholds advice on its conservatively
-referenced targets; an independent declaration can still warn. When references
-cannot delimit the affected targets, the owner retains the necessary wider
-veto. Supported opacity can complete without a finding. Known source failures
-and unsupported required operations remain located limitations.
+Sometimes a function or relation defines a value in a way Zincite cannot
+interpret. In that case, the rule withholds advice about affected variables.
+It does not assume that an unknown definition provides no bounds. An unrelated
+variable can still receive a warning.
 
-`constant-variable` and semantic fixes still require Supported safety and a
-complete enforced definition. Search retains Unknown for relevant opaque
-relations and enclosing lets, instead of warning from a missing output proof.
-Unknown boundaries supply no search coverage; original searched seeds and
-complete definition guarantees keep their stronger requirements. Required
-typing, overload selection, closed arithmetic errors, known-empty strict
-extrema, known out-of-axis selections, sibling failures and cycles remain
-explicit. A refusal of a stronger output proof is distinct from a source
-failure; diagnostic text does not select rule behavior.
+The same distinction matters for constant-variable and search checks. A missing
+proof that a variable changes is not proof that it is constant; a missing
+proof that a relation defines a variable is not proof that search omits it.
+Known source errors are still reported. The [analysis limits](support.md)
+explain when an unknown result is expected and when Zincite reports a limitation.
 
 ## Integer identity sets and enums
 
@@ -207,57 +206,24 @@ The finding points to the set name and asks the modeller to consider an enum;
 it does not establish an equivalent migration or compatibility with external
 instances or output consumers.
 
-Initial candidates are named, nonempty parameter integer sets initialized by
-written closed integer ranges or literal sets. Direct set/type/scalar aliases
-retain declaration identity. Candidate-domain scalars and membership generators
-supply member identities; matching integer bounds never connect distinct sets.
-A candidate needs an actual supported member equality, membership or index use.
-Unused sets, cardinality arithmetic and count-only iteration receive no advice.
+For example, machine numbers may be better represented by an enum if the
+model uses them only to index costs or test whether two assignments use the
+same machine. Names such as `Lathe` and `Press` can explain those identities
+better than `1` and `2`.
 
-The analysis checks all written user items, including unused initializers,
-callable bodies, objectives and annotations. Resolved core scalar equality and
-disequality, same-family membership, set equality/union/intersection/difference/
-symmetric difference/subset/superset, `card`, and indexing are supported.
-Direct indexed entries/comprehensions retain their member keys as array axes.
-Candidate array axes stay separate from independent Boolean/numeric payloads:
-`cost[p] + 1` does not perform arithmetic on `p`. Core array payload aggregates
-(`sum`, `product`, `min`, `max`, `forall`, `exists`, `length`) are independent;
-`index_set` retains a one-dimensional candidate axis. Numeric member arithmetic,
-aggregation, literals/sentinels, ordering, extrema, conversions and concrete
-integer callable contracts withhold advice.
+The rule checks uses throughout a complete model before making that suggestion.
+Arithmetic on a member, ordering comparisons or integer-specific function
+contracts can make its numeric representation significant. Arithmetic on a
+payload is different: `cost[machine] + 1` changes a cost, not the machine ID.
 
-Uniquely selected acyclic first-order user calls map positional/named arguments
-and retained defaults into separate formal frames. Candidate-domain and generic
-scalar/set/index contracts are supported; a generic signature still requires
-checking its written body. Direct returned aliases, captured globals, locals
-and annotations are inspected. A numeric literal supplied to a candidate-domain
-parameter or returned from a candidate-domain function withholds advice. An
-unavailable argument or result origin retains a located limitation for that
-candidate. Independent payload/count results remain independent. Numeric result
-contracts also withhold advice.
-Recursive or bodyless calls, unresolved selection, separate assignments,
-computed generator membership/results, candidate-member array/tuple/record
-storage or projection, annotated member expressions and other affected standard
-operations remain located limitations. Unrelated unknown operations do not veto
-an independently classified candidate. A limited candidate can coexist with a
-finding for another candidate.
+Output matters too. Replacing integer indices with enum members can change
+printed values and array output, even when the payloads are Booleans. The rule
+withholds advice for affected output uses and for unsupported or unresolved
+uses. It also skips fragments without a solve item and standalone data files,
+where it cannot inspect a complete model's uses.
 
-Explicit member/set output and whole candidate-indexed array output withhold
-advice, including `show` and string interpolation. Default output follows the
-resolved `no_output`, `add_to_output` and `output` conventions, including written
-initializers and anonymous array literals. Uncertain relevant markers withhold
-advice. Independent scalar payload/count output is supported. Fragments without
-a solve item and standalone data are inapplicable; multiple solve items or
-incomplete dependencies cannot establish model-wide uses.
-
-MiniZinc 2.10.1 compilation controls used Gecode with compilation only. Integer
-and enum indexing and cardinality controls compiled. Replacing offset integer
-members with enum ordinals in direct sums and a hidden integer function produced
-implicit enum-to-int coercion warnings and failed numeric assertions. Default
-integer-axis array output used `showDzn`; the enum control generated named index
-strings and `show_indexed`, even with Boolean payloads. An ordering control
-compiled, so the initial ordering exclusion is conservative. These controls
-establish representation risks, not migration equivalence or solving behavior.
+If you make the conversion, review external data and consumers of the model's
+output as well as the source. Zincite offers no automatic enum migration.
 
 ## Suppression and explicit fixes
 
@@ -269,41 +235,35 @@ complete top-level item:
 int: total = sum([2 | unused in 1..3]);
 ```
 
-Consecutive directives suppress IDs independently. Unknown, misplaced, dangling
-or malformed directives are errors. Joint indexing/partial-expression and
-callable-precondition selections omit only the corresponding already emitted,
-unsuppressed hazard. Other dimensions and nested hazards remain reportable.
+Use one directive per rule. Unknown rule IDs, directives inside expressions
+and directives without a following item are errors.
 
 ```sh
-./target/release/zincite-lint --rules unused-generator-binding,element-predicate \
+zincite lint --rules unused-generator-binding,element-predicate \
   --stdlib-dir "$MZN_STDLIB_DIR" --diff model.mzn
-./target/release/zincite-lint --rules unused-generator-binding,element-predicate \
+zincite lint --rules unused-generator-binding,element-predicate \
   --stdlib-dir "$MZN_STDLIB_DIR" --fix model.mzn
 ```
 
-The catalogue distinguishes automatic fix support (`always` or `sometimes`)
-from diagnostic-only rules (`none`). Advisory rules ask for a human modelling
-decision; lack of a fix does not turn a correctness diagnostic into advice.
-Fix availability is separate from family, warning severity and each edit's
-safety. `prefer-enum` is advisory and diagnostic-only;
-`prefer-array-comprehension` offers conditional Safe fixes described above.
+`--diff` previews eligible changes without writing. `--fix` applies one pass
+and then runs analysis again, so its diagnostics describe the resulting files.
+It accepts explicit regular files, not directories, symlinks or stdin. Files
+read only through an include are not implicit write targets.
 
-The two rules in the command examples advertise conditional Safe fixes. Unused names become `_` only in
-supported array/set/indexed comprehensions; generator-call shorthand remains
-advice-only. An element call becomes a parenthesized equality/index access only
-with resolved standard identity, complete equivalent body, compatible types and
-proved scoped membership/raw totality. Unsupported annotation effects, user
-lookalikes and unproved facts withhold the edit.
+For these two rules, fixes are conditional. An unused generator name can become
+`_` in supported comprehension forms. A standard `element` call can become an
+indexing equality when Zincite can establish compatible types and valid indices.
+An unproved condition or relevant annotation prevents that edit.
 
-`--diff` reports original diagnostics and previews eligible groups without
-writes. `--fix` applies one pass to explicit regular user files, then reanalyses
-all roots. Directories, symlinks, stdin and include-only/system files cannot be
-written. Conflicting atomic groups are all omitted; independent groups survive.
-The full candidate must parse, and the original regular file must still match
-before replacement. Safe eligibility describes the supplied transformation;
-`--unsafe-fixes` explicitly admits groups with a stated reason. No current rule
-supplies an Unsafe transformation. Never infer unconditional fix availability
-from a diagnostic or from `Sometimes` metadata.
+The rule list reports fix support as `always`, `sometimes` or `none`. That is
+separate from the safety of a particular edit. Normal `--fix` applies only
+Safe edits. `--unsafe-fixes` would also permit edits marked Unsafe, but no
+current rule provides one. `prefer-enum` and missing constraint labels remain
+modelling decisions for the author.
+
+Overlapping edits are omitted and explained. Independent edits can still apply.
+Before replacing a file, Zincite checks that the candidate parses and that
+the original file has not changed since it was read.
 
 ## Library use
 

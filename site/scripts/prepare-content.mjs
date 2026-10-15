@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 const site = fileURLToPath(new URL('../', import.meta.url));
 const root = resolve(site, '..');
 const guides = [
-  'getting-started', 'formatting', 'formatting-style', 'format-on-save',
+  'getting-started', 'first-model', 'formatting', 'formatting-style', 'format-on-save',
   'linting', 'queries', 'query-cookbook', 'data-edits', 'cli', 'support', 'reference',
 ];
 const output = resolve(site, 'src/content/docs/guides');
@@ -35,9 +35,7 @@ for (const asset of ['favicon.svg', 'apple-touch-icon.png']) {
 
 const gettingStarted = await readFile(resolve(root, 'docs/getting-started.md'), 'utf8');
 const install = gettingStarted.match(/```sh\n[\s\S]*?```/)?.[0];
-const examples = gettingStarted.match(/## Try the commands[\s\S]*?(```sh\n[\s\S]*?```)/)?.[1];
-if (!install || !examples) throw new Error('Missing installation or examples in docs/getting-started.md');
+if (!install) throw new Error('Missing installation in docs/getting-started.md');
 const landing = await readFile(resolve(site, 'src/landing.mdx'), 'utf8');
 await writeFile(resolve(site, 'src/content/docs/index.mdx'), landing
-  .replace('<!-- install-commands -->', install)
-  .replace('<!-- example-commands -->', examples));
+  .replace('<!-- install-commands -->', install));

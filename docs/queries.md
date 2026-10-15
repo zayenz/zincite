@@ -1,103 +1,55 @@
 # Inspect MiniZinc source
 
-Use `zincite query` to select source and inspect written structure. The
-[query reference](reference.md#query-library) defines the pipeline stages,
-selection order, comment attachment and result formats.
+Use `zincite query` when you have a specific question about a model or its
+data. You can select constraints, count written calls, follow declaration
+uses or compute a report from literal data. Queries do not run a solver.
+
+The [staffing walkthrough](first-model.md#querying-staff-shortages)
+starts with a practical question: which day has too few staff, even though
+the total availability looks sufficient? The examples below develop source
+inspection and data reports in more detail.
+
+Zincite uses [Zirql](https://zayenz.se/zirql/) for shared query evaluation.
+Zincite supplies its own MiniZinc-oriented syntax and operations, including
+source selections, model facts and literal data. Use this guide for commands
+you can run in Zincite; the Zirql site explains the shared language and its
+Rust embedding interfaces.
 
 ## Select items and calls
 
-Create a small model and count its constraints:
-
-```sh
-printf 'int: capacity = 20;\nconstraint capacity > 0;\nsolve satisfy;\n' > model.mzn
-zincite query 'filter(kind("constraint")) | count' model.mzn
-zincite-query 'filter(kind("constraint"))' model.mzn
-zincite query 'filter(kind("constraint")) | expressions | call_names | tally | json' model.mzn
-```
-
-The count is `1`. The standalone and root commands accept the same options.
-Syntax inspection does not need a standard library. For more substantial
-examples, use the [feature-extraction cookbook](query-cookbook.md), which creates
-its own inputs for counts, histograms, declaration types and literal shapes.
-
-## Count written calls with a function
-
-Save this input as `calls.mzn`:
+Save this small model as `model.mzn`. It shares a capacity across three
+allocations:
 
 ```minizinc
-int: first_total = sum([1, 2]);
-int: second_total = sum(i in 1..2)(i);
-int: largest = max([3, 4]);
+int: capacity = 20;
+array[1 .. 3] of var 0 .. capacity: allocated;
+constraint sum(allocated) <= capacity;
 solve satisfy;
 ```
 
-Save this query as `calls.zq`:
-
-```text
-fn count_calls(node: Node, target: string) -> int {
-    let here = if (written_call_name(node) default "") = target then 1 else 0 endif;
-    here + sum([count_calls(child, target) | child in direct_children(node)])
-}
-fn accumulate(n: int, total: int) -> int {
-    if n = 0 then total else accumulate(n - 1, total + n) endif
-}
-fn even(n: int) -> bool {
-    if n = 0 then true else odd(n - 1) endif
-}
-fn odd(n: int) -> bool {
-    if n = 0 then false else even(n - 1) endif
-}
-let roots = items;
-report (sum_calls: sum([count_calls(root, "sum") | root in roots]),
-        accumulated: accumulate(1000, 0),
-        is_even: even(1000));
-```
+Count its constraints, print them, or count the calls written inside them:
 
 ```sh
-zincite query --program-file calls.zq calls.mzn
-zincite-query --program-file calls.zq calls.mzn
+zincite query 'filter(kind("constraint")) | count' model.mzn
+zincite query 'filter(kind("constraint"))' model.mzn
+zincite query 'filter(kind("constraint")) | expressions | call_names | tally' model.mzn
 ```
 
-The result record contains `sum_calls = 2`, `accumulated = 500500` and
-`is_even = true`, using the tagged constructed-value JSON schema. The ordinary
-array call and the generator call both contribute to the count; `max` does
-not. Roots and direct children pass explicitly as native nodes. Traversal
-counts written syntax, regardless of what a model would execute.
+The first command prints `1`. The second prints the constraint's source, and
+the third prints `{"sum":1}`. Stages are separated by `|`; each works on the
+previous stage's result. The standalone `zincite-query` command accepts the
+same options. Syntax inspection needs no standard library.
 
-`accumulate` and `even`/`odd` reuse tail frames. The tree counter has pending
-addition and reduction, so its active depth grows with containment depth.
-All still spend the request work allowance. [Typed query functions](reference.md#typed-query-functions)
-defines signatures, scope and native ownership. The same saved source works
-with `--program TEXT` and the public `Program` API.
-
-Projection fields require scalar data. This example is an expected refusal:
-
-```text
-fn identity(node: Node) -> Node { node }
-let roots = items | head(1);
-report roots | project(root, {"node": identity(root)});
-```
-
-The field refuses the unprojected native node. Use `{"kind": node_kind(identity(root))}` for a constructed report,
-or `let first = items | head(1); report first | project(root, {"name": root | names});`
-for a written-name projection. To return a native result directly, use:
-
-```text
-fn keep(nodes: sequence<Node>) -> sequence<Node> { nodes }
-let roots = items;
-report keep(roots);
-```
-
-`report accumulate("wrong", 0);` refuses its argument contract.
-`fn bad() -> int { "wrong" } report bad();` refuses its result contract.
-A report followed by `report 1 div 0;` produces no stdout, because evaluation
-and rendering finish before the CLI writes its output buffer.
+The [feature-extraction cookbook](query-cookbook.md) develops these counts
+and histograms and adds declaration types and literal shapes. The
+[query reference](reference.md#query-library) defines stages, selection order
+and result formats.
 
 ## Reuse results in a report
 
 Save this as `report.zq`:
 
-```text
+```zirql
 source selected = query("filter(kind(\"constraint\"))");
 source n = selected | query("count");
 source histogram = selected | query("expressions | call_names | tally");
@@ -116,34 +68,29 @@ same input selection unless it names another native result. A later failure
 leaves stdout empty. [Query programs](reference.md#query-programs) describes
 emitters, the library result and aggregate limits.
 
-Read-only programs also support `let` bindings, positional comprehensions and
-scalar expressions over query projections or a written literal assignment. The
-reference describes the accepted values, checked arithmetic and result schema.
-Reports also support keyed arrays, established enum-member identities and
-multidimensional access, with explicit axes and retained sparse cells. Data
-edits require contiguous axes and complete rectangular coverage.
-For new assignments and computed replacements, use a model-backed
-[data edit program](data-edits.md#construct-new-data). It uses the common bounded
-subset, with `index_set` and `enum_member` as its only expression calls, and
-produces one atomic document candidate. The report calls below are excluded
-from edit RHSs and preceding lets, including skipped branches and unused lets.
+The following examples build records and arrays from literal data. Their JSON
+uses explicit type tags and array keys, so the tables in this guide show the
+values rather than the full serialization. The
+[result schema](query-comprehension-contract.md#constructed-shape-and-result)
+describes how to read those reports from another program.
+
+All examples here are read-only. To change a data file, use the
+[data-edit guide](data-edits.md); editing supports a smaller set of expressions.
 
 ## Compare demand and capacity
 
-For a short report, create `data.dzn` with `demand = [2,3,4];` and run either
-command:
+Start by totalling a demand array. Create `data.dzn` with
+`demand = [2, 3, 4];` and run:
 
 ```sh
-zincite-query --program 'source d = literal("demand"); report sum(d);' data.dzn
 zincite query --program 'source d = literal("demand"); report sum(d);' data.dzn
 ```
 
-Both return a complete report with the tagged integer `9`. Save that program as
-`sum.zq` and run `--program-file sum.zq` for the same result. Library callers use
-`Program::parse`, evaluate against the data input, then call `render` on the
-result. Inline programs need no parameter declaration or named entry point.
+The result contains the integer `9`. To reuse the query, save the text inside
+the quotes as `sum.zq` and run `zincite query -f sum.zq data.dzn`.
 
-Totals alone can miss an overloaded position. For this data:
+Now suppose demand may double. We want to compare the new demand with capacity
+at each position, as well as in total. Replace `data.dzn` with:
 
 ```minizinc
 demand = [2, 3, 4];
@@ -152,7 +99,7 @@ capacity = [6, 8, 5];
 
 Save the following as `capacity.zq`. The factor is a local literal binding.
 
-```text
+```zirql
 source demand = literal("demand");
 source capacity = literal("capacity");
 let factor = 2;
@@ -201,373 +148,377 @@ The totals are `18` and `19`, so `totals_fit` is true. `cells_fit` is false and
 `violations` contains only row 3. This negative finding is successful report
 data: `complete` is true, `limitations` is empty and the command exits 0.
 
-`length`, checked integer `sum`, Boolean `forall` and `exists` take fully
-materialized arrays. They retain empty identities `0`, `0`, `true` and `false`.
-Every comprehension head runs before reduction. `require` preflights both
-operands and accepts a literal message. False fails at the call while skipping
-the value's runtime arithmetic, access and construction. A later failure leaves
-stdout empty. These reports use literal data and shared Zirql evaluation;
-they do not run a MiniZinc model or solver. The
-[comprehension contract](query-comprehension-contract.md) defines types, eager
-arrays, requirements and request charges.
+The `require` calls check the assumptions before calculating the rows: the
+factor must be positive, the arrays must have the same indices, and values
+must be nonnegative. A failed requirement stops the report with its message.
+
+`sum` adds the scaled demand; `forall` checks that every row fits. These calls
+evaluate query values, not the MiniZinc model. The
+[expression reference](query-comprehension-contract.md#report-expressions-and-edit-grammar)
+covers the supported operations and their error cases.
 
 ## Compare keyed matrix cells
 
-`entries(a)` exposes each present keyed cell as a `key`/`value` record. Matrix
-keys are two-element tuples. For a short report, run either command:
-
-```sh
-zincite-query --program 'report entries([|3,4|5,6|]);' crates/zincite-query/tests/fixtures/keyed-comparison.dzn
-zincite query --program 'report entries([|3,4|5,6|]);' crates/zincite-query/tests/fixtures/keyed-comparison.dzn
-```
-
-The positional report contains keys `(1,1)`, `(1,2)`, `(2,1)`, `(2,2)` and values
-`3,4,5,6` in row-major order. `zip_exact(a,b)` pairs cells only when both keyed
-arrays have identical ordered axes and present keys. It retains those axes and
-keys, with the left and right values in each two-element tuple cell.
-
-The [comparison fixture](../crates/zincite-query/tests/fixtures/keyed-comparison.dzn)
-has these matrices:
+To compare two matrices, match cells by their indices before subtracting
+the values. Save this as `matrix.dzn`:
 
 ```minizinc
-before = [|3,4|5,6|];
-after = [|4,6|8,10|];
+before = [|3, 4 | 5, 6|];
+after = [|4, 6 | 8, 10|];
 ```
 
-Its [saved program](../crates/zincite-query/tests/fixtures/keyed-comparison.zq)
-computes each cell's delta explicitly:
+Save the query as `matrix-delta.zq`:
 
-```text
+```zirql
 source a = literal("before");
 source b = literal("after");
 let pairs = zip_exact(a, b);
 report [e.key: e.value.2 - e.value.1 | e in entries(pairs)];
 ```
 
-Run `zincite query --program-file
-crates/zincite-query/tests/fixtures/keyed-comparison.zq
-crates/zincite-query/tests/fixtures/keyed-comparison.dzn`, or pass the same
-program through `zincite-query --program`. Both return a complete explicit array
-with the original two axes `1..2` and deltas `1,2,3,4`. Library callers use
-`Program::parse` and `evaluate`, inspect `ReportValue::Constructed` for native
-axes, keys and tuple cells, then render the tagged report. Input bytes stay
-unchanged. Different axes or key coverage cause a located refusal; a later
-failure leaves stdout empty.
+```sh
+zincite query --program-file matrix-delta.zq matrix.dzn
+```
 
-The helpers retain enum-member identity and declared empty axes. Empty
-`zip_exact` returns its typed keyed array; `entries` returns an empty positional
-array. An empty delta comprehension headed by `e.key` cannot infer its result
-axes: the existing empty-axis fallback needs simple generator key names. Report
-the paired array directly to retain known empty axes.
+`zip_exact` requires both arrays to have the same ordered axes and stored keys.
+It pairs the before and after values at each cell. `entries` exposes each key
+and pair, so the comprehension can subtract the first value from the second
+and keep the original key.
 
-Read-only keyed arrays may have noncontiguous axes and missing cells.
-`entries` returns stored cells; `zip_exact` requires identical ordered axes and
-stored keys. Data edits retain contiguous axes and complete rectangular coverage.
-Both helpers are report-only and are refused in data-edit expressions and
-preceding edit lets. See the [expression contract](query-comprehension-contract.md#report-expressions-and-edit-grammar)
-for type, identity and budget rules.
+The result has axes `1..2` by `1..2` and these values:
+
+| Row | Column 1 | Column 2 |
+| --- | --- | --- |
+| 1 | 1 | 2 |
+| 2 | 3 | 4 |
+
+Different axes or missing keys on only one side produce an error rather than
+pairing unrelated cells. For empty arrays, report `zip_exact(a, b)` directly
+if you need to retain the declared axes: this comprehension's `e.key` head
+cannot infer them from no entries. These helpers are available in reports,
+not data edits.
 
 ## Group machine demands
 
-The [small data fixture](../crates/zincite-query/tests/fixtures/machine-groups.dzn)
-contains four positional records with machine keys `b, a, b, b` and demands
-`3, 5, 7, 3`. Grouping keeps both copies of the last `b` row:
+A total for each machine is more useful than a count of all jobs. Save these
+jobs as `jobs.dzn`:
+
+```minizinc
+jobs = [(machine: "b", demand: 3), (machine: "a", demand: 5),
+        (machine: "b", demand: 7), (machine: "b", demand: 3)];
+```
+
+Save this as `machine-totals.zq`:
+
+```zirql
+source rows = literal("jobs");
+report [
+    (machine: g.key,
+     count: length(g.items),
+     total: sum([r.demand | r in g.items]))
+    | g in group_by(rows, "machine")
+];
+```
 
 ```sh
-zincite-query --program 'source rows = literal("jobs"); report [(machine:g.key, count:length(g.items), total:sum([r.demand | r in g.items])) | g in group_by(rows, "machine")];' crates/zincite-query/tests/fixtures/machine-groups.dzn
-zincite query --program-file crates/zincite-query/tests/fixtures/machine-groups.zq crates/zincite-query/tests/fixtures/machine-groups.dzn
+zincite query --program-file machine-totals.zq jobs.dzn
 ```
 
-Both return `b` with count `3` and total `13`, followed by `a` with count `1`
-and total `5`. The [saved program](../crates/zincite-query/tests/fixtures/machine-groups.zq)
-uses the same expression as the inline command. The report is complete, with
-no limitations, and uses the existing tagged array/record envelope.
-The input bytes remain unchanged.
+`group_by` gives each group a `key` and its original `items`. The query counts
+the jobs and sums their demands:
 
-Library callers inspect native data before rendering:
+| Machine | Jobs | Total demand |
+| --- | --- | --- |
+| b | 3 | 13 |
+| a | 1 | 5 |
 
-```rust
-use zincite_query::{Input, Program, ProgramLimits, ReportValue};
-use zincite_syntax::FileMode;
+Groups follow first occurrence, so `b` comes before `a`. Both jobs with demand
+3 remain in the `b` group. Grouping preserves duplicates; it does not assume
+that equal records describe the same job.
 
-let limits = ProgramLimits::default();
-let input = Input::parse(std::fs::read("machine-groups.dzn")?, FileMode::Data)?;
-let program = Program::parse(&std::fs::read_to_string("machine-groups.zq")?, limits)?;
-let mut result = program.evaluate(&input, limits)?;
-let ReportValue::Constructed(summary) = result.emissions()[0].value() else {
-    unreachable!("constructed machine summary")
-};
-// summary is an ordered native Zirql array of records.
-let bytes = result.render()?;
-```
-
-Without a model, this plain literal source stays positional. A keyed source
-needs an explicit conversion such as `[r | r in keyed_rows]` before grouping.
-Keys keep their integer, string or enum-member identity. The same grouping
-evaluator serves reports built from native projections; their existing
-completion status and located limitations pass through. Grouping is excluded
-from data-edit expressions and preceding edit lets. See the
-[expression contract](query-comprehension-contract.md#report-expressions-and-edit-grammar)
-for selector, type and budget rules.
-
-## Correlate declarations with their uses
-
-A projection evaluates its fields against one native subject at a time. This
-short program reports each declaration's own name and use count:
-
-```sh
-zincite-query --program 'report subtree | declarations | unique | project(d, {"name": d | names | one, "uses": d | uses | count});' model.mzn
-zincite query --program 'report subtree | declarations | unique | project(d, {"name": d | names | one, "uses": d | uses | count});' model.mzn
-```
-
-`unique` removes repeated declaration handles. Two declarations named
-`capacity` in different scopes remain separate rows, with their own counts.
-`names` explicitly projects a string; `one` requires exactly one projected
-value. A missing or multiple value fails the request.
-
-To retain each declaration and its uses together, save this as `uses.zq`:
-
-```text
-let matches = match {
-  from d in (subtree | declarations | unique);
-  from u in (d | uses);
-};
-report matches | project(m, {
-  "name": m.d | names | one,
-  "text": m.u | text | one
-});
-```
-
-Run `zincite query --program-file uses.zq model.mzn`, or pass the same text
-through `--program`. Both commands use the same parser and evaluator. The
-[self-contained fixture](../crates/zincite-query/tests/fixtures/native-composition.mzn)
-has two declarations with the same name and three uses, including a quoted
-`'capacity'` occurrence. Its
-[companion program](../crates/zincite-query/tests/fixtures/native-composition.zq)
-also reports the native captures. The checks supply an empty local
-`std/stdlib.mzn`; they need no MiniZinc installation or solver.
-
-Each `from` follows source order. Later clauses see earlier captures; the
-rightmost generator varies fastest. `bind name = query;` requires exactly one
-native subject. `where type(d, "int");` and
-`where instantiation(d, "par");` use existing semantic facts. Shared
-`not`, `and` and `or` preserve Unknown through short-circuit evaluation. An
-Unknown required guard fails at its responsible model location. An Unknown
-leaf followed by a true `or` alternative can produce a known match, retaining
-its limitation and `complete:false`.
-
-Library callers inspect `ReportValue::Captures` through `CaptureMatches::rows`.
-Each row has ordered native fields; `ReportValue::fields` borrows a singleton
-capture's fields. The `ProgramResult` retains the same `ModelFacts` owner and
-source coordinates. Captures and projections share the request's remaining
-work, result and nesting allowance, including copies and rendering. Empty
-selections still validate field names, scope, types and purity. These forms
-are available only in reports; data edits refuse them in preceding lets and
-edit operands before preparing a candidate.
-
-## Explain declaration connections
-
-For `paths.mzn` containing `int: c = 1; int: b = c; int: a = b; solve satisfy;`,
-this short program retains one witness with native declarations `[a, b, c]`:
-
-```sh
-zincite-query --program 'subtree | declarations | filter(name("a")) | paths(referenced_declarations, to=name("c"), max_depth=2) | json' paths.mzn
-```
-
-Save the same expression as `paths.zq` and run either command form:
-
-```sh
-zincite-query --program-file paths.zq paths.mzn
-zincite query --program-file paths.zq paths.mzn
-```
-
-The repository has [the model](../crates/zincite-query/tests/fixtures/bounded-paths.mzn)
-and [saved program](../crates/zincite-query/tests/fixtures/bounded-paths.zq).
-The single expression needs no binding, declaration or final semicolon. A bound
-of one gives no witness for `c`; a matching source gives one step at depth zero.
-Source and sink remain native singleton declaration streams, and steps contain
-both endpoints. Select `p.steps | names` inside `project(p, {...})` to construct
-a scalar report from those handles.
-
-Library callers use the same program and retain the model owner:
-
-```rust
-let limits = zincite_query::ProgramLimits::default();
-let program = zincite_query::Program::parse(program_source, limits)?;
-let result = program.evaluate_with_model(&input, Some(&model), limits)?;
-let zincite_query::ReportValue::Captures(paths) = result.emissions()[0].value()
-    else { unreachable!("native path result") };
-let native_fields = &paths.rows()[0].fields;
-```
-
-`native_fields` contains `source`, `sink` and `steps` with their DeclarationIds,
-file/range coordinates and retained model facts before JSON rendering.
-`referenced_declarations` follows proven written references within each owning
-region. It does not execute a model or prove a dataflow dependency. First-reference
-order chooses between shortest alternatives, and repeated source handles do not
-duplicate a source/sink pair.
-
-The explicit edge bound and request limits apply together. Use `--max-work` and
-`--max-results` for a smaller allowance, or supply `ProgramLimits` in Rust.
-Exhaustion refuses the complete request. No witness within this bound does not
-prove global disconnection. Unknown targets refuse; unresolved edges and missing
-standard-library context retain completeness limitations and status 1, as in
-[semantic inspection](reference.md#semantic-inspection). Source bytes stay unchanged.
+The input here is a positional array. To group a keyed array, first make its
+values positional with `[r | r in keyed_rows]`. Group keys must have compatible
+types, and every row must contain the selected field.
 
 ## Inspect semantic facts
 
-To follow a declaration's uses in that model:
+The previous examples inspect syntax or literal values. Finding the uses of a
+declaration needs more context: Zincite must resolve names in the model and
+its included files.
+
+The semantic examples below use an installed MiniZinc standard library. Set
+`MZN_STDLIB_DIR` to the directory containing `std/stdlib.mzn`. If MiniZinc and
+Python 3 are on your path, you can read it from the installation:
+
+```sh
+export MZN_STDLIB_DIR=$(minizinc --config-dirs | python3 -c 'import json,sys; print(json.load(sys.stdin)["mznStdlibDir"])')
+```
+
+Alternatively, pass `--stdlib-dir DIR` on each command. Use `-I DIR` for project
+include directories.
+
+Return to `model.mzn`, the capacity-and-allocations model at the start of this
+guide. Find the written uses of `capacity`:
 
 ```sh
 zincite query 'filter(name("capacity")) | declarations | uses | json' model.mzn
-zincite-query 'references | declarations | types | json' model.mzn
 ```
 
-Semantic queries use model context. Without a configured standard library,
-even this small model reports incomplete builtin context and exits 1 while
-returning available results. Supply `--stdlib-dir DIR` or `MZN_STDLIB_DIR`
-for the library root containing `std/stdlib.mzn`, and `-I DIR` for project
-includes. Stdin semantic inspection needs an explicit `--model`
-whose retained root bytes match the input exactly; `--stdin-filepath` alone
-provides no model context. See [semantic inspection](reference.md#semantic-inspection)
-for the root, identity, ordering and traversal contracts.
+`filter` selects its declaration item, `declarations` identifies the declared
+value, and `uses` finds references to that value. The result includes its use
+in the array domain and in the constraint, with their file locations.
 
-Semantic JSON reports `complete`, located `limitations` and `result`. Keep the
-completeness flag and [exit status](cli.md#exit-codes) with the result. An unknown
-fact does not become known by negating a filter. The [support guide](support.md)
-explains how to distinguish missing proof from input failure.
+Semantic JSON includes `complete`, `limitations` and `result`. Without a
+configured library, even a small model may produce available results with
+`complete: false` and exit 1. Read the limitations before treating the result
+as a complete inventory. Errors such as a missing include exit 2.
 
-To change instance values or reduce an enum, use the [data-edit guide](data-edits.md).
-The [query acceptance report](../scripts/query-acceptance.md) retains measured
-commands and remaining resource limits for its checked revision.
+For stdin, semantic inspection also needs `--model` pointing to a file with
+exactly the same root bytes. `--stdin-filepath` supplies a name and settings
+location, but does not load that model. The [semantic reference](reference.md#semantic-inspection)
+describes selection and context in detail.
+
+## Correlate declarations with their uses
+
+To report a name and a use count for each declaration in `model.mzn`, save
+this as `use-counts.zq`:
+
+```zirql
+report subtree | declarations | unique | project(d, {
+    "name": d | names | one,
+    "uses": d | uses | count
+});
+```
+
+```sh
+zincite query --program-file use-counts.zq model.mzn
+```
+
+`project` evaluates both fields for the same declaration `d`. `names` reads its
+name, and `one` requires exactly one value. `uses` finds that declaration's
+references. `unique` removes repeated visits to the same declaration; two
+local declarations with the same name would remain distinct.
+
+For individual uses, save this as `uses.zq`:
+
+```zirql
+let matches = match {
+    from d in (subtree | declarations | unique);
+    from u in (d | uses);
+};
+report matches | project(m, {
+    "name": m.d | names | one,
+    "text": m.u | text | one
+});
+```
+
+```sh
+zincite query --program-file uses.zq model.mzn
+```
+
+The first `from` chooses a declaration. The second visits its uses. Each result
+row keeps both objects, so the report can read the declaration's name and the
+use's exact source text. In this model, `capacity` has two uses and `allocated`
+has one. An unused declaration contributes no row to this second report.
+
+These are source relationships. The query does not count how often an
+expression runs or how many variables MiniZinc creates when flattening.
+See [projections and captures](reference.md#native-projections-and-captures)
+for additional clauses and the library result types.
+
+## Explain declaration connections
+
+A path query can show how one declaration refers to another through
+intermediate declarations. Save this as `paths.mzn`:
+
+```minizinc
+int: base_capacity = 10;
+int: usable_capacity = base_capacity;
+int: daily_limit = usable_capacity;
+solve satisfy;
+```
+
+Save the query as `paths.zq`:
+
+```zirql
+subtree | declarations | filter(name("daily_limit"))
+| paths(referenced_declarations, to=name("base_capacity"), max_depth=2)
+| json
+```
+
+```sh
+zincite query --program-file paths.zq paths.mzn
+```
+
+The result contains the path `daily_limit`, `usable_capacity`, `base_capacity`,
+with the original declarations and locations. The depth counts edges: a limit
+of two reaches `base_capacity`, while a limit of one does not.
+
+The query returns one shortest path per source/target pair within the bound.
+An empty result means no path was established within that depth, not that the
+declarations are unrelated at every depth. Unresolved references remain
+limitations. These paths follow written references; they do not describe
+compiler-generated dataflow. See [bounded paths](reference.md#bounded-declaration-paths)
+for ordering and result fields.
 
 ## Read optional fields and sparse cells
 
-The development query API supports absence and lazy defaults in read-only
-reports. These fixture files keep a fixed model schema and sparse stored cells:
+Reports can distinguish a stored absent value (`<>`) from a field or cell
+that was not stored at all. This is useful when inspecting incomplete data.
+Save the declarations as `optional-report.mzn`:
 
 ```minizinc
-% optional-report.mzn
-array[1..2,1..2] of opt int: cells;
+array[1 .. 2, 1 .. 2] of opt int: cells;
 record(int: id, opt int: missing, opt int: stored): info;
 solve satisfy;
 ```
 
+Save this partial data as `optional-report.dzn`:
+
 ```minizinc
-% optional-report.dzn
-cells=[(1,1):10,(1,2):<>,(2,1):30];
-info=(id:4,stored:<>);
+cells = [(1, 1): 10, (1, 2): <>, (2, 1): 30];
+info = (id: 4, stored: <>);
 ```
 
-```text
-source cells=literal("cells");
-source info=literal("info");
-report (id: lookup(info,"id") default 0,
-        omitted: absent(lookup(info,"missing")),
-        stored: has_key(info,"stored"), missing: has_key(info,"missing"),
-        stored_cell: has_key(cells,(1,2)), missing_cell: has_key(cells,(2,2)),
-        fallback: lookup(cells,(2,2)) default 8,
-        skip: 7 default (1 div 0), info: info, cells: cells);
-```
+The declarations tell the query which fields and axes are expected. The data
+omits `info.missing` and cell `(2, 2)`; it is an inspection example, not a
+complete instance to pass to a solver. Save this as `optional-report.zq`:
 
-Save the program as `optional-report.zq` and run:
+```zirql
+source cells = literal("cells");
+source info = literal("info");
+report (
+    id: lookup(info, "id") default 0,
+    stored_field: has_key(info, "stored"),
+    missing_field: has_key(info, "missing"),
+    stored_cell: has_key(cells, (1, 2)),
+    missing_cell: has_key(cells, (2, 2)),
+    fallback: lookup(cells, (2, 2)) default 8
+);
+```
 
 ```sh
-zincite-query --model optional-report.mzn --program-file optional-report.zq optional-report.dzn
+zincite query --model optional-report.mzn -f optional-report.zq optional-report.dzn
 ```
 
-`stored` and `stored_cell` are true; `missing` and `missing_cell` are false.
-The fallback is 8 and `skip` is 7. The tagged output retains the stored absent
-field/cell and omits missing storage. A label outside `info`'s declared schema
-fails, as does strict `cells[2,2]`. The complete reusable control in
-`crates/zincite-query/tests/fixtures/optional-report.zq` also includes a native
-count and checks that false, zero and empty arrays remain present.
+The report gives `id = 4`, `stored_field = true`, `missing_field = false`,
+`stored_cell = true`, `missing_cell = false` and `fallback = 8`.
+`has_key` checks whether storage exists, even when its value is `<>`.
+`lookup` returns absence for a compatible missing key, and `default` supplies
+a value only when its left operand is absent.
 
-The Rust `Program::parse` and `evaluate_with_model` entry points accept the same
-program. Constructed results keep their declaration annotations; use `.data()`
-when matching the stored data. These values do not expand data editing or
-external parameter types. Data edits still require nonoptional targets and
-complete rectangular arrays.
+Strict access such as `cells[2, 2]` would fail. A label outside the declared
+record schema also fails. A default does not catch type errors, division by
+zero or resource limits. These operations are report-only; data edits require
+nonoptional targets and complete rectangular arrays.
 
 ## Sort rows and select extrema
 
-The [ordering program](../crates/zincite-query/tests/fixtures/report-ordering.zq)
-uses rows A, B, C and D with scores `[2,1,2,1]`. Ascending IDs are B, D, A, C;
-descending IDs are A, C, B, D. Both retain input order for equal scores.
-`min_by` returns original row B and `max_by` row A. Scalar sorting/extrema and
-empty results/defaults appear in the same report.
+Continue with `jobs.dzn` from the machine-grouping example. To put the busiest
+machine first, save this as `rank-machines.zq`:
+
+```zirql
+source jobs = literal("jobs");
+let totals = [
+    (machine: g.key, demand: sum([job.demand | job in g.items]))
+    | g in group_by(jobs, "machine")
+];
+report (
+    ranked: sort_by(totals, "demand", descending=true),
+    busiest: max_by(totals, "demand")
+);
+```
 
 ```sh
-zincite-query --program-file crates/zincite-query/tests/fixtures/report-ordering.zq crates/zincite-query/tests/fixtures/machine-groups.dzn
-zincite query --program 'report sort_by([(id:"A",score:2),(id:"B",score:1)], "score", descending=true);' crates/zincite-query/tests/fixtures/machine-groups.dzn
+zincite query --program-file rank-machines.zq jobs.dzn
 ```
 
-`sort` orders scalars; `sort_by` takes a literal record field. Keys require
-present homogeneous integers, finite floats, exact strings or one nominal type.
-Missing or absent keys fail. To choose a default key, construct it explicitly:
+`ranked` contains machine `b` with demand 13, followed by `a` with demand 5.
+`busiest` is the `b` record. Sorting preserves input order for equal keys;
+`min_by` and `max_by` choose the first record on a tie.
 
-```text
-let rows = [(id:1), (id:2, score:2)];
-let scored = [(id:r.id, score:lookup(r,"score") default 0) | r in rows];
-report sort_by(scored,"score");
+Use `sort` for an array of scalars and `sort_by` for records. Keys must be
+present and have compatible types. To supply a missing score deliberately,
+construct a field such as `score: lookup(row, "score") default 0` before
+sorting. Empty extrema return `<>`, so `min([]) default 0` supplies zero.
+Sorting and extrema are available in reports, not data edits.
+
+## Count written calls with a function
+
+A named function can express a source traversal that you want to reuse or
+adapt. Save this input as `calls.mzn`:
+
+```minizinc
+int: first_total = sum([1, 2]);
+int: second_total = sum(i in 1..2)(i);
+int: largest = max([3, 4]);
+solve satisfy;
 ```
 
-Empty extrema return `<>`; `min([]) default 0` supplies zero. A later bad key
-still fails the entire request, and CLI output remains buffered. Keyed values
-need explicit positional conversion. The shared evaluator extracts each key
-once; sort uses budgeted O(n) scratch and O(n log n) comparisons, while extrema
-scan once and copy only the selected row when an owned result is needed.
-These helpers do not expand the data-edit whitelist.
+Save this query as `calls.zq`:
+
+```zirql
+fn count_calls(node: Node, target: string) -> int {
+    let here = if (written_call_name(node) default "") = target then 1 else 0 endif;
+    here + sum([count_calls(child, target) | child in direct_children(node)])
+}
+let roots = items;
+report (sum_calls: sum([count_calls(root, "sum") | root in roots]));
+```
+
+```sh
+zincite query --program-file calls.zq calls.mzn
+```
+
+The result contains `sum_calls = 2`. Both the ordinary array call and the
+generator call count; `max` does not. For each node, the function checks its
+written call name and adds the counts from its direct children. A node with
+no call name contributes zero through the explicit default.
+
+For this count alone, the `call_names | tally` pipeline is shorter. The
+function form gives you control over the traversal when adapting the query
+to a more specific source pattern. It inspects syntax without resolving or
+executing model calls.
+
+Function arguments and results are checked against the declared types.
+Recursion is limited by depth and total work. See the
+[function reference](reference.md#typed-query-functions) for scope, signatures
+and limits.
 
 ## Combine functions, defaults and ordering
 
-This report combines a tail accumulator with optional scores, exact string
-matching and stable ordering. Save the program as `report.zq`:
+Return to the staffing problem, this time with a missing availability value.
+For this report, we deliberately treat missing availability as zero. The goal
+is to rank the days by the staff still needed. Save `rank-shortages.zq`:
 
-```text
-fn accumulate(n: int, total: int) -> int {
-    if n = 0 then total else accumulate(n - 1, total + n) endif
+```zirql
+fn shortage(required: int, available: int) -> int {
+    max([0, required - available])
 }
-let rows = [(name:"beta",score:2), (name:"alpha",score:2),
-            (name:"gamma",score:<>)];
-let scored = [(name:r.name,score:(r.score default 0))
-              | r in rows where contains(r.name,"a")];
-report (total:accumulate(1000,0),rows:sort_by(scored,"score"),
-        first:min_by(scored,"score"));
+let days = [
+    (day: 1, required: 2, available: 3),
+    (day: 2, required: 3, available: <>),
+    (day: 3, required: 4, available: 3)
+];
+let shortages = [
+    (day: row.day, missing: shortage(row.required, row.available default 0))
+    | row in days
+];
+report sort_by(shortages, "missing", descending=true);
 ```
 
-Run from the repository root after creating a small input:
+This program supplies its own data. Run it with empty stdin:
 
 ```sh
-printf 'solve satisfy;\n' > model.mzn
-zincite-query --program-file report.zq model.mzn
+zincite query --program-file rank-shortages.zq < /dev/null
 ```
 
-The total is `500500`. Rows appear as `gamma` with score zero, then `beta`
-and `alpha` with score two; the equal scores retain input order. `first` is
-the original `gamma` record. Zincite wraps these values in its tagged report schema. The same
-program text can be passed with `--program`.
+The result orders day 2 (three missing staff), day 3 (one), then day 1 (zero).
+`shortage` prevents surplus availability from becoming a negative shortage.
+The default is an explicit reporting decision, not a claim that the unknown
+availability really is zero. If missing data should stop the analysis, use a
+requirement instead.
 
-The default handles absence before sorting; absence is not zero in ordinary
-arithmetic or ordering. It does not catch arithmetic, type, host or budget
-errors. String matching is case-sensitive, with no Unicode normalization or
-regex interpretation; an empty search string matches. Sorting requires present
-homogeneous keys and preserves ties even with `descending=true`. Empty extrema
-return absence, and extrema choose the first input on a tie.
-
-Typed function boundaries check actual selected arguments and results. They
-do not infer model types or validate every runtime fact statically. Native
-identity and document/source ownership stay with the host. External parameters
-remain `int`, `string` or `bool`. All written branches receive preflight checks;
-only selected lazy branches execute.
-
-The accumulator reuses its active frame; pending arithmetic in a recursive
-caller requires another frame. Neither form bypasses cumulative work/results
-limits, expression nesting or the native reentry guard. Bodies prepare once
-within the submitted evaluation and share unchanged admitted arguments. A new
-evaluation prepares against its current document and bindings. Owned results
-and rendering still pay their applicable costs.
-
-The [shared execution measurements](https://zayenz.se/zirql/guides/computation/)
-record both bounded tail state and small-query regressions. Those library
-measurements exclude host parsing/rendering and do not predict CLI latency.
+Functions cannot capture top-level bindings, so the required and available
+counts are passed as arguments. The report leaves the original staffing files
+unchanged.

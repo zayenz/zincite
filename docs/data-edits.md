@@ -1,8 +1,10 @@
 # Edit a data instance
 
-Query transformations produce a complete data candidate. Preview it before an
-explicit write: the edit changes instance meaning, and successful parsing checks
-syntax only. The [query reference](reference.md#assignment-edits) defines byte
+Use data edits to change a parameter, remove unwanted literal entries or make
+a smaller instance for investigation. By default, Zincite prints the proposed
+data file without changing the original. Preview that result before writing it;
+a syntactically valid edit can still change whether the model has a solution.
+The [query reference](reference.md#assignment-edits) defines byte
 preservation, comment handling and candidate validation.
 
 ## Replace an assignment expression
@@ -12,7 +14,7 @@ Create a small data file:
 ```sh
 printf 'capacity = 20;\nweights = [1, -2, 3];\nunused = 0;\n' > data.dzn
 zincite query --diff 'filter(name("capacity")) | set_value("30")' data.dzn
-zincite-query 'filter(name("capacity")) | set_value("10 + 20")' data.dzn
+zincite query 'filter(name("capacity")) | set_value("10 + 20")' data.dzn
 ```
 
 `set_value` inserts the supplied expression as the selected assignment's
@@ -31,23 +33,28 @@ zincite query --diff 'filter(name("weights")) | filter_elements(gt(0))' data.dzn
 zincite query --diff 'filter(name("unused")) | remove' data.dzn
 ```
 
-The reference describes [literal inspection and filtering](reference.md#query-library),
-including supported comparisons and collection shapes. Computed expressions
-are not arbitrary evaluated values. Removal includes attached comments; separated
-section comments remain.
+The first command keeps `1` and `3` in `weights`; the second removes the
+`unused` assignment. Both are previews, so each starts from the unchanged file.
+Filtering compares written literal elements. It cannot evaluate an arbitrary
+MiniZinc expression to decide whether to keep it. Removal includes comments
+attached to the removed entry or assignment; separated section comments remain.
+See [literal filtering](reference.md#assignment-edits) for supported shapes.
 
 ## Reduce enum membership
 
-An enum with explicit member-keyed data can be reduced without a model:
+To keep only guests A and C, create this small input:
 
 ```sh
-printf 'Guests = {A, B, C};\n' > guests.dzn
+printf 'Guests = {A, B, C};\nscores = [A: 2, B: 5, C: 3];\n' > guests.dzn
 zincite query --diff 'reduce_enum("Guests", keep("A", "C"))' guests.dzn
 ```
 
-Supply `--model model.mzn` when positional array alignment needs declarations.
-Read the [enum reduction contract](reference.md#enum-reduction) before reducing
-dependent arrays, records or nested sets. Incomplete candidates retain located
+The candidate keeps `Guests = {A, C}` and the score entries `A: 2` and `C: 3`.
+Their explicit keys let Zincite associate them with the enum without a model.
+A positional array such as `[2, 5, 3]` needs model declarations to establish
+which member belongs to each position; supply `--model model.mzn` for that
+case. Read the [enum reduction contract](reference.md#enum-reduction) before
+reducing dependent arrays, records or nested sets. Incomplete candidates retain located
 diagnostics and exit 1; `--write` refuses them. A smaller enum alone does not
 prove that all dependent data has been reduced.
 
@@ -56,8 +63,9 @@ The [support guide](support.md) describes the semantic boundaries.
 
 ## Construct new data
 
-An edit program evaluates bounded expressions and validates their constructed
-values against read-only model declarations. Save this model as `counts.mzn`:
+To add a calculated assignment, use an edit program with model declarations.
+The model supplies the expected types and indices; the data file supplies the
+values. Save this model as `counts.mzn`:
 
 ```minizinc
 array[1..2] of int: counts;
@@ -67,18 +75,23 @@ solve satisfy;
 
 Start with `counts = [3, 5];` in `counts.dzn`, and save this as `create.zq`:
 
-```text
+```zirql
 source old_counts = literal("counts");
 create doubled_counts = [old_counts[i] * 2 | i in index_set(old_counts)];
 emit;
 ```
 
-Both command forms produce the same candidate, adding
-`doubled_counts = [6, 10];`:
+Preview the result, then its diff:
 
 ```sh
 zincite query --model counts.mzn -f create.zq counts.dzn
-zincite-query --model counts.mzn --diff -f create.zq counts.dzn
+zincite query --model counts.mzn --diff -f create.zq counts.dzn
+```
+
+The candidate adds `doubled_counts = [6, 10];` and leaves `counts` unchanged.
+To apply it, run:
+
+```sh
 zincite query --model counts.mzn --write -f create.zq counts.dzn
 ```
 
@@ -87,7 +100,7 @@ explicit library location. Missing model context or target identity causes a
 located refusal. Creation requires that the assignment is absent. To start a
 new data document, create an empty `.dzn` file and use a source-free program:
 
-```text
+```zirql
 create counts = [i * 2 | i in 1..2];
 create doubled_counts = [i * 4 | i in 1..2];
 emit;
@@ -100,49 +113,35 @@ would change an existing next-item directive's target.
 
 ## Replace constructed values
 
-Save this as `replace.zq` to replace `counts` with `[4, 6]`:
+Continue with `counts.dzn`, whose original `counts` are still `[3, 5]`.
+Save this as `replace.zq` to add one to each count:
 
-```text
+```zirql
 source old_counts = literal("counts");
-let saved = old_counts;
-replace counts = [saved[i] + 1 | i in index_set(saved)];
+replace counts = [old_counts[i] + 1 | i in index_set(old_counts)];
 emit;
 ```
 
-Run `zincite-query --model counts.mzn --diff -f replace.zq counts.dzn`, then
+Run `zincite query --model counts.mzn --diff -f replace.zq counts.dzn`, then
 use `--write` for an explicit replacement. Unlike `set_value`, this computes a
 value. The same constructor handles records, tuples, sets and rectangular keyed
-arrays or matrices. A replacement requires exactly one original assignment and
-changes only its RHS range. Internal RHS comments need a placement decision,
-so the request refuses them.
+arrays or matrices. A replacement requires exactly one original assignment
+and changes only its right-hand side. If that expression contains comments, Zincite refuses the
+replacement rather than choosing where those comments should move.
 
-All sources and `let` bindings see the original input. Scalar edits supply
-final axis bounds, but never become a later edit's source. Unique target names,
-compatible types, written integer scalar domains, established nominal keys
-and complete rectangular coverage are required. Unknown dependencies, conflicting targets, arithmetic errors or
-unresolved comments refuse the entire batch without partial output or writes.
+Every `source` and `let` reads the original input. In this example, replacing
+`counts` does not recalculate `doubled_counts`: it remains `[6, 10]` unless
+you explicitly replace it too. Edits in one program do not read each other's
+results.
 
-The library exposes the same candidate through `Program`:
+Zincite checks target types, known scalar domains and array coverage against
+the final set of edits. Conflicting targets, arithmetic errors or dependencies
+it cannot resolve stop the whole batch without a partial write. A changed
+scalar bound can therefore require changes to arrays indexed by that bound.
 
-```rust
-use zincite_query::{Input, Program, ProgramLimits};
-use zincite_lint::ModelContext;
-
-fn preview(input: &Input, model: &ModelContext) -> Result<Vec<u8>, zincite_query::QueryError> {
-    let limits = ProgramLimits::default();
-    let program = Program::parse(
-        "create counts = [i * 2 | i in 1..2]; emit;",
-        limits,
-    )?;
-    let mut result = program.evaluate_with_model(input, Some(model), limits)?;
-    assert!(result.candidate().is_some());
-    result.render()
-}
-```
-
-Evaluation and rendering prepare bytes; the library performs no filesystem write.
-In-place CLI writes additionally require a complete result and unchanged original
-file bytes.
+For Rust use, the [program reference](reference.md#program-invocation-and-rust-results)
+describes `Program`, candidate inspection and rendering. Evaluation prepares
+bytes without writing files.
 
 ## Double entities and their dependent data
 
@@ -155,15 +154,16 @@ files are retained under `crates/zincite-query/tests/fixtures/` as
 zincite query --model crates/zincite-query/tests/fixtures/doubled.mzn \
   -f crates/zincite-query/tests/fixtures/double.zq \
   crates/zincite-query/tests/fixtures/doubled.dzn
-zincite-query --diff --model crates/zincite-query/tests/fixtures/doubled.mzn \
+zincite query --diff --model crates/zincite-query/tests/fixtures/doubled.mzn \
   -f crates/zincite-query/tests/fixtures/double.zq \
   crates/zincite-query/tests/fixtures/doubled.dzn
 ```
 
-The program explicitly maps two original entities to four and one group to two.
+This larger example copies two entities into two independent pairs and copies
+their group. It changes the counts, per-entity arrays and references together.
 It retains weights, remaps peers to `2, 1, 4, 3` and groups to `1, 1, 2, 2`,
 copies the two-column capacity rows, and maps group membership to `{1,2}` and
-`{3,4}`. Changing only a count would leave known array coverage stale and is
-refused. Cross-copy relationships and enum member mappings require explicit
+`{3,4}`. Changing only a count would leave the arrays with too few entries, so
+Zincite refuses that edit. Cross-copy relationships and enum member mappings require explicit
 caller choices. The program never adds enum members or edits model/include
 files. Syntax and bounded shape checks do not prove satisfiability.

@@ -27,13 +27,22 @@ source to use the tools.
 
 ## Try the commands
 
-These stdin examples need no model files or standard library:
+The [staffing walkthrough](first-model.md) takes one model through formatting,
+lint feedback and a query that finds a shortage in its data. It includes all
+the input files and explains the results. Start there for a first look at what
+the tools do.
+
+For a quick installation check, these stdin examples need no model files or
+standard library:
 
 ```sh
 printf 'int: capacity=20;\n' | zincite fmt
 printf 'int: capacity = 20;\n' | zincite lint --isolated --rules naming,missing-constraint-label
 printf 'capacity = 20;\n' | zincite query --stdin-filepath data.dzn 'filter(kind("assignment")) | count'
 ```
+
+The formatter prints `int: capacity = 20;`, the lint command produces no
+warnings, and the query prints `1`. All three exit 0.
 
 Continue with [formatting](formatting.md), [linting](linting.md),
 [queries](queries.md) or [data edits](data-edits.md). Read the

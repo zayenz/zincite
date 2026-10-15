@@ -1,36 +1,125 @@
 ---
-title: MiniZinc tools for everyday modelling
-description: Format, lint and query MiniZinc model and data files with Zincite.
+title: Format, lint and query MiniZinc
+description: Zincite formats MiniZinc source, checks modelling conventions and inspects models and data. Start with a worked staffing example.
 template: splash
 hero:
-  title: MiniZinc source, easier to work with.
-  tagline: Format models, check modelling advice and ask questions about your data. Zincite works directly on .mzn and .dzn files.
+  title: Format, lint and query MiniZinc.
+  tagline: Tools for working on .mzn models and .dzn data, from the layout of a constraint to the values in an instance.
   image:
     file: ../../../../assets/zincite-mark.svg
   actions:
     - text: Install Zincite
       link: ./guides/getting-started/
-      icon: right-arrow
-    - text: Read the reference
-      link: ./guides/cli/
+      variant: minimal
+    - text: Work through an example
+      link: ./guides/first-model/
       variant: minimal
 ---
 
 import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 
-<div className="project-note">Rust tools · MiniZinc 2.10.1 · Under development</div>
+<div className="project-note">Rust tools · MiniZinc 2.10.1 · Early development</div>
 
-## Work with the model you have
+Zincite helps you review and maintain MiniZinc models. The formatter takes care
+of layout, so an edit to a constraint produces a diff you can read. The linter
+checks conventions and looks for modelling concerns, such as mismatched array
+indices or expressions that may be undefined. Queries let you inspect the
+source and data when you have a more specific question.
 
-Zincite shares a source-preserving parser across its commands. Formatting keeps
-comments and identifier spelling. Linting reports rules with source locations.
-Queries inspect declarations and data without running a solver.
+The commands work without running a MiniZinc compiler or solver. They share a
+parser that keeps comments, spelling and source locations, so findings can
+point back to the model you are editing.
 
-<CardGrid>
-  <LinkCard title="Format" description="Write consistent layouts, check a project or format an editor buffer." href="./guides/formatting/" />
-  <LinkCard title="Lint" description="Check naming, constraint labels and selected modelling rules. Review advice and explicit fixes." href="./guides/linting/" />
-  <LinkCard title="Query" description="Select source items, count literal values and make bounded data edits." href="./guides/queries/" />
-</CardGrid>
+## A staffing example
+
+Suppose we are staffing three days. Each day has a required number of people
+and a number available. A fragment of the [staffing model](./guides/first-model/)
+starts like this:
+
+### Formatting constraints
+
+<div className="format-comparison">
+<div>
+
+#### Before formatting
+
+```minizinc
+% Staff cannot be moved from one day to another.
+constraint forall(d in Days)(staff[d]>=required[d]);
+constraint forall(d in Days)(staff[d]<=available[d]);
+```
+
+</div>
+<div>
+
+#### After formatting
+
+```minizinc
+% Staff cannot be moved from one day to another.
+constraint forall (d in Days) (
+    staff[d] >= required[d]
+);
+constraint forall (d in Days) (
+    staff[d] <= available[d]
+);
+```
+
+</div>
+</div>
+
+`zincite fmt staffing.mzn` prints the formatted model. The quantifiers and
+bodies have room to be read separately; the names and comment stay intact.
+Add `--write` to apply the layout, or `--check` to check it in CI.
+
+### Linting constraint labels
+
+Run the naming and constraint-label checks:
+
+```sh
+zincite lint --isolated --rules naming,missing-constraint-label staffing.mzn
+```
+
+This reports a `missing-constraint-label` warning at each constraint. A label
+such as `constraint :: "Cover each day's demand"` tells a reader what the
+first constraint means. Zincite leaves that wording to the modeller. The
+[walkthrough](./guides/first-model/#linting-constraint-labels) shows
+the labelled version and explains the selected checks.
+
+### Querying staff shortages
+
+Now consider the data:
+
+```minizinc
+required = [2, 3, 4];
+available = [3, 4, 3];
+```
+
+There are ten staff-days available for nine staff-days of demand. But a spare
+person on day 1 cannot fill a gap on day 3. A short query makes that visible:
+
+```zirql
+source required = literal("required");
+source available = literal("available");
+report [
+    (day: d, missing: required[d] - available[d])
+    | d in index_set(required)
+    where required[d] > available[d]
+];
+```
+
+Save the data as `staffing.dzn` and the query as `shortages.zq`, then run:
+
+```sh
+zincite query --program-file shortages.zq staffing.dzn
+```
+
+The JSON report contains one row: day **3** is missing **1** person. This
+checks the literal arrays, which have the same indices in this example. It
+does not solve the model. The query gives us a concrete data problem to
+investigate before asking a solver for a roster.
+
+[Work through the complete example](./guides/first-model/) for the model,
+formatter output, lint feedback and query result.
 
 ## Install from source
 
@@ -39,14 +128,21 @@ reservations; install the working commands from a checkout.
 
 <!-- install-commands -->
 
-## Try a small input
+Zincite is in early development. Formatting and interfaces may change,
+including changes that break existing workflows. The
+[support guide](./guides/support/) explains language coverage and how to
+interpret incomplete analysis.
 
-These commands read stdin and need no model files or standard library.
+## Guides
 
-<!-- example-commands -->
+<CardGrid>
+  <LinkCard title="Formatting" description="See the layout choices, configure EditorConfig and set up format on save." href="./guides/formatting/" />
+  <LinkCard title="Linting" description="Choose checks for conventions, arrays, domains or search, and review suggested fixes." href="./guides/linting/" />
+  <LinkCard title="Queries and data" description="Select source, follow declaration uses, build reports and make smaller data instances." href="./guides/queries/" />
+</CardGrid>
 
-Formatting may change before a stable release. Semantic inspection has explicit
-limits and can return Unknown. Read the [support guide](./guides/support/) before
-applying the tools to a whole project.
+Zincite uses [Zirql](https://zayenz.se/zirql/) to evaluate queries and reports.
+The Zincite guides explain the MiniZinc operations; the Zirql site describes
+the shared language and how to embed it in another application.
 
 <div className="site-footer">Built by <a href="https://zayenz.se">Mikael Zayenz Lagerkvist</a> · <a href="https://zayenz.se/projects/">All projects</a> · <a href="https://github.com/zayenz/zincite">Source on GitHub</a></div>

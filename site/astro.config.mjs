@@ -1,6 +1,7 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import minizinc from './src/minizinc.mjs';
+import zirql from './src/zirql.mjs';
 
 const base = process.env.SITE_BASE || '/';
 const site = process.env.SITE_URL || 'https://zincite.example';
@@ -22,13 +23,14 @@ export default defineConfig({
     customCss: ['./src/styles/custom.css'],
     social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/zayenz/zincite' }],
     sidebar: [
-      { label: 'Start here', items: ['guides/getting-started', 'guides/support'] },
+      { label: 'Start here', items: ['guides/getting-started', 'guides/first-model', 'guides/support'] },
       { label: 'Formatting', items: ['guides/formatting', 'guides/formatting-style', 'guides/format-on-save'] },
       { label: 'Linting', items: ['guides/linting'] },
       { label: 'Queries and data', items: ['guides/queries', 'guides/query-cookbook', 'guides/data-edits'] },
       { label: 'Reference', items: ['guides/cli', 'guides/reference'] },
+      { label: 'Zirql language', link: 'https://zayenz.se/zirql/' },
       { label: 'All projects on zayenz.se', link: 'https://zayenz.se/projects/' },
     ],
-    expressiveCode: { shiki: { langs: [minizinc], langAlias: { 'rust,ignore': 'rust' } } },
+    expressiveCode: { shiki: { langs: [minizinc, zirql], langAlias: { 'rust,ignore': 'rust' } } },
   })],
 });

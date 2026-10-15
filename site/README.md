@@ -4,15 +4,20 @@ The Astro/Starlight site renders the reader guides in `../docs/`. Those Markdown
 files remain authoritative and readable on GitHub. `scripts/prepare-content.mjs`
 adds page metadata and rewrites repository links into site links at build time;
 its output is ignored. Edit the guides in `docs/`, not generated site content.
-The landing template lives in `src/landing.mdx`; its installation and example
-commands come from `docs/getting-started.md`. Logos and favicon originals
+The landing template lives in `src/landing.mdx`; its installation commands come
+from `docs/getting-started.md`, and its example follows `docs/first-model.md`. Logos and favicon originals
 remain in `../assets/`.
 
 The design follows zayenz.se's restrained navigation, dark charcoal surfaces,
 readable prose and Avenir/Georgia typography, with Zincite's orange crystal and
 wordmarks. Starlight owns search, theme selection and responsive navigation.
-The small TextMate grammar in `src/minizinc.mjs` provides presentation highlighting;
-it does not validate MiniZinc syntax.
+The TextMate grammars in `src/minizinc.mjs` and `src/zirql.mjs` provide
+presentation highlighting. Use `minizinc` for models and data, and `zq` (or
+`zirql`) for query programs. Keep command output in `text` fences. The query
+grammar follows Zirql's `assets/syntax/zirql.tmLanguage.json`, with Zincite's
+program statements and MiniZinc expression syntax added. Keep shared keywords
+and types aligned when updating it; highlighting does not validate syntax or
+promise that Zincite accepts every Zirql construct.
 
 ## Build and preview
 
@@ -74,3 +79,12 @@ content, configuration or appearance changes.
 The chosen canonical URL is `https://zayenz.se/zincite/`. Follow
 [the publication procedure](PUBLISHING.md) to import a reviewed build into the
 existing personal-site deployment, verify it over HTTPS and retain a rollback.
+
+## Zirql syntax highlighting
+
+Use `zirql` for query code fences. The grammar in
+`../assets/syntax/zirql.tmLanguage.json` is an unchanged copy of the
+[shared Zirql grammar](https://github.com/zayenz/zirql/blob/main/assets/syntax/zirql.tmLanguage.json).
+Copy updates from that file to keep the three documentation sites consistent.
+`src/zirql.mjs` adds Zincite's surface syntax using the same token scopes.
+Highlighting does not validate queries.

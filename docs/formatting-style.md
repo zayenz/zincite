@@ -5,10 +5,8 @@ comments and expression structure. The default is four spaces and a 120-column
 limit. The examples below show actual formatter output; they are syntax excerpts,
 so names such as `Position` need declarations in a complete model.
 
-Use the [format-on-save recipe](format-on-save.md) to format an edited buffer.
-The [current save checkpoint](../scripts/save-performance-current.md) records the
-bounded latency, memory and source-preservation checks. These checks cover their
-named inputs; they do not establish full-corpus acceptance.
+Use the [format-on-save recipe](format-on-save.md) to apply this layout in your
+editor. The examples use default settings unless an option is shown.
 
 ## Let bodies and quantified conditions
 
@@ -139,9 +137,9 @@ generator. Generator order and filter attachment stay intact.
 
 ## Nested arrays and parentheses
 
-Singleton arrays and parentheses share adjacent delimiters. Short conditional
-bodies stay compact when they fit, including inside several array dimensions.
-The brackets and parentheses still represent every written wrapper.
+Nested opening and closing brackets stay together when the expression fits.
+The formatter preserves each array layer and pair of parentheses. A short
+conditional inside those arrays can stay on one line:
 
 Before:
 
@@ -192,12 +190,10 @@ else
 endif]]];
 ```
 
-A comment, blank-line group or explicitly expanded comma list keeps its own
-layout boundary. Surrounding singleton wrappers still share adjacent delimiters.
-Delimiter chains that exceed the configured width split across lines. Deeply nested conditional
-branches retain their structural indentation; the
-[nested layout measurements](../scripts/nested-layout-performance.md) show the
-remaining output growth.
+Comments, blank lines and explicitly expanded lists can force line breaks.
+Long chains of brackets also split when they exceed the width limit. Nested
+conditional branches keep their indentation, even when this makes a deeply
+nested expression wide.
 
 ## Matrices
 
