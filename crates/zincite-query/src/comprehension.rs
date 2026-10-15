@@ -67,14 +67,16 @@ pub(crate) fn lower<Q>(
 }
 
 /// Keep shared control ASTs in place while the CST parses their surrounding
-/// MiniZinc syntax. The numeric slots are parsing markers, never runtime values.
+/// MiniZinc syntax. Each span covers the full replaced source, while its value
+/// keeps its own diagnostic range. Numeric slots are parsing markers, never
+/// runtime values.
 pub(crate) fn lower_with_values<Q>(
     source: &str,
     range: Range<usize>,
     budget: &mut Budget,
     nesting: usize,
     policy: ExpressionPolicy,
-    values: Vec<E<Q>>,
+    values: Vec<(Range<usize>, E<Q>)>,
 ) -> Result<LoweredValue<Q>, QueryError> {
     charge(
         budget,
@@ -86,12 +88,12 @@ pub(crate) fn lower_with_values<Q>(
     )?;
     let mut text = format!("value = {source};").into_bytes();
     let mut shared = BTreeMap::new();
-    for value in values {
-        let start = 8 + value.range.start - range.start;
-        let end = 8 + value.range.end - range.start;
+    for (span, value) in values {
+        let start = 8 + span.start - range.start;
+        let end = 8 + span.end - range.start;
         text[start..end].fill(b' ');
         text[start] = b'0';
-        shared.insert(value.range.start, value);
+        shared.insert(span.start, (span, value));
     }
     let parsed = zincite_syntax::parse_with_mode(
         String::from_utf8(text).expect("control ranges end on UTF-8 boundaries"),
@@ -121,7 +123,7 @@ pub(crate) fn lower_with_values<Q>(
         shared,
     };
     let expression = lower.node(rhs, 0)?;
-    if let Some((_, value)) = lower.shared.first_key_value() {
+    if let Some((_, (_, value))) = lower.shared.first_key_value() {
         return Err(QueryError::query(
             value.range.clone(),
             "expected a value expression here",
@@ -145,7 +147,7 @@ struct Lower<'a, 'b, Q> {
     members: Vec<MemberRequest>,
     policy: ExpressionPolicy,
     first_report_call: Option<Range<usize>>,
-    shared: BTreeMap<usize, E<Q>>,
+    shared: BTreeMap<usize, (Range<usize>, E<Q>)>,
 }
 impl<Q> Lower<'_, '_, Q> {
     fn range(&self, node: &SyntaxNode) -> Range<usize> {
@@ -429,8 +431,8 @@ impl<Q> Lower<'_, '_, Q> {
             if self
                 .shared
                 .get(&shared_start)
-                .is_some_and(|value| range.end <= value.range.end)
-                && let Some(value) = self.shared.remove(&shared_start)
+                .is_some_and(|(span, _)| range.end <= span.end)
+                && let Some((_, value)) = self.shared.remove(&shared_start)
             {
                 self.report_only(&value.range)?;
                 return Ok(value);

@@ -1139,10 +1139,68 @@ fn native_composition_inline_and_file_keep_results_status_and_buffering() {
     assert_eq!(inline.stdout, file.stdout);
 
     let output = String::from_utf8(inline.stdout).unwrap();
-    assert_eq!(output.lines().count(), 3);
+    assert_eq!(output.lines().count(), 4);
     assert!(output.contains("\"value\":\"capacity\""));
     assert!(output.contains("\"value\":2"));
     assert_eq!(std::fs::read(&model_path).unwrap(), source);
+    let expected_output = output.as_bytes();
+    let paired = format!("fn unused(n:int)->int {{ n }} {program_source}");
+    std::fs::write(&program_path, &paired).unwrap();
+    for arguments in [
+        vec![
+            "query",
+            common[0],
+            common[1],
+            "--program",
+            &paired,
+            model_path.to_str().unwrap(),
+        ],
+        vec![
+            "query",
+            common[0],
+            common[1],
+            "--program-file",
+            program_path.to_str().unwrap(),
+            model_path.to_str().unwrap(),
+        ],
+    ] {
+        let output = run(&arguments, "");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, expected_output);
+    }
+    let failure = format!("{program_source} [1] | tally;");
+    std::fs::write(&program_path, &failure).unwrap();
+    for arguments in [
+        vec![
+            "query",
+            common[0],
+            common[1],
+            "--program",
+            &failure,
+            model_path.to_str().unwrap(),
+        ],
+        vec![
+            "query",
+            common[0],
+            common[1],
+            "--program-file",
+            program_path.to_str().unwrap(),
+            model_path.to_str().unwrap(),
+        ],
+    ] {
+        let output = run(&arguments, "");
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            error.contains("tally") && (error.contains("<program>") || error.contains("report.zq")),
+            "{error}"
+        );
+    }
     let incomplete = b"int: value = missing; solve satisfy;";
     std::fs::write(&model_path, incomplete).unwrap();
     let known = r#"let unresolved = query("references | declarations | names | count"); report match { from d in (subtree | declarations | unique); };"#;

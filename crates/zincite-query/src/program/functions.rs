@@ -2,6 +2,8 @@
 use super::*;
 use zirql::{DeclaredType as D, ProjectionHost, ValueExpression as E, ValueExpressionKind as K};
 
+type EmbeddedValue = (Range<usize>, E<Expression>);
+
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Primitive {
     DirectChildren,
@@ -115,12 +117,25 @@ impl Parser<'_> {
         &mut self,
         range: Range<usize>,
     ) -> Result<(Expression, Kind, bool), QueryError> {
+        if self.composed_value_syntax(range.clone()) {
+            return self.composed_value_expression(range);
+        }
         if !self.leading_control_syntax(range.clone()) && !self.contextual_values(range.clone()) {
             let expression = self.lower_function_value(range.clone())?;
+            let kind = match &expression.value {
+                K::Array(_)
+                | K::Comprehension { .. }
+                | K::KeyedArray { .. }
+                | K::KeyedComprehension { .. } => {
+                    Kind::Value(Rc::new(vec![zirql::ValueType::Unestablished]))
+                }
+                K::Name(name) => self.names.get(name).cloned().unwrap_or(Kind::Constructed),
+                _ => Kind::Constructed,
+            };
             self.cursor.position = range.end;
             return Ok((
                 value_stage(Stage::FunctionValue(expression), range),
-                Kind::Constructed,
+                kind,
                 false,
             ));
         }
@@ -323,7 +338,8 @@ impl Parser<'_> {
             .any(|(index, token)| {
                 token.range.start >= range.start
                     && token.range.end <= range.end
-                    && self.control_at(index, range.end)
+                    && (self.control_at(index, range.end)
+                        || self.grouped_composed_range(index, range.end).is_some())
             })
     }
     fn block_close(&self, block: usize, end: usize) -> Result<usize, QueryError> {
@@ -413,7 +429,38 @@ impl Parser<'_> {
             return Ok(self.lexed.tokens()[close].range.end);
         }
     }
-    fn nested_controls(&mut self, range: Range<usize>) -> Result<Vec<E<Expression>>, QueryError> {
+    fn grouped_composed_range(
+        &self,
+        index: usize,
+        end: usize,
+    ) -> Option<(Range<usize>, Range<usize>)> {
+        use zincite_syntax::TokenKind as T;
+        let open = &self.lexed.tokens()[index];
+        if open.kind != T::LeftParen {
+            return None;
+        }
+        let mut depth = 1usize;
+        for token in self.lexed.tokens().iter().skip(index + 1) {
+            if token.range.start >= end {
+                break;
+            }
+            match token.kind {
+                T::LeftParen => depth += 1,
+                T::RightParen => {
+                    depth -= 1;
+                    if depth == 0 {
+                        let inner = open.range.end..token.range.start;
+                        return self
+                            .composed_value_syntax(inner.clone())
+                            .then_some((inner, open.range.start..token.range.end));
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+    fn nested_controls(&mut self, range: Range<usize>) -> Result<Vec<EmbeddedValue>, QueryError> {
         let mut values = Vec::new();
         let mut index = self
             .lexed
@@ -421,25 +468,39 @@ impl Parser<'_> {
             .partition_point(|token| token.range.start < range.start);
         while let Some(next) = self.next_value_token(index, range.end) {
             index = next + 1;
-            if !self.control_at(next, range.end) {
+            let grouped = self.grouped_composed_range(next, range.end);
+            if !self.control_at(next, range.end) && grouped.is_none() {
                 continue;
             }
             let start = self.lexed.tokens()[next].range.start;
-            let end = self.control_end(next, range.end)?;
+            let end = if let Some((_, span)) = &grouped {
+                span.end
+            } else {
+                self.control_end(next, range.end)?
+            };
             self.preflight
                 .charge(1, zirql::Location::Query(start..end))
                 .map_err(pipeline::core_error)?;
             self.preflight
                 .charge_results(1, zirql::Location::Query(start..end))
                 .map_err(pipeline::core_error)?;
-            let mut reader = zirql::ArgumentReader::new(&self.cursor.source[..end], start)
-                .map_err(pipeline::core_error)?;
-            let mut budget =
-                std::mem::replace(&mut self.preflight, Budget::for_program(self.limits.core()));
-            let result =
-                zirql::read_value_expression(&mut reader, self, &mut budget, self.limits.nesting);
-            self.preflight = budget;
-            values.push(result.map_err(pipeline::core_error)?);
+            let value = if let Some((inner, _)) = grouped {
+                self.lower_composed_value(inner, self.limits.nesting)?
+            } else {
+                let mut reader = zirql::ArgumentReader::new(&self.cursor.source[..end], start)
+                    .map_err(pipeline::core_error)?;
+                let mut budget =
+                    std::mem::replace(&mut self.preflight, Budget::for_program(self.limits.core()));
+                let result = zirql::read_value_expression(
+                    &mut reader,
+                    self,
+                    &mut budget,
+                    self.limits.nesting,
+                );
+                self.preflight = budget;
+                result.map_err(pipeline::core_error)?
+            };
+            values.push((start..end, value));
             index = self
                 .lexed
                 .tokens()

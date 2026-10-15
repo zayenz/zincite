@@ -303,6 +303,31 @@ fails if binary64 cannot represent it exactly. The same rule applies to
 nonzero finite mathematical result rounded to zero. No implicit string-to-number
 or string-to-member conversion is allowed.
 
+### Constructed pipelines
+
+Completed positional arrays and MiniZinc comprehensions accept bare `sort`,
+`unique` and `tally` suffixes. For example, `[x | x in [3,1,3]] | sort | unique`
+returns `[1,3]`. The generator pipe belongs to the comprehension; the suffix
+pipes consume its completed result. Group saved values and function calls,
+as in `(rows) | sort` or `(make_rows()) | tally`. A binding already known to
+hold a constructed value also accepts the suffix directly. Ordinary native
+name and call pipelines retain their existing routing.
+
+`sort` is stable ascending scalar ordering with the same homogeneous key rules
+as `sort(xs)`. `unique` retains the first equal scalar, preserving input order.
+`tally` accepts only strings and returns a record of integer counts with lexical
+field order. It is terminal: another stage after it is an error. Untyped empty
+arrays are accepted; an established incompatible element contract is still
+refused when empty. Keyed arrays, records and native handles require explicit
+conversion or projection before these operations. A keyed array can become a
+positional one through `[e.value | e in entries(a)]`.
+
+Suffixes lower to Zirql's existing value nodes and use its evaluator and request
+budget. They are report-only, including unused lets and skipped branches in
+data-edit requests. A failure points to the responsible suffix and produces no
+partial CLI output. [The saved-selection example](queries.md#continue-a-calculated-array)
+shows native inputs and calculated arrays in one report.
+
 ## Optional read-only values
 
 `<>` represents absence. `occurs(value)` and `absent(value)` inspect presence;

@@ -771,7 +771,9 @@ impl Program {
                 Err(error) => return Err(error),
             };
             let (expression, kind, emits) =
-                if parser.composition_syntax(expression_start..expression_end) {
+                if parser.composed_value_syntax(expression_start..expression_end) {
+                    parser.composed_value_expression(expression_start..expression_end)?
+                } else if parser.composition_syntax(expression_start..expression_end) {
                     let parsed = parser.composition_expression(expression_start..expression_end)?;
                     if !parser.data_input(&parsed.0) {
                         invalid_input = Some(expression_start..expression_end);
@@ -1395,6 +1397,9 @@ impl<'a> Parser<'a> {
         &mut self,
         range: Range<usize>,
     ) -> Result<(Expression, Kind, bool), QueryError> {
+        if self.prepared_values && self.first_report_call.is_some() {
+            return self.function_expression(range);
+        }
         if self.prepared
             || self.control_syntax(range.clone())
             || self.contextual_values(range.clone())
@@ -1448,7 +1453,7 @@ impl<'a> Parser<'a> {
         let mut syntax = NativeSyntax {
             tokens: &tokens[first..last],
             source: self.cursor.source,
-            names: &self.names,
+            names: self.function_scope.as_ref().unwrap_or(&self.names),
             position: 0,
             query_seen: false,
         };
@@ -1923,7 +1928,7 @@ fn admit_cst(
     range: &Range<usize>,
     budget: &mut Budget,
     nesting: usize,
-    shared: &[zirql::ValueExpression<Expression>],
+    shared: &[(Range<usize>, zirql::ValueExpression<Expression>)],
 ) -> Result<(), QueryError> {
     use zincite_syntax::TokenKind as T;
     let tokens = lexed.tokens();
@@ -1943,13 +1948,14 @@ fn admit_cst(
     for token in &tokens[first..last] {
         while shared
             .get(shared_index)
-            .is_some_and(|value| value.range.end <= token.range.start)
+            .is_some_and(|(span, _)| span.end <= token.range.start)
         {
             shared_index += 1;
         }
-        if shared.get(shared_index).is_some_and(|value| {
-            value.range.start <= token.range.start && token.range.end <= value.range.end
-        }) {
+        if shared
+            .get(shared_index)
+            .is_some_and(|(span, _)| span.start <= token.range.start && token.range.end <= span.end)
+        {
             continue;
         }
         match token.kind {
@@ -2615,8 +2621,13 @@ impl zirql::ValueQueryHost<()> for ReportReads<'_, '_, '_> {
                 .map_err(zirql::EvaluationError::Host);
             }
         }
-        match self.bindings.get(name, range.clone())? {
+        match functions::unretained(self.bindings.get(name, range.clone())?) {
             ReportValue::Constructed(value) => Ok(zirql::copy_constructed_value(
+                value,
+                budget,
+                zirql::Location::Query(range.clone()),
+            )?),
+            ReportValue::SharedConstructed(value) => Ok(zirql::copy_constructed_value(
                 value,
                 budget,
                 zirql::Location::Query(range.clone()),

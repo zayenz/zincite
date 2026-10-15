@@ -115,6 +115,83 @@ impl Parser<'_> {
         }
         self.cursor.source.len()
     }
+    pub(super) fn outer_value_pipe(&self, range: Range<usize>) -> Option<usize> {
+        use zincite_syntax::TokenKind as T;
+        let mut depth = 0usize;
+        for token in self
+            .lexed
+            .tokens()
+            .iter()
+            .filter(|token| token.range.start >= range.start && token.range.end <= range.end)
+        {
+            match token.kind {
+                T::LeftParen | T::LeftBracket | T::LeftBrace | T::MatrixStart => depth += 1,
+                T::RightParen | T::RightBracket | T::RightBrace | T::MatrixEnd => {
+                    depth = depth.saturating_sub(1)
+                }
+                T::Pipe if depth == 0 => return Some(token.range.start),
+                _ => {}
+            }
+        }
+        None
+    }
+    pub(super) fn composed_value_syntax(&self, range: Range<usize>) -> bool {
+        let Some(pipe) = self.outer_value_pipe(range.clone()) else {
+            return false;
+        };
+        let prefix = self.cursor.source[range.start..pipe].trim_start();
+        if prefix.starts_with('[') || prefix.starts_with('{') {
+            return true;
+        }
+        if prefix.starts_with('(') {
+            return !self.native_syntax(range.start..pipe, false);
+        }
+        matches!(
+            self.function_scope
+                .as_ref()
+                .unwrap_or(&self.names)
+                .get(prefix.trim()),
+            Some(Kind::Value(_))
+        )
+    }
+    pub(super) fn lower_composed_value(
+        &mut self,
+        range: Range<usize>,
+        nesting: usize,
+    ) -> Result<zirql::ValueExpression<Expression>, QueryError> {
+        let pipe = self
+            .outer_value_pipe(range.clone())
+            .expect("composed suffix");
+        let value = self.lower_function_value(range.start..pipe)?;
+        self.first_report_call.get_or_insert(pipe..range.end);
+        let mut reader = zirql::ArgumentReader::new(&self.cursor.source[..range.end], pipe)
+            .map_err(pipeline::core_error)?;
+        let value = zirql::read_value_suffix(&mut reader, value, &mut self.preflight, nesting)
+            .map_err(pipeline::core_error)?;
+        if reader.position() != range.end {
+            zirql::dispose_native_value(value);
+            return Err(QueryError::query(
+                reader.position()..range.end,
+                "expected one constructed pipeline",
+            ));
+        }
+        functions::check_value(&value, &mut self.preflight, nesting)?;
+        Ok(value)
+    }
+    pub(super) fn composed_value_expression(
+        &mut self,
+        range: Range<usize>,
+    ) -> Result<(Expression, Kind, bool), QueryError> {
+        let value = self.lower_composed_value(range.clone(), self.limits.nesting)?;
+        self.prepared_values = true;
+        self.cursor.position = range.end;
+        Ok((
+            value_stage(Stage::FunctionValue(value), range),
+            Kind::Value(Rc::new(vec![zirql::ValueType::Unestablished])),
+            false,
+        ))
+    }
+
     pub(super) fn composition_syntax(&self, range: Range<usize>) -> bool {
         use zincite_syntax::TokenKind as T;
         let tokens: Vec<_> = self
@@ -140,7 +217,7 @@ impl Parser<'_> {
                 && pair[2].kind == T::LeftParen
         });
         contextual_match
-            || (tokens.iter().any(|token| token.kind == T::Pipe)
+            || (self.outer_value_pipe(range.clone()).is_some()
                 && (self.names.contains_key(first)
                     || self.function_names.contains(first)
                     || functions::Primitive::named(first).is_some()))
@@ -370,7 +447,7 @@ impl ValueReaderHost for Parser<'_> {
         reader: &mut zirql::ArgumentReader<'_>,
         locals: &[&str],
         budget: &mut Budget,
-        _: usize,
+        nesting: usize,
     ) -> Result<Option<zirql::ValueExpression<Expression>>, zirql::QueryError> {
         reader.skip_whitespace();
         let start = reader.position();
@@ -401,7 +478,7 @@ impl ValueReaderHost for Parser<'_> {
         }
         let common_if = conditional && !minizinc_if;
         if common_if
-            || top_pipe
+            || (top_pipe && !self.composed_value_syntax(start..end))
             || self.leading_control_syntax(start..end)
             || reader.source()[start..].trim_start().starts_with("match {")
         {
@@ -414,7 +491,11 @@ impl ValueReaderHost for Parser<'_> {
                 .collect(),
         );
         std::mem::swap(&mut self.preflight, budget);
-        let value = self.lower_function_value(start..end);
+        let value = if top_pipe {
+            self.lower_composed_value(start..end, nesting)
+        } else {
+            self.lower_function_value(start..end)
+        };
         std::mem::swap(&mut self.preflight, budget);
         self.function_scope = saved;
         let value = value.map_err(query_error)?;
@@ -493,23 +574,13 @@ impl ValueReaderHost for Parser<'_> {
                     reader.skip_whitespace();
                     let start = reader.position();
                     let end = self.guard_argument_end(start);
-                    let mut brackets = 0usize;
-                    let native_pipe = self
-                        .lexed
-                        .tokens()
-                        .iter()
-                        .filter(|token| token.range.start >= start && token.range.end <= end)
-                        .any(|token| {
-                            use zincite_syntax::TokenKind as T;
-                            match token.kind {
-                                T::LeftBracket => brackets += 1,
-                                T::RightBracket => brackets = brackets.saturating_sub(1),
-                                T::Pipe if brackets == 0 => return true,
-                                _ => {}
-                            };
-                            false
-                        });
-                    let value = if native_pipe {
+                    let value = if self.composed_value_syntax(start..end) {
+                        std::mem::swap(&mut self.preflight, budget);
+                        let value = self.lower_composed_value(start..end, self.limits.nesting);
+                        std::mem::swap(&mut self.preflight, budget);
+                        reader.advance(end - start)?;
+                        value.map_err(query_error)?
+                    } else if self.outer_value_pipe(start..end).is_some() {
                         zirql::read_value_expression(reader, self, budget, self.limits.nesting)?
                     } else {
                         std::mem::swap(&mut self.preflight, budget);
@@ -562,30 +633,45 @@ impl ValueReaderHost for Parser<'_> {
         let source = self.cursor.source;
         std::mem::swap(&mut self.preflight, budget);
         let mut lower = |owner, kind: language::ArgumentKind, range: Range<usize>| {
-            let (mut expression, _names) = self
-                .pure_value::<Expression>(range.clone(), comprehension::ExpressionPolicy::Report)?;
-            self.value_names(&expression, &range, Some(kind.ty()))?;
-            if self.first_report_call.is_none() {
-                self.first_report_call = expression.first_report_call.clone();
-            }
-            let eager_members = if !self.prepared && self.function_names.is_empty() {
-                argument_members(&expression, &mut self.preflight)?
+            let (expression, eager_members) = if self.composed_value_syntax(range.clone())
+                || self.control_syntax(range.clone())
+            {
+                self.prepared_values = true;
+                let expression = if self.composed_value_syntax(range.clone()) {
+                    self.lower_composed_value(range.clone(), limits.nesting)?
+                } else {
+                    self.lower_function_value(range.clone())?
+                };
+                (expression, Vec::new())
             } else {
-                Vec::new()
+                let (mut expression, _names) = self.pure_value::<Expression>(
+                    range.clone(),
+                    comprehension::ExpressionPolicy::Report,
+                )?;
+                self.value_names(&expression, &range, Some(kind.ty()))?;
+                if self.first_report_call.is_none() {
+                    self.first_report_call = expression.first_report_call.clone();
+                }
+                let eager_members = if !self.prepared && self.function_names.is_empty() {
+                    argument_members(&expression, &mut self.preflight)?
+                } else {
+                    Vec::new()
+                };
+                map_value(
+                    &mut expression.expression,
+                    &|range| range,
+                    &mut expression.members,
+                );
+                functions::lower_primitives(&mut expression.expression, &self.names, &self.queries);
+                (expression.expression, eager_members)
             };
-            map_value(
-                &mut expression.expression,
-                &|range| range,
-                &mut expression.members,
-            );
-            functions::lower_primitives(&mut expression.expression, &self.names, &self.queries);
             self.preflight
                 .charge_results(1, zirql::Location::Query(range))
                 .map_err(pipeline::core_error)?;
             arguments.push(QueryArgument {
                 owner,
                 kind,
-                expression: expression.expression,
+                expression,
                 eager_members,
             });
             Ok(())
@@ -667,7 +753,11 @@ impl ValueReaderHost for Parser<'_> {
             let start = reader.position();
             let end = self.guard_argument_end(start);
             std::mem::swap(&mut self.preflight, budget);
-            let value = if self.function_names.is_empty() {
+            let value = if self.composed_value_syntax(start..end) {
+                self.prepared_values = true;
+                self.lower_composed_value(start..end, self.limits.nesting)
+                    .map_err(query_error)
+            } else if self.function_names.is_empty() && !self.control_syntax(start..end) {
                 let (mut lowered, _) = self
                     .pure_value::<Expression>(start..end, comprehension::ExpressionPolicy::Report)
                     .map_err(query_error)?;
@@ -683,6 +773,7 @@ impl ValueReaderHost for Parser<'_> {
                 );
                 Ok(lowered.expression)
             } else {
+                self.prepared_values = true;
                 self.lower_function_value(start..end).map_err(query_error)
             };
             std::mem::swap(&mut self.preflight, budget);

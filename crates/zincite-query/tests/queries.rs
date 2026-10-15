@@ -5311,3 +5311,191 @@ mod worklists {
         assert!(error.message.contains("work"), "{error:?}");
     }
 }
+
+#[test]
+fn saved_native_and_minizinc_values_compose_with_shared_suffixes() {
+    use zincite_query::{ConstructedValue as V, Program, ProgramLimits, ReportValue};
+    let limits = ProgramLimits::default();
+    let input = Input::parse(b"b=2; a=1;".to_vec(), FileMode::Data).unwrap();
+    let body = r#"let selected=items; let labels=selected | names; let n=selected | count;
+        let rows=[label | label in labels]; let ordered=(rows) | sort | unique;
+        report (names:ordered,count:n,selected:selected);"#;
+    let mut expected = None;
+    for prefix in ["", "fn unused(n:int)->int { n } "] {
+        let request = format!("{prefix}{body}");
+        let mut result = Program::parse(&request, limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .unwrap();
+        assert!(result.is_complete());
+        let fields = match result.emissions()[0].value() {
+            ReportValue::Record(fields) => fields,
+            ReportValue::Capture(capture) => &capture.fields,
+            value => panic!("native record: {value:?}"),
+        };
+        assert_eq!(fields[0].0, "names");
+        assert!(
+            matches!(&fields[0].1, ReportValue::Constructed(value) if value.data()==&V::Array(vec![V::String("a".into()), V::String("b".into())]))
+        );
+        assert!(
+            matches!(&fields[2].1, ReportValue::Query(zincite_query::SemanticStream::Inspection(value)) if matches!(value.as_ref(), zincite_query::QueryResult::Selection(items) if items.items().len()==2))
+        );
+        if let ReportValue::Query(zincite_query::SemanticStream::Inspection(value)) = &fields[2].1 {
+            let zincite_query::QueryResult::Selection(selected) = value.as_ref() else {
+                panic!("native selection")
+            };
+            assert!(std::ptr::eq(selected.input(), &input));
+            assert_eq!(
+                &input.source_bytes()[selected.items()[1].range.clone()],
+                b"a=1;"
+            );
+        }
+        let rendered = result.render().unwrap();
+        if let Some(expected) = &expected {
+            assert_eq!(&rendered, expected);
+        } else {
+            expected = Some(rendered);
+        }
+    }
+    let function = r#"fn ordered(labels:sequence<string>)->sequence<string> {
+        let rows=[label | label in labels]; [label | label in rows] | sort | unique
+    } let selected=items; let labels=selected | names; ordered(labels); (ordered(labels)) | tally"#;
+    let result = Program::parse(function, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let ReportValue::Constructed(value) = result.emissions()[0].value() else {
+        panic!("constructed result")
+    };
+    let V::Array(values) = value.data() else {
+        panic!("array result")
+    };
+    assert_eq!(
+        values.iter().map(V::data).collect::<Vec<_>>(),
+        [&V::String("a".into()), &V::String("b".into())]
+    );
+    assert!(
+        matches!(result.emissions()[1].value(), ReportValue::Constructed(value) if value.data()==&V::Record(vec![("a".into(),V::Integer(1)),("b".into(),V::Integer(1))]))
+    );
+    for prefix in ["", "fn unused(n:int)->int { n } "] {
+        let request = format!(
+            r#"{prefix}let wanted=["a"]; report items | filter(name(([s | s in wanted] | unique)[1])) | head(length(([2,1,2] | unique))) | count;"#
+        );
+        let result = Program::parse(&request, limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .unwrap();
+        match result.emissions()[0].value() {
+            ReportValue::Constructed(value) => assert_eq!(value.data(), &V::Integer(1)),
+            ReportValue::Query(zincite_query::SemanticStream::Inspection(value)) => {
+                assert!(matches!(
+                    value.as_ref(),
+                    zincite_query::QueryResult::Count(1)
+                ));
+            }
+            value => panic!("count result: {value:?}"),
+        }
+    }
+    for (body, values) in [
+        (
+            "let rows=[3,1,3]; rows | unique",
+            vec![V::Integer(3), V::Integer(1)],
+        ),
+        (
+            "let rows=[3,1,3] | unique; rows | sort",
+            vec![V::Integer(1), V::Integer(3)],
+        ),
+    ] {
+        let values = V::Array(values);
+        let mut expected = None;
+        for prefix in ["", "fn unused(n:int)->int { n } "] {
+            let request = format!("{prefix}{body}");
+            let mut result = Program::parse(&request, limits)
+                .unwrap()
+                .evaluate(&input, limits)
+                .unwrap();
+            assert!(
+                matches!(result.emissions()[0].value(), ReportValue::Constructed(value) if value.data()==&values),
+                "{request}"
+            );
+            let rendered = result.render().unwrap();
+            if let Some(expected) = &expected {
+                assert_eq!(&rendered, expected);
+            } else {
+                expected = Some(rendered);
+            }
+        }
+    }
+    for (request, value) in [
+        (
+            "[3,1,3,2] | sort | unique",
+            V::Array(vec![V::Integer(1), V::Integer(2), V::Integer(3)]),
+        ),
+        (
+            r#"["b","a","b"] | tally"#,
+            V::Record(vec![
+                ("a".into(), V::Integer(1)),
+                ("b".into(), V::Integer(2)),
+            ]),
+        ),
+        ("[] | sort | unique", V::Array(vec![])),
+        ("length(([x | x in [2,1,2]] | unique))", V::Integer(2)),
+        (
+            "if false then ([2,1] | sort) else ([4,3] | sort) endif",
+            V::Array(vec![V::Integer(3), V::Integer(4)]),
+        ),
+        (
+            "[e.value | e in entries([2:3, 5:1])] | sort",
+            V::Array(vec![V::Integer(1), V::Integer(3)]),
+        ),
+    ] {
+        let result = Program::parse(request, limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .unwrap();
+        assert!(
+            matches!(result.emissions()[0].value(), ReportValue::Constructed(actual) if actual.data()==&value),
+            "{request}: {:?}",
+            result.emissions()[0].value()
+        );
+    }
+    for (request, stage) in [
+        ("[1] | tally", "tally"),
+        (r#"["a"] | tally | sort"#, "sort"),
+        ("[2:3,5:1] | sort", "sort"),
+        ("[1] | names", "names"),
+    ] {
+        let error = Program::parse(request, limits)
+            .and_then(|p| p.evaluate(&input, limits))
+            .unwrap_err();
+        assert_eq!(&request[error.range], stage, "{}", error.message);
+    }
+    for request in [
+        "let unused=[2,1] | sort; replace a=1; emit;",
+        "let unused=if false then ([2,1] | sort) else [] endif; replace a=1; emit;",
+    ] {
+        assert!(
+            Program::parse(request, limits)
+                .and_then(|p| p.evaluate(&input, limits))
+                .is_err(),
+            "{request}"
+        );
+    }
+    let typed_empty =
+        "fn bad(xs:sequence<record{x:int}>)->sequence<record{x:int}> { (xs) | sort } bad([])";
+    let error = Program::parse(typed_empty, limits)
+        .and_then(|p| p.evaluate(&input, limits))
+        .unwrap_err();
+    assert_eq!(&typed_empty[error.range], "sort", "{}", error.message);
+    let program = Program::parse(body, limits).unwrap();
+    let error = program
+        .evaluate(
+            &input,
+            ProgramLimits {
+                work: 100,
+                ..limits
+            },
+        )
+        .unwrap_err();
+    assert!(error.message.contains("work limit"));
+}

@@ -1026,8 +1026,12 @@ fn native_composition_inline_and_file_keep_results_status_and_buffering() {
             stdlib_dir: Some(dir.join("library")),
         },
     );
-    let input =
-        zincite_query::Input::parse(source.to_vec(), zincite_syntax::FileMode::Model).unwrap();
+    let input = zincite_query::Input::parse_named(
+        source.to_vec(),
+        zincite_syntax::FileMode::Model,
+        model_path.to_str().unwrap(),
+    )
+    .unwrap();
     let program =
         zincite_query::Program::parse(program_source, zincite_query::ProgramLimits::default())
             .unwrap();
@@ -1048,7 +1052,7 @@ fn native_composition_inline_and_file_keep_results_status_and_buffering() {
         .filter(|line| !line.is_empty())
         .map(|line| serde_json::from_slice::<serde_json::Value>(line).unwrap())
         .collect::<Vec<_>>();
-    assert_eq!(outputs.len(), 3);
+    assert_eq!(outputs.len(), 4);
     let rows = outputs[0]["result"]["entries"].as_array().unwrap();
     for (row, (name, uses)) in rows.iter().zip([
         ("capacity", 2),
@@ -1061,6 +1065,59 @@ fn native_composition_inline_and_file_keep_results_status_and_buffering() {
     }
     assert_eq!(outputs[1]["result"].as_array().unwrap().len(), 3);
     assert_eq!(std::fs::read(&model_path).unwrap(), source);
+    let paired = format!("fn unused(n:int)->int {{ n }} {program_source}");
+    std::fs::write(&program_path, &paired).unwrap();
+    for arguments in [
+        vec![
+            common[0],
+            common[1],
+            "--program",
+            &paired,
+            model_path.to_str().unwrap(),
+        ],
+        vec![
+            common[0],
+            common[1],
+            "--program-file",
+            program_path.to_str().unwrap(),
+            model_path.to_str().unwrap(),
+        ],
+    ] {
+        let output = run(&arguments, b"");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, expected);
+    }
+    let failure = format!("{program_source} [1] | tally;");
+    std::fs::write(&program_path, &failure).unwrap();
+    for arguments in [
+        vec![
+            common[0],
+            common[1],
+            "--program",
+            &failure,
+            model_path.to_str().unwrap(),
+        ],
+        vec![
+            common[0],
+            common[1],
+            "--program-file",
+            program_path.to_str().unwrap(),
+            model_path.to_str().unwrap(),
+        ],
+    ] {
+        let output = run(&arguments, b"");
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            error.contains("tally") && (error.contains("<program>") || error.contains("report.zq")),
+            "{error}"
+        );
+    }
     let incomplete = b"int: value = missing; solve satisfy;";
     std::fs::write(&model_path, incomplete).unwrap();
     let known = r#"let unresolved = query("references | declarations | names | count"); report match { from d in (subtree | declarations | unique); };"#;

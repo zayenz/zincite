@@ -554,6 +554,9 @@ impl<'a, 'q> Host<Row<'a>, &mut Context<'a>, Leaf<'q>, &'q Stage> for NativeHost
                 }
                 None
             }
+            zirql::Stage::Tail(_) | zirql::Stage::Reverse | zirql::Stage::Check { .. } => {
+                Some("native stage is unavailable in Zincite")
+            }
             zirql::Stage::Count => None,
             zirql::Stage::Unique => matches!(context.kind, StreamKind::Literals)
                 .then_some("unique requires a node or string stream"),

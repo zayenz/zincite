@@ -89,6 +89,41 @@ describes how to read those reports from another program.
 All examples here are read-only. To change a data file, use the
 [data-edit guide](data-edits.md); editing supports a smaller set of expressions.
 
+## Continue a calculated array
+
+A saved selection can feed several calculations before the report is rendered.
+For a data file, this program sorts the assignment names and retains the
+selection alongside its count:
+
+```zirql title="names.zq"
+let selected = items | filter(kind("assignment"));
+let labels = selected | names;
+let n = selected | count;
+let rows = [label | label in labels];
+let ordered = (rows) | sort | unique;
+(names: ordered, count: n, selected: selected)
+```
+
+Run `zincite query -f names.zq data.dzn`, or pass the same source with
+`--program`. The comprehension uses MiniZinc's generator pipe inside brackets.
+The outer pipes continue the completed array through Zirql's shared collection
+operations. `sort` orders homogeneous scalars; `unique` keeps the first equal
+value. For string frequencies, replace the last binding with
+`let ordered = (rows) | tally;`. Its result is a record with lexical string
+labels and integer counts.
+
+Parenthesize a saved calculated value or function call when continuing it as a
+constructed array: `(rows) | sort | unique` or `(make_rows()) | tally`.
+Native pipelines such as `selected | names` retain their existing meaning.
+`names`, `count` and `values` provide explicit calculation inputs from native
+results; no text or JSON conversion is involved. The same expressions work
+with an unrelated function declaration and inside supported pure functions.
+
+These suffixes are read-only report operations. Keyed arrays need an explicit
+positional conversion, such as `[e.value | e in entries(a)] | sort`. See the
+[constructed pipeline contract](query-comprehension-contract.md#constructed-pipelines)
+for empty inputs, supported types and failures.
+
 ## Read a named assignment
 
 Create `data.dzn` with demand and capacity arrays:

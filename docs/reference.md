@@ -805,6 +805,15 @@ fields point to the literal selector. These calls are report-only and share
 work, scratch, output-copy and comparison limits. See the [complete contract](query-comprehension-contract.md#report-expressions-and-edit-grammar)
 and [executable report](queries.md#sort-rows-and-select-extrema).
 
+Constructed positional arrays also accept bare `| sort`, `| unique` and
+terminal `| tally`. `sort` uses the scalar ordering above; `unique` keeps first
+occurrences; string-only `tally` produces a lexical field-order count record.
+Use grouping for saved values or calls, such as `(rows) | sort | unique`.
+MiniZinc comprehension pipes stay inside brackets. Keyed inputs need an explicit
+positional conversion. These suffixes are report-only, including unused and
+skipped data-edit expressions. See the [pipeline contract](query-comprehension-contract.md#constructed-pipelines)
+and [saved-selection report](queries.md#continue-a-calculated-array).
+
 `group_by(rows, "field")` groups positional records by a static string selector.
 Keys are homogeneous integers, strings or resolved members of one enum. The
 positional result has `key` and `items` fields: groups follow first occurrence,
