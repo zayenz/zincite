@@ -494,7 +494,7 @@ weights by two would leave references pointing at the wrong entities.
 
 The public model and input data are:
 
-```minizinc
+```minizinc title="doubled.mzn"
 int: entity_count;
 int: group_count;
 array[1..entity_count] of record(int: weight, int: peer, int: group): entities;
@@ -503,7 +503,7 @@ array[1..group_count] of set of int: groups;
 solve satisfy;
 ```
 
-```minizinc
+```minizinc title="doubled.dzn"
 entity_count = 2;
 group_count = 1;
 entities = [(weight: 7, peer: 2, group: 1), (weight: 11, peer: 1, group: 1)];
@@ -516,7 +516,7 @@ becomes `entity_map[i,c] = i + 2*c`, and an old group `g` becomes
 `group_map[g,c] = g + c`. Each input name binds an original literal value.
 The five replacements form one candidate.
 
-```zirql
+```zirql title="double.zq"
 let old_entities = items | filter(name("entities")) | values | one;
 let old_capacities = items | filter(name("capacities")) | values | one;
 let old_groups = items | filter(name("groups")) | values | one;

@@ -16,7 +16,7 @@ shortage on another.
 
 Save this deliberately compact model as `staffing.mzn`:
 
-```minizinc
+```minizinc title="staffing.mzn"
 include "globals.mzn";
 
 set of int: Days=1..3;
@@ -36,7 +36,7 @@ available. The objective minimises the total number of staff-days used.
 
 Save the instance as `staffing.dzn`:
 
-```minizinc
+```minizinc title="staffing.dzn"
 required = [2, 3, 4];
 available = [3, 4, 3];
 ```
@@ -54,7 +54,7 @@ zincite fmt staffing.mzn
 
 With the default settings, Zincite prints:
 
-```minizinc
+```minizinc title="staffing.mzn (formatted)"
 include "globals.mzn";
 
 set of int: Days = 1 .. 3;
@@ -105,7 +105,7 @@ the constraints understandable. The formatter cannot supply that explanation.
 
 Replace the two constraints and their preceding comment with:
 
-```minizinc
+```minizinc title="staffing.mzn (labelled constraints)"
 % Demand must be met on each day, even when the total availability is sufficient.
 constraint :: "Cover each day's demand"
 forall (d in Days) (
@@ -158,7 +158,7 @@ shortage.
 
 Save this query as `shortages.zq`:
 
-```zirql
+```zirql title="shortages.zq"
 let required = items | filter(name("required")) | values | one;
 let available = items | filter(name("available")) | values | one;
 [

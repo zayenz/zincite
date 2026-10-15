@@ -11,12 +11,9 @@ recipe also needs MiniZinc, and the literal-shape summaries use Python 3.
 
 ## Create the inputs
 
-Use a temporary directory so the commands do not replace existing files:
+Save these two files in a new directory:
 
-```sh
-recipe_dir=$(mktemp -d)
-cd "$recipe_dir"
-cat > staffing.mzn <<'MZN'
+```minizinc title="staffing.mzn"
 include "globals.mzn";
 annotation staffing_rule;
 set of int: Days = 1 .. 3;
@@ -24,15 +21,22 @@ array[Days] of int: required :: staffing_rule = [2, 3, 4];
 array[Days] of int: available = [3, 4, 5];
 array[Days] of var 0 .. max(available): staff :: staffing_rule;
 constraint :: "Meet demand"
-    forall(d in Days)(staff[d] >= required[d]);
+forall (d in Days) (
+    staff[d] >= required[d]
+);
 constraint :: "Respect availability"
-    forall(d in Days)(staff[d] <= available[d]);
+forall (d in Days) (
+    staff[d] <= available[d]
+);
 solve minimize sum(staff);
-MZN
-cat > data.dzn <<'DZN'
+```
+
+```minizinc title="data.dzn"
 weights = [1, 2, 3];
-costs = [|1, 2, 3|4, 5, 6|];
-DZN
+costs = [|
+      1, 2, 3
+    | 4, 5, 6
+|];
 ```
 
 The staffing model follows the [introductory walkthrough](first-model.md).

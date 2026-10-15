@@ -9,10 +9,17 @@ preservation, comment handling and candidate validation.
 
 ## Replace an assignment expression
 
-Create a small data file:
+Save these assignments as `data.dzn`:
+
+```minizinc title="data.dzn"
+capacity = 20;
+weights = [1, -2, 3];
+unused = 0;
+```
+
+Preview a replacement:
 
 ```sh
-printf 'capacity = 20;\nweights = [1, -2, 3];\nunused = 0;\n' > data.dzn
 zincite query --diff 'filter(name("capacity")) | set_value("30")' data.dzn
 zincite query 'filter(name("capacity")) | set_value("10 + 20")' data.dzn
 ```
@@ -42,10 +49,16 @@ See [literal filtering](reference.md#assignment-edits) for supported shapes.
 
 ## Reduce enum membership
 
-To keep only guests A and C, create this small input:
+To keep only guests A and C, save this input as `guests.dzn`:
+
+```minizinc title="guests.dzn"
+Guests = {A, B, C};
+scores = [A: 2, B: 5, C: 3];
+```
+
+Preview the reduction:
 
 ```sh
-printf 'Guests = {A, B, C};\nscores = [A: 2, B: 5, C: 3];\n' > guests.dzn
 zincite query --diff 'reduce_enum("Guests", keep("A", "C"))' guests.dzn
 ```
 
@@ -63,99 +76,146 @@ The [support guide](support.md) describes the semantic boundaries.
 
 ## Construct new data
 
-To add a calculated assignment, use an edit program with model declarations.
-The model supplies the expected types and indices; the data file supplies the
-values. Save this model as `counts.mzn`:
+`create name = expression;` calculates a value and adds a new assignment to the
+proposed `.dzn` file. The final `emit;` returns the complete proposed file,
+including the original assignments. By default, the command prints that file
+to standard output. It does not print a JSON report or write the input file.
 
-```minizinc
-array[1..2] of int: counts;
-array[1..2] of int: doubled_counts;
+The [staffing walkthrough](first-model.md#querying-staff-shortages) reports
+shortages as JSON. Here, we want to store the daily shortfalls as a parameter
+in a reusable data instance. Save these two files in a new directory:
+
+```minizinc title="staffing.mzn"
+array[1 .. 3] of int: required;
+array[1 .. 3] of int: available;
+array[1 .. 3] of int: shortfall;
 solve satisfy;
 ```
 
-Start with `counts = [3, 5];` in `counts.dzn`, and save this as `create.zq`:
+```minizinc title="staffing.dzn"
+required = [2, 3, 4];
+available = [3, 4, 3];
+```
 
-```zirql
-let old_counts = items | filter(name("counts")) | values | one;
-create doubled_counts = [old_counts[i] * 2 | i in index_set(old_counts)];
+The model declares the expected type and indices of `shortfall`; the
+assignment is still missing from the data file. Zincite reads those declarations
+to validate the edit. It does not run the model or a solver. Configure the
+[MiniZinc standard library](queries.md#inspect-semantic-facts) before running
+these model-backed edits.
+
+Save the edit program as `add-shortfall.zq`:
+
+```zirql title="add-shortfall.zq"
+let required = items | filter(name("required")) | values | one;
+let available = items | filter(name("available")) | values | one;
+create shortfall = [
+    if required[day] > available[day] then
+        required[day] - available[day]
+    else
+        0
+    endif
+    | day in index_set(required)
+];
 emit;
 ```
 
-Preview the result, then its diff:
+The two `let` bindings read the original arrays. `create` adds an assignment
+named `shortfall`, with zero where demand is covered and the difference where
+it is not. `shortfall` must be declared in the model and absent from the data
+file. Use `replace` for an assignment that already exists.
+
+Run the program:
 
 ```sh
-zincite query --model counts.mzn -f create.zq counts.dzn
-zincite query --model counts.mzn --diff -f create.zq counts.dzn
+zincite query --model staffing.mzn -f add-shortfall.zq staffing.dzn
 ```
 
-The candidate adds `doubled_counts = [6, 10];` and leaves `counts` unchanged.
-To apply it, run:
+The command prints the complete candidate below and exits 0:
+
+```minizinc title="Standard output"
+required = [2, 3, 4];
+available = [3, 4, 3];
+shortfall = [0, 0, 1];
+```
+
+Day 3 needs one extra person. The original assignments remain in the output,
+and the input file still contains only `required` and `available`. To save the
+candidate as a separate data file, redirect the output:
 
 ```sh
-zincite query --model counts.mzn --write -f create.zq counts.dzn
+zincite query --model staffing.mzn -f add-shortfall.zq staffing.dzn > staffing-with-shortfall.dzn
 ```
 
-Supply `--stdlib-dir DIR` or `MZN_STDLIB_DIR` when model loading needs an
-explicit library location. Missing model context or target identity causes a
-located refusal. Creation requires that the assignment is absent. To start a
-new data document, create an empty `.dzn` file and use a source-free program:
+The next example uses `staffing-with-shortfall.dzn`. You can also preview a diff
+or apply the edit directly to the input file:
 
-```zirql
-create counts = [i * 2 | i in 1..2];
-create doubled_counts = [i * 4 | i in 1..2];
-emit;
+```sh
+zincite query --model staffing.mzn --diff -f add-shortfall.zq staffing.dzn
+zincite query --model staffing.mzn --write -f add-shortfall.zq staffing.dzn
 ```
 
-Created assignments use the input's line ending and appear after the last
-assignment's attached trailing comment, before detached trailing comments.
-A BOM and unrelated bytes remain intact. Creation refuses any placement that
-would change an existing next-item directive's target.
+`--diff` prints the changes without writing. `--write` updates `staffing.dzn`
+and prints no data file. The model and query files are read-only inputs.
 
 ## Replace constructed values
 
-Continue with `counts.dzn`, whose original `counts` are still `[3, 5]`.
-Save this as `replace.zq` to add one to each count:
+Now suppose one extra person is available on every day. Update both availability
+and its calculated shortfall in `staffing-with-shortfall.dzn`. Save this program
+as `add-staff.zq`:
 
-```zirql
-let old_counts = items | filter(name("counts")) | values | one;
-replace counts = [old_counts[i] + 1 | i in index_set(old_counts)];
+```zirql title="add-staff.zq"
+let available = items | filter(name("available")) | values | one;
+let revised_available = [n + 1 | n in available];
+let required = items | filter(name("required")) | values | one;
+replace available = revised_available;
+replace shortfall = [
+    if required[day] > revised_available[day] then
+        required[day] - revised_available[day]
+    else
+        0
+    endif
+    | day in index_set(required)
+];
 emit;
 ```
 
-Run `zincite query --model counts.mzn --diff -f replace.zq counts.dzn`, then
-use `--write` for an explicit replacement. Unlike `set_value`, this computes a
-value. The same constructor handles records, tuples, sets and rectangular keyed
-arrays or matrices. A replacement requires exactly one original assignment
-and changes only its right-hand side. If that expression contains comments, Zincite refuses the
-replacement rather than choosing where those comments should move.
-
-Input bindings and calculations may interleave. Every binding reads the
-original input. In this example, replacing
-`counts` does not recalculate `doubled_counts`: it remains `[6, 10]` unless
-you explicitly replace it too. Edits in one program do not read each other's
-results.
-
-Starting with `counts = [3, 5];` and `doubled_counts = [6, 10];`, this batch reads
-`doubled_counts` after calculating a new value for `counts`. It still reads
-`[6, 10]` from the original data file:
-
-```zirql
-let old_counts = items | filter(name("counts")) | values | one;
-let next_counts = [old_counts[i] + 1 | i in index_set(old_counts)];
-let old_doubled = items | filter(name("doubled_counts")) | values | one;
-replace counts = next_counts;
-replace doubled_counts = [old_doubled[i] + 1 | i in index_set(old_doubled)];
-emit;
+```sh
+zincite query --model staffing.mzn -f add-staff.zq staffing-with-shortfall.dzn
 ```
 
-The candidate contains `counts = [4, 6];` and `doubled_counts = [7, 11];`.
-The final `emit;` prepares the data candidate. A read-only program's implicit
-expression output does not replace that explicit edit step.
+The command prints:
+
+```minizinc title="Standard output"
+required = [2, 3, 4];
+available = [4, 5, 4];
+shortfall = [0, 0, 0];
+```
+
+`replace` calculates a new value for an existing assignment and changes its
+right-hand side. Both replacements form one batch. Adding staff now covers
+every day's demand.
+
+The shortfall calculation uses `revised_available`, the value calculated in the
+query. Reading `available` from the input again would still return `[3, 4, 3]`,
+even after the `replace` statement. Every input read sees the original file;
+edits do not read each other's results. Bind a calculated value and reuse it
+when another edit depends on it.
+
+As with `create`, add `--diff` to preview changes or `--write` to apply them.
+A replacement requires exactly one original assignment. If its right-hand side
+contains comments, Zincite refuses the replacement rather than choosing where
+those comments should move.
 
 Zincite checks target types, known scalar domains and array coverage against
 the final set of edits. Conflicting targets, arithmetic errors or dependencies
 it cannot resolve stop the whole batch without a partial write. A changed
 scalar bound can therefore require changes to arrays indexed by that bound.
+The [data-expression contract](query-comprehension-contract.md#report-expressions-and-edit-grammar)
+lists the operations available in edits.
+
+To start a new data document, supply an empty `.dzn` file and use `create` for
+each assignment. The model must still declare the targets, and the program
+must end with `emit;`.
 
 For Rust use, the [program reference](reference.md#program-invocation-and-rust-results)
 describes `Program`, candidate inspection and rendering. Evaluation prepares

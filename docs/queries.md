@@ -20,7 +20,7 @@ Rust embedding interfaces.
 Save this small model as `model.mzn`. It shares a capacity across three
 allocations:
 
-```minizinc
+```minizinc title="model.mzn"
 int: capacity = 20;
 array[1 .. 3] of var 0 .. capacity: allocated;
 constraint sum(allocated) <= capacity;
@@ -49,7 +49,7 @@ and result formats.
 
 Save this as `report.zq`:
 
-```zirql
+```zirql title="report.zq"
 let selected = items | filter(kind("constraint"));
 let n = selected | count;
 let histogram = selected | expressions | call_names | tally;
@@ -91,14 +91,14 @@ All examples here are read-only. To change a data file, use the
 
 Create `data.dzn` with demand and capacity arrays:
 
-```minizinc
+```minizinc title="data.dzn"
 demand = [2, 3, 4];
 capacity = [6, 8, 5];
 ```
 
 Save this as `totals.zq`:
 
-```zirql
+```zirql title="totals.zq"
 let demand = items | filter(name("demand")) | values | one;
 let total_demand = sum(demand);
 let capacity = items | filter(name("capacity")) | values | one;
@@ -135,7 +135,7 @@ Using the same `data.dzn`, suppose demand may double. We want to compare the new
 demand with capacity at each position, as well as in total. Save the following
 as `capacity.zq`. The factor is a local literal binding.
 
-```zirql
+```zirql title="capacity.zq"
 let demand = items | filter(name("demand")) | values | one;
 let capacity = items | filter(name("capacity")) | values | one;
 let factor = 2;
@@ -198,14 +198,14 @@ covers the supported operations and their error cases.
 To compare two matrices, match cells by their indices before subtracting
 the values. Save this as `matrix.dzn`:
 
-```minizinc
+```minizinc title="matrix.dzn"
 before = [|3, 4 | 5, 6|];
 after = [|4, 6 | 8, 10|];
 ```
 
 Save the query as `matrix-delta.zq`:
 
-```zirql
+```zirql title="matrix-delta.zq"
 let a = items | filter(name("before")) | values | one;
 let b = items | filter(name("after")) | values | one;
 let pairs = zip_exact(a, b);
@@ -239,14 +239,14 @@ not data edits.
 A total for each machine is more useful than a count of all jobs. Save these
 jobs as `jobs.dzn`:
 
-```minizinc
+```minizinc title="jobs.dzn"
 jobs = [(machine: "b", demand: 3), (machine: "a", demand: 5),
         (machine: "b", demand: 7), (machine: "b", demand: 3)];
 ```
 
 Save this as `machine-totals.zq`:
 
-```zirql
+```zirql title="machine-totals.zq"
 let rows = items | filter(name("jobs")) | values | one;
 [
     (machine: g.key,
@@ -319,7 +319,7 @@ describes selection and context in detail.
 To report a name and a use count for each declaration in `model.mzn`, save
 this as `use-counts.zq`:
 
-```zirql
+```zirql title="use-counts.zq"
 subtree | declarations | unique | project(d, {
     "name": d | names | one,
     "uses": d | uses | count
@@ -337,7 +337,7 @@ local declarations with the same name would remain distinct.
 
 For individual uses, save this as `uses.zq`:
 
-```zirql
+```zirql title="uses.zq"
 let matches = match {
     from d in (subtree | declarations | unique);
     from u in (d | uses);
@@ -367,7 +367,7 @@ for additional clauses and the library result types.
 A path query can show how one declaration refers to another through
 intermediate declarations. Save this as `paths.mzn`:
 
-```minizinc
+```minizinc title="paths.mzn"
 int: base_capacity = 10;
 int: usable_capacity = base_capacity;
 int: daily_limit = usable_capacity;
@@ -376,7 +376,7 @@ solve satisfy;
 
 Save the query as `paths.zq`:
 
-```zirql
+```zirql title="paths.zq"
 subtree | declarations | filter(name("daily_limit"))
 | paths(referenced_declarations, to=name("base_capacity"), max_depth=2)
 | json
@@ -403,7 +403,7 @@ Reports can distinguish a stored absent value (`<>`) from a field or cell
 that was not stored at all. This is useful when inspecting incomplete data.
 Save the declarations as `optional-report.mzn`:
 
-```minizinc
+```minizinc title="optional-report.mzn"
 array[1 .. 2, 1 .. 2] of opt int: cells;
 record(int: id, opt int: missing, opt int: stored): info;
 solve satisfy;
@@ -411,7 +411,7 @@ solve satisfy;
 
 Save this partial data as `optional-report.dzn`:
 
-```minizinc
+```minizinc title="optional-report.dzn"
 cells = [(1, 1): 10, (1, 2): <>, (2, 1): 30];
 info = (id: 4, stored: <>);
 ```
@@ -420,7 +420,7 @@ The declarations tell the query which fields and axes are expected. The data
 omits `info.missing` and cell `(2, 2)`; it is an inspection example, not a
 complete instance to pass to a solver. Save this as `optional-report.zq`:
 
-```zirql
+```zirql title="optional-report.zq"
 let cells = items | filter(name("cells")) | values | one;
 let info = items | filter(name("info")) | values | one;
 (
@@ -453,7 +453,7 @@ nonoptional targets and complete rectangular arrays.
 Continue with `jobs.dzn` from the machine-grouping example. To put the busiest
 machine first, save this as `rank-machines.zq`:
 
-```zirql
+```zirql title="rank-machines.zq"
 let jobs = items | filter(name("jobs")) | values | one;
 let totals = [
     (machine: g.key, demand: sum([job.demand | job in g.items]))
@@ -484,7 +484,7 @@ Sorting and extrema are available in reports, not data edits.
 A named function can express a source traversal that you want to reuse or
 adapt. Save this input as `calls.mzn`:
 
-```minizinc
+```minizinc title="calls.mzn"
 int: first_total = sum([1, 2]);
 int: second_total = sum(i in 1..2)(i);
 int: largest = max([3, 4]);
@@ -493,7 +493,7 @@ solve satisfy;
 
 Save this query as `calls.zq`:
 
-```zirql
+```zirql title="calls.zq"
 fn count_calls(node: Node, target: string) -> int {
     let here = if (written_call_name(node) default "") = target then 1 else 0 endif;
     here + sum([count_calls(child, target) | child in direct_children(node)])
@@ -527,7 +527,7 @@ Return to the staffing problem, this time with a missing availability value.
 For this report, we deliberately treat missing availability as zero. The goal
 is to rank the days by the staff still needed. Save `rank-shortages.zq`:
 
-```zirql
+```zirql title="rank-shortages.zq"
 fn shortage(required: int, available: int) -> int {
     max([0, required - available])
 }

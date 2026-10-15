@@ -19,6 +19,12 @@ program statements and MiniZinc expression syntax added. Keep shared keywords
 and types aligned when updating it; highlighting does not validate syntax or
 promise that Zincite accepts every Zirql construct.
 
+Give saved-file examples a title after the language name, for example
+`zirql title="shortages.zq"`. Show input files directly in named code
+blocks; keep shell blocks for the commands that use them. Label a printed data
+candidate with `title="Standard output"` so readers can distinguish it from a
+file they need to create.
+
 ## Build and preview
 
 Website work needs Node.js 22.12 or later, npm, the Rust toolchain and MiniZinc's

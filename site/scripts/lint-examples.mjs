@@ -37,7 +37,7 @@ function buildLinter() {
 // source for the displayed example and the CLI input; keep only site output generated.
 export function renderLintExamples(markdown) {
   const rendered = markdown.replace(
-    /(```minizinc\n((?:(?!^```)[\s\S])*?)^```)\n\n<!-- zincite-lint: ([a-z][a-z-]*) -->/gm,
+    /(```minizinc(?: [^\n]*)?\n((?:(?!^```)[\s\S])*?)^```)\n\n<!-- zincite-lint: ([a-z][a-z-]*) -->/gm,
     (_, block, source, rule) => {
       buildLinter();
       const directory = mkdtempSync(join(tmpdir(), 'zincite-doc-lint-'));
@@ -51,7 +51,9 @@ export function renderLintExamples(markdown) {
         if (result.status !== 1 || !result.stderr.includes(`warning [${rule}]:`)) {
           throw new Error(`Lint example '${rule}' did not produce its warning (exit ${result.status}):\n${result.stderr}`);
         }
-        return `${block}\n\nSave the example as \`${filename}\`. With the
+        const titledBlock = block.split('\n')[0].includes('title=') ? block
+          : block.replace('```minizinc', `\`\`\`minizinc title="${filename}"`);
+        return `${titledBlock}\n\nSave the example as \`${filename}\`. With the
 [standard library configured](linting.md#model-context-and-source-preservation), run:
 
 \`\`\`sh wrap

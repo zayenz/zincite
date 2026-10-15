@@ -915,7 +915,7 @@ inspection data and also rejects opaque invalid UTF-8 comment bytes.
 
 For example, save these keyed records as `records.dzn`:
 
-```minizinc
+```minizinc title="records.dzn"
 jobs = [A: (duration: 2, cost: 5), B: (duration: 3, cost: 4)];
 ```
 

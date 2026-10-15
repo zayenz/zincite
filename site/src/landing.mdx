@@ -43,7 +43,7 @@ starts like this:
 
 #### Before formatting
 
-```minizinc
+```minizinc title="staffing.mzn"
 % Staff cannot be moved from one day to another.
 constraint forall(d in Days)(staff[d]>=required[d]);
 constraint forall(d in Days)(staff[d]<=available[d]);
@@ -54,7 +54,7 @@ constraint forall(d in Days)(staff[d]<=available[d]);
 
 #### After formatting
 
-```minizinc
+```minizinc title="staffing.mzn"
 % Staff cannot be moved from one day to another.
 constraint forall (d in Days) (
     staff[d] >= required[d]
@@ -89,7 +89,7 @@ the labelled version and explains the selected checks.
 
 Now consider the data:
 
-```minizinc
+```minizinc title="staffing.dzn"
 required = [2, 3, 4];
 available = [3, 4, 3];
 ```
@@ -97,7 +97,7 @@ available = [3, 4, 3];
 There are ten staff-days available for nine staff-days of demand. But a spare
 person on day 1 cannot fill a gap on day 3. A short query makes that visible:
 
-```zirql
+```zirql title="shortages.zq"
 let required = items | filter(name("required")) | values | one;
 let available = items | filter(name("available")) | values | one;
 [
