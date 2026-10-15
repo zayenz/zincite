@@ -208,16 +208,17 @@ fn process_file(
     overrides: &ec4rs::Properties,
 ) -> Result<bool, String> {
     let label = path.to_string_lossy();
-    let permissions = if output == OutputMode::Write {
+    if output == OutputMode::Write {
         let metadata = fs::symlink_metadata(path).map_err(|error| format!("{label}: {error}"))?;
         if metadata.file_type().is_symlink() {
             return Err(format!("{label}: refusing --write through a symlink"));
         }
-        Some(metadata.permissions())
-    } else {
-        None
-    };
+        if !metadata.file_type().is_file() {
+            return Err(format!("{label}: --write target must be a regular file"));
+        }
+    }
     let bytes = fs::read(path).map_err(|error| format!("{label}: {error}"))?;
+    let original = (output == OutputMode::Write).then(|| bytes.clone());
     let settings =
         config::resolve(Some(path), overrides).map_err(|error| format!("{label}: {error}"))?;
     let (formatted, changed) = format_source(&label, bytes, FileMode::from_path(path), &settings)?;
@@ -225,7 +226,7 @@ fn process_file(
         OutputMode::Stdout => io::stdout()
             .write_all(&formatted)
             .map_err(|error| format!("stdout: {error}"))?,
-        OutputMode::Write if changed => replace_file(path, &formatted, permissions.unwrap())
+        OutputMode::Write if changed => replace_file(path, original.as_ref().unwrap(), &formatted)
             .map_err(|error| format!("{label}: {error}"))?,
         OutputMode::Check | OutputMode::Write => {}
     }
@@ -280,11 +281,8 @@ fn format_source(
     Ok((formatted, changed))
 }
 
-fn replace_file(
-    path: &std::path::Path,
-    bytes: &[u8],
-    permissions: fs::Permissions,
-) -> io::Result<()> {
+fn replace_file(path: &std::path::Path, original: &[u8], bytes: &[u8]) -> io::Result<()> {
+    let metadata = check_original(path, original)?;
     // A sibling temporary keeps replacement on the same filesystem and leaves
     // the original untouched until all output and permissions are ready.
     let mut attempt = 0;
@@ -303,15 +301,33 @@ fn replace_file(
     };
     let result = (|| {
         file.write_all(bytes)?;
-        file.set_permissions(permissions)?;
+        file.set_permissions(metadata.permissions())?;
         file.sync_all()?;
         drop(file);
+        // Recheck after preparing output; this protects stale edits without
+        // claiming to eliminate the final filesystem race before rename.
+        check_original(path, original)?;
         fs::rename(&temporary, path)
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
     }
     result
+}
+
+fn check_original(path: &std::path::Path, original: &[u8]) -> io::Result<fs::Metadata> {
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_file() {
+        return Err(io::Error::other(
+            "--write target must still be a regular non-symlink file",
+        ));
+    }
+    if fs::read(path)? != original {
+        return Err(io::Error::other(
+            "current source differs from the original input; refusing --write",
+        ));
+    }
+    Ok(metadata)
 }
 
 fn render_diagnostic(
@@ -326,4 +342,36 @@ fn render_diagnostic(
         diagnostic.range.end + bom_offset,
         diagnostic.message
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replacement_preserves_stale_targets() {
+        let directory =
+            std::env::temp_dir().join(format!("zincite-fmt-stale-{}", std::process::id()));
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("model.mzn");
+        let original = b"int:x=1;";
+        let newer = b"int:x=2;";
+        fs::write(&path, newer).unwrap();
+
+        let error = replace_file(&path, original, b"int: x = 1;\n").unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("differs from the original input")
+        );
+        assert_eq!(fs::read(&path).unwrap(), newer);
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
+
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        let error = replace_file(&path, original, b"int: x = 1;\n").unwrap_err();
+        assert!(error.to_string().contains("regular non-symlink file"));
+        assert!(path.is_dir());
+        fs::remove_dir_all(directory).unwrap();
+    }
 }

@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-133"
 key = "formatter-stale-write"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "high"
@@ -25,11 +25,19 @@ At reviewed revision 42f4d4b, crates/zincite-fmt/src/cli.rs reads the input once
 
 ## Done when
 
-- [ ] Before replacement, a changed original or changed target file type causes a located error and preserves the newer contents.
-- [ ] Ordinary successful writes retain permissions and complete-output replacement; stdout/check behavior remains intact.
+- [x] Before replacement, a changed original or changed target file type causes a located error and preserves the newer contents.
+- [x] Ordinary successful writes retain permissions and complete-output replacement; stdout/check behavior remains intact.
 
 ## Validation
 
 - Use one deterministic stale-target check at the replacement seam, plus existing successful-write and symlink checks; avoid timing-dependent race tests.
 - Run the brief's required Rust validation for code changes; use existing focused controls and only the few behavior checks specified here.
 - Run zdev check base --format json for changed records.
+
+## Result
+
+Formatter writes reject stale original bytes and changed target types before replacement while preserving permissions and complete output.
+
+Validation:
+
+- Independent review passed; workspace rustfmt, Clippy with warnings denied and tests passed, including deterministic stale-target, successful-write, symlink and BOM controls.
