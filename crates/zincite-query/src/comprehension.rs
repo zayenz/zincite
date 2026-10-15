@@ -2985,21 +2985,15 @@ fn tagged(value: &V, budget: &mut Budget, range: &Range<usize>) -> Result<Value,
             ])
         }
         V::Record(fields) => {
-            let mut result = slots(budget, fields.len(), range)?;
+            budget
+                .charge_results(fields.len(), zirql::Location::Query(range.clone()))
+                .map_err(pipeline::core_error)?;
+            let mut result = serde_json::Map::with_capacity(fields.len());
             for (label, value) in fields {
-                charge(budget, label.len() + 32, range)?;
-                budget
-                    .charge_results(5, zirql::Location::Query(range.clone()))
-                    .map_err(pipeline::core_error)?;
-                result.push(object([
-                    ("label", Value::String(label.to_owned())),
-                    ("value", tagged(value, budget, range)?),
-                ]));
+                charge(budget, label.len() + 16, range)?;
+                result.insert(label.to_owned(), tagged(value, budget, range)?);
             }
-            object([
-                ("kind", Value::String("record".into())),
-                ("fields", Value::Array(result)),
-            ])
+            Value::Object(result)
         }
         V::Array(values) => {
             let mut axes = slots(budget, values.len(), range)?;

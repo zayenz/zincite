@@ -908,6 +908,15 @@ impl<'r, 'a> Session<'r, 'a> {
                         Stage::FunctionValue(value) | Stage::FunctionSource(value) => {
                             self.prepare_value(value, kind, scope, budget)?
                         }
+                        Stage::Mapping(mapping) => {
+                            let relative = host
+                                .subject_kind(&kind, budget, &step.range)
+                                .map_err(pipeline::core_error)?;
+                            self.prepare_value(&mapping.key, relative.clone(), scope, budget)?;
+                            self.prepare_value(&mapping.value, relative, scope, budget)?;
+                            host.stage_kind(stage, &kind, scope, budget, &step.range)
+                                .map_err(pipeline::core_error)?
+                        }
                         Stage::Ordering(ordering) => {
                             if let Some(selector) = &ordering.selector {
                                 let relative = host
@@ -1266,7 +1275,27 @@ impl<'a> zirql::FunctionHost<Context<'_, 'a>> for composition::CompositionHost<'
             D::Sequence(inner) | D::Array(inner) if native_declaration(inner) => {
                 Kind::Sequence(worklists::declaration(inner, budget, range)?)
             }
-            _ => Kind::Constructed,
+            // Preserve known container shape for selector admission on empty inputs.
+            D::Member(id) => Kind::Value(Rc::new(vec![zirql::ValueType::Member(*id)])),
+            D::Record(_) => Kind::Value(Rc::new(vec![zirql::ValueType::RecordKind])),
+            D::Tuple(_) => Kind::Value(Rc::new(vec![zirql::ValueType::TupleKind])),
+            D::Set(element) => Kind::Value(Rc::new(vec![zirql::ValueType::Set(Some(*element))])),
+            D::Sequence(element) | D::Array(element) | D::Keyed(element) => {
+                let element = self.declaration_kind(element, budget, range)?;
+                let elements = self
+                    .scalar_types(&element, budget, range)?
+                    .unwrap_or_else(|| vec![zirql::ValueType::Unestablished]);
+                let collection = match declaration {
+                    D::Sequence(_) => zirql::ValueType::Array(zirql::ArrayType::Elements(elements)),
+                    D::Array(_) => zirql::ValueType::ArrayKind(elements),
+                    D::Keyed(_) => zirql::ValueType::KeyedArray(zirql::KeyedArrayType {
+                        axes: None,
+                        elements,
+                    }),
+                    _ => unreachable!("collection declaration"),
+                };
+                Kind::Value(Rc::new(vec![collection]))
+            }
         })
     }
     fn is_operation_name(&self, name: &str) -> bool {
@@ -1906,7 +1935,8 @@ pub(super) fn parsed_native_kind(
             for step in steps {
                 if let ExpressionStep::Stage(stage) = &step.value {
                     kind = match stage {
-                        Stage::Ordering(_) => kind,
+                        Stage::Ordering(_) | Stage::MapSorting => kind,
+                        Stage::Mapping(_) => Kind::Dictionary(Rc::new(vec![Kind::Constructed])),
                         Stage::Query(index, _) => validate_stages(&queries[*index].query, kind)
                             .unwrap_or(Kind::Constructed),
                         _ => Kind::Constructed,

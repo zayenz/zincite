@@ -1,0 +1,12 @@
+let ds = declarations | filter(name("A") or name("B") or name("C"));
+let counts = ds | map_by(names, uses | count);
+let one = 1;
+let ties = ds | map_by(names, one);
+report (counts: counts,
+        ranked: counts | sort_by(value) | reverse | head(2),
+        reranked: ties | reverse | sort_by(value),
+        empty: counts | head(0),
+        nested: ds | head(1) | map_by(names, counts),
+        tally: ds | names | tally | sort_by(value));
+let made = (z: (inner: 3), a: 1);
+report made;

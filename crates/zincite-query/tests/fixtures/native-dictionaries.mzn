@@ -1,0 +1,10 @@
+enum Rank = {Zulu, Alpha};
+Rank: first = Alpha;
+Rank: second = Zulu;
+int: A = 1;
+int: B = 2;
+int: C = 3;
+int: reads = B + B + A;
+solve satisfy;
+float: positive = 2.5;
+float: negative = -1.0;

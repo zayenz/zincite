@@ -2121,7 +2121,7 @@ fn positional_programs_keep_constructed_order_and_native_projections() {
         serde_json::json!({"kind":"integer","value":3})
     );
     assert_eq!(
-        json["result"]["entries"][2]["value"]["fields"][1]["value"]["kind"],
+        json["result"]["entries"][2]["value"]["pair"]["kind"],
         "tuple"
     );
     assert_eq!(result.render().unwrap(), bytes);
@@ -2140,7 +2140,7 @@ fn positional_programs_keep_constructed_order_and_native_projections() {
     }
     assert!(renders > 0);
 
-    // A record binding constructs a tagged value from a native count.
+    // A record binding retains tagged scalar fields in an ordered object.
     let explicit = Program::parse(
         r#"let n = count; let r = (count: n); report r;"#,
         ProgramLimits::default(),
@@ -2148,9 +2148,9 @@ fn positional_programs_keep_constructed_order_and_native_projections() {
     .unwrap();
     let mut explicit = explicit.evaluate(&input, ProgramLimits::default()).unwrap();
     let json: serde_json::Value = serde_json::from_slice(&explicit.render().unwrap()).unwrap();
-    assert_eq!(json["result"]["kind"], "record");
+    assert!(json["result"].is_object());
     assert_eq!(
-        json["result"]["fields"][0]["value"],
+        json["result"]["count"],
         serde_json::json!({"kind":"integer","value":2})
     );
 
@@ -2272,7 +2272,7 @@ fn constructed_reports_retain_semantic_limitations() {
     let json: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
     assert_eq!(json["complete"], false);
     assert!(!json["limitations"].as_array().unwrap().is_empty());
-    assert_eq!(json["result"]["fields"][0]["value"]["kind"], "integer");
+    assert_eq!(json["result"]["count"]["kind"], "integer");
 }
 
 #[test]
@@ -2490,12 +2490,12 @@ fn keyed_reports_retain_model_identity_axes_and_row_major_cells() {
     let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(json["complete"], true);
     assert_eq!(json["limitations"], serde_json::json!([]));
-    assert_eq!(json["result"]["fields"][0]["value"]["indexing"], "explicit");
+    assert_eq!(json["result"]["cells"]["indexing"], "explicit");
     assert_eq!(
-        json["result"]["fields"][0]["value"]["axes"][1][0],
+        json["result"]["cells"]["axes"][1][0],
         serde_json::json!({"kind":"member","enum":"Guest","name":"Zulu"})
     );
-    assert_eq!(json["result"]["fields"][2]["value"]["kind"], "tuple");
+    assert_eq!(json["result"]["pair"]["kind"], "tuple");
     let mut shared = program
         .evaluate_with_facts(&input, Rc::clone(&facts), limits)
         .unwrap();
@@ -3461,7 +3461,7 @@ fn native_match_unknown_guards_keep_host_locations_and_boolean_control() {
     let json: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
     assert_eq!(json["complete"], false);
     assert_eq!(
-        json["result"]["entries"][0]["value"]["fields"][0]["value"]["value"],
+        json["result"]["entries"][0]["value"]["key"]["value"],
         "mixed"
     );
     let unknown = Program::parse(r#"report match { from d in (subtree | declarations | unique | filter(name("mixed"))); where not type(d, "tuple"); };"#, ProgramLimits::default()).unwrap();
@@ -3662,22 +3662,10 @@ fn optional_reports_keep_model_contracts_sparse_membership_and_lazy_projection()
     assert_eq!(fields[10].1.data(), &V::Integer(7));
     assert_eq!(fields[11].1.data(), &V::Integer(1));
     let json: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
+    assert_eq!(json["result"]["info"].as_object().unwrap().len(), 2);
+    assert_eq!(json["result"]["info"]["stored"]["kind"], "absent");
     assert_eq!(
-        json["result"]["fields"][12]["value"]["fields"]
-            .as_array()
-            .unwrap()
-            .len(),
-        2
-    );
-    assert_eq!(
-        json["result"]["fields"][12]["value"]["fields"][1]["value"]["kind"],
-        "absent"
-    );
-    assert_eq!(
-        json["result"]["fields"][13]["value"]["entries"]
-            .as_array()
-            .unwrap()
-            .len(),
+        json["result"]["cells"]["entries"].as_array().unwrap().len(),
         3
     );
     for source in [
@@ -4807,11 +4795,11 @@ fn shared_controls_compose_inside_minizinc_expressions() {
         .evaluate(&input, limits)
         .unwrap();
     let rendered: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
-    let fields = &rendered["result"]["fields"];
-    assert_eq!(fields[0]["value"]["value"], 7);
-    assert_eq!(fields[1]["value"]["entries"][0]["value"]["value"], 1);
-    assert_eq!(fields[2]["value"]["value"], 7);
-    assert_eq!(fields[3]["value"]["value"], -1);
+    let fields = &rendered["result"];
+    assert_eq!(fields["value"]["value"], 7);
+    assert_eq!(fields["choices"]["entries"][0]["value"]["value"], 1);
+    assert_eq!(fields["call"]["value"], 7);
+    assert_eq!(fields["combined"]["value"], -1);
 }
 
 #[test]
@@ -5226,11 +5214,8 @@ mod worklists {
         let rendered = result.render().unwrap();
         assert_eq!(typed.render().unwrap(), rendered);
         let json: serde_json::Value = serde_json::from_slice(&rendered).unwrap();
-        assert_eq!(json["result"]["fields"][0]["value"]["kind"], "tuple");
-        assert_eq!(
-            json["result"]["fields"][0]["value"]["elements"][1]["value"],
-            10
-        );
+        assert_eq!(json["result"]["folded"]["kind"], "tuple");
+        assert_eq!(json["result"]["folded"]["elements"][1]["value"], 10);
         let source = "fn append(q:queue<Node>,item:Node)->queue<Node>{push_back_all(q,[item])} let nodes=items; let original=queue<Node>(nodes); let present((first,rest))=pop_front(original); report (original:original, rest:rest, snapshots:scan(nodes,queue<Node>([]),append));";
         let mut result = Program::parse(source, limits)
             .unwrap()
@@ -5721,10 +5706,7 @@ fn native_stream_controls_reuse_saved_values_and_scoped_arguments() {
             .collect::<Vec<_>>(),
         ["a", "b", "c"]
     );
-    assert_eq!(
-        reports[2]["result"]["entries"][0]["value"]["fields"][0]["value"]["value"],
-        1
-    );
+    assert_eq!(reports[2]["result"]["entries"][0]["value"]["n"]["value"], 1);
     let direct = Program::parse(
         r#"let message="rows"; let selected=items; let n=selected | count;
         selected | tail(n-1) | reverse | check(message) | check(2,message) | names"#,
@@ -6232,5 +6214,291 @@ fn native_ordering_and_operand_order_sets_keep_values_and_owners() {
         String::from_utf8(result.render().unwrap())
             .unwrap()
             .contains(r#""result":[]"#)
+    );
+}
+
+#[test]
+fn native_dictionaries_keep_payloads_order_and_preflight_contracts() {
+    use zincite_query::{Program, ProgramLimits, ProgramNative, SemanticStream};
+    let limits = ProgramLimits::default();
+    let source = include_bytes!("fixtures/native-dictionaries.mzn");
+    let model = semantic_model("native-dictionaries", source, b"", "");
+    let input = Input::parse_named(source.to_vec(), FileMode::Model, "dictionary.mzn").unwrap();
+    let mut result = Program::parse(include_str!("fixtures/native-dictionaries.zq"), limits)
+        .unwrap()
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap();
+    let report = result.emissions()[0].value().fields().unwrap();
+    let counts = report[0].1.fields().unwrap();
+    assert_eq!(
+        counts.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(),
+        ["A", "B", "C"]
+    );
+    let ranked = report[1].1.fields().unwrap();
+    assert_eq!(
+        ranked.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(),
+        ["B", "A"]
+    );
+    assert!(report[3].1.fields().unwrap().is_empty());
+    let output = String::from_utf8(result.render().unwrap()).unwrap();
+    assert!(output.contains(r#""ranked":{"B":2,"A":1}"#), "{output}");
+    assert!(output.contains(r#""reranked":{"C":{"kind":"integer","value":1},"B":{"kind":"integer","value":1},"A":{"kind":"integer","value":1}}"#), "{output}");
+    assert!(
+        output.contains(
+            r#""empty":{},"nested":{"A":{"A":1,"B":2,"C":0}},"tally":{"A":1,"B":1,"C":1}"#
+        ),
+        "{output}"
+    );
+    assert!(output.contains(r#""result":{"z":{"inner":{"kind":"integer","value":3}},"a":{"kind":"integer","value":1}}"#), "{output}");
+
+    let retained = r#"let payload = items | filter(name("A") or name("B") or name("C")); let dict = payload | map_by(names, input); report dict | reverse | tail(100);"#;
+    let result = Program::parse(retained, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    for (_, value) in result.emissions()[0].value().fields().unwrap() {
+        let Some(SemanticStream::Inspection(value)) = value.stream() else {
+            panic!("native selection")
+        };
+        let QueryResult::Selection(selection) = value.as_ref() else {
+            panic!("source selection")
+        };
+        assert!(std::ptr::eq(selection.input(), &input));
+        assert_eq!(selection.items().len(), 1);
+        assert_eq!(
+            selection.items()[0].range,
+            selection.items()[0].node.range()
+        );
+    }
+    let payloads = r#"let ds=items | filter(name("A") or name("B") or name("C"));
+        let ints=ds | map_by(names, expressions | tail(1) | values);
+        let floats=items | filter(name("positive") or name("negative")) | map_by(names, expressions | tail(1) | values);
+        let members=items | filter(name("first") or name("second")) | map_by(names, expressions | tail(1) | values);
+        let strings=ds | map_by(names, names) | reverse;
+        report (ints:ints | sort_by(value), floats:floats | sort_by(value), members:members | sort_by(value), strings:strings | sort_by(value));"#;
+    let mut result = Program::parse(payloads, limits)
+        .unwrap()
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap();
+    let fields = result.emissions()[0].value().fields().unwrap();
+    assert_eq!(
+        fields[0]
+            .1
+            .fields()
+            .unwrap()
+            .iter()
+            .map(|(k, _)| k.as_str())
+            .collect::<Vec<_>>(),
+        ["A", "B", "C"]
+    );
+    assert_eq!(
+        fields[1]
+            .1
+            .fields()
+            .unwrap()
+            .iter()
+            .map(|(k, _)| k.as_str())
+            .collect::<Vec<_>>(),
+        ["negative", "positive"]
+    );
+    assert_eq!(
+        fields[2]
+            .1
+            .fields()
+            .unwrap()
+            .iter()
+            .map(|(k, _)| k.as_str())
+            .collect::<Vec<_>>(),
+        ["second", "first"]
+    );
+    let output = String::from_utf8(result.render().unwrap()).unwrap();
+    assert!(
+        output.contains(r#""strings":{"A":["A"],"B":["B"],"C":["C"]}"#),
+        "{output}"
+    );
+
+    let prepared = r#"fn key(n:Node)->string { n | names | one }
+        fn key_list(n:Node)->sequence<string> { let name=n | names | one; [name] }
+        fn id(n:int)->int { n }
+        let saved = 7;
+        let rows=items | filter(name("A") or name("B"));
+        report rows | map_by((key(input)), (id(saved))) | reverse | sort_by(value);
+        report rows | map_by(names, items | count);
+        report rows | map_by(key_list(input), names);"#;
+    let mut result = Program::parse(prepared, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    assert_eq!(result.emissions()[0].value().fields().unwrap()[0].0, "B");
+    let QueryResult::Count(item_count) = query(&input, "items | count") else {
+        panic!()
+    };
+    for (_, value) in result.emissions()[1].value().fields().unwrap() {
+        let Some(SemanticStream::Inspection(value)) = value.stream() else {
+            panic!("original count: {value:?}")
+        };
+        assert!(matches!(value.as_ref(),QueryResult::Count(n) if *n == item_count));
+    }
+    assert_eq!(
+        result.emissions()[2]
+            .value()
+            .fields()
+            .unwrap()
+            .iter()
+            .map(|(key, _)| key.as_str())
+            .collect::<Vec<_>>(),
+        ["A", "B"]
+    );
+    result.render().unwrap();
+    let bounds = r#"let empty=items | head(0) | map_by(names,names); let full=items | filter(name("A") or name("B") or name("C")) | map_by(names,names); let n=0;
+        report (empty:empty | sort_by(value) | reverse | tail(100), zero:full | tail(n), full:full | head(100));"#;
+    let mut result = Program::parse(bounds, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let output = String::from_utf8(result.render().unwrap()).unwrap();
+    assert!(
+        output.contains(r#""empty":{},"zero":{},"full":{"A""#),
+        "{output}"
+    );
+
+    for (source, expected) in [
+        (
+            r#"items | head(0) | map_by(count,names)"#,
+            "exactly one string",
+        ),
+        (r#"count | map_by(names,names)"#, "require a selection"),
+        (
+            r#"fn bad(n:Node)->sequence<int> { [1] } let unused=items | head(0) | map_by(bad(input),names); report 1;"#,
+            "exactly one string",
+        ),
+        (
+            r#"let key=[["x"]]; items | head(0) | map_by(key,names)"#,
+            "exactly one string",
+        ),
+        (
+            r#"let b=true; let unused=items | head(0) | map_by(names,b) | sort_by(value); report 1;"#,
+            "supported scalar values",
+        ),
+        (
+            r#"items | head(0) | map_by(names,names | emit)"#,
+            "cannot emit",
+        ),
+        (
+            r#"let bad=items | head(0) | map_by(names, input) | sort_by(value); report 1;"#,
+            "supported scalar values",
+        ),
+        (
+            r#"fn nested(n:Node)->record{x:int} { (x:1) } let unused=items | head(0) | map_by(names,nested(input)) | sort_by(value); report 1;"#,
+            "supported scalar values",
+        ),
+        (
+            r#"items | head(1) | map_by(names | head(0),names)"#,
+            "exactly one string",
+        ),
+        (
+            r#"items | head(1) | map_by(items | names,names)"#,
+            "exactly one string",
+        ),
+        (
+            r#"items | filter(name("A") or name("positive")) | map_by(names, expressions | tail(1) | values) | sort_by(value)"#,
+            "homogeneous key types",
+        ),
+    ] {
+        let error = Program::parse(source, limits)
+            .and_then(|program| program.evaluate_with_model(&input, Some(&model), limits))
+            .unwrap_err();
+        assert!(error.message.contains(expected), "{source}: {error:?}");
+    }
+    let duplicate = r#"fn payload(n:Node)->int { if (n | names | one) = "B" { 1 div 0 } else { 1 } }
+        let key="same"; items | filter(name("A") or name("B")) | map_by(key,payload(input));"#;
+    let error = Program::parse(duplicate, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap_err();
+    assert!(error.message.contains("duplicate key `same`"), "{error:?}");
+    let limited_source = b"int: A=1; int: value=missing + A; solve satisfy;";
+    let limited_model = semantic_model("map-limited", limited_source, b"", "");
+    let limited_input = Input::parse(limited_source.to_vec(), FileMode::Model).unwrap();
+    let mut limited = Program::parse(
+        "references | declarations | unique | map_by(names, input)",
+        limits,
+    )
+    .unwrap()
+    .evaluate_with_model(&limited_input, Some(&limited_model), limits)
+    .unwrap();
+    assert!(!limited.is_complete());
+    assert!(!limited.limitations().is_empty());
+    limited.render().unwrap();
+
+    type Q = zirql::Expression<ProgramNative, zirql::NativeSetOperator, ()>;
+    fn l<T>(value: T) -> zirql::Located<T> {
+        zirql::Located::new(value, 10..20)
+    }
+    fn native(source: &str) -> Q {
+        l(zirql::ExpressionKind::Sequence {
+            input: Box::new(l(zirql::ExpressionKind::Input)),
+            steps: vec![l(zirql::ExpressionStep::Stage(ProgramNative::Query(
+                Query::parse(source, Limits::default()).unwrap(),
+            )))],
+        })
+    }
+    fn mapped(value: &str) -> Q {
+        l(zirql::ExpressionKind::Sequence {
+            input: Box::new(native(
+                r#"declarations | filter(name("A") or name("B") or name("C"))"#,
+            )),
+            steps: vec![
+                l(zirql::ExpressionStep::Stage(ProgramNative::Mapping(
+                    zirql::NativeMap {
+                        key: native("names"),
+                        value: native(value),
+                    },
+                ))),
+                l(zirql::ExpressionStep::Stage(ProgramNative::MapSorting)),
+            ],
+        })
+    }
+    let mut typed = Program::from_values(
+        vec![],
+        vec![],
+        l(zirql::ValueExpressionKind::NativeValue(Box::new(mapped(
+            "uses | count",
+        )))),
+        limits,
+    )
+    .unwrap()
+    .evaluate_with_model(&input, Some(&model), limits)
+    .unwrap();
+    let mut text=Program::parse(r#"declarations | filter(name("A") or name("B") or name("C")) | map_by(names,uses | count) | sort_by(value)"#,limits).unwrap().evaluate_with_model(&input,Some(&model),limits).unwrap();
+    assert_eq!(
+        typed.emissions()[0]
+            .value()
+            .fields()
+            .unwrap()
+            .iter()
+            .map(|(k, _)| k.as_str())
+            .collect::<Vec<_>>(),
+        ["C", "A", "B"]
+    );
+    assert_eq!(typed.render().unwrap(), text.render().unwrap());
+    assert!(
+        Program::from_values(
+            vec![],
+            vec![],
+            l(zirql::ValueExpressionKind::NativeValue(Box::new(mapped(
+                "names | emit"
+            )))),
+            limits
+        )
+        .is_err()
+    );
+    let mut tally=Program::parse(r#"let native=items | names | tally; let made=["z","a","z"] | tally; report native | reverse | sort_by(value); report made;"#,limits).unwrap().evaluate(&input,limits).unwrap();
+    let output = String::from_utf8(tally.render().unwrap()).unwrap();
+    assert!(
+        output.contains(
+            r#""result":{"z":{"kind":"integer","value":2},"a":{"kind":"integer","value":1}}"#
+        ),
+        "{output}"
     );
 }

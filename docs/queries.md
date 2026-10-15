@@ -144,8 +144,8 @@ Run `zincite query -f names.zq data.dzn`, or pass the same source with
 The outer pipes continue the completed array through Zirql's shared collection
 operations. `sort` orders homogeneous scalars; `unique` keeps the first equal
 value. For string frequencies, replace the last binding with
-`let ordered = (rows) | tally;`. Its result is a record with lexical string
-labels and integer counts.
+`let ordered = (rows) | tally;`. Its result is a dictionary with string keys in first-seen order
+and integer counts.
 
 To count only names beginning with `a`, continue the calculated array:
 
@@ -667,6 +667,58 @@ All ordering and set forms are read-only. Unsupported kinds and impure selectors
 fail before execution, including empty inputs and unused branches. Tally
 objects keep their keys in first-seen order too: `z, a, z` produces
 `{"z":2,"a":1}`.
+
+## Rank a native dictionary
+
+`map_by` retains one payload for each selected item under a string key. Save
+this model as `dictionary.mzn`:
+
+```minizinc title="dictionary.mzn"
+int: A = 1;
+int: B = 2;
+int: C = 3;
+int: reads = B + B + A;
+solve satisfy;
+```
+
+This report keeps the two most used declarations:
+
+```sh
+zincite query --program 'let ds = declarations | filter(name("A") or name("B") or name("C")); ds | map_by(names, uses | count) | sort_by(value) | reverse | head(2)' dictionary.mzn
+```
+
+```json
+{"complete":true,"limitations":[],"result":{"B":2,"A":1}}
+```
+
+Each key selector runs before its value selector, against the same original
+singleton. Both can read outer bindings; explicit sources such as `items`
+still read the original input. A duplicate key fails before its value runs.
+Payloads retain their native handles and source ranges until rendering.
+
+Dictionaries retain insertion order through bindings and nesting.
+`sort_by(value)` orders present homogeneous integers, finite floats, strings or
+members of one nominal type. Boolean, absent, mixed numeric and nested values
+cannot supply sort keys. Sorting keeps the current order within ties, so
+`reverse | sort_by(value)` keeps equal values in their reversed order.
+`head(n)` and `tail(n)` retain dictionary kind, including zero, empty and
+oversized bounds. Native `tally` dictionaries support the same sorting and bounds
+without recounting their entries.
+
+Constructed dictionary fields keep their existing tagged values inside an
+ordered JSON object. For example:
+
+```sh
+zincite query --program 'let made = (z: (inner: 3), a: 1); made' dictionary.mzn
+```
+
+```json
+{"complete":true,"limitations":[],"result":{"z":{"inner":{"kind":"integer","value":3}},"a":{"kind":"integer","value":1}}}
+```
+
+Arrays, scalar values and nominal members retain their
+[constructed tags](query-comprehension-contract.md#constructed-shape-and-result).
+Native count payloads in the first report render as ordinary numbers.
 
 ## Count written calls with a function
 

@@ -504,13 +504,10 @@ report rows;"#,
     );
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
-        json["result"]["entries"][0]["value"]["fields"][0]["value"]["value"],
+        json["result"]["entries"][0]["value"]["name"]["value"],
         "zeta"
     );
-    assert_eq!(
-        json["result"]["entries"][2]["value"]["fields"][2]["value"]["value"],
-        9
-    );
+    assert_eq!(json["result"]["entries"][2]["value"]["value"]["value"], 9);
     for source in [
         "report 7; report 1 div 0;",
         "report if true then 1 else unsupported_summary([1]) endif;",
@@ -1061,8 +1058,8 @@ fn native_composition_inline_and_file_keep_results_status_and_buffering() {
         ("shadow", 0),
         ("capacity", 1),
     ]) {
-        assert_eq!(row["value"]["fields"][0]["value"]["value"], name);
-        assert_eq!(row["value"]["fields"][1]["value"]["value"], uses);
+        assert_eq!(row["value"]["name"]["value"], name);
+        assert_eq!(row["value"]["uses"]["value"], uses);
     }
     assert_eq!(outputs[1]["result"].as_array().unwrap().len(), 3);
     assert_eq!(std::fs::read(&model_path).unwrap(), source);
@@ -1410,7 +1407,7 @@ fn typed_functions_replay_inline_and_file_and_buffer_later_errors() {
     );
     assert_eq!(inline.stdout, saved.stdout);
     let output: serde_json::Value = serde_json::from_slice(&inline.stdout).unwrap();
-    assert_eq!(output["result"]["fields"][0]["value"]["value"], 2);
+    assert_eq!(output["result"]["sum_calls"]["value"], 2);
     let failed = run(
         &["--program", &format!("{source} report 1 div 0;"), model],
         b"",
@@ -1759,6 +1756,75 @@ fn native_ordering_and_sets_replay_the_library_report_inline_and_from_file() {
     assert!(
         output.contains(r#""nominal_names":["second","first"]"#),
         "{output}"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn native_dictionaries_replay_inline_files_and_buffer_duplicate_values() {
+    let dir = std::env::temp_dir().join(format!("zincite-dictionary-query-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(dir.join("library/std/stdlib.mzn"), "").unwrap();
+    let source = include_str!("fixtures/native-dictionaries.zq");
+    let input = include_bytes!("fixtures/native-dictionaries.mzn");
+    let model_path = dir.join("model.mzn");
+    let query_path = dir.join("report.zq");
+    std::fs::write(&model_path, input).unwrap();
+    std::fs::write(&query_path, source).unwrap();
+    let library = dir.join("library");
+    let common = [
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        model_path.to_str().unwrap(),
+    ];
+    let mut inline = common.to_vec();
+    inline.extend(["--program", source]);
+    let mut file = common.to_vec();
+    file.extend(["--program-file", query_path.to_str().unwrap()]);
+    let inline = run(&inline, b"");
+    let file = run(&file, b"");
+    assert!(
+        inline.status.success() && inline.stderr.is_empty(),
+        "{inline:?}"
+    );
+    assert!(file.status.success() && file.stderr.is_empty(), "{file:?}");
+    assert_eq!(inline.stdout, file.stdout);
+    let model = zincite_lint::load_model(
+        &model_path,
+        &zincite_lint::ModelOptions {
+            include_dirs: vec![],
+            stdlib_dir: Some(dir.join("library")),
+        },
+    );
+    let parsed = zincite_query::Input::parse_named(
+        input.to_vec(),
+        zincite_syntax::FileMode::Model,
+        model_path.to_str().unwrap(),
+    )
+    .unwrap();
+    let limits = zincite_query::ProgramLimits::default();
+    let expected = zincite_query::Program::parse(source, limits)
+        .unwrap()
+        .evaluate_with_model(&parsed, Some(&model), limits)
+        .unwrap()
+        .render()
+        .unwrap();
+    assert_eq!(inline.stdout, expected);
+    let output = String::from_utf8(inline.stdout).unwrap();
+    assert!(output.contains(r#""ranked":{"B":2,"A":1}"#), "{output}");
+    assert!(
+        output.contains(r#""empty":{},"nested":{"A":{"A":1,"B":2,"C":0}}"#),
+        "{output}"
+    );
+    assert!(output.contains(r#""result":{"z":{"inner":{"kind":"integer","value":3}},"a":{"kind":"integer","value":1}}"#),"{output}");
+    let mut failure = common.to_vec();
+    failure.extend(["--program",r#"report 7; fn payload(n:Node)->int { if (n | names | one) = "B" { 1 div 0 } else { 1 } } let key="same"; items | filter(name("A") or name("B")) | map_by(key,payload(input));"#]);
+    let failure = run(&failure, b"");
+    assert_eq!(failure.status.code(), Some(2), "{failure:?}");
+    assert!(failure.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&failure.stderr).contains("duplicate key `same`"),
+        "{failure:?}"
     );
     std::fs::remove_dir_all(dir).unwrap();
 }

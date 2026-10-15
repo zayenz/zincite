@@ -10,21 +10,43 @@ pub type ProgramFunction = zirql::UnresolvedPatternFunctionDeclaration<
     zirql::Expression<ProgramNative, zirql::NativeSetOperator, ()>,
 >;
 
-/// Native typed stages use the same ordering and set execution as text programs.
+/// Typed native stages use the same selection and collection execution as text.
 #[derive(Debug)]
 pub enum ProgramNative {
     Query(Query),
     Ordering(zirql::NativeOrdering<zirql::Expression<Self, zirql::NativeSetOperator, ()>>),
+    /// Construct an insertion-ordered dictionary from singleton-relative selectors.
+    Mapping(zirql::NativeMap<zirql::Expression<Self, zirql::NativeSetOperator, ()>>),
+    /// Stably sort dictionary values with the native typed scalar key contract.
+    MapSorting,
+}
+
+impl ProgramNative {
+    fn take_selectors(
+        &mut self,
+        pending: &mut Vec<zirql::Expression<Self, zirql::NativeSetOperator, ()>>,
+    ) {
+        match self {
+            Self::Ordering(ordering) => pending.extend(ordering.selector.take()),
+            Self::Mapping(mapping) => {
+                pending.push(std::mem::replace(
+                    &mut mapping.key,
+                    Located::new(ExpressionKind::Input, 0..0),
+                ));
+                pending.push(std::mem::replace(
+                    &mut mapping.value,
+                    Located::new(ExpressionKind::Input, 0..0),
+                ));
+            }
+            Self::Query(_) | Self::MapSorting => {}
+        }
+    }
 }
 
 impl Drop for ProgramNative {
     fn drop(&mut self) {
         let mut pending = Vec::new();
-        if let Self::Ordering(ordering) = self
-            && let Some(selector) = ordering.selector.take()
-        {
-            pending.push(selector);
-        }
+        self.take_selectors(&mut pending);
         while let Some(expression) = pending.pop() {
             match expression.value {
                 ExpressionKind::Input | ExpressionKind::Binding(_) => {}
@@ -41,8 +63,8 @@ impl Drop for ProgramNative {
                 ExpressionKind::Sequence { input, steps } => {
                     pending.push(*input);
                     for mut step in steps {
-                        if let ExpressionStep::Stage(Self::Ordering(ordering)) = &mut step.value {
-                            pending.extend(ordering.selector.take());
+                        if let ExpressionStep::Stage(stage) = &mut step.value {
+                            stage.take_selectors(&mut pending);
                         }
                     }
                 }
@@ -282,6 +304,28 @@ fn map_native(
                                     ),
                                     step.range.clone(),
                                 ),
+                                ProgramNative::Mapping(mapping) => value_stage(
+                                    Stage::Mapping(native::MappingStage::new(zirql::NativeMap {
+                                        key: map_native(
+                                            std::mem::replace(
+                                                &mut mapping.key,
+                                                Located::new(ExpressionKind::Input, 0..0),
+                                            ),
+                                            lower,
+                                        ),
+                                        value: map_native(
+                                            std::mem::replace(
+                                                &mut mapping.value,
+                                                Located::new(ExpressionKind::Input, 0..0),
+                                            ),
+                                            lower,
+                                        ),
+                                    })),
+                                    step.range.clone(),
+                                ),
+                                ProgramNative::MapSorting => {
+                                    value_stage(Stage::MapSorting, step.range.clone())
+                                }
                                 ProgramNative::Ordering(ordering) => value_stage(
                                     Stage::Ordering(native::OrderingStage::new(
                                         zirql::NativeOrdering {
@@ -648,6 +692,11 @@ fn check_native(
                                 )
                                 .map_err(pipeline::core_error)?;
                         }
+                        ExpressionStep::Stage(ProgramNative::Mapping(mapping)) => {
+                            pending.push((&mapping.key, depth + 1));
+                            pending.push((&mapping.value, depth + 1));
+                        }
+                        ExpressionStep::Stage(ProgramNative::MapSorting) => {}
                         ExpressionStep::Stage(ProgramNative::Ordering(ordering)) => {
                             if let Some(selector) = &ordering.selector {
                                 pending.push((selector, depth + 1));

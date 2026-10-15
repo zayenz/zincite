@@ -243,7 +243,9 @@ impl Parser<'_> {
                 | "max_all_by"
         ) && (tokens.get(1).is_none_or(|token| token.kind != T::LeftParen)
             || first.ends_with("_by") && !argument_comma);
-        let native_operator = ordering
+        let native_operator = first == "map_by"
+            || tokens.iter().any(|token| text(token) == "map_by")
+            || ordering
             || tokens
                 .iter()
                 .any(|token| zirql::NativeSetOperator::from_keyword(text(token)).is_some());
@@ -1039,6 +1041,18 @@ impl ValueReaderHost for Parser<'_> {
         self.prepared_values = true;
         Ok(Stage::Ordering(native::OrderingStage::new(ordering)))
     }
+    fn mapping(
+        &mut self,
+        mapping: zirql::NativeMap<Expression>,
+        _: Range<usize>,
+    ) -> Result<Stage, zirql::QueryError> {
+        self.prepared_values = true;
+        Ok(Stage::Mapping(native::MappingStage::new(mapping)))
+    }
+    fn map_sorting(&mut self, _: Range<usize>) -> Result<Stage, zirql::QueryError> {
+        self.prepared_values = true;
+        Ok(Stage::MapSorting)
+    }
     fn set_operator(&self, keyword: &str) -> Option<zirql::NativeSetOperator> {
         zirql::NativeSetOperator::from_keyword(keyword)
     }
@@ -1183,6 +1197,12 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         range: &Range<usize>,
     ) -> Result<zirql::NativeValueArguments<'s, Context<'_, 'a>, Self>, zirql::QueryError> {
         match stage {
+            Stage::Mapping(mapping) => {
+                return Ok(vec![
+                    (&mapping.key, Kind::Nodes),
+                    (&mapping.value, Kind::Nodes),
+                ]);
+            }
             Stage::Ordering(ordering) => {
                 return Ok(ordering
                     .selector
@@ -1261,6 +1281,16 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         .then(|| input.clone());
         let mut result = Vec::new();
         match stage {
+            Stage::Mapping(mapping) => {
+                let relative = Some(self.subject_kind(input, budget, range)?);
+                for expression in [&mapping.key, &mapping.value] {
+                    result.push(zirql::ScopedNativeArgument {
+                        expression,
+                        relative: relative.clone(),
+                        locals: Vec::new(),
+                    });
+                }
+            }
             Stage::Ordering(ordering) => {
                 if let Some(expression) = &ordering.selector {
                     result.push(zirql::ScopedNativeArgument {
@@ -1347,6 +1377,10 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         range: &Range<usize>,
     ) -> Result<Self::Value, zirql::EvaluationError<QueryError>> {
         match stage {
+            Stage::Mapping(mapping) => {
+                return self.map_with_arguments(mapping, value, arguments, budget, range);
+            }
+            Stage::MapSorting => return self.sort_map(value, arguments.parts().0, budget, range),
             Stage::Ordering(ordering) => {
                 return self.order_with_arguments(ordering, value, arguments, budget, range);
             }
@@ -1498,7 +1532,17 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
                     value, budget, range,
                 )?]))
             }
-            ReportValue::Record(_) => Kind::Record,
+            ReportValue::Record(fields) => {
+                let location = zirql::Location::Query(range.clone());
+                budget.charge(fields.len(), location.clone())?;
+                budget.charge_results(fields.len(), location)?;
+                Kind::Dictionary(Rc::new(
+                    fields
+                        .iter()
+                        .map(|(_, value)| self.kind(value, budget, range))
+                        .collect::<Result<_, _>>()?,
+                ))
+            }
             ReportValue::Capture(capture) => {
                 let mut fields = Vec::new();
                 for (name, value) in &capture.fields {
@@ -1572,6 +1616,9 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
     ) -> Result<Kind, zirql::QueryError> {
         match stage {
             Stage::Ordering(ordering) => self.order_kind(ordering, input, scope, budget, range),
+            Stage::Mapping(mapping) => self.map_kind(mapping, input, scope, budget, range),
+            Stage::MapSorting => native::map_sort_kind(input, range),
+            Stage::RetainPayload => Ok(Kind::Payload(Rc::new(input.clone()))),
             Stage::RecordValue(fields) => Ok(Kind::Capture(Rc::new(zirql::NativeCapture {
                 fields: fields
                     .iter()

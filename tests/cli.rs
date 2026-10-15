@@ -1480,3 +1480,53 @@ fn native_stream_controls_share_inline_file_and_positional_execution() {
     assert!(String::from_utf8_lossy(&failure.stderr).contains("expected 1 items, got 2: need one"));
     std::fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn native_dictionaries_replay_inline_files_and_buffer_duplicate_values() {
+    let dir = std::env::temp_dir().join(format!("zincite-dictionary-root-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(dir.join("library/std/stdlib.mzn"), "").unwrap();
+    let source = include_str!("../crates/zincite-query/tests/fixtures/native-dictionaries.zq");
+    let input = include_bytes!("../crates/zincite-query/tests/fixtures/native-dictionaries.mzn");
+    let model_path = dir.join("model.mzn");
+    let query_path = dir.join("report.zq");
+    std::fs::write(&model_path, input).unwrap();
+    std::fs::write(&query_path, source).unwrap();
+    let library = dir.join("library");
+    let common = [
+        "query",
+        "--stdlib-dir",
+        library.to_str().unwrap(),
+        model_path.to_str().unwrap(),
+    ];
+    let mut inline = common.to_vec();
+    inline.extend(["--program", source]);
+    let mut file = common.to_vec();
+    file.extend(["--program-file", query_path.to_str().unwrap()]);
+    let inline = run(&inline, "");
+    let file = run(&file, "");
+    assert!(
+        inline.status.success() && inline.stderr.is_empty(),
+        "{inline:?}"
+    );
+    assert!(file.status.success() && file.stderr.is_empty(), "{file:?}");
+    assert_eq!(inline.stdout, file.stdout);
+
+    let output = String::from_utf8(inline.stdout).unwrap();
+    assert!(output.contains(r#""ranked":{"B":2,"A":1}"#), "{output}");
+    assert!(
+        output.contains(r#""empty":{},"nested":{"A":{"A":1,"B":2,"C":0}}"#),
+        "{output}"
+    );
+    assert!(output.contains(r#""result":{"z":{"inner":{"kind":"integer","value":3}},"a":{"kind":"integer","value":1}}"#),"{output}");
+    let mut failure = common.to_vec();
+    failure.extend(["--program",r#"report 7; fn payload(n:Node)->int { if (n | names | one) = "B" { 1 div 0 } else { 1 } } let key="same"; items | filter(name("A") or name("B")) | map_by(key,payload(input));"#]);
+    let failure = run(&failure, "");
+    assert_eq!(failure.status.code(), Some(2), "{failure:?}");
+    assert!(failure.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&failure.stderr).contains("duplicate key `same`"),
+        "{failure:?}"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}

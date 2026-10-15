@@ -855,10 +855,22 @@ are selections, including empty results. Both operands are checked completely,
 including discarded rows.
 Use `(left union right) | names` to continue from a combined selection.
 
+`selection | map_by(key_query, value_query)` constructs an insertion-ordered
+string dictionary. The key must produce exactly one string. Each selector sees
+the same singleton and lexical scope; a duplicate fails before its value runs.
+Payloads can retain any admitted pure native or constructed value.
+`dictionary | sort_by(value)` uses the typed scalar key contract above and
+keeps current-order ties. `reverse`, `head(n)` and `tail(n)` retain dictionary
+kind for unsorted, sorted, empty, zero and oversized selections. Native `tally`
+counts support these operations directly. JSON object member order agrees with
+library iteration, including nested dictionaries. See the
+[dictionary report](queries.md#rank-a-native-dictionary).
+
 These operations are read-only program forms. Known unsupported kinds and
 impure selectors fail preflight even for empty inputs or unused branches.
-Typed programs use `ProgramNative::Query` leaves, `ProgramNative::Ordering`
-and `NativeSetOperator` in `ProgramValue`; they lower to the same execution.
+Typed programs use `ProgramNative::Query` leaves, `ProgramNative::Ordering`,
+`ProgramNative::Mapping`, `ProgramNative::MapSorting` and `NativeSetOperator`
+in `ProgramValue`; they lower to the same execution.
 Native owners, source coordinates and analysis limitations survive ordering
 and set operations, and every selector shares the request budget.
 
@@ -902,9 +914,9 @@ retain their identities; use an explicit projection before passing them to a
 scalar operation or comprehension.
 
 A `let` binding can retain a native result or hold calculated data. Constructing
-a record in a binding, as in `let r = (count: n); r`, produces a tagged record.
-A directly emitted record containing only native inspection leaves retains the
-native record format. Pure reports use the tagged
+a dictionary in a binding, as in `let r = (count: n); r`, produces an ordered
+JSON object with tagged constructed fields. Native dictionary payloads retain
+their ordinary native representation. Pure reports use the
 [constructed-value schema](query-comprehension-contract.md#constructed-shape-and-result),
 including explicit `1..n` axes and keys for positional arrays. Generated values
 have no input-source ranges.

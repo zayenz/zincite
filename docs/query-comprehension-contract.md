@@ -402,11 +402,22 @@ checks are target-aware for edits; a report may retain a known empty axis.
 Constructed values live in a native value type separate from `LiteralValue`,
 whose `file`, `range` and `spelling` describe written source. A report renders
 one JSON object with `complete`, `limitations` and `result`. The `result` is
-one of these tagged values: `{"kind":"integer","value":7}` (similarly
+a scalar or collection value: `{"kind":"integer","value":7}` (similarly
 `float`, `boolean`, `string`), `{"kind":"member","enum":"Guests","name":"A"}`,
 `{"kind":"set","elements":[...]}`, `{"kind":"tuple","elements":[...]}`,
-`{"kind":"record","fields":[{"label":"weight","value":...}]}`, or
+an ordered dictionary object such as `{"weight":{"kind":"integer","value":7}}`, or
 `{"kind":"array","indexing":"positional"|"explicit","axes":[[key,...],...],"entries":[{"key":[key,...],"value":...}]}`.
+Dictionary keys preserve insertion/current order recursively; empty dictionaries
+render as `{}`. Native `map_by(key_query,value_query)` uses the same ordered
+storage while retaining native payloads. It evaluates key then value against
+the same singleton and rejects a duplicate before its value. `sort_by(value)`
+uses present homogeneous integer, finite-float, string or coherent nominal
+keys; native counts use checked signed conversion. Sorting keeps current-order
+ties. Dictionary `reverse`, `head` and `tail` preserve kind and retained order,
+including empty, zero and oversized bounds. Native tally keeps its stored
+first-seen keys and counts through these operations. Both selectors and known
+unsupported input/key/sort kinds and effects are checked even for empty inputs.
+
 Array keys use the scalar integer/member forms. Positional arrays expose their
 `1..n` keys here too; every axis is ordered. A complete report has
 `"complete":true,"limitations":[]`. A report derived from incomplete semantic
@@ -444,10 +455,7 @@ for readability:
     "axes": [[{"kind": "integer", "value": 1}]],
     "entries": [{
       "key": [{"kind": "integer", "value": 1}],
-      "value": {"kind": "record", "fields": [{
-        "label": "name",
-        "value": {"kind": "string", "value": "counts"}
-      }]}
+      "value": {"name": {"kind": "string", "value": "counts"}}
     }]
   }
 }

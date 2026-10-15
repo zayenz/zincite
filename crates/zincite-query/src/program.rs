@@ -35,6 +35,9 @@ enum Stage {
     Member(comprehension::MemberRequest),
     Query(usize, Rc<Vec<QueryArgument>>),
     Ordering(native::OrderingStage),
+    Mapping(native::MappingStage),
+    MapSorting,
+    RetainPayload,
     Projection(composition::ProjectionStage),
     Match(composition::MatchStage),
     Paths(composition::PathStage),
@@ -78,6 +81,9 @@ impl Drop for Stage {
             | Self::Member(_)
             | Self::Query(..)
             | Self::Ordering(_)
+            | Self::Mapping(_)
+            | Self::MapSorting
+            | Self::RetainPayload
             | Self::Projection(_)
             | Self::Match(_)
             | Self::Paths(_)
@@ -143,6 +149,8 @@ enum Kind {
     Count,
     Tally,
     Record,
+    Dictionary(Rc<Vec<Kind>>),
+    Payload(Rc<Kind>),
     Entities,
     Declarations,
     Types,
@@ -810,6 +818,7 @@ impl Program {
                             || matches!(
                                 kind,
                                 Kind::Record
+                                    | Kind::Dictionary(_)
                                     | Kind::Constructed
                                     | Kind::Value(_)
                                     | Kind::Capture(_)
@@ -2107,6 +2116,11 @@ fn validate_stages(query: &Query, mut kind: Kind) -> Result<Kind, QueryError> {
                     | Kind::Types
                     | Kind::Instantiations
             ),
+            S::Head(_) | S::Tail(_) | S::Reverse
+                if matches!(kind, Kind::Dictionary(_) | Kind::Record | Kind::Tally) =>
+            {
+                true
+            }
             S::Head(_) | S::Tail(_) | S::Reverse | S::Check { .. } => matches!(
                 kind,
                 Kind::Nodes
@@ -2443,6 +2457,14 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
                 ));
             }
             Stage::Query(index, _) => *index,
+            Stage::RetainPayload => return Ok(value),
+            Stage::Mapping(mapping) => {
+                return composition::CompositionHost(self)
+                    .mapping(mapping, value, context, bindings, budget, range);
+            }
+            Stage::MapSorting => {
+                return composition::CompositionHost(self).sort_map(value, context, budget, range);
+            }
             Stage::Ordering(ordering) => {
                 return composition::CompositionHost(self)
                     .order(ordering, value, context, bindings, budget, range);
@@ -2618,6 +2640,11 @@ impl<'a> NativeHost<'_> {
             return Ok(value);
         }
         let value = functions::owned(value, budget, range).map_err(zirql::EvaluationError::Host)?;
+        let dictionary = matches!(&value, ReportValue::Record(_))
+            || matches!(&value, ReportValue::Query(SemanticStream::Inspection(result)) if matches!(result.as_ref(), QueryResult::Tally(_)));
+        if dictionary {
+            return native::bound_map(value, pipeline, budget, range);
+        }
         let ReportValue::Query(stream) = value else {
             return Err(zirql::EvaluationError::Host(QueryError::query(
                 range.clone(),
