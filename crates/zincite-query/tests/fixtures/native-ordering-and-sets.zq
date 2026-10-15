@@ -1,0 +1,10 @@
+let left = items | filter(name("left")) | references | declarations;
+let right = items | filter(name("right")) | references | declarations;
+let unions = (left union right) | names;
+let intersections = (left intersect right) | names;
+let differences = (left except right) | names;
+let ranked = items | filter(name("A") or name("B") or name("C"))
+    | sort_by(expressions | tail(1) | values) | names;
+let nominal = items | filter(name("first") or name("second"))
+    | sort_by(expressions | tail(1) | values) | names;
+report (sorted_names: ranked, nominal_names: nominal, union_names: unions, intersection_names: intersections, difference_names: differences);

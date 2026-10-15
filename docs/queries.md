@@ -633,6 +633,41 @@ construct a field such as `score: lookup(row, "score") default 0` before
 sorting. Empty extrema return `<>`, so `min([]) default 0` supplies zero.
 Sorting and extrema are available in reports, not data edits.
 
+## Order native selections
+
+Keep the selected source items while ordering them by a scalar projection. For
+`int: A = 1; int: B = 1; int: C = 2;`:
+
+```sh
+zincite-query --program 'items | sort_by(expressions | tail(1) | values) | names' model.mzn
+```
+
+The names are `A`, `B`, `C`; `A` stays before `B` because their keys tie.
+Replace `sort_by` with `min_by` to retain `A`, or `min_all_by` to retain both
+`A` and `B`. `max_by` and `max_all_by` retain `C`. The selected nodes keep their
+original file and byte ranges. A selector must return one present integer,
+finite float, string or nominal member. Nominal keys use declaration order.
+Counts are checked before conversion to signed keys. Empty native extrema keep
+an empty selection of the same kind; constructed `min([])` still returns `<>`.
+
+Set expressions keep operand order. For declarations whose written references
+yield `C, A, C` and `B, A`, this program produces names `C, A, B`:
+
+```zirql
+let left = items | filter(name("left")) | references | declarations;
+let right = items | filter(name("right")) | references | declarations;
+(left union right) | names
+```
+
+`left intersect right` yields `A`; `left except right` yields `C`. These forms
+use native identities and remove repeats without moving their first occurrence.
+Native selections, strings and semantic rows support the algebra; projected
+literal values, counts and dictionaries need their own explicit operations.
+All ordering and set forms are read-only. Unsupported kinds and impure selectors
+fail before execution, including empty inputs and unused branches. Tally
+objects keep their keys in first-seen order too: `z, a, z` produces
+`{"z":2,"a":1}`.
+
 ## Count written calls with a function
 
 A named function can express a source traversal that you want to reuse or

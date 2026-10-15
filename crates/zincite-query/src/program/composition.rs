@@ -208,7 +208,7 @@ impl Parser<'_> {
         let text = |t: &&zincite_syntax::Token| {
             crate::identifier_identity(&self.cursor.source[t.range.clone()])
         };
-        let first = tokens.first().map(&text).unwrap_or("");
+        let first = tokens.first().map(text).unwrap_or("");
         let contextual_match = tokens
             .windows(2)
             .any(|pair| text(&pair[0]) == "match" && pair[1].kind == T::LeftBrace);
@@ -217,7 +217,55 @@ impl Parser<'_> {
                 && matches!(text(&pair[1]), "project" | "paths")
                 && pair[2].kind == T::LeftParen
         });
-        contextual_match
+        let mut call_depth = 0usize;
+        let argument_comma = tokens.iter().any(|token| {
+            match token.kind {
+                T::LeftParen | T::LeftBracket | T::LeftBrace => call_depth += 1,
+                T::RightParen | T::RightBracket | T::RightBrace => {
+                    call_depth = call_depth.saturating_sub(1)
+                }
+                T::Comma if call_depth == 1 => return true,
+                _ => {}
+            }
+            false
+        });
+        let ordering = matches!(
+            first,
+            "sort"
+                | "sort_by"
+                | "min"
+                | "min_by"
+                | "max"
+                | "max_by"
+                | "min_all"
+                | "min_all_by"
+                | "max_all"
+                | "max_all_by"
+        ) && (tokens.get(1).is_none_or(|token| token.kind != T::LeftParen)
+            || first.ends_with("_by") && !argument_comma);
+        let native_operator = ordering
+            || tokens
+                .iter()
+                .any(|token| zirql::NativeSetOperator::from_keyword(text(token)).is_some());
+        let mut depth = 0usize;
+        let record = tokens.iter().any(|token| {
+            match token.kind {
+                T::LeftParen | T::LeftBracket | T::LeftBrace => depth += 1,
+                T::RightParen | T::RightBracket | T::RightBrace => depth = depth.saturating_sub(1),
+                T::Colon
+                    if depth == 1
+                        && tokens
+                            .first()
+                            .is_some_and(|token| token.kind == T::LeftParen) =>
+                {
+                    return true;
+                }
+                _ => {}
+            }
+            false
+        });
+        (native_operator && !record)
+            || contextual_match
             || (self.outer_value_pipe(range.clone()).is_some()
                 && (self.names.contains_key(first)
                     || self.function_names.contains(first)
@@ -426,7 +474,7 @@ pub(super) fn domain_stage(name: &str) -> bool {
 }
 impl ValueReaderHost for Parser<'_> {
     type Stage = Stage;
-    type SetOperator = ();
+    type SetOperator = zirql::NativeSetOperator;
     type Emitter = Emitter;
     type Predicate = Guard;
     fn is_binding(&self, name: &str) -> bool {
@@ -468,7 +516,14 @@ impl ValueReaderHost for Parser<'_> {
         let mut depth = 0usize;
         let mut minizinc_if = false;
         let mut top_pipe = false;
+        let mut native_set = false;
         for token in tokens {
+            if depth == 0
+                && zirql::NativeSetOperator::from_keyword(&self.cursor.source[token.range.clone()])
+                    .is_some()
+            {
+                native_set = true;
+            }
             match token.kind {
                 T::LeftParen | T::LeftBracket | T::LeftBrace | T::MatrixStart => depth += 1,
                 T::RightParen | T::RightBracket | T::RightBrace | T::MatrixEnd => {
@@ -480,7 +535,11 @@ impl ValueReaderHost for Parser<'_> {
             }
         }
         let common_if = conditional && !minizinc_if;
-        if common_if
+        let current_input =
+            reader.source()[start..end].trim() == "input" && !self.is_binding("input");
+        if current_input
+            || common_if
+            || native_set
             || (top_pipe && !self.composed_value_syntax(start..end))
             || self.leading_control_syntax(start..end)
             || reader.source()[start..].trim_start().starts_with("match {")
@@ -582,7 +641,9 @@ impl ValueReaderHost for Parser<'_> {
                         std::mem::swap(&mut self.preflight, budget);
                         reader.advance(end - start)?;
                         value.map_err(query_error)?
-                    } else if self.outer_value_pipe(start..end).is_some() {
+                    } else if self.outer_value_pipe(start..end).is_some()
+                        || self.cursor.source[start..end].trim() == "input"
+                    {
                         zirql::read_value_expression(reader, self, budget, self.limits.nesting)?
                     } else {
                         std::mem::swap(&mut self.preflight, budget);
@@ -970,8 +1031,16 @@ impl ValueReaderHost for Parser<'_> {
         }
         Ok(Stage::Match(MatchStage(Some(matching))))
     }
-    fn set_operator(&self, _: &str) -> Option<()> {
-        None
+    fn ordering(
+        &mut self,
+        ordering: zirql::NativeOrdering<Expression>,
+        _: Range<usize>,
+    ) -> Result<Stage, zirql::QueryError> {
+        self.prepared_values = true;
+        Ok(Stage::Ordering(native::OrderingStage::new(ordering)))
+    }
+    fn set_operator(&self, keyword: &str) -> Option<zirql::NativeSetOperator> {
+        zirql::NativeSetOperator::from_keyword(keyword)
     }
     fn parse_path_edge(
         &mut self,
@@ -1003,7 +1072,7 @@ pub(super) struct CompositionHost<'h, 'q>(pub(super) &'h NativeHost<'q>);
 impl<'a> ProgramHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
     type Value = ReportValue<'a>;
     type Stage = Stage;
-    type SetOperator = ();
+    type SetOperator = zirql::NativeSetOperator;
     type Emitter = Emitter;
     type Error = QueryError;
     fn copy_value(
@@ -1029,7 +1098,7 @@ impl<'a> ProgramHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
     }
     fn combine(
         &self,
-        operator: &(),
+        operator: &zirql::NativeSetOperator,
         left: Self::Value,
         right: Self::Value,
         context: &mut Context<'_, 'a>,
@@ -1114,6 +1183,13 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         range: &Range<usize>,
     ) -> Result<zirql::NativeValueArguments<'s, Context<'_, 'a>, Self>, zirql::QueryError> {
         match stage {
+            Stage::Ordering(ordering) => {
+                return Ok(ordering
+                    .selector
+                    .iter()
+                    .map(|selector| (selector, Kind::Nodes))
+                    .collect());
+            }
             Stage::FunctionValue(value) | Stage::FunctionSource(value) => {
                 return Ok(vec![(value, Kind::Nodes)]);
             }
@@ -1185,6 +1261,15 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         .then(|| input.clone());
         let mut result = Vec::new();
         match stage {
+            Stage::Ordering(ordering) => {
+                if let Some(expression) = &ordering.selector {
+                    result.push(zirql::ScopedNativeArgument {
+                        expression,
+                        relative: Some(self.subject_kind(input, budget, range)?),
+                        locals: Vec::new(),
+                    });
+                }
+            }
             Stage::Match(matching) => {
                 let mut current = scope.clone();
                 let mut locals = Vec::new();
@@ -1262,6 +1347,9 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         range: &Range<usize>,
     ) -> Result<Self::Value, zirql::EvaluationError<QueryError>> {
         match stage {
+            Stage::Ordering(ordering) => {
+                return self.order_with_arguments(ordering, value, arguments, budget, range);
+            }
             Stage::Match(matching) => {
                 return self.composed_with_arguments(
                     Some(matching.get()),
@@ -1483,6 +1571,7 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         range: &Range<usize>,
     ) -> Result<Kind, zirql::QueryError> {
         match stage {
+            Stage::Ordering(ordering) => self.order_kind(ordering, input, scope, budget, range),
             Stage::RecordValue(fields) => Ok(Kind::Capture(Rc::new(zirql::NativeCapture {
                 fields: fields
                     .iter()
@@ -1598,6 +1687,23 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
             )),
         }
     }
+    fn set_kind(
+        &self,
+        left: &Kind,
+        right: &Kind,
+        _: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<Kind, zirql::QueryError> {
+        let left = native::set_kind(left, range)?;
+        let right = native::set_kind(right, range)?;
+        if left != right {
+            return Err(zirql::QueryError::query(
+                range.clone(),
+                "set operands require the same native kind",
+            ));
+        }
+        Ok(left)
+    }
     fn is_explicit_source(&self, stage: &Stage) -> bool {
         match stage {
             Stage::FunctionSource(_)
@@ -1627,11 +1733,14 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
             Stage::Data(_) => false,
             Stage::Query(index, _) => {
                 !self.0.queries[*index].query.is_editing()
-                    && !self.0.queries[*index]
-                        .query
-                        .stages
-                        .iter()
-                        .any(|s| matches!(s.kind, language::StageKind::EmitDocument))
+                    && !self.0.queries[*index].query.stages.iter().any(|s| {
+                        matches!(
+                            s.kind,
+                            language::StageKind::Emit
+                                | language::StageKind::Json
+                                | language::StageKind::EmitDocument
+                        )
+                    })
             }
             _ => true,
         }
@@ -1652,6 +1761,7 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         range: &Range<usize>,
     ) -> Result<Vec<Self::Value>, zirql::EvaluationError<QueryError>> {
         let owner = worklists::owner(&input).cloned();
+        let entities = functions::entity_contract(&input);
         let input = functions::owned(input, budget, range).map_err(zirql::EvaluationError::Host)?;
         if let ReportValue::Sequence(sequence) = input {
             budget.check_items(
@@ -1702,10 +1812,10 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
             .into_iter()
             .map(|row| {
                 let value = ReportValue::Query(context.query.restore_stream(vec![row]));
-                let value = if let Some(owner) = &owner {
+                let value = if let Some(declarations) = entities {
                     ReportValue::EntitySequence {
-                        declarations: true,
-                        owner: Some(Rc::clone(owner)),
+                        declarations,
+                        owner: owner.clone(),
                         value: Box::new(value),
                     }
                 } else {
@@ -1843,7 +1953,7 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         })
     }
 }
-fn stream_len(stream: &SemanticStream<'_>) -> usize {
+pub(super) fn stream_len(stream: &SemanticStream<'_>) -> usize {
     match stream {
         SemanticStream::Entities(rows) => rows.len(),
         SemanticStream::Types(rows) => rows.len(),

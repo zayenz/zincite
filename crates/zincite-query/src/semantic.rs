@@ -1733,7 +1733,7 @@ impl SemanticResult<'_> {
                     }
                 }
                 QueryResult::Tally(values) => {
-                    for value in values.keys() {
+                    for (value, _) in values {
                         work.spend(value.len().max(1), range)?;
                     }
                 }

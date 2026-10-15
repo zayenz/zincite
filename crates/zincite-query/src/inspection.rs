@@ -293,7 +293,7 @@ pub(crate) fn validate_json(
             }
         }
         QueryResult::Tally(values) => {
-            for value in values.keys() {
+            for (value, _) in values {
                 work.spend(value.len().max(1), range)?;
             }
         }
@@ -350,7 +350,7 @@ pub(crate) fn json_value(result: &QueryResult<'_>) -> Result<Value, QueryError> 
         QueryResult::Literals(selection) => crate::structured::json_value(selection),
         QueryResult::Strings(values) => Ok(json!(values)),
         QueryResult::Count(count) => Ok(json!(count)),
-        QueryResult::Tally(values) => Ok(json!(values)),
+        QueryResult::Tally(values) => Ok(tally_json(values)),
         _ => unreachable!("only validated inspection results reach the JSON renderer"),
     }
 }
@@ -513,7 +513,7 @@ pub(crate) fn admit_json(
         QueryResult::Count(_) => {}
         QueryResult::Tally(values) => {
             work.produce(2 * values.len(), range)?;
-            for key in values.keys() {
+            for (key, _) in values {
                 work.spend(key.len(), range)?;
             }
         }
@@ -521,4 +521,13 @@ pub(crate) fn admit_json(
         _ => unreachable!("read-only inspection leaves"),
     }
     Ok(())
+}
+
+pub(crate) fn tally_json(values: &[(String, usize)]) -> Value {
+    Value::Object(
+        values
+            .iter()
+            .map(|(key, count)| (key.clone(), json!(count)))
+            .collect(),
+    )
 }

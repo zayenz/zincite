@@ -802,7 +802,7 @@ impl<'r, 'a> Session<'r, 'a> {
         declarations: &'r [zirql::UnresolvedPatternFunctionDeclaration<Expression>],
         signatures: &'r [zirql::ResolvedPatternFunctionSignature<'r, Kind>],
         host: &'r composition::CompositionHost<'r, 'r>,
-        program: &'r zirql::Program<Stage, (), Emitter>,
+        program: &'r zirql::Program<Stage, zirql::NativeSetOperator, Emitter>,
         limits: zirql::FunctionLimits,
         budget: &mut Budget,
     ) -> Result<Self, QueryError> {
@@ -908,6 +908,16 @@ impl<'r, 'a> Session<'r, 'a> {
                         Stage::FunctionValue(value) | Stage::FunctionSource(value) => {
                             self.prepare_value(value, kind, scope, budget)?
                         }
+                        Stage::Ordering(ordering) => {
+                            if let Some(selector) = &ordering.selector {
+                                let relative = host
+                                    .subject_kind(&kind, budget, &step.range)
+                                    .map_err(pipeline::core_error)?;
+                                self.prepare_value(selector, relative, scope, budget)?;
+                            }
+                            host.stage_kind(stage, &kind, scope, budget, &step.range)
+                                .map_err(pipeline::core_error)?
+                        }
                         _ => {
                             for (value, relative) in host
                                 .value_arguments(stage, budget, &step.range)
@@ -921,6 +931,12 @@ impl<'r, 'a> Session<'r, 'a> {
                     };
                 }
                 Ok(kind)
+            }
+            ExpressionKind::Set { left, right, .. } => {
+                let left = self.prepare_expression(left, input.clone(), scope, host, budget)?;
+                let right = self.prepare_expression(right, input, scope, host, budget)?;
+                host.set_kind(&left, &right, budget, &expression.range)
+                    .map_err(pipeline::core_error)
             }
             ExpressionKind::Record(fields) => {
                 for (_, value) in fields {
@@ -1256,7 +1272,27 @@ impl<'a> zirql::FunctionHost<Context<'_, 'a>> for composition::CompositionHost<'
     fn is_operation_name(&self, name: &str) -> bool {
         composition::domain_stage(name)
             || Primitive::named(name).is_some()
-            || matches!(name, "source" | "create" | "replace" | "fn" | "enum_member")
+            || matches!(
+                name,
+                "source"
+                    | "create"
+                    | "replace"
+                    | "fn"
+                    | "enum_member"
+                    | "sort"
+                    | "sort_by"
+                    | "min"
+                    | "min_by"
+                    | "max"
+                    | "max_by"
+                    | "min_all"
+                    | "min_all_by"
+                    | "max_all"
+                    | "max_all_by"
+                    | "union"
+                    | "intersect"
+                    | "except"
+            )
     }
 }
 impl<'a> zirql::RuntimeTypeHost<Context<'_, 'a>> for composition::CompositionHost<'_, '_> {
@@ -1703,8 +1739,8 @@ fn is_native_record(expression: &Expression) -> bool {
 }
 
 pub(super) fn wrap_program_entries(
-    statements: Vec<Located<zirql::Statement<Stage, (), Emitter>>>,
-) -> Vec<Located<zirql::Statement<Stage, (), Emitter>>> {
+    statements: Vec<Located<zirql::Statement<Stage, zirql::NativeSetOperator, Emitter>>>,
+) -> Vec<Located<zirql::Statement<Stage, zirql::NativeSetOperator, Emitter>>> {
     statements
         .into_iter()
         .map(|statement| {
@@ -1870,6 +1906,7 @@ pub(super) fn parsed_native_kind(
             for step in steps {
                 if let ExpressionStep::Stage(stage) = &step.value {
                     kind = match stage {
+                        Stage::Ordering(_) => kind,
                         Stage::Query(index, _) => validate_stages(&queries[*index].query, kind)
                             .unwrap_or(Kind::Constructed),
                         _ => Kind::Constructed,

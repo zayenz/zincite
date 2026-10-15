@@ -323,8 +323,8 @@ for example `(rows) | filter(starts_with("a")) | count`.
 
 `sort` is stable ascending scalar ordering with the same homogeneous key rules
 as `sort(xs)`. `unique` retains the first equal scalar, preserving input order.
-`tally` accepts only strings and returns a record of integer counts with lexical
-field order. It is terminal: another stage after it is an error. Untyped empty
+`tally` accepts only strings and returns a dictionary of integer counts in
+first-seen key order. It is terminal: another stage after it is an error. Untyped empty
 arrays are accepted; an established incompatible element contract is still
 refused when empty. Keyed arrays, records and native handles require explicit
 conversion or projection before these operations. A keyed array can become a
@@ -690,3 +690,31 @@ Use `--model` to supply target declarations, `--diff` to inspect changes and
 `--write` to update an explicit regular data file. Model and include files are
 read-only. The [Rust reference](reference.md#program-invocation-and-rust-results)
 describes `Program`, its result types and candidate handling.
+
+## Native ordering and sets
+
+Read-only native ordering uses the same scalar key rules as constructed ordering.
+The [ordering walkthrough](queries.md#order-native-selections) shows the
+selection forms. `sort`, `min`, `max`, `min_all` and `max_all` each accept an
+optional `*_by(selector)` form. Selectors use one incoming subject and the
+surrounding lexical bindings. Explicit input stages retain their original-input
+meaning. Native counts enter the signed key domain through checked conversion.
+Missing, absent, Boolean or mixed integer/float keys fail. Nominal keys retain
+host identities and coherent declaration metadata. Every key is admitted before
+sorting or selecting extrema.
+
+Sorts keep incoming ties; single extrema keep the first tie and all-ties extrema
+retain every tied subject in input order. Empty native extrema produce an empty
+selection with the same native kind, element contract and owner. Constructed
+extrema remain optional and return `<>` when empty. Known unsupported input or
+selector kinds and effects fail before iteration, including unused branches.
+
+Native `union` keeps first occurrence from left then right. `intersect` and
+`except` deduplicate in left order. The operands execute left then right against
+the same incoming input. Only established identity-bearing selections are
+admitted; no identity comes from rendered text. All handles and owners in both
+operands are validated, even when they are discarded or the result is empty.
+Native and constructed tally dictionaries retain first-seen keys through saved,
+nested and JSON results. Ordering, identity work, copying and temporary storage
+use the active request budget. Data-edit input and expression permissions remain
+the closed subset described above.

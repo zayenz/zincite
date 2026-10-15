@@ -313,7 +313,7 @@ and retained inverse-constructor heads. `annotation_names` takes the head of an
 Annotation node, including bare reserved `output`. Projections skip nodes with
 no applicable name and preserve duplicates. Use `subtree` before a projection
 to include nested occurrences. String streams emit one value and LF per entry.
-`tally` counts equal strings and emits a JSON object with lexical key order;
+`tally` counts equal strings and emits a JSON object in first-seen key order;
 an empty string stream yields `{}`.
 
 Item filters keep the kind aliases above. Navigated node filters and JSON use
@@ -831,11 +831,42 @@ fields point to the literal selector. These calls are report-only and share
 work, scratch, output-copy and comparison limits. See the [complete contract](query-comprehension-contract.md#report-expressions-and-edit-grammar)
 and [executable report](queries.md#sort-rows-and-select-extrema).
 
+Native report pipelines accept `sort`, `min`, `max`, `min_all`, `max_all` and
+`*_by(selector)` for each form. A selector runs against one incoming item and
+can use the containing lexical bindings. Direct ordering accepts scalar string
+or literal streams; handles need an explicit scalar projection, for example
+`items | filter(name("A") or name("B")) | sort_by(expressions | tail(1) | values)`. Each selector must
+produce exactly one present integer, finite float, exact string or nominal
+member of one coherent type. Counts use checked signed conversion. All keys
+are checked, including keys that cannot win an extremum. Sorting keeps ties;
+single extrema keep the first tie and all-ties forms retain tied items in their
+incoming order. Empty native extrema retain the empty selection's kind and
+owner. Constructed extrema retain the optional contract above.
+
+`left union right`, `left intersect right` and `left except right` combine native
+selections using their existing identities. Operators have equal precedence and
+associate left to right. Both operands read the same incoming input and execute
+left then right. Union keeps first appearance in the left operand, then the
+right. Intersection and difference deduplicate in left order. Nodes, semantic
+entities/type/instantiation rows and strings have identities; literal streams,
+counts, dictionaries, captures and computational identity sets do not support
+this algebra. A scalar Node or Declaration contributes one row; set results
+are selections, including empty results. Both operands are checked completely,
+including discarded rows.
+Use `(left union right) | names` to continue from a combined selection.
+
+These operations are read-only program forms. Known unsupported kinds and
+impure selectors fail preflight even for empty inputs or unused branches.
+Typed programs use `ProgramNative::Query` leaves, `ProgramNative::Ordering`
+and `NativeSetOperator` in `ProgramValue`; they lower to the same execution.
+Native owners, source coordinates and analysis limitations survive ordering
+and set operations, and every selector shares the request budget.
+
 Constructed positional arrays also accept `| filter(starts_with("a"))`,
 `| count`, `| sort`, `| unique` and terminal `| tally`. The filter retains strings
 with an exact, case-sensitive prefix; `count` returns the number of present
 array entries. `sort` uses the scalar ordering above; `unique` keeps first
-occurrences; string-only `tally` produces a lexical field-order count record.
+occurrences; string-only `tally` produces a count dictionary in first-seen key order.
 Use grouping for saved values or calls, such as `(rows) | sort | unique`.
 MiniZinc comprehension pipes stay inside brackets. Keyed inputs need an explicit
 positional conversion. These suffixes are report-only, including unused and

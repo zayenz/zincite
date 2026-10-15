@@ -815,7 +815,12 @@ impl<Q> Lower<'_, '_, Q> {
                         if sorting {
                             K::Sort {
                                 array,
-                                field,
+                                selector: field.map(|field| {
+                                    Located::new(
+                                        zirql::SortSelector::Field(field.value),
+                                        field.range,
+                                    )
+                                }),
                                 descending,
                             }
                         } else {

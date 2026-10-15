@@ -9,7 +9,6 @@
 
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeMap;
 use std::ops::Range;
 
 use zincite_lint::{
@@ -28,8 +27,8 @@ mod language;
 mod pipeline;
 mod program;
 pub use program::{
-    CaptureMatches, Program, ProgramEmission, ProgramFunction, ProgramLimits, ProgramResult,
-    ProgramValue, ReportValue,
+    CaptureMatches, Program, ProgramEmission, ProgramFunction, ProgramLimits, ProgramNative,
+    ProgramResult, ProgramValue, ReportValue,
 };
 pub use zirql::{ConstructedValue, ParameterDeclaration, ParameterInputs, ParameterType};
 mod reduction;
@@ -331,7 +330,7 @@ pub enum QueryResult<'a> {
     Nodes(NodeSelection<'a>),
     Strings(Vec<String>),
     Literals(LiteralSelection<'a>),
-    Tally(BTreeMap<String, usize>),
+    Tally(Vec<(String, usize)>),
     Json(JsonResult<'a>),
     /// Complete validated candidate from one intentional data transformation.
     Document(Vec<u8>),
@@ -363,7 +362,8 @@ impl QueryResult<'_> {
                 .flat_map(|value| value.bytes().chain(std::iter::once(b'\n')))
                 .collect(),
             Self::Tally(values) => {
-                let mut bytes = serde_json::to_vec(values).expect("string-key counts serialize");
+                let mut bytes = serde_json::to_vec(&inspection::tally_json(values))
+                    .expect("string-key counts serialize");
                 bytes.push(b'\n');
                 bytes
             }

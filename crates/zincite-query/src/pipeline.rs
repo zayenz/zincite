@@ -527,7 +527,7 @@ pub(crate) enum Identity {
     Subject(usize, usize, usize),
 }
 
-fn subject_identity(subject: &SemanticSubject<'_>) -> Identity {
+pub(crate) fn subject_identity(subject: &SemanticSubject<'_>) -> Identity {
     match subject {
         SemanticSubject::Entity(SemanticEntity::Declaration(id)) => Identity::Declaration(id.0),
         SemanticSubject::Entity(SemanticEntity::Reference(id)) => Identity::Reference(*id),

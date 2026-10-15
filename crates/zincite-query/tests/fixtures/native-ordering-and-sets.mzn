@@ -1,0 +1,10 @@
+enum Rank = {Zulu, Alpha, Beta};
+Rank: first = Alpha;
+Rank: second = Zulu;
+int: A = 1;
+int: B = 1;
+int: C = 2;
+int: left = C + A + C;
+int: right = B + A;
+float: positive = 2.5;
+float: negative = -1.0;

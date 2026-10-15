@@ -1368,6 +1368,24 @@ fn report_ordering_inline_file_and_later_failure_keep_output_buffering() {
     let failure = run(&failure, input);
     assert!(!failure.status.success() && failure.stdout.is_empty());
     assert!(String::from_utf8_lossy(&failure.stderr).contains("missing ordering field"));
+    for source in [
+        "report 7; items | sort;",
+        "report 7; (items | values) union (items | values);",
+    ] {
+        let failure = run(
+            &[
+                "query",
+                "--stdin-filepath",
+                "input.dzn",
+                "--program",
+                source,
+            ],
+            "a=1;",
+        );
+        assert_eq!(failure.status.code(), Some(2), "{failure:?}");
+        assert!(failure.stdout.is_empty());
+        assert!(!failure.stderr.is_empty());
+    }
     std::fs::remove_file(path).unwrap();
 }
 

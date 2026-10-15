@@ -4,10 +4,52 @@ use zirql::{ValueExpression as E, ValueExpressionKind as K};
 
 /// A typed value whose native leaves are shared expression wrappers around Query.
 /// The wrapper permits flat native pipelines to be released iteratively.
-pub type ProgramValue = E<zirql::Expression<Query, (), ()>>;
+pub type ProgramValue = E<zirql::Expression<ProgramNative, zirql::NativeSetOperator, ()>>;
 /// A typed pure function with located pattern parameters and unresolved host types.
-pub type ProgramFunction =
-    zirql::UnresolvedPatternFunctionDeclaration<zirql::Expression<Query, (), ()>>;
+pub type ProgramFunction = zirql::UnresolvedPatternFunctionDeclaration<
+    zirql::Expression<ProgramNative, zirql::NativeSetOperator, ()>,
+>;
+
+/// Native typed stages use the same ordering and set execution as text programs.
+#[derive(Debug)]
+pub enum ProgramNative {
+    Query(Query),
+    Ordering(zirql::NativeOrdering<zirql::Expression<Self, zirql::NativeSetOperator, ()>>),
+}
+
+impl Drop for ProgramNative {
+    fn drop(&mut self) {
+        let mut pending = Vec::new();
+        if let Self::Ordering(ordering) = self
+            && let Some(selector) = ordering.selector.take()
+        {
+            pending.push(selector);
+        }
+        while let Some(expression) = pending.pop() {
+            match expression.value {
+                ExpressionKind::Input | ExpressionKind::Binding(_) => {}
+                ExpressionKind::Group(value) | ExpressionKind::Field { value, .. } => {
+                    pending.push(*value)
+                }
+                ExpressionKind::Record(fields) => {
+                    pending.extend(fields.into_iter().map(|(_, value)| value))
+                }
+                ExpressionKind::Set { left, right, .. } => {
+                    pending.push(*left);
+                    pending.push(*right);
+                }
+                ExpressionKind::Sequence { input, steps } => {
+                    pending.push(*input);
+                    for mut step in steps {
+                        if let ExpressionStep::Stage(Self::Ordering(ordering)) = &mut step.value {
+                            pending.extend(ordering.selector.take());
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 struct Inputs {
     functions: Vec<ProgramFunction>,
@@ -40,8 +82,9 @@ impl Drop for Inputs {
 }
 impl Program {
     /// Construct a pure report without parsing generated source. Native leaves
-    /// use shared `Expression<Query, (), ()>` wrappers; the Query owns domain
-    /// syntax and the enclosing value retains the caller's query range.
+    /// use shared expressions with `ProgramNative` stages and native set
+    /// operators. Query leaves own domain syntax; ordering selectors retain
+    /// their singleton input and the caller's query range.
     ///
     /// All input trees transfer to this call, including on failure. Preparation
     /// against the current input/model happens during ordinary evaluation.
@@ -192,7 +235,7 @@ impl Program {
 }
 
 fn map_native(
-    query: zirql::Expression<Query, (), ()>,
+    query: zirql::Expression<ProgramNative, zirql::NativeSetOperator, ()>,
     lower: &mut impl FnMut(Query, Range<usize>) -> Expression,
 ) -> Expression {
     let range = query.range;
@@ -213,15 +256,45 @@ fn map_native(
                     .map(|(name, value)| (name, map_native(value, lower)))
                     .collect(),
             ),
-            ExpressionKind::Set { .. } => {
-                unreachable!("typed set composition rejected before lowering")
-            }
+            ExpressionKind::Set {
+                operator,
+                left,
+                right,
+            } => ExpressionKind::Set {
+                operator,
+                left: Box::new(map_native(*left, lower)),
+                right: Box::new(map_native(*right, lower)),
+            },
             ExpressionKind::Sequence { input, steps } => {
                 let mut input = map_native(*input, lower);
                 for step in steps {
                     match step.value {
-                        ExpressionStep::Stage(query) => {
-                            let mut leaf = lower(query, step.range.clone());
+                        ExpressionStep::Stage(mut stage) => {
+                            let mut leaf = match &mut stage {
+                                ProgramNative::Query(query) => lower(
+                                    std::mem::replace(
+                                        query,
+                                        Query {
+                                            stages: Vec::new(),
+                                            range: 0..0,
+                                            nesting_limit: 1,
+                                        },
+                                    ),
+                                    step.range.clone(),
+                                ),
+                                ProgramNative::Ordering(ordering) => value_stage(
+                                    Stage::Ordering(native::OrderingStage::new(
+                                        zirql::NativeOrdering {
+                                            order: ordering.order,
+                                            selector: ordering
+                                                .selector
+                                                .take()
+                                                .map(|selector| map_native(selector, lower)),
+                                        },
+                                    )),
+                                    step.range.clone(),
+                                ),
+                            };
                             let ExpressionKind::Sequence { steps, .. } = &mut leaf.value else {
                                 unreachable!()
                             };
@@ -389,11 +462,11 @@ fn map_queries(
         },
         K::Sort {
             array,
-            field,
+            selector,
             descending,
         } => K::Sort {
             array: Box::new(map_queries(*array, lower)),
-            field,
+            selector,
             descending,
         },
         K::Extremum {
@@ -472,7 +545,11 @@ fn map_queries(
     Located::new(value, range)
 }
 fn map_clauses(
-    clauses: Vec<Located<zirql::ValueGenerator<zirql::Expression<Query, (), ()>>>>,
+    clauses: Vec<
+        Located<
+            zirql::ValueGenerator<zirql::Expression<ProgramNative, zirql::NativeSetOperator, ()>>,
+        >,
+    >,
     lower: &mut impl FnMut(Query, Range<usize>) -> Expression,
 ) -> Vec<Located<zirql::ValueGenerator<Expression>>> {
     clauses
@@ -506,7 +583,7 @@ fn map_clauses(
 }
 
 fn check_native(
-    query: &zirql::Expression<Query, (), ()>,
+    query: &zirql::Expression<ProgramNative, zirql::NativeSetOperator, ()>,
     budget: &mut Budget,
     nesting: usize,
 ) -> Result<(), QueryError> {
@@ -536,11 +613,9 @@ fn check_native(
                     .map_err(pipeline::core_error)?;
                 pending.extend(fields.iter().map(|(_, v)| (v, depth + 1)))
             }
-            ExpressionKind::Set { .. } => {
-                return Err(QueryError::query(
-                    query.range.clone(),
-                    "set composition is unsupported in Zincite programs",
-                ));
+            ExpressionKind::Set { left, right, .. } => {
+                pending.push((left, depth + 1));
+                pending.push((right, depth + 1));
             }
             ExpressionKind::Sequence { input, steps } => {
                 pending.push((input, depth + 1));
@@ -549,7 +624,17 @@ fn check_native(
                         .charge_results(1, zirql::Location::Query(step.range.clone()))
                         .map_err(pipeline::core_error)?;
                     match &step.value {
-                        ExpressionStep::Stage(query) if !query.is_editing() => {
+                        ExpressionStep::Stage(ProgramNative::Query(query))
+                            if !query.is_editing()
+                                && !query.stages.iter().any(|stage| {
+                                    matches!(
+                                        stage.kind,
+                                        language::StageKind::Emit
+                                            | language::StageKind::Json
+                                            | language::StageKind::EmitDocument
+                                    )
+                                }) =>
+                        {
                             budget
                                 .charge(
                                     query.range.len() + query.stages.len(),
@@ -562,6 +647,11 @@ fn check_native(
                                     zirql::Location::Query(step.range.clone()),
                                 )
                                 .map_err(pipeline::core_error)?;
+                        }
+                        ExpressionStep::Stage(ProgramNative::Ordering(ordering)) => {
+                            if let Some(selector) = &ordering.selector {
+                                pending.push((selector, depth + 1));
+                            }
                         }
                         ExpressionStep::Stage(_) | ExpressionStep::Emit { .. } => {
                             return Err(QueryError::query(

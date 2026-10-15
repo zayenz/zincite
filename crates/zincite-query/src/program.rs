@@ -12,13 +12,14 @@ use zirql::{
 };
 
 mod builder;
-pub use builder::{ProgramFunction, ProgramValue};
+pub use builder::{ProgramFunction, ProgramNative, ProgramValue};
 mod composition;
 mod functions;
+mod native;
 mod worklists;
 pub use worklists::{Computational, NativeSequence, NativeTuple};
 
-type Expression = zirql::Expression<Stage, (), Emitter>;
+type Expression = zirql::Expression<Stage, zirql::NativeSetOperator, Emitter>;
 
 #[derive(Debug)]
 enum Stage {
@@ -33,6 +34,7 @@ enum Stage {
     ),
     Member(comprehension::MemberRequest),
     Query(usize, Rc<Vec<QueryArgument>>),
+    Ordering(native::OrderingStage),
     Projection(composition::ProjectionStage),
     Match(composition::MatchStage),
     Paths(composition::PathStage),
@@ -75,6 +77,7 @@ impl Drop for Stage {
             Self::Parameter(_)
             | Self::Member(_)
             | Self::Query(..)
+            | Self::Ordering(_)
             | Self::Projection(_)
             | Self::Match(_)
             | Self::Paths(_)
@@ -300,7 +303,7 @@ impl<'a> ProgramResult<'a> {
                                 budget: &mut self.budget,
                                 range: &emission.range,
                             },
-                            values,
+                            &crate::inspection::tally_json(values),
                         )
                         .map_err(|error| {
                             QueryError::query(emission.range.clone(), error.to_string())
@@ -429,7 +432,7 @@ struct ProgramQuery {
 #[derive(Debug)]
 pub struct Program {
     parameters: Vec<zirql::ParameterDeclaration>,
-    program: zirql::Program<Stage, (), Emitter>,
+    program: zirql::Program<Stage, zirql::NativeSetOperator, Emitter>,
     preflight_work: usize,
     preflight_results: usize,
     preflight_range: Option<Range<usize>>,
@@ -2363,7 +2366,7 @@ struct NativeHost<'q> {
 impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
     type Value = ReportValue<'a>;
     type Stage = Stage;
-    type SetOperator = ();
+    type SetOperator = zirql::NativeSetOperator;
     type Emitter = Emitter;
     type Error = QueryError;
     fn copy_value(
@@ -2440,6 +2443,10 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
                 ));
             }
             Stage::Query(index, _) => *index,
+            Stage::Ordering(ordering) => {
+                return composition::CompositionHost(self)
+                    .order(ordering, value, context, bindings, budget, range);
+            }
             Stage::Projection(projection) => {
                 let host = composition::CompositionHost(self);
                 return zirql::evaluate_projection(
@@ -2505,17 +2512,15 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
     }
     fn combine(
         &self,
-        _: &(),
-        _: ReportValue<'a>,
-        _: ReportValue<'a>,
-        _: &mut Context<'_, 'a>,
-        _: &mut Budget,
+        operator: &zirql::NativeSetOperator,
+        left: ReportValue<'a>,
+        right: ReportValue<'a>,
+        context: &mut Context<'_, 'a>,
+        budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
-        Err(zirql::EvaluationError::Host(QueryError::query(
-            range.clone(),
-            "set expressions are unsupported in Zincite programs",
-        )))
+        composition::CompositionHost(self)
+            .combine_set(*operator, left, right, context, budget, range)
     }
     fn construct_record(
         &self,
@@ -2564,8 +2569,7 @@ impl<'a> NativeHost<'_> {
         budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
-        let declarations =
-            self.functions && functions::query_declarations(&self.queries[index].query, &value);
+        let declarations = functions::query_declarations(&self.queries[index].query, &value);
         let resolved;
         let lowered;
         let pipeline = if let Some(pipeline) = &self.pipelines[index] {
@@ -2588,12 +2592,10 @@ impl<'a> NativeHost<'_> {
         budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
-        if self.functions
-            && matches!(
-                functions::unretained(&value),
-                ReportValue::Query(SemanticStream::Entities(_))
-            )
-        {
+        if matches!(
+            functions::unretained(&value),
+            ReportValue::Query(SemanticStream::Entities(_))
+        ) {
             budget.charge_results(1, zirql::Location::Query(range.clone()))?;
             Ok(ReportValue::EntitySequence {
                 declarations,
@@ -3296,7 +3298,7 @@ fn value_bytes(value: &ReportValue<'_>) -> usize {
             .sum(),
         ReportValue::Query(SemanticStream::Inspection(value)) => match value.as_ref() {
             QueryResult::Strings(values) => values.iter().map(String::len).sum(),
-            QueryResult::Tally(values) => values.keys().map(String::len).sum(),
+            QueryResult::Tally(values) => values.iter().map(|(key, _)| key.len()).sum(),
             _ => 0,
         },
         ReportValue::Query(SemanticStream::Types(rows)) => rows

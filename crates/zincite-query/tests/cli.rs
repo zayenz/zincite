@@ -1503,6 +1503,18 @@ fn report_ordering_inline_file_and_later_failure_keep_output_buffering() {
     let failure = run(&failure, input);
     assert!(!failure.status.success() && failure.stdout.is_empty());
     assert!(String::from_utf8_lossy(&failure.stderr).contains("missing ordering field"));
+    for source in [
+        "report 7; items | sort;",
+        "report 7; (items | values) union (items | values);",
+    ] {
+        let failure = run(
+            &["--stdin-filepath", "input.dzn", "--program", source],
+            b"a=1;",
+        );
+        assert_eq!(failure.status.code(), Some(2), "{failure:?}");
+        assert!(failure.stdout.is_empty());
+        assert!(!failure.stderr.is_empty());
+    }
     std::fs::remove_file(path).unwrap();
 }
 
@@ -1695,4 +1707,58 @@ fn native_stream_controls_share_inline_file_and_positional_execution() {
     assert!(failure.stdout.is_empty());
     assert!(String::from_utf8_lossy(&failure.stderr).contains("expected 1 items, got 2: need one"));
     std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn native_ordering_and_sets_replay_the_library_report_inline_and_from_file() {
+    let dir = std::env::temp_dir().join(format!("zincite-native-order-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("library/std")).unwrap();
+    std::fs::write(dir.join("library/std/stdlib.mzn"), "").unwrap();
+    let model_path = dir.join("model.mzn");
+    let program_path = dir.join("report.zq");
+    let input = include_bytes!("fixtures/native-ordering-and-sets.mzn");
+    let source = include_str!("fixtures/native-ordering-and-sets.zq");
+    std::fs::write(&model_path, input).unwrap();
+    std::fs::write(&program_path, source).unwrap();
+    let library = dir.join("library");
+    let inline = run(
+        &[
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            "--program",
+            source,
+            model_path.to_str().unwrap(),
+        ],
+        b"",
+    );
+    let file = run(
+        &[
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            "--program-file",
+            program_path.to_str().unwrap(),
+            model_path.to_str().unwrap(),
+        ],
+        b"",
+    );
+    assert_eq!(inline.status.code(), Some(1), "{inline:?}");
+    assert_eq!(file.status.code(), Some(1), "{file:?}");
+    assert!(String::from_utf8_lossy(&inline.stderr).contains("callable name is unresolved"));
+    assert_eq!(inline.stdout, file.stdout);
+    let output = String::from_utf8(inline.stdout).unwrap();
+    assert!(
+        output.contains(r#""union_names":["C","A","B"]"#),
+        "{output}"
+    );
+    assert!(output.contains(r#""intersection_names":["A"]"#));
+    assert!(output.contains(r#""difference_names":["C"]"#));
+    assert!(
+        output.contains(r#""sorted_names":["A","B","C"]"#),
+        "{output}"
+    );
+    assert!(
+        output.contains(r#""nominal_names":["second","first"]"#),
+        "{output}"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
 }

@@ -1998,8 +1998,14 @@ fn programs_retain_native_reports_and_one_fact_owner() {
     let QueryResult::Tally(histogram) = histogram.as_ref() else {
         panic!("native histogram");
     };
-    assert_eq!(histogram.get("x"), Some(&1));
-    let ReportValue::Query(SemanticStream::Entities(selected)) = &fields[2].1 else {
+    assert_eq!(
+        histogram
+            .iter()
+            .find(|(key, _)| key == "x")
+            .map(|(_, count)| count),
+        Some(&1)
+    );
+    let Some(SemanticStream::Entities(selected)) = fields[2].1.stream() else {
         panic!("native declarations");
     };
     let single = semantic(&input, &model, "declarations");
@@ -3514,7 +3520,7 @@ fn bounded_paths_keep_declaration_witnesses_owner_coordinates_and_projection() {
         ["source", "sink", "steps"]
     );
     let native = |index: usize| {
-        let ReportValue::Query(SemanticStream::Entities(ids)) = &fields[index].1 else {
+        let Some(SemanticStream::Entities(ids)) = fields[index].1.stream() else {
             panic!("native declarations")
         };
         ids.as_slice()
@@ -4478,7 +4484,7 @@ fn patterns_and_control_values_agree_with_owned_typed_programs() {
         ConstructedValue as V, Located as L, Pattern, PatternKind as P, SignatureType as S,
         ValueBinaryOperator as B, ValueExpressionKind as K,
     };
-    type Q = zirql::Expression<zincite_query::Query, (), ()>;
+    type Q = zirql::Expression<zincite_query::ProgramNative, zirql::NativeSetOperator, ()>;
     fn located<T>(value: T) -> L<T> {
         L::new(value, 10..20)
     }
@@ -4591,7 +4597,9 @@ fn patterns_and_control_values_agree_with_owned_typed_programs() {
     .unwrap();
     let native = located(zirql::ExpressionKind::Sequence {
         input: Box::new(located(zirql::ExpressionKind::Input)),
-        steps: vec![located(zirql::ExpressionStep::Stage(query))],
+        steps: vec![located(zirql::ExpressionStep::Stage(
+            zincite_query::ProgramNative::Query(query),
+        ))],
     });
     let typed = Program::from_values(
         vec![describe, keep],
@@ -4832,6 +4840,37 @@ fn owned_typed_admission_bounds_literals_and_metadata_before_use() {
     })
     .join()
     .unwrap();
+    std::thread::spawn(|| {
+        let mut selector = zirql::Located::new(zirql::ExpressionKind::Input, 10..20);
+        for _ in 0..20_000 {
+            selector = zirql::Located::new(
+                zirql::ExpressionKind::Sequence {
+                    input: Box::new(zirql::Located::new(zirql::ExpressionKind::Input, 10..20)),
+                    steps: vec![zirql::Located::new(
+                        zirql::ExpressionStep::Stage(zincite_query::ProgramNative::Ordering(
+                            zirql::NativeOrdering {
+                                order: zirql::NativeOrder::Sort,
+                                selector: Some(selector),
+                            },
+                        )),
+                        10..20,
+                    )],
+                },
+                10..20,
+            );
+        }
+        assert!(
+            Program::from_values(
+                vec![],
+                vec![],
+                zirql::Located::new(K::NativeValue(Box::new(selector)), 10..20),
+                ProgramLimits::default()
+            )
+            .is_err()
+        );
+    })
+    .join()
+    .unwrap();
     let limits = ProgramLimits {
         work: 10,
         results: 2,
@@ -4880,7 +4919,7 @@ mod worklists {
         ConstructedValue as V, Located as L, PatternKind as P, SignatureType as S,
         ValueExpressionKind as K,
     };
-    type Q = zirql::Expression<Query, (), ()>;
+    type Q = zirql::Expression<zincite_query::ProgramNative, zirql::NativeSetOperator, ()>;
     fn l<T>(value: T) -> L<T> {
         L::new(value, 10..20)
     }
@@ -4907,7 +4946,9 @@ mod worklists {
             zirql::ExpressionKind::Sequence {
                 input: Box::new(l(zirql::ExpressionKind::Input)),
                 steps: vec![l(zirql::ExpressionStep::Stage(
-                    Query::parse(query, Limits::default()).unwrap(),
+                    zincite_query::ProgramNative::Query(
+                        Query::parse(query, Limits::default()).unwrap(),
+                    ),
                 ))],
             },
         ))))
@@ -5466,8 +5507,8 @@ fn saved_native_and_minizinc_values_compose_with_shared_suffixes() {
         (
             r#"["b","a","b"] | tally"#,
             V::Record(vec![
-                ("a".into(), V::Integer(1)),
                 ("b".into(), V::Integer(2)),
+                ("a".into(), V::Integer(1)),
             ]),
         ),
         ("[] | sort | unique", V::Array(vec![])),
@@ -5756,4 +5797,440 @@ fn native_stream_checks_preserve_incomplete_semantic_rows() {
         assert_eq!(checked.location(row), original.location(row));
         assert_eq!(checked.location(row).path, model.root);
     }
+}
+
+#[test]
+fn native_ordering_and_operand_order_sets_keep_values_and_owners() {
+    use zincite_query::{Program, ProgramLimits, ProgramNative, ReportValue};
+    let limits = ProgramLimits::default();
+    let model = semantic_model(
+        "native-ordering",
+        include_bytes!("fixtures/native-ordering-and-sets.mzn"),
+        b"",
+        "",
+    );
+    let input = Input::parse(
+        include_bytes!("fixtures/native-ordering-and-sets.mzn").to_vec(),
+        FileMode::Model,
+    )
+    .unwrap();
+    let program =
+        Program::parse(include_str!("fixtures/native-ordering-and-sets.zq"), limits).unwrap();
+    let mut result = program
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap();
+    let output = String::from_utf8(result.render().unwrap()).unwrap();
+    assert!(
+        output.contains(r#""union_names":["C","A","B"]"#),
+        "{output}"
+    );
+    assert!(output.contains(r#""intersection_names":["A"]"#), "{output}");
+    assert!(output.contains(r#""difference_names":["C"]"#), "{output}");
+    assert!(
+        output.contains(r#""sorted_names":["A","B","C"]"#),
+        "{output}"
+    );
+    assert!(
+        output.contains(r#""nominal_names":["second","first"]"#),
+        "{output}"
+    );
+    for (stage, names) in [
+        (
+            "sort_by(expressions | tail(1) | values)",
+            vec!["A", "B", "C"],
+        ),
+        ("min_by(expressions | tail(1) | values)", vec!["A"]),
+        ("max_by(expressions | tail(1) | values)", vec!["C"]),
+        ("min_all_by(expressions | tail(1) | values)", vec!["A", "B"]),
+        ("max_all_by(expressions | tail(1) | values)", vec!["C"]),
+    ] {
+        let source = format!(
+            r#"let rows = items | filter(name("A") or name("B") or name("C")); report rows | {stage};"#
+        );
+        let program = Program::parse(&source, limits).unwrap();
+        let result = program
+            .evaluate_with_model(&input, Some(&model), limits)
+            .unwrap();
+        let value = result.emissions()[0].value();
+        let ReportValue::Query(zincite_query::SemanticStream::Inspection(value)) = value else {
+            panic!("{value:?}")
+        };
+        let QueryResult::Selection(selection) = value.as_ref() else {
+            panic!("{value:?}")
+        };
+        assert!(std::ptr::eq(selection.input(), &input));
+        assert_eq!(
+            selection
+                .items()
+                .iter()
+                .map(|item| item.name.unwrap())
+                .collect::<Vec<_>>(),
+            names
+        );
+        for item in selection.items() {
+            assert_eq!(item.range, item.node.range());
+        }
+    }
+    for (source, expected) in [
+        (
+            r#"items | filter(name("first") or name("second")) | sort_by(expressions | tail(1) | values) | names"#,
+            vec!["second", "first"],
+        ),
+        (
+            r#"items | filter(name("positive") or name("negative")) | sort_by(expressions | tail(1) | values) | names"#,
+            vec!["negative", "positive"],
+        ),
+        (
+            r#"items | filter(name("C") or name("A")) | names | sort"#,
+            vec!["A", "C"],
+        ),
+    ] {
+        let mut result = Program::parse(&format!("report {source};"), limits)
+            .unwrap()
+            .evaluate_with_model(&input, Some(&model), limits)
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
+        assert_eq!(json["result"], serde_json::json!(expected));
+    }
+    let prepared = r#"fn key(n:Node)->string { n | names | one }
+        fn id(s:string)->string { s }
+        let label = "tie";
+        let rows = items | filter(name("A") or name("B") or name("C")) | reverse;
+        report rows | sort_by(key(input)) | names;
+        report rows | sort_by(id(label)) | names;
+        report rows | sort_by((key(input))) | names;
+        report rows | sort_by((id(label))) | names;
+        report rows | sort_by((items | names | count)) | names;"#;
+    let mut result = Program::parse(prepared, limits)
+        .unwrap()
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap();
+    fn constructed<'v>(value: &'v ReportValue<'_>) -> &'v zirql::ConstructedValue {
+        match value {
+            ReportValue::Retained(value) => constructed(value),
+            ReportValue::Constructed(value) => value,
+            ReportValue::SharedConstructed(value) => value,
+            _ => panic!("constructed strings: {value:?}"),
+        }
+    }
+    for (emission, names) in result.emissions().iter().zip([
+        ["A", "B", "C"],
+        ["C", "B", "A"],
+        ["A", "B", "C"],
+        ["C", "B", "A"],
+        ["C", "B", "A"],
+    ]) {
+        assert_eq!(
+            constructed(emission.value()).data(),
+            &zirql::ConstructedValue::Array(
+                names
+                    .into_iter()
+                    .map(|name| zirql::ConstructedValue::String(name.into()))
+                    .collect()
+            )
+        );
+    }
+    result.render().unwrap();
+    for source in [
+        r#"items | filter(name("missing")) | sort"#,
+        r#"items | filter(name("missing")) | sort_by(true)"#,
+        r#"fn bad(n:Node)->bool { true } items | filter(name("missing")) | sort_by(bad(input))"#,
+        r#"items | sort_by(<>)"#,
+        r#"items | filter(name("A") or name("positive")) | sort_by(expressions | tail(1) | values)"#,
+        r#"items | sort_by(names | head(0))"#,
+        r#"items | sort_by(values | emit)"#,
+        r#"(items | values) union (items | values)"#,
+        r#"if true { 1 } else { (items | values) union (items | values) }"#,
+        r#"if true { 1 } else { items | sort_by(remove) }"#,
+    ] {
+        let error = match Program::parse(source, limits) {
+            Ok(program) => program
+                .evaluate_with_model(&input, Some(&model), limits)
+                .unwrap_err(),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error.location,
+            zincite_query::ErrorLocation::Query,
+            "{source}: {error:?}"
+        );
+    }
+    for source in [
+        r#"items | filter(name("missing")) | expressions | min_by(text)"#,
+        r#"items | filter(name("missing")) | declarations | min_by(names)"#,
+        r#"(items | filter(name("missing")) | references) union (items | filter(name("missing")) | references)"#,
+    ] {
+        let result = Program::parse(source, limits)
+            .unwrap()
+            .evaluate_with_model(&input, Some(&model), limits)
+            .unwrap();
+        match result.emissions()[0].value().stream().unwrap() {
+            zincite_query::SemanticStream::Entities(rows) => assert!(rows.is_empty()),
+            zincite_query::SemanticStream::Inspection(value) => {
+                let QueryResult::Nodes(nodes) = value.as_ref() else {
+                    panic!("node selection")
+                };
+                assert!(std::ptr::eq(nodes.input(), &input));
+                assert!(nodes.nodes().is_empty());
+            }
+            _ => panic!("same-kind empty selection"),
+        }
+    }
+    let singletons = r#"let present((a,_)) = pop_front(queue<Node>(items | filter(name("A"))));
+        let present((b,_)) = pop_front(queue<Node>(items | filter(name("B"))));
+        report (a union b union a) | names;
+        report (a except a) | names;"#;
+    let result = Program::parse(singletons, limits)
+        .unwrap()
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap();
+    assert_eq!(
+        constructed(result.emissions()[0].value()).data(),
+        &zirql::ConstructedValue::Array(vec![
+            zirql::ConstructedValue::String("A".into()),
+            zirql::ConstructedValue::String("B".into())
+        ])
+    );
+    assert_eq!(
+        constructed(result.emissions()[1].value()).data(),
+        &zirql::ConstructedValue::Array(vec![])
+    );
+    let tally_input = Input::parse(b"int: z; int: a; int: z;".to_vec(), FileMode::Model).unwrap();
+    let mut tally = Program::parse(
+        "let counts = items | names | tally; report (counts: counts);",
+        limits,
+    )
+    .unwrap()
+    .evaluate(&tally_input, limits)
+    .unwrap();
+    let output = String::from_utf8(tally.render().unwrap()).unwrap();
+    assert!(output.contains(r#""counts":{"z":2,"a":1}"#), "{output}");
+    fn l<T>(value: T) -> zirql::Located<T> {
+        zirql::Located::new(value, 10..20)
+    }
+    fn native_query(text: &str) -> zirql::Expression<ProgramNative, zirql::NativeSetOperator, ()> {
+        l(zirql::ExpressionKind::Sequence {
+            input: Box::new(l(zirql::ExpressionKind::Input)),
+            steps: vec![l(zirql::ExpressionStep::Stage(ProgramNative::Query(
+                Query::parse(text, Limits::default()).unwrap(),
+            )))],
+        })
+    }
+    let impure = l(zirql::ExpressionKind::Sequence {
+        input: Box::new(native_query(r#"items | filter(name("missing"))"#)),
+        steps: vec![l(zirql::ExpressionStep::Stage(ProgramNative::Ordering(
+            zirql::NativeOrdering {
+                order: zirql::NativeOrder::Sort,
+                selector: Some(native_query("names | emit")),
+            },
+        )))],
+    });
+    assert!(
+        Program::from_values(
+            vec![],
+            vec![],
+            l(zirql::ValueExpressionKind::NativeValue(Box::new(impure))),
+            limits
+        )
+        .is_err()
+    );
+    let mixed = Input::parse_named(
+        b"\xef\xbb\xbfint: A = 1;\r\n".to_vec(),
+        FileMode::Model,
+        "mixed.mzn",
+    )
+    .unwrap();
+    let QueryResult::Selection(items) = query(&mixed, "items") else {
+        panic!("items")
+    };
+    let QueryResult::Nodes(expressions) = query(&mixed, "items | expressions") else {
+        panic!("expressions")
+    };
+    let declaration = items.items()[0].node;
+    let literal = expressions.nodes()[0].node;
+    for (left, right, expected) in [
+        ("items", "items | expressions", vec![declaration, literal]),
+        ("items | expressions", "items", vec![literal, declaration]),
+        ("items | head(0)", "items | expressions", vec![literal]),
+    ] {
+        let source = format!(
+            "let left = {left}; let right = {right}; let combined = left union right; report combined; report combined | count;"
+        );
+        let result = Program::parse(&source, limits)
+            .unwrap()
+            .evaluate(&mixed, limits)
+            .unwrap();
+        let Some(zincite_query::SemanticStream::Inspection(value)) =
+            result.emissions()[0].value().stream()
+        else {
+            panic!("native nodes")
+        };
+        let QueryResult::Nodes(nodes) = value.as_ref() else {
+            panic!("compatible node selection")
+        };
+        assert!(std::ptr::eq(nodes.input(), &mixed));
+        assert_eq!(nodes.nodes().len(), expected.len());
+        for (actual, expected) in nodes.nodes().iter().zip(&expected) {
+            assert!(std::ptr::eq(actual.node, *expected));
+            assert_eq!(actual.file, mixed.file());
+            assert_eq!(
+                actual.range,
+                expected.range().start + 3..expected.range().end + 3
+            );
+        }
+        let Some(zincite_query::SemanticStream::Inspection(count)) =
+            result.emissions()[1].value().stream()
+        else {
+            panic!("native count")
+        };
+        assert!(matches!(count.as_ref(), QueryResult::Count(count) if *count == expected.len()));
+    }
+    let typed_mixed = l(zirql::ExpressionKind::Set {
+        operator: zirql::NativeSetOperator::Union,
+        left: Box::new(native_query("items | expressions")),
+        right: Box::new(native_query("items")),
+    });
+    let program = Program::from_values(
+        vec![],
+        vec![],
+        l(zirql::ValueExpressionKind::NativeValue(Box::new(
+            typed_mixed,
+        ))),
+        limits,
+    )
+    .unwrap();
+    let result = program.evaluate(&mixed, limits).unwrap();
+    let Some(zincite_query::SemanticStream::Inspection(value)) =
+        result.emissions()[0].value().stream()
+    else {
+        panic!("native nodes")
+    };
+    let QueryResult::Nodes(nodes) = value.as_ref() else {
+        panic!("compatible node selection")
+    };
+    assert!(std::ptr::eq(nodes.input(), &mixed));
+    assert!(std::ptr::eq(nodes.nodes()[0].node, literal));
+    assert!(std::ptr::eq(nodes.nodes()[1].node, declaration));
+    for (order, expected) in [
+        (zirql::NativeOrder::Sort, vec!["B", "A", "C"]),
+        (zirql::NativeOrder::Min, vec!["B"]),
+        (zirql::NativeOrder::Max, vec!["C"]),
+        (zirql::NativeOrder::MinAll, vec!["B", "A"]),
+        (zirql::NativeOrder::MaxAll, vec!["C"]),
+    ] {
+        let value = l(zirql::ExpressionKind::Sequence {
+            input: Box::new(native_query(
+                r#"items | filter(name("A") or name("B") or name("C")) | reverse"#,
+            )),
+            steps: vec![l(zirql::ExpressionStep::Stage(ProgramNative::Ordering(
+                zirql::NativeOrdering {
+                    order,
+                    selector: Some(native_query("expressions | tail(1) | values")),
+                },
+            )))],
+        });
+        let program = Program::from_values(
+            vec![],
+            vec![],
+            l(zirql::ValueExpressionKind::NativeValue(Box::new(value))),
+            limits,
+        )
+        .unwrap();
+        let result = program
+            .evaluate_with_model(&input, Some(&model), limits)
+            .unwrap();
+        let Some(zincite_query::SemanticStream::Inspection(value)) =
+            result.emissions()[0].value().stream()
+        else {
+            panic!("native nodes")
+        };
+        let QueryResult::Selection(selection) = value.as_ref() else {
+            panic!("selection")
+        };
+        assert!(std::ptr::eq(selection.input(), &input));
+        assert_eq!(
+            selection
+                .items()
+                .iter()
+                .map(|item| item.name.unwrap())
+                .collect::<Vec<_>>(),
+            expected
+        );
+    }
+    for (operator, expected) in [
+        (zirql::NativeSetOperator::Union, vec!["C", "A", "B"]),
+        (zirql::NativeSetOperator::Intersect, vec!["A"]),
+        (zirql::NativeSetOperator::Except, vec!["C"]),
+    ] {
+        let set = l(zirql::ExpressionKind::Set {
+            operator,
+            left: Box::new(native_query(
+                r#"items | filter(name("left")) | references | declarations"#,
+            )),
+            right: Box::new(native_query(
+                r#"items | filter(name("right")) | references | declarations"#,
+            )),
+        });
+        let program = Program::from_values(
+            vec![],
+            vec![],
+            l(zirql::ValueExpressionKind::NativeValue(Box::new(set))),
+            limits,
+        )
+        .unwrap();
+        let result = program
+            .evaluate_with_model(&input, Some(&model), limits)
+            .unwrap();
+        let Some(zincite_query::SemanticStream::Entities(rows)) =
+            result.emissions()[0].value().stream()
+        else {
+            panic!("native entities")
+        };
+        let report = result.semantic().unwrap();
+        let names = rows
+            .iter()
+            .map(|entity| {
+                let zincite_query::SemanticEntity::Declaration(id) = entity else {
+                    panic!("declaration")
+                };
+                assert_eq!(report.location(*entity).path, model.root);
+                report.bindings().unwrap().declarations[id.0].name.as_str()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(names, expected);
+    }
+    let native = l(zirql::ExpressionKind::Sequence {
+        input: Box::new(l(zirql::ExpressionKind::Input)),
+        steps: vec![
+            l(zirql::ExpressionStep::Stage(ProgramNative::Query(
+                Query::parse(r#"items | filter(name("missing"))"#, Limits::default()).unwrap(),
+            ))),
+            l(zirql::ExpressionStep::Stage(ProgramNative::Ordering(
+                zirql::NativeOrdering {
+                    order: zirql::NativeOrder::Min,
+                    selector: Some(l(zirql::ExpressionKind::Sequence {
+                        input: Box::new(l(zirql::ExpressionKind::Input)),
+                        steps: vec![l(zirql::ExpressionStep::Stage(ProgramNative::Query(
+                            Query::parse("names", Limits::default()).unwrap(),
+                        )))],
+                    })),
+                },
+            ))),
+        ],
+    });
+    let program = Program::from_values(
+        vec![],
+        vec![],
+        l(zirql::ValueExpressionKind::NativeValue(Box::new(native))),
+        limits,
+    )
+    .unwrap();
+    let mut result = program
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap();
+    assert!(
+        String::from_utf8(result.render().unwrap())
+            .unwrap()
+            .contains(r#""result":[]"#)
+    );
 }

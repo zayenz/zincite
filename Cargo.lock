@@ -112,6 +112,7 @@ version = "1.0.151"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
 dependencies = [
+ "indexmap",
  "itoa",
  "memchr",
  "serde",
@@ -240,7 +241,7 @@ version = "0.1.0"
 [[package]]
 name = "zirql"
 version = "0.1.0-alpha.5"
-source = "git+https://github.com/zayenz/zirql?rev=d0370ca6f9bf5c2e5fa228c6963a7e2621789a1a#d0370ca6f9bf5c2e5fa228c6963a7e2621789a1a"
+source = "git+https://github.com/zayenz/zirql?rev=920bf4111273ceb26bd84b7a47571cf497184e3d#920bf4111273ceb26bd84b7a47571cf497184e3d"
 dependencies = [
  "serde_json",
 ]
