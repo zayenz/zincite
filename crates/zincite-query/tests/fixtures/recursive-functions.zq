@@ -12,6 +12,6 @@ fn odd(n: int) -> bool {
     if n = 0 then false else even(n - 1) endif
 }
 let roots = items;
-report (sum_calls: sum([count_calls(root, "sum") | root in roots]),
+(sum_calls: sum([count_calls(root, "sum") | root in roots]),
         accumulated: accumulate(1000, 0),
         is_even: even(1000));

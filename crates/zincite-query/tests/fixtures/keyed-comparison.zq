@@ -1,4 +1,4 @@
-source a = literal("before");
-source b = literal("after");
+let a = items | filter(name("before")) | values | one;
+let b = items | filter(name("after")) | values | one;
 let pairs = zip_exact(a, b);
-report [e.key: e.value.2 - e.value.1 | e in entries(pairs)];
+[e.key: e.value.2 - e.value.1 | e in entries(pairs)];

@@ -1,5 +1,5 @@
-source demand = literal("demand");
-source capacity = literal("capacity");
+let demand = items | filter(name("demand")) | values | one;
+let capacity = items | filter(name("capacity")) | values | one;
 let factor = 2;
 let positive_factor = require(factor > 0, factor,
                               "factor must be positive");
@@ -23,7 +23,7 @@ let rows = [
 ];
 let total_demand = sum(scaled);
 let total_capacity = sum(aligned_capacity);
-report (
+(
   rows: rows,
   total_demand: total_demand,
   total_capacity: total_capacity,

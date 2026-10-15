@@ -76,7 +76,7 @@ solve satisfy;
 Start with `counts = [3, 5];` in `counts.dzn`, and save this as `create.zq`:
 
 ```zirql
-source old_counts = literal("counts");
+let old_counts = items | filter(name("counts")) | values | one;
 create doubled_counts = [old_counts[i] * 2 | i in index_set(old_counts)];
 emit;
 ```
@@ -117,7 +117,7 @@ Continue with `counts.dzn`, whose original `counts` are still `[3, 5]`.
 Save this as `replace.zq` to add one to each count:
 
 ```zirql
-source old_counts = literal("counts");
+let old_counts = items | filter(name("counts")) | values | one;
 replace counts = [old_counts[i] + 1 | i in index_set(old_counts)];
 emit;
 ```
@@ -129,7 +129,8 @@ arrays or matrices. A replacement requires exactly one original assignment
 and changes only its right-hand side. If that expression contains comments, Zincite refuses the
 replacement rather than choosing where those comments should move.
 
-Every `source` and `let` reads the original input. In this example, replacing
+Input bindings and calculations may interleave. Every binding reads the
+original input. In this example, replacing
 `counts` does not recalculate `doubled_counts`: it remains `[6, 10]` unless
 you explicitly replace it too. Edits in one program do not read each other's
 results.

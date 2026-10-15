@@ -1,7 +1,7 @@
-source cells=literal("cells");
-source info=literal("info");
-source native=query("filter(name(\"cells\")) | count");
-report (id: lookup(info,"id") default 0,
+let cells=items | filter(name("cells")) | values | one;
+let info=items | filter(name("info")) | values | one;
+let native=items | filter(name("cells")) | count;
+(id: lookup(info,"id") default 0,
         omitted: absent(lookup(info,"missing")), stored: has_key(info,"stored"),
         missing: has_key(info,"missing"),
         stored_cell: has_key(cells,(1,2)), missing_cell: has_key(cells,(2,2)),

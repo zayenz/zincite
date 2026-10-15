@@ -347,7 +347,7 @@ Query programs declare required scalar inputs with `param name: int;`,
 `--param name=value` option in either command:
 
 ```sh
-zincite-query --param factor=2 --program 'param factor: int; source d = literal("demand"); report sum([n * factor | n in d]);' data.dzn
+zincite-query --param factor=2 --program 'param factor: int; let d = items | filter(name("demand")) | values | one; sum([n * factor | n in d]);' data.dzn
 zincite query --param factor=2 --program-file capacity-parameters.zq data.dzn
 ```
 
@@ -370,14 +370,15 @@ shared ASCII binding rules and cannot shadow reserved names or earlier visible
 bindings. A declaration becomes visible at its written position; forward
 references and shadowing it in a local comprehension fail at the name.
 
-Program query sources retain their original strings and source coordinates.
+Native pipeline stages retain their original program coordinates.
 Checked primitive arguments such as `name(selected)`, `head(limit + 1)`,
 `range(start, end)` and `transitive_references(depth)` use the existing MiniZinc
 expression subset and shared evaluator. String `kind`, `type`, `instantiation`
 and `source_kind` predicates also accept checked expressions. Native accepted
 names, nonnegative indices and range order are still checked. Known wrong
 types fail before a query executes, including empty or unchosen predicates.
-`source data = literal(field);` accepts a checked string assignment name.
+`items | filter(name(field)) | values | one` reads the one assignment selected
+by a checked string name.
 Positional pipelines have no parameter declarations and reject `--param`.
 
 Rust `Program::parameters()` exposes declaration metadata.
@@ -389,7 +390,7 @@ pairs or `ParameterInputs::Cli` raw strings alongside `ProgramLimits`:
 use zincite_query::{ConstructedValue, ParameterInputs, Program, ProgramLimits};
 
 let limits = ProgramLimits::default();
-let program = Program::parse("param factor:int; report factor;", limits)?;
+let program = Program::parse("param factor:int; factor;", limits)?;
 let result = program.evaluate_with_parameters(
     &input,
     ParameterInputs::Typed(&[("factor".to_owned(), ConstructedValue::Integer(2))]),
@@ -406,18 +407,18 @@ stdout empty and the input file unchanged.
 
 `Program::parse(source, ProgramLimits)` accepts ordered reports or one atomic
 data edit batch.
-One standalone native expression can end at EOF without `;`. Bindings, `report`
-statements, multiple statements and data edits keep their required terminators.
-A source binding is immutable and can refer only
-to earlier bindings. `query("pipeline")` uses the stages above; its string is
-parsed once and diagnostics retain the original program byte coordinates.
-A bare expression emits its result. `report expression;` emits JSON.
+The final expression emits its result and may end at EOF without `;`. Bindings
+and earlier statements require semicolons; data batches end with `emit;`.
+Use `let name = expression;` for immutable input values and calculations.
+Bindings can refer only to earlier bindings. Native pipelines use the stages
+above directly. A bare expression emits its result. `report expression;`
+explicitly emits JSON, including for intermediate native inspection results.
 
 ```zirql
-source selected = query("declarations");
-source n = selected | query("count");
-source histogram = selected | query("names | tally");
-report (count: n, histogram: histogram, selected: selected);
+let selected = declarations;
+let n = selected | count;
+let histogram = selected | names | tally;
+(count: n, histogram: histogram, selected: selected);
 ```
 
 Record fields use identifiers or nonempty single-quoted labels and preserve written order in the native
@@ -428,9 +429,11 @@ retain their original nodes or declaration/reference identities, file owners and
 ranges. A constructed record has no input-source range. These inspection leaves
 are not scalar comprehension values.
 
-`expression | query("pipeline")` runs against that expression's native result.
-`| emit` and `| json` are terminal emitters. Query-source strings can also end
-with their existing `emit` or `json` stage. An explicit emitter suppresses the
+`expression | names` runs a stage against that expression's native result.
+The explicit `query("pipeline")` adapter embeds a standalone query string as one
+native expression. It uses the standalone query grammar and maps diagnostics
+back to the written string; it is useful when embedding a saved quoted query.
+`| emit` and `| json` are terminal emitters. An explicit emitter suppresses the
 statement's implicit emission. Bindings and record fields cannot emit. Program
 parsing checks names, emitters and supported result transitions before execution.
 #### Typed query functions
@@ -446,7 +449,7 @@ ordinary query-expression spelling. The shared `if condition { value } else
 fn accumulate(n: int, total: int) -> int {
     if n = 0 then total else accumulate(n - 1, total + n) endif
 }
-report accumulate(1000, 0);
+accumulate(1000, 0);
 ```
 
 This reports the tagged integer `500500`. A compatible tail call reuses its
@@ -551,7 +554,7 @@ See the [declaration-path example](queries.md#explain-declaration-connections).
 Read-only programs also accept domain stages directly:
 
 ```zirql
-report subtree | declarations | unique | project(d, {
+subtree | declarations | unique | project(d, {
   "name": d | names | one,
   "uses": d | uses | count
 });
@@ -559,7 +562,7 @@ let matches = match {
   from d in (subtree | declarations | unique);
   from u in (d | uses);
 };
-report matches | project(m, {"name": m.d | names | one, "text": m.u | text | one});
+matches | project(m, {"name": m.d | names | one, "text": m.u | text | one});
 ```
 
 `project` returns a positional array of constructed records in native source
@@ -596,15 +599,16 @@ for inline and file commands.
 
 #### Values and report expressions
 
-`source name = literal("assignment");` reads a written literal assignment.
-`let` binds a calculated value. For input `weights = [3, 5];`, this program
-doubles each weight and keeps its original position:
+`items | filter(name("assignment")) | values | one` reads exactly one written
+literal RHS into a value. Missing or duplicate matches fail at `one`; computed
+RHSs retain their located refusal. The same `let` spelling binds calculated values. For input `weights = [3, 5];`,
+this program doubles each weight and keeps its original position:
 
 ```zirql
-source weights = literal("weights");
+let weights = items | filter(name("weights")) | values | one;
 let rows = [(index: i, doubled: weights[i] * 2)
   | i in index_set(weights)];
-report rows;
+rows;
 ```
 
 The rows contain `(index: 1, doubled: 6)` and `(index: 2, doubled: 10)`.
@@ -639,7 +643,7 @@ match. For example, `contains("Ångström", "ström")` is true,
 is true. Precomposed `é` does not contain decomposed `é`.
 
 ```sh
-zincite query --program 'source labels = query("items | names"); report [n | n in labels where starts_with(n, "work") /\ contains(n, "load")];' model.mzn
+zincite query --program 'let labels = items | names; [n | n in labels where starts_with(n, "work") /\ contains(n, "load")];' model.mzn
 ```
 
 The [saved string-matching program](../crates/zincite-query/tests/fixtures/string-matching.zq)
@@ -736,9 +740,13 @@ Direct `zip_exact` retains established empty axes. Pure `.dzn` reports retain an
 the semantic query's `.mzn` root path.
 
 Model calls remain unsupported. Data batches use `create` and `replace`, followed
-by one `emit;` (`emit_document;` remains a compatibility alias). Sources and
-immutable `let` bindings precede the edits and read the original input. Their
-expression calls are exactly `index_set` and `enum_member`. Report-only calls are refused in unused preceding lets,
+by one `emit;` (`emit_document;` remains an explicit document-emission spelling).
+Input bindings and calculations may interleave before the edits. Every binding
+reads the original input. Native data reads use the bounded selection, filtering
+and value-projection stages in the [data contract](query-comprehension-contract.md#report-expressions-and-edit-grammar), including shared `one`. Native
+report composition remains excluded.
+Data expression calls are exactly `index_set` and `enum_member`. Report-only
+calls are refused in unused preceding lets,
 skipped branches and edit RHSs. A batch cannot include report/query emissions or
 repeat a target name. Creation requires an absent assignment; replacement requires
 exactly one original assignment. Both require a unique fixed nonoptional model
@@ -773,8 +781,8 @@ the original input or model location. Incomplete semantic reports still carry
 For `demand = [2,3,4];`, both commands return the tagged integer `9`:
 
 ```sh
-zincite-query --program 'source d = literal("demand"); report sum(d);' data.dzn
-zincite query --program 'source d = literal("demand"); report sum(d);' data.dzn
+zincite-query --program 'let d = items | filter(name("demand")) | values | one; sum(d);' data.dzn
+zincite query --program 'let d = items | filter(name("demand")) | values | one; sum(d);' data.dzn
 ```
 
 Saving that exact source as `sum.zq` and using `--program-file sum.zq` produces

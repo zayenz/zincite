@@ -50,20 +50,22 @@ and result formats.
 Save this as `report.zq`:
 
 ```zirql
-source selected = query("filter(kind(\"constraint\"))");
-source n = selected | query("count");
-source histogram = selected | query("expressions | call_names | tally");
-report (count: n, histogram: histogram, selected: selected);
+let selected = filter(kind("constraint"));
+let n = selected | count;
+let histogram = selected | expressions | call_names | tally;
+(count: n, histogram: histogram, selected: selected);
 ```
 
 Run `zincite query -f report.zq model.mzn` or
 `zincite-query --program-file report.zq model.mzn`. The JSON envelope contains
 `complete`, `limitations` and a record with the native count, histogram and
 selection. The selected nodes keep their file, byte range and exact source text.
-No model facts are needed for this syntax report. Use `query("declarations")`
-in the source binding to select semantic declaration identities instead.
+No model facts are needed for this syntax report. Use `declarations`
+in the input binding to select semantic declaration identities instead.
 
-Statements run in order with immutable earlier bindings. Each starts from the
+Use `let` for input values and calculations, including native query pipelines.
+The final expression emits its result and may omit its semicolon; `report` is
+optional. Statements run in order with immutable earlier bindings. Each starts from the
 same input selection unless it names another native result. A later failure
 leaves stdout empty. [Query programs](reference.md#query-programs) describes
 emitters, the library result and aggregate limits.
@@ -83,7 +85,7 @@ Start by totalling a demand array. Create `data.dzn` with
 `demand = [2, 3, 4];` and run:
 
 ```sh
-zincite query --program 'source d = literal("demand"); report sum(d);' data.dzn
+zincite query --program 'let d = items | filter(name("demand")) | values | one; sum(d);' data.dzn
 ```
 
 The result contains the integer `9`. To reuse the query, save the text inside
@@ -100,8 +102,8 @@ capacity = [6, 8, 5];
 Save the following as `capacity.zq`. The factor is a local literal binding.
 
 ```zirql
-source demand = literal("demand");
-source capacity = literal("capacity");
+let demand = items | filter(name("demand")) | values | one;
+let capacity = items | filter(name("capacity")) | values | one;
 let factor = 2;
 let positive_factor = require(factor > 0, factor,
                               "factor must be positive");
@@ -125,7 +127,7 @@ let rows = [
 ];
 let total_demand = sum(scaled);
 let total_capacity = sum(aligned_capacity);
-report (
+(
   rows: rows,
   total_demand: total_demand,
   total_capacity: total_capacity,
@@ -170,10 +172,10 @@ after = [|4, 6 | 8, 10|];
 Save the query as `matrix-delta.zq`:
 
 ```zirql
-source a = literal("before");
-source b = literal("after");
+let a = items | filter(name("before")) | values | one;
+let b = items | filter(name("after")) | values | one;
 let pairs = zip_exact(a, b);
-report [e.key: e.value.2 - e.value.1 | e in entries(pairs)];
+[e.key: e.value.2 - e.value.1 | e in entries(pairs)];
 ```
 
 ```sh
@@ -211,8 +213,8 @@ jobs = [(machine: "b", demand: 3), (machine: "a", demand: 5),
 Save this as `machine-totals.zq`:
 
 ```zirql
-source rows = literal("jobs");
-report [
+let rows = items | filter(name("jobs")) | values | one;
+[
     (machine: g.key,
      count: length(g.items),
      total: sum([r.demand | r in g.items]))
@@ -284,7 +286,7 @@ To report a name and a use count for each declaration in `model.mzn`, save
 this as `use-counts.zq`:
 
 ```zirql
-report subtree | declarations | unique | project(d, {
+subtree | declarations | unique | project(d, {
     "name": d | names | one,
     "uses": d | uses | count
 });
@@ -306,7 +308,7 @@ let matches = match {
     from d in (subtree | declarations | unique);
     from u in (d | uses);
 };
-report matches | project(m, {
+matches | project(m, {
     "name": m.d | names | one,
     "text": m.u | text | one
 });
@@ -385,9 +387,9 @@ omits `info.missing` and cell `(2, 2)`; it is an inspection example, not a
 complete instance to pass to a solver. Save this as `optional-report.zq`:
 
 ```zirql
-source cells = literal("cells");
-source info = literal("info");
-report (
+let cells = items | filter(name("cells")) | values | one;
+let info = items | filter(name("info")) | values | one;
+(
     id: lookup(info, "id") default 0,
     stored_field: has_key(info, "stored"),
     missing_field: has_key(info, "missing"),
@@ -418,12 +420,12 @@ Continue with `jobs.dzn` from the machine-grouping example. To put the busiest
 machine first, save this as `rank-machines.zq`:
 
 ```zirql
-source jobs = literal("jobs");
+let jobs = items | filter(name("jobs")) | values | one;
 let totals = [
     (machine: g.key, demand: sum([job.demand | job in g.items]))
     | g in group_by(jobs, "machine")
 ];
-report (
+(
     ranked: sort_by(totals, "demand", descending=true),
     busiest: max_by(totals, "demand")
 );
@@ -463,7 +465,7 @@ fn count_calls(node: Node, target: string) -> int {
     here + sum([count_calls(child, target) | child in direct_children(node)])
 }
 let roots = items;
-report (sum_calls: sum([count_calls(root, "sum") | root in roots]));
+(sum_calls: sum([count_calls(root, "sum") | root in roots]));
 ```
 
 ```sh
@@ -504,7 +506,7 @@ let shortages = [
     (day: row.day, missing: shortage(row.required, row.available default 0))
     | row in days
 ];
-report sort_by(shortages, "missing", descending=true);
+sort_by(shortages, "missing", descending=true);
 ```
 
 This program supplies its own data. Run it with empty stdin:

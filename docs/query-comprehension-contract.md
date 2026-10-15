@@ -3,8 +3,9 @@
 `set_value("EXPRESSION")` inserts MiniZinc expression source into an existing
 assignment. `values` reads written literals, but does not evaluate a computed
 right-hand side. Neither operation constructs a new value from query results.
-Read-only [query programs](reference.md#query-programs) support immutable `source`
-and `let` bindings, required scalar parameters, ordered query statements, native
+Read-only [query programs](reference.md#query-programs) use immutable `let`
+bindings for input values and calculations.
+They support required scalar parameters, ordered query statements, native
 reports and the bounded expression/comprehension subset below. Zincite lowers its existing CST and uses
 Zirql for checked expressions, scopes, generators, array summaries, requirements
 and keyed helpers. Read-only programs also accept [typed query functions](reference.md#typed-query-functions) with explicit native inputs and bounded direct or mutual recursion.
@@ -18,7 +19,7 @@ arrays stay nested. Integer starting-key tails use checked successors; enum
 starting-key tails are refused. `index_set`
 returns established rank-one keys. `enum_member` resolves explicit declared
 members through a retained read-only model; use `--model` for `.dzn` programs.
-Source declarations may establish enum alignment and empty axes from written
+Input bindings may establish enum alignment and empty axes from written
 integer intervals or explicit enums. Bounded integer axis endpoints may read unique fixed integer literal assignments;
 computed dependency values and uncertain axes are refused.
 Native-only reports keep their existing untagged result; pure reports use the
@@ -54,8 +55,8 @@ returns native captures. Source, sink and declaration steps retain the model
 owner and original coordinates. The [path reference](reference.md#bounded-declaration-paths)
 defines shortest witnesses, edge bounds, Unknown refusal and incompleteness.
 Its traversal, native copies, field projection and rendering spend the same
-program budget. One standalone native expression can end at EOF without `;`;
-bindings, `report` statements, multiple statements and edits keep terminators.
+program budget. The final expression emits its result and may end at EOF without `;`.
+Bindings and earlier statements require terminators; edits end with `emit;`.
 
 These forms are excluded from data expressions and preceding edit lets. The
 closed MiniZinc data grammar, complete-candidate validation and atomic write
@@ -63,24 +64,40 @@ rules below continue to apply.
 
 ## Report expressions and edit grammar
 
-Read-only requests may interleave parameter/source declarations, immutable
-bindings and reports. Names become visible in statement order. A data request
-ends in one atomic edit batch and cannot include reports. Its sources must precede
-`let` bindings. The `query` string is an existing Zincite query pipeline;
-`literal` takes a checked string naming one existing assignment in the input
-`.dzn`. These are host statements, not expression calls. Host strings use the current query string
-escapes (`\"`, `\\`, `\n`, `\r`, `\t`); other escapes fail. Each visible source,
-parameter and `let` name must be unique.
-Parameters follow the [required input rules](reference.md#required-query-parameters).
+Read-only requests may interleave parameters, immutable bindings and output
+expressions. Names become visible in statement order. `let` binds both input
+values and calculations. For a data assignment `required = [2, 3, 4];`:
+
+```zirql
+let required = items | filter(name("required")) | values | one;
+sum(required)
+```
+
+`items` selects top-level input items, `filter` keeps the named assignment,
+`values` reads its literal RHS, and `one` extracts exactly one projected value.
+Zero or multiple matches fail. Written array keys and declared axes or nominal
+identities survive the conversion; use `--model` for declaration evidence in
+`.dzn` reports. Computed RHSs are refused. The final expression emits its result;
+its semicolon is optional. `report expression;` explicitly emits JSON, which is
+useful for intermediate native inspection results.
+
+A data request ends in one atomic edit batch and cannot include output
+expressions. Input reads and calculations may interleave before the batch;
+every read uses the original input. Native data reads admit `items`, `filter`,
+`head`, `range`, `values`, `names`, `count`, `unique`, `fields`, `elements` and
+`keys`, followed by shared `one` when exactly one projected value is needed.
+Semantic filters, `project`, `match` and paths remain report-only. Calculations
+and native predicate arguments retain the closed data-expression policy below;
+report-only calls are refused even in unused bindings or unchosen branches.
+Each visible binding and parameter name must be unique. Parameters follow the
+[required input rules](reference.md#required-query-parameters).
 
 ```ebnf
-request        = (parameter | source | binding | report)* report
-               | (parameter | source)* (parameter | binding)* edit-batch ;
+request        = (parameter | binding | output ";")* output [";"]
+               | (parameter | binding)* edit-batch ;
 parameter      = "param" ascii-ident ":" ("int" | "string" | "bool") ";" ;
-source         = "source" ident "=" ("query" "(" string ")"
-               | "literal" "(" expression ")") ";" ;
 binding        = "let" ident "=" expression ";" ;
-report         = "report" expression ";" ;
+output         = ["report"] expression ;
 edit-batch     = edit+ ("emit" | "emit_document") ";" ;
 edit           = ("create" | "replace") ident "=" expression ";" ;
 
@@ -118,8 +135,9 @@ An absent value cannot act as a filter; decision-dependent Booleans remain unsup
 scope and iteration rules follow the [specification's generator
 rules](https://docs.minizinc.dev/en/2.10.1/spec.html#set-comprehensions).
 
-`expression` is a MiniZinc 2.10.1 expression parsed by Zincite's existing CST,
-then checked against the following closed subset. Expressions may contain
+Calculated `expression` values use MiniZinc 2.10.1 syntax parsed by Zincite's
+existing CST, then checked against the following closed subset. Native input
+pipelines use the shared reader and the bounded read stages above. Expressions may contain
 signed integer, decimal float, Boolean, string and absent (`<>`)
 literals; bound names; parenthesized expressions; field access (`r.field`),
 tuple access (`t.1`), array access (`a[i]` or `a[i,j]`); finite integer ranges
@@ -398,13 +416,13 @@ Both reports are implemented. They use the current `names` projection as a
 source of strings; the keyed report preserves explicit positions.
 
 ```zirql
-source names = query("filter(kind(\"assignment\")) | names");
-report [(name: n, label: "data:" ++ n) | n in names];
+let names = filter(kind("assignment")) | names;
+[(name: n, label: "data:" ++ n) | n in names];
 ```
 
 ```zirql
-source names = query("filter(kind(\"assignment\")) | names");
-report [i: (name: names[i]) | i in index_set(names)];
+let names = filter(kind("assignment")) | names;
+[i: (name: names[i]) | i in index_set(names)];
 ```
 
 `query` converts a current `Strings` result to a positional array of strings,
@@ -420,13 +438,13 @@ For a `.dzn` containing `counts = [3, 5];`, with `counts` and
 these requests make different kinds of data edit:
 
 ```zirql
-source old_counts = literal("counts");
+let old_counts = items | filter(name("counts")) | values | one;
 create doubled_counts = [old_counts[i] * 2 | i in index_set(old_counts)];
 emit;
 ```
 
 ```zirql
-source old_counts = literal("counts");
+let old_counts = items | filter(name("counts")) | values | one;
 replace counts = [old_counts[i] + 1 | i in index_set(old_counts)];
 emit;
 ```
@@ -436,7 +454,7 @@ The first adds `doubled_counts = [6, 10];`; the second replaces `counts` with
 which only inserts expression text. `create` requires an absent assignment
 name and a unique compatible model declaration. `replace` requires exactly one
 existing assignment. Duplicate targets fail; a request cannot create and
-replace the same name. All sources and `let` bindings read the original input,
+replace the same name. All bindings read the original input,
 never a preceding edit in the same request. Creation appends a complete item
 after the last assignment, before trailing detached comments, using the input's
 line ending. An edit never changes model or include files. Without unique
@@ -447,7 +465,7 @@ An edit program constructs one atomic batch. It checks supported target types,
 written finite integer scalar domains and array shapes using read-only model
 declarations and the coherent candidate assignments after all edits. Thus the
 doubled example requires `entities` length 4, `groups` length 2 and
-`capacities` shape `4 × 2`, while source bindings still read the original
+`capacities` shape `4 × 2`, while input bindings still read the original
 `2`, `1` and `2 × 2` values. Resolve only supported literal scalar assignments
 and bounded declaration-axis expressions. A computed, ambiguous or unresolved
 axis dependency refuses the whole batch at its source range; this check does
@@ -489,13 +507,13 @@ groups = [{1, 2}];
 
 The request names the two maps. For copy `c` in `0..1`, an old entity `i`
 becomes `entity_map[i,c] = i + 2*c`, and an old group `g` becomes
-`group_map[g,c] = g + c`. Each source name binds an original literal value.
+`group_map[g,c] = g + c`. Each input name binds an original literal value.
 The five replacements form one candidate.
 
 ```zirql
-source old_entities = literal("entities");
-source old_capacities = literal("capacities");
-source old_groups = literal("groups");
+let old_entities = items | filter(name("entities")) | values | one;
+let old_capacities = items | filter(name("capacities")) | values | one;
+let old_groups = items | filter(name("groups")) | values | one;
 let entity_map = [(i,c): i + 2*c | i in 1..2, c in 0..1];
 let group_map = [(g,c): g + c | g in 1..1, c in 0..1];
 replace entity_count = 4;
@@ -563,7 +581,7 @@ absent or ambiguous member declaration refuses the mapping.
 
 ## Limits, diagnostics and implementation seam
 
-One shared budget covers query source bindings, `let` evaluation, generator
+One shared budget covers input reads, calculated bindings, generator
 candidates **before** filters, expression visits, nested values and keys,
 every copied byte, edit construction and final rendering. The recommended
 defaults reuse `Limits`: at most 64 nested expression/collection levels,

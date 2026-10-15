@@ -1,4 +1,4 @@
-report subtree | declarations | unique | project(d, {"name": d | names | one, "uses": d | uses | count});
+subtree | declarations | unique | project(d, {"name": d | names | one, "uses": d | uses | count});
 let matches = match { from d in (subtree | declarations | unique); from u in (d | uses); };
-report matches;
-report matches | project(m, {"name": m.d | names | one, "text": m.u | text | one});
+matches;
+matches | project(m, {"name": m.d | names | one, "text": m.u | text | one});

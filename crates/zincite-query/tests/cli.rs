@@ -437,7 +437,7 @@ fn semantic_cli_loads_only_requested_models_and_keeps_incomplete_and_error_statu
 fn program_files_report_native_results_and_buffer_later_failures() {
     let path =
         std::env::temp_dir().join(format!("zincite-query-program-{}.zq", std::process::id()));
-    std::fs::write(&path, r#"source selected = query(""); source n = selected | query("count"); source h = selected | query("names | tally"); report (count: n, histogram: h, selected: selected);"#).unwrap();
+    std::fs::write(&path, r#"let selected = query(""); let n = selected | query("count"); let h = selected | query("names | tally"); report (count: n, histogram: h, selected: selected);"#).unwrap();
     let output = run(
         &["--stdin-filepath", "data.dzn", "-f", path.to_str().unwrap()],
         b"a = 1; b = 2;",
@@ -486,9 +486,9 @@ fn positional_program_files_share_order_and_buffer_value_failures() {
     ));
     std::fs::write(
         &path,
-        r#"source labels = query("names");
-source numbers = literal("zeta");
-source n = query("count");
+        r#"let labels = query("names");
+let numbers = items | filter(name("zeta")) | values | one;
+let n = query("count");
 let rows = [(name: label, pair: (i,j), value: numbers[i] + k, total: n)
   | i,j in index_set(numbers), label in [labels[i]], k = i+(i,j).2,
     _ in 1..1 where j <= i];
@@ -565,7 +565,7 @@ fn keyed_program_files_keep_nominal_axes_and_buffer_later_errors() {
         "\u{feff}enum Guest={Zulu,Alpha}; array[2..3,Guest] of int: table; solve satisfy;",
     )
     .unwrap();
-    let report = r#"source table=literal("table"); let members={enum_member(Guest,"Alpha"),enum_member(Guest,"Zulu")};
+    let report = r#"let table=items | filter(name("table")) | values | one; let members={enum_member(Guest,"Alpha"),enum_member(Guest,"Zulu")};
         let cells=[(i,e):table[i,e] | i in 2..3,e in members];
         let pairs=zip_exact(cells,cells); report [e.key:e.value.1 | e in entries(pairs)];"#;
     std::fs::write(&program, report).unwrap();
@@ -631,7 +631,11 @@ fn keyed_program_files_keep_nominal_axes_and_buffer_later_errors() {
     assert_eq!(json["result"]["axes"][0], serde_json::json!([]));
     assert_eq!(json["result"]["axes"][1].as_array().unwrap().len(), 2);
     assert_eq!(json["result"]["entries"], serde_json::json!([]));
-    std::fs::write(&program, r#"source t=literal("table"); report t;"#).unwrap();
+    std::fs::write(
+        &program,
+        r#"let t=items | filter(name("table")) | values | one; report t;"#,
+    )
+    .unwrap();
     let output = run(
         &args,
         b"\xef\xbb\xbftable=[(2,Zulu):21,(3,Zulu):31,(2,Alpha):22];",
@@ -718,7 +722,7 @@ fn data_program_files_preview_diff_and_write_one_coherent_candidate() {
         include_bytes!("fixtures/doubled.mzn")
     );
     std::fs::write(&data, original).unwrap();
-    std::fs::write(&program,"param field:string; param value:int; source old=literal(field); replace group_count=value; emit;").unwrap();
+    std::fs::write(&program,"param field:string; param value:int; let old=items | filter(name(field)) | values | one; replace group_count=value; emit;").unwrap();
     let mut parameter_args = args.clone();
     parameter_args.extend(["--param", "field=group_count", "--param", "value=1"]);
     let parameter_preview = run(&parameter_args, b"");
@@ -746,6 +750,8 @@ fn data_program_files_preview_diff_and_write_one_coherent_candidate() {
         "replace entity_count=4; emit;",
         "replace entity_count=4; replace group_count=1 div 0; emit;",
         "replace entity_count=4; replace 'entity_count'=5; emit;",
+        r#"let n=2; let old=items | filter(name("missing")) | values | one; replace entity_count=n; emit;"#,
+        r#"let old=items | filter(name(if false then require(true,"entities","hidden") else "entities" endif)) | values | one; replace entity_count=2; emit;"#,
     ] {
         std::fs::write(&program, failing).unwrap();
         let output = run(&write_args, b"");
@@ -773,7 +779,8 @@ fn data_program_files_preview_diff_and_write_one_coherent_candidate() {
 fn inline_programs_share_file_library_results_and_buffer_errors() {
     use zincite_query::{Input, Program, ProgramLimits};
     use zincite_syntax::FileMode;
-    let source = r#"source d = literal("demand"); report sum(d);"#;
+    let source =
+        r#"let d = items | filter(name("demand")) | values | one; let total=sum(d); total"#;
     let input = "demand=[2,3,4]; capacity=[6,8,5];";
     let path = std::env::temp_dir().join(format!("zincite-query-inline-{}.zq", std::process::id()));
     std::fs::write(&path, source).unwrap();
@@ -1056,7 +1063,7 @@ fn native_composition_inline_and_file_keep_results_status_and_buffering() {
     assert_eq!(std::fs::read(&model_path).unwrap(), source);
     let incomplete = b"int: value = missing; solve satisfy;";
     std::fs::write(&model_path, incomplete).unwrap();
-    let known = r#"source unresolved = query("references | declarations | names | count"); report match { from d in (subtree | declarations | unique); };"#;
+    let known = r#"let unresolved = query("references | declarations | names | count"); report match { from d in (subtree | declarations | unique); };"#;
     for (program_source, expected_status) in [
         (known.to_owned(), 1),
         (format!("{known} report 1 div 0;"), 2),
@@ -1299,7 +1306,7 @@ fn optional_reports_agree_inline_file_and_keep_failed_edits_atomic() {
     let modes =
         [&data, &model, &included].map(|path| std::fs::metadata(path).unwrap().permissions());
     for request in [
-        r#"source info=literal("info"); replace target=2; replace cells=[1]; emit;"#,
+        r#"let info=items | filter(name("info")) | values | one; replace target=2; replace cells=[1]; emit;"#,
         "replace target=2; replace cells=[<>]; emit;",
         "let unused=7 default 9; replace target=2; emit;",
         "replace target=2; create invalid=(nested:<>); emit;",

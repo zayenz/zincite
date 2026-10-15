@@ -156,16 +156,15 @@ Inspecting the instance answers a different question. We want the days where
 the required staff exceeds the available staff, along with the size of each
 shortage.
 
-`source` introduces an immutable binding for a value read from the input.
-It is like `let`, rather than a mutable `var`: the name cannot be reassigned.
-Use `let` for a calculated value, such as `let total_required = sum(required);`.
+`let` introduces an immutable binding: the name cannot be reassigned. Use it
+for input values and calculations, such as `let total_required = sum(required);`.
 
 Save this query as `shortages.zq`:
 
 ```zirql
-source required = literal("required");
-source available = literal("available");
-report [
+let required = items | filter(name("required")) | values | one;
+let available = items | filter(name("available")) | values | one;
+[
     (day: d, missing: required[d] - available[d])
     | d in index_set(required)
     where required[d] > available[d]
@@ -178,21 +177,22 @@ Run it against the data file:
 zincite query --program-file shortages.zq staffing.dzn
 ```
 
-In the first line, `literal("required")` finds the assignment named `required`
-in `staffing.dzn` and reads its written value, `[2, 3, 4]`. The `source` statement
-binds that array to the query name `required`. The quoted name selects the data
-assignment; the name after `source` is how the rest of the query refers to its
-value. They can differ: `source demand = literal("required");` would bind the
-same array as `demand`.
+The first line starts with `items`, the top-level items in `staffing.dzn`.
+`filter(name("required"))` keeps the assignment named `required`, and `values`
+reads its written RHS. `one` requires exactly one match and extracts the array
+`[2, 3, 4]`. The `let` statement binds that array to the query name `required`.
+The name inside the predicate selects the assignment; the name after `let`
+is how the rest of the query refers to the value.
 
 The second line reads `available` in the same way. `required[d]` and
 `available[d]` then select the values for day `d`. The comprehension visits
 the indices in `required`, keeps days with a shortage, and constructs a record
 for each one. For these three-element arrays, the index set is `1..3`.
-`literal` reads values written in the data file; it does not evaluate a
+`values` reads literals written in the data file; it does not evaluate a
 MiniZinc expression such as `required = [n * 2 | n in 1..3];`.
 
-The command prints a JSON report with `complete: true`, an empty `limitations`
+The final array expression emits a JSON report; it does not need `report`.
+The command prints the report with `complete: true`, an empty `limitations`
 list and one result row. The row's values are:
 
 | Day | Missing staff |

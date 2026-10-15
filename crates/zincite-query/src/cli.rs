@@ -14,6 +14,10 @@ use crate::{ErrorLocation, Input, Limits, Query, QueryError, QueryResult};
 const HELP: &str = "Usage: zincite-query [--stdin-filepath PATH] [--model PATH] [-I DIR] [--stdlib-dir DIR] [--diff|--write] QUERY [FILE|-]
 
 Use --program TEXT or -f PROGRAM [FILE|-] for bindings, reports or data batches.
+Use let for inputs and calculations; all reads use the original input.
+    --program 'let required=items | filter(name(\"required\")) | values | one; sum(required)' data.dzn
+The final expression emits its result, with an optional final semicolon.
+Bindings require semicolons; report explicitly requests an intermediate result.
 Native report example:
     --program 'report subtree | declarations | unique | project(d, {\"name\": d | names | one, \"uses\": d | uses | count});' model.mzn
 Native match: match { from d in (subtree | declarations | unique); from u in (d | uses); }

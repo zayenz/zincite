@@ -1,6 +1,6 @@
-source old_entities = literal("entities");
-source old_capacities = literal("capacities");
-source old_groups = literal("groups");
+let old_entities = items | filter(name("entities")) | values | one;
+let old_capacities = items | filter(name("capacities")) | values | one;
+let old_groups = items | filter(name("groups")) | values | one;
 let entity_map = [(i,c): i + 2*c | i in 1..2, c in 0..1];
 let group_map = [(g,c): g + c | g in 1..1, c in 0..1];
 replace entity_count = 4;

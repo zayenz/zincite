@@ -789,10 +789,14 @@ data interpretation; use the existing `-I`/`--stdlib-dir` include rules when a
 query requires semantic context. Syntax queries require no library installation.
 Model/include files supply facts and are never implicit transformation targets.
 Read-only query programs accept -f/--program-file and immutable `let` bindings for
-input values and calculations, with `source` retained as a compatibility spelling
-for existing input bindings. The right-hand expression determines the input role;
-edit requests keep input bindings before calculated bindings, and all reads use
-the original input. Programs retain ordered query/report statements and native or
+input values and calculations. Use one binding keyword; `source` is not retained.
+Read named assignment values through native selection/projection pipelines, such
+as `items | filter(name("required")) | values | one`, rather than teaching a
+`literal("required")` lookup wrapper. Bindings follow ordinary statement-order
+scope and all reads use the original input; no separate input-before-calculation
+phase is needed. A final bare expression emits its result and may omit its final
+semicolon; bindings and earlier statements retain terminators. `report` is not
+required. Programs retain ordered statements and native or
 constructed reports. Literal sources read
 one original assignment; query sources use supported native projections. Zincite lowers
 its MiniZinc CST into Zirql for checked scalar expressions, scopes and generators. Pure

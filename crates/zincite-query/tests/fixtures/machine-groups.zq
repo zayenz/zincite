@@ -1,4 +1,4 @@
-source rows = literal("jobs");
-report [(machine: g.key, count: length(g.items),
+let rows = items | filter(name("jobs")) | values | one;
+[(machine: g.key, count: length(g.items),
          total: sum([r.demand | r in g.items]))
         | g in group_by(rows, "machine")];

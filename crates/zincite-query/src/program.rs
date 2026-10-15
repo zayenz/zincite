@@ -21,7 +21,6 @@ enum Stage {
     Parameter(usize),
     FunctionValue(zirql::ValueExpression<Expression>),
     FunctionSource(zirql::ValueExpression<Expression>),
-    FunctionLiteral(zirql::ValueExpression<Expression>),
     Primitive(
         functions::Primitive,
         Vec<zirql::ValueExpression<Expression>>,
@@ -32,11 +31,6 @@ enum Stage {
     Match(composition::MatchStage),
     Paths(composition::PathStage),
     Data(Vec<data::Edit>),
-    Literal(Located<String>),
-    LiteralValue {
-        expression: comprehension::LoweredValue,
-        names: Vec<Located<String>>,
-    },
     Value {
         expression: comprehension::LoweredValue,
         names: Vec<Located<String>>,
@@ -384,6 +378,7 @@ pub struct Program {
     function_limits: zirql::FunctionLimits,
     report_model_demand: bool,
     editing: bool,
+    prepared_values: bool,
 }
 impl Program {
     /// Parse immutable bindings, reports, or one terminal data edit batch.
@@ -416,6 +411,7 @@ impl Program {
             preflight_range: None,
             first_report_call: None,
             composition_error: None,
+            prepared_values: false,
             lexed: zincite_syntax::lex(source),
         };
         parser.collect_functions()?;
@@ -424,9 +420,7 @@ impl Program {
         let mut edits = Vec::new();
         let mut target_names = std::collections::BTreeSet::new();
         let mut output_seen = false;
-        let mut let_seen = false;
-        let mut late_source = None;
-        let mut invalid_source = None;
+        let mut invalid_input = None;
         let mut invalid_binding = None;
         let mut document_seen = false;
         parser.cursor.space();
@@ -459,9 +453,7 @@ impl Program {
                 if parser.names.contains_key(&declaration.name.value)
                     || matches!(
                         declaration.name.value.as_str(),
-                        "source"
-                            | "let"
-                            | "literal"
+                        "let"
                             | "report"
                             | "query"
                             | "json"
@@ -604,22 +596,14 @@ impl Program {
             if !edits.is_empty() {
                 return Err(parser.cursor.error("an edit batch must end with emit"));
             }
-            let is_source = parser.cursor.take_word("source");
-            let is_let = !is_source && parser.cursor.take_word("let");
-            if is_source && let_seen {
-                late_source = Some(start..parser.cursor.position);
-            }
-            let_seen |= is_let;
-            let binding = if is_source || is_let {
+            let binding = if parser.cursor.take_word("let") {
                 let (name, range) = parser.identifier("expected a binding name")?;
                 if !parser.minizinc_identifier(&range) {
                     invalid_binding = Some(range.clone());
                 }
                 if matches!(
                     name,
-                    "source"
-                        | "let"
-                        | "literal"
+                    "let"
                         | "report"
                         | "query"
                         | "json"
@@ -646,132 +630,35 @@ impl Program {
             let report = binding.is_none() && parser.cursor.take_word("report");
             parser.cursor.space();
             let expression_start = parser.cursor.position;
-            let compact_native = statements.is_empty()
-                && binding.is_none()
-                && !report
-                && parser.composition_syntax(expression_start..source.len());
             let expression_end = match parser.expression_end() {
                 Ok(end) => end,
-                Err(_) if compact_native => source.len(),
+                Err(_) if binding.is_none() => source.len(),
                 Err(error) => return Err(error),
             };
-            if is_source
-                && !source[expression_start..expression_end]
-                    .trim_start()
-                    .starts_with("query")
-                && !source[expression_start..expression_end]
-                    .trim_start()
-                    .starts_with("literal")
+            let (expression, kind, emits) = if parser
+                .composition_syntax(expression_start..expression_end)
             {
-                invalid_source = Some(expression_start..expression_end);
-            }
-            let (expression, kind, emits) = if is_source && parser.cursor.take_word("literal") {
-                parser.begin_pure(expression_start..expression_end)?;
-                parser.report_model_demand = true;
-                parser
-                    .cursor
-                    .punctuation(b'(', "expected '(' after literal")?;
-                parser.cursor.space();
-                let argument_start = parser.cursor.position;
-                let literal_name = if parser.cursor.current() == Some(b'"') {
-                    let (name, range) = parser.cursor.string()?;
-                    parser
-                        .preflight
-                        .charge(name.len() + 1, zirql::Location::Query(range.clone()))
-                        .map_err(pipeline::core_error)?;
-                    parser.cursor.space();
-                    if parser.cursor.current() == Some(b')')
-                        && parser.cursor.position + 1 == expression_end
-                    {
-                        Some((name, range))
-                    } else {
-                        parser.cursor.position = argument_start;
-                        None
-                    }
-                } else {
-                    None
-                };
-                if let Some((name, range)) = literal_name {
-                    parser
-                        .cursor
-                        .punctuation(b')', "expected ')' after literal name")?;
-                    parser.cursor.space();
-                    if parser.cursor.position != expression_end {
-                        return Err(parser.cursor.error("expected one literal source wrapper"));
-                    }
-                    (
-                        value_stage(
-                            Stage::Literal(Located::new(name, range)),
-                            expression_start..expression_end,
-                        ),
-                        Kind::Constructed,
-                        false,
-                    )
-                } else {
-                    let wrapper = &source[argument_start..expression_end];
-                    let closing = expression_end - (wrapper.len() - wrapper.trim_end().len()) - 1;
-                    if source.as_bytes().get(closing) != Some(&b')') {
-                        return Err(parser.cursor.error("expected one literal source wrapper"));
-                    }
-                    let argument_range = argument_start..closing;
-                    if !parser.functions.is_empty() {
-                        let expression = parser.lower_function_value(argument_range)?;
-                        parser.cursor.position = expression_end;
-                        (
-                            value_stage(
-                                Stage::FunctionLiteral(expression),
-                                expression_start..expression_end,
-                            ),
-                            Kind::Constructed,
-                            false,
-                        )
-                    } else {
-                        let (expression, names) = parser.pure_value(
-                            argument_range.clone(),
-                            comprehension::ExpressionPolicy::Report,
-                        )?;
-                        parser.value_names(
-                            &expression,
-                            &argument_range,
-                            Some(zirql::ParameterType::String),
-                        )?;
-                        if parser.first_report_call.is_none() {
-                            parser.first_report_call = expression.first_report_call.clone();
-                        }
-                        parser.cursor.position = expression_end;
-                        (
-                            value_stage(
-                                Stage::LiteralValue { expression, names },
-                                expression_start..expression_end,
-                            ),
-                            Kind::Constructed,
-                            false,
-                        )
-                    }
+                let parsed = parser.composition_expression(expression_start..expression_end)?;
+                if !parser.data_input(&parsed.0) {
+                    invalid_input = Some(expression_start..expression_end);
                 }
-            } else if parser.composition_syntax(expression_start..expression_end) {
-                if parser.first_report_call.is_none() {
-                    parser.first_report_call = Some(expression_start..expression_end);
+                parsed
+            } else if parser.native_syntax(expression_start..expression_end, binding.is_some()) {
+                let parsed = parser.expression(0, Kind::Nodes)?;
+                if !parser.data_input(&parsed.0) {
+                    invalid_input = Some(expression_start..expression_end);
                 }
-                parser.composition_expression(expression_start..expression_end)?
-            } else if !is_let && parser.native_syntax(expression_start..expression_end) {
-                parser.expression(0, Kind::Nodes)?
+                parsed
             } else {
-                if is_source {
-                    return Err(QueryError::query(
-                        expression_start..expression_end,
-                        "source requires query(...) or literal(...)",
-                    ));
-                }
                 parser.pure_expression(expression_start..expression_end)?
             };
             if binding.is_some() && emits {
                 return Err(QueryError::query(
                     expression.range.clone(),
-                    "a source binding cannot emit",
+                    "a binding cannot emit",
                 ));
             }
-            if !(compact_native && parser.cursor.position == source.len()) {
+            if !(binding.is_none() && parser.cursor.position == source.len()) {
                 parser
                     .cursor
                     .punctuation(b';', "expected ';' after program statement")?;
@@ -820,16 +707,10 @@ impl Program {
                     "expected a MiniZinc identifier or quoted identifier",
                 ));
             }
-            if let Some(range) = late_source {
+            if let Some(range) = invalid_input {
                 return Err(QueryError::query(
                     range,
-                    "sources must precede let bindings in an edit request",
-                ));
-            }
-            if let Some(range) = invalid_source {
-                return Err(QueryError::query(
-                    range,
-                    "an edit source requires query(...) or literal(...)",
+                    "report-only native expression is unavailable in data programs",
                 ));
             }
         }
@@ -850,6 +731,7 @@ impl Program {
             function_limits: zirql::FunctionLimits { active_depth: 64 },
             report_model_demand: parser.report_model_demand || document_seen,
             editing: document_seen,
+            prepared_values: parser.prepared_values,
             preflight_work: limits
                 .work
                 .checked_sub(parser.preflight.remaining_work())
@@ -1024,7 +906,7 @@ impl Program {
         };
 
         let function_host = composition::CompositionHost(&host);
-        let session = if self.functions.is_empty() {
+        let session = if self.functions.is_empty() && !self.prepared_values {
             None
         } else {
             Some(functions::Session::new(
@@ -1147,6 +1029,7 @@ struct Parser<'a> {
     lexed: zincite_syntax::LexedSource,
     first_report_call: Option<Range<usize>>,
     composition_error: Option<QueryError>,
+    prepared_values: bool,
 }
 struct CstTypes;
 impl<Q> zirql::ValueQueryHost<Q> for CstTypes {
@@ -1389,7 +1272,7 @@ impl<'a> Parser<'a> {
     fn admit_cst(&mut self, range: &Range<usize>) -> Result<(), QueryError> {
         admit_cst(&self.lexed, range, &mut self.preflight, self.limits.nesting)
     }
-    fn native_syntax(&self, range: Range<usize>) -> bool {
+    fn native_syntax(&self, range: Range<usize>, require_query: bool) -> bool {
         let tokens = self.lexed.tokens();
         let first = tokens.partition_point(|t| t.range.start < range.start);
         let last = tokens.partition_point(|t| t.range.end <= range.end);
@@ -1398,8 +1281,10 @@ impl<'a> Parser<'a> {
             source: self.cursor.source,
             names: &self.names,
             position: 0,
+            query_seen: false,
         };
-        syntax.expression(0) && syntax.current().is_none()
+        // Keep ordinary let records and binding reads in the constructed grammar.
+        syntax.expression(0) && syntax.current().is_none() && (!require_query || syntax.query_seen)
     }
     fn minizinc_identifier(&self, range: &Range<usize>) -> bool {
         let i = self
@@ -1755,13 +1640,14 @@ fn value_stage(stage: Stage, range: Range<usize>) -> Expression {
     )
 }
 
-// Recognize only the complete legacy grammar, before its authoritative parser
+// Recognize complete wrapped native query expressions before their parser
 // performs name/type/purity validation. This never mutates the query table.
 struct NativeSyntax<'a> {
     tokens: &'a [zincite_syntax::Token],
     source: &'a str,
     names: &'a BTreeMap<String, Kind>,
     position: usize,
+    query_seen: bool,
 }
 impl NativeSyntax<'_> {
     fn current(&mut self) -> Option<zincite_syntax::TokenKind> {
@@ -1794,6 +1680,7 @@ impl NativeSyntax<'_> {
             return false;
         }
         self.position += 1;
+        self.query_seen = true;
         self.take(T::LeftParen) && self.take(T::StringLiteral) && self.take(T::RightParen)
     }
     fn expression(&mut self, depth: usize) -> bool {
@@ -2539,13 +2426,6 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
                     .run(expression, bindings, &value, context, budget)
                     .map_err(zirql::EvaluationError::Host);
             }
-            Stage::FunctionLiteral(_) => {
-                return Err(zirql::QueryError::query(
-                    range.clone(),
-                    "function literal argument requires its active runner",
-                )
-                .into());
-            }
             Stage::Primitive(_, _) => {
                 return Err(zirql::QueryError::query(
                     range.clone(),
@@ -2605,58 +2485,6 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
                     bindings,
                     budget,
                 );
-            }
-            Stage::LiteralValue { expression, names } => {
-                let value = self.constructed(
-                    expression,
-                    names,
-                    context,
-                    bindings,
-                    budget,
-                    &expression.expression.range,
-                )?;
-                let zirql::ConstructedValue::String(name) = value.into_data() else {
-                    return Err(zirql::EvaluationError::Host(QueryError::query(
-                        expression.expression.range.clone(),
-                        "literal source argument needs a string",
-                    )));
-                };
-                let facts = context
-                    .report_facts(budget, &expression.expression.range)
-                    .map_err(zirql::EvaluationError::Host)?;
-                let literal = comprehension::literal_source(
-                    context.input,
-                    &name,
-                    facts.as_deref(),
-                    budget,
-                    &expression.expression.range,
-                    self.limits,
-                )
-                .map_err(zirql::EvaluationError::Host)?;
-                if self.editing {
-                    comprehension::validate_data_shape(&literal, budget, range)
-                        .map_err(zirql::EvaluationError::Host)?;
-                }
-                return Ok(ReportValue::Constructed(literal));
-            }
-            Stage::Literal(name) => {
-                let facts = context
-                    .report_facts(budget, &name.range)
-                    .map_err(zirql::EvaluationError::Host)?;
-                let literal = comprehension::literal_source(
-                    context.input,
-                    &name.value,
-                    facts.as_deref(),
-                    budget,
-                    &name.range,
-                    self.limits,
-                )
-                .map_err(zirql::EvaluationError::Host)?;
-                if self.editing {
-                    comprehension::validate_data_shape(&literal, budget, range)
-                        .map_err(zirql::EvaluationError::Host)?;
-                }
-                return Ok(ReportValue::Constructed(literal));
             }
             Stage::Value { expression, names } => {
                 return self

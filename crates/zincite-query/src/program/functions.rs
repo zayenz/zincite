@@ -422,6 +422,7 @@ impl<'r, 'a> Session<'r, 'a> {
                         continue;
                     };
                     kind = match stage {
+                        Stage::Data(_) => kind,
                         Stage::FunctionValue(value) | Stage::FunctionSource(value) => {
                             self.prepare_value(value, kind, scope, budget)?
                         }
@@ -611,10 +612,7 @@ impl<'a> zirql::FunctionHost<Context<'_, 'a>> for composition::CompositionHost<'
     fn is_operation_name(&self, name: &str) -> bool {
         composition::domain_stage(name)
             || Primitive::named(name).is_some()
-            || matches!(
-                name,
-                "source" | "literal" | "create" | "replace" | "fn" | "enum_member"
-            )
+            || matches!(name, "source" | "create" | "replace" | "fn" | "enum_member")
     }
 }
 impl<'a> zirql::RuntimeTypeHost<Context<'_, 'a>> for composition::CompositionHost<'_, '_> {
