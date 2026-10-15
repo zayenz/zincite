@@ -172,6 +172,9 @@ single unchanged root, comparing default with thesis/all, is the concrete next
 performance check. These timings alone do not identify a hot function or
 justify caching, parallelism or a semantic rewrite.
 
+The follow-up [java-routing profile](java-routing-profile.md) measures the shared
+callable-definition cost with selected-rule comparisons and native CPU stacks.
+
 Completeness also needs separate attention. Pool retains unsupported max/domain
 and structured-projection facts; Sudoku retains a partial-expression limit;
 ATSP's all selection retains vacuous-constraint and suspicious-domain limits.

@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-139"
 key = "java-routing-profile"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -27,13 +27,22 @@ scripts/lint-performance-current.md at d2934e8 measured Challenge 2021 java-rout
 
 ## Done when
 
-- [ ] A fresh matched release baseline for default, thesis and all has up to three repetitions per selection, with exact revision/build, input/include setup, commands, elapsed times, diagnostics and selected-rule outcomes. Reuse the original MiniZinc precheck only if its inputs/configuration still match; otherwise perform one bounded model-only check.
-- [ ] Bounded selected-rule comparisons and existing phase/allocation probes distinguish loading/signature preparation, demanded semantic analysis and diagnostic rendering where measurable. Test the search-coverage hypothesis against measured alternatives rather than assuming it.
-- [ ] CPU samples or an explicitly documented bounded fallback identify the dominant functions/call path and explain the near-nine-second observation as far as the evidence supports. Separate profiler overhead, timing differences, allocation traffic, RSS and Limited outcomes; leave unresolved attribution explicit.
-- [ ] The report gives a concrete next-step recommendation with its affected consumer/contract and confidence, or explains why the bounded evidence is insufficient. Originals, dependencies and production source remain unchanged; raw captures and temporary probes stay untracked.
+- [x] A fresh matched release baseline for default, thesis and all has up to three repetitions per selection, with exact revision/build, input/include setup, commands, elapsed times, diagnostics and selected-rule outcomes. Reuse the original MiniZinc precheck only if its inputs/configuration still match; otherwise perform one bounded model-only check.
+- [x] Bounded selected-rule comparisons and existing phase/allocation probes distinguish loading/signature preparation, demanded semantic analysis and diagnostic rendering where measurable. Test the search-coverage hypothesis against measured alternatives rather than assuming it.
+- [x] CPU samples or an explicitly documented bounded fallback identify the dominant functions/call path and explain the near-nine-second observation as far as the evidence supports. Separate profiler overhead, timing differences, allocation traffic, RSS and Limited outcomes; leave unresolved attribution explicit.
+- [x] The report gives a concrete next-step recommendation with its affected consumer/contract and confidence, or explains why the bounded evidence is insufficient. Originals, dependencies and production source remain unchanged; raw captures and temporary probes stay untracked.
 
 ## Validation
 
 - Run serially in a quiet window; retain process deadlines/reap receipts and a single budget ledger. Validate reported quantities and comparisons against complete raw captures and actual profiler stacks.
 - Check unchanged input/binary identity and the diagnostic/completeness effect of changing selected rules. No new tests or full Rust validation are required for a report-only deliverable; independently review the report and evidence.
 - Run zdev check base --format json after managed record changes.
+
+## Result
+
+Profiled unchanged java-routing within the fixed budget; shared callable-definition demand accounts for about 6.9 seconds. Report recommends one bounded invariant-range lookup follow-up; no optimization or semantic change made.
+
+Validation:
+
+- Independent report/evidence review PASS against unchanged snapshot W4c47395fae8c76ec; zdev check and diff checks passed.
+- 18 target launches plus one model-only precheck, 125.855887 process-seconds, two CPU samples, no cutoffs; all children reaped and input/binary identities unchanged.
