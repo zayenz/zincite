@@ -18,7 +18,7 @@
 //! Options merge defaults, the selected personal preset, then root overrides.
 //! All definitions are validated, including disabled rules and unused presets.
 
-use crate::rules::expand_selectors;
+use crate::rules::{expand_selectors, preset_rules};
 use crate::{FixOptions, LintOptions, Rule, RuleFamily};
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
@@ -259,7 +259,7 @@ impl LintSettings {
 fn check_preset_name(name: &str) -> Result<(), String> {
     if name.is_empty()
         || name.contains(':')
-        || ["default", "thesis", "all"].contains(&name)
+        || preset_rules(name).is_some()
         || Rule::from_id(name).is_some()
         || RuleFamily::from_name(name).is_some()
     {

@@ -129,6 +129,45 @@ fn lint_selection_and_settings_keep_standalone_behavior() {
     let settings = String::from_utf8(shown.stdout).unwrap();
     assert!(settings.contains(&format!("Root: {}\n", path.display())));
     assert!(settings.contains("Rules: missing-constraint-label\n"));
+
+    std::fs::write(&config, "[lint]\nselect=['preset:review']\nignore=['naming']\n[lint.presets.review]\nselect=['preset:conventions','family:correctness']\n").unwrap();
+    let base = [
+        "lint",
+        "--config",
+        config.to_str().unwrap(),
+        "--show-settings",
+    ];
+    let shown = run(&base, "invalid input");
+    assert!(shown.status.success() && shown.stderr.is_empty());
+    assert!(
+        String::from_utf8(shown.stdout)
+            .unwrap()
+            .contains("Rules: missing-constraint-label,array-index-start,index-set-mismatch\n")
+    );
+    let selected = run(
+        &[
+            base[0],
+            base[1],
+            base[2],
+            base[3],
+            "--rules",
+            "preset:arrays,hidden-optionality",
+        ],
+        "invalid input",
+    );
+    assert!(selected.status.success() && selected.stderr.is_empty());
+    assert!(
+        String::from_utf8(selected.stdout)
+            .unwrap()
+            .contains("Rules: index-set-mismatch,hidden-optionality,prefer-array-comprehension\n")
+    );
+    let listed = run(&["lint", "--list-rules"], "invalid input");
+    assert!(listed.status.success() && listed.stderr.is_empty());
+    assert!(
+        String::from_utf8(listed.stdout)
+            .unwrap()
+            .contains("unused-generator-binding\tsuspicious\tavailable\tsometimes\tscope,all")
+    );
     std::fs::remove_dir_all(directory).unwrap();
 }
 

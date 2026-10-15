@@ -155,14 +155,16 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     assert!(list.status.success() && list.stderr.is_empty());
     let list = String::from_utf8(list.stdout).unwrap();
     assert_eq!(list.lines().count(), 29);
-    assert!(list.contains("naming\tstyle\tavailable\tnone\tdefault"));
-    assert!(list.contains("search-coverage\tmodelling\tavailable\tnone\tthesis"));
-    assert!(list.contains("index-set-mismatch\tcorrectness\tavailable\tnone\topt-in"));
-    assert!(list.contains("hidden-optionality\tsuspicious\tavailable\tnone\topt-in"));
-    assert!(list.contains("partial-expression\tsuspicious\tavailable\tnone\topt-in"));
-    assert!(list.contains("vacuous-constraint\tsuspicious\tavailable\tnone\topt-in"));
-    assert!(list.contains("global-constraint-opportunity\tmodelling\tavailable\tnone\topt-in"));
-    assert!(list.contains("prefer-enum\tstyle\tavailable\tnone\topt-in"));
+    assert!(list.contains("naming\tstyle\tavailable\tnone\tdefault,conventions,all"));
+    assert!(list.contains("search-coverage\tmodelling\tavailable\tnone\tthesis,search,all"));
+    assert!(list.contains("index-set-mismatch\tcorrectness\tavailable\tnone\tarrays,all"));
+    assert!(list.contains("hidden-optionality\tsuspicious\tavailable\tnone\tarrays,all"));
+    assert!(list.contains("partial-expression\tsuspicious\tavailable\tnone\tdomains,all"));
+    assert!(list.contains("vacuous-constraint\tsuspicious\tavailable\tnone\tformulation,all"));
+    assert!(
+        list.contains("global-constraint-opportunity\tmodelling\tavailable\tnone\tformulation,all")
+    );
+    assert!(list.contains("prefer-enum\tstyle\tavailable\tnone\tformulation,all"));
     let advisory = run(&["--explain", "prefer-enum"], "invalid");
     assert!(advisory.status.success() && advisory.stderr.is_empty());
     let advisory = String::from_utf8(advisory.stdout).unwrap();
@@ -177,6 +179,7 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     let explanation = String::from_utf8(explanation.stdout).unwrap();
     for expected in [
         "Family: modelling",
+        "Presets: thesis,formulation,all",
         "Availability: available",
         "Requires model context: yes",
         "Required facts:",
@@ -1343,6 +1346,51 @@ fn invalid_configuration_preflights_all_roots_and_empty_input_directories() {
 }
 
 #[test]
+fn semantic_presets_work_in_cli_selection_and_personal_configuration() {
+    let dir = std::env::temp_dir().join(format!("zincite-semantic-presets-{}", std::process::id()));
+    std::fs::create_dir(&dir).unwrap();
+    let config = dir.join("zincite.toml");
+    std::fs::write(&config, "[lint]\nselect=['preset:review']\nignore=['naming']\n[lint.presets.review]\nselect=['preset:conventions','family:correctness']\n").unwrap();
+    let base = ["--config", config.to_str().unwrap(), "--show-settings"];
+    let shown = run(&base, "invalid input");
+    assert!(shown.status.success() && shown.stderr.is_empty());
+    assert!(
+        String::from_utf8(shown.stdout)
+            .unwrap()
+            .contains("Rules: missing-constraint-label,array-index-start,index-set-mismatch\n")
+    );
+    let selected = run(
+        &[
+            base[0],
+            base[1],
+            base[2],
+            "--rules",
+            "preset:arrays,hidden-optionality",
+        ],
+        "invalid input",
+    );
+    assert!(selected.status.success() && selected.stderr.is_empty());
+    assert!(
+        String::from_utf8(selected.stdout)
+            .unwrap()
+            .contains("Rules: index-set-mismatch,hidden-optionality,prefer-array-comprehension\n")
+    );
+    let help = String::from_utf8(run(&["--help"], "").stdout).unwrap();
+    for group in [
+        "conventions",
+        "scope",
+        "arrays",
+        "domains",
+        "formulation",
+        "flattening",
+        "search",
+    ] {
+        assert!(help.contains(group), "{help}");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn personal_settings_inspect_effective_options_and_keep_cli_replacement_read_only() {
     let dir = std::env::temp_dir().join(format!("zincite-personal-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -2186,7 +2234,7 @@ fn expensive_comprehension_threshold_selection_and_source_are_explicit() {
     assert!(
         String::from_utf8(list.stdout)
             .unwrap()
-            .contains("expensive-comprehension\tperformance\tavailable\tnone\topt-in")
+            .contains("expensive-comprehension\tperformance\tavailable\tnone\tflattening,all")
     );
     assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
     std::fs::remove_dir_all(dir).unwrap();
@@ -2311,7 +2359,7 @@ fn callable_input_contract_selection_locations_and_suppression_are_read_only() {
     assert!(
         String::from_utf8(list.stdout)
             .unwrap()
-            .contains("missing-input-precondition\tmodelling\tavailable\tnone\topt-in")
+            .contains("missing-input-precondition\tmodelling\tavailable\tnone\tdomains,all")
     );
     for selection in ["default", "thesis"] {
         let output = run(
@@ -2406,7 +2454,7 @@ fn domain_contract_selection_locations_limits_and_suppression_preserve_source() 
     assert!(
         String::from_utf8(list.stdout)
             .unwrap()
-            .contains("suspicious-domain\tsuspicious\tavailable\tnone\topt-in")
+            .contains("suspicious-domain\tsuspicious\tavailable\tnone\tdomains,all")
     );
     let unknown = dir.join("unknown.mzn");
     std::fs::write(&unknown, "int:N; var 0..1:unknown=N; solve satisfy;").unwrap();
@@ -2690,7 +2738,7 @@ fn semantic_fixes_preview_apply_once_and_respect_selection_suppression_and_roots
     assert_eq!(std::fs::read_to_string(&root).unwrap(), suppressed);
     let list = String::from_utf8(run(&["--list-rules"], "").stdout).unwrap();
     assert!(list.contains("element-predicate\tmodelling\tavailable\tsometimes\tthesis"));
-    assert!(list.contains("unused-generator-binding\tsuspicious\tavailable\tsometimes\topt-in"));
+    assert!(list.contains("unused-generator-binding\tsuspicious\tavailable\tsometimes\tscope,all"));
     std::fs::remove_dir_all(dir).unwrap();
 }
 

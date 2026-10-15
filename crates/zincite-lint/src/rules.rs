@@ -403,6 +403,94 @@ impl Rule {
     }
 }
 
+// Semantic concerns are presets, independent of each rule's primary family.
+const SEMANTIC_PRESETS: &[(&str, &[Rule])] = &[
+    (
+        "conventions",
+        &[
+            Rule::Naming,
+            Rule::MissingConstraintLabel,
+            Rule::ArrayIndexStart,
+        ],
+    ),
+    (
+        "scope",
+        &[
+            Rule::SuspiciousShadowing,
+            Rule::UnusedDeclaration,
+            Rule::UnusedGeneratorBinding,
+            Rule::GlobalVariableInFunction,
+        ],
+    ),
+    (
+        "arrays",
+        &[
+            Rule::IndexSetMismatch,
+            Rule::HiddenOptionality,
+            Rule::PreferArrayComprehension,
+        ],
+    ),
+    (
+        "domains",
+        &[
+            Rule::UnboundedVariable,
+            Rule::SuspiciousDomain,
+            Rule::PartialExpression,
+            Rule::MissingInputPrecondition,
+        ],
+    ),
+    (
+        "formulation",
+        &[
+            Rule::ConstantVariable,
+            Rule::CompactIf,
+            Rule::EffectiveZeroOne,
+            Rule::ElementPredicate,
+            Rule::GlobalConstraintOpportunity,
+            Rule::PreferEnum,
+            Rule::VacuousConstraint,
+        ],
+    ),
+    (
+        "flattening",
+        &[
+            Rule::ExpensiveComprehension,
+            Rule::DecisionVariableOperator,
+            Rule::DecisionVariableGenerator,
+            Rule::DecisionVariableCondition,
+            Rule::ReifiedGlobal,
+        ],
+    ),
+    (
+        "search",
+        &[Rule::SearchCoverage, Rule::UnmarkedSymmetryBreaking],
+    ),
+];
+
+pub(crate) fn preset_rules(name: &str) -> Option<Vec<Rule>> {
+    match name {
+        "default" => Some(Rule::DEFAULT.to_vec()),
+        "thesis" => Some(Rule::THESIS.to_vec()),
+        "all" => Some(Rule::all().collect()),
+        _ => SEMANTIC_PRESETS
+            .iter()
+            .find(|(preset, _)| *preset == name)
+            .map(|(_, rules)| rules.to_vec()),
+    }
+}
+
+pub(crate) fn preset_memberships(rule: Rule) -> Vec<&'static str> {
+    [
+        ("default", Rule::DEFAULT.as_slice()),
+        ("thesis", Rule::THESIS.as_slice()),
+    ]
+    .into_iter()
+    .chain(SEMANTIC_PRESETS.iter().copied())
+    .filter_map(|(name, rules)| rules.contains(&rule).then_some(name))
+    .chain(["all"])
+    .collect()
+}
+
 /// Selected rules. The default includes syntax rules and bounded model-backed style advice.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LintOptions {
@@ -424,7 +512,7 @@ impl LintOptions {
         self.rules.iter().any(|rule| rule.requires_model())
     }
 
-    /// Expand comma-separated IDs, `family:NAME`, `preset:default|thesis|all`
+    /// Expand comma-separated IDs, `family:NAME`, built-in `preset:NAME`
     /// and the legacy `default`/`thesis`/`all` selectors. First occurrence wins.
     /// Availability is checked separately before execution.
     pub fn from_selection(selection: &str) -> Result<Self, String> {
@@ -468,12 +556,7 @@ pub(crate) fn expand_selectors<'a>(
                 .collect()
         } else {
             let name = selector.strip_prefix("preset:").unwrap_or(selector);
-            let preset = match name {
-                "default" => Some(Rule::DEFAULT.to_vec()),
-                "thesis" => Some(Rule::THESIS.to_vec()),
-                "all" => Some(Rule::all().collect()),
-                _ => None,
-            };
+            let preset = preset_rules(name);
             let exact = Rule::from_id(selector);
             match (preset, exact) {
                 (Some(_), Some(_)) => {

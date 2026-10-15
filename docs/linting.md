@@ -6,11 +6,12 @@ MiniZinc 2.10.1 model and data syntax. Syntax support does not establish complet
 semantic validity, model feasibility or solver performance.
 
 ```sh
-cargo build --release -p zincite-lint
+cargo build --release -p zincite -p zincite-lint
 ./target/release/zincite-lint model.mzn
 ./target/release/zincite-lint --list-rules
 ./target/release/zincite-lint --explain hidden-optionality
-./target/release/zincite-lint --rules family:suspicious,partial-expression model.mzn
+./target/release/zincite-lint --rules preset:arrays,preset:domains model.mzn
+./target/release/zincite lint --rules preset:scope model.mzn
 ```
 
 The default selects `naming`, `missing-constraint-label` and `prefer-array-comprehension`. `thesis` keeps its
@@ -18,6 +19,25 @@ fourteen original rules; `all` selects all 28 currently available rules. IDs,
 `family:NAME` and `preset:NAME` can be combined with commas. Expansion keeps the
 first occurrence of each ID. `default`, `thesis` and `all` remain accepted legacy
 selectors. `--list-rules` gives family, availability, fix support and membership.
+
+Choose a semantic preset for a MiniZinc concern. These seven groups cover all
+28 rules. Each row lists its rules in expansion order.
+
+| Preset | Rules |
+| --- | --- |
+| `conventions` | `naming`, `missing-constraint-label`, `array-index-start` |
+| `scope` | `suspicious-shadowing`, `unused-declaration`, `unused-generator-binding`, `global-variable-in-function` |
+| `arrays` | `index-set-mismatch`, `hidden-optionality`, `prefer-array-comprehension` |
+| `domains` | `unbounded-variable`, `suspicious-domain`, `partial-expression`, `missing-input-precondition` |
+| `formulation` | `constant-variable`, `compact-if`, `effective-zero-one`, `element-predicate`, `global-constraint-opportunity`, `prefer-enum`, `vacuous-constraint` |
+| `flattening` | `expensive-comprehension`, `decision-variable-operator`, `decision-variable-generator`, `decision-variable-condition`, `reified-global` |
+| `search` | `search-coverage`, `unmarked-symmetry-breaking` |
+
+Use `preset:NAME` in `--rules` or settings. Combine groups with families and
+individual IDs, for example `preset:arrays,family:suspicious,partial-expression`.
+The `thesis` preset still contains exactly its original fourteen rules across
+these groups. `--list-rules` and `--explain RULE` show every built-in preset a
+rule belongs to, including `default`, `thesis` and `all` where applicable.
 
 Families are `correctness`, `suspicious`, `modelling`, `performance` and `style`.
 Selection does not change severity. Symbolic Cartesian advice from
@@ -47,7 +67,7 @@ Use a family to select a kind of concern, then inspect individual rules with
 | --- | --- |
 | `correctness` | Is a supported source relationship inconsistent, such as an index-set mismatch? |
 | `suspicious` | Does the code contain a likely unintended construct, such as shadowing or hidden optionality? |
-| `modelling` | Is there a modelling concern, such as an unused binding or missing input precondition? |
+| `modelling` | Is there a modelling concern, such as a missing input precondition or search coverage? |
 | `performance` | Does supported structure suggest expensive work? This does not estimate runtime or promise a speedup. |
 | `style` | Does the code depart from naming or layout-related modelling conventions? |
 
@@ -96,7 +116,7 @@ fixable = ["unused-generator-binding", "element-predicate"]
 unfixable = ["element-predicate"]
 
 [lint.presets.review]
-select = ["family:suspicious", "family:performance"]
+select = ["family:suspicious", "preset:flattening"]
 ignore = ["decision-variable-operator"]
 
 [lint.presets.review.options.expensive-comprehension]
@@ -111,7 +131,9 @@ ignore-names = ["i", "j"]
 
 Absent `select` uses default; `select = []` selects none. Zincite expands the
 selection, extends it, then removes ignored IDs. Personal presets are flat and
-cannot include another personal preset. Options merge defaults, the selected
+cannot include another personal preset. Built-in preset names, rule IDs and
+family names are reserved; a personal preset with one of those names is a
+configuration error. Options merge defaults, the selected
 personal preset, then root overrides. `max-candidates` must be a positive integer
 and defaults to 1,000,000; threshold advice requires a known upper bound strictly
 above it. Symbolic structure advice does not establish a threshold exceedance. `ignore-names` contains exact binding names and defaults to empty.
@@ -132,7 +154,7 @@ and `unfixable` restrict edits independently of diagnostics; exclusions win.
 | `partial-expression` | suspicious | Proved failed nonzero/index/nonempty/presence obligations or demonstrated incompatible candidate indices. Unknown-only requirements stay quiet; guards, assertions, defaults and nearest Boolean context retain their distinct meanings. |
 | `suspicious-shadowing` | suspicious | A binding concealing a visible enclosing value binding, with exact exceptions. Disjoint scopes and ambiguous identity do not supply a guessed rename. |
 | `vacuous-constraint` | suspicious | Proved empty quantifiers, rejecting filters, tautological constraints and contradictory conditions. Optional present counts and upstream partiality/assertion abort remain explicit; no model-feasibility or removal advice. |
-| `unused-generator-binding` | modelling | A membership name unused throughout its valid scope. Evaluation, multiplicity and later-generator/filter/annotation uses remain relevant; only supported comprehension forms can be fixed. |
+| `unused-generator-binding` | suspicious | A membership name unused throughout its valid scope. Evaluation, multiplicity and later-generator/filter/annotation uses remain relevant; only supported comprehension forms can be fixed. |
 | `global-constraint-opportunity` | modelling | Complete pairwise disequality or matching whole-array occurrence bounds with actual coverage, types and totality. Advice names `all_different` or open four-argument `global_cardinality`; no speedup or automatic edit. |
 | `expensive-comprehension` | performance | Known candidate upper bounds and symbolic ordered dimensions. Earlier-prefix advice additionally needs retained guards, raw totality, nonempty crossed domains and safe evaluation. No runtime estimate, hoisting fix or count invented from symbolic data. |
 | `missing-input-precondition` | modelling | Supported general callable-body operations requiring matching array dimensions/membership, nonempty present values, nonzero division/modulus or positive integer-input logarithms. Defaults/global assumptions do not validate formal inputs; opaque meaning stays unsupported. |

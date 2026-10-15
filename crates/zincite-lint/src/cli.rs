@@ -1,4 +1,5 @@
 use crate::analysis::write_root_analysis;
+use crate::rules::preset_memberships;
 use crate::settings::LintSettings;
 use crate::{
     AnalysisResult, FixOptions, LintOptions, ModelOptions, PreparedFixes, Rule, SourceSnapshot,
@@ -24,6 +25,9 @@ Overlapping inputs use the first path to each file.
 --rules accepts comma-separated IDs, family:NAME, preset:NAME,
 or legacy default/thesis/all. Expansion preserves first occurrence and removes duplicates.
 Families are correctness, suspicious, modelling, performance and style.
+Built-in presets are default, thesis, all, conventions, scope, arrays, domains,
+formulation, flattening and search. Semantic groups do not change primary families.
+Personal preset names cannot match built-in presets, rule IDs or family names.
 Unknown/empty selectors and repeated --rules are errors.
 
 Each root uses its nearest ancestor zincite.toml; ancestor files are not merged.
@@ -410,7 +414,7 @@ fn inspect_rules(arguments: &[std::ffi::OsString]) -> Result<u8, String> {
 }
 
 fn write_rule_list(output: &mut impl Write) -> io::Result<()> {
-    writeln!(output, "ID\tFamily\tAvailability\tFixes\tPreset\tPurpose")?;
+    writeln!(output, "ID\tFamily\tAvailability\tFixes\tPresets\tPurpose")?;
     for rule in Rule::all() {
         let metadata = rule.metadata();
         writeln!(
@@ -424,13 +428,7 @@ fn write_rule_list(output: &mut impl Write) -> io::Result<()> {
                 "unavailable"
             },
             metadata.fix_support.as_str(),
-            if Rule::DEFAULT.contains(&rule) {
-                "default"
-            } else if Rule::THESIS.contains(&rule) {
-                "thesis"
-            } else {
-                "opt-in"
-            },
+            preset_memberships(rule).join(","),
             metadata.purpose,
         )?;
     }
@@ -454,17 +452,7 @@ fn write_rule_explanation(rule: Rule, output: &mut impl Write) -> io::Result<()>
             "unavailable"
         }
     )?;
-    writeln!(
-        output,
-        "Preset: {}",
-        if Rule::DEFAULT.contains(&rule) {
-            "default"
-        } else if Rule::THESIS.contains(&rule) {
-            "thesis"
-        } else {
-            "opt-in"
-        }
-    )?;
+    writeln!(output, "Presets: {}", preset_memberships(rule).join(","))?;
     writeln!(
         output,
         "Requires model context: {}",

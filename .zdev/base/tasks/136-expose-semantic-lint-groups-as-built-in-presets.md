@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-136"
 key = "semantic-lint-presets"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -25,13 +25,21 @@ The current28-rule catalogue has primary families and default/thesis/all presets
 
 ## Done when
 
-- [ ] Each named preset expands deterministically through preset:NAME in CLI and configuration; all28 current rules are represented.
-- [ ] Existing family selectors, personal presets, exclusions and explicit IDs retain their contracts; built-in/personal name conflicts get a clear error rather than shadowing.
-- [ ] Keep thesis membership unchanged and expose group memberships through rule listing/help and user documentation.
-- [ ] Correct the docs classification of unused-generator-binding to match its actual suspicious family.
+- [x] Each named preset expands deterministically through preset:NAME in CLI and configuration; all28 current rules are represented.
+- [x] Existing family selectors, personal presets, exclusions and explicit IDs retain their contracts; built-in/personal name conflicts get a clear error rather than shadowing.
+- [x] Keep thesis membership unchanged and expose group memberships through rule listing/help and user documentation.
+- [x] Correct the docs classification of unused-generator-binding to match its actual suspicious family.
 
 ## Validation
 
 - Use one focused catalogue/selection control for exact group mapping, deduplication/exclusion and built-in/personal collision, with a representative configuration and both CLI forms.
 - Run the brief's required Rust validation for code changes; use existing focused controls and only the few behavior checks specified here.
 - Run zdev check base --format json for changed records.
+
+## Result
+
+Added seven semantic lint presets through shared library, settings and CLI selectors with complete group listing and collision validation.
+
+Validation:
+
+- Independent review passed. Integrated workspace rustfmt, Clippy with warnings denied and all 458 tests passed; exact catalogue and configuration/CLI controls passed.

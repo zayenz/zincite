@@ -563,6 +563,129 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
 }
 
 #[test]
+fn semantic_presets_cover_the_catalogue_and_keep_selection_contracts() {
+    use zincite_lint::{LintOptions, settings::LintSettings};
+    let groups: &[(&str, &[&str])] = &[
+        (
+            "conventions",
+            &["naming", "missing-constraint-label", "array-index-start"],
+        ),
+        (
+            "scope",
+            &[
+                "suspicious-shadowing",
+                "unused-declaration",
+                "unused-generator-binding",
+                "global-variable-in-function",
+            ],
+        ),
+        (
+            "arrays",
+            &[
+                "index-set-mismatch",
+                "hidden-optionality",
+                "prefer-array-comprehension",
+            ],
+        ),
+        (
+            "domains",
+            &[
+                "unbounded-variable",
+                "suspicious-domain",
+                "partial-expression",
+                "missing-input-precondition",
+            ],
+        ),
+        (
+            "formulation",
+            &[
+                "constant-variable",
+                "compact-if",
+                "effective-zero-one",
+                "element-predicate",
+                "global-constraint-opportunity",
+                "prefer-enum",
+                "vacuous-constraint",
+            ],
+        ),
+        (
+            "flattening",
+            &[
+                "expensive-comprehension",
+                "decision-variable-operator",
+                "decision-variable-generator",
+                "decision-variable-condition",
+                "reified-global",
+            ],
+        ),
+        ("search", &["search-coverage", "unmarked-symmetry-breaking"]),
+    ];
+    let mut covered = Vec::new();
+    for (name, expected) in groups {
+        let selection = format!("preset:{name}");
+        let rules = LintOptions::from_selection(&selection).unwrap().rules;
+        assert_eq!(
+            rules.iter().map(|rule| rule.id()).collect::<Vec<_>>(),
+            *expected
+        );
+        assert_eq!(
+            LintOptions::from_selection(&format!("{selection},{},{selection}", expected[0]))
+                .unwrap()
+                .rules,
+            rules
+        );
+        covered.extend(rules);
+        let error =
+            LintSettings::from_toml(&format!("[lint.presets.{name}]\nselect=[]")).unwrap_err();
+        assert!(
+            error.contains(&format!("lint.presets.{name}: reserved")),
+            "{error}"
+        );
+    }
+    let mut catalogue: Vec<_> = Rule::all().map(Rule::id).collect();
+    let mut covered: Vec<_> = covered.into_iter().map(Rule::id).collect();
+    catalogue.sort_unstable();
+    covered.sort_unstable();
+    assert_eq!(covered, catalogue);
+    assert_eq!(covered.len(), 28);
+
+    let settings = LintSettings::from_toml(
+        r#"
+        [lint]
+        select = ["preset:review"]
+        extend-select = ["naming", "preset:search"]
+        ignore = ["naming", "preset:search"]
+        fixable = ["preset:scope", "preset:arrays"]
+        unfixable = ["unused-generator-binding"]
+        [lint.presets.review]
+        select = ["preset:arrays", "family:correctness", "hidden-optionality"]
+        extend-select = ["preset:conventions"]
+        ignore = ["index-set-mismatch"]
+    "#,
+    )
+    .unwrap();
+    assert_eq!(
+        settings.resolve().unwrap().rules,
+        [
+            Rule::HiddenOptionality,
+            Rule::PreferArrayComprehension,
+            Rule::MissingConstraintLabel,
+            Rule::ArrayIndexStart,
+        ]
+    );
+    let fixes = settings.resolve_fixes().unwrap();
+    assert!(fixes.fixable.contains(&Rule::PreferArrayComprehension));
+    assert!(fixes.unfixable.contains(&Rule::UnusedGeneratorBinding));
+    assert_eq!(
+        settings
+            .resolve_selection(&["preset:search".into()])
+            .unwrap()
+            .rules,
+        [Rule::SearchCoverage, Rule::UnmarkedSymmetryBreaking]
+    );
+}
+
+#[test]
 fn personal_presets_merge_typed_options_and_reject_ambiguous_or_invalid_settings() {
     use zincite_lint::settings::{LintSettings, RuleOptions};
     let settings = LintSettings::from_toml(
