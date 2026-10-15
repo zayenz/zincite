@@ -135,6 +135,23 @@ original input. In this example, replacing
 you explicitly replace it too. Edits in one program do not read each other's
 results.
 
+Starting with `counts = [3, 5];` and `doubled_counts = [6, 10];`, this batch reads
+`doubled_counts` after calculating a new value for `counts`. It still reads
+`[6, 10]` from the original data file:
+
+```zirql
+let old_counts = items | filter(name("counts")) | values | one;
+let next_counts = [old_counts[i] + 1 | i in index_set(old_counts)];
+let old_doubled = items | filter(name("doubled_counts")) | values | one;
+replace counts = next_counts;
+replace doubled_counts = [old_doubled[i] + 1 | i in index_set(old_doubled)];
+emit;
+```
+
+The candidate contains `counts = [4, 6];` and `doubled_counts = [7, 11];`.
+The final `emit;` prepares the data candidate. A read-only program's implicit
+expression output does not replace that explicit edit step.
+
 Zincite checks target types, known scalar domains and array coverage against
 the final set of edits. Conflicting targets, arithmetic errors or dependencies
 it cannot resolve stop the whole batch without a partial write. A changed

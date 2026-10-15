@@ -33,7 +33,7 @@ does not imply that the constructor can evaluate an expression.
 
 ## Native report composition
 
-Reports may use direct domain stages and the shared `project(subject, {fields})`
+Reports may use direct native pipeline stages and the shared `project(subject, {fields})`
 and `match { from ...; bind ...; where ...; }` forms described in the
 [query reference](reference.md#native-projections-and-captures). Their quoted
 projection fields use the shared value reader and explicit native scalar
@@ -77,9 +77,13 @@ sum(required)
 `values` reads its literal RHS, and `one` extracts exactly one projected value.
 Zero or multiple matches fail. Written array keys and declared axes or nominal
 identities survive the conversion; use `--model` for declaration evidence in
-`.dzn` reports. Computed RHSs are refused. The final expression emits its result;
-its semicolon is optional. `report expression;` explicitly emits JSON, which is
-useful for intermediate native inspection results.
+`.dzn` reports. Computed RHSs are refused.
+
+Expressions outside bindings emit their results. Native selections keep source
+output and native counts print as numbers; calculated values and records produce
+JSON. The final expression's semicolon is optional. `report expression;`
+explicitly emits JSON for a native result, including intermediate inspection
+results. Use `let` for an intermediate calculation that should not print.
 
 A data request ends in one atomic edit batch and cannot include output
 expressions. Input reads and calculations may interleave before the batch;
@@ -417,18 +421,20 @@ source of strings; the keyed report preserves explicit positions.
 
 ```zirql
 let names = filter(kind("assignment")) | names;
-[(name: n, label: "data:" ++ n) | n in names];
+[(name: n, label: "data:" ++ n) | n in names]
 ```
 
 ```zirql
 let names = filter(kind("assignment")) | names;
-[i: (name: names[i]) | i in index_set(names)];
+[i: (name: names[i]) | i in index_set(names)]
 ```
 
-`query` converts a current `Strings` result to a positional array of strings,
-`Count` to an integer, and `Literals` to a positional array of source-backed
-literal values. `literal` returns the one named RHS value. Item,
-node and semantic selections need an explicit, typed projection before use;
+Native input pipelines project a `Strings` result to a positional array of
+strings, `Count` to an integer, and `Literals` to a positional array of
+source-backed literal values. For one named RHS, use
+`items | filter(name("counts")) | values | one`; `one` checks the projection's
+cardinality and extracts the value. Item, node and semantic selections need an
+explicit, typed projection before use in a calculated expression;
 an ambiguous native result, `Tally`, `Json`, `Document` or `Reduction` is refused. Report
 construction over semantic results carries their completion status. A queried
 name is a string; it never becomes an enum member or record label by spelling.

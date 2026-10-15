@@ -29,15 +29,22 @@ Choose one way to supply the query:
 | Form | Example |
 | --- | --- |
 | Positional pipeline | `zincite query 'filter(kind("constraint")) | count' model.mzn` |
-| Inline program | `zincite query --program 'report 2 + 3;' model.mzn` |
+| Inline program | `zincite query --program '2 + 3' model.mzn` |
 | Program file | `zincite query --program-file report.zq model.mzn` |
 
 `-f` is short for `--program-file`. These forms cannot be combined in one
 invocation. Query diagnostics go to stderr and identify the query location;
 errors in an input file retain that file's path and range.
 
-Programs support bindings, reports and explicit data edits. A data edit
-program requires `.dzn` input and `--model` for target declarations. Read-only
+Programs use `let` for input reads and calculations. A standalone expression
+emits its result; its final semicolon is optional. Native selections print
+source, while calculated values and records produce JSON. `report expression`
+explicitly requests JSON for a native result. For example, `--program 'count'`
+prints a number, while `--program 'report count'` wraps it in the JSON report
+with completeness and limitation fields.
+
+A data edit program requires `.dzn` input, `--model` for target declarations and
+an explicit final `emit;`. Read-only
 programs reject `--diff` and `--write`. See the [query guide](queries.md) for
 reports and the [data-edit guide](data-edits.md) for transformations.
 

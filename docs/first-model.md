@@ -156,9 +156,6 @@ Inspecting the instance answers a different question. We want the days where
 the required staff exceeds the available staff, along with the size of each
 shortage.
 
-`let` introduces an immutable binding: the name cannot be reassigned. Use it
-for input values and calculations, such as `let total_required = sum(required);`.
-
 Save this query as `shortages.zq`:
 
 ```zirql
@@ -168,7 +165,7 @@ let available = items | filter(name("available")) | values | one;
     (day: d, missing: required[d] - available[d])
     | d in index_set(required)
     where required[d] > available[d]
-];
+]
 ```
 
 Run it against the data file:
@@ -182,7 +179,9 @@ The first line starts with `items`, the top-level items in `staffing.dzn`.
 reads its written RHS. `one` requires exactly one match and extracts the array
 `[2, 3, 4]`. The `let` statement binds that array to the query name `required`.
 The name inside the predicate selects the assignment; the name after `let`
-is how the rest of the query refers to the value.
+is how the rest of the query refers to the value. `let` binds both input values
+and calculations, and a bound name cannot be reassigned. For example,
+`let total_required = sum(required);` would calculate the demand total.
 
 The second line reads `available` in the same way. `required[d]` and
 `available[d]` then select the values for day `d`. The comprehension visits
@@ -191,7 +190,8 @@ for each one. For these three-element arrays, the index set is `1..3`.
 `values` reads literals written in the data file; it does not evaluate a
 MiniZinc expression such as `required = [n * 2 | n in 1..3];`.
 
-The final array expression emits a JSON report; it does not need `report`.
+The two bindings end with semicolons. The final array expression emits a JSON
+report and can end without a semicolon.
 The command prints the report with `complete: true`, an empty `limitations`
 list and one result row. The row's values are:
 
@@ -213,6 +213,8 @@ restrictions, such as qualifications or weekly hours.
 This query assumes the arrays have the same index set, as they do in the
 example. The [demand and capacity report](queries.md#compare-demand-and-capacity)
 adds an explicit alignment check and compares totals with individual positions.
+The [input-pipeline explanation](queries.md#read-a-named-assignment) also shows
+how to interleave reads and calculations, and what `one` checks.
 
 ## Further reading
 

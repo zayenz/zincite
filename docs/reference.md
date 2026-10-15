@@ -405,20 +405,27 @@ stdout empty and the input file unchanged.
 
 ### Query programs
 
-`Program::parse(source, ProgramLimits)` accepts ordered reports or one atomic
-data edit batch.
-The final expression emits its result and may end at EOF without `;`. Bindings
-and earlier statements require semicolons; data batches end with `emit;`.
-Use `let name = expression;` for immutable input values and calculations.
-Bindings can refer only to earlier bindings. Native pipelines use the stages
-above directly. A bare expression emits its result. `report expression;`
-explicitly emits JSON, including for intermediate native inspection results.
+`Program::parse(source, ProgramLimits)` accepts ordered read-only statements or
+one atomic data edit batch. Use `let name = expression;` for immutable input
+values and calculations, including native pipelines. A name becomes visible
+after its binding, and names cannot be reassigned. Input reads and calculations
+can interleave; every input read uses the original document.
+
+An expression outside a binding emits its result. Native selections retain
+source output, counts print numbers and calculated values or records produce
+JSON. `report expression;` explicitly selects JSON for a native result. It is
+useful when an intermediate selection should be inspected as structured data.
+All standalone expressions emit, including earlier expressions in a program;
+use `let` to retain an intermediate result without printing it.
+
+Bindings and earlier statements require semicolons. The final expression may
+end at EOF without one. Data edit batches require the explicit final `emit;`.
 
 ```zirql
 let selected = declarations;
 let n = selected | count;
 let histogram = selected | names | tally;
-(count: n, histogram: histogram, selected: selected);
+(count: n, histogram: histogram, selected: selected)
 ```
 
 Record fields use identifiers or nonempty single-quoted labels and preserve written order in the native
@@ -449,7 +456,7 @@ ordinary query-expression spelling. The shared `if condition { value } else
 fn accumulate(n: int, total: int) -> int {
     if n = 0 then total else accumulate(n - 1, total + n) endif
 }
-accumulate(1000, 0);
+accumulate(1000, 0)
 ```
 
 This reports the tagged integer `500500`. A compatible tail call reuses its
@@ -562,7 +569,7 @@ let matches = match {
   from d in (subtree | declarations | unique);
   from u in (d | uses);
 };
-matches | project(m, {"name": m.d | names | one, "text": m.u | text | one});
+matches | project(m, {"name": m.d | names | one, "text": m.u | text | one})
 ```
 
 `project` returns a positional array of constructed records in native source
@@ -600,15 +607,18 @@ for inline and file commands.
 #### Values and report expressions
 
 `items | filter(name("assignment")) | values | one` reads exactly one written
-literal RHS into a value. Missing or duplicate matches fail at `one`; computed
-RHSs retain their located refusal. The same `let` spelling binds calculated values. For input `weights = [3, 5];`,
+literal RHS into a value. `values` projects a sequence of literal values;
+`one` requires exactly one projected value and extracts it. An array RHS is
+one value regardless of its element count. Missing or duplicate matches fail at
+`one`; computed RHSs retain their located refusal. The same `let` spelling binds
+calculated values. For input `weights = [3, 5];`,
 this program doubles each weight and keeps its original position:
 
 ```zirql
 let weights = items | filter(name("weights")) | values | one;
 let rows = [(index: i, doubled: weights[i] * 2)
   | i in index_set(weights)];
-rows;
+rows
 ```
 
 The rows contain `(index: 1, doubled: 6)` and `(index: 2, doubled: 10)`.
@@ -713,14 +723,17 @@ including preceding unused lets and skipped edit branches. See
 [matrix comparison](queries.md#compare-keyed-matrix-cells) for short inline and
 file reports with an explicit per-cell delta.
 
-`query` sources project `Strings`, `Count` and `Literals` into pure values.
-Selections need an explicit `names`, `count` or `values` query projection.
-`literal` requires one original assignment and a supported written RHS; computed
-values and unresolved members fail at their original input ranges. Native
-report expressions retain their existing result shape. `let` always constructs
-pure data: `let r = (count: n); report r;` produces a tagged record. A bare native
-binding or a record containing only native leaves uses the complete native
-grammar and its existing validation. Pure reports use the tagged
+Native string, count and literal projections can supply calculated values.
+`items | names` provides a positional array of strings, `items | count` a count,
+and `items | values` a positional array of literal RHS values. Add `| one` to
+extract exactly one value from a projection. Native node and semantic selections
+retain their identities; use an explicit projection before passing them to a
+scalar operation or comprehension.
+
+A `let` binding can retain a native result or hold calculated data. Constructing
+a record in a binding, as in `let r = (count: n); r`, produces a tagged record.
+A directly emitted record containing only native inspection leaves retains the
+native record format. Pure reports use the tagged
 [constructed-value schema](query-comprehension-contract.md#constructed-shape-and-result),
 including explicit `1..n` axes and keys for positional arrays. Generated values
 have no input-source ranges.
@@ -781,8 +794,8 @@ the original input or model location. Incomplete semantic reports still carry
 For `demand = [2,3,4];`, both commands return the tagged integer `9`:
 
 ```sh
-zincite-query --program 'let d = items | filter(name("demand")) | values | one; sum(d);' data.dzn
-zincite query --program 'let d = items | filter(name("demand")) | values | one; sum(d);' data.dzn
+zincite-query --program 'let d = items | filter(name("demand")) | values | one; sum(d)' data.dzn
+zincite query --program 'let d = items | filter(name("demand")) | values | one; sum(d)' data.dzn
 ```
 
 Saving that exact source as `sum.zq` and using `--program-file sum.zq` produces

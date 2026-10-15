@@ -50,10 +50,10 @@ and result formats.
 Save this as `report.zq`:
 
 ```zirql
-let selected = filter(kind("constraint"));
+let selected = items | filter(kind("constraint"));
 let n = selected | count;
 let histogram = selected | expressions | call_names | tally;
-(count: n, histogram: histogram, selected: selected);
+(count: n, histogram: histogram, selected: selected)
 ```
 
 Run `zincite query -f report.zq model.mzn` or
@@ -63,12 +63,20 @@ selection. The selected nodes keep their file, byte range and exact source text.
 No model facts are needed for this syntax report. Use `declarations`
 in the input binding to select semantic declaration identities instead.
 
-Use `let` for input values and calculations, including native query pipelines.
-The final expression emits its result and may omit its semicolon; `report` is
-optional. Statements run in order with immutable earlier bindings. Each starts from the
-same input selection unless it names another native result. A later failure
-leaves stdout empty. [Query programs](reference.md#query-programs) describes
-emitters, the library result and aggregate limits.
+`let` evaluates its right-hand side once and gives the result an immutable
+name. `selected | count` and `selected | expressions` reuse that selection.
+A pipeline beginning with `items` starts from the original input again.
+
+An expression outside a binding emits its result. Here, the final record
+produces JSON automatically. Ending with just `selected` would print the selected
+source; `report selected` would request its JSON representation instead.
+Earlier output expressions also emit, so use `let` for intermediate values you
+want to keep out of the output.
+
+Bindings and earlier statements need semicolons. The final expression may end
+without one. Statements run in written order, and a later failure leaves stdout
+empty. [Query programs](reference.md#query-programs) describes output formats,
+the library result and aggregate limits.
 
 The following examples build records and arrays from literal data. Their JSON
 uses explicit type tags and array keys, so the tables in this guide show the
@@ -79,27 +87,53 @@ describes how to read those reports from another program.
 All examples here are read-only. To change a data file, use the
 [data-edit guide](data-edits.md); editing supports a smaller set of expressions.
 
-## Compare demand and capacity
+## Read a named assignment
 
-Start by totalling a demand array. Create `data.dzn` with
-`demand = [2, 3, 4];` and run:
-
-```sh
-zincite query --program 'let d = items | filter(name("demand")) | values | one; sum(d);' data.dzn
-```
-
-The result contains the integer `9`. To reuse the query, save the text inside
-the quotes as `sum.zq` and run `zincite query -f sum.zq data.dzn`.
-
-Now suppose demand may double. We want to compare the new demand with capacity
-at each position, as well as in total. Replace `data.dzn` with:
+Create `data.dzn` with demand and capacity arrays:
 
 ```minizinc
 demand = [2, 3, 4];
 capacity = [6, 8, 5];
 ```
 
-Save the following as `capacity.zq`. The factor is a local literal binding.
+Save this as `totals.zq`:
+
+```zirql
+let demand = items | filter(name("demand")) | values | one;
+let total_demand = sum(demand);
+let capacity = items | filter(name("capacity")) | values | one;
+(total_demand: total_demand, total_capacity: sum(capacity))
+```
+
+```sh
+zincite query -f totals.zq data.dzn
+```
+
+The result contains `total_demand = 9` and `total_capacity = 19`. The input
+pipeline reads the demand in four steps:
+
+| Stage | Result |
+| --- | --- |
+| `items` | The two assignments in `data.dzn`. |
+| `filter(name("demand"))` | The assignment named `demand`. |
+| `values` | A sequence containing its literal array `[2, 3, 4]`. |
+| `one` | The array itself, extracted from that sequence. |
+
+`one` checks the number of projected values, not the number of array elements.
+Zero or multiple matches fail. `values` reads written literals; it cannot
+evaluate a MiniZinc right-hand side such as `[n * 2 | n in 1..3]`.
+
+Input reads and calculations use the same `let` syntax and can appear in the
+order you need them. Here, `total_demand` is calculated before `capacity` is
+read. The quoted name chooses an assignment in the file; the binding name is
+how the query refers to its value. For example, `let required = items |
+filter(name("demand")) | values | one;` would read the same demand array.
+
+## Compare demand and capacity
+
+Using the same `data.dzn`, suppose demand may double. We want to compare the new
+demand with capacity at each position, as well as in total. Save the following
+as `capacity.zq`. The factor is a local literal binding.
 
 ```zirql
 let demand = items | filter(name("demand")) | values | one;
@@ -134,7 +168,7 @@ let total_capacity = sum(aligned_capacity);
   totals_fit: total_demand <= total_capacity,
   cells_fit: forall([r.demand <= r.capacity | r in rows]),
   violations: [r | r in rows where r.demand > r.capacity]
-);
+)
 ```
 
 Run `zincite query --program-file capacity.zq data.dzn` or pass the same text
@@ -175,7 +209,7 @@ Save the query as `matrix-delta.zq`:
 let a = items | filter(name("before")) | values | one;
 let b = items | filter(name("after")) | values | one;
 let pairs = zip_exact(a, b);
-[e.key: e.value.2 - e.value.1 | e in entries(pairs)];
+[e.key: e.value.2 - e.value.1 | e in entries(pairs)]
 ```
 
 ```sh
@@ -219,7 +253,7 @@ let rows = items | filter(name("jobs")) | values | one;
      count: length(g.items),
      total: sum([r.demand | r in g.items]))
     | g in group_by(rows, "machine")
-];
+]
 ```
 
 ```sh
@@ -289,7 +323,7 @@ this as `use-counts.zq`:
 subtree | declarations | unique | project(d, {
     "name": d | names | one,
     "uses": d | uses | count
-});
+})
 ```
 
 ```sh
@@ -311,7 +345,7 @@ let matches = match {
 matches | project(m, {
     "name": m.d | names | one,
     "text": m.u | text | one
-});
+})
 ```
 
 ```sh
@@ -396,7 +430,7 @@ let info = items | filter(name("info")) | values | one;
     stored_cell: has_key(cells, (1, 2)),
     missing_cell: has_key(cells, (2, 2)),
     fallback: lookup(cells, (2, 2)) default 8
-);
+)
 ```
 
 ```sh
@@ -428,7 +462,7 @@ let totals = [
 (
     ranked: sort_by(totals, "demand", descending=true),
     busiest: max_by(totals, "demand")
-);
+)
 ```
 
 ```sh
@@ -465,7 +499,7 @@ fn count_calls(node: Node, target: string) -> int {
     here + sum([count_calls(child, target) | child in direct_children(node)])
 }
 let roots = items;
-(sum_calls: sum([count_calls(root, "sum") | root in roots]));
+(sum_calls: sum([count_calls(root, "sum") | root in roots]))
 ```
 
 ```sh
@@ -506,7 +540,7 @@ let shortages = [
     (day: row.day, missing: shortage(row.required, row.available default 0))
     | row in days
 ];
-sort_by(shortages, "missing", descending=true);
+sort_by(shortages, "missing", descending=true)
 ```
 
 This program supplies its own data. Run it with empty stdin:

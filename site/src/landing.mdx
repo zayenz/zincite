@@ -104,7 +104,7 @@ let available = items | filter(name("available")) | values | one;
     (day: d, missing: required[d] - available[d])
     | d in index_set(required)
     where required[d] > available[d]
-];
+]
 ```
 
 Save the data as `staffing.dzn` and the query as `shortages.zq`, then run:
