@@ -583,6 +583,11 @@ fn keyed_program_files_keep_nominal_axes_and_buffer_later_errors() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let mut inline = args[..args.len() - 2].to_vec();
+    inline.extend(["--program", report]);
+    let direct = run(&inline, data);
+    assert!(direct.status.success(), "{direct:?}");
+    assert_eq!(direct.stdout, output.stdout);
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["complete"], true);
     assert_eq!(json["result"]["indexing"], "explicit");
@@ -617,13 +622,18 @@ fn keyed_program_files_keep_nominal_axes_and_buffer_later_errors() {
         assert!(output.stdout.is_empty());
         assert!(String::from_utf8_lossy(&output.stderr).contains(program.to_str().unwrap()));
     }
-    std::fs::write(&program, r#"report [(i,e):1 | i in 1..0,e in {enum_member(Guest,"Zulu"),enum_member(Guest,"Alpha")}];"#).unwrap();
+    let zero = r#"report [(i,e):1 | i in 1..0,e in {enum_member(Guest,"Zulu"),enum_member(Guest,"Alpha")}];"#;
+    std::fs::write(&program, zero).unwrap();
     let output = run(&args, data);
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    *inline.last_mut().unwrap() = zero;
+    let direct = run(&inline, data);
+    assert!(direct.status.success(), "{direct:?}");
+    assert_eq!(direct.stdout, output.stdout);
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["result"]["axes"][0], serde_json::json!([]));
     assert_eq!(json["result"]["axes"][1].as_array().unwrap().len(), 2);
@@ -1265,6 +1275,8 @@ fn keyed_comparison_inline_and_file_match_library_and_buffer_alignment_errors() 
     let input = Input::parse(data.to_vec(), zincite_syntax::FileMode::Data).unwrap();
     for source in [
         include_str!("fixtures/keyed-comparison.zq"),
+        include_str!("fixtures/indexed-arrays.zq"),
+        "[(5,8):58, (2,1):21] | count",
         "report entries([|3,4|5,6|]);",
     ] {
         std::fs::write(&program_path, source).unwrap();

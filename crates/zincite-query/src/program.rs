@@ -2013,7 +2013,20 @@ fn lower_members(
             }
             lower_members(otherwise, members);
         }
-        K::Dictionary(entries) | K::KeyedArray { entries, .. } => {
+        K::KeyedArray {
+            declared_axis_sources,
+            entries,
+            ..
+        } => {
+            for source in declared_axis_sources.iter_mut().flatten() {
+                lower_members(source, members);
+            }
+            for (key, value) in entries {
+                lower_members(key, members);
+                lower_members(value, members);
+            }
+        }
+        K::Dictionary(entries) => {
             for (key, value) in entries {
                 lower_members(key, members);
                 lower_members(value, members);
@@ -2032,8 +2045,12 @@ fn lower_members(
             clauses,
             key,
             head,
+            declared_axis_sources,
             empty_axis_sources,
         } => {
+            for source in declared_axis_sources.iter_mut().flatten() {
+                lower_members(source, members);
+            }
             lower_generator_members(clauses, members);
             lower_members(key, members);
             lower_members(head, members);

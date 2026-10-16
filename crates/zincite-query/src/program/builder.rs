@@ -455,8 +455,14 @@ fn map_queries(
                 .collect(),
             otherwise: Box::new(map_queries(*otherwise, lower)),
         },
-        K::KeyedArray { axes, entries } => K::KeyedArray {
+        K::KeyedArray {
             axes,
+            declared_axis_sources,
+            entries,
+        } => K::KeyedArray {
+            axes,
+            declared_axis_sources: declared_axis_sources
+                .map(|values| values.into_iter().map(|v| map_queries(v, lower)).collect()),
             entries: entries
                 .into_iter()
                 .map(|(a, b)| (map_queries(a, lower), map_queries(b, lower)))
@@ -475,8 +481,11 @@ fn map_queries(
             clauses,
             key,
             head,
+            declared_axis_sources,
             empty_axis_sources,
         } => K::KeyedComprehension {
+            declared_axis_sources: declared_axis_sources
+                .map(|values| values.into_iter().map(|v| map_queries(v, lower)).collect()),
             clauses: map_clauses(clauses, lower),
             key: Box::new(map_queries(*key, lower)),
             head: Box::new(map_queries(*head, lower)),

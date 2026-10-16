@@ -401,6 +401,24 @@ not shift stored keys; data edits require contiguous axes and complete
 rectangular coverage. A member name in a keyed source needs a matching model declaration to establish its enum
 identity. Matching the spelling alone is insufficient.
 
+Rust callers using `Program::from_values` can set
+`KeyedArray::declared_axis_sources` or
+`KeyedComprehension::declared_axis_sources` on an existing `ProgramValue`.
+These located expressions supply full ordered row and column domains. Each runs
+once, left to right, in surrounding scope before cells or generators. Integer
+or member arrays and typed sets preserve unused keys, sparse coverage and typed
+empties. Nominal values keep their supplied identity and metadata. A literal's
+concrete `axes` field and declared sources are mutually exclusive.
+
+Natural MiniZinc comprehensions retain their separate lazy
+`empty_axis_sources` fallback. Simple generator key names can establish empty
+dimensions from their source values, evaluated outside their own binders only
+after zero cells. Explicit eager declarations cannot coexist with that fallback;
+target-derived empty domains do not replace them. The CLI forms use MiniZinc
+syntax; `axes(...)` is a common Zirql reader suffix, not MiniZinc notation.
+All source evaluation, domain conversion and retained-domain copies share the
+request budget and preserve their original locations.
+
 A starting integer key can determine the following keys by checked addition.
 Enum starting keys cannot be used to infer a tail. Array axes can come from
 written integer intervals or explicit enums. Integer interval endpoints may

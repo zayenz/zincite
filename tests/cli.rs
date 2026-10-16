@@ -697,6 +697,11 @@ fn keyed_program_files_keep_nominal_axes_and_buffer_later_errors() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let mut inline = args[..args.len() - 2].to_vec();
+    inline.extend(["--program", report]);
+    let direct = run(&inline, data);
+    assert!(direct.status.success(), "{direct:?}");
+    assert_eq!(direct.stdout, output.stdout);
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains("\"complete\":true"));
     assert!(text.contains("\"indexing\":\"explicit\""));
@@ -730,13 +735,18 @@ fn keyed_program_files_keep_nominal_axes_and_buffer_later_errors() {
         assert!(output.stdout.is_empty());
         assert!(String::from_utf8_lossy(&output.stderr).contains(program.to_str().unwrap()));
     }
-    std::fs::write(&program, r#"report [(i,e):1 | i in 1..0,e in {enum_member(Guest,"Zulu"),enum_member(Guest,"Alpha")}];"#).unwrap();
+    let zero = r#"report [(i,e):1 | i in 1..0,e in {enum_member(Guest,"Zulu"),enum_member(Guest,"Alpha")}];"#;
+    std::fs::write(&program, zero).unwrap();
     let output = run(&args, data);
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    *inline.last_mut().unwrap() = zero;
+    let direct = run(&inline, data);
+    assert!(direct.status.success(), "{direct:?}");
+    assert_eq!(direct.stdout, output.stdout);
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains("\"axes\":[[],[{"));
     assert!(text.contains("\"entries\":[]"));
@@ -1259,6 +1269,8 @@ fn keyed_comparison_inline_and_file_agree_and_buffer_alignment_errors() {
     std::fs::write(&data_path, data).unwrap();
     for source in [
         include_str!("../crates/zincite-query/tests/fixtures/keyed-comparison.zq"),
+        include_str!("../crates/zincite-query/tests/fixtures/indexed-arrays.zq"),
+        "[(5,8):58, (2,1):21] | count",
         "report entries([|3,4|5,6|]);",
     ] {
         std::fs::write(&program_path, source).unwrap();

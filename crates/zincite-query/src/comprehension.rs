@@ -328,7 +328,14 @@ impl<Q> Lower<'_, '_, Q> {
         } else {
             None
         };
-        Ok(Located::new(K::KeyedArray { axes, entries }, range))
+        Ok(Located::new(
+            K::KeyedArray {
+                axes,
+                declared_axis_sources: None,
+                entries,
+            },
+            range,
+        ))
     }
     fn report_only(&mut self, range: &Range<usize>) -> Result<(), QueryError> {
         if self.policy == ExpressionPolicy::Data {
@@ -589,6 +596,7 @@ impl<Q> Lower<'_, '_, Q> {
                         entries.push((key, value));
                     }
                     K::KeyedArray {
+                        declared_axis_sources: None,
                         axes: None,
                         entries,
                     }
@@ -1052,6 +1060,7 @@ impl<Q> Lower<'_, '_, Q> {
                         clauses,
                         key,
                         head,
+                        declared_axis_sources: None,
                         empty_axis_sources,
                     }
                 } else {
@@ -1165,9 +1174,21 @@ fn references_binding<Q>(
             any_binding(values.iter(), names, budget)
         }
         K::Record(fields) => any_binding(fields.iter().map(|(_, v)| v), names, budget),
-        K::Dictionary(entries) | K::KeyedArray { entries, .. } => {
+        K::Dictionary(entries) => {
             any_binding(entries.iter().flat_map(|(k, v)| [k, v]), names, budget)
         }
+        K::KeyedArray {
+            declared_axis_sources,
+            entries,
+            ..
+        } => any_binding(
+            declared_axis_sources
+                .iter()
+                .flatten()
+                .chain(entries.iter().flat_map(|(k, v)| [k, v])),
+            names,
+            budget,
+        ),
         K::DictionaryComprehension { clauses, key, head } => {
             Ok(
                 any_binding([key.as_ref(), head.as_ref()].into_iter(), names, budget)?
@@ -1178,11 +1199,14 @@ fn references_binding<Q>(
             clauses,
             key,
             head,
+            declared_axis_sources,
             empty_axis_sources,
         } => {
             if any_binding(
-                [key.as_ref(), head.as_ref()]
-                    .into_iter()
+                declared_axis_sources
+                    .iter()
+                    .flatten()
+                    .chain([key.as_ref(), head.as_ref()])
                     .chain(empty_axis_sources.iter().flatten()),
                 names,
                 budget,
@@ -1300,6 +1324,15 @@ pub(crate) fn eager_names<Q>(
             }
         }
         K::Dictionary(entries) | K::KeyedArray { entries, .. } => {
+            if let K::KeyedArray {
+                declared_axis_sources,
+                ..
+            } = &expression.value
+            {
+                for source in declared_axis_sources.iter().flatten() {
+                    eager_names(source, names, budget)?;
+                }
+            }
             for (key, value) in entries {
                 eager_names(key, names, budget)?;
                 eager_names(value, names, budget)?;
@@ -1359,6 +1392,15 @@ pub(crate) fn eager_names<Q>(
         K::Comprehension { clauses, head, .. }
         | K::DictionaryComprehension { clauses, head, .. }
         | K::KeyedComprehension { clauses, head, .. } => {
+            if let K::KeyedComprehension {
+                declared_axis_sources,
+                ..
+            } = &expression.value
+            {
+                for source in declared_axis_sources.iter().flatten() {
+                    eager_names(source, names, budget)?;
+                }
+            }
             eager_names(head, names, budget)?;
             if let K::DictionaryComprehension { key, .. } = &expression.value {
                 eager_names(key, names, budget)?;
@@ -2388,6 +2430,7 @@ fn project_literal(
                 }
                 K::KeyedArray {
                     axes,
+                    declared_axis_sources: None,
                     entries: pairs,
                 }
             }
@@ -2465,6 +2508,7 @@ fn project_literal(
                 ));
             }
             K::KeyedArray {
+                declared_axis_sources: None,
                 axes: axes.take(),
                 entries: pairs,
             }

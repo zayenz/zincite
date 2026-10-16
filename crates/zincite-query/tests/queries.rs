@@ -6822,3 +6822,168 @@ fn brace_collections_keep_data_order_function_locals_and_minizinc_forms() {
     );
     assert!(matches!(values[2].data(),V::Record(fields) if fields[0].0=="score"));
 }
+
+#[test]
+fn typed_indexed_reports_retain_declared_domains_and_empty_nominal_identity() {
+    use zincite_query::{Program, ProgramLimits, ProgramNative, ProgramValue, ReportValue};
+    use zirql::{ConstructedValue as V, Located as L, ValueExpressionKind as K, ValueKey};
+    fn e(kind: K<zirql::Expression<ProgramNative, zirql::NativeSetOperator, ()>>) -> ProgramValue {
+        L::new(kind, 10..20)
+    }
+    fn int(n: i64) -> ProgramValue {
+        e(K::Literal(V::Integer(n)))
+    }
+    fn name(n: &str) -> ProgramValue {
+        e(K::Name(n.into()))
+    }
+    fn member(id: u64, order: usize) -> zirql::NominalMember {
+        zirql::NominalMember {
+            type_id: zirql::NominalTypeId(7),
+            member_id: zirql::NominalMemberId(id),
+            declaration_order: order,
+            type_name: "Guest".into(),
+            member_name: format!("guest{id}"),
+        }
+    }
+    fn native_source(query: &str) -> ProgramValue {
+        let query = L::new(
+            zirql::ExpressionKind::Sequence {
+                input: Box::new(L::new(zirql::ExpressionKind::Input, 10..20)),
+                steps: vec![L::new(
+                    zirql::ExpressionStep::Stage(ProgramNative::Query(
+                        Query::parse(query, Limits::default()).unwrap(),
+                    )),
+                    10..20,
+                )],
+            },
+            10..20,
+        );
+        let value = e(K::NativeValue(Box::new(query)));
+        e(K::One(Box::new(value)))
+    }
+    fn domains() -> Vec<ProgramValue> {
+        vec![
+            e(K::Literal(V::Array(vec![
+                V::Member(member(22, 4)),
+                V::Member(member(11, 1)),
+                V::Member(member(33, 7)),
+            ]))),
+            native_source("items | filter(name(\"domain\")) | values"),
+        ]
+    }
+    let indexed = e(K::KeyedArray {
+        axes: None,
+        declared_axis_sources: Some(domains()),
+        entries: vec![
+            (
+                e(K::Tuple(vec![
+                    e(K::Literal(V::Member(member(11, 1)))),
+                    int(8),
+                ])),
+                int(8),
+            ),
+            (
+                e(K::Tuple(vec![
+                    e(K::Literal(V::Member(member(22, 4)))),
+                    int(8),
+                ])),
+                int(8),
+            ),
+        ],
+    });
+    let comprehension = e(K::KeyedComprehension {
+        clauses: vec![L::new(
+            zirql::ValueGenerator::In {
+                binders: vec![L::new(Some("g".into()), 10..20)],
+                source: e(K::Array(vec![
+                    e(K::Literal(V::Member(member(11, 1)))),
+                    e(K::Literal(V::Member(member(22, 4)))),
+                ])),
+                filter: None,
+            },
+            10..20,
+        )],
+        key: Box::new(e(K::Tuple(vec![name("g"), int(8)]))),
+        head: Box::new(int(8)),
+        declared_axis_sources: Some(domains()),
+        empty_axis_sources: None,
+    });
+    let empty = e(K::KeyedArray {
+        axes: None,
+        declared_axis_sources: Some(vec![
+            e(K::Literal(V::Set {
+                element_type: Some(zirql::SetElementType::Member(zirql::NominalTypeId(7))),
+                elements: vec![],
+            })),
+            e(K::Array(vec![int(8), int(1)])),
+        ]),
+        entries: vec![],
+    });
+    let effectful_source = e(K::KeyedArray {
+        axes: None,
+        declared_axis_sources: Some(vec![native_source("items | set_value(\"1\")")]),
+        entries: vec![],
+    });
+    assert!(
+        Program::from_values(vec![], vec![], effectful_source, ProgramLimits::default()).is_err()
+    );
+    let input = Input::parse(b"domain=[8,1,4];".to_vec(), FileMode::Data).unwrap();
+    let limits = ProgramLimits::default();
+    for (value, is_empty) in [(indexed, false), (comprehension, false), (empty, true)] {
+        let program = Program::from_values(vec![], vec![], value, limits).unwrap();
+        let result = program.evaluate(&input, limits).unwrap();
+        assert!(result.is_complete());
+        let ReportValue::Constructed(value) = result.emissions()[0].value() else {
+            panic!("constructed value")
+        };
+        let V::KeyedArray { axes, entries } = value.data() else {
+            panic!("indexed shape")
+        };
+        assert_eq!(
+            axes[0].key_type,
+            zirql::ValueKeyType::Member(zirql::NominalTypeId(7))
+        );
+        if is_empty {
+            assert!(axes[0].keys.is_empty() && entries.is_empty());
+            assert_eq!(axes[1].keys, [ValueKey::Integer(8), ValueKey::Integer(1)]);
+        } else {
+            assert_eq!(
+                axes[0].keys,
+                [
+                    ValueKey::Member(member(22, 4)),
+                    ValueKey::Member(member(11, 1)),
+                    ValueKey::Member(member(33, 7))
+                ]
+            );
+            assert_eq!(
+                axes[1].keys,
+                [
+                    ValueKey::Integer(8),
+                    ValueKey::Integer(1),
+                    ValueKey::Integer(4)
+                ]
+            );
+            assert_eq!(entries.len(), 2);
+            assert_eq!(
+                entries[0].key,
+                [ValueKey::Member(member(22, 4)), ValueKey::Integer(8)]
+            );
+            assert_eq!(
+                entries[1].key,
+                [ValueKey::Member(member(11, 1)), ValueKey::Integer(8)]
+            );
+            assert_eq!(entries[0].value.data(), &V::Integer(8));
+        }
+        let mut budget = zirql::Budget::for_program(zirql::ProgramLimits {
+            work: 100_000,
+            results: 10_000,
+            nesting: 64,
+            stream_items: 100,
+        });
+        assert_eq!(
+            zirql::copy_constructed_value(value, &mut budget, zirql::Location::Query(10..20))
+                .unwrap(),
+            *value
+        );
+    }
+}

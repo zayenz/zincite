@@ -752,8 +752,12 @@ pub(super) fn lower_primitives(
             clauses,
             key,
             head,
+            declared_axis_sources,
             empty_axis_sources,
         } => {
+            for source in declared_axis_sources.iter_mut().flatten() {
+                lower_primitives(source, names, queries);
+            }
             lower_generators(clauses, names, queries);
             lower_primitives(key, names, queries);
             lower_primitives(head, names, queries);
@@ -761,7 +765,20 @@ pub(super) fn lower_primitives(
                 lower_primitives(value, names, queries);
             }
         }
-        K::Dictionary(entries) | K::KeyedArray { entries, .. } => {
+        K::KeyedArray {
+            declared_axis_sources,
+            entries,
+            ..
+        } => {
+            for source in declared_axis_sources.iter_mut().flatten() {
+                lower_primitives(source, names, queries);
+            }
+            for (key, value) in entries {
+                lower_primitives(key, names, queries);
+                lower_primitives(value, names, queries);
+            }
+        }
+        K::Dictionary(entries) => {
             for (key, value) in entries {
                 lower_primitives(key, names, queries);
                 lower_primitives(value, names, queries);
@@ -2223,22 +2240,30 @@ pub(super) fn check_value<'v, Q>(
             K::Block { bindings, .. } => bindings.len().saturating_add(1),
             K::Loop { states, .. } => states.len().saturating_add(1),
             K::ValueMatch { arms, .. } => arms.len().saturating_mul(2).saturating_add(1),
-            K::Dictionary(entries) | K::KeyedArray { entries, .. } => {
-                entries.len().saturating_mul(2)
-            }
+            K::Dictionary(entries) => entries.len().saturating_mul(2),
+            K::KeyedArray {
+                entries,
+                declared_axis_sources,
+                ..
+            } => entries
+                .len()
+                .saturating_mul(2)
+                .saturating_add(declared_axis_sources.as_ref().map_or(0, Vec::len)),
             K::Comprehension { clauses, .. } => clauses.len().saturating_mul(2).saturating_add(1),
             K::DictionaryComprehension { clauses, .. } => {
                 clauses.len().saturating_mul(2).saturating_add(2)
             }
             K::KeyedComprehension {
                 clauses,
+                declared_axis_sources,
                 empty_axis_sources,
                 ..
             } => clauses
                 .len()
                 .saturating_mul(2)
                 .saturating_add(2)
-                .saturating_add(empty_axis_sources.as_ref().map_or(0, Vec::len)),
+                .saturating_add(empty_axis_sources.as_ref().map_or(0, Vec::len))
+                .saturating_add(declared_axis_sources.as_ref().map_or(0, Vec::len)),
             K::CurrentInput
             | K::Literal(_)
             | K::Name(_)
@@ -2367,8 +2392,14 @@ pub(super) fn check_value<'v, Q>(
                     children.push(&arm.value);
                 }
             }
-            K::Dictionary(entries) | K::KeyedArray { entries, .. } => {
-                children.extend(entries.iter().flat_map(|(a, b)| [a, b]))
+            K::Dictionary(entries) => children.extend(entries.iter().flat_map(|(a, b)| [a, b])),
+            K::KeyedArray {
+                declared_axis_sources,
+                entries,
+                ..
+            } => {
+                children.extend(declared_axis_sources.iter().flatten());
+                children.extend(entries.iter().flat_map(|(a, b)| [a, b]));
             }
             K::Comprehension { clauses, head, .. }
             | K::DictionaryComprehension { clauses, head, .. }
@@ -2379,10 +2410,12 @@ pub(super) fn check_value<'v, Q>(
                 }
                 if let K::KeyedComprehension {
                     key,
+                    declared_axis_sources,
                     empty_axis_sources,
                     ..
                 } = &value.value
                 {
+                    children.extend(declared_axis_sources.iter().flatten());
                     children.push(key);
                     children.extend(empty_axis_sources.iter().flatten());
                 }

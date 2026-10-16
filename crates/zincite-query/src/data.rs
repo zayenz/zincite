@@ -401,18 +401,21 @@ fn supply_empty_axes(
             match value {
                 K::KeyedComprehension {
                     head,
+                    declared_axis_sources,
                     empty_axis_sources,
                     ..
                 } => {
                     supply_empty_axes(head, child, input, scalars, facts, budget)?;
-                    if let Some(axes) = c::declared_axes(
-                        input,
-                        scalars,
-                        Some(metadata),
-                        Some(facts),
-                        budget,
-                        &range,
-                    )? {
+                    if declared_axis_sources.is_none()
+                        && let Some(axes) = c::declared_axes(
+                            input,
+                            scalars,
+                            Some(metadata),
+                            Some(facts),
+                            budget,
+                            &range,
+                        )?
+                    {
                         charge(budget, axes.len(), &range)?;
                         budget
                             .charge_results(axes.len(), zirql::Location::Query(range.clone()))
@@ -451,11 +454,15 @@ fn supply_empty_axes(
                         *empty_axis_sources = Some(sources);
                     }
                 }
-                K::KeyedArray { axes, entries } => {
+                K::KeyedArray {
+                    axes,
+                    declared_axis_sources,
+                    entries,
+                } => {
                     for (_, value) in entries.iter_mut() {
                         supply_empty_axes(value, child, input, scalars, facts, budget)?;
                     }
-                    if entries.is_empty() && axes.is_none() {
+                    if entries.is_empty() && axes.is_none() && declared_axis_sources.is_none() {
                         *axes = c::declared_axes(
                             input,
                             scalars,
@@ -488,6 +495,7 @@ fn supply_empty_axes(
                         }) {
                             *value = K::KeyedArray {
                                 axes,
+                                declared_axis_sources: None,
                                 entries: Vec::new(),
                             };
                         }

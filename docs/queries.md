@@ -347,6 +347,52 @@ let checked = checker.evaluate(&input, limits)?;
 assert!(checked.is_complete());
 ```
 
+## Construct indexed arrays
+
+Use integer or resolved enum keys when a cell's address should survive a filter.
+A tuple supplies row and column keys. Save this as `indexed-arrays.zq`, or use
+[the saved example](../crates/zincite-query/tests/fixtures/indexed-arrays.zq):
+
+```zirql title="indexed-arrays.zq"
+let sparse = [(5,8):58, (2,1):21, (2,8):28];
+let generated = [(i,j):i*10+j | i in [5,2], j in [8,1] where i=2 \/ j=8];
+let empty = [(i,j):1 | i in 1..0, j in {8,1}];
+let unused = [i:i | i in [5,2,9] where false];
+(sparse:sparse, same:sparse=generated, cells:entries(sparse), empty:empty, unused:unused)
+```
+
+Run it against the `model.mzn` above:
+
+```sh
+zincite query --program-file indexed-arrays.zq model.mzn
+zincite-query --program-file indexed-arrays.zq model.mzn
+```
+
+Both commands return the same complete tagged report. The `same` field is true.
+The row keys are `2, 5` and the column keys are `1, 8`; these ordered domains
+are the array's axes. Stored cells follow row-major order:
+
+| Row | Column | Value |
+| --- | --- | --- |
+| 2 | 1 | 21 |
+| 2 | 8 | 28 |
+| 5 | 8 | 58 |
+
+There is no cell at `(5, 1)`. Reports retain this sparse shape, while constructed
+data edits still require contiguous keys and rectangular coverage. Numeric keys
+are inferred in numeric order; resolved enum keys use declaration order and keep
+their model identity. `entries` returns only present cells. `index_set` returns
+the full keys of a rank-one array, including declared keys without a cell.
+
+The `empty` result retains two dimensions: a typed empty integer row domain and
+column keys `8, 1`. The `unused` result has no cells but keeps keys `5, 2, 9`.
+For these natural MiniZinc comprehensions, simple generator key names provide
+a lazy zero-cell fallback from the surrounding source values. It runs only
+when no cells were produced. Model-backed typed empty nominal sources retain
+their enum identity too. Rust callers can supply eager declared domains through
+[the typed value API](query-comprehension-contract.md#constructed-shape-and-result)
+when nonempty results must also retain unused keys or a chosen domain order.
+
 ## Compare keyed matrix cells
 
 To compare two matrices, match cells by their indices before subtracting

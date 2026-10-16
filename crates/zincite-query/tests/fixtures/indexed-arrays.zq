@@ -1,0 +1,5 @@
+let sparse = [(5,8):58, (2,1):21, (2,8):28];
+let generated = [(i,j):i*10+j | i in [5,2], j in [8,1] where i=2 \/ j=8];
+let empty = [(i,j):1 | i in 1..0, j in {8,1}];
+let unused = [i:i | i in [5,2,9] where false];
+(sparse:sparse, same:sparse=generated, cells:entries(sparse), empty:empty, unused:unused)
