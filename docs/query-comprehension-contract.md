@@ -330,17 +330,17 @@ Completed positional arrays and MiniZinc comprehensions accept
 `filter(starts_with("prefix"))`, `count`, `sort`, `unique` and `tally` suffixes.
 For example, `[x | x in [3,1,3]] | sort | unique`
 returns `[1,3]`. The generator pipe belongs to the comprehension; the suffix
-pipes consume its completed result. Group saved values and function calls,
-as in `(rows) | sort` or `(make_rows()) | tally`. A binding already known to
-hold a constructed value also accepts the suffix directly. Ordinary native
-name and call pipelines retain their existing routing.
+pipes consume its completed result. Saved constructed values accept suffixes
+directly, as in `let numbers=[3,1,3]; numbers | sort | unique | count`, which
+returns `2`. Grouping also works, including for function calls such as
+`(make_rows()) | tally`. Native name and call pipelines retain their routing.
 
 `filter(starts_with("a"))` retains strings beginning with `a`, in input order.
 Matching is exact and case-sensitive; an empty prefix matches every string.
 Non-string elements fail, including an incompatible declared element type on
 empty input. `count` returns the number of present positional entries as an
 integer, including zero for an empty array. A filter can precede another stage,
-for example `(rows) | filter(starts_with("a")) | count`.
+for example `rows | filter(starts_with("a")) | count`.
 
 `sort` is stable ascending scalar ordering with the same homogeneous key rules
 as `sort(xs)`. `unique` retains the first equal scalar, preserving input order.

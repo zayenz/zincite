@@ -5393,7 +5393,7 @@ fn saved_native_and_minizinc_values_compose_with_shared_suffixes() {
     let limits = ProgramLimits::default();
     let input = Input::parse(b"b=2; a=1;".to_vec(), FileMode::Data).unwrap();
     let body = r#"let selected=items; let labels=selected | names; let n=selected | count;
-        let rows=[label | label in labels]; let ordered=(rows) | sort | unique;
+        let rows=[label | label in labels]; let ordered=rows | sort | unique;
         report (names:ordered,count:n,selected:selected);"#;
     let mut expected = None;
     for prefix in ["", "fn unused(n:int)->int { n } "] {
@@ -5446,12 +5446,22 @@ fn saved_native_and_minizinc_values_compose_with_shared_suffixes() {
     }
     let filtered = r#"fn words()->sequence<string> { ["ash","birch","apple","ash"] }
         let saved=words();
-        let matching=(saved) | filter(starts_with("a"));
+        let matching=saved | filter(starts_with("a"));
         matching | sort | unique | count"#;
     let result = Program::parse(filtered, limits)
         .unwrap()
         .evaluate(&input, limits)
         .unwrap();
+    assert!(
+        matches!(result.emissions()[0].value(), ReportValue::Constructed(value) if value.data()==&V::Integer(2))
+    );
+    let result = Program::parse(
+        "let numbers=[3,1,3]; numbers | sort | unique | count",
+        limits,
+    )
+    .unwrap()
+    .evaluate(&input, limits)
+    .unwrap();
     assert!(
         matches!(result.emissions()[0].value(), ReportValue::Constructed(value) if value.data()==&V::Integer(2))
     );
