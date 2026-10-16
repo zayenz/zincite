@@ -6987,3 +6987,59 @@ fn typed_indexed_reports_retain_declared_domains_and_empty_nominal_identity() {
         );
     }
 }
+
+#[test]
+fn prepared_projections_keep_singleton_input_and_admit_empty_fields() {
+    use zincite_query::{Program, ProgramLimits};
+    let limits = ProgramLimits::default();
+    let input = Input::parse(b"int: a=1; int: b=2;".to_vec(), FileMode::Model).unwrap();
+    for prefix in ["", "fn n()->int {1} "] {
+        let source = format!(
+            r#"{prefix}let original=items; report items | project(d,{{"n":count,"original":original | count}});"#
+        );
+        let mut result = Program::parse(&source, limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .unwrap();
+        let output: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
+        let rows = output["result"]["entries"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        for row in rows {
+            assert_eq!(
+                row["value"],
+                serde_json::json!({
+                    "n":{"kind":"integer","value":1},
+                    "original":{"kind":"integer","value":2}
+                })
+            );
+        }
+        let source = format!(r#"{prefix}report items | head(0) | project(d,{{"x":d}});"#);
+        let error = Program::parse(&source, limits)
+            .and_then(|program| program.evaluate(&input, limits))
+            .unwrap_err();
+        assert!(
+            error.message.contains("explicit scalar projection"),
+            "{error:?}"
+        );
+        assert_eq!(&source[error.range], "d");
+    }
+    let source = r#"fn label(n:Node)->string {n | names | one}
+        let rows=items | head(0) | project(d,{"name":label(d),"n":count});
+        report rows;"#;
+    let mut result = Program::parse(source, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let output: serde_json::Value = serde_json::from_slice(&result.render().unwrap()).unwrap();
+    assert_eq!(output["result"]["entries"], serde_json::json!([]));
+
+    let source = r#"fn fail(n:int)->int {1 div (n-1)}
+        report 7; report items | project(d,{"x":fail(d | count)});"#;
+    let error = Program::parse(source, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap_err();
+    assert_eq!(error.location, ErrorLocation::Query);
+    assert_eq!(&source[error.range.clone()], "1 div (n-1)");
+    assert!(error.message.contains("fail"), "{error:?}");
+}

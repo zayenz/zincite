@@ -1001,6 +1001,9 @@ impl<'r, 'a> Session<'r, 'a> {
                         Stage::FunctionValue(value) | Stage::FunctionSource(value) => {
                             self.prepare_value(value, kind, scope, budget)?
                         }
+                        Stage::Projection(_) => host
+                            .stage_kind(stage, &kind, scope, budget, &step.range)
+                            .map_err(pipeline::core_error)?,
                         Stage::WhereExists(body) | Stage::FixedPoint(body) => {
                             let relative = if matches!(stage, Stage::WhereExists(_)) {
                                 host.subject_kind(&kind, budget, &step.range)

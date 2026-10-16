@@ -1590,3 +1590,56 @@ fn native_existence_and_fixed_points_replay_files_and_buffer_nested_failures() {
     }
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn prepared_projections_keep_scope_and_buffer_failures_inline_and_in_files() {
+    let dir = std::env::temp_dir().join(format!("zincite-projection-scope-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("report.zq");
+    let input = "int: a=1; int: b=2;";
+    for prefix in ["", "fn n()->int {1} "] {
+        let source = format!(
+            r#"{prefix}let original=items; report items | project(d,{{"n":count,"original":original | count}});"#
+        );
+        std::fs::write(&file, &source).unwrap();
+        let inline = run(&["query", "--program", &source], input);
+        let saved = run(&["query", "--program-file", file.to_str().unwrap()], input);
+        assert!(inline.status.success(), "{inline:?}");
+        assert!(saved.status.success(), "{saved:?}");
+        assert_eq!(inline.stdout, saved.stdout);
+        let output = String::from_utf8(inline.stdout).unwrap();
+        assert_eq!(
+            output
+                .matches(
+                    r#""n":{"kind":"integer","value":1},"original":{"kind":"integer","value":2}"#
+                )
+                .count(),
+            2
+        );
+        let source = format!(r#"{prefix}report 7; report items | head(0) | project(d,{{"x":d}});"#);
+        std::fs::write(&file, &source).unwrap();
+        for (flag, value) in [
+            ("--program", source.as_str()),
+            ("--program-file", file.to_str().unwrap()),
+        ] {
+            let output = run(&["query", flag, value], input);
+            assert_eq!(output.status.code(), Some(2), "{output:?}");
+            assert!(output.stdout.is_empty());
+            assert!(String::from_utf8_lossy(&output.stderr).contains("explicit scalar projection"));
+        }
+    }
+    let source = r#"fn fail(n:int)->int {1 div (n-1)}
+        report 7; report items | project(d,{"x":fail(d | count)});"#;
+    std::fs::write(&file, source).unwrap();
+    for (flag, value) in [
+        ("--program", source),
+        ("--program-file", file.to_str().unwrap()),
+    ] {
+        let output = run(&["query", flag, value], input);
+        assert_eq!(output.status.code(), Some(2), "{output:?}");
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(error.contains("fail") && error.contains("bytes"), "{error}");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

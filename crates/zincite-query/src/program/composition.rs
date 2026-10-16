@@ -1006,37 +1006,19 @@ impl ValueReaderHost for Parser<'_> {
         projection: zirql::Projection<Expression>,
         range: Range<usize>,
     ) -> Stage {
+        let stage = Stage::Projection(ProjectionStage(Some(projection)));
         if self.prepared || !self.function_names.is_empty() {
-            let source = Located::new(
-                zirql::ValueExpressionKind::NativeValue(Box::new(Located::new(
-                    ExpressionKind::Input,
+            return Stage::FunctionValue(Located::new(
+                zirql::ValueExpressionKind::NativeValue(Box::new(value_stage(
+                    stage,
                     range.clone(),
                 ))),
-                range.clone(),
-            );
-            let binder = Located::new(Some(projection.subject.value), projection.subject.range);
-            let head = Located::new(
-                zirql::ValueExpressionKind::Record(projection.fields),
-                range.clone(),
-            );
-            return Stage::FunctionValue(Located::new(
-                zirql::ValueExpressionKind::Comprehension {
-                    constructor: zirql::ValueConstructor::Array,
-                    clauses: vec![Located::new(
-                        zirql::ValueGenerator::In {
-                            binders: vec![binder],
-                            source,
-                            filter: None,
-                        },
-                        range.clone(),
-                    )],
-                    head: Box::new(head),
-                },
                 range,
             ));
         }
-        Stage::Projection(ProjectionStage(Some(projection)))
+        stage
     }
+
     fn matching(
         &mut self,
         mut matching: Matching,
@@ -1269,6 +1251,14 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
                     .map(|(_, value)| (value, Kind::Nodes))
                     .collect());
             }
+            Stage::Projection(projection) => {
+                return Ok(projection
+                    .get()
+                    .fields
+                    .iter()
+                    .map(|(_, expression)| (expression, Kind::Nodes))
+                    .collect());
+            }
             Stage::Match(matching) => {
                 let mut values = Vec::new();
                 for clause in &matching.get().clauses {
@@ -1358,6 +1348,17 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
                         expression,
                         relative: Some(self.subject_kind(input, budget, range)?),
                         locals: Vec::new(),
+                    });
+                }
+            }
+            Stage::Projection(projection) => {
+                let projection = projection.get();
+                let subject = self.subject_kind(input, budget, range)?;
+                for (_, expression) in &projection.fields {
+                    result.push(zirql::ScopedNativeArgument {
+                        expression,
+                        relative: Some(subject.clone()),
+                        locals: vec![(projection.subject.clone(), subject.clone())],
                     });
                 }
             }
@@ -1457,6 +1458,11 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
                 }
                 Stage::Ordering(ordering) => {
                     return self.order_with_arguments(ordering, value, arguments, budget, range);
+                }
+                Stage::Projection(projection) => {
+                    return arguments
+                        .evaluate_projection(projection.get(), value, budget)
+                        .map(|result| ReportValue::Constructed(result.value));
                 }
                 Stage::Match(matching) => {
                     return self.composed_with_arguments(
@@ -1796,6 +1802,60 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
             Stage::Projection(projection) => {
                 for name in scope.keys() {
                     budget.charge(name.len() + 1, zirql::Location::Query(range.clone()))?;
+                }
+                if self.0.functions {
+                    let projection = projection.get();
+                    let range = &projection.subject.range;
+                    if scope.contains_key(&projection.subject.value) {
+                        return Err(zirql::QueryError::query(
+                            range.clone(),
+                            "projection subject shadows an existing binding",
+                        ));
+                    }
+                    let subject = self.subject_kind(input, budget, range)?;
+                    let mut scope = scope.clone();
+                    budget.charge(
+                        projection.subject.value.len() + 1,
+                        zirql::Location::Query(range.clone()),
+                    )?;
+                    scope.insert(projection.subject.value.clone(), subject.clone());
+                    let mut facts = BTreeMap::new();
+                    let mut fields = Vec::new();
+                    budget.charge_results(
+                        projection.fields.len(),
+                        zirql::Location::Query(range.clone()),
+                    )?;
+                    for (label, expression) in &projection.fields {
+                        let kind =
+                            functions::value_kind(expression, self, &subject, &scope, budget)?;
+                        let types = self
+                            .scalar_types(&kind, budget, &expression.range)?
+                            .ok_or_else(|| {
+                                zirql::QueryError::query(
+                                    expression.range.clone(),
+                                    "native handles require an explicit scalar projection",
+                                )
+                            })?;
+                        budget.charge(
+                            label.value.len().saturating_mul(3) + 1,
+                            zirql::Location::Query(label.range.clone()),
+                        )?;
+                        facts.insert(label.value.clone(), types);
+                        fields.push((
+                            label.clone(),
+                            Located::new(
+                                zirql::ValueExpressionKind::<()>::Name(label.value.clone()),
+                                expression.range.clone(),
+                            ),
+                        ));
+                    }
+                    // Shared record analysis retains every field-type combination, including empty reports.
+                    let record =
+                        Located::new(zirql::ValueExpressionKind::Record(fields), range.clone());
+                    let records = zirql::query_value_types(&record, &facts, &mut CstTypes, budget)?;
+                    return Ok(Kind::Value(Rc::new(vec![zirql::ValueType::Array(
+                        zirql::ArrayType::Elements(records),
+                    )])));
                 }
                 zirql::projection_types(
                     projection.get(),
