@@ -71,7 +71,8 @@ After:
 ```minizinc
 constraint :: "Keep every value positive"
 forall (i in Position) (
-    value[i] > 0 /\ value[i] < 10
+    value[i] > 0 /\
+    value[i] < 10
 );
 constraint forall (i in Position) (
     value[i] > 0

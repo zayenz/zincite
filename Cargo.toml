@@ -7,15 +7,22 @@ resolver = "3"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/zayenz/zincite"
+homepage = "https://zayenz.se/zincite/"
 
 [package]
 name = "zincite"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "MiniZinc source formatting and linting tools"
+description = "MiniZinc source formatting, linting and query tools"
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://zayenz.se/zincite/"
+readme = "README.md"
+include = ["/src/**", "/build.rs", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE", "/CHANGELOG.md", "/RELEASING.md", "/assets/zincite-logo-light.svg", "/assets/zincite-logo-dark.svg"]
 
 [dependencies]
-zincite-fmt = { path = "crates/zincite-fmt" }
-zincite-lint = { path = "crates/zincite-lint" }
-zincite-query = { path = "crates/zincite-query" }
+zincite-fmt = { version = "0.1.0", path = "crates/zincite-fmt" }
+zincite-lint = { version = "0.1.0", path = "crates/zincite-lint" }
+zincite-query = { version = "0.1.0", path = "crates/zincite-query" }

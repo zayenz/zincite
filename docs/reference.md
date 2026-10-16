@@ -956,8 +956,9 @@ targets can establish empty axes; they cannot repair nonempty keys or holes.
 See the [data-edit guide](data-edits.md#construct-new-data) and the
 [explicit doubled instance](query-comprehension-contract.md#a-complete-doubled-instance).
 The single-pipeline `Query` API also supports the assignment edits described
-below. Build from the source checkout; `Cargo.lock` selects the Zirql revision
-used by this implementation.
+below. Add the 0.1.0 library to a Rust project with `cargo add zincite-query@0.1.0`.
+The [Rust API documentation](https://docs.rs/zincite-query/0.1.0) describes its
+native result types.
 
 #### Brace collections in reports
 
@@ -1092,7 +1093,8 @@ copies, aliases, ordering and set results, including discarded or empty results;
 strict nested observations refuse that value.
 
 The [walkthrough](queries.md#filter-connections-and-accumulate-declarations)
-shows both forms. From the repository root, the saved program also runs as:
+shows both forms. From the [v0.1.0 checkout](getting-started.md#build-from-a-checkout)
+root, the saved program also runs as:
 
 ```sh
 zincite-query --program-file crates/zincite-query/tests/fixtures/native-fixed-points.zq crates/zincite-query/tests/fixtures/worklist-reachability.mzn

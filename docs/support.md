@@ -6,6 +6,13 @@ and differences between the specification and compiler. JSON data and solver
 output are not supported input formats. Code and literals must be UTF-8;
 non-UTF-8 bytes in comments are preserved.
 
+## Versions and Rust support
+
+Zincite 0.1.0 supports the current stable Rust toolchain. No separate minimum
+Rust version is promised. The command-line tools and library crates share the
+same release version. Formatting and interfaces may change in the 0.1 series;
+review the [release notes](../CHANGELOG.md) when upgrading.
+
 ## What each command checks
 
 Parsing checks the written syntax. It does not resolve includes, check types

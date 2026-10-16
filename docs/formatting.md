@@ -25,7 +25,8 @@ See the [formatting style gallery](formatting-style.md) for before-and-after exa
 of constraints, comprehensions, matrices and comments.
 
 Syntax or formatting-directive errors leave the affected file untouched.
-`--write` preserves file permissions and refuses symlinks. Other independent
+`--write` preserves file permissions, refuses symlinks and checks that the
+source has not changed since it was read before replacing it. Other independent
 files are still processed when one fails.
 
 ## Format an editor buffer

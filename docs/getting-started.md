@@ -1,29 +1,41 @@
 # Install Zincite
 
-Install from a checkout with a current stable Rust toolchain:
+Use a current stable Rust toolchain to install Zincite 0.1.0:
 
 ```sh
-git clone https://github.com/zayenz/zincite.git
+cargo install --locked --version '=0.1.0' zincite
+```
+
+The root command provides `zincite fmt`, `zincite lint` and `zincite query`.
+To install the standalone commands instead, use:
+
+```sh
+cargo install --locked --version '=0.1.0' zincite-fmt
+cargo install --locked --version '=0.1.0' zincite-lint
+cargo install --locked --version '=0.1.0' zincite-query
+```
+
+Both invocation forms use the same options, defaults and exit codes. Run
+`zincite --help` for the command list, or a standalone command's `--help` for
+its options. `zincite --version` reports `0.1.0` and the build's Git revision
+when available. A build without Git reports just the package version.
+
+## Build from a checkout
+
+For contributions or the repository's saved examples, check out the matching
+release and run commands from its root:
+
+```sh
+git clone --branch v0.1.0 https://github.com/zayenz/zincite.git
 cd zincite
 cargo install --locked --path .
 ```
 
-The root command provides `zincite fmt`, `zincite lint` and `zincite query`. To install the
-standalone commands instead, use:
-
-```sh
-cargo install --locked --path crates/zincite-fmt
-cargo install --locked --path crates/zincite-lint
-cargo install --locked --path crates/zincite-query
-```
-
-Both invocation forms use the same options, defaults and exit codes. Run
-`zincite --help` for the command list.
-Run `zincite --version` to report the package version and the build's Git revision
-when available. Builds from source without Git still report the package version.
-
-The `0.0.0-pre` packages on crates.io are empty name reservations. Install from
-source to use the tools.
+To build a standalone command from this checkout, use its crate path, for
+example `cargo install --locked --path crates/zincite-query`.
+The query examples live in `crates/zincite-query/tests/fixtures/`. They also
+ship in the `zincite-query` crate under `tests/fixtures/`; adjust the path when
+running from that unpacked crate.
 
 ## Try the commands
 

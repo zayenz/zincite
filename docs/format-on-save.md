@@ -28,7 +28,7 @@ EditorConfig supplies indentation, tab width, editable line endings, width,
 final-newline and trailing-whitespace settings, and UTF-8/BOM selection.
 Supported command-line style overrides take precedence; see `--help` for their
 values and the [formatting style gallery](formatting-style.md) for examples.
-Formatting may change between versions before a stable release.
+Formatting may change between versions in the 0.1 series.
 
 ## Editor recipe
 

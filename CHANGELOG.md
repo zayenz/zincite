@@ -1,0 +1,24 @@
+# Release notes
+
+## 0.1.0
+
+Zincite provides a root command and three standalone commands for MiniZinc
+2.10.1 models and assignment-only data files:
+
+- `zincite fmt` formats source, checks files and directories, and writes explicit
+  files. It preserves comments, spelling and protected regions, reads
+  EditorConfig, and refuses stale or symlink writes.
+- `zincite lint` offers six default rules, the fourteen-rule thesis preset and
+  opt-in rule families. It reports warnings and analysis limitations separately;
+  fixes require an explicit request and sufficient supporting facts.
+- `zincite query` selects source and semantic facts, reuses saved results and
+  computes bounded reports through Zirql. Explicit data edits validate complete
+  candidates before writing. Later errors leave stdout empty.
+
+The syntax, formatting, lint and query libraries share version 0.1.0.
+Current stable Rust is supported. Formatting and interfaces may change within
+the 0.1 series. See the [guides](https://zayenz.se/zincite/) and
+[support limits](https://zayenz.se/zincite/guides/support/) for supported syntax,
+Unknown facts, incomplete results and write restrictions.
+
+The earlier `0.0.0-pre` packages reserved names; 0.1.0 contains the tools.

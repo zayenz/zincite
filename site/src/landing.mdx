@@ -18,7 +18,7 @@ hero:
 
 import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 
-<div className="project-note">Rust tools · MiniZinc 2.10.1 · Early development</div>
+<div className="project-note">Zincite 0.1.0 · MiniZinc 2.10.1</div>
 
 Zincite helps you review and maintain MiniZinc models. The formatter takes care
 of layout, so an edit to a constraint produces a diff you can read. The linter
@@ -121,15 +121,15 @@ investigate before asking a solver for a roster.
 [Work through the complete example](./guides/first-model/) for the model,
 formatter output, lint feedback and query result.
 
-## Install from source
+## Install Zincite
 
-Use a current stable Rust toolchain. The packages on crates.io are name
-reservations; install the working commands from a checkout.
+Install Zincite 0.1.0 with a current stable Rust toolchain:
 
 <!-- install-commands -->
 
-Zincite is in early development. Formatting and interfaces may change,
-including changes that break existing workflows. The
+Formatting and interfaces may change in the 0.1 series. Read the
+[release notes](https://github.com/zayenz/zincite/blob/v0.1.0/CHANGELOG.md) when
+upgrading. The
 [support guide](./guides/support/) explains language coverage and how to
 interpret incomplete analysis.
 

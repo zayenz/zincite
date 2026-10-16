@@ -15,6 +15,10 @@ source selections, model facts and literal data. Use this guide for commands
 you can run in Zincite; the Zirql site explains the shared language and its
 Rust embedding interfaces.
 
+Saved repository examples use the [v0.1.0 checkout](getting-started.md#build-from-a-checkout).
+Run their repository-relative paths from the checkout root. Examples that give
+file contents can be run in a new directory with the installed commands.
+
 ## Select items and calls
 
 Save this small model as `model.mzn`. It shares a capacity across three

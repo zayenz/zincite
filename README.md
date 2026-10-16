@@ -9,11 +9,11 @@
 Zincite formats, lints and queries MiniZinc model (`.mzn`) and data (`.dzn`)
 files. Use it to keep layout consistent, get feedback on modelling choices,
 and inspect source or data without running a compiler or solver. The Rust
-commands share a source-preserving parser. Zincite is under development,
-targeting MiniZinc 2.10.1; formatting may change before a stable release.
+commands share a source-preserving parser and target MiniZinc 2.10.1.
+Formatting and interfaces may change in the 0.1 series.
 
 The [documentation site](https://zayenz.se/zincite/) introduces the tools.
-Start with the [staffing walkthrough](docs/first-model.md): format a model,
+Start with the [staffing walkthrough](https://zayenz.se/zincite/guides/first-model/): format a model,
 give its constraints useful labels, then find a day where the data cannot
 meet the demand.
 
@@ -21,83 +21,93 @@ meet the demand.
 
 | Task | Documentation |
 | --- | --- |
-| Install the commands | [Installation](docs/getting-started.md) |
-| Follow a model through formatting, linting and a data query | [Staffing walkthrough](docs/first-model.md) |
-| Format files and configure layout | [Formatting guide](docs/formatting.md), [style gallery](docs/formatting-style.md) |
-| Set up formatting in an editor | [Format on save](docs/format-on-save.md) |
-| Select lint rules, understand categories and apply fixes | [Linting guide](docs/linting.md) |
-| Inspect source, declarations and uses | [Query guide](docs/queries.md) |
-| Extract counts, histograms, types and literal shapes | [Feature-extraction cookbook](docs/query-cookbook.md) |
-| Change data values, filter elements or reduce an enum | [Data-edit guide](docs/data-edits.md) |
-| Look up command statuses and write restrictions | [Command reference](docs/cli.md) |
-| Understand Unknown, failures and coverage limits | [Support limits](docs/support.md) |
+| Install the commands | [Installation](https://zayenz.se/zincite/guides/getting-started/) |
+| Follow a model through formatting, linting and a data query | [Staffing walkthrough](https://zayenz.se/zincite/guides/first-model/) |
+| Format files and configure layout | [Formatting guide](https://zayenz.se/zincite/guides/formatting/), [style gallery](https://zayenz.se/zincite/guides/formatting-style/) |
+| Set up formatting in an editor | [Format on save](https://zayenz.se/zincite/guides/format-on-save/) |
+| Select lint rules, understand categories and apply fixes | [Linting guide](https://zayenz.se/zincite/guides/linting/) |
+| Inspect source, declarations and uses | [Query guide](https://zayenz.se/zincite/guides/queries/) |
+| Extract counts, histograms, types and literal shapes | [Feature-extraction cookbook](https://zayenz.se/zincite/guides/query-cookbook/) |
+| Change data values, filter elements or reduce an enum | [Data-edit guide](https://zayenz.se/zincite/guides/data-edits/) |
+| Look up command statuses and write restrictions | [Command reference](https://zayenz.se/zincite/guides/cli/) |
+| Understand Unknown, failures and coverage limits | [Support limits](https://zayenz.se/zincite/guides/support/) |
 
 ## Installation
 
-[Install from a checkout](docs/getting-started.md) with a stable Rust toolchain.
-The root command supplies `zincite fmt`, `zincite lint` and `zincite query`;
-standalone commands are also available.
+Install Zincite 0.1.0 with a current stable Rust toolchain:
+
+```sh
+cargo install --locked --version '=0.1.0' zincite
+```
+
+The root command supplies `zincite fmt`, `zincite lint` and `zincite query`.
+The [installation guide](https://zayenz.se/zincite/guides/getting-started/) covers standalone commands
+and a versioned checkout for the saved examples.
 
 ## Formatting
 
-The [formatting guide](docs/formatting.md) covers stdout, check and file-write
+The [formatting guide](https://zayenz.se/zincite/guides/formatting/) covers stdout, check and file-write
 workflows, configuration and layout directives. Use the
-[editor recipe](docs/format-on-save.md) for buffer replacement.
+[editor recipe](https://zayenz.se/zincite/guides/format-on-save/) for buffer replacement.
 
 ## Linting
 
-The [linting guide](docs/linting.md) explains default rules, families, presets,
+The [linting guide](https://zayenz.se/zincite/guides/linting/) explains default rules, families, presets,
 model context, suppression and explicit fixes. Rule family, warning severity,
 advisory wording and fix eligibility are separate properties.
 
 ## Querying items
 
-Start with the [query guide](docs/queries.md) for source selection and semantic
-inspection, or the [data-edit guide](docs/data-edits.md) for transformations.
-The [cookbook](docs/query-cookbook.md) contains reproducible extraction recipes.
+Start with the [query guide](https://zayenz.se/zincite/guides/queries/) for source selection and semantic
+inspection, or the [data-edit guide](https://zayenz.se/zincite/guides/data-edits/) for transformations.
+The [cookbook](https://zayenz.se/zincite/guides/query-cookbook/) contains reproducible extraction recipes.
 
 ## Exit codes
 
-See the [command reference](docs/cli.md#exit-codes).
+See the [command reference](https://zayenz.se/zincite/guides/cli/#exit-codes).
 
 ## Current limitations
 
-The [support guide](docs/support.md) distinguishes current behavior, supported
+The [support guide](https://zayenz.se/zincite/guides/support/) distinguishes current behavior, supported
 Unknown, located limitations, input failures and future work. The
-[save checkpoint](scripts/save-performance-current.md) applies the 100 ms p95
+[save checkpoint](https://github.com/zayenz/zincite/blob/v0.1.0/scripts/save-performance-current.md) applies the 100 ms p95
 target to named ordinary editing cases and reports dense data separately.
-The [current lint measurements](scripts/lint-performance-current.md) report
+The [current lint measurements](https://github.com/zayenz/zincite/blob/v0.1.0/scripts/lint-performance-current.md) report
 fresh-process runtime, memory and analysis completeness for five model roots.
 
 ## Libraries
 
-| Rust crate | Reference |
-| --- | --- |
-| `zincite-syntax` | [Source, CST and parsing APIs](docs/reference.md#syntax-library) |
-| `zincite-fmt` | [Formatting APIs](docs/reference.md#formatter-library) |
-| `zincite-lint` | [Analysis, settings and fix APIs](docs/reference.md#lint-library) |
-| `zincite-query` | [Inspection and data-edit APIs](docs/reference.md#query-library) |
+| Rust crate | Guide | Rust API |
+| --- | --- | --- |
+| `zincite-syntax` | [Source, CST and parsing APIs](https://zayenz.se/zincite/guides/reference/#syntax-library) | [0.1.0](https://docs.rs/zincite-syntax/0.1.0) |
+| `zincite-fmt` | [Formatting APIs](https://zayenz.se/zincite/guides/reference/#formatter-library) | [0.1.0](https://docs.rs/zincite-fmt/0.1.0) |
+| `zincite-lint` | [Analysis, settings and fix APIs](https://zayenz.se/zincite/guides/reference/#lint-library) | [0.1.0](https://docs.rs/zincite-lint/0.1.0) |
+| `zincite-query` | [Inspection and data-edit APIs](https://zayenz.se/zincite/guides/reference/#query-library) | [0.1.0](https://docs.rs/zincite-query/0.1.0) |
 
-Generate local API documentation with `cargo doc --workspace --no-deps --open`.
+The library crates are available at version `0.1.0`. From a checkout, use `cargo doc --workspace --no-deps --open` for local API documentation.
 
 ## Development
 
-Read [AGENTS.md](AGENTS.md) for repository guidance and the
-[project brief](.zdev/base/brief.md) for behavior contracts and planned work.
+Read [AGENTS.md](https://github.com/zayenz/zincite/blob/v0.1.0/AGENTS.md) for repository guidance and the
+[project brief](https://github.com/zayenz/zincite/blob/v0.1.0/.zdev/base/brief.md) for behavior contracts and planned work.
 Run the workspace checks with:
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo clippy --workspace --all-targets --locked -- -D warnings
+RUSTDOCFLAGS="-D warnings" cargo test --workspace --locked
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 ```
 
-The [developer scripts](scripts/README.md) document corpus checks and performance
-measurements. The [semantic processing plan](docs/semantic-processing-plan.md)
+The [developer scripts](https://github.com/zayenz/zincite/blob/v0.1.0/scripts/README.md) document corpus checks and performance
+measurements. The [semantic processing plan](https://github.com/zayenz/zincite/blob/v0.1.0/docs/semantic-processing-plan.md)
 is developer material; it does not establish completed support. Reader
 documentation lives in this README and `docs/*.md`. The
-[Astro documentation site](site/README.md) renders these same guides.
+[Astro documentation site](https://github.com/zayenz/zincite/blob/v0.1.0/site/README.md) renders these same guides.
 Website build commands are separate from the Rust workspace checks.
+
+See the [0.1.0 release notes](CHANGELOG.md) and
+[release procedure](RELEASING.md) for package verification and publication order.
 
 ## License
 

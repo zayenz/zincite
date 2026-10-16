@@ -2,9 +2,11 @@
 
 `zincite fmt`, `zincite lint` and `zincite query` use the same options as
 `zincite-fmt`, `zincite-lint` and `zincite-query`, respectively. Installed help
-lists the accepted options:
+lists the accepted options. `zincite --version` reports `0.1.0` and a build
+revision when available:
 
 ```sh
+zincite --version
 zincite --help
 zincite fmt --help
 zincite lint --help

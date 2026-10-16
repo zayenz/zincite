@@ -4,9 +4,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Source-preserving MiniZinc inspection and data queries"
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/zincite-query/0.1.0"
+readme = "README.md"
+include = ["/src/**", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE", "/tests/fixtures/**"]
 
 [dependencies]
-zirql = { git = "https://github.com/zayenz/zirql", rev = "63824d0d041477ed7deba3e945cccf47db45120d" }
-zincite-lint = { path = "../zincite-lint" }
-zincite-syntax = { path = "../zincite-syntax" }
+zirql = { version = "0.1.0", git = "https://github.com/zayenz/zirql", rev = "6b6184fbf9998ece38c7e8cd5391770b5db32e04" }
+zincite-lint = { version = "0.1.0", path = "../zincite-lint" }
+zincite-syntax = { version = "0.1.0", path = "../zincite-syntax" }
 serde_json = { version = "1", features = ["preserve_order"] }
