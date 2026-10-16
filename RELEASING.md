@@ -23,17 +23,17 @@ output, `node_modules`, planning records and exploration assets out. Workspace
 integration tests that depend on fixtures outside their crate stay in the
 checkout. Query examples ship under `tests/fixtures/` in `zincite-query`.
 
-The source dependency on Zirql has both version `0.1.0` and its reviewed Git
-revision. Packaged manifests must replace Git and sibling paths with registry
-version requirements. Inspect every normalized `Cargo.toml`, package file list
+The source dependency on Zirql is the crates.io release `0.1.0`. Packaged
+manifests must replace sibling paths with registry version requirements.
+Inspect every normalized `Cargo.toml`, package file list
 and lockfile. Build and run the root and standalone commands from an isolated
 local installation, including formatting writes, lint warnings, a complete
 query and a later-error request with empty stdout.
 
-Before packaging, both consumers must build against the same reviewed Zirql
-Git revision with registry requirement `0.1.0`. Their relevant suites and the
-CSV example must pass. Rebuild artifacts after changes to the shared reader or
-adapters; retain the existing package, clean-install, CI and site checks.
+Before packaging, both consumers must build against the verified Zirql
+`0.1.0` registry release. Their accepted relevant suites and the CSV example
+must cover the same reviewed shared-language source. Rebuild artifacts after
+changes to the shared reader or adapters; retain the existing package, clean-install, CI and site checks.
 
 ## Verify archives and publication order
 
@@ -48,8 +48,7 @@ cargo +1.99.0 publish --workspace --dry-run --locked
 These commands may stage unpublished workspace siblings together. They still
 need the actual Zirql 0.1.0 registry dependency. Its absence is a release gate;
 do not bypass verification or call a local dependency override registry proof.
-A combined disposable workspace can verify the Zirql and consumer archives
-before publication, but public registry resolution remains a separate check.
+Final archives must resolve Zirql from crates.io without source overrides.
 Retain the clean candidate commits, archive hashes and command results.
 
 Publish dependencies before their consumers:
