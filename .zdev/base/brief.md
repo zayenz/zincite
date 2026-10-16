@@ -91,6 +91,19 @@ complete condition fit the configured width. Preserve comments and genuinely
 multiline bodies. The expression after a `let { ... } in` block stays at the
 indentation of the `let`; do not add an extra indentation level for that body.
 
+At the top level of an expanded `forall` body, put each conjunction clause on
+its own line, with trailing `/\` and no extra continuation indentation. Short
+conjunctions inside calls, parentheses or other expressions stay compact.
+
+For multiline Boolean expressions with mixed, unparenthesized precedence levels,
+put the weaker operator on its own line and indent its operands one level. Apply
+this to equivalence, implication and disjunction over tighter Boolean expressions.
+For example, `a /\ b <-> forall (i in I) (p(i))` has the whole conjunction on
+the left of `<->`; its layout must distinguish that from
+`a /\ (b <-> forall (i in I) (p(i)))`. Keep short expressions inline. Chains at
+the same precedence share a column rather than accumulating indentation. Retain
+explicit parentheses and operator spellings; arithmetic keeps its existing layout.
+
 Preserve explicitly multiline comma-separated lists even when they would fit on
 one line; normalise them to one item per line with consistent
 indentation. This intentionally allows compact and expanded layouts for equivalent

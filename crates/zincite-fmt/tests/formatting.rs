@@ -1873,3 +1873,159 @@ fn compiler_source_extensions_format_losslessly_and_stably() {
     assert!(formatted.contains("local_flag :: output == true"));
     assert_eq!(format(&reparsed).unwrap(), formatted);
 }
+
+#[test]
+fn forall_body_conjunctions_separate_clauses() {
+    let source = r"constraint S[lx - 1] = 0 /\ forall (i in lx..ux) (S[i] = xs[i] + S[i - 1]) /\ (b <->
+    forall (i in lx - 1..ux - window_size) (S[i] <= S[i + window_size] - low /\ S[i + window_size] <= S[i] + up));";
+    let expected = r"constraint S[lx - 1] = 0 /\
+forall (i in lx .. ux) (
+    S[i] = xs[i] + S[i - 1]
+) /\
+(b <-> forall (i in lx - 1 .. ux - window_size) (
+    S[i] <= S[i + window_size] - low /\
+    S[i + window_size] <= S[i] + up
+));
+";
+    let formatted = format(&parse(source)).unwrap();
+    assert_eq!(formatted, expected);
+    assert_eq!(format(&parse(&formatted)).unwrap(), formatted);
+}
+
+#[test]
+fn short_nested_conjunctions_stay_compact_in_expanded_bodies() {
+    let source = r"constraint forall (i in 1..3) (check(a /\ b) /\ (c /\ d) /\ (e <-> f /\ g));
+constraint a /\ b;";
+    let expected = r"constraint forall (i in 1 .. 3) (
+    check(a /\ b) /\
+    (c /\ d) /\
+    (e <-> f /\ g)
+);
+constraint a /\ b;
+";
+    let formatted = format(&parse(source)).unwrap();
+    assert_eq!(formatted, expected);
+    assert_eq!(format(&parse(&formatted)).unwrap(), formatted);
+}
+
+#[test]
+fn expanded_boolean_precedence_distinguishes_equivalence_from_conjunction() {
+    let source = r"constraint S[lx - 1] = 0 /\ forall (i in lx..ux) (S[i] = xs[i] + S[i - 1]) /\ b <->
+    forall (i in lx - 1..ux - window_size) (S[i] <= S[i + window_size] - low /\ S[i + window_size] <= S[i] + up);";
+    let expected = r"constraint
+    S[lx - 1] = 0 /\
+    forall (i in lx .. ux) (
+        S[i] = xs[i] + S[i - 1]
+    ) /\
+    b
+<->
+    forall (i in lx - 1 .. ux - window_size) (
+        S[i] <= S[i + window_size] - low /\
+        S[i + window_size] <= S[i] + up
+    );
+";
+    let parsed = parse(source);
+    let formatted = format(&parsed).unwrap();
+    assert_eq!(formatted, expected);
+    let reparsed = parse(&formatted);
+    assert_eq!(
+        structure(parsed.tree(), &parsed),
+        structure(reparsed.tree(), &reparsed)
+    );
+    assert_eq!(format(&reparsed).unwrap(), formatted);
+}
+
+#[test]
+fn boolean_precedence_keeps_short_operands_and_same_level_chains_bounded() {
+    use zincite_fmt::{FormatOptions, IndentStyle, format_with_options};
+
+    for operator in ["<->", "->", "<-", "\\/", "xor", "↔", "→", "∨"] {
+        for options in [
+            FormatOptions::default(),
+            FormatOptions {
+                max_line_length: std::num::NonZeroUsize::new(48),
+                ..FormatOptions::default()
+            },
+            FormatOptions {
+                indent_style: IndentStyle::Tab,
+                indent_size: std::num::NonZeroUsize::new(2).unwrap(),
+                tab_width: std::num::NonZeroUsize::new(2).unwrap(),
+                max_line_length: None,
+                ..FormatOptions::default()
+            },
+        ] {
+            let source = format!(
+                r"constraint a /\ b {operator} forall (i in 1..3) (p(i));
+constraint a /\ b {operator} c /\ d;
+constraint a /\ b /* Left  comment */ {operator} % Operator  comment
+forall (i in 1..3) (p(i));
+constraint a /\ b {operator} c {operator} d {operator} forall (i in 1..3) (p(i));
+constraint a /\ b {operator} c /\ d -> forall (i in 1..3) (p(i));"
+            );
+            let parsed = parse(&source);
+            let formatted = format_with_options(&parsed, &options).unwrap();
+            let indent = if options.indent_style == IndentStyle::Tab {
+                "\t"
+            } else {
+                "    "
+            };
+            assert!(
+                formatted.starts_with(&format!(
+                    "constraint\n{indent}a /\\ b\n{operator}\n{indent}forall"
+                )),
+                "{formatted}"
+            );
+            assert!(
+                formatted.contains(&format!("constraint a /\\ b {operator} c /\\ d;")),
+                "{formatted}"
+            );
+            assert!(formatted.contains("/* Left  comment */"));
+            assert!(formatted.contains("% Operator  comment"));
+            let reparsed = parse(&formatted);
+            assert!(reparsed.diagnostics().is_empty(), "{formatted}");
+            assert_eq!(
+                structure(parsed.tree(), &parsed),
+                structure(reparsed.tree(), &reparsed)
+            );
+            assert_eq!(format_with_options(&reparsed, &options).unwrap(), formatted);
+        }
+    }
+    let source = format!(
+        "constraint a /\\ b -> {}forall (i in 1..3) (p(i));",
+        "c -> ".repeat(64)
+    );
+    let parsed = parse(&source);
+    let formatted = format(&parsed).unwrap();
+    assert_eq!(formatted.lines().filter(|line| *line == "->").count(), 65);
+    assert!(
+        formatted
+            .lines()
+            .all(|line| !line.starts_with("            "))
+    );
+    assert_eq!(format(&parse(&formatted)).unwrap(), formatted);
+}
+
+#[test]
+fn boolean_precedence_blocks_fit_conditions_and_enclosing_lists_on_first_pass() {
+    let source = r#"constraint if a /\ b -> forall (i in 1..3) (p(i)) then c else d endif;
+constraint check(a /\ b -> forall (i in 1..3) (p(i)), "message");
+constraint (a /\ b -> forall (i in 1..3) (p(i))) /\ c;
+constraint let { int: x = 1; } in a /\ b -> forall (i in 1..3) (p(i));
+array[int] of bool: x = [a /\ b -> forall (i in 1..3) (p(i)), c];
+constraint forall (i in 1..3) (a /\ b -> forall (j in 1..3) (p(j)));"#;
+    let parsed = parse(source);
+    let formatted = format(&parsed).unwrap();
+    assert!(formatted.starts_with("constraint if\n    a /\\ b\n->\n    forall"));
+    assert!(formatted.contains("\nthen\n    c\nelse\n    d\nendif;"));
+    assert!(formatted.contains("constraint check(\n        a /\\ b\n    ->\n"));
+    assert!(formatted.contains("\n    \"message\",\n);"));
+    assert!(formatted.contains("array[int] of bool: x = [\n        a /\\ b\n    ->\n"));
+    assert!(formatted.contains("\n    c,\n];"));
+    let reparsed = parse(&formatted);
+    assert!(reparsed.diagnostics().is_empty());
+    assert_eq!(
+        structure(parsed.tree(), &parsed),
+        structure(reparsed.tree(), &reparsed)
+    );
+    assert_eq!(format(&reparsed).unwrap(), formatted);
+}

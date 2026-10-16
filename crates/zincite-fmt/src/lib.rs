@@ -554,14 +554,27 @@ impl<'a> Formatter<'a> {
         leading_space: bool,
         condition: bool,
     ) {
+        if self.logical_expression_expands(node, leading_space) {
+            let offset = self.condition_offset;
+            if condition {
+                self.condition_offset = 0;
+            }
+            self.logical_expression(node);
+            self.condition_offset = offset;
+            self.break_before_code |= condition;
+            return;
+        }
         let conjunction = self.is_conjunction(node);
         let mut expanded = self.measuring_prefix
-            || conjunction && self.parsed.source()[node.range()].contains(['\r', '\n']);
+            || conjunction
+                && self.parsed.source()[node.range()]
+                    .trim()
+                    .contains(['\r', '\n']);
         if conjunction && !expanded && !self.measuring {
             let mut preview = self.preview();
             let start = preview.output.len();
             preview.binary_expression(node, leading_space, false, self.indent + 1);
-            expanded = preview.output[start..].contains('\n')
+            expanded = preview.output[start..].trim_start().contains('\n')
                 || preview.exceeds_width(self.current_columns(), self.suffix_columns);
         }
         let continuation_indent =
@@ -615,7 +628,7 @@ impl<'a> Formatter<'a> {
                     }
                     let suffix = self.following_columns(node.children(), position);
                     if is_binary(child.kind())
-                        && self.is_conjunction(node) == self.is_conjunction(child)
+                        && self.logical_precedence(node) == self.logical_precedence(child)
                     {
                         let previous = self.suffix_columns;
                         self.suffix_columns = suffix;
@@ -648,6 +661,92 @@ impl<'a> Formatter<'a> {
             }
         }
         self.indent = initial_indent;
+    }
+
+    // Only Boolean precedence boundaries need this layout. Arithmetic, explicit
+    // parentheses and calls keep their own compact/width-sensitive formatting.
+    fn logical_precedence(&self, node: &SyntaxNode) -> Option<u8> {
+        if node.kind() != NodeKind::BinaryExpression {
+            return None;
+        }
+        node.children().iter().find_map(|child| {
+            let SyntaxElement::Token(index) = child else {
+                return None;
+            };
+            match self.parsed.tokens()[*index].kind {
+                TokenKind::And => Some(1),
+                TokenKind::Or | TokenKind::Xor => Some(2),
+                TokenKind::Implies | TokenKind::ReverseImplies => Some(3),
+                TokenKind::Equivalence => Some(4),
+                _ => None,
+            }
+        })
+    }
+
+    fn has_mixed_logical_precedence(&self, node: &SyntaxNode) -> bool {
+        let Some(level @ 2..=4) = self.logical_precedence(node) else {
+            return false;
+        };
+        node.child_nodes().any(|child| {
+            self.logical_precedence(child).is_some_and(|child_level| {
+                child_level < level
+                    || child_level == level && self.has_mixed_logical_precedence(child)
+            })
+        })
+    }
+
+    fn logical_expression_expands(&self, node: &SyntaxNode, leading_space: bool) -> bool {
+        if self.measuring || !self.has_mixed_logical_precedence(node) {
+            return false;
+        }
+        let mut preview = self.preview();
+        let start = preview.output.len();
+        preview.binary_expression(node, leading_space, false, self.indent + 1);
+        preview.output[start..].trim_start().contains('\n')
+            || preview.exceeds_width(self.current_columns(), self.suffix_columns)
+    }
+
+    // Operators at the same precedence share a column, avoiding a staircase
+    // along long left-associated chains. Only a different Boolean level nests.
+    fn logical_expression(&mut self, node: &SyntaxNode) {
+        let indent = self.indent;
+        let level = self.logical_precedence(node);
+        let last_operand = node
+            .children()
+            .iter()
+            .rposition(|child| matches!(child, SyntaxElement::Node(_)));
+        for (position, child) in node.children().iter().enumerate() {
+            if self.prefix_finished() {
+                break;
+            }
+            let suffix = if Some(position) == last_operand {
+                self.suffix_columns
+            } else {
+                0
+            };
+            match child {
+                SyntaxElement::Node(child) if self.logical_precedence(child) == level => {
+                    let previous = self.suffix_columns;
+                    self.suffix_columns = suffix;
+                    self.logical_expression(child);
+                    self.suffix_columns = previous;
+                }
+                SyntaxElement::Node(child) => {
+                    self.indent = indent + 1;
+                    self.break_before_code = true;
+                    self.expression_before(child, false, suffix);
+                    self.indent = indent;
+                }
+                SyntaxElement::Token(index) => {
+                    if !is_trivia(self.parsed.tokens()[*index].kind) {
+                        self.indent = indent;
+                        self.break_before_code = true;
+                    }
+                    self.token_with_space(*index, false);
+                }
+            }
+        }
+        self.indent = indent;
     }
 
     fn is_conjunction(&self, node: &SyntaxNode) -> bool {
@@ -1495,11 +1594,18 @@ impl<'a> Formatter<'a> {
                     }
                     let preserve_breaks = self.preserve_binary_breaks;
                     self.preserve_binary_breaks |= expanded && forall;
-                    self.expression_before(
-                        expression,
-                        false,
-                        if expanded { 0 } else { 1 + self.suffix_columns },
-                    );
+                    if expanded && forall && self.is_conjunction(expression) {
+                        let suffix = self.suffix_columns;
+                        self.suffix_columns = 0;
+                        self.binary_expression(expression, false, true, self.indent);
+                        self.suffix_columns = suffix;
+                    } else {
+                        self.expression_before(
+                            expression,
+                            false,
+                            if expanded { 0 } else { 1 + self.suffix_columns },
+                        );
+                    }
                     self.preserve_binary_breaks = preserve_breaks;
                 }
                 SyntaxElement::Token(index) => match self.parsed.tokens()[*index].kind {
@@ -2129,7 +2235,11 @@ impl<'a> Formatter<'a> {
     ) {
         let multiline = self.has_delimited_line_break(node, opening, closing)
             || self.measuring_prefix && node.child_nodes().next().is_some()
-            || self.node_exceeds_width(node, leading_space, self.suffix_columns);
+            || self.node_exceeds_width(node, leading_space, self.suffix_columns)
+            || !self.measuring
+                && node
+                    .child_nodes()
+                    .any(|entry| self.logical_expression_expands(entry, false));
         if multiline
             && !self.measuring
             && self.options.indent_style == IndentStyle::Space

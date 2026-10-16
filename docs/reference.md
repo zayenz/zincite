@@ -1523,6 +1523,24 @@ the defaults use LF and enable final newline insertion and trimming. Comments,
 literal chunks and skipped spans retain their bytes even when these settings
 would otherwise change them.
 
+Expanded `forall` bodies put top-level conjunction clauses on separate lines.
+Short conjunctions nested in calls or parentheses remain compact. When a multiline
+Boolean expression combines unparenthesized precedence levels, the weaker
+operator occupies its own line and its operands are indented. For example:
+
+```minizinc
+constraint
+    a /\ b
+<->
+    forall (i in I) (
+        p(i)
+    );
+```
+
+The left operand of `<->` is the whole `a /\ b` conjunction. Short expressions
+stay inline, and chains at the same precedence share an indentation level.
+Formatting preserves the expression tree, parentheses and operator spellings.
+
 ## Lint library
 
 Use `zincite_lint::lint(&parsed)` for the source-local default rules. It returns
