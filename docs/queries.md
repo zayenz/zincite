@@ -124,6 +124,52 @@ describes how to read those reports from another program.
 All examples here are read-only. To change a data file, use the
 [data-edit guide](data-edits.md); editing supports a smaller set of expressions.
 
+## Calculate with shared values
+
+A report can calculate entirely from values in the query. Save this as
+`counts.zq`:
+
+```zirql title="counts.zq"
+let samples = [
+  {"label": "pear", "count": 2},
+  {"label": "apple", "count": 1},
+  {"label": "ash", "count": 2},
+  {"label": "birch", "count": 3}
+];
+let selected = [row | row in samples where row.count > 1];
+sort_by({row.label: row.count for row in selected}, value, descending=true)
+```
+
+```sh
+zincite query --program-file counts.zq model.mzn
+```
+
+```json
+{"complete":true,"limitations":[],"result":{"birch":{"kind":"integer","value":3},"pear":{"kind":"integer","value":2},"ash":{"kind":"integer","value":2}}}
+```
+
+`selected` contains pear, ash and birch in their input order. The dictionary uses
+their labels as string keys and their counts as values. `descending=true` puts
+the largest count first. Pear and ash both have count 2, so their incoming order
+stays pear, then ash. Sorting retains the dictionary kind.
+
+The MiniZinc array comprehension spells its generator `[row | row in samples
+where ...]`. The [Zirql language guide](https://zayenz.se/zirql/guides/language-reference/)
+and [Zirium guide](https://zayenz.se/zirium/guides/query-language/) use
+`[row for row in samples if ...]` for this same calculation. The binding,
+filtering, dictionary and ordering rules are shared. Zincite retains its typed
+integer payloads and result envelope; the CSV and Zirium renderers print ordinary
+JSON integers.
+
+This program does not inspect `model.mzn`. To supply data from MiniZinc source,
+select native items and project their `names` or literal `values`, as in the
+next examples. Model evaluation, declarations and source edits retain their
+MiniZinc-specific rules.
+
+Use `--program` for an inline complete program or `--program-file` for a file.
+The positional query argument reads the smaller native pipeline syntax and does
+not accept `let` declarations.
+
 ## Continue a calculated array
 
 A saved selection can feed several calculations before the report is rendered.
@@ -135,7 +181,7 @@ let selected = items | filter(kind("assignment"));
 let labels = selected | names;
 let n = selected | count;
 let rows = [label | label in labels];
-let ordered = (rows) | sort | unique;
+let ordered = rows | sort | unique;
 (names: ordered, count: n, selected: selected)
 ```
 
@@ -144,7 +190,7 @@ Run `zincite query -f names.zq data.dzn`, or pass the same source with
 The outer pipes continue the completed array through Zirql's shared collection
 operations. `sort` orders homogeneous scalars; `unique` keeps the first equal
 value. For string frequencies, replace the last binding with
-`let ordered = (rows) | tally;`. Its result is a dictionary with string keys in first-seen order
+`let ordered = rows | tally;`. Its result is a dictionary with string keys in first-seen order
 and integer counts.
 
 To count only names beginning with `a`, continue the calculated array:
@@ -153,17 +199,17 @@ To count only names beginning with `a`, continue the calculated array:
 let selected = items | filter(kind("assignment"));
 let labels = selected | names;
 let rows = [label | label in labels];
-let matching = (rows) | filter(starts_with("a"));
-(matching) | count
+let matching = rows | filter(starts_with("a"));
+matching | count
 ```
 
 The filter uses exact, case-sensitive prefixes. `count` counts the retained
 strings, including duplicates. The same suffixes work on a saved function
-result: bind `let labels = make_labels();`, then continue `(labels)`.
+result: bind `let labels = make_labels();`, then continue `labels | sort`.
 
-Parenthesize a saved calculated value or function call when continuing it as a
-constructed array: `(rows) | sort | unique` or `(make_rows()) | tally`.
-Native pipelines such as `selected | names` retain their existing meaning.
+A saved calculated value can feed a pipeline directly: `rows | sort | unique`.
+Group a function call when continuing its result, as in `(make_rows()) | tally`.
+Native pipelines such as `selected | names` keep their domain stages.
 `names`, `count` and `values` provide explicit calculation inputs from native
 results; no text or JSON conversion is involved. The same expressions work
 with an unrelated function declaration and inside supported pure functions.
