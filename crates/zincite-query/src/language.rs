@@ -24,6 +24,7 @@ pub(crate) enum StageKind {
     Types,
     Instantiations,
     Filter(Predicate),
+    SharedFilter(std::rc::Rc<crate::program::QueryPredicate>),
     Head(usize),
     Tail(usize),
     Reverse,
@@ -74,10 +75,6 @@ pub(crate) enum PredicateKind {
     Instantiation(String),
     SourceKind(String),
     Name(String),
-    Not(Box<Predicate>),
-    Group(Box<Predicate>),
-    And(Vec<Predicate>),
-    Or(Vec<Predicate>),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -181,12 +178,14 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
             "query byte limit exceeded (1048576 bytes)",
         ));
     }
+    let mut shared_budget = crate::pipeline::budget(limits);
     let mut parser = Parser {
         source,
         position: 0,
         nesting_limit: limits.nesting.min(MAX_NESTING),
         collection_limit: limits.collection,
         arguments: None,
+        shared_budget: Some(&mut shared_budget),
     };
     let mut stages = Vec::new();
     let mut editing = false;
@@ -254,14 +253,14 @@ pub(crate) fn parse(source: &str, limits: Limits) -> Result<Query, QueryError> {
     })
 }
 
-// The cursor keeps located tokens without a second token buffer. Boolean chains
-// are flat vectors; only written groups and `not` consume the nesting budget.
+// The cursor retains source locations for native stage signatures.
 pub(crate) struct Parser<'a> {
     pub(crate) source: &'a str,
     pub(crate) position: usize,
     pub(crate) nesting_limit: usize,
     pub(crate) collection_limit: usize,
     pub(crate) arguments: Option<&'a mut ArgumentReader<'a>>,
+    pub(crate) shared_budget: Option<&'a mut zirql::Budget>,
 }
 
 impl<'a> Parser<'a> {
@@ -284,9 +283,21 @@ impl<'a> Parser<'a> {
             }
             "filter" => {
                 self.punctuation(b'(', "expected '(' after filter")?;
-                let predicate = self.predicate(0)?;
+                let (predicate, position) = crate::program::read_query_predicate(
+                    self.source,
+                    self.position,
+                    Limits {
+                        nesting: self.nesting_limit,
+                        collection: self.collection_limit,
+                        ..Limits::default()
+                    },
+                    self.shared_budget
+                        .as_deref_mut()
+                        .expect("fixed Query predicates share the parse allowance"),
+                )?;
+                self.position = position;
                 self.punctuation(b')', "expected ')' after filter predicate")?;
-                StageKind::Filter(predicate)
+                StageKind::SharedFilter(predicate)
             }
             "head" => {
                 self.punctuation(b'(', "expected '(' after head")?;
@@ -444,6 +455,32 @@ impl<'a> Parser<'a> {
     }
 
     fn comparison(&mut self) -> Result<Comparison, QueryError> {
+        let start = self.position;
+        let mut probe =
+            zirql::ArgumentReader::new(self.source, start).map_err(crate::pipeline::core_error)?;
+        let direct = probe
+            .word()
+            .is_ok_and(|name| matches!(name.value, "eq" | "lt" | "le" | "gt" | "ge"))
+            && probe.consume('(');
+        if !direct {
+            let budget = self
+                .shared_budget
+                .as_deref_mut()
+                .expect("fixed Query predicates share the parse allowance");
+            let before = budget.remaining_work();
+            let mut reader = zirql::ArgumentReader::new(self.source, start)
+                .map_err(crate::pipeline::core_error)?;
+            let predicate = crate::comprehension::read_scalar_predicate(
+                &mut reader,
+                budget,
+                self.nesting_limit,
+            )?;
+            self.position = reader.position();
+            return Ok(Comparison::shared(
+                predicate,
+                before - budget.remaining_work(),
+            ));
+        }
         let (name, range) = self.word("expected eq, lt, le, gt or ge comparison")?;
         let kind = match name {
             "eq" => ComparisonKind::Eq,
@@ -491,83 +528,12 @@ impl<'a> Parser<'a> {
             ));
         }
         self.punctuation(b')', "expected ')' after comparison operand")?;
-        Ok(Comparison { kind, value })
-    }
-
-    fn predicate(&mut self, depth: usize) -> Result<Predicate, QueryError> {
-        self.boolean_chain(depth, false)
-    }
-
-    fn boolean_chain(&mut self, depth: usize, conjunction: bool) -> Result<Predicate, QueryError> {
-        let mut predicates = Vec::new();
-        loop {
-            predicates.push(if conjunction {
-                self.primary(depth)?
-            } else {
-                self.boolean_chain(depth, true)?
-            });
-            if !self.take_word(if conjunction { "and" } else { "or" }) {
-                break;
-            }
-        }
-        if predicates.len() == 1 {
-            return Ok(predicates.pop().unwrap());
-        }
-        let range = predicates[0].range.start..predicates.last().unwrap().range.end;
-        let kind = if conjunction {
-            PredicateKind::And(predicates)
-        } else {
-            PredicateKind::Or(predicates)
-        };
-        Ok(Predicate { kind, range })
-    }
-
-    fn primary(&mut self, depth: usize) -> Result<Predicate, QueryError> {
-        self.space();
-        let start = self.position;
-        if self.take_word("not") {
-            self.check_depth(depth, start)?;
-            let predicate = self.primary(depth + 1)?;
-            let range = start..predicate.range.end;
-            return Ok(Predicate {
-                kind: PredicateKind::Not(Box::new(predicate)),
-                range,
-            });
-        }
-        if self.current() == Some(b'(') {
-            self.check_depth(depth, start)?;
-            self.position += 1;
-            let predicate = self.predicate(depth + 1)?;
-            self.punctuation(b')', "expected ')' after parenthesized predicate")?;
-            return Ok(Predicate {
-                kind: PredicateKind::Group(Box::new(predicate)),
-                range: start..self.position,
-            });
-        }
-        let (name, range) = self.word("expected kind(...) or name(...) predicate")?;
-        if !matches!(
-            name,
-            "kind" | "name" | "type" | "instantiation" | "source_kind"
-        ) {
-            return Err(QueryError::query(
-                range,
-                format!("unknown predicate '{name}'"),
-            ));
-        }
-        self.punctuation(b'(', "expected '(' after predicate name")?;
-        let argument = match name {
-            "kind" => ArgumentKind::Kind,
-            "type" => ArgumentKind::Type,
-            "instantiation" => ArgumentKind::Instantiation,
-            "source_kind" => ArgumentKind::SourceKind,
-            _ => ArgumentKind::Name,
-        };
-        let (value, value_range) = self.string_argument(start, argument)?;
-        self.punctuation(b')', "expected ')' after predicate argument")?;
-        let kind = argument.predicate(value, value_range)?;
-        Ok(Predicate {
+        Ok(Comparison {
             kind,
-            range: start..self.position,
+            value,
+            predicate: None,
+            bindings: std::rc::Rc::new(zirql::Bindings::new(Vec::new()).expect("empty bindings")),
+            read_work: 0,
         })
     }
 
@@ -687,17 +653,6 @@ impl<'a> Parser<'a> {
                 "range bounds require non-negative integers fitting usize",
             )
         })
-    }
-
-    fn check_depth(&self, depth: usize, start: usize) -> Result<(), QueryError> {
-        if depth >= self.nesting_limit {
-            Err(QueryError::query(
-                start..self.position.max(start + 1),
-                "query nesting limit exceeded",
-            ))
-        } else {
-            Ok(())
-        }
     }
 
     pub(crate) fn string(&mut self) -> Result<(String, Range<usize>), QueryError> {

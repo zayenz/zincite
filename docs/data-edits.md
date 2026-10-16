@@ -36,7 +36,7 @@ zincite query --write 'filter(name("capacity")) | set_value("30")' data.dzn
 ## Filter literal elements or remove an assignment
 
 ```sh
-zincite query --diff 'filter(name("weights")) | filter_elements(gt(0))' data.dzn
+zincite query --diff 'filter(name("weights")) | filter_elements(value => value > 0)' data.dzn
 zincite query --diff 'filter(name("unused")) | remove' data.dzn
 ```
 
@@ -45,6 +45,21 @@ The first command keeps `1` and `3` in `weights`; the second removes the
 Filtering compares written literal elements. It cannot evaluate an arbitrary
 MiniZinc expression to decide whether to keep it. Removal includes comments
 attached to the removed entry or assignment; separated section comments remain.
+The implicit spelling is `filter_elements(_ > 0)`. These bodies use the closed
+Data expression policy; report-only calls and effects remain unavailable.
+Direct `eq`, `lt`, `le`, `gt`, `ge` and `eq(member("A"))` comparisons also remain
+available.
+
+A program can supply visible Data bindings to one scalar edit pipeline:
+
+```zirql
+let cutoff = 0;
+items | filter(name("weights")) | filter_elements(value => value > cutoff) | emit
+```
+
+It produces one complete candidate and cannot combine that pipeline with other
+edits or report outputs.
+
 See [literal filtering](reference.md#assignment-edits) for supported shapes.
 
 ## Reduce enum membership

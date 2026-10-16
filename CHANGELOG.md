@@ -15,6 +15,11 @@ Zincite provides a root command and three standalone commands for MiniZinc
   computes bounded reports through Zirql. Explicit data edits validate complete
   candidates before writing. Later errors leave stdout empty.
 
+Query expressions use Zirql's common reader. Both comprehension spellings,
+shared tuple/list patterns and named or implicit predicates work across
+constructed reports and native predicate positions. Scalar `filter_elements`
+bodies retain the closed Data policy and source-preserving edit checks.
+
 The syntax, formatting, lint and query libraries share version 0.1.0.
 Current stable Rust is supported. Formatting and interfaces may change within
 the 0.1 series. See the [guides](https://zayenz.se/zincite/) and

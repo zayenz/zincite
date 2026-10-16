@@ -134,6 +134,19 @@ incomplete. Exit 1 emits the available rows and notes on stderr; JSON sets
 parameter. Check the exit status before treating the result as a complete
 inventory. Input or query errors exit 2 with empty stdout.
 
+## Keep calculated rows
+
+A predicate and a filtered comprehension select the same ordered rows:
+
+```sh
+zincite query --program 'let rows=[(weight:2),(weight:5),(weight:3)]; rows | filter(row => row.weight > 2)' data.dzn
+zincite query --program '[row for row in [(weight:2),(weight:5),(weight:3)] if row.weight > 2]' data.dzn
+```
+
+The implicit body is `filter(_.weight > 2)`. The MiniZinc-style comprehension
+`[row | row in rows where row.weight > 2]` has the same meaning. These queries
+calculate from their written values; the input file is unchanged.
+
 ## Inspect literal array and matrix shapes
 
 These commands inspect `data.dzn` without a model or standard library.

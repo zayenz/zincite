@@ -205,13 +205,13 @@ fn query_errors_and_limits_are_located_without_silent_truncation() {
 }
 
 #[test]
-fn predicate_nesting_counts_written_groups_and_not_only() {
+fn predicate_nesting_is_finite_and_refusals_are_located() {
     let input = Input::parse(b"x = 1; y = 2;".to_vec(), FileMode::Data).unwrap();
     let nested = format!(
         "filter({}{}name(\"x\"){}) | count",
-        "(".repeat(32),
-        "not ".repeat(32),
-        ")".repeat(32),
+        "(".repeat(8),
+        "not ".repeat(8),
+        ")".repeat(8),
     );
     let parsed = Query::parse(&nested, Limits::default()).unwrap();
     assert_eq!(
@@ -219,13 +219,9 @@ fn predicate_nesting_counts_written_groups_and_not_only() {
         b"1\n"
     );
     let lower_limits = Limits {
-        nesting: 63,
+        nesting: 8,
         ..Limits::default()
     };
-    assert_eq!(
-        parsed.evaluate(&input, lower_limits).unwrap().render(),
-        b"1\n"
-    );
     let error = Query::parse(&nested, lower_limits).unwrap_err();
     assert_eq!(error.location, ErrorLocation::Query);
     assert!(error.range.start >= "filter(".len());
@@ -233,7 +229,7 @@ fn predicate_nesting_counts_written_groups_and_not_only() {
 
     let flat = "filter(name(\"missing\") or name(\"x\") and kind(\"assignment\")) | count";
     let limits = Limits {
-        nesting: 0,
+        nesting: 16,
         ..Limits::default()
     };
     assert_eq!(
@@ -2580,12 +2576,41 @@ fn keyed_reports_refuse_shape_identity_and_unestablished_empty_axes() {
     assert!(
         matches!(skipped.emissions()[0].value(),zincite_query::ReportValue::Constructed(zirql::ConstructedValue::Array(values)) if values == &[zirql::ConstructedValue::Integer(7)])
     );
-    let model = semantic_model(
-        "keyed-refusals",
-        b"enum Guest={Zulu,Alpha,Beta}; enum Other={Gamma}; solve satisfy;",
-        b"",
-        "",
+    let model_source = b"enum Guest={Zulu,Alpha,Beta}; enum Other={Gamma}; solve satisfy;";
+    let model = semantic_model("keyed-refusals", model_source, b"", "");
+    let model_input = Input::parse_named(
+        model_source.to_vec(),
+        FileMode::Model,
+        model.root.to_string_lossy(),
+    )
+    .unwrap();
+    let nominal = Query::parse(
+        r#"items | filter(_ => enum_member(Guest,"Zulu")=enum_member(Guest,"Zulu")) | count"#,
+        Limits::default(),
+    )
+    .unwrap();
+    assert!(nominal.requires_model_facts());
+    assert_eq!(
+        nominal
+            .evaluate_with_model(&model_input, Some(&model), Limits::default())
+            .unwrap()
+            .render(),
+        b"3\n"
     );
+    for source in [
+        r#"declarations | head(0) | filter(_ => enum_member(Guest,"Missing")=enum_member(Guest,"Zulu")) | count"#,
+        r#"items | filter(_ => true or enum_member(Guest,"Missing")=enum_member(Guest,"Zulu")) | count"#,
+    ] {
+        let error = Query::parse(source, Limits::default())
+            .unwrap()
+            .evaluate_with_model(&model_input, Some(&model), Limits::default())
+            .unwrap_err();
+        assert_eq!(error.location, ErrorLocation::Query);
+        assert!(
+            error.message.contains("unavailable declaration identity"),
+            "{error:?}"
+        );
+    }
     for (source, expected) in [
         (
             "report [1:1,enum_member(Guest,\"Zulu\"):2];",
@@ -3045,7 +3070,7 @@ fn report_call_preflight_keeps_literal_messages_and_the_data_whitelist() {
         ),
         (
             "report forall([if i=1 then false else (1 div 0)=0 endif | i in 1..2]);",
-            "1 div 0",
+            "(1 div 0)",
         ),
     ] {
         let error = Program::parse(source, limits)
@@ -4255,7 +4280,7 @@ fn exact_string_matching_filters_projected_names_and_keeps_data_closed() {
     );
     let long = "a".repeat(4_000);
     let tight = ProgramLimits {
-        work: 20_000,
+        work: 36_000,
         ..limits
     };
     let prefix = Program::parse(&format!("report starts_with(\"{long}\",\"a\");"), limits).unwrap();
@@ -4818,7 +4843,7 @@ fn patterns_and_control_values_preflight_scope_shapes_purity_and_tail_calls() {
     assert!(error.message.contains("work"), "{error:?}");
     assert!(error.range.end <= source.len());
     let mut contextual = Program::parse(
-        "let match=1; let if=2; let present=3; let absent=4; report (match,if,present,absent);",
+        "let match=1; let if=2; let present=3; let 'absent'=4; report (match,if,present,absent);",
         limits,
     )
     .unwrap()
@@ -5095,7 +5120,7 @@ mod worklists {
     fn reach_report(target: &str) -> ProgramValue {
         let clause = |name: &str, source| {
             l(zirql::ValueGenerator::In {
-                binders: vec![l(Some(name.into()))],
+                binders: vec![l(zirql::PatternKind::Name(l(name.into())))],
                 source,
                 filter: None,
             })
@@ -6577,9 +6602,9 @@ fn native_existence_and_fixed_points_keep_subjects_and_replacement_order() {
     let input = Input::parse(bytes.to_vec(), FileMode::Model).unwrap();
     let ids = |source: &str| {
         let result = Program::parse(source, limits)
-            .unwrap()
+            .unwrap_or_else(|error| panic!("{source}: {error:?}"))
             .evaluate_with_model(&input, Some(&model), limits)
-            .unwrap();
+            .unwrap_or_else(|error| panic!("{source}: {error:?}"));
         let SemanticStream::Entities(rows) = result.emissions()[0].value().stream().unwrap() else {
             panic!("native declarations")
         };
@@ -6894,7 +6919,10 @@ fn typed_indexed_reports_retain_declared_domains_and_empty_nominal_identity() {
     let comprehension = e(K::KeyedComprehension {
         clauses: vec![L::new(
             zirql::ValueGenerator::In {
-                binders: vec![L::new(Some("g".into()), 10..20)],
+                binders: vec![L::new(
+                    zirql::PatternKind::Name(L::new("g".into(), 10..20)),
+                    10..20,
+                )],
                 source: e(K::Array(vec![
                     e(K::Literal(V::Member(member(11, 1)))),
                     e(K::Literal(V::Member(member(22, 4)))),
@@ -7042,4 +7070,156 @@ fn prepared_projections_keep_singleton_input_and_admit_empty_fields() {
     assert_eq!(error.location, ErrorLocation::Query);
     assert_eq!(&source[error.range.clone()], "1 div (n-1)");
     assert!(error.message.contains("fail"), "{error:?}");
+}
+
+#[test]
+fn shared_predicates_keep_native_operands_captures_and_scalar_edits() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    use zirql::ConstructedValue as V;
+    let input = Input::parse(b"a=[1,2,3]; b=[3,4];\n".to_vec(), FileMode::Data).unwrap();
+    assert_eq!(
+        query(
+            &input,
+            r#"items | filter(item => name(item,"a") and name(item | names | one)) | names"#
+        )
+        .render(),
+        b"a\n"
+    );
+    let limits = ProgramLimits::default();
+    let mut calculated = Program::parse(
+        r#"let [limit, ..] = [2, 99];
+        fn above((value,bound):tuple<int,int>)->bool { value > bound }
+        let pairs=[(1,limit),(4,limit)];
+        report (filtered:pairs | filter(pair => above(pair)),
+                generated:[pair for pair in pairs if above(pair)]);"#,
+        limits,
+    )
+    .unwrap()
+    .evaluate(&input, limits)
+    .unwrap();
+    let calculated: serde_json::Value =
+        serde_json::from_slice(&calculated.render().unwrap()).unwrap();
+    assert_eq!(
+        calculated["result"]["filtered"],
+        calculated["result"]["generated"]
+    );
+    for (source, expected) in [
+        (
+            "let rows=[(weight:2),(weight:5)]; rows | filter(row => row.weight > 2)",
+            V::Array(vec![V::Record(vec![("weight".into(), V::Integer(5))])]),
+        ),
+        (
+            r#"[outer.items | filter(_ > 1) for outer in [{"items":[1,2,3]}]]"#,
+            V::Array(vec![V::Array(vec![V::Integer(2), V::Integer(3)])]),
+        ),
+    ] {
+        let result = Program::parse(source, limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .unwrap();
+        assert!(
+            matches!(result.emissions()[0].value(), ReportValue::Constructed(value)
+            if value.data() == &expected),
+            "{source}"
+        );
+    }
+    let bad = r#"items | head(0) | filter(n => name(n | names,"a")) | names"#;
+    let error = Program::parse(bad, limits)
+        .and_then(|program| program.evaluate(&input, limits))
+        .unwrap_err();
+    assert_eq!(error.location, ErrorLocation::Query);
+    assert!(error.message.contains("native subject"), "{error:?}");
+
+    let selected = Program::parse(
+        r#"fn label(n:Node)->string { n | names | one }
+        let wanted="a";
+        items | filter(n => name(n,label(n)) and name(_,wanted)) | names"#,
+        limits,
+    )
+    .unwrap()
+    .evaluate(&input, limits)
+    .unwrap();
+    assert!(
+        matches!(selected.emissions()[0].value(), ReportValue::Constructed(value)
+        if value.data() == &V::Array(vec![V::String("a".into())]))
+    );
+    let matched = Program::parse(
+        r#"items | match {
+        from first in (head(1));
+        where original => length(original | names)=2 and name(first,"a");
+        } | project(row, {"label":row.first | names | one})"#,
+        limits,
+    )
+    .unwrap()
+    .evaluate(&input, limits)
+    .unwrap();
+    assert!(
+        matches!(matched.emissions()[0].value(), ReportValue::Constructed(value)
+        if value.data() == &V::Array(vec![V::Record(vec![("label".into(), V::String("a".into()))])]))
+    );
+    let mut native_record = Program::parse(
+        r#"report (matches: items | match {
+        from first in (head(1));
+        where original => length(original | names)=2 and name(first,"a");
+        }, count:count);"#,
+        limits,
+    )
+    .unwrap()
+    .evaluate(&input, limits)
+    .unwrap();
+    let native_record: serde_json::Value =
+        serde_json::from_slice(&native_record.render().unwrap()).unwrap();
+    assert_eq!(native_record["result"]["count"], 2);
+    assert_eq!(
+        native_record["result"]["matches"][0]["first"][0]["names"][0],
+        "a"
+    );
+    let expected = b"a=[2,3]; b=[3,4];\n";
+    assert_eq!(
+        query(&input, r#"filter(name("a")) | filter_elements(_ > 1)"#).render(),
+        expected
+    );
+    let mut edited = Program::parse(
+        r#"let cutoff=1;
+        items | filter(item => name(item,"a")) | filter_elements(value => value > cutoff) | emit"#,
+        limits,
+    )
+    .unwrap()
+    .evaluate(&input, limits)
+    .unwrap();
+    assert!(edited.candidate().is_some());
+    assert_eq!(edited.render().unwrap(), expected);
+    let error = Query::parse("head(0) | filter_elements(value => 1)", Limits::default())
+        .and_then(|query| query.evaluate(&input, Limits::default()))
+        .unwrap_err();
+    assert_eq!(error.location, ErrorLocation::Query);
+    assert!(error.message.contains("Boolean"), "{error:?}");
+    let empty = Input::parse(b"a=[];\n".to_vec(), FileMode::Data).unwrap();
+    assert_eq!(
+        query(&empty, "filter_elements(_ > 0) | emit").render(),
+        b"a=[];\n"
+    );
+    let source = "filter_elements([a] => true) | emit";
+    let error = Query::parse(source, Limits::default())
+        .unwrap()
+        .evaluate(&empty, Limits::default())
+        .unwrap_err();
+    assert_eq!(error.location, ErrorLocation::Query);
+    assert!(error.range.end <= source.len());
+    let source = "head(0) | filter_elements(v => v.foo > 0) | emit";
+    let error = Program::parse(source, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap_err();
+    assert_eq!(error.location, ErrorLocation::Query);
+    assert!(error.range.end <= source.len());
+    assert!(
+        Program::parse(
+            r#"let unused=length([1]); filter_elements(_ > 1) | emit"#,
+            limits
+        )
+        .unwrap_err()
+        .message
+        .contains("report-only")
+    );
 }

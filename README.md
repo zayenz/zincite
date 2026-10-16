@@ -62,6 +62,12 @@ Start with the [query guide](https://zayenz.se/zincite/guides/queries/) for sour
 inspection, or the [data-edit guide](https://zayenz.se/zincite/guides/data-edits/) for transformations.
 The [cookbook](https://zayenz.se/zincite/guides/query-cookbook/) contains reproducible extraction recipes.
 
+Reports accept `[value for pattern in source if condition]` and the equivalent
+MiniZinc-style `[value | pattern in source where condition]`. Filters use named
+arguments such as `row => row.weight > 0` or the implicit `_` subject. See the
+[query guide](https://zayenz.se/zincite/guides/queries/#select-values-with-a-predicate)
+for patterns, native subjects and Data limits.
+
 ## Exit codes
 
 See the [command reference](https://zayenz.se/zincite/guides/cli/#exit-codes).

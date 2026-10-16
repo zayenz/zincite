@@ -49,7 +49,7 @@ impl StreamKind {
 pub(crate) struct Context<'a> {
     input: &'a Input,
     model: Option<&'a ModelContext>,
-    terminal: Option<SemanticStream<'a>>,
+    pub(crate) terminal: Option<SemanticStream<'a>>,
     limits: Limits,
     pub(crate) kind: StreamKind,
     pub(crate) document: bool,
@@ -155,7 +155,8 @@ pub(crate) fn lower_pipeline<'q>(
                 StageKind::Unique => zirql::Stage::Unique,
                 StageKind::Tally => zirql::Stage::Tally,
                 StageKind::Emit | StageKind::Json => return None,
-                StageKind::Items
+                StageKind::SharedFilter(_)
+                | StageKind::Items
                 | StageKind::References
                 | StageKind::Declarations
                 | StageKind::Uses
@@ -332,31 +333,7 @@ fn finish_result<'a>(
 }
 
 fn lower_predicate<'a>(predicate: &'a Predicate, stage: &'a Stage) -> zirql::Predicate<Leaf<'a>> {
-    let value = match &predicate.kind {
-        PredicateKind::Not(child) => {
-            zirql::PredicateKind::Not(Box::new(lower_predicate(child, stage)))
-        }
-        PredicateKind::Group(child) => {
-            zirql::PredicateKind::Group(Box::new(lower_predicate(child, stage)))
-        }
-        PredicateKind::And(children) => zirql::PredicateKind::And(
-            children
-                .iter()
-                .map(|child| lower_predicate(child, stage))
-                .collect(),
-        ),
-        PredicateKind::Or(children) => zirql::PredicateKind::Or(
-            children
-                .iter()
-                .map(|child| lower_predicate(child, stage))
-                .collect(),
-        ),
-        PredicateKind::Kind(_)
-        | PredicateKind::Name(_)
-        | PredicateKind::Type(_)
-        | PredicateKind::Instantiation(_)
-        | PredicateKind::SourceKind(_) => zirql::PredicateKind::Leaf((predicate, stage)),
-    };
+    let value = zirql::PredicateKind::Leaf((predicate, stage));
     Located::new(value, predicate.range.clone())
 }
 
@@ -696,10 +673,6 @@ impl<'a, 'q> Host<Row<'a>, &mut Context<'a>, Leaf<'q>, &'q Stage> for NativeHost
                     "predicate requires semantic inspection",
                 )));
             }
-            PredicateKind::Group(_)
-            | PredicateKind::Not(_)
-            | PredicateKind::And(_)
-            | PredicateKind::Or(_) => unreachable!("the core evaluates Boolean nodes"),
         };
         Ok(if matches { Truth::True } else { Truth::False })
     }
@@ -748,6 +721,18 @@ impl<'a, 'q> Host<Row<'a>, &mut Context<'a>, Leaf<'q>, &'q Stage> for NativeHost
         budget: &mut Budget,
         _range: &Range<usize>,
     ) -> Result<Vec<Row<'a>>, Failure> {
+        if let StageKind::SharedFilter(predicate) = &stage.kind {
+            return crate::program::filter_query_rows(
+                predicate,
+                rows,
+                context,
+                context.input,
+                budget,
+                context.limits,
+                &stage.range,
+            )
+            .map_err(EvaluationError::Host);
+        }
         let stream = context
             .terminal
             .take()

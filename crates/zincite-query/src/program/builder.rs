@@ -188,7 +188,7 @@ impl Program {
                 name: function.name,
                 parameters: function.parameters,
                 result: function.result,
-                value: map_queries(function.value, &mut lower),
+                value: map_queries(function.value, &mut |query| map_native(query, &mut lower)),
             })
             .collect::<Vec<_>>();
         let mut statements = Vec::new();
@@ -201,7 +201,10 @@ impl Program {
                 zirql::Statement::BindFields {
                     names,
                     expression: value_stage(
-                        Stage::PatternBinding(pattern, map_queries(value, &mut lower)),
+                        Stage::PatternBinding(
+                            pattern,
+                            map_queries(value, &mut |query| map_native(query, &mut lower)),
+                        ),
                         range.clone(),
                     ),
                 },
@@ -211,7 +214,10 @@ impl Program {
         statements.push(Located::new(
             zirql::Statement::Evaluate {
                 expression: value_stage(
-                    Stage::FunctionValue(map_queries(inputs.report.take().unwrap(), &mut lower)),
+                    Stage::FunctionValue(map_queries(
+                        inputs.report.take().unwrap(),
+                        &mut |query| map_native(query, &mut lower),
+                    )),
                     range.clone(),
                 ),
                 implicit_output: Some(Emitter::Json),
@@ -219,7 +225,12 @@ impl Program {
             range.clone(),
         ));
         for function in &mut functions {
-            functions::lower_primitives(&mut function.value, &BTreeMap::new(), &queries);
+            functions::lower_primitives(
+                &mut function.value,
+                &BTreeMap::new(),
+                &queries,
+                &Default::default(),
+            );
         }
         for statement in &mut statements {
             let expression = match &mut statement.value {
@@ -233,7 +244,12 @@ impl Program {
                         Stage::FunctionValue(value) | Stage::PatternBinding(_, value),
                     ) = &mut step.value
                     {
-                        functions::lower_primitives(value, &BTreeMap::new(), &queries);
+                        functions::lower_primitives(
+                            value,
+                            &BTreeMap::new(),
+                            &queries,
+                            &Default::default(),
+                        );
                     }
                 }
             }
@@ -386,17 +402,14 @@ fn map_native(
     )
 }
 
-fn map_queries(
-    value: ProgramValue,
-    lower: &mut impl FnMut(Query, Range<usize>) -> Expression,
-) -> E<Expression> {
+pub(crate) fn map_queries<Q, R>(value: E<Q>, lower: &mut impl FnMut(Q) -> R) -> E<R> {
     let range = value.range;
     let value = match value.value {
         K::CurrentInput => K::CurrentInput,
         K::Literal(value) => K::Literal(value),
         K::Name(name) => K::Name(name),
-        K::NativeQuery(query) => K::NativeQuery(Box::new(map_native(*query, lower))),
-        K::NativeValue(query) => K::NativeValue(Box::new(map_native(*query, lower))),
+        K::NativeQuery(query) => K::NativeQuery(Box::new(lower(*query))),
+        K::NativeValue(query) => K::NativeValue(Box::new(lower(*query))),
         K::Call {
             function,
             arguments,
@@ -544,9 +557,27 @@ fn map_queries(
             operator,
             array: Box::new(map_queries(*array, lower)),
         },
-        K::FilterStartsWith { array, prefix } => K::FilterStartsWith {
+        K::PredicateSubject => K::PredicateSubject,
+        K::SubjectScope { subject, argument } => K::SubjectScope {
+            subject: Box::new(map_queries(*subject, lower)),
+            argument: zirql::PredicateArgument {
+                argument: argument.argument,
+                body: Box::new(map_queries(*argument.body, lower)),
+            },
+        },
+        K::PredicateScope { subject, predicate } => K::PredicateScope {
+            subject: Box::new(map_queries(*subject, lower)),
+            predicate: zirql::PredicateArgument {
+                argument: predicate.argument,
+                body: Box::new(map_queries(*predicate.body, lower)),
+            },
+        },
+        K::Filter { array, predicate } => K::Filter {
             array: Box::new(map_queries(*array, lower)),
-            prefix,
+            predicate: zirql::PredicateArgument {
+                argument: predicate.argument,
+                body: Box::new(map_queries(*predicate.body, lower)),
+            },
         },
         K::Sort {
             array,
@@ -632,14 +663,10 @@ fn map_queries(
     };
     Located::new(value, range)
 }
-fn map_clauses(
-    clauses: Vec<
-        Located<
-            zirql::ValueGenerator<zirql::Expression<ProgramNative, zirql::NativeSetOperator, ()>>,
-        >,
-    >,
-    lower: &mut impl FnMut(Query, Range<usize>) -> Expression,
-) -> Vec<Located<zirql::ValueGenerator<Expression>>> {
+fn map_clauses<Q, R>(
+    clauses: Vec<Located<zirql::ValueGenerator<Q>>>,
+    lower: &mut impl FnMut(Q) -> R,
+) -> Vec<Located<zirql::ValueGenerator<R>>> {
     clauses
         .into_iter()
         .map(|clause| {

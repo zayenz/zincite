@@ -30,6 +30,11 @@ and lockfile. Build and run the root and standalone commands from an isolated
 local installation, including formatting writes, lint warnings, a complete
 query and a later-error request with empty stdout.
 
+Before packaging, both consumers must build against the same reviewed Zirql
+Git revision with registry requirement `0.1.0`. Their relevant suites and the
+CSV example must pass. Rebuild artifacts after changes to the shared reader or
+adapters; retain the existing package, clean-install, CI and site checks.
+
 ## Verify archives and publication order
 
 Cargo 1.99 supports native multi-package archive verification and publish dry

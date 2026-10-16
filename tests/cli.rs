@@ -1640,3 +1640,37 @@ fn prepared_projections_keep_scope_and_buffer_failures_inline_and_in_files() {
     }
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn scalar_predicate_programs_buffer_the_complete_edit_candidate() {
+    let source = "a=[1,2,3];\n";
+    let output = run(
+        &[
+            "query",
+            "--stdin-filepath",
+            "data.dzn",
+            "--program",
+            "let cutoff=1; filter_elements(value => value > cutoff) | emit",
+        ],
+        source,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"a=[2,3];\n");
+    let failed = run(
+        &[
+            "query",
+            "--stdin-filepath",
+            "data.dzn",
+            "--program",
+            "filter_elements(value => if value=3 then (1 div 0)>0 else value>1 endif) | emit",
+        ],
+        source,
+    );
+    assert_eq!(failed.status.code(), Some(2));
+    assert!(failed.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("data.dzn"));
+}

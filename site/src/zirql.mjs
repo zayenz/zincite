@@ -1,6 +1,6 @@
 import zirql from '../../assets/syntax/zirql.tmLanguage.json' with { type: 'json' };
 
-// Shared Zirql highlighting, with Zincite's MiniZinc-oriented surface syntax.
+// Shared query highlighting with Zincite's statement and edit keywords.
 // These additions describe spelling, not which operations a query may execute.
 export default {
   ...zirql,

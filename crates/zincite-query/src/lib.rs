@@ -470,6 +470,7 @@ fn evaluate_stage<'a>(
             })
         }
         StageKind::Filter(_)
+        | StageKind::SharedFilter(_)
         | StageKind::Head(_)
         | StageKind::Tail(_)
         | StageKind::Reverse

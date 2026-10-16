@@ -135,13 +135,7 @@ pub(crate) fn prepare_data_batch(
     let mut values: Vec<Option<V>> = (0..edits.len()).map(|_| None).collect();
     for (i, edit) in edits.iter().enumerate() {
         if targets[i].1.ty.kind == TypeKind::Int {
-            let lowered = c::lower(
-                &edit.source,
-                edit.range.clone(),
-                budget,
-                limits.nesting,
-                c::ExpressionPolicy::Data,
-            )?;
+            let lowered = c::read_data(&edit.source, edit.range.clone(), budget, limits.nesting)?;
             let value = evaluate(&lowered, &edit.names, budget, &edit.range)?;
             if let V::Integer(n) = value.data() {
                 scalars.insert(targets[i].0.0, *n);
@@ -151,13 +145,8 @@ pub(crate) fn prepare_data_batch(
     }
     for (i, edit) in edits.iter().enumerate() {
         if values[i].is_none() {
-            let mut lowered = c::lower(
-                &edit.source,
-                edit.range.clone(),
-                budget,
-                limits.nesting,
-                c::ExpressionPolicy::Data,
-            )?;
+            let mut lowered =
+                c::read_data(&edit.source, edit.range.clone(), budget, limits.nesting)?;
             supply_empty_axes(
                 &mut lowered.expression,
                 targets[i].1,
@@ -724,12 +713,11 @@ fn validate_numeric_domain(
         }
         error
     };
-    let domain = c::lower(
+    let domain = c::read_data(
         &file.parsed.source()[expression.range()],
         location.range.clone(),
         budget,
         64,
-        c::ExpressionPolicy::Data,
     )
     .map_err(domain_error)?;
     fn check_bound(expression: &E, budget: &mut Budget) -> Result<(), QueryError> {

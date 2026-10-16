@@ -53,9 +53,35 @@ Nominal identities and empty nominal sets remain supplied by the host. String
 sets remain unsupported. Arrays, tuples, grouping and function/control blocks
 compose with these values; a final collection inside a block has its own braces.
 
-Natural MiniZinc records and `|` comprehensions retain the forms below. The
+The common `for ... in ... if ...` comprehension and MiniZinc
+`| ... in ... where ...` comprehension use the same reader, patterns and
+evaluator. Natural MiniZinc records retain the forms below. The
 common dictionary and typed empty forms are read-only report syntax. Data edits
 retain the closed MiniZinc subset and serialization checks below.
+
+## Predicate subjects and patterns
+
+`rows | filter(row => row.weight > limit)` and
+`rows | filter(_.weight > limit)` keep the same elements as
+`[row for row in rows if row.weight > limit]`. The native predicate positions
+use the same Boolean, type, purity and lexical-scope rules. A native filter
+tests its singleton input; a path target tests the candidate declaration; a
+native match guard tests the original query input and sees its separate named
+captures. Nested predicates rebind `_`. Explicit outer names remain captures.
+
+All shared binding positions accept exact tuples and positional lists.
+`[head, next, ..]` requires two list elements and discards the remainder;
+`[head, next]` requires exactly two. Patterns never convert native handles,
+sets or keyed arrays to lists. Names install together after a successful match.
+A mismatch is an error in a binding, function/predicate argument or generator,
+and tries the next arm in a value match. Predicate `_` reads the whole subject.
+
+Scalar element edits accept `filter_elements(value => value > 0)` and
+`filter_elements(_ > 0)`. These bodies retain Data's closed operator/helper
+policy, scalar/member distinctions and complete candidate checks. General
+predicate syntax does not admit report-only helpers, declared functions,
+effects or unsupported nominal facts. Direct `eq(member("A"))` comparisons
+retain their existing identity rule.
 
 ## Report expressions and edit grammar
 
@@ -726,9 +752,9 @@ batch. Some incomplete reductions can be previewed as described in the
 requires a complete candidate. An actual evaluation or rendering error leaves
 stdout empty.
 
-Zincite parses the MiniZinc syntax and supplies source selections, model facts
-and literal values. Zirql evaluates the shared expressions, bindings and
-comprehensions. Zincite then renders a report or validates and serializes the
+Zirql reads and evaluates query expressions, bindings, predicate bodies and
+comprehensions. Zincite parses input MiniZinc files and supplies source
+selections, model facts and literal values. Zincite then renders a report or validates and serializes the
 complete edited data file. The report and edit forms share that evaluator and
 budget, while data edits allow fewer operations. Neither form runs a MiniZinc
 compiler or solver.

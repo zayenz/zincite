@@ -96,6 +96,7 @@ enum Shape<'a> {
         item: bool,
     },
     Sequence(Rc<zirql::DeclaredType<Kind>>),
+    Array,
     Captures(Rc<zirql::NativeCapture<Kind>>),
     Capture,
 }
@@ -111,6 +112,26 @@ impl<'a> Shape<'a> {
         budget.charge(values.len() + 1, location.clone())?;
         budget.charge_results(values.len() + 1, location)?;
         Ok(match self {
+            Self::Array => {
+                let mut array = Vec::with_capacity(values.len());
+                for value in values {
+                    let value = functions::owned(value, budget, range)
+                        .map_err(zirql::EvaluationError::Host)?;
+                    array.push(match value {
+                        ReportValue::Constructed(value) => value,
+                        ReportValue::SharedConstructed(value) => match Arc::try_unwrap(value) {
+                            Ok(value) => value,
+                            Err(value) => zirql::copy_constructed_value(
+                                &value,
+                                budget,
+                                Location::Query(range.clone()),
+                            )?,
+                        },
+                        _ => unreachable!("constructed array filter keeps constructed elements"),
+                    });
+                }
+                ReportValue::Constructed(zirql::ConstructedValue::Array(array))
+            }
             Self::Sequence(element) => ReportValue::Sequence(NativeSequence {
                 values: Rc::new(values),
                 element,
@@ -263,7 +284,28 @@ impl<'a> composition::CompositionHost<'_, '_> {
             _ => None,
         };
         let value = functions::owned(value, budget, range).map_err(zirql::EvaluationError::Host)?;
+        let value = match value {
+            ReportValue::SharedConstructed(value) => {
+                ReportValue::Constructed(match Arc::try_unwrap(value) {
+                    Ok(value) => value,
+                    Err(value) => zirql::copy_constructed_value(&value, budget, location.clone())?,
+                })
+            }
+            value => value,
+        };
         match value {
+            ReportValue::Constructed(value)
+                if matches!(value.data(), zirql::ConstructedValue::Array(_)) =>
+            {
+                let zirql::ConstructedValue::Array(values) = value.into_data() else {
+                    unreachable!()
+                };
+                budget.charge_results(values.len(), location)?;
+                Ok((
+                    Shape::Array,
+                    values.into_iter().map(ReportValue::Constructed).collect(),
+                ))
+            }
             ReportValue::Sequence(sequence) => {
                 let element = Rc::clone(&sequence.element);
                 budget.charge_results(sequence.values.len() + 1, location)?;
@@ -1265,5 +1307,180 @@ impl<'a> composition::CompositionHost<'_, '_> {
             },
             |a, b, arguments, budget| self.same_selection(a, b, arguments.parts().0, budget, range),
         )
+    }
+}
+
+/// The shared pipeline owns Boolean composition and short circuiting.
+enum FilterEvent<'g, 'v, 'a> {
+    Leaf(&'g composition::Guard, &'v ReportValue<'a>),
+    Complete(zirql::Truth),
+}
+struct GuardFilter;
+impl<'a, 'g, F> zirql::Host<ReportValue<'a>, F, &'g composition::Guard> for GuardFilter
+where
+    F: for<'v> FnMut(
+        FilterEvent<'g, 'v, 'a>,
+        &mut Budget,
+        &Range<usize>,
+    ) -> Result<zirql::Truth, Failure>,
+{
+    type Error = QueryError;
+    type Key = ();
+    fn evaluate_leaf(
+        &self,
+        guard: &&'g composition::Guard,
+        subject: &ReportValue<'a>,
+        run: &mut F,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<zirql::Truth, Failure> {
+        run(FilterEvent::Leaf(guard, subject), budget, range)
+    }
+    fn filter_truth(
+        &self,
+        truth: zirql::Truth,
+        run: &mut F,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<bool, Failure> {
+        run(FilterEvent::Complete(truth), budget, range).map(|truth| truth == zirql::Truth::True)
+    }
+}
+fn finish_filter(
+    truth: zirql::Truth,
+    context: &mut Context<'_, '_>,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<zirql::Truth, Failure> {
+    let diagnostic = context.guard_unknown.take();
+    if truth == zirql::Truth::Unknown {
+        let error = if let Some(diagnostic) = diagnostic {
+            budget.charge(
+                diagnostic.message.len() + diagnostic.location.path.as_os_str().len() + 1,
+                Location::Query(range.clone()),
+            )?;
+            QueryError {
+                range: diagnostic.location.range.clone(),
+                location: crate::ErrorLocation::Model(diagnostic.location),
+                message: diagnostic.message,
+            }
+        } else {
+            QueryError::query(range.clone(), "predicate is uncertain")
+        };
+        if context.query.complete_observations {
+            return Err(zirql::EvaluationError::Host(error));
+        }
+        if context.query.incomplete_observation.is_none() {
+            context.query.incomplete_observation = Some(Arc::new(error));
+        }
+    }
+    Ok(truth)
+}
+fn filter_predicate(
+    predicate: &zirql::Predicate<composition::Guard>,
+) -> zirql::Predicate<&composition::Guard> {
+    let value = match &predicate.value {
+        zirql::PredicateKind::Leaf(guard) => zirql::PredicateKind::Leaf(guard),
+        zirql::PredicateKind::Not(child) => {
+            zirql::PredicateKind::Not(Box::new(filter_predicate(child)))
+        }
+        zirql::PredicateKind::Group(child) => {
+            zirql::PredicateKind::Group(Box::new(filter_predicate(child)))
+        }
+        zirql::PredicateKind::And(children) => {
+            zirql::PredicateKind::And(children.iter().map(filter_predicate).collect())
+        }
+        zirql::PredicateKind::Or(children) => {
+            zirql::PredicateKind::Or(children.iter().map(filter_predicate).collect())
+        }
+    };
+    Located::new(value, predicate.range.clone())
+}
+fn filter_rows<'a, 'g>(
+    predicate: &'g zirql::Predicate<composition::Guard>,
+    rows: Vec<ReportValue<'a>>,
+    budget: &mut Budget,
+    nesting: usize,
+    run: impl for<'v> FnMut(
+        FilterEvent<'g, 'v, 'a>,
+        &mut Budget,
+        &Range<usize>,
+    ) -> Result<zirql::Truth, Failure>,
+) -> Result<Vec<ReportValue<'a>>, Failure> {
+    let range = predicate.range.clone();
+    let pipeline: zirql::Pipeline<_, ()> = zirql::Pipeline::with_group_not_nesting(
+        vec![Located::new(
+            zirql::Stage::Filter(filter_predicate(predicate)),
+            range.clone(),
+        )],
+        range.clone(),
+        nesting,
+    )?;
+    let input = zirql::NativeInput::from_admitted(run, rows, budget, Location::Query(range))?;
+    let result = zirql::evaluate(&pipeline, &GuardFilter, input, budget)?;
+    let zirql::NativeValue::Stream(rows) = result.value else {
+        unreachable!("filter returns a stream")
+    };
+    Ok(rows)
+}
+impl<'a> composition::CompositionHost<'_, '_> {
+    pub(super) fn guard_filter(
+        &self,
+        predicate: &zirql::Predicate<composition::Guard>,
+        value: ReportValue<'a>,
+        context: &mut Context<'_, 'a>,
+        bindings: &Bindings<ReportValue<'a>>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<ReportValue<'a>, Failure> {
+        use zirql::MatchHost;
+        let (mut shape, rows) = self.rows(value, context, budget, range)?;
+        if let Shape::Stream { item, .. } = &mut shape {
+            *item = false;
+        }
+        let rows = filter_rows(
+            predicate,
+            rows,
+            budget,
+            self.0.nesting,
+            |event, budget, range| match event {
+                FilterEvent::Leaf(guard, row) => {
+                    self.evaluate_guard_leaf(guard, row, context, bindings, budget, range)
+                }
+                FilterEvent::Complete(truth) => finish_filter(truth, context, budget, range),
+            },
+        )?;
+        shape.restore(rows, context, budget, range)
+    }
+    pub(super) fn guard_filter_with_arguments(
+        &self,
+        predicate: &zirql::Predicate<composition::Guard>,
+        value: ReportValue<'a>,
+        arguments: &mut dyn zirql::NativeArguments<Context<'_, 'a>, Self>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<ReportValue<'a>, Failure> {
+        let (mut shape, rows) = self.rows(value, arguments.parts().0, budget, range)?;
+        if let Shape::Stream { item, .. } = &mut shape {
+            *item = false;
+        }
+        let previous = arguments.parts().0.guard_unknown.take();
+        let result = filter_rows(
+            predicate,
+            rows,
+            budget,
+            self.0.nesting,
+            |event, budget, range| match event {
+                FilterEvent::Leaf(guard, row) => {
+                    self.guard_with_arguments(guard, row, None, arguments, budget, range)
+                }
+                FilterEvent::Complete(truth) => {
+                    finish_filter(truth, arguments.parts().0, budget, range)
+                }
+            },
+        );
+        let responsible = std::mem::replace(&mut arguments.parts().0.guard_unknown, previous);
+        let rows = result.map_err(|error| composition::predicate_error(error, responsible))?;
+        shape.restore(rows, arguments.parts().0, budget, range)
     }
 }

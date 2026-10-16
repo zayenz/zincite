@@ -1,4 +1,4 @@
-//! MiniZinc CST lowering and native projection; Zirql evaluates every value.
+//! Shared expression reading and native MiniZinc projection.
 use crate::{Input, QueryError, QueryResult, SemanticStream, pipeline, structured};
 use serde_json::{Value, json};
 use std::{
@@ -9,24 +9,16 @@ use zincite_lint::{
     Declaration, DeclarationId, DeclarationRole, Domain, ModelFacts, NumericBound, TypeInst,
     TypeKind,
 };
-use zincite_syntax::{NodeKind as N, ParsedFile, SyntaxElement, SyntaxNode, TokenKind as T};
+use zincite_syntax::{NodeKind as N, SyntaxElement, SyntaxNode, TokenKind as T};
 use zirql::{
     Budget, ConstructedValue as V, Located, ValueBinaryOperator as B, ValueExpression as E,
-    ValueExpressionKind as K, ValueExtremum, ValueGenerator, ValueReducer, ValueUnaryOperator as U,
+    ValueExpressionKind as K, ValueGenerator, ValueUnaryOperator as U,
 };
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ExpressionPolicy {
-    Report,
-    Data,
-    Functions,
-}
 
 #[derive(Debug)]
 pub(crate) struct LoweredValue<Q = ()> {
     pub expression: E<Q>,
     pub members: Vec<MemberRequest>,
-    pub first_report_call: Option<Range<usize>>,
 }
 #[derive(Clone, Debug)]
 pub(crate) struct MemberRequest {
@@ -55,1030 +47,240 @@ fn slots<T>(budget: &mut Budget, len: usize, range: &Range<usize>) -> Result<Vec
     Ok(Vec::with_capacity(len))
 }
 
-/// Parse one complete expression using the host CST's assignment entry point.
-pub(crate) fn lower<Q>(
+/// Read the closed constructed Data subset with the common query reader.
+pub(crate) fn read_data<Q>(
     source: &str,
     range: Range<usize>,
     budget: &mut Budget,
     nesting: usize,
-    policy: ExpressionPolicy,
 ) -> Result<LoweredValue<Q>, QueryError> {
-    lower_with_values(source, range, budget, nesting, policy, Vec::new())
-}
-
-/// Keep shared control ASTs in place while the CST parses their surrounding
-/// MiniZinc syntax. Each span covers the full replaced source, while its value
-/// keeps its own diagnostic range. Numeric slots are parsing markers, never
-/// runtime values.
-pub(crate) fn lower_with_values<Q>(
-    source: &str,
-    range: Range<usize>,
-    budget: &mut Budget,
-    nesting: usize,
-    policy: ExpressionPolicy,
-    values: Vec<(Range<usize>, E<Q>)>,
-) -> Result<LoweredValue<Q>, QueryError> {
-    charge(
-        budget,
-        source
-            .len()
-            .checked_add(10)
-            .ok_or_else(|| QueryError::query(range.clone(), "allocation size overflow"))?,
-        &range,
-    )?;
-    let mut text = format!("value = {source};").into_bytes();
-    let mut shared = BTreeMap::new();
-    for (span, value) in values {
-        let start = 8 + span.start - range.start;
-        let end = 8 + span.end - range.start;
-        text[start..end].fill(b' ');
-        text[start] = b'0';
-        shared.insert(span.start, (span, value));
-    }
-    let parsed = zincite_syntax::parse_with_mode(
-        String::from_utf8(text).expect("control ranges end on UTF-8 boundaries"),
-        zincite_syntax::FileMode::Data,
-    );
-    if let Some(error) = parsed.diagnostics().first() {
-        return Err(QueryError::query(
-            map_range(error.range.clone(), range.start, 8),
-            &error.message,
-        ));
-    }
-    let rhs = parsed
-        .tree()
-        .child_nodes()
-        .next()
-        .and_then(crate::assignment_rhs)
-        .ok_or_else(|| QueryError::query(range.clone(), "expected one value expression"))?;
-    let mut lower = Lower {
-        parsed: &parsed,
-        offset: range.start,
-        prefix: 8,
-        budget,
-        nesting,
+    charge(budget, range.start + source.len(), &range)?;
+    let text = format!("{}{source}", " ".repeat(range.start));
+    let mut reader =
+        zirql::ArgumentReader::new(&text, range.start).map_err(pipeline::core_error)?;
+    let mut host = DataReader {
         members: Vec::new(),
-        policy,
-        first_report_call: None,
-        shared,
     };
-    let expression = lower.node(rhs, 0)?;
-    if let Some((_, (_, value))) = lower.shared.first_key_value() {
+    let value = zirql::read_value_expression(&mut reader, &mut host, budget, nesting)
+        .map_err(pipeline::core_error)?;
+    reader.skip_whitespace();
+    if reader.position() != range.end {
         return Err(QueryError::query(
-            value.range.clone(),
-            "expected a value expression here",
+            reader.position()..range.end,
+            "expected one data expression",
         ));
     }
+    admit_data(&value, &text, budget, &mut |_, range, _| {
+        Err(QueryError::query(
+            range.clone(),
+            "native expression is unavailable here",
+        ))
+    })?;
+    let expression = crate::program::builder::map_queries(value, &mut |_| {
+        unreachable!("Data reader has no native values")
+    });
     Ok(LoweredValue {
         expression,
-        members: lower.members,
-        first_report_call: lower.first_report_call,
+        members: host.members,
     })
 }
-fn map_range(range: Range<usize>, offset: usize, prefix: usize) -> Range<usize> {
-    offset + range.start.saturating_sub(prefix)..offset + range.end.saturating_sub(prefix)
-}
-struct Lower<'a, 'b, Q> {
-    parsed: &'a ParsedFile,
-    offset: usize,
-    prefix: usize,
-    budget: &'b mut Budget,
-    nesting: usize,
+struct DataReader {
     members: Vec<MemberRequest>,
-    policy: ExpressionPolicy,
-    first_report_call: Option<Range<usize>>,
-    shared: BTreeMap<usize, (Range<usize>, E<Q>)>,
 }
-impl<Q> Lower<'_, '_, Q> {
-    fn range(&self, node: &SyntaxNode) -> Range<usize> {
-        map_range(node.range(), self.offset, self.prefix)
+impl zirql::ValueReaderHost for DataReader {
+    type Stage = ();
+    type SetOperator = ();
+    type Emitter = ();
+    type Predicate = ();
+    fn is_binding(&self, _: &str) -> bool {
+        false
     }
-    fn tokens<'a>(&'a self, node: &'a SyntaxNode) -> impl Iterator<Item = usize> + 'a {
-        node.children().iter().filter_map(|c| match c {
-            SyntaxElement::Token(i)
-                if !matches!(
-                    self.parsed.tokens()[*i].kind,
-                    T::Whitespace | T::LineComment | T::BlockComment
-                ) =>
-            {
-                Some(*i)
-            }
-            _ => None,
-        })
+    fn is_stage(&self, _: &str) -> bool {
+        false
     }
-    fn text(&self, i: usize) -> &str {
-        &self.parsed.source()[self.parsed.tokens()[i].range.clone()]
-    }
-    fn name(&mut self, i: usize) -> Result<Located<String>, QueryError> {
-        let range = map_range(
-            self.parsed.tokens()[i].range.clone(),
-            self.offset,
-            self.prefix,
-        );
-        charge(self.budget, self.text(i).len(), &range)?;
-        Ok(Located::new(
-            crate::identifier_identity(self.text(i)).to_owned(),
-            range,
+    fn parse_stage(
+        &mut self,
+        reader: &mut zirql::ArgumentReader<'_>,
+        _: &mut Budget,
+    ) -> Result<zirql::ExpressionStep<(), ()>, zirql::QueryError> {
+        Err(zirql::QueryError::query(
+            reader.position()..reader.position(),
+            "native stages are unavailable here",
         ))
     }
-    fn children(&mut self, node: &SyntaxNode, depth: usize) -> Result<Vec<E<Q>>, QueryError> {
-        let mut values = slots(self.budget, node.child_nodes().count(), &self.range(node))?;
-        for child in node.child_nodes() {
-            values.push(self.node(child, depth + 1)?);
-        }
-        Ok(values)
-    }
-    fn empty_sources(
+    fn parse_predicate_leaf(
         &mut self,
-        key: &E<Q>,
-        generators: &SyntaxNode,
-        depth: usize,
-    ) -> Result<Option<Vec<E<Q>>>, QueryError> {
-        let components = match &key.value {
-            K::Tuple(parts) => parts.as_slice(),
-            _ => std::slice::from_ref(key),
-        };
-        charge(self.budget, components.len(), &key.range)?;
-        let mut own_names = BTreeSet::new();
-        for generator in generators.child_nodes() {
-            for element in generator.children() {
-                let SyntaxElement::Token(i) = element else {
-                    continue;
-                };
-                let i = *i;
-                if matches!(
-                    self.parsed.tokens()[i].kind,
-                    T::Identifier | T::QuotedIdentifier
-                ) {
-                    charge(self.budget, self.text(i).len() + 1, &key.range)?;
-                    own_names.insert(crate::identifier_identity(self.text(i)).to_owned());
-                }
-            }
-        }
-        let mut sources = slots(self.budget, components.len(), &key.range)?;
-        for component in components {
-            let K::Name(name) = &component.value else {
-                return Ok(None);
-            };
-            let mut found = None;
-            for generator in generators.child_nodes() {
-                charge(self.budget, 1 + generator.children().len(), &key.range)?;
-                if self
-                    .tokens(generator)
-                    .any(|i| self.parsed.tokens()[i].kind == T::Equal)
-                {
-                    continue;
-                }
-                if self.tokens(generator).any(|i| {
-                    matches!(
-                        self.parsed.tokens()[i].kind,
-                        T::Identifier | T::QuotedIdentifier
-                    ) && crate::identifier_identity(self.text(i)) == name
-                }) {
-                    found = generator.child_nodes().next();
-                }
-            }
-            let Some(source) = found else {
-                return Ok(None);
-            };
-            let lowered = self.node(source, depth + 1)?;
-            if references_binding(&lowered, &own_names, self.budget)? {
-                return Ok(None);
-            }
-            sources.push(lowered);
-        }
-        Ok(Some(sources))
-    }
-    fn matrix(&mut self, node: &SyntaxNode, depth: usize) -> Result<E<Q>, QueryError> {
-        let range = self.range(node);
-        let header = node
-            .child_nodes()
-            .find(|n| n.kind() == N::MatrixColumnIndices);
-        let row_count = node
-            .child_nodes()
-            .filter(|n| n.kind() == N::MatrixRow)
-            .count();
-        let column_count = header.map_or_else(
-            || {
-                node.child_nodes()
-                    .find(|n| n.kind() == N::MatrixRow)
-                    .map_or(0, |row| {
-                        row.child_nodes().count()
-                            - usize::from(
-                                self.tokens(row)
-                                    .any(|i| self.parsed.tokens()[i].kind == T::Colon),
-                            )
-                    })
-            },
-            |h| h.child_nodes().count(),
-        );
-        let count = row_count
-            .checked_mul(column_count)
-            .ok_or_else(|| QueryError::query(range.clone(), "matrix size overflow"))?;
-        let mut entries = slots(self.budget, count, &range)?;
-        for (i, row) in node
-            .child_nodes()
-            .filter(|n| n.kind() == N::MatrixRow)
-            .enumerate()
-        {
-            let explicit = self
-                .tokens(row)
-                .any(|i| self.parsed.tokens()[i].kind == T::Colon);
-            let mut cells = row.child_nodes();
-            let row_key = if explicit {
-                Some(cells.next().unwrap())
-            } else {
-                None
-            };
-            if row.child_nodes().count() - usize::from(explicit) != column_count {
-                return Err(QueryError::query(
-                    self.range(row),
-                    "matrix has missing cells",
-                ));
-            }
-            for (j, cell) in cells.enumerate() {
-                let row_key = row_key
-                    .map(|n| self.node(n, depth + 1))
-                    .transpose()?
-                    .unwrap_or(Located::new(
-                        K::Literal(V::Integer(position(i, &range)?)),
-                        range.clone(),
-                    ));
-                let column_key = header
-                    .and_then(|h| h.child_nodes().nth(j))
-                    .map(|n| self.node(n, depth + 1))
-                    .transpose()?
-                    .unwrap_or(Located::new(
-                        K::Literal(V::Integer(position(j, &range)?)),
-                        range.clone(),
-                    ));
-                let mut parts = slots(self.budget, 2, &range)?;
-                parts.extend([row_key, column_key]);
-                entries.push((
-                    Located::new(K::Tuple(parts), self.range(cell)),
-                    self.node(cell, depth + 1)?,
-                ));
-            }
-        }
-        let axes = if count == 0 {
-            return Err(QueryError::query(
-                range,
-                "empty matrix requires established axes",
-            ));
-        } else {
-            None
-        };
-        Ok(Located::new(
-            K::KeyedArray {
-                axes,
-                declared_axis_sources: None,
-                entries,
-            },
-            range,
+        reader: &mut zirql::ArgumentReader<'_>,
+        _: &mut Budget,
+    ) -> Result<(), zirql::QueryError> {
+        Err(zirql::QueryError::query(
+            reader.position()..reader.position(),
+            "native predicates are unavailable here",
         ))
     }
-    fn report_only(&mut self, range: &Range<usize>) -> Result<(), QueryError> {
-        if self.policy == ExpressionPolicy::Data {
-            return Err(QueryError::query(
-                range.clone(),
-                "report-only form is unavailable in data expressions",
-            ));
-        }
-        if self.first_report_call.is_none() {
-            self.first_report_call = Some(range.clone());
-        }
-        Ok(())
+    fn filter(&mut self, _: zirql::Predicate<()>, _: Range<usize>) {}
+    fn projection(&mut self, _: zirql::Projection<zirql::Expression<(), (), ()>>, _: Range<usize>) {
     }
-    fn field_selector(
+    fn set_operator(&self, _: &str) -> Option<()> {
+        None
+    }
+    fn parse_domain_call(
         &mut self,
-        selector: &SyntaxNode,
-        depth: usize,
-    ) -> Result<Located<String>, QueryError> {
-        let token = self.tokens(selector).next();
-        if selector.kind() != N::Expression
-            || token.is_none_or(|token| self.parsed.tokens()[token].kind != T::StringLiteral)
-        {
-            return Err(QueryError::query(
-                self.range(selector),
-                "field selector must be a string literal",
-            ));
-        }
-        let lowered = self.node(selector, depth)?;
-        let K::Literal(V::String(text)) = lowered.value else {
-            unreachable!("string literal selector")
+        name: Located<&str>,
+        reader: &mut zirql::ArgumentReader<'_>,
+        _: &[&str],
+        budget: &mut Budget,
+        _: usize,
+    ) -> Result<Option<E<zirql::Expression<(), (), ()>>>, zirql::QueryError> {
+        let Some(mut member) = read_member(name, reader, budget)? else {
+            return Ok(None);
         };
-        Ok(Located::new(text, lowered.range))
+        member.slot = format!("\0member{}", self.members.len());
+        let value = Located::new(K::Name(member.slot.clone()), member.range.clone());
+        self.members.push(member);
+        Ok(Some(value))
     }
-    fn sort_selector(
-        &mut self,
-        selector: &SyntaxNode,
-        depth: usize,
-    ) -> Result<Located<zirql::SortSelector>, QueryError> {
-        if selector.kind() == N::Expression
-            && self.tokens(selector).next().is_some_and(|token| {
-                self.parsed.tokens()[token].kind == T::Identifier && self.text(token) == "value"
-            })
-        {
-            let lowered = self.node(selector, depth)?;
-            return Ok(Located::new(zirql::SortSelector::Value, lowered.range));
-        }
-        let field = self.field_selector(selector, depth)?;
-        Ok(Located::new(
-            zirql::SortSelector::Field(field.value),
-            field.range,
-        ))
+}
+/// Read only the native enum/member signature, leaving other calls untouched.
+pub(crate) fn read_member(
+    name: Located<&str>,
+    reader: &mut zirql::ArgumentReader<'_>,
+    budget: &mut Budget,
+) -> Result<Option<MemberRequest>, zirql::QueryError> {
+    if name.value != "enum_member" {
+        return Ok(None);
     }
-    fn descending_option(&mut self, option: &SyntaxNode) -> Result<bool, QueryError> {
-        let failure = || {
+    reader.expect('(')?;
+    let enum_name = reader.word()?;
+    let enum_name = Located::new(enum_name.value.to_owned(), enum_name.range);
+    reader.expect(',')?;
+    let member_name = reader.quoted_string()?;
+    reader.expect(')')?;
+    let range = name.range.start..reader.position();
+    budget.charge(
+        enum_name.value.len() + member_name.value.len() + 1,
+        zirql::Location::Query(range.clone()),
+    )?;
+    budget.charge_results(1, zirql::Location::Query(range.clone()))?;
+    Ok(Some(MemberRequest {
+        slot: String::new(),
+        enum_name,
+        member_name,
+        range,
+    }))
+}
+/// Check every written branch before a Data request can perform an effect.
+pub(crate) fn admit_data<Q>(
+    expression: &E<Q>,
+    source: &str,
+    budget: &mut Budget,
+    native: &mut impl FnMut(&Q, &Range<usize>, &mut Budget) -> Result<(), QueryError>,
+) -> Result<(), QueryError> {
+    let mut pending = vec![expression];
+    while let Some(value) = pending.pop() {
+        charge(budget, 1, &value.range)?;
+        let refused = || {
             QueryError::query(
-                self.range(option),
-                "expected descending=true or descending=false",
+                value.range.clone(),
+                "report-only form is unavailable in data expressions",
             )
         };
-        if option.kind() != N::BinaryExpression
-            || self
-                .tokens(option)
-                .next()
-                .is_none_or(|token| self.text(token) != "=")
-        {
-            return Err(failure());
-        }
-        let mut parts = option.child_nodes();
-        let (Some(name), Some(value)) = (parts.next(), parts.next()) else {
-            return Err(failure());
-        };
-        if parts.next().is_some()
-            || name.kind() != N::Expression
-            || self
-                .tokens(name)
-                .next()
-                .is_none_or(|token| self.text(token) != "descending")
-            || value.kind() != N::Expression
-        {
-            return Err(failure());
-        }
-        charge(
-            self.budget,
-            1 + option.children().len(),
-            &self.range(option),
-        )?;
-        match self
-            .tokens(value)
-            .next()
-            .map(|token| self.parsed.tokens()[token].kind)
-        {
-            Some(T::True) => Ok(true),
-            Some(T::False) => Ok(false),
-            _ => Err(QueryError::query(
-                self.range(value),
-                "descending needs a literal Boolean",
-            )),
-        }
-    }
-    fn node(&mut self, node: &SyntaxNode, depth: usize) -> Result<E<Q>, QueryError> {
-        let range = self.range(node);
-        if depth >= self.nesting.min(64) {
-            return Err(QueryError::query(range, "value nesting limit exceeded"));
-        }
-        charge(self.budget, 1 + node.children().len(), &range)?;
-        if !self.shared.is_empty() {
-            let shared_start = self
-                .tokens(node)
-                .next()
-                .map(|index| {
-                    map_range(
-                        self.parsed.tokens()[index].range.clone(),
-                        self.offset,
-                        self.prefix,
-                    )
-                    .start
-                })
-                .unwrap_or(range.start);
-            if self
-                .shared
-                .get(&shared_start)
-                .is_some_and(|(span, _)| range.end <= span.end)
-                && let Some((_, value)) = self.shared.remove(&shared_start)
-            {
-                self.report_only(&value.range)?;
-                return Ok(value);
-            }
-        }
-        let child = || {
-            node.child_nodes()
-                .next()
-                .expect("valid CST expression child")
-        };
-        let unsupported = || QueryError::query(range.clone(), "unsupported expression in reports");
-        let kind = match node.kind() {
-            N::ParenthesizedExpression => return self.node(child(), depth + 1),
-            N::Expression => {
-                let i = self.tokens(node).next().ok_or_else(unsupported)?;
-                match self.parsed.tokens()[i].kind {
-                    T::Absent => {
-                        self.report_only(&range)?;
-                        K::Literal(V::Absent)
-                    }
-                    T::True => K::Literal(V::Boolean(true)),
-                    T::False => K::Literal(V::Boolean(false)),
-                    T::IntegerLiteral | T::FloatLiteral => {
-                        charge(self.budget, self.text(i).len(), &range)?;
-                        K::Literal(number(self.text(i), &range)?)
-                    }
-                    T::StringLiteral => {
-                        charge(self.budget, self.text(i).len(), &range)?;
-                        K::Literal(V::String(
-                            structured::decode_string(self.text(i))
-                                .map_err(|m| QueryError::query(range.clone(), m))?,
-                        ))
-                    }
-                    T::Identifier | T::QuotedIdentifier => K::Name(self.name(i)?.value),
-                    _ => return Err(unsupported()),
-                }
-            }
-            N::UnaryExpression => {
-                let i = self.tokens(node).next().unwrap();
-                let operator = match self.parsed.tokens()[i].kind {
-                    T::Plus => U::Positive,
-                    T::Minus => U::Negative,
-                    T::Not => U::Not,
-                    _ => return Err(unsupported()),
-                };
-                // A written negative minimum cannot first become a positive i64.
-                if matches!(operator, U::Positive | U::Negative)
-                    && child().kind() == N::Expression
-                    && !self.shared.contains_key(&self.range(child()).start)
+        match &value.value {
+            K::Literal(V::Absent) => return Err(refused()),
+            K::Literal(_) | K::Name(_) | K::PredicateSubject => {}
+            K::NativeQuery(query) | K::NativeValue(query) => native(query, &value.range, budget)?,
+            K::Array(values) | K::Tuple(values) | K::Set(values) => pending.extend(values),
+            K::Record(fields) => {
+                if source
+                    .get(value.range.clone())
+                    .is_some_and(|text| text.trim_start().starts_with('{'))
                 {
-                    let atom = self.tokens(child()).next().unwrap();
-                    if matches!(
-                        self.parsed.tokens()[atom].kind,
-                        T::IntegerLiteral | T::FloatLiteral
-                    ) {
-                        charge(self.budget, self.text(atom).len() + 1, &range)?;
-                        let spelling = format!("{}{}", self.text(i), self.text(atom));
-                        return Ok(Located::new(K::Literal(number(&spelling, &range)?), range));
-                    }
+                    return Err(refused());
                 }
-                K::Unary {
-                    operator,
-                    operand: Box::new(self.node(child(), depth + 1)?),
-                }
+                pending.extend(fields.iter().map(|(_, value)| value));
             }
-            N::BinaryExpression | N::RangeExpression => {
-                if node.child_nodes().count() != 2 {
-                    return Err(unsupported());
-                }
-                let i = self.tokens(node).next().unwrap();
-                let mut children = node.child_nodes();
-                let left = Box::new(self.node(children.next().unwrap(), depth + 1)?);
-                let right = Box::new(self.node(children.next().unwrap(), depth + 1)?);
-                if self.parsed.tokens()[i].kind == T::RangeInclusive {
-                    K::Range {
-                        lower: left,
-                        upper: right,
-                    }
-                } else if self.parsed.tokens()[i].kind == T::Default {
-                    self.report_only(&range)?;
-                    K::Default {
-                        value: left,
-                        fallback: right,
-                    }
-                } else {
-                    let operator = match self.parsed.tokens()[i].kind {
-                        T::Plus => B::Add,
-                        T::Minus => B::Subtract,
-                        T::Star => B::Multiply,
-                        T::Slash => B::Divide,
-                        T::Div => B::IntegerDivide,
-                        T::Mod => B::Modulo,
-                        T::Less => B::Less,
-                        T::LessEqual => B::LessEqual,
-                        T::Greater => B::Greater,
-                        T::GreaterEqual => B::GreaterEqual,
-                        T::Equal => B::Equal,
-                        T::NotEqual => B::NotEqual,
-                        T::In => B::In,
-                        T::And => B::And,
-                        T::Or => B::Or,
-                        T::Concat => B::Concatenate,
-                        _ => return Err(unsupported()),
-                    };
-                    K::Binary {
-                        operator,
-                        left,
-                        right,
-                    }
-                }
+            K::KeyedArray {
+                declared_axis_sources,
+                entries,
+                ..
+            } => {
+                pending.extend(declared_axis_sources.iter().flatten());
+                pending.extend(entries.iter().flat_map(|(key, value)| [key, value]));
             }
-            N::ArrayLiteral => {
-                if structured::array_indexing(node) == structured::ArrayIndexing::Positional {
-                    K::Array(self.children(node, depth)?)
-                } else {
-                    let mut entries = slots(self.budget, node.child_nodes().count(), &range)?;
-                    let mut next_key = None;
-                    for entry in node.child_nodes() {
-                        let (key, value) = if entry.kind() == N::IndexedArrayEntry {
-                            let mut children = entry.child_nodes();
-                            let key = self.node(children.next().unwrap(), depth + 1)?;
-                            next_key = match &key.value {
-                                K::Literal(V::Integer(n)) => Some(*n),
-                                _ => None,
-                            };
-                            (key, self.node(children.next().unwrap(), depth + 1)?)
-                        } else {
-                            let n = next_key.and_then(|n| n.checked_add(1)).ok_or_else(|| QueryError::query(self.range(entry), "starting-key tail requires a written integer and checked successors"))?;
-                            next_key = Some(n);
-                            (
-                                Located::new(K::Literal(V::Integer(n)), self.range(entry)),
-                                self.node(entry, depth + 1)?,
-                            )
-                        };
-                        entries.push((key, value));
-                    }
-                    K::KeyedArray {
-                        declared_axis_sources: None,
-                        axes: None,
-                        entries,
-                    }
+            K::Comprehension { clauses, head, .. }
+            | K::KeyedComprehension { clauses, head, .. } => {
+                pending.push(head);
+                if let K::KeyedComprehension {
+                    key,
+                    declared_axis_sources,
+                    empty_axis_sources,
+                    ..
+                } = &value.value
+                {
+                    pending.push(key);
+                    pending.extend(declared_axis_sources.iter().flatten());
+                    pending.extend(empty_axis_sources.iter().flatten());
                 }
-            }
-            N::MatrixLiteral => return self.matrix(node, depth),
-            N::TupleLiteral | N::IndexTuple => K::Tuple(self.children(node, depth)?),
-            N::SetLiteral => K::Set(self.children(node, depth)?),
-            N::RecordLiteral => {
-                let mut fields = slots(self.budget, node.child_nodes().count(), &range)?;
-                for field in node.child_nodes() {
-                    charge(self.budget, 1 + field.children().len(), &self.range(field))?;
-                    let i = self.tokens(field).next().unwrap();
-                    let label = self.name(i)?;
-                    fields.push((
-                        label,
-                        self.node(field.child_nodes().next().unwrap(), depth + 1)?,
-                    ));
-                }
-                K::Record(fields)
-            }
-            N::FieldAccessExpression => {
-                let i = self.tokens(node).last().unwrap();
-                let value = Box::new(self.node(child(), depth + 1)?);
-                if self.parsed.tokens()[i].kind == T::IntegerLiteral {
-                    let position = self.text(i).parse().map_err(|_| unsupported())?;
-                    K::TupleAccess {
-                        value,
-                        position: Located::new(
-                            position,
-                            map_range(
-                                self.parsed.tokens()[i].range.clone(),
-                                self.offset,
-                                self.prefix,
-                            ),
-                        ),
-                    }
-                } else {
-                    K::Field {
-                        value,
-                        field: self.name(i)?,
-                    }
-                }
-            }
-            N::ArrayAccessExpression => {
-                let mut children = node.child_nodes();
-                let array = Box::new(self.node(children.next().unwrap(), depth + 1)?);
-                let mut indices = slots(self.budget, node.child_nodes().count() - 1, &range)?;
-                for child in children {
-                    indices.push(self.node(child, depth + 1)?);
-                }
-                let index = if indices.len() == 1 {
-                    indices.pop().unwrap()
-                } else {
-                    Located::new(K::Tuple(indices), range.clone())
-                };
-                K::ArrayAccess {
-                    array,
-                    index: Box::new(index),
-                }
-            }
-            N::CallExpression => {
-                let i = self.tokens(node).next().unwrap();
-                if self.text(i) == "enum_member" {
-                    let mut args = node.child_nodes();
-                    let enum_arg = args.next().ok_or_else(unsupported)?;
-                    let member_arg = args.next().ok_or_else(unsupported)?;
-                    if args.next().is_some()
-                        || enum_arg.kind() != N::Expression
-                        || member_arg.kind() != N::Expression
-                    {
-                        return Err(unsupported());
-                    }
-                    let enum_token = self.tokens(enum_arg).next().ok_or_else(unsupported)?;
-                    let member_token = self.tokens(member_arg).next().ok_or_else(unsupported)?;
-                    if !matches!(
-                        self.parsed.tokens()[enum_token].kind,
-                        T::Identifier | T::QuotedIdentifier
-                    ) || self.parsed.tokens()[member_token].kind != T::StringLiteral
-                    {
-                        return Err(QueryError::query(
-                            range,
-                            "enum_member requires an enum identifier and string literal",
-                        ));
-                    }
-                    let enum_name = self.name(enum_token)?;
-                    charge(self.budget, self.text(member_token).len() + 32, &range)?;
-                    let member_name = structured::decode_string(self.text(member_token))
-                        .map_err(|m| QueryError::query(self.range(member_arg), m))?;
-                    let slot = format!("\0member{}", self.members.len());
-                    self.budget
-                        .charge_results(1, zirql::Location::Query(range.clone()))
-                        .map_err(pipeline::core_error)?;
-                    self.members.push(MemberRequest {
-                        slot: slot.clone(),
-                        enum_name,
-                        member_name: Located::new(member_name, self.range(member_arg)),
-                        range: range.clone(),
-                    });
-                    K::Name(slot)
-                } else if matches!(self.text(i), "occurs" | "absent" | "lookup" | "has_key") {
-                    self.report_only(&range)?;
-                    let unary = matches!(self.text(i), "occurs" | "absent");
-                    if node.child_nodes().count() != if unary { 1 } else { 2 } {
-                        return Err(QueryError::query(
-                            range,
-                            "presence/access call has the wrong argument count",
-                        ));
-                    }
-                    let mut args = node.child_nodes();
-                    let value = Box::new(self.node(args.next().unwrap(), depth + 1)?);
-                    match self.text(i) {
-                        "occurs" => K::Occurs(value),
-                        "absent" => K::Absent(value),
-                        _ => {
-                            let lookup = self.text(i) == "lookup";
-                            let key = Box::new(self.node(args.next().unwrap(), depth + 1)?);
-                            if lookup {
-                                K::Lookup { value, key }
-                            } else {
-                                K::HasKey { value, key }
-                            }
-                        }
-                    }
-                } else if self.text(i) == "index_set" && node.child_nodes().count() == 1 {
-                    K::IndexSet(Box::new(self.node(child(), depth + 1)?))
-                } else if matches!(
-                    self.text(i),
-                    "length"
-                        | "sum"
-                        | "forall"
-                        | "exists"
-                        | "require"
-                        | "group_by"
-                        | "sort"
-                        | "sort_by"
-                        | "min"
-                        | "max"
-                        | "min_by"
-                        | "max_by"
-                        | "one"
-                        | "entries"
-                        | "zip_exact"
-                        | "contains"
-                        | "starts_with"
-                        | "ends_with"
-                ) {
-                    if self.policy == ExpressionPolicy::Data {
-                        return Err(QueryError::query(
-                            range,
-                            "report-only call is unavailable in data expressions",
-                        ));
-                    }
-                    // Record the outer call before lowering nested operands.
-                    if self.first_report_call.is_none() {
-                        self.first_report_call = Some(range.clone());
-                    }
-                    if matches!(self.text(i), "contains" | "starts_with" | "ends_with") {
-                        let mut args = node.child_nodes();
-                        let left = args.next().ok_or_else(|| {
-                            QueryError::query(range.clone(), "string matching needs two arguments")
-                        })?;
-                        let right = args.next().ok_or_else(|| {
-                            QueryError::query(range.clone(), "string matching needs two arguments")
-                        })?;
-                        if args.next().is_some() {
-                            return Err(QueryError::query(
-                                range,
-                                "string matching needs two arguments",
-                            ));
-                        }
-                        K::Binary {
-                            operator: match self.text(i) {
-                                "contains" => B::Contains,
-                                "starts_with" => B::StartsWith,
-                                "ends_with" => B::EndsWith,
-                                _ => unreachable!("string matching call"),
-                            },
-                            left: Box::new(self.node(left, depth + 1)?),
-                            right: Box::new(self.node(right, depth + 1)?),
-                        }
-                    } else if self.text(i) == "one" {
-                        if node.child_nodes().count() != 1 {
-                            return Err(QueryError::query(range, "one needs one argument"));
-                        }
-                        K::One(Box::new(self.node(child(), depth + 1)?))
-                    } else if self.text(i) == "entries" {
-                        if node.child_nodes().count() != 1 {
-                            return Err(QueryError::query(range, "entries needs one argument"));
-                        }
-                        K::Entries(Box::new(self.node(child(), depth + 1)?))
-                    } else if self.text(i) == "zip_exact" {
-                        let mut args = node.child_nodes();
-                        let left = args.next().ok_or_else(|| {
-                            QueryError::query(range.clone(), "zip_exact needs two arguments")
-                        })?;
-                        let right = args.next().ok_or_else(|| {
-                            QueryError::query(range.clone(), "zip_exact needs two arguments")
-                        })?;
-                        if args.next().is_some() {
-                            return Err(QueryError::query(range, "zip_exact needs two arguments"));
-                        }
-                        K::ZipExact {
-                            left: Box::new(self.node(left, depth + 1)?),
-                            right: Box::new(self.node(right, depth + 1)?),
-                        }
-                    } else if matches!(
-                        self.text(i),
-                        "sort" | "sort_by" | "min" | "max" | "min_by" | "max_by"
-                    ) {
-                        let sorting = matches!(self.text(i), "sort" | "sort_by");
-                        let by_field = self.text(i).ends_with("_by");
-                        let mut args = node.child_nodes();
-                        let array = args.next().ok_or_else(|| {
-                            QueryError::query(range.clone(), "ordering needs an array argument")
-                        })?;
-                        let array = Box::new(self.node(array, depth + 1)?);
-                        let selector = if by_field {
-                            Some(args.next().ok_or_else(|| {
-                                QueryError::query(
-                                    range.clone(),
-                                    "field ordering needs a string selector",
-                                )
-                            })?)
-                        } else {
-                            None
-                        };
-                        let field = if sorting {
-                            None
-                        } else {
-                            selector
-                                .map(|value| self.field_selector(value, depth + 1))
-                                .transpose()?
-                        };
-                        let selector = if sorting {
-                            selector
-                                .map(|value| self.sort_selector(value, depth + 1))
-                                .transpose()?
-                        } else {
-                            None
-                        };
-                        let descending = if sorting {
-                            args.next()
-                                .map(|option| self.descending_option(option))
-                                .transpose()?
-                                .unwrap_or(false)
-                        } else {
-                            false
-                        };
-                        if args.next().is_some() {
-                            return Err(QueryError::query(
-                                range,
-                                "ordering has too many arguments",
-                            ));
-                        }
-                        if sorting {
-                            K::Sort {
-                                array,
-                                selector,
-                                descending,
-                            }
-                        } else {
-                            K::Extremum {
-                                operator: if self.text(i).starts_with("min") {
-                                    ValueExtremum::Min
-                                } else {
-                                    ValueExtremum::Max
-                                },
-                                array,
-                                field,
-                            }
-                        }
-                    } else if self.text(i) == "group_by" {
-                        let mut args = node.child_nodes();
-                        let rows = args.next().ok_or_else(|| {
-                            QueryError::query(range.clone(), "group_by needs two arguments")
-                        })?;
-                        let selector = args.next().ok_or_else(|| {
-                            QueryError::query(range.clone(), "group_by needs two arguments")
-                        })?;
-                        if args.next().is_some() {
-                            return Err(QueryError::query(range, "group_by needs two arguments"));
-                        }
-                        let rows = Box::new(self.node(rows, depth + 1)?);
-                        K::GroupBy {
-                            rows,
-                            field: self.field_selector(selector, depth + 1)?,
-                        }
-                    } else if self.text(i) == "require" {
-                        let mut args = node.child_nodes();
-                        let condition = args.next().ok_or_else(|| {
-                            QueryError::query(range.clone(), "require needs three arguments")
-                        })?;
-                        let value = args.next().ok_or_else(|| {
-                            QueryError::query(range.clone(), "require needs three arguments")
-                        })?;
-                        let message = args.next().ok_or_else(|| {
-                            QueryError::query(range.clone(), "require needs three arguments")
-                        })?;
-                        if args.next().is_some() {
-                            return Err(QueryError::query(range, "require needs three arguments"));
-                        }
-                        let condition = Box::new(self.node(condition, depth + 1)?);
-                        let value = Box::new(self.node(value, depth + 1)?);
-                        let token = self.tokens(message).next().ok_or_else(unsupported)?;
-                        if message.kind() != N::Expression
-                            || self.parsed.tokens()[token].kind != T::StringLiteral
-                        {
-                            return Err(QueryError::query(
-                                self.range(message),
-                                "require message must be a string literal",
-                            ));
-                        }
-                        let lowered = self.node(message, depth + 1)?;
-                        let K::Literal(V::String(text)) = lowered.value else {
-                            unreachable!("string literal message");
-                        };
-                        K::Require {
-                            condition,
-                            value,
-                            message: Located::new(text, lowered.range),
-                        }
-                    } else {
-                        if node.child_nodes().count() != 1 {
-                            return Err(QueryError::query(
-                                range,
-                                "array reducer needs one argument",
-                            ));
-                        }
-                        let operator = match self.text(i) {
-                            "length" => ValueReducer::Length,
-                            "sum" => ValueReducer::Sum,
-                            "forall" => ValueReducer::Forall,
-                            "exists" => ValueReducer::Exists,
-                            _ => unreachable!("selected reducer"),
-                        };
-                        K::Reduce {
-                            operator,
-                            array: Box::new(self.node(child(), depth + 1)?),
-                        }
-                    }
-                } else if self.policy == ExpressionPolicy::Functions {
-                    let function = self.name(i)?;
-                    K::Call {
-                        function,
-                        arguments: self.children(node, depth)?,
-                    }
-                } else {
-                    return Err(unsupported());
-                }
-            }
-            N::ConditionalExpression => {
-                let mut branches = slots(self.budget, node.child_nodes().count(), &range)?;
-                let mut otherwise = None;
-                for branch in node.child_nodes() {
-                    charge(
-                        self.budget,
-                        branch.children().len() + 1,
-                        &self.range(branch),
-                    )?;
-                    let mut children = branch.child_nodes();
-                    if branch.kind() == N::ElseBranch {
-                        otherwise = Some(Box::new(self.node(children.next().unwrap(), depth + 1)?));
-                    } else {
-                        branches.push((
-                            self.node(children.next().unwrap(), depth + 1)?,
-                            self.node(children.next().unwrap(), depth + 1)?,
-                        ));
-                    }
-                }
-                K::Conditional {
-                    branches,
-                    otherwise: otherwise.ok_or_else(|| {
-                        QueryError::query(
-                            range.clone(),
-                            "positional reports require an else branch",
-                        )
-                    })?,
-                }
-            }
-            N::ArrayComprehension | N::SetComprehension | N::IndexedArrayComprehension => {
-                let mut children = node.child_nodes();
-                let first = children.next().unwrap();
-                let (key, head) = if node.kind() == N::IndexedArrayComprehension {
-                    let mut pair = first.child_nodes();
-                    (
-                        Some(Box::new(self.node(pair.next().unwrap(), depth + 1)?)),
-                        Box::new(self.node(pair.next().unwrap(), depth + 1)?),
-                    )
-                } else {
-                    (None, Box::new(self.node(first, depth + 1)?))
-                };
-                let generators = children.next().unwrap();
-                let empty_axis_sources = key
-                    .as_ref()
-                    .map(|key| self.empty_sources(key, generators, depth))
-                    .transpose()?
-                    .flatten();
-                let mut clauses = slots(self.budget, generators.child_nodes().count(), &range)?;
-                for generator in generators.child_nodes() {
-                    let grange = self.range(generator);
-                    charge(self.budget, 1 + generator.children().len(), &grange)?;
-                    let mut binders = slots(
-                        self.budget,
-                        self.tokens(generator)
-                            .filter(|i| {
-                                matches!(
-                                    self.parsed.tokens()[*i].kind,
-                                    T::Identifier | T::QuotedIdentifier | T::Anonymous
-                                )
-                            })
-                            .count(),
-                        &grange,
-                    )?;
-                    let mut single = false;
-                    for element in generator.children() {
-                        let SyntaxElement::Token(i) = element else {
-                            continue;
-                        };
-                        let i = *i;
-                        match self.parsed.tokens()[i].kind {
-                            T::Equal => single = true,
-                            T::Identifier | T::QuotedIdentifier => {
-                                let name = self.name(i)?;
-                                binders.push(Located::new(Some(name.value), name.range));
-                            }
-                            T::Anonymous => binders.push(Located::new(
-                                None,
-                                map_range(
-                                    self.parsed.tokens()[i].range.clone(),
-                                    self.offset,
-                                    self.prefix,
-                                ),
-                            )),
-                            _ => {}
-                        }
-                    }
-                    let mut children = generator.child_nodes();
-                    let source = self.node(children.next().unwrap(), depth + 1)?;
-                    let filter = children
-                        .next()
-                        .map(|filter| self.node(filter.child_nodes().next().unwrap(), depth + 1))
-                        .transpose()?;
-                    let clause = if single {
-                        ValueGenerator::Bind {
-                            binder: binders.pop().unwrap(),
+                for clause in clauses {
+                    match &clause.value {
+                        ValueGenerator::In { source, filter, .. }
+                        | ValueGenerator::Bind {
                             value: source,
                             filter,
+                            ..
+                        } => {
+                            pending.push(source);
+                            pending.extend(filter);
                         }
-                    } else {
-                        ValueGenerator::In {
-                            binders,
-                            source,
-                            filter,
-                        }
-                    };
-                    clauses.push(Located::new(clause, grange));
-                }
-                if let Some(key) = key {
-                    K::KeyedComprehension {
-                        clauses,
-                        key,
-                        head,
-                        declared_axis_sources: None,
-                        empty_axis_sources,
-                    }
-                } else {
-                    K::Comprehension {
-                        constructor: if node.kind() == N::ArrayComprehension {
-                            zirql::ValueConstructor::Array
-                        } else {
-                            zirql::ValueConstructor::Set
-                        },
-                        clauses,
-                        head,
                     }
                 }
             }
-            _ => return Err(unsupported()),
-        };
-        Ok(Located::new(kind, range))
+            K::One(operand) if matches!(operand.value, K::NativeQuery(_) | K::NativeValue(_)) => {
+                pending.push(operand)
+            }
+            K::Unary { operand, .. }
+            | K::Field { value: operand, .. }
+            | K::TupleAccess { value: operand, .. }
+            | K::IndexSet(operand) => pending.push(operand),
+            K::Binary {
+                operator,
+                left,
+                right,
+            } => {
+                if matches!(operator, B::Contains | B::StartsWith | B::EndsWith) {
+                    return Err(refused());
+                }
+                pending.extend([left.as_ref(), right.as_ref()]);
+            }
+            K::Range {
+                lower: left,
+                upper: right,
+            }
+            | K::ArrayAccess {
+                array: left,
+                index: right,
+            } => pending.extend([left.as_ref(), right.as_ref()]),
+            K::Conditional {
+                branches,
+                otherwise,
+            } => {
+                pending.extend(
+                    branches
+                        .iter()
+                        .flat_map(|(condition, value)| [condition, value]),
+                );
+                pending.push(otherwise);
+            }
+            K::SubjectScope { subject, argument } => {
+                pending.extend([subject.as_ref(), argument.body.as_ref()])
+            }
+            K::PredicateScope { subject, predicate } => {
+                pending.extend([subject.as_ref(), predicate.body.as_ref()])
+            }
+            _ => return Err(refused()),
+        }
     }
+    Ok(())
 }
 fn number(text: &str, range: &Range<usize>) -> Result<V, QueryError> {
     match structured::parse_number(text).map_err(|m| QueryError::query(range.clone(), m))? {
@@ -1145,135 +347,6 @@ fn position(i: usize, range: &Range<usize>) -> Result<i64, QueryError> {
         .and_then(|n| i64::try_from(n).ok())
         .ok_or_else(|| QueryError::query(range.clone(), "integer key overflow"))
 }
-fn references_binding<Q>(
-    expression: &E<Q>,
-    names: &BTreeSet<String>,
-    budget: &mut Budget,
-) -> Result<bool, QueryError> {
-    charge(budget, 1, &expression.range)?;
-    match &expression.value {
-        K::Block { .. }
-        | K::ValueMatch { .. }
-        | K::Queue { .. }
-        | K::PopFront(_)
-        | K::PushBackAll { .. }
-        | K::IdentitySet { .. }
-        | K::Insert { .. }
-        | K::Fold { .. }
-        | K::Scan { .. }
-        | K::Loop { .. }
-        | K::Break(_)
-        | K::Continue(_) => Err(QueryError::query(
-            expression.range.clone(),
-            "control values require a prepared report program",
-        )),
-        K::Name(name) => Ok(names.contains(name)),
-        K::CurrentInput | K::Literal(_) | K::NativeQuery(_) | K::NativeValue(_) => Ok(false),
-        K::Call { arguments, .. } => any_binding(arguments.iter(), names, budget),
-        K::Array(values) | K::Tuple(values) | K::Set(values) => {
-            any_binding(values.iter(), names, budget)
-        }
-        K::Record(fields) => any_binding(fields.iter().map(|(_, v)| v), names, budget),
-        K::Dictionary(entries) => {
-            any_binding(entries.iter().flat_map(|(k, v)| [k, v]), names, budget)
-        }
-        K::KeyedArray {
-            declared_axis_sources,
-            entries,
-            ..
-        } => any_binding(
-            declared_axis_sources
-                .iter()
-                .flatten()
-                .chain(entries.iter().flat_map(|(k, v)| [k, v])),
-            names,
-            budget,
-        ),
-        K::DictionaryComprehension { clauses, key, head } => {
-            Ok(
-                any_binding([key.as_ref(), head.as_ref()].into_iter(), names, budget)?
-                    || generator_binding(clauses, names, budget)?,
-            )
-        }
-        K::KeyedComprehension {
-            clauses,
-            key,
-            head,
-            declared_axis_sources,
-            empty_axis_sources,
-        } => {
-            if any_binding(
-                declared_axis_sources
-                    .iter()
-                    .flatten()
-                    .chain([key.as_ref(), head.as_ref()])
-                    .chain(empty_axis_sources.iter().flatten()),
-                names,
-                budget,
-            )? {
-                return Ok(true);
-            }
-            generator_binding(clauses, names, budget)
-        }
-        K::Comprehension { clauses, head, .. } => {
-            Ok(references_binding(head, names, budget)?
-                || generator_binding(clauses, names, budget)?)
-        }
-        K::Unary { operand, .. }
-        | K::FilterStartsWith { array: operand, .. }
-        | K::Unique(operand)
-        | K::Tally(operand)
-        | K::Occurs(operand)
-        | K::Absent(operand)
-        | K::One(operand)
-        | K::IndexSet(operand)
-        | K::Entries(operand)
-        | K::Reduce { array: operand, .. }
-        | K::Sort { array: operand, .. }
-        | K::Extremum { array: operand, .. }
-        | K::GroupBy { rows: operand, .. }
-        | K::Field { value: operand, .. }
-        | K::TupleAccess { value: operand, .. } => references_binding(operand, names, budget),
-        K::Binary { left, right, .. }
-        | K::Lookup {
-            value: left,
-            key: right,
-        }
-        | K::HasKey {
-            value: left,
-            key: right,
-        }
-        | K::Default {
-            value: left,
-            fallback: right,
-        }
-        | K::ZipExact { left, right }
-        | K::Require {
-            condition: left,
-            value: right,
-            ..
-        }
-        | K::Range {
-            lower: left,
-            upper: right,
-        }
-        | K::ArrayAccess {
-            array: left,
-            index: right,
-        } => any_binding([left.as_ref(), right.as_ref()].into_iter(), names, budget),
-        K::Conditional {
-            branches,
-            otherwise,
-        } => any_binding(
-            branches
-                .iter()
-                .flat_map(|(c, v)| [c, v])
-                .chain(std::iter::once(otherwise.as_ref())),
-            names,
-            budget,
-        ),
-    }
-}
 /// Bindings outside default fallbacks retain the host's ordinary projection preflight.
 pub(crate) fn eager_names<Q>(
     expression: &E<Q>,
@@ -1299,6 +372,18 @@ pub(crate) fn eager_names<Q>(
                 "control values require a prepared report program",
             ));
         }
+        K::SubjectScope { subject, argument } => {
+            eager_names(subject, names, budget)?;
+            eager_names(&argument.body, names, budget)?;
+        }
+        K::PredicateScope { subject, predicate } => {
+            eager_names(subject, names, budget)?;
+            eager_names(&predicate.body, names, budget)?;
+        }
+        K::Filter { array, predicate } => {
+            eager_names(array, names, budget)?;
+            eager_names(&predicate.body, names, budget)?;
+        }
         K::Name(name) => {
             charge(budget, name.len() + 1, &expression.range)?;
             budget
@@ -1306,7 +391,11 @@ pub(crate) fn eager_names<Q>(
                 .map_err(pipeline::core_error)?;
             names.insert(name.clone());
         }
-        K::CurrentInput | K::Literal(_) | K::NativeQuery(_) | K::NativeValue(_) => {}
+        K::CurrentInput
+        | K::Literal(_)
+        | K::NativeQuery(_)
+        | K::NativeValue(_)
+        | K::PredicateSubject => {}
         K::Call { arguments, .. } => {
             for argument in arguments {
                 eager_names(argument, names, budget)?;
@@ -1338,8 +427,7 @@ pub(crate) fn eager_names<Q>(
                 eager_names(value, names, budget)?;
             }
         }
-        K::FilterStartsWith { array: value, .. }
-        | K::Unique(value)
+        K::Unique(value)
         | K::Tally(value)
         | K::Occurs(value)
         | K::Absent(value)
@@ -1434,35 +522,6 @@ pub(crate) fn eager_names<Q>(
         }
     }
     Ok(())
-}
-
-fn any_binding<'a, Q: 'a>(
-    children: impl Iterator<Item = &'a E<Q>>,
-    names: &BTreeSet<String>,
-    budget: &mut Budget,
-) -> Result<bool, QueryError> {
-    for child in children {
-        if references_binding(child, names, budget)? {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-fn generator_binding<Q>(
-    clauses: &[Located<ValueGenerator<Q>>],
-    names: &BTreeSet<String>,
-    budget: &mut Budget,
-) -> Result<bool, QueryError> {
-    for clause in clauses {
-        let (source, filter) = match &clause.value {
-            ValueGenerator::In { source, filter, .. } => (source, filter),
-            ValueGenerator::Bind { value, filter, .. } => (value, filter),
-        };
-        if any_binding(std::iter::once(source).chain(filter), names, budget)? {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 fn model_error(location: zincite_lint::SourceLocation, message: impl Into<String>) -> QueryError {
@@ -3149,4 +2208,39 @@ fn tagged_key(
             json!({"kind":"member", "enum":member.type_name, "name":member.member_name})
         }
     })
+}
+
+pub(crate) fn read_scalar_predicate(
+    reader: &mut zirql::ArgumentReader<'_>,
+    budget: &mut Budget,
+    nesting: usize,
+) -> Result<zirql::ValueExpression, QueryError> {
+    let mut host = DataReader {
+        members: Vec::new(),
+    };
+    let predicate = zirql::read_predicate_argument(reader, &mut host, &[], budget, nesting)
+        .map_err(pipeline::core_error)?;
+    admit_data(
+        &predicate.body,
+        reader.source(),
+        budget,
+        &mut |_, range, _| {
+            Err(QueryError::query(
+                range.clone(),
+                "native values are unavailable in scalar predicates",
+            ))
+        },
+    )?;
+    if let Some(member) = host.members.first() {
+        return Err(QueryError::query(
+            member.range.clone(),
+            "scalar element predicates need established nominal facts; use a direct member comparison",
+        ));
+    }
+    let range = predicate.body.range.clone();
+    let body = crate::program::builder::map_queries(
+        predicate.bind(Located::new(K::Name("\0scalar".into()), range)),
+        &mut |_| unreachable!("scalar predicate has no native query"),
+    );
+    Ok(body)
 }

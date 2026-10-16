@@ -140,7 +140,7 @@ let samples = [
   {"label": "ash", "count": 2},
   {"label": "birch", "count": 3}
 ];
-let selected = [row | row in samples where row.count > 1];
+let selected = [row for row in samples if row.count > 1];
 sort_by({row.label: row.count for row in selected}, value, descending=true)
 ```
 
@@ -157,13 +157,12 @@ their labels as string keys and their counts as values. `descending=true` puts
 the largest count first. Pear and ash both have count 2, so their incoming order
 stays pear, then ash. Sorting retains the dictionary kind.
 
-The MiniZinc array comprehension spells its generator `[row | row in samples
-where ...]`. The [Zirql language guide](https://zayenz.se/zirql/guides/language-reference/)
-and [Zirium guide](https://zayenz.se/zirium/guides/query-language/) use
-`[row for row in samples if ...]` for this same calculation. The binding,
-filtering, dictionary and ordering rules are shared. Zincite retains its typed
-integer payloads and result envelope; the CSV and Zirium renderers print ordinary
-JSON integers.
+Zincite accepts both `[row for row in samples if row.count > 1]` and
+`[row | row in samples where row.count > 1]`. Both use Zirql's reader and
+evaluator, with the same scope, order and limits. The [Zirql language guide](https://zayenz.se/zirql/guides/language-reference/)
+and [Zirium guide](https://zayenz.se/zirium/guides/query-language/) describe the
+shared language. Zincite retains its typed integer payloads and result envelope;
+the CSV and Zirium renderers print ordinary JSON integers.
 
 This program does not inspect `model.mzn`. To supply data from MiniZinc source,
 select native items and project their `names` or literal `values`, as in the
@@ -173,6 +172,39 @@ MiniZinc-specific rules.
 Use `--program` for an inline complete program or `--program-file` for a file.
 The positional query argument reads the smaller native pipeline syntax and does
 not accept `let` declarations.
+
+## Select values with a predicate
+
+`filter(row => row.count > 1)` names the current element. The equivalent
+`filter(_.count > 1)` uses its implicit argument. Both keep the same rows as
+`[row for row in samples if row.count > 1]`, in the same order. Bodies can use
+visible immutable bindings and pure query functions.
+
+Tuple and list patterns work in bindings, function parameters, predicates,
+comprehensions and value-match arms:
+
+```zirql
+let [limit, extra, ..] = [2, 1, 99];
+fn above((value, bound): tuple<int,int>) -> bool { value > bound }
+let pairs = [(1, limit), (4, limit), (3, limit + extra)];
+[pair for pair in pairs if above(pair)]
+```
+
+A tuple pattern requires exactly its written number of positions. `[a, b]`
+requires a two-element positional list; `[a, b, ..]` requires at least two and
+discards the rest. Sets and keyed arrays do not become lists for matching. A
+binding, parameter, predicate or generator mismatch is a located error. A value
+`match` tries its next arm instead. `_` remains a wildcard in patterns; inside
+a predicate body it reads the whole current subject, even when a pattern names
+its parts. Nested predicates bind `_` anew and retain explicitly named outer
+captures.
+
+Native `filter`, `paths(..., to=...)` and native `match` guards accept the same
+named and implicit bodies. Native values keep their existing projections:
+`items | filter(item => length(item | names) > 0)` tests each source item.
+A path target receives one candidate declaration. A native match guard receives
+the original query input, with earlier captures available under their own names.
+These rules do not add fields to MiniZinc nodes or declarations.
 
 ## Continue a calculated array
 

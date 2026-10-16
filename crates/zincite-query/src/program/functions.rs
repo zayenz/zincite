@@ -2,8 +2,6 @@
 use super::*;
 use zirql::{DeclaredType as D, ProjectionHost, ValueExpression as E, ValueExpressionKind as K};
 
-type EmbeddedValue = (Range<usize>, E<Expression>);
-
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Primitive {
     DirectChildren,
@@ -66,7 +64,7 @@ impl Parser<'_> {
                     self.limits.nesting,
                 );
                 self.preflight = budget;
-                if let Some(mut function) = result.map_err(pipeline::core_error)? {
+                if let Some(function) = result.map_err(pipeline::core_error)? {
                     let admission = (|| {
                         check_signature(
                             &function.result,
@@ -87,7 +85,7 @@ impl Parser<'_> {
                         zirql::dispose_unresolved_pattern_functions(vec![function]);
                         return Err(error);
                     }
-                    lower_primitives(&mut function.value, &BTreeMap::new(), &self.queries);
+
                     self.report_model_demand |= signature_needs_model(&function.result.value)
                         || function.parameters.iter().any(|parameter| {
                             signature_needs_model(&parameter.value.declaration.value)
@@ -110,506 +108,65 @@ impl Parser<'_> {
             }
             position += 1;
         }
+        self.constructed_functions = self
+            .functions
+            .iter()
+            .filter(|function| constructed_signature(&function.result.value))
+            .map(|function| function.name.value.clone())
+            .collect();
+        for function in &mut self.functions {
+            lower_primitives(
+                &mut function.value,
+                &BTreeMap::new(),
+                &self.queries,
+                &self.constructed_functions,
+            );
+        }
         self.cursor.position = 0;
         Ok(())
     }
-    pub(super) fn function_expression(
-        &mut self,
-        range: Range<usize>,
-    ) -> Result<(Expression, Kind, bool), QueryError> {
-        if self.composed_value_syntax(range.clone()) {
-            return self.composed_value_expression(range);
-        }
-        if !self.leading_control_syntax(range.clone()) && !self.contextual_values(range.clone()) {
-            let expression = self.lower_function_value(range.clone())?;
-            let kind = match &expression.value {
-                K::Array(_)
-                | K::Comprehension { .. }
-                | K::KeyedArray { .. }
-                | K::KeyedComprehension { .. } => {
-                    Kind::Value(Rc::new(vec![zirql::ValueType::Unestablished]))
-                }
-                K::Call { function, .. }
-                    if self.functions.iter().any(|declaration| {
-                        declaration.name.value == function.value
-                            && is_constructed_signature(&declaration.result.value)
-                    }) =>
-                {
-                    Kind::Value(Rc::new(vec![zirql::ValueType::Unestablished]))
-                }
-                K::Name(name) => self.names.get(name).cloned().unwrap_or(Kind::Constructed),
-                _ => Kind::Constructed,
-            };
-            self.cursor.position = range.end;
-            return Ok((
-                value_stage(Stage::FunctionValue(expression), range),
-                kind,
-                false,
-            ));
-        }
-        self.begin_pure(range.clone())?;
-        self.first_report_call.get_or_insert(range.clone());
-        let mut budget =
-            std::mem::replace(&mut self.preflight, Budget::for_program(self.limits.core()));
-        let mut reader = zirql::ArgumentReader::new(self.cursor.source, range.start)
-            .map_err(pipeline::core_error)?;
-        let result =
-            zirql::read_value_expression(&mut reader, self, &mut budget, self.limits.nesting);
-        self.preflight = budget;
-        let mut expression = result.map_err(pipeline::core_error)?;
-        if reader.position() > range.end
-            || !self.cursor.source[reader.position()..range.end]
-                .trim()
-                .is_empty()
-        {
-            zirql::dispose_native_value(expression);
-            return Err(QueryError::query(
-                reader.position()..range.end,
-                "expected one pure value",
-            ));
-        }
-        check_value(&expression, &mut self.preflight, self.limits.nesting)?;
-        lower_primitives(&mut expression, &self.names, &self.queries);
-        self.cursor.position = range.end;
-        Ok((
-            value_stage(Stage::FunctionValue(expression), range),
-            Kind::Constructed,
-            false,
-        ))
+    pub(super) fn reader_locals(&self) -> Vec<String> {
+        self.function_scope
+            .as_ref()
+            .map(|scope| scope.keys().cloned().collect())
+            .unwrap_or_default()
     }
-    pub(super) fn lower_function_value(
+    pub(super) fn read_value(
         &mut self,
         range: Range<usize>,
+        nesting: usize,
     ) -> Result<E<Expression>, QueryError> {
         self.begin_pure(range.clone())?;
-        let shared = self.nested_controls(range.clone())?;
-        admit_cst(
-            &self.lexed,
-            &range,
-            &mut self.preflight,
-            self.limits.nesting,
-            &shared,
-        )?;
-        let mut lowered = comprehension::lower_with_values::<Expression>(
-            &self.cursor.source[range.clone()],
-            range.clone(),
-            &mut self.preflight,
-            self.limits.nesting,
-            comprehension::ExpressionPolicy::Functions,
-            shared,
-        )?;
-        self.report_model_demand |= !lowered.members.is_empty();
-        lower_members(&mut lowered.expression, &mut lowered.members);
-        lower_primitives(&mut lowered.expression, &self.names, &self.queries);
-        Ok(lowered.expression)
-    }
-    pub(super) fn contextual_values(&self, range: Range<usize>) -> bool {
-        self.lexed
-            .tokens()
-            .iter()
-            .filter(|token| token.range.start >= range.start && token.range.end <= range.end)
-            .any(|token| {
-                let name = &self.cursor.source[token.range.clone()];
-                matches!(
-                    name,
-                    "if" | "match"
-                        | "present"
-                        | "absent"
-                        | "loop"
-                        | "queue"
-                        | "identity_set"
-                        | "pop_front"
-                        | "push_back_all"
-                        | "insert"
-                        | "fold"
-                        | "scan"
-                ) && self.names.contains_key(name)
-            })
-    }
-    pub(super) fn next_value_token(&self, index: usize, end: usize) -> Option<usize> {
-        use zincite_syntax::TokenKind as T;
-        (index..self.lexed.tokens().len()).find(|&index| {
-            let token = &self.lexed.tokens()[index];
-            token.range.start < end
-                && !matches!(token.kind, T::Whitespace | T::LineComment | T::BlockComment)
-        })
-    }
-    fn control_block(&self, index: usize, end: usize, conditional: bool) -> Option<usize> {
-        use zincite_syntax::TokenKind as T;
-        let mut depth = 0usize;
-        let mut index = index;
-        while let Some(token) = self.lexed.tokens().get(index) {
-            if token.range.start >= end {
-                break;
-            }
-            match token.kind {
-                T::Then if depth == 0 => return None,
-                T::LeftBrace if depth == 0 => {
-                    if !conditional {
-                        return Some(index);
-                    }
-                    let close = self.block_close(index, end).ok()?;
-                    if self
-                        .next_value_token(close + 1, end)
-                        .is_some_and(|next| self.lexed.tokens()[next].kind == T::Else)
-                    {
-                        return Some(index);
-                    }
-                    index = close + 1;
-                    continue;
-                }
-                T::LeftParen | T::LeftBracket | T::LeftBrace | T::MatrixStart => depth += 1,
-                T::RightParen | T::RightBracket | T::RightBrace | T::MatrixEnd => {
-                    if depth == 0 {
-                        return None;
-                    }
-                    depth -= 1;
-                }
-                T::Comma | T::Semicolon if depth == 0 => return None,
-                _ => {}
-            }
-            index += 1;
-        }
-        None
-    }
-    fn control_at(&self, index: usize, end: usize) -> bool {
-        use zincite_syntax::TokenKind as T;
-        let token = &self.lexed.tokens()[index];
-        let Some(next) = self.next_value_token(index + 1, end) else {
-            return false;
-        };
-        if matches!(
-            &self.cursor.source[token.range.clone()],
-            "loop" | "break" | "continue"
-        ) {
-            return true;
-        }
-        if Primitive::named(&self.cursor.source[token.range.clone()]).is_some()
-            || matches!(
-                &self.cursor.source[token.range.clone()],
-                "queue"
-                    | "identity_set"
-                    | "pop_front"
-                    | "push_back_all"
-                    | "insert"
-                    | "fold"
-                    | "scan"
-            )
-        {
-            return matches!(self.lexed.tokens()[next].kind, T::LeftParen | T::Less);
-        }
-        if token.kind == T::If {
-            return self.control_block(next, end, true).is_some();
-        }
-        if &self.cursor.source[token.range.clone()] != "match"
-            || self.lexed.tokens()[next].kind != T::LeftParen
-        {
-            return false;
-        }
-        let mut depth = 1usize;
-        for (index, token) in self.lexed.tokens().iter().enumerate().skip(next + 1) {
-            if token.range.start >= end {
-                break;
-            }
-            match token.kind {
-                T::LeftParen => depth += 1,
-                T::RightParen => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return self
-                            .next_value_token(index + 1, end)
-                            .is_some_and(|next| self.lexed.tokens()[next].kind == T::LeftBrace);
-                    }
-                }
-                _ => {}
-            }
-        }
-        false
-    }
-    pub(super) fn leading_control_syntax(&self, range: Range<usize>) -> bool {
-        let index = self
-            .lexed
-            .tokens()
-            .partition_point(|token| token.range.start < range.start);
-        self.next_value_token(index, range.end)
-            .is_some_and(|index| self.control_at(index, range.end))
-    }
-    pub(super) fn control_syntax(&self, range: Range<usize>) -> bool {
-        self.lexed
-            .tokens()
-            .iter()
-            .enumerate()
-            .any(|(index, token)| {
-                token.range.start >= range.start
-                    && token.range.end <= range.end
-                    && (self.control_at(index, range.end)
-                        || self.grouped_composed_range(index, range.end).is_some())
-            })
-    }
-    fn block_close(&self, block: usize, end: usize) -> Result<usize, QueryError> {
-        use zincite_syntax::TokenKind as T;
-        let mut depth = 1usize;
-        for (index, token) in self.lexed.tokens().iter().enumerate().skip(block + 1) {
-            if token.range.start >= end {
-                break;
-            }
-            match token.kind {
-                T::LeftBrace => depth += 1,
-                T::RightBrace => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Ok(index);
-                    }
-                }
-                _ => {}
-            }
-        }
-        Err(QueryError::query(
-            self.lexed.tokens()[block].range.clone(),
-            "expected closing control block",
-        ))
-    }
-    fn control_end(&self, index: usize, end: usize) -> Result<usize, QueryError> {
-        use zincite_syntax::TokenKind as T;
-        let name = &self.cursor.source[self.lexed.tokens()[index].range.clone()];
-        if Primitive::named(name).is_some()
-            || matches!(
-                name,
-                "queue"
-                    | "identity_set"
-                    | "pop_front"
-                    | "push_back_all"
-                    | "insert"
-                    | "fold"
-                    | "scan"
-            )
-        {
-            let mut depth = 0usize;
-            for token in self.lexed.tokens().iter().skip(index + 1) {
-                if token.range.start >= end {
-                    break;
-                }
-                match token.kind {
-                    T::LeftParen => depth += 1,
-                    T::RightParen if depth > 0 => {
-                        depth -= 1;
-                        if depth == 0 {
-                            return Ok(token.range.end);
-                        }
-                    }
-                    _ => {}
-                }
-            }
+        let locals = self.reader_locals();
+        let mut reader = zirql::ArgumentReader::new(&self.cursor.source[..range.end], range.start)
+            .map_err(pipeline::core_error)?;
+        let mut budget =
+            std::mem::replace(&mut self.preflight, Budget::for_program(self.limits.core()));
+        let parsed = zirql::read_value_expression_in_scope(
+            &mut reader,
+            self,
+            &locals.iter().map(String::as_str).collect::<Vec<_>>(),
+            &mut budget,
+            nesting,
+        );
+        self.preflight = budget;
+        let mut value = parsed.map_err(pipeline::core_error)?;
+        reader.skip_whitespace();
+        if reader.position() != range.end {
+            zirql::dispose_native_value(value);
             return Err(QueryError::query(
-                self.lexed.tokens()[index].range.clone(),
-                "expected closing call",
+                reader.position()..range.end,
+                "expected one value expression",
             ));
         }
-        if matches!(name, "break" | "continue") {
-            return Ok(self.function_value_end(self.lexed.tokens()[index].range.start));
-        }
-        let conditional = self.lexed.tokens()[index].kind == T::If;
-        let mut block = self
-            .control_block(index + 1, end, conditional)
-            .expect("recognized control block");
-        loop {
-            let close = self.block_close(block, end)?;
-            if conditional
-                && let Some(next) = self.next_value_token(close + 1, end)
-                && self.lexed.tokens()[next].kind == T::Else
-                && let Some(next) = self.next_value_token(next + 1, end)
-            {
-                if self.lexed.tokens()[next].kind == T::LeftBrace {
-                    let close = self.block_close(next, end)?;
-                    return Ok(self.lexed.tokens()[close].range.end);
-                }
-                if self.lexed.tokens()[next].kind == T::If
-                    && let Some(next) = self.control_block(next + 1, end, true)
-                {
-                    block = next;
-                    continue;
-                }
-            }
-            return Ok(self.lexed.tokens()[close].range.end);
-        }
-    }
-    fn grouped_composed_range(
-        &self,
-        index: usize,
-        end: usize,
-    ) -> Option<(Range<usize>, Range<usize>)> {
-        use zincite_syntax::TokenKind as T;
-        let open = &self.lexed.tokens()[index];
-        if open.kind != T::LeftParen {
-            return None;
-        }
-        let mut depth = 1usize;
-        for token in self.lexed.tokens().iter().skip(index + 1) {
-            if token.range.start >= end {
-                break;
-            }
-            match token.kind {
-                T::LeftParen => depth += 1,
-                T::RightParen => {
-                    depth -= 1;
-                    if depth == 0 {
-                        let inner = open.range.end..token.range.start;
-                        return self
-                            .composed_value_syntax(inner.clone())
-                            .then_some((inner, open.range.start..token.range.end));
-                    }
-                }
-                _ => {}
-            }
-        }
-        None
-    }
-    pub(super) fn common_collections(&self, range: Range<usize>) -> bool {
-        self.lexed
-            .tokens()
-            .iter()
-            .enumerate()
-            .any(|(index, token)| {
-                token.range.start >= range.start
-                    && token.range.end <= range.end
-                    && self.common_collection_range(index, range.end).is_some()
-            })
-    }
-
-    pub(super) fn common_collection_range(&self, index: usize, end: usize) -> Option<Range<usize>> {
-        use zincite_syntax::TokenKind as T;
-        let tokens = self.lexed.tokens();
-        let first = tokens.get(index)?;
-        if first.kind == T::Identifier && &self.cursor.source[first.range.clone()] == "set" {
-            let mut reader =
-                zirql::ArgumentReader::new(&self.cursor.source[..end], first.range.start).ok()?;
-            reader.word().ok()?;
-            if reader.consume('<')
-                && reader.word().is_ok()
-                && reader.consume('>')
-                && reader.consume('(')
-                && reader.consume(')')
-            {
-                return Some(first.range.start..reader.position());
-            }
-            return None;
-        }
-        if first.kind != T::LeftBrace {
-            return None;
-        }
-        let mut depth = 0usize;
-        let mut colon = false;
-        let mut pipe = false;
-        let mut common_for = false;
-        let mut nonempty = false;
-        for token in &tokens[index..] {
-            if token.range.end > end {
-                break;
-            }
-            if depth == 1
-                && !matches!(
-                    token.kind,
-                    T::Whitespace | T::LineComment | T::BlockComment | T::RightBrace
-                )
-            {
-                nonempty = true;
-                common_for |= &self.cursor.source[token.range.clone()] == "for";
-            }
-            match token.kind {
-                T::LeftParen | T::LeftBracket | T::LeftBrace | T::MatrixStart => depth += 1,
-                T::RightParen | T::RightBracket | T::RightBrace | T::MatrixEnd => {
-                    depth = depth.saturating_sub(1);
-                    if depth == 0 {
-                        return (colon || !pipe && (common_for || !nonempty))
-                            .then_some(first.range.start..token.range.end);
-                    }
-                }
-                T::Colon if depth == 1 => colon = true,
-                T::Pipe if depth == 1 => pipe = true,
-                _ => {}
-            }
-        }
-        None
-    }
-
-    fn nested_controls(&mut self, range: Range<usize>) -> Result<Vec<EmbeddedValue>, QueryError> {
-        let mut values = Vec::new();
-        let mut index = self
-            .lexed
-            .tokens()
-            .partition_point(|token| token.range.start < range.start);
-        while let Some(next) = self.next_value_token(index, range.end) {
-            index = next + 1;
-            let grouped = self.grouped_composed_range(next, range.end);
-            let collection = self.common_collection_range(next, range.end);
-            if !self.control_at(next, range.end) && grouped.is_none() && collection.is_none() {
-                continue;
-            }
-            let start = self.lexed.tokens()[next].range.start;
-            let end = if let Some((_, span)) = &grouped {
-                span.end
-            } else if let Some(span) = &collection {
-                span.end
-            } else {
-                self.control_end(next, range.end)?
-            };
-            self.preflight
-                .charge(1, zirql::Location::Query(start..end))
-                .map_err(pipeline::core_error)?;
-            self.preflight
-                .charge_results(1, zirql::Location::Query(start..end))
-                .map_err(pipeline::core_error)?;
-            let value = if let Some((inner, _)) = grouped {
-                self.lower_composed_value(inner, self.limits.nesting)?
-            } else {
-                let mut reader = zirql::ArgumentReader::new(&self.cursor.source[..end], start)
-                    .map_err(pipeline::core_error)?;
-                let mut budget =
-                    std::mem::replace(&mut self.preflight, Budget::for_program(self.limits.core()));
-                let result = zirql::read_value_expression(
-                    &mut reader,
-                    self,
-                    &mut budget,
-                    self.limits.nesting,
-                );
-                self.preflight = budget;
-                result.map_err(pipeline::core_error)?
-            };
-            values.push((start..end, value));
-            index = self
-                .lexed
-                .tokens()
-                .partition_point(|token| token.range.start < end);
-        }
-        Ok(values)
-    }
-    pub(super) fn function_value_end(&self, start: usize) -> usize {
-        use zincite_syntax::TokenKind as T;
-        let mut depth = 0usize;
-        for token in self
-            .lexed
-            .tokens()
-            .iter()
-            .filter(|token| token.range.start >= start)
-        {
-            if depth == 0
-                && (matches!(
-                    token.kind,
-                    T::Semicolon | T::RightBrace | T::RightParen | T::Comma
-                ) || (token.kind == T::Equal
-                    && self.cursor.source[token.range.start..].starts_with("=>")))
-            {
-                return token.range.start;
-            }
-            match token.kind {
-                T::LeftParen | T::LeftBracket | T::LeftBrace | T::MatrixStart => depth += 1,
-                T::RightParen | T::RightBracket | T::RightBrace | T::MatrixEnd => {
-                    depth = depth.saturating_sub(1)
-                }
-                _ => {}
-            }
-        }
-        self.cursor.source.len()
+        written_value_natives(&value, &mut self.preflight, nesting)?;
+        lower_primitives(
+            &mut value,
+            &self.names,
+            &self.queries,
+            &self.constructed_functions,
+        );
+        Ok(value)
     }
 }
 
@@ -617,14 +174,9 @@ pub(super) fn lower_primitives(
     expression: &mut E<Expression>,
     names: &BTreeMap<String, Kind>,
     queries: &[ProgramQuery],
+    constructed_functions: &std::collections::BTreeSet<String>,
 ) {
-    // A function call used as a native clause source has a host stage wrapper.
-    // In a common value body recover the call node so tail position stays visible.
-    if let K::NativeValue(query) | K::NativeQuery(query) = &mut expression.value
-        && let Some(value) = take_source_call(query)
-    {
-        *expression = value;
-    }
+    recover_call_value(expression, queries, constructed_functions);
     if let K::Name(name) = &expression.value
         && matches!(
             names.get(name),
@@ -650,15 +202,26 @@ pub(super) fn lower_primitives(
         };
         expression.value = K::NativeQuery(query);
     }
-    // All nodes were admitted by the CST lowering; only registered native calls
-    // change representation. Named user calls keep the shared call node.
+    // Registered native calls retain their host payload. User calls stay shared.
     match &mut expression.value {
+        K::SubjectScope { subject, argument } => {
+            lower_primitives(subject, names, queries, constructed_functions);
+            lower_primitives(&mut argument.body, names, queries, constructed_functions);
+        }
+        K::PredicateScope { subject, predicate } => {
+            lower_primitives(subject, names, queries, constructed_functions);
+            lower_primitives(&mut predicate.body, names, queries, constructed_functions);
+        }
+        K::Filter { array, predicate } => {
+            lower_primitives(array, names, queries, constructed_functions);
+            lower_primitives(&mut predicate.body, names, queries, constructed_functions);
+        }
         K::Call {
             function,
             arguments,
         } => {
             for argument in arguments.iter_mut() {
-                lower_primitives(argument, names, queries);
+                lower_primitives(argument, names, queries, constructed_functions);
             }
             if let Some(primitive) = Primitive::named(&function.value) {
                 let arguments = std::mem::take(arguments);
@@ -670,12 +233,12 @@ pub(super) fn lower_primitives(
         }
         K::Array(values) | K::Tuple(values) | K::Set(values) => {
             for value in values {
-                lower_primitives(value, names, queries);
+                lower_primitives(value, names, queries, constructed_functions);
             }
         }
         K::Record(fields) => {
             for (_, value) in fields.iter_mut() {
-                lower_primitives(value, names, queries);
+                lower_primitives(value, names, queries, constructed_functions);
             }
             let fields = std::mem::take(fields);
             expression.value = K::NativeValue(Box::new(value_stage(
@@ -684,7 +247,6 @@ pub(super) fn lower_primitives(
             )));
         }
         K::Unary { operand, .. }
-        | K::FilterStartsWith { array: operand, .. }
         | K::Unique(operand)
         | K::Tally(operand)
         | K::Occurs(operand)
@@ -697,7 +259,9 @@ pub(super) fn lower_primitives(
         | K::Extremum { array: operand, .. }
         | K::GroupBy { rows: operand, .. }
         | K::Field { value: operand, .. }
-        | K::TupleAccess { value: operand, .. } => lower_primitives(operand, names, queries),
+        | K::TupleAccess { value: operand, .. } => {
+            lower_primitives(operand, names, queries, constructed_functions)
+        }
         K::Binary { left, right, .. }
         | K::Lookup {
             value: left,
@@ -720,33 +284,33 @@ pub(super) fn lower_primitives(
             array: left,
             index: right,
         } => {
-            lower_primitives(left, names, queries);
-            lower_primitives(right, names, queries);
+            lower_primitives(left, names, queries, constructed_functions);
+            lower_primitives(right, names, queries, constructed_functions);
         }
         K::Require {
             condition, value, ..
         } => {
-            lower_primitives(condition, names, queries);
-            lower_primitives(value, names, queries);
+            lower_primitives(condition, names, queries, constructed_functions);
+            lower_primitives(value, names, queries, constructed_functions);
         }
         K::Conditional {
             branches,
             otherwise,
         } => {
             for (condition, value) in branches {
-                lower_primitives(condition, names, queries);
-                lower_primitives(value, names, queries);
+                lower_primitives(condition, names, queries, constructed_functions);
+                lower_primitives(value, names, queries, constructed_functions);
             }
-            lower_primitives(otherwise, names, queries);
+            lower_primitives(otherwise, names, queries, constructed_functions);
         }
         K::Comprehension { clauses, head, .. } => {
-            lower_generators(clauses, names, queries);
-            lower_primitives(head, names, queries);
+            lower_generators(clauses, names, queries, constructed_functions);
+            lower_primitives(head, names, queries, constructed_functions);
         }
         K::DictionaryComprehension { clauses, key, head } => {
-            lower_generators(clauses, names, queries);
-            lower_primitives(key, names, queries);
-            lower_primitives(head, names, queries);
+            lower_generators(clauses, names, queries, constructed_functions);
+            lower_primitives(key, names, queries, constructed_functions);
+            lower_primitives(head, names, queries, constructed_functions);
         }
         K::KeyedComprehension {
             clauses,
@@ -756,13 +320,13 @@ pub(super) fn lower_primitives(
             empty_axis_sources,
         } => {
             for source in declared_axis_sources.iter_mut().flatten() {
-                lower_primitives(source, names, queries);
+                lower_primitives(source, names, queries, constructed_functions);
             }
-            lower_generators(clauses, names, queries);
-            lower_primitives(key, names, queries);
-            lower_primitives(head, names, queries);
+            lower_generators(clauses, names, queries, constructed_functions);
+            lower_primitives(key, names, queries, constructed_functions);
+            lower_primitives(head, names, queries, constructed_functions);
             for value in empty_axis_sources.iter_mut().flatten() {
-                lower_primitives(value, names, queries);
+                lower_primitives(value, names, queries, constructed_functions);
             }
         }
         K::KeyedArray {
@@ -771,36 +335,36 @@ pub(super) fn lower_primitives(
             ..
         } => {
             for source in declared_axis_sources.iter_mut().flatten() {
-                lower_primitives(source, names, queries);
+                lower_primitives(source, names, queries, constructed_functions);
             }
             for (key, value) in entries {
-                lower_primitives(key, names, queries);
-                lower_primitives(value, names, queries);
+                lower_primitives(key, names, queries, constructed_functions);
+                lower_primitives(value, names, queries, constructed_functions);
             }
         }
         K::Dictionary(entries) => {
             for (key, value) in entries {
-                lower_primitives(key, names, queries);
-                lower_primitives(value, names, queries);
+                lower_primitives(key, names, queries, constructed_functions);
+                lower_primitives(value, names, queries, constructed_functions);
             }
         }
         K::Block { bindings, value } => {
             for (_, initializer) in bindings {
-                lower_primitives(initializer, names, queries);
+                lower_primitives(initializer, names, queries, constructed_functions);
             }
-            lower_primitives(value, names, queries);
+            lower_primitives(value, names, queries, constructed_functions);
         }
         K::ValueMatch { subject, arms } => {
-            lower_primitives(subject, names, queries);
+            lower_primitives(subject, names, queries, constructed_functions);
             for arm in arms {
                 if let Some(guard) = &mut arm.guard {
-                    lower_primitives(guard, names, queries);
+                    lower_primitives(guard, names, queries, constructed_functions);
                 }
-                lower_primitives(&mut arm.value, names, queries);
+                lower_primitives(&mut arm.value, names, queries, constructed_functions);
             }
         }
         K::Queue { items, .. } | K::PopFront(items) | K::Break(items) => {
-            lower_primitives(items, names, queries)
+            lower_primitives(items, names, queries, constructed_functions)
         }
         K::PushBackAll {
             queue: left,
@@ -820,23 +384,173 @@ pub(super) fn lower_primitives(
             initial: right,
             ..
         } => {
-            lower_primitives(left, names, queries);
-            lower_primitives(right, names, queries);
+            lower_primitives(left, names, queries, constructed_functions);
+            lower_primitives(right, names, queries, constructed_functions);
         }
         K::Loop { states, body } => {
             for (_, value) in states {
-                lower_primitives(value, names, queries);
+                lower_primitives(value, names, queries, constructed_functions);
             }
-            lower_primitives(body, names, queries);
+            lower_primitives(body, names, queries, constructed_functions);
         }
         K::Continue(values) => {
             for value in values {
-                lower_primitives(value, names, queries);
+                lower_primitives(value, names, queries, constructed_functions);
             }
         }
         K::IdentitySet { .. } => {}
-        K::CurrentInput | K::Literal(_) | K::Name(_) | K::NativeQuery(_) | K::NativeValue(_) => {}
+        K::CurrentInput
+        | K::Literal(_)
+        | K::Name(_)
+        | K::NativeQuery(_)
+        | K::NativeValue(_)
+        | K::PredicateSubject => {}
     }
+}
+pub(super) fn recover_call_value(
+    expression: &mut E<Expression>,
+    queries: &[ProgramQuery],
+    functions: &std::collections::BTreeSet<String>,
+) {
+    if let K::NativeValue(query) | K::NativeQuery(query) = &mut expression.value
+        && let Some(value) =
+            take_constructed_suffix(query, queries, functions).or_else(|| take_source_call(query))
+    {
+        *expression = value;
+    }
+}
+fn constructed_signature(signature: &zirql::SignatureType) -> bool {
+    use zirql::SignatureType as S;
+    match signature {
+        S::Boolean | S::Integer | S::Float | S::String => true,
+        S::Optional(value) | S::Sequence(value) | S::Set(value) | S::Keyed(value) => {
+            constructed_signature(&value.value)
+        }
+        S::Named(name) => !matches!(name.value.as_str(), "Node" | "Declaration"),
+        S::Tuple(values) => values
+            .iter()
+            .all(|value| constructed_signature(&value.value)),
+        S::Record(fields) => fields
+            .iter()
+            .all(|(_, value)| constructed_signature(&value.value)),
+        _ => false,
+    }
+}
+fn common_suffix(
+    stage: &ExpressionStep<Stage, Emitter>,
+    queries: &[ProgramQuery],
+) -> Option<zirql::ValueSuffix<Expression>> {
+    if matches!(stage, ExpressionStep::Stage(Stage::Ordering(order)) if order.order == zirql::NativeOrder::Sort && order.selector.is_none())
+    {
+        return Some(zirql::ValueSuffix::Sort);
+    }
+    let ExpressionStep::Stage(Stage::Query(index, _)) = stage else {
+        return None;
+    };
+    match queries[*index].query.stages.as_slice() {
+        [
+            language::Stage {
+                kind: language::StageKind::Count,
+                ..
+            },
+        ] => Some(zirql::ValueSuffix::Count),
+        [
+            language::Stage {
+                kind: language::StageKind::Unique,
+                ..
+            },
+        ] => Some(zirql::ValueSuffix::Unique),
+        [
+            language::Stage {
+                kind: language::StageKind::Tally,
+                ..
+            },
+        ] => Some(zirql::ValueSuffix::Tally),
+        _ => None,
+    }
+}
+fn constructed_call(
+    query: &Expression,
+    queries: &[ProgramQuery],
+    functions: &std::collections::BTreeSet<String>,
+) -> bool {
+    fn inspect(
+        query: &Expression,
+        queries: &[ProgramQuery],
+        functions: &std::collections::BTreeSet<String>,
+    ) -> Option<bool> {
+        match &query.value {
+            ExpressionKind::Group(value) => inspect(value, queries, functions),
+            ExpressionKind::Sequence { input, steps } => {
+                let (mut terminal, steps) = if let Some(Located {
+                    value: ExpressionStep::Stage(Stage::FunctionSource(value)),
+                    ..
+                }) = steps.first()
+                {
+                    if !matches!(&value.value, K::Call { function, .. } if functions.contains(&function.value))
+                    {
+                        return None;
+                    }
+                    (false, &steps[1..])
+                } else {
+                    (inspect(input, queries, functions)?, steps.as_slice())
+                };
+                for step in steps {
+                    if terminal {
+                        return None;
+                    }
+                    terminal = matches!(
+                        common_suffix(&step.value, queries)?,
+                        zirql::ValueSuffix::Tally
+                    );
+                }
+                Some(terminal)
+            }
+            _ => None,
+        }
+    }
+    inspect(query, queries, functions).is_some()
+}
+fn take_constructed_suffix(
+    query: &mut Expression,
+    queries: &[ProgramQuery],
+    functions: &std::collections::BTreeSet<String>,
+) -> Option<E<Expression>> {
+    if !constructed_call(query, queries, functions) {
+        return None;
+    }
+    fn take(query: &mut Expression, queries: &[ProgramQuery]) -> Option<E<Expression>> {
+        match &mut query.value {
+            ExpressionKind::Group(value) => take(value, queries),
+            ExpressionKind::Sequence { input, steps } => {
+                let mut value = if matches!(
+                    steps.first().map(|step| &step.value),
+                    Some(ExpressionStep::Stage(Stage::FunctionSource(_)))
+                ) {
+                    let mut step = steps.remove(0);
+                    let ExpressionStep::Stage(Stage::FunctionSource(value)) = &mut step.value
+                    else {
+                        unreachable!()
+                    };
+                    std::mem::replace(
+                        value,
+                        Located::new(K::Literal(zirql::ConstructedValue::Absent), 0..0),
+                    )
+                } else {
+                    take(input, queries)?
+                };
+                for step in std::mem::take(steps) {
+                    let suffix =
+                        common_suffix(&step.value, queries).expect("suffixes checked above");
+                    value = zirql::lower_value_suffix(value, Located::new(suffix, step.range))
+                        .expect("the checked suffix chain ends at tally");
+                }
+                Some(value)
+            }
+            _ => None,
+        }
+    }
+    take(query, queries)
 }
 fn take_source_call(query: &mut Expression) -> Option<E<Expression>> {
     match &mut query.value {
@@ -865,19 +579,20 @@ fn lower_generators(
     clauses: &mut [Located<zirql::ValueGenerator<Expression>>],
     names: &BTreeMap<String, Kind>,
     queries: &[ProgramQuery],
+    constructed_functions: &std::collections::BTreeSet<String>,
 ) {
     for clause in clauses {
         match &mut clause.value {
             zirql::ValueGenerator::In { source, filter, .. } => {
-                lower_primitives(source, names, queries);
+                lower_primitives(source, names, queries, constructed_functions);
                 if let Some(value) = filter {
-                    lower_primitives(value, names, queries);
+                    lower_primitives(value, names, queries, constructed_functions);
                 }
             }
             zirql::ValueGenerator::Bind { value, filter, .. } => {
-                lower_primitives(value, names, queries);
+                lower_primitives(value, names, queries, constructed_functions);
                 if let Some(value) = filter {
-                    lower_primitives(value, names, queries);
+                    lower_primitives(value, names, queries, constructed_functions);
                 }
             }
         }
@@ -897,6 +612,7 @@ impl<'r, 'a> Session<'r, 'a> {
         host: &'r composition::CompositionHost<'r, 'r>,
         program: &'r zirql::Program<Stage, zirql::NativeSetOperator, Emitter>,
         limits: zirql::FunctionLimits,
+        input: Kind,
         budget: &mut Budget,
     ) -> Result<Self, QueryError> {
         let unit = zirql::PreparedFunctions::prepare_patterns_borrowed(
@@ -921,7 +637,8 @@ impl<'r, 'a> Session<'r, 'a> {
                 | zirql::Statement::BindFields { expression, .. }
                 | zirql::Statement::Evaluate { expression, .. } => expression,
             };
-            let kind = session.prepare_expression(expression, Kind::Nodes, &scope, host, budget)?;
+            let kind =
+                session.prepare_expression(expression, input.clone(), &scope, host, budget)?;
             if let zirql::Statement::BindFields { names, .. } = &statement.value {
                 let entry = session
                     .bindings
@@ -933,6 +650,11 @@ impl<'r, 'a> Session<'r, 'a> {
                 }
             }
             if let zirql::Statement::Bind { name, .. } = &statement.value {
+                let kind = if let Kind::Payload(kind) = kind {
+                    (*kind).clone()
+                } else {
+                    kind
+                };
                 scope.insert(name.value.clone(), kind);
             }
         }
@@ -941,13 +663,13 @@ impl<'r, 'a> Session<'r, 'a> {
     fn prepare_value(
         &mut self,
         value: &'r E<Expression>,
-        kind: Kind,
+        kind: Option<Kind>,
         scope: &BTreeMap<String, Kind>,
         budget: &mut Budget,
     ) -> Result<Kind, QueryError> {
         let entry = self
             .unit
-            .prepare_value(value, scope, Some(kind), budget)
+            .prepare_value(value, scope, kind, budget)
             .map_err(error)?;
         let kind = entry.kind().clone();
         budget
@@ -986,6 +708,7 @@ impl<'r, 'a> Session<'r, 'a> {
                     };
                     kind = match stage {
                         Stage::Data(_) => kind,
+                        Stage::Query(index, _) if host.0.queries[*index].query.is_editing() => kind,
                         Stage::PatternBinding(pattern, value) => {
                             let entry = self
                                 .unit
@@ -999,47 +722,43 @@ impl<'r, 'a> Session<'r, 'a> {
                             Kind::Capture(Rc::new(zirql::NativeCapture { fields }))
                         }
                         Stage::FunctionValue(value) | Stage::FunctionSource(value) => {
-                            self.prepare_value(value, kind, scope, budget)?
-                        }
-                        Stage::Projection(_) => host
-                            .stage_kind(stage, &kind, scope, budget, &step.range)
-                            .map_err(pipeline::core_error)?,
-                        Stage::WhereExists(body) | Stage::FixedPoint(body) => {
-                            let relative = if matches!(stage, Stage::WhereExists(_)) {
-                                host.subject_kind(&kind, budget, &step.range)
-                                    .map_err(pipeline::core_error)?
-                            } else {
-                                kind.clone()
-                            };
-                            self.prepare_value(&body.expression, relative, scope, budget)?;
-                            host.stage_kind(stage, &kind, scope, budget, &step.range)
-                                .map_err(pipeline::core_error)?
-                        }
-                        Stage::Mapping(mapping) => {
-                            let relative = host
-                                .subject_kind(&kind, budget, &step.range)
-                                .map_err(pipeline::core_error)?;
-                            self.prepare_value(&mapping.key, relative.clone(), scope, budget)?;
-                            self.prepare_value(&mapping.value, relative, scope, budget)?;
-                            host.stage_kind(stage, &kind, scope, budget, &step.range)
-                                .map_err(pipeline::core_error)?
-                        }
-                        Stage::Ordering(ordering) => {
-                            if let Some(selector) = &ordering.selector {
-                                let relative = host
-                                    .subject_kind(&kind, budget, &step.range)
-                                    .map_err(pipeline::core_error)?;
-                                self.prepare_value(selector, relative, scope, budget)?;
-                            }
-                            host.stage_kind(stage, &kind, scope, budget, &step.range)
-                                .map_err(pipeline::core_error)?
+                            self.prepare_value(value, Some(kind), scope, budget)?
                         }
                         _ => {
-                            for (value, relative) in host
-                                .value_arguments(stage, budget, &step.range)
+                            for argument in host
+                                .scoped_value_arguments(stage, &kind, scope, budget, &step.range)
                                 .map_err(pipeline::core_error)?
                             {
-                                self.prepare_value(value, relative, scope, budget)?;
+                                if argument.locals.is_empty() {
+                                    self.prepare_value(
+                                        argument.expression,
+                                        argument.relative,
+                                        scope,
+                                        budget,
+                                    )?;
+                                } else {
+                                    budget
+                                        .charge(
+                                            scope.keys().map(|name| name.len() + 1).sum::<usize>()
+                                                + argument
+                                                    .locals
+                                                    .iter()
+                                                    .map(|(name, _)| name.value.len() + 1)
+                                                    .sum::<usize>(),
+                                            zirql::Location::Query(step.range.clone()),
+                                        )
+                                        .map_err(pipeline::core_error)?;
+                                    let mut scope = scope.clone();
+                                    for (name, kind) in argument.locals {
+                                        scope.insert(name.value, kind);
+                                    }
+                                    self.prepare_value(
+                                        argument.expression,
+                                        argument.relative,
+                                        &scope,
+                                        budget,
+                                    )?;
+                                }
                             }
                             host.stage_kind(stage, &kind, scope, budget, &step.range)
                                 .map_err(pipeline::core_error)?
@@ -1879,6 +1598,8 @@ fn is_native_record(expression: &Expression) -> bool {
 
 pub(super) fn wrap_program_entries(
     statements: Vec<Located<zirql::Statement<Stage, zirql::NativeSetOperator, Emitter>>>,
+    preserve_native: bool,
+    queries: &[ProgramQuery],
 ) -> Vec<Located<zirql::Statement<Stage, zirql::NativeSetOperator, Emitter>>> {
     statements
         .into_iter()
@@ -1897,7 +1618,8 @@ pub(super) fn wrap_program_entries(
                 } => (expression, None, implicit_output),
             };
             // Native report fields share the statement input and keep native leaves.
-            if is_native_record(&expression) {
+            if is_native_record(&expression) || matches!(&expression.value,
+                ExpressionKind::Sequence { steps, .. } if steps.iter().any(|step| matches!(&step.value, ExpressionStep::Stage(Stage::Data(_))) || matches!(&step.value, ExpressionStep::Stage(Stage::Query(index, _)) if queries[*index].query.is_editing()))) {
                 let value = match binding {
                     Some(name) => zirql::Statement::Bind { name, expression },
                     None => zirql::Statement::Evaluate { expression, implicit_output },
@@ -1920,13 +1642,13 @@ pub(super) fn wrap_program_entries(
             // Keep existing native pipeline/capture boundaries intact. Control
             // and computational entries need their prepared result contracts.
             let pure = if let ExpressionKind::Sequence { steps, .. } = &expression.value {
-                steps.len() == 1 && matches!(&steps[0].value,
-                    ExpressionStep::Stage(Stage::FunctionValue(value)) if matches!(value.value,
-                        K::Queue { .. } | K::IdentitySet { .. } | K::PopFront(_) | K::PushBackAll { .. } |
-                        K::Insert { .. } | K::Fold { .. } | K::Scan { .. } | K::Loop { .. } | K::Tuple(_) |
-                        K::Conditional { .. } | K::ValueMatch { .. } | K::Block { .. }))
+                steps.len() == 1 && matches!(&steps[0].value, ExpressionStep::Stage(Stage::FunctionValue(_)))
             } else { false };
-            let value = if pure { into_value(expression) } else { Located::new(K::NativeValue(Box::new(expression)), range.clone()) };
+            let value = if pure { into_value(expression) } else if preserve_native {
+                let retained = Located::new(ExpressionKind::Sequence { input: Box::new(expression),
+                    steps: vec![Located::new(ExpressionStep::Stage(Stage::RetainPayload), range.clone())] }, range.clone());
+                Located::new(K::NativeValue(Box::new(retained)), range.clone())
+            } else { Located::new(K::NativeValue(Box::new(expression)), range.clone()) };
             expression = value_stage(Stage::FunctionValue(value), range.clone());
             if let Some(terminal) = terminal {
                 expression = Located::new(
@@ -1990,12 +1712,32 @@ pub(super) fn value_kind(
             }
             host.declaration_kind(&signature.result.value, budget, &expression.range)
         }
+        K::SubjectScope { .. } | K::Field { .. } | K::TupleAccess { .. } => {
+            zirql::pattern_function_value_kind_borrowed(
+                host.0
+                    .declarations
+                    .iter()
+                    .zip(host.0.signatures)
+                    .map(|(body, signature)| body.with_signature(signature)),
+                host,
+                expression,
+                scope,
+                Some(input.clone()),
+                budget,
+            )
+        }
         K::Literal(value) => Ok(Kind::Value(Rc::new(vec![comprehension::value_facts(
             value,
             budget,
             &expression.range,
         )?]))),
-        K::NativeValue(query) => zirql::native_expression_kind(query, host, input, scope, budget),
+        K::NativeValue(query) | K::NativeQuery(query) => {
+            zirql::native_expression_kind(query, host, input, scope, budget)
+        }
+        K::One(value) => {
+            value_kind(value, host, input, scope, budget)?;
+            Ok(Kind::Constructed)
+        }
         _ => Ok(Kind::Constructed),
     }
 }
@@ -2045,10 +1787,46 @@ pub(super) fn parsed_native_kind(
             for step in steps {
                 if let ExpressionStep::Stage(stage) = &step.value {
                     kind = match stage {
+                        Stage::Match(matching) => Kind::Captures(Rc::new(zirql::NativeCapture {
+                            fields: matching
+                                .get()
+                                .clauses
+                                .iter()
+                                .filter_map(|clause| match &clause.value {
+                                    zirql::MatchClause::From { name, .. }
+                                    | zirql::MatchClause::Bind { name, .. } => {
+                                        Some((name.value.clone(), Kind::Constructed))
+                                    }
+                                    _ => None,
+                                })
+                                .collect(),
+                        })),
+                        Stage::Paths(_) => Kind::Captures(Rc::new(zirql::NativeCapture {
+                            fields: vec![
+                                ("source".into(), Kind::Declaration),
+                                ("sink".into(), Kind::Declaration),
+                                ("steps".into(), Kind::Declarations),
+                            ],
+                        })),
+                        Stage::Projection(_) => {
+                            Kind::Value(Rc::new(vec![zirql::ValueType::Unestablished]))
+                        }
+                        Stage::FunctionValue(value) | Stage::FunctionSource(value) => match &value
+                            .value
+                        {
+                            K::NativeValue(query) | K::NativeQuery(query) => {
+                                parsed_native_kind(query, names, queries)
+                            }
+                            K::Name(name) => names.get(name).cloned().unwrap_or(Kind::Constructed),
+                            _ => Kind::Value(Rc::new(vec![zirql::ValueType::Unestablished])),
+                        },
                         Stage::WhereExists(_) => {
                             native::set_kind(&kind, &step.range).unwrap_or(Kind::Constructed)
                         }
-                        Stage::FixedPoint(_) | Stage::Ordering(_) | Stage::MapSorting => kind,
+                        Stage::FixedPoint(_)
+                        | Stage::Ordering(_)
+                        | Stage::MapSorting
+                        | Stage::Filter(_) => kind,
                         Stage::Mapping(_) => Kind::Dictionary(Rc::new(vec![Kind::Constructed])),
                         Stage::Query(index, _) => validate_stages(&queries[*index].query, kind)
                             .unwrap_or(Kind::Constructed),
@@ -2059,23 +1837,6 @@ pub(super) fn parsed_native_kind(
             kind
         }
         _ => Kind::Constructed,
-    }
-}
-
-fn is_constructed_signature(signature: &zirql::SignatureType) -> bool {
-    use zirql::SignatureType as S;
-    match signature {
-        S::Boolean | S::Integer | S::Float | S::String => true,
-        S::Optional(value) | S::Sequence(value) | S::Set(value) | S::Keyed(value) => {
-            is_constructed_signature(&value.value)
-        }
-        S::Tuple(values) => values
-            .iter()
-            .all(|value| is_constructed_signature(&value.value)),
-        S::Record(fields) => fields
-            .iter()
-            .all(|(_, value)| is_constructed_signature(&value.value)),
-        S::Named(_) | S::Queue(_) | S::IdentitySet(_) => false,
     }
 }
 
@@ -2123,7 +1884,16 @@ pub(super) fn check_argument(
 
 fn native_declaration(declaration: &D<Kind>) -> bool {
     match declaration {
-        D::Native(_) | D::Queue(_) | D::IdentitySet(_) => true,
+        D::Native(kind) => !matches!(
+            kind,
+            Kind::Value(_)
+                | Kind::Scalar(_)
+                | Kind::Constructed
+                | Kind::Count
+                | Kind::Strings
+                | Kind::Literals
+        ),
+        D::Queue(_) | D::IdentitySet(_) => true,
         D::Optional(inner) | D::Sequence(inner) | D::Array(inner) | D::Keyed(inner) => {
             native_declaration(inner)
         }
@@ -2157,6 +1927,7 @@ pub(super) fn query_declarations(query: &Query, input: &ReportValue<'_>) -> bool
             | S::Reverse
             | S::Check { .. }
             | S::Filter(_)
+            | S::SharedFilter(_)
             | S::Unique
             | S::Json
             | S::Emit => {}
@@ -2219,9 +1990,46 @@ pub(super) fn check_value<'v, Q>(
     budget: &mut Budget,
     nesting: usize,
 ) -> Result<Vec<&'v Q>, QueryError> {
+    check_values(value, budget, nesting, true, false).map(|(natives, _)| natives)
+}
+pub(super) fn written_value_natives<'v, Q>(
+    value: &'v E<Q>,
+    budget: &mut Budget,
+    nesting: usize,
+) -> Result<(Vec<&'v Q>, bool), QueryError> {
+    check_values(value, budget, nesting, false, false)
+}
+pub(super) fn eager_native_values<'v, Q>(
+    value: &'v E<Q>,
+    budget: &mut Budget,
+    nesting: usize,
+) -> Result<Vec<&'v Q>, QueryError> {
+    check_values(value, budget, nesting, false, true).map(|(natives, _)| natives)
+}
+fn check_values<'v, Q>(
+    value: &'v E<Q>,
+    budget: &mut Budget,
+    nesting: usize,
+    literals: bool,
+    eager: bool,
+) -> Result<(Vec<&'v Q>, bool), QueryError> {
     let mut pending = vec![(value, 0)];
     let mut natives = Vec::new();
+    let mut needs_runtime = false;
     while let Some((value, depth)) = pending.pop() {
+        needs_runtime |= matches!(
+            &value.value,
+            K::Queue { .. }
+                | K::IdentitySet { .. }
+                | K::PopFront(_)
+                | K::PushBackAll { .. }
+                | K::Insert { .. }
+                | K::Loop { .. }
+                | K::Break(_)
+                | K::Continue(_)
+                | K::Fold { .. }
+                | K::Scan { .. }
+        ) || matches!(&value.value, K::Call { function, .. } if Primitive::named(&function.value).is_some());
         if depth >= nesting.min(64) {
             return Err(QueryError::query(
                 value.range.clone(),
@@ -2316,7 +2124,7 @@ pub(super) fn check_value<'v, Q>(
                 children.push(body);
             }
             K::Continue(values) => children.extend(values),
-            K::Literal(literal) => {
+            K::Literal(literal) if literals => {
                 zirql::constructed_value_type(
                     literal,
                     budget,
@@ -2324,15 +2132,49 @@ pub(super) fn check_value<'v, Q>(
                 )
                 .map_err(pipeline::core_error)?;
             }
-            K::CurrentInput | K::Name(_) => {}
+            K::SubjectScope { subject, argument } => {
+                if let Some(pattern) = &argument.argument {
+                    zirql::pattern_names(pattern, budget).map_err(pipeline::core_error)?;
+                }
+                children.extend([subject.as_ref(), argument.body.as_ref()]);
+            }
+            K::PredicateScope { subject, predicate } => {
+                if let Some(pattern) = &predicate.argument {
+                    zirql::pattern_names(pattern, budget).map_err(pipeline::core_error)?;
+                }
+                children.extend([subject.as_ref(), predicate.body.as_ref()]);
+            }
+            K::Filter { array, predicate } => {
+                if let Some(pattern) = &predicate.argument {
+                    zirql::pattern_names(pattern, budget).map_err(pipeline::core_error)?;
+                }
+                children.extend([array.as_ref(), predicate.body.as_ref()]);
+            }
+            K::Literal(_) | K::CurrentInput | K::Name(_) | K::PredicateSubject => {}
             K::NativeQuery(query) | K::NativeValue(query) => natives.push(query.as_ref()),
             K::Call { arguments, .. }
             | K::Array(arguments)
             | K::Tuple(arguments)
             | K::Set(arguments) => children.extend(arguments),
-            K::Record(fields) => children.extend(fields.iter().map(|(_, value)| value)),
+            K::Record(fields) => {
+                let mut labels = std::collections::BTreeSet::new();
+                for (name, field) in fields {
+                    budget
+                        .charge(
+                            name.value.len() + 1,
+                            zirql::Location::Query(name.range.clone()),
+                        )
+                        .map_err(pipeline::core_error)?;
+                    if !labels.insert(&name.value) {
+                        return Err(QueryError::query(
+                            name.range.clone(),
+                            "duplicate report label",
+                        ));
+                    }
+                    children.push(field);
+                }
+            }
             K::Unary { operand, .. }
-            | K::FilterStartsWith { array: operand, .. }
             | K::Unique(operand)
             | K::Tally(operand)
             | K::Occurs(operand)
@@ -2355,10 +2197,6 @@ pub(super) fn check_value<'v, Q>(
                 value: left,
                 key: right,
             }
-            | K::Default {
-                value: left,
-                fallback: right,
-            }
             | K::ZipExact { left, right }
             | K::Range {
                 lower: left,
@@ -2373,6 +2211,12 @@ pub(super) fn check_value<'v, Q>(
                 value: right,
                 ..
             } => children.extend([left.as_ref(), right.as_ref()]),
+            K::Default { value, fallback } => {
+                children.push(value);
+                if !eager {
+                    children.push(fallback);
+                }
+            }
             K::Conditional {
                 branches,
                 otherwise,
@@ -2424,13 +2268,25 @@ pub(super) fn check_value<'v, Q>(
                 }
                 for clause in clauses {
                     match &clause.value {
-                        zirql::ValueGenerator::In { source, filter, .. }
-                        | zirql::ValueGenerator::Bind {
-                            value: source,
+                        zirql::ValueGenerator::In {
+                            binders,
+                            source,
                             filter,
-                            ..
                         } => {
+                            for pattern in binders {
+                                zirql::pattern_names(pattern, budget)
+                                    .map_err(pipeline::core_error)?;
+                            }
                             children.push(source);
+                            children.extend(filter.iter());
+                        }
+                        zirql::ValueGenerator::Bind {
+                            binder,
+                            value,
+                            filter,
+                        } => {
+                            zirql::pattern_names(binder, budget).map_err(pipeline::core_error)?;
+                            children.push(value);
                             children.extend(filter.iter());
                         }
                     }
@@ -2439,5 +2295,52 @@ pub(super) fn check_value<'v, Q>(
         }
         pending.extend(children.into_iter().map(|value| (value, depth + 1)));
     }
-    Ok(natives)
+    Ok((natives, needs_runtime))
+}
+
+fn native_record_field(
+    value: &E<Expression>,
+    names: &BTreeMap<String, Kind>,
+    queries: &[ProgramQuery],
+) -> bool {
+    let kind = match &value.value {
+        K::Name(name) => names.get(name).cloned().unwrap_or(Kind::Constructed),
+        K::NativeQuery(query) | K::NativeValue(query) => parsed_native_kind(query, names, queries),
+        _ => return false,
+    };
+    !matches!(kind, Kind::Constructed | Kind::Value(_) | Kind::Scalar(_))
+}
+
+pub(super) fn retain_native_record(
+    expression: &mut E<Expression>,
+    names: &BTreeMap<String, Kind>,
+    queries: &[ProgramQuery],
+) -> bool {
+    let K::Record(fields) = &mut expression.value else {
+        return false;
+    };
+    if fields.is_empty()
+        || !fields
+            .iter()
+            .all(|(_, value)| native_record_field(value, names, queries))
+    {
+        return false;
+    }
+    let fields = std::mem::take(fields)
+        .into_iter()
+        .map(|(name, value)| {
+            let range = value.range.clone();
+            let query = match value.value {
+                K::Name(name) => Located::new(ExpressionKind::Binding(name), range),
+                K::NativeValue(query) | K::NativeQuery(query) => *query,
+                _ => unreachable!("native field checked above"),
+            };
+            (name, query)
+        })
+        .collect();
+    expression.value = K::NativeValue(Box::new(Located::new(
+        ExpressionKind::Record(fields),
+        expression.range.clone(),
+    )));
+    true
 }

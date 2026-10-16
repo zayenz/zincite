@@ -63,7 +63,7 @@ pub enum SemanticStream<'a> {
 #[derive(Debug)]
 pub struct SemanticResult<'a> {
     model: &'a ModelContext,
-    facts: Rc<ModelFacts<'a>>,
+    pub(crate) facts: Rc<ModelFacts<'a>>,
     bindings_requested: bool,
     callables_requested: bool,
     instantiations_requested: bool,
@@ -477,16 +477,13 @@ pub(crate) fn requests_facts(stage: &Stage) -> bool {
             | StageKind::Types
             | StageKind::Instantiations
     ) || matches!(&stage.kind, StageKind::Filter(predicate) if predicate_facts(predicate))
+        || matches!(&stage.kind, StageKind::SharedFilter(predicate) if predicate.requires_model_facts())
 }
 pub(crate) fn predicate_facts(predicate: &Predicate) -> bool {
-    match &predicate.kind {
-        PredicateKind::Type(_) | PredicateKind::Instantiation(_) | PredicateKind::SourceKind(_) => {
-            true
-        }
-        PredicateKind::Not(p) | PredicateKind::Group(p) => predicate_facts(p),
-        PredicateKind::And(ps) | PredicateKind::Or(ps) => ps.iter().any(predicate_facts),
-        _ => false,
-    }
+    matches!(
+        &predicate.kind,
+        PredicateKind::Type(_) | PredicateKind::Instantiation(_) | PredicateKind::SourceKind(_)
+    )
 }
 
 pub(crate) fn prepare<'a>(
@@ -1656,12 +1653,6 @@ impl SemanticResult<'_> {
                             .is_some_and(|kind| kind.as_str() == item_kind_name(node.kind())),
                 ),
             },
-            PredicateKind::Group(_)
-            | PredicateKind::Not(_)
-            | PredicateKind::And(_)
-            | PredicateKind::Or(_) => {
-                unreachable!("Boolean predicates are evaluated by the pipeline")
-            }
         })
     }
     fn charge_subject_json(

@@ -2,7 +2,9 @@
 
 Select MiniZinc source, inspect semantic facts, calculate reports and construct explicit
 data-edit candidates. Native results retain source locations and completeness; shared
-expressions execute through Zirql.
+expressions are read and evaluated by Zirql. Both `for/in/if` and `|/where`
+comprehensions share tuple/list patterns and scoped predicates. Native model
+facts and source-preserving Data edits stay with Zincite.
 
 Use a current stable Rust toolchain. Add the library with:
 

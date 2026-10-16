@@ -474,11 +474,14 @@ parsing checks names, emitters and supported result transitions before execution
 #### Patterns and pure control values
 
 Immutable `let` bindings and function parameters accept names, `_`, nested
-fixed-length tuples and records, scalar literals, `present(pattern)` and
+exact tuples, positional list patterns and records, scalar literals, `present(pattern)` and
 `absent`. Record patterns use `{label, other: renamed}`; labels may be quoted
 strings. The shape is exact unless a final `..` ignores extra fields. There is
-no bound rest value. Tuple length is always exact. Bare `present` and `absent`
-remain ordinary binding names; `present(...)` selects the presence pattern.
+no bound rest value. Tuple length is always exact. `[a,b]` requires exactly two list elements;
+`[a,b,..]` accepts a longer list and discards the rest. Lists remain distinct
+from tuples, sets and keyed arrays. Bare `present` is an ordinary name;
+`present(...)` and bare `absent` are presence patterns. Quote a binding named
+`absent`.
 
 ```zirql
 let {pair: (left, right), "label": title, ..} =
@@ -746,14 +749,16 @@ this program doubles each weight and keeps its original position:
 ```zirql
 let weights = items | filter(name("weights")) | values | one;
 let rows = [(index: i, doubled: weights[i] * 2)
-  | i in index_set(weights)];
+  for i in index_set(weights)];
 rows
 ```
 
 The rows contain `(index: 1, doubled: 6)` and `(index: 2, doubled: 10)`.
 
-Zirql evaluates scalar expressions, scopes and generators after Zincite lowers
-its existing MiniZinc CST. Later generators see earlier bindings. Multiple
+Zirql reads and evaluates scalar expressions, scopes and generators. Zincite
+retains the input-file CST, native operations and model-backed enum lookup. `[value for pattern in source if condition]` and
+`[value | pattern in source where condition]` use the same generators. Later
+generators see earlier bindings. Multiple
 binders share one source, with the last binder varying fastest; `x = expression`
 binds one value per preceding environment. `_` discards its binding. Filters
 require fixed Booleans and charge each candidate before filtering.
@@ -875,9 +880,10 @@ in `ProgramValue`; they lower to the same execution.
 Native owners, source coordinates and analysis limitations survive ordering
 and set operations, and every selector shares the request budget.
 
-Constructed positional arrays also accept `| filter(starts_with("a"))`,
-`| count`, `| sort`, `| unique` and terminal `| tally`. The filter retains strings
-with an exact, case-sensitive prefix; `count` returns the number of present
+Constructed positional arrays also accept `| filter(word => starts_with(word,"a"))`,
+`| count`, `| sort`, `| unique` and terminal `| tally`. The same filter can use `filter(starts_with(_,"a"))` or the compact
+`filter(starts_with("a"))`. General predicates require a fixed Boolean and may
+use lexical captures and permitted pure calls. Their subject is one element; `count` returns the number of present
 array entries. `sort` uses the scalar ordering above; `unique` keeps first
 occurrences; string-only `tally` produces a count dictionary in first-seen key order.
 Use grouping for saved values or calls, such as `(rows) | sort | unique`.
@@ -1017,7 +1023,7 @@ The library provides `evaluate`, `evaluate_with_model` and `evaluate_with_facts`
 `ProgramResult::model_facts()` retains the owner for native nominal identities,
 including pure `.dzn` reports. Each evaluation prepares
 one initial selection and retains one context, `Rc<ModelFacts>` and budget across
-statements. `Program::is_editing()` identifies a data batch, and
+statements. `Program::is_editing()` identifies a data batch or scalar edit pipeline, and
 `ProgramResult::candidate()` exposes its reparsed complete data document.
 `ProgramResult::emissions()` exposes report values; `semantic()` retains
 the public fact owner and `is_complete()`/`limitations()` retain uncertainty.
@@ -1178,6 +1184,14 @@ zincite query 'keys | names | json' records.dzn
 ```
 
 To edit literal collections, see the [data-edit examples](data-edits.md).
+`filter_elements(value => value > 0)` and `filter_elements(_ > 0)` evaluate a
+shared scalar predicate for each direct element. Bodies follow the closed Data
+expression policy, including every unused binding and unchosen branch. They
+cannot call report helpers or declared functions. Preparation checks the body
+before enumeration, including empty selections. The scalar values and errors
+retain their input ranges; retained cells, keys and comments follow the same
+edit checks as the direct comparisons below.
+
 `filter_elements` compares direct scalar elements with `eq(VALUE)`, `lt(NUMBER)`,
 `le(NUMBER)`, `gt(NUMBER)` or `ge(NUMBER)`. Equality accepts numbers, Booleans,
 double-quoted strings and explicit member identity, for example

@@ -9,6 +9,7 @@ use zincite_syntax::{FileMode, NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
 use crate::inspection::{NodeSelection, SelectedNode, check_collection, into_nodes, original_text};
 use crate::language::{Stage, StageKind};
+use crate::pipeline;
 use crate::{Input, Limits, QueryError, QueryResult, Work, assignment_rhs, identifier_identity};
 
 /// Written indexing form; a starting key does not establish bare-tail identities.
@@ -629,6 +630,9 @@ pub(crate) enum ComparisonKind {
 pub(crate) struct Comparison {
     pub kind: ComparisonKind,
     pub value: Scalar,
+    pub predicate: Option<std::rc::Rc<zirql::ValueExpression>>,
+    pub bindings: std::rc::Rc<zirql::Bindings<zirql::ConstructedValue>>,
+    pub read_work: usize,
 }
 
 pub(crate) fn parse_number(text: &str) -> Result<Scalar, &'static str> {
@@ -1024,14 +1028,31 @@ fn compare_elements(
     work: &mut Work,
     range: &Range<usize>,
 ) -> Result<Vec<bool>, QueryError> {
+    for value in values {
+        let ty = match value.kind {
+            LiteralKind::Integer => zirql::ValueType::Integer,
+            LiteralKind::Float => zirql::ValueType::Float,
+            LiteralKind::Boolean(_) => zirql::ValueType::Boolean,
+            LiteralKind::String => zirql::ValueType::String,
+            _ => continue,
+        };
+        comparison
+            .prepare(ty, work.budget, range)
+            .map_err(|mut error| {
+                error.location = crate::ErrorLocation::Input;
+                error.range = value.range.clone();
+                error
+            })?;
+    }
     let mut retained = Vec::new();
     for (node, value) in nodes.iter().zip(values) {
         work.visit(range)?;
-        retained.push(compare(
-            &scalar(input, node, value, work, range)?,
-            comparison,
-            &value.range,
-        )?);
+        let scalar = scalar(input, node, value, work, range)?;
+        retained.push(if comparison.predicate.is_some() {
+            comparison.test(&scalar, work.budget, &value.range)?
+        } else {
+            compare(&scalar, comparison, &value.range)?
+        });
     }
     Ok(retained)
 }
@@ -1052,6 +1073,8 @@ pub(crate) fn transform_elements(
             "collection transformations require data-file mode (.dzn)",
         ));
     }
+    work.spend(comparison.read_work, range)?;
+    comparison.prepare(zirql::ValueType::ScalarKind, work.budget, range)?;
     let targets = into_nodes(result, range, work)?;
     let mut reader = LiteralReader {
         input,
@@ -1734,4 +1757,84 @@ pub(crate) fn admit_json(
         admit_value(v, work, range)?;
     }
     Ok(())
+}
+
+impl Comparison {
+    pub(crate) fn shared(predicate: zirql::ValueExpression, read_work: usize) -> Self {
+        Self {
+            kind: ComparisonKind::Eq,
+            value: Scalar::Boolean(true),
+            predicate: Some(std::rc::Rc::new(predicate)),
+            bindings: std::rc::Rc::new(zirql::Bindings::new(Vec::new()).expect("empty bindings")),
+            read_work,
+        }
+    }
+    fn prepare(
+        &self,
+        subject: zirql::ValueType,
+        budget: &mut zirql::Budget,
+        range: &Range<usize>,
+    ) -> Result<(), QueryError> {
+        let Some(predicate) = &self.predicate else {
+            return Ok(());
+        };
+        let mut types = std::collections::BTreeMap::new();
+        for (name, value) in self.bindings.iter() {
+            types.insert(
+                name.to_owned(),
+                zirql::constructed_value_type(value, budget, zirql::Location::Query(range.clone()))
+                    .map_err(pipeline::core_error)?,
+            );
+        }
+        types.insert("\0scalar".into(), subject);
+        zirql::value_expression_types(predicate, &types, budget).map_err(pipeline::core_error)?;
+        Ok(())
+    }
+    fn test(
+        &self,
+        scalar: &Scalar,
+        budget: &mut zirql::Budget,
+        range: &Range<usize>,
+    ) -> Result<bool, QueryError> {
+        let value = match scalar {
+            Scalar::Integer(value) => zirql::ConstructedValue::Integer(*value),
+            Scalar::Float(value) => zirql::ConstructedValue::Float(*value),
+            Scalar::Boolean(value) => zirql::ConstructedValue::Boolean(*value),
+            Scalar::String(value) => zirql::ConstructedValue::String(value.clone()),
+            Scalar::Member(_) => {
+                return Err(QueryError::input(
+                    range.clone(),
+                    "scalar element predicate needs established nominal facts; use a direct member comparison",
+                ));
+            }
+        };
+        let mut values = Vec::new();
+        for (name, value) in self.bindings.iter() {
+            values.push((
+                zirql::Located::new(name.to_owned(), range.clone()),
+                zirql::copy_constructed_value(value, budget, zirql::Location::Query(range.clone()))
+                    .map_err(pipeline::core_error)?,
+            ));
+        }
+        values.push((zirql::Located::new("\0scalar".into(), range.clone()), value));
+        let bindings = zirql::Bindings::new(values).map_err(pipeline::core_error)?;
+        let result = zirql::evaluate_value(
+            self.predicate.as_ref().expect("shared predicate"),
+            &bindings,
+            budget,
+        )
+        .map_err(|error| {
+            let mut error = pipeline::core_error(error);
+            error.location = crate::ErrorLocation::Input;
+            error.range = range.clone();
+            error
+        })?;
+        match result.data() {
+            zirql::ConstructedValue::Boolean(keep) => Ok(*keep),
+            _ => Err(QueryError::input(
+                range.clone(),
+                "scalar predicate requires a Boolean",
+            )),
+        }
+    }
 }
