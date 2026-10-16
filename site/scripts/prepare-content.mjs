@@ -28,7 +28,7 @@ for (const name of guides) {
     if (resolved === 'README.md') return `](../../${anchor ? `#${anchor}` : ''})`;
     return `](https://github.com/zayenz/zincite/blob/main/${resolved}${anchor ? `#${anchor}` : ''})`;
   });
-  await writeFile(resolve(output, `${name}.md`), `---\ntitle: ${JSON.stringify(title[1])}\neditUrl: https://github.com/zayenz/zincite/edit/main/docs/${name}.md\n---\n${body}`);
+  await writeFile(resolve(output, `${name}.md`), `---\ntitle: ${JSON.stringify(title[1])}\neditUrl: false\n---\n${body}`);
 }
 
 await mkdir(resolve(site, 'public'), { recursive: true });
