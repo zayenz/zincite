@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-144"
 key = "source-copy-query-batches"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "high"
@@ -28,14 +28,24 @@ The user wants to grow wedding data through Zincite query language. The brief So
 
 ## Done when
 
-- [ ] A query with params/lets, clone_members, clone_elements, repeat_elements and explicit append edits produces correctly ordered fresh enum members and copied keyed records/group sets, with ordinary shared scalar argument evaluation and native mapping reuse.
-- [ ] Final candidate checks validate edited and unchanged affected .dzn assignments against retained model types, final enum membership/domains, literal types/member references and array coverage. Computed or ambiguous data obligations refuse; model-derived declarations, decision arrays, constraints and solve items are not evaluated. Preserve native input/model-owner admission. Missing dependent edits, collisions, duplicate targets and unsupported data fail without partial stdout or writes.
-- [ ] Original RHS and unrelated bytes remain intact; copied record/comment bytes remain exact except mapped member/key tokens. Zero additional copies preserve exact bytes. Existing report and constructed-edit behavior remains valid.
-- [ ] A few existing-style public library/CLI checks cover a commented enum/record/group case, mapping reuse and identity, collision/omitted-dependent refusal and one limit boundary. New syntax, native result restrictions and budget behavior are documented in the query contract/reference.
-- [ ] Required Rust checks pass; changes introduce no needless public constructors, traits or allocation/lifetime abstractions.
+- [x] A query with params/lets, clone_members, clone_elements, repeat_elements and explicit append edits produces correctly ordered fresh enum members and copied keyed records/group sets, with ordinary shared scalar argument evaluation and native mapping reuse.
+- [x] Final candidate checks validate edited and unchanged affected .dzn assignments against retained model types, final enum membership/domains, literal types/member references and array coverage. Computed or ambiguous data obligations refuse; model-derived declarations, decision arrays, constraints and solve items are not evaluated. Preserve native input/model-owner admission. Missing dependent edits, collisions, duplicate targets and unsupported data fail without partial stdout or writes.
+- [x] Original RHS and unrelated bytes remain intact; copied record/comment bytes remain exact except mapped member/key tokens. Zero additional copies preserve exact bytes. Existing report and constructed-edit behavior remains valid.
+- [x] A few existing-style public library/CLI checks cover a commented enum/record/group case, mapping reuse and identity, collision/omitted-dependent refusal and one limit boundary. New syntax, native result restrictions and budget behavior are documented in the query contract/reference.
+- [x] Required Rust checks pass; changes introduce no needless public constructors, traits or allocation/lifetime abstractions.
 
 ## Validation
 
 - Run cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings and cargo test --workspace.
 - Run git diff --check; coordinator runs zdev check base --format json.
 - Use a small synthetic model/data query example through existing Program and CLI seams; no internal call-count tests, generic matrix or timing assertions. Reuse existing data/edit tests and fixture conventions.
+
+## Result
+
+Source-copy stages and explicit appends form one model-validated atomic query edit batch; native ownership, source comments, final enum coverage and bounded subset refusal are preserved.
+
+Validation:
+
+- Astra/high whole-task review and fresh focused subset-domain recheck passed; unchanged snapshot W6e3665e22f43fffb.
+- cargo fmt, warning-fatal workspace Clippy, workspace tests, focused source-copy Program/both CLI controls, diff checks and zdev check passed.
+- Public fixture and growth candidate passed MiniZinc instance checks without solving; direct source checks cover copied records, references, comments, collisions, omitted dependents and growth limits.

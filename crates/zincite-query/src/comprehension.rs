@@ -1185,7 +1185,7 @@ fn array_element<'a>(metadata: Option<LiteralMetadata<'a>>) -> Option<LiteralMet
     };
     Some(child_metadata(Some(metadata), element, None))
 }
-fn written_scalar(
+pub(crate) fn written_scalar(
     literal: &structured::LiteralValue<'_>,
     input: &Input,
     budget: &mut Budget,

@@ -1,0 +1,9 @@
+param factor: int;
+let additional = factor - 1;
+let prefix = "Copy";
+let copies = items | filter(name("People")) | values | clone_members(additional, prefix);
+append People = copies;
+append people = items | filter(name("people")) | values | clone_elements(copies);
+append groups = items | filter(name("groups")) | values | clone_elements(copies);
+append weights = items | filter(name("weights")) | values | repeat_elements(additional);
+emit;

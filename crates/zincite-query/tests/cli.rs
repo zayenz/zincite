@@ -1962,3 +1962,53 @@ fn brace_reports_match_inline_files_and_buffer_duplicate_failures() {
     }
     std::fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn source_copy_program_emits_one_complete_candidate() {
+    let library =
+        std::env::temp_dir().join(format!("zincite-copy-library-{}-query", std::process::id()));
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(library.join("std/stdlib.mzn"), "").unwrap();
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let model = fixtures.join("source-copies.mzn");
+    let program = fixtures.join("source-copies.zq");
+    let output = run(
+        &[
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            "--model",
+            model.to_str().unwrap(),
+            "--param",
+            "factor=2",
+            "--stdin-filepath",
+            "copies.dzn",
+            "-f",
+            program.to_str().unwrap(),
+        ],
+        include_bytes!("fixtures/source-copies.dzn"),
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Copy_1_1: (label: \"Alice\""));
+    let output = run(
+        &[
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            "--model",
+            model.to_str().unwrap(),
+            "--param",
+            "factor=1000000000",
+            "--stdin-filepath",
+            "copies.dzn",
+            "-f",
+            program.to_str().unwrap(),
+        ],
+        include_bytes!("fixtures/source-copies.dzn"),
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    std::fs::remove_dir_all(library).unwrap();
+}

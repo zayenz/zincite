@@ -421,7 +421,7 @@ impl Parser<'_> {
         budget: &mut Budget,
     ) -> Result<(), QueryError> {
         match stage {
-            Stage::Data(_) | Stage::Parameter(_) | Stage::Member(_) => Ok(()),
+            Stage::Copy(_) | Stage::Data(..) | Stage::Parameter(_) | Stage::Member(_) => Ok(()),
             Stage::FunctionValue(value)
             | Stage::FunctionSource(value)
             | Stage::PatternBinding(_, value) => self.admit_data_value(value, budget, true),
@@ -608,7 +608,8 @@ impl ValueReaderHost for Parser<'_> {
         Ok(Stage::FunctionSource(value))
     }
     fn is_stage(&self, name: &str) -> bool {
-        domain_stage(name)
+        matches!(name, "clone_members" | "clone_elements" | "repeat_elements")
+            || domain_stage(name)
             || self.function_names.contains(name)
             || functions::Primitive::named(name).is_some()
     }
@@ -665,6 +666,17 @@ impl ValueReaderHost for Parser<'_> {
         reader: &mut zirql::ArgumentReader<'_>,
         budget: &mut Budget,
     ) -> Result<ExpressionStep<Stage, Emitter>, zirql::QueryError> {
+        let mut copy_probe = zirql::ArgumentReader::new(reader.source(), reader.position())?;
+        if let Ok(name) = copy_probe.word()
+            && matches!(
+                name.value,
+                "clone_members" | "clone_elements" | "repeat_elements"
+            )
+        {
+            return self
+                .parse_copy_stage(reader, budget)
+                .map(ExpressionStep::Stage);
+        }
         let mut probe = zirql::ArgumentReader::new(reader.source(), reader.position())?;
         if probe.keyword("paths") {
             let paths = zirql::read_paths(reader, self, budget, self.reader_nesting)?;
@@ -1666,6 +1678,7 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         range: &Range<usize>,
     ) -> Result<Kind, zirql::QueryError> {
         Ok(match value {
+            ReportValue::SourceCopies(value) => value.kind(),
             ReportValue::Computational(value) => Kind::Computational(Rc::new(
                 value
                     .value
@@ -1937,6 +1950,19 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
                     }
                 })
             }
+            Stage::Copy(stage) => {
+                if !matches!(input, Kind::Literals) {
+                    return Err(zirql::QueryError::query(
+                        range.clone(),
+                        "source copying requires a native literal stream",
+                    ));
+                }
+                Ok(if matches!(stage, source_copy::CopyStage::Members(..)) {
+                    Kind::MemberCopies
+                } else {
+                    Kind::SourceCopies
+                })
+            }
             Stage::Parameter(index) => Ok(Kind::Scalar(self.0.parameters[*index].ty.value)),
             Stage::Member(_) => Ok(Kind::Value(Rc::new(vec![zirql::ValueType::Unestablished]))),
             Stage::Query(index, arguments) => {
@@ -2079,7 +2105,7 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
     }
     fn is_pure(&self, stage: &Stage) -> bool {
         match stage {
-            Stage::Data(_) => false,
+            Stage::Data(..) => false,
             Stage::Query(index, _) => {
                 !self.0.queries[*index].query.is_editing()
                     && !self.0.queries[*index].query.stages.iter().any(|s| {

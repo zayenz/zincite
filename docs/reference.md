@@ -1243,6 +1243,42 @@ layout bytes remain untouched, so filtering can leave extra spaces or blank line
 Duplicate or overlapping targets fail as one atomic batch; use `unique` when an
 inspection pipeline selects the same collection more than once.
 
+#### Source-copy edits
+
+The development checkout supports `append Target = native_expression;` in a data
+program ending with `emit;`. These stages require `--model` (or retained model
+facts in Rust) and one original assignment selected through `values`:
+
+| Stage | Native result |
+| --- | --- |
+| `clone_members(additional_count, prefix)` | Ordered fresh-member maps for an uninitialized enum's literal member set |
+| `clone_elements(copies)` | Literal collection interiors with typed member/key substitutions |
+| `repeat_elements(additional_count)` | Literal collection interiors with original tokens |
+
+Counts are nonnegative integer expressions; the prefix is a string expression
+whose contents form a plain identifier prefix. Current parameters and earlier
+immutable bindings are available. Names are `prefix_copy_position`, with both
+numbers starting at one. Copies are appended in copy order and original written
+order. Zero copies preserve the input bytes exactly.
+
+`append` retains the target's original RHS bytes and inserts copies before its
+closing delimiter. Member maps can append only to their own enum. Other copies
+support literal sets and rank-one positional or explicitly keyed arrays, with
+recursive records, tuples, sets and rank-one arrays. Final validation checks
+edited and unchanged affected data against retained model types and final enum
+membership and array coverage. Enum-valued elements require a full enum domain,
+directly or through a type alias; enum subset domains refuse, including in nested
+collections and records. Starting-key arrays, matrices, computed data, optional
+types, unavailable domains, duplicate keys and copied directives refuse.
+
+Copy values stay native and retain their input/model owner. They can be bound and
+reused, but cannot become ordinary constructed values or report output. Each edit
+target must be unique across all edit kinds. Constructed edits whose types depend
+on a changed enum refuse; unrelated supported create/replace edits may coexist.
+Model-derived expressions and decision declarations do not become data-validation
+obligations. See the [source-copy contract and runnable fixtures](query-comprehension-contract.md#copy-existing-enum-backed-data).
+This syntax is not present in the published 0.1.1 packages.
+
 ### Enum reduction
 
 For an enum assignment such as `Guests = {A, B, C}`, `keep("A", "C")`

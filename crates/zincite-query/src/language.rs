@@ -537,7 +537,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn scalar_range(&mut self) -> Result<Range<usize>, QueryError> {
+    pub(crate) fn scalar_range(&mut self) -> Result<Range<usize>, QueryError> {
         self.space();
         let start = self.position;
         let mut depth = 0usize;

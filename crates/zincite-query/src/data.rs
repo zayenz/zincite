@@ -16,7 +16,11 @@ pub(crate) struct Edit {
     pub names: Vec<Located<String>>,
 }
 
-fn charge(budget: &mut Budget, n: usize, range: &Range<usize>) -> Result<(), QueryError> {
+pub(crate) fn charge(
+    budget: &mut Budget,
+    n: usize,
+    range: &Range<usize>,
+) -> Result<(), QueryError> {
     budget
         .charge(n, zirql::Location::Query(range.clone()))
         .map_err(pipeline::core_error)
@@ -24,10 +28,14 @@ fn charge(budget: &mut Budget, n: usize, range: &Range<usize>) -> Result<(), Que
 
 /// Establish targets, evaluate once against original bindings, validate one
 /// coherent final document, and return its reparsed bytes without writing files.
-pub(crate) fn prepare_data_batch(
+pub(crate) fn prepare_data_batch<'a>(
     input: &Input,
-    facts: &ModelFacts<'_>,
+    facts: &ModelFacts<'a>,
     edits: &[Edit],
+    copies: &[(
+        &Located<String>,
+        std::rc::Rc<crate::program::SourceCopies<'a>>,
+    )],
     budget: &mut Budget,
     limits: Limits,
     mut evaluate: impl FnMut(
@@ -37,7 +45,14 @@ pub(crate) fn prepare_data_batch(
         &Range<usize>,
     ) -> Result<V, QueryError>,
 ) -> Result<Input, QueryError> {
-    let range = edits.first().unwrap().name.range.start..edits.last().unwrap().range.end;
+    let ranges = || {
+        edits
+            .iter()
+            .map(|edit| &edit.range)
+            .chain(copies.iter().map(|(target, _)| &target.range))
+    };
+    let range = ranges().map(|range| range.start).min().unwrap()
+        ..ranges().map(|range| range.end).max().unwrap();
     if input.mode != FileMode::Data {
         return Err(QueryError::query(
             range,
@@ -61,6 +76,9 @@ pub(crate) fn prepare_data_batch(
         &mut Work { budget },
         &range,
         false,
+    )?;
+    let mut copy_edits = crate::program::source_copy::prepare_appends(
+        input, facts, copies, edits, budget, limits, &range,
     )?;
     let mut targets = Vec::with_capacity(edits.len());
     for edit in edits {
@@ -214,6 +232,7 @@ pub(crate) fn prepare_data_batch(
             replacement: vec![EditPart::Text(created)],
         });
     }
+    text_edits.append(&mut copy_edits);
     let length = text_edits
         .iter()
         .try_fold(input.source_bytes().len(), |len, edit| {
@@ -235,8 +254,39 @@ pub(crate) fn prepare_data_batch(
             .ok_or_else(|| QueryError::query(range.clone(), "candidate byte size overflow"))?,
         &range,
     )?;
+    if !copies.is_empty() {
+        // Copy sources can lie outside the target assignment. A single owning
+        // edit retains every untouched span and contains every original slice.
+        text_edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
+        let mut parts = Vec::new();
+        let mut cursor = 0;
+        for edit in text_edits {
+            if edit.range.start < cursor {
+                return Err(QueryError::query(range.clone(), "overlapping data edits"));
+            }
+            charge(budget, edit.replacement.len() + 1, &range)?;
+            budget
+                .charge_results(
+                    edit.replacement.len() + 1,
+                    zirql::Location::Query(range.clone()),
+                )
+                .map_err(pipeline::core_error)?;
+            parts.push(EditPart::Original(cursor..edit.range.start));
+            parts.extend(edit.replacement);
+            cursor = edit.range.end;
+        }
+        charge(budget, 2, &range)?;
+        parts.push(EditPart::Original(cursor..input.source_bytes().len()));
+        text_edits = vec![TextEdit {
+            range: 0..input.source_bytes().len(),
+            replacement: parts,
+        }];
+    }
     let candidate = crate::finish_candidate(input, &text_edits, &[], &mut Work { budget }, &range)?;
     validate_affected_assignments(input, &candidate, facts, edits, &scalars, budget, limits)?;
+    crate::program::source_copy::validate_candidate(
+        &candidate, facts, copies, budget, limits, &range,
+    )?;
     Ok(candidate)
 }
 
@@ -300,7 +350,7 @@ fn validate_declared_type(
     }
 }
 
-fn record_metadata<'a>(
+pub(crate) fn record_metadata<'a>(
     metadata: c::LiteralMetadata<'a>,
     label: &str,
     ty: &'a zincite_lint::TypeInst,
@@ -649,7 +699,7 @@ fn validate_target(
 
 /// Written scalar ranges/sets are value obligations too. Resolve only their
 /// fixed integer scalar names; shared arithmetic and finite containers stay bounded.
-fn validate_numeric_domain(
+pub(crate) fn validate_numeric_domain(
     value: &V,
     metadata: c::LiteralMetadata<'_>,
     input: &Input,

@@ -707,7 +707,7 @@ impl<'r, 'a> Session<'r, 'a> {
                         continue;
                     };
                     kind = match stage {
-                        Stage::Data(_) => kind,
+                        Stage::Data(..) => kind,
                         Stage::Query(index, _) if host.0.queries[*index].query.is_editing() => kind,
                         Stage::PatternBinding(pattern, value) => {
                             let entry = self
@@ -1619,7 +1619,7 @@ pub(super) fn wrap_program_entries(
             };
             // Native report fields share the statement input and keep native leaves.
             if is_native_record(&expression) || matches!(&expression.value,
-                ExpressionKind::Sequence { steps, .. } if steps.iter().any(|step| matches!(&step.value, ExpressionStep::Stage(Stage::Data(_))) || matches!(&step.value, ExpressionStep::Stage(Stage::Query(index, _)) if queries[*index].query.is_editing()))) {
+                ExpressionKind::Sequence { steps, .. } if steps.iter().any(|step| matches!(&step.value, ExpressionStep::Stage(Stage::Data(..))) || matches!(&step.value, ExpressionStep::Stage(Stage::Query(index, _)) if queries[*index].query.is_editing()))) {
                 let value = match binding {
                     Some(name) => zirql::Statement::Bind { name, expression },
                     None => zirql::Statement::Evaluate { expression, implicit_output },

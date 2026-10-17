@@ -1,0 +1,10 @@
+% The original names and comments remain in place.
+People = { Alice, Bob };
+people = [
+    % Alice is a label here too.
+    Alice: (label: "Alice", colour: Red, friends: { Bob }), % first person
+    Bob: (label: "Bob", colour: Blue, friends: { Alice })
+];
+groups = [ { Alice, Bob } ];
+weights = [ 2, (+ /* weight */ 3) ];
+untouched = 7;

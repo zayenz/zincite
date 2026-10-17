@@ -1674,3 +1674,69 @@ fn scalar_predicate_programs_buffer_the_complete_edit_candidate() {
     assert!(failed.stdout.is_empty());
     assert!(String::from_utf8_lossy(&failed.stderr).contains("data.dzn"));
 }
+
+#[test]
+fn source_copy_program_writes_only_a_complete_candidate() {
+    let library =
+        std::env::temp_dir().join(format!("zincite-copy-library-{}-root", std::process::id()));
+    std::fs::create_dir_all(library.join("std")).unwrap();
+    std::fs::write(library.join("std/stdlib.mzn"), "").unwrap();
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("crates/zincite-query/tests/fixtures");
+    let model = fixtures.join("source-copies.mzn");
+    let program = fixtures.join("source-copies.zq");
+    let path = std::env::temp_dir().join(format!(
+        "zincite-root-source-copy-{}.dzn",
+        std::process::id()
+    ));
+    let original = std::fs::read(fixtures.join("source-copies.dzn")).unwrap();
+    std::fs::write(&path, &original).unwrap();
+    let output = run(
+        &[
+            "query",
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            "--model",
+            model.to_str().unwrap(),
+            "--param",
+            "factor=0",
+            "--write",
+            "-f",
+            program.to_str().unwrap(),
+            path.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    let output = run(
+        &[
+            "query",
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            "--model",
+            model.to_str().unwrap(),
+            "--param",
+            "factor=2",
+            "--write",
+            "-f",
+            program.to_str().unwrap(),
+            path.to_str().unwrap(),
+        ],
+        "",
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stdout.is_empty());
+    assert!(
+        std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("Copy_1_2: (label: \"Bob\"")
+    );
+    std::fs::remove_file(path).unwrap();
+    std::fs::remove_dir_all(library).unwrap();
+}

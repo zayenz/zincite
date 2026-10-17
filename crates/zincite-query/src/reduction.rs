@@ -41,14 +41,14 @@ impl ReductionResult {
 
 // Written domains accompany expanded types: an enum element type alone does
 // not establish the membership of an array's index subset.
-struct Shape {
-    ty: TypeInst,
-    indices: Vec<Domain>,
-    components: Vec<(Option<String>, Shape)>,
+pub(crate) struct Shape {
+    pub(crate) ty: TypeInst,
+    pub(crate) indices: Vec<Domain>,
+    pub(crate) components: Vec<(Option<String>, Shape)>,
 }
 
 impl Shape {
-    fn contains_enum(&self, target: Option<DeclarationId>) -> bool {
+    pub(crate) fn contains_enum(&self, target: Option<DeclarationId>) -> bool {
         target.is_some_and(|target| match &self.ty.kind {
             TypeKind::Enum(id) => *id == target,
             TypeKind::Array { indices, .. } => {
@@ -1910,4 +1910,28 @@ fn type_known(ty: &TypeInst) -> bool {
         TypeKind::Set(element) => type_known(element),
         _ => true,
     }
+}
+
+pub(crate) fn declaration_shape(
+    facts: &zincite_lint::ModelFacts<'_>,
+    id: DeclarationId,
+    work: &mut Work<'_>,
+    range: &Range<usize>,
+    limits: Limits,
+) -> Result<Shape, QueryError> {
+    let declaration = &facts.bindings().declarations[id.0];
+    let ty = crate::comprehension::declaration_type(facts, id, work.budget, range)?;
+    let node = declaration_node(facts.model(), facts.bindings(), id).and_then(|node| {
+        node.child_nodes()
+            .find(|node| node.kind() != NodeKind::Annotation)
+    });
+    ShapeReader {
+        model: facts.model(),
+        bindings: facts.bindings(),
+        domains: facts.domains(),
+        work,
+        range,
+        limits,
+    }
+    .shape(ty, declaration.file, node, 0)
 }

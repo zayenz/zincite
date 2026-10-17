@@ -588,6 +588,84 @@ Zincite rejects overlapping edits and changes that would damage a directive,
 then reparses the complete `.dzn` candidate before previewing or writing it.
 An error leaves stdout empty and the original file unchanged.
 
+## Copy existing enum-backed data
+
+A collection with comments often needs to grow without rebuilding its values.
+Source-copy stages retain those bytes and change only established enum member
+and key tokens. This functionality is available in the development checkout;
+the published 0.1.1 commands do not contain it.
+
+The small [model](../crates/zincite-query/tests/fixtures/source-copies.mzn) declares
+`People`, an array of person records, group sets, and integer weights. Its
+[data file](../crates/zincite-query/tests/fixtures/source-copies.dzn) defines
+`Alice` and `Bob`, with comments on their records. Each record contains a display
+label, an unrelated colour enum, and a set of friends. The
+[complete query](../crates/zincite-query/tests/fixtures/source-copies.zq) grows all
+four assignments explicitly:
+
+```text
+param factor: int;
+let additional = factor - 1;
+let prefix = "Copy";
+let copies = items | filter(name("People")) | values
+    | clone_members(additional, prefix);
+append People = copies;
+append people = items | filter(name("people")) | values | clone_elements(copies);
+append groups = items | filter(name("groups")) | values | clone_elements(copies);
+append weights = items | filter(name("weights")) | values | repeat_elements(additional);
+emit;
+```
+
+With `factor=2`, the new members are `Copy_1_1` and `Copy_1_2`. Copied person keys,
+friend references and group members use those names. Display labels, colour
+members and comments keep their original bytes. `factor=1` makes no additional
+copies and returns the exact original file. Counts and prefixes use ordinary
+shared scalar expressions and the current parameters and immutable bindings.
+The stages take a native literal stream directly, without `one`.
+
+`clone_members(additional_count, prefix)` requires one nonempty literal member-set
+assignment and its unique uninitialized model enum. The prefix must start with
+an ASCII letter and contain only ASCII letters, digits and underscores. Generated
+names use the prefix, one-based copy number and one-based written member position.
+A collision with input identifiers, model/include declarations or another member
+appended in the batch refuses the request. The mapping can be reused by several
+`clone_elements(copies)` stages.
+
+`clone_elements(copies)` and `repeat_elements(additional_count)` each require one
+original literal set or rank-one array assignment. Copies follow copy order, then
+original element order. Records, tuples, sets and nested rank-one arrays retain
+their comments and spelling. `clone_elements` remaps only tokens whose retained
+model type establishes the mapped enum; labels, strings and other enums are
+unchanged. `repeat_elements` does no remapping or explicit-key reindexing.
+Duplicate array keys therefore fail validation. Starting-key arrays, matrices,
+computed values, optional types and copied formatter/lint directives are refused.
+
+`append Target = expression;` requires one original assignment. Member copies
+must append to their own enum; other copies must match the target's collection
+kind and declared type. Each target is explicit. Zincite does not clone dependent
+assignments automatically. The final check includes unchanged data assignments
+whose types or axes use a changed enum, so omitting `append people` above fails
+on array coverage. It checks supported literal types, numeric domains, enum
+membership and array keys against the complete final batch. Array domains are
+full enums, bounded integer ranges, or unconstrained integer indices. Enum-valued
+elements must use the full enum domain, directly or through a type alias; subset
+domains are refused, including inside arrays, records, tuples and sets.
+Model-derived values, decision arrays, constraints and solve items are not evaluated.
+
+Copy stages are available only in programs with model facts and a terminal
+`emit;`. Their results are opaque native source values, consumed by `append`;
+they cannot be emitted or used as constructed values. All reads use the original
+input. Duplicate targets across append/create/replace fail. A constructed edit
+whose type uses a changed enum is refused; unrelated supported constructed edits
+can share the batch. Ordinary `create`, `replace` and `enum_member` keep their
+existing rules.
+
+The same `Program::parse` and `evaluate_with_model_and_parameters` Rust entry
+points execute this query. The resulting `ProgramResult::candidate` contains the
+complete reparsed document. Both CLI forms support preview, `--diff` and `--write`
+with their usual buffered output and file checks. Copied source is data growth;
+it does not establish model satisfiability.
+
 ## A complete doubled instance
 
 The input below has two entities in one group. Each entity stores a weight,
@@ -713,6 +791,11 @@ so a comprehension with a small result can still do substantial work. The
 default limits are 64 nested expression or collection levels, 1,000,000 work
 units and 100,000 aggregate result entries. See [program limits](reference.md#program-limits)
 for CLI overrides and the separate stream limit.
+
+Source-copy maps, identifier comparisons, token walks, copied fragments, final
+literal validation and candidate assembly spend the same work/result allowances
+before expansion. Defaults are unchanged. Reusing a member map retains its native
+owner; each collection copy and each output assembly still consumes budget.
 
 Repeating an expansion or serialization spends more of the same budget. Reusing
 an immutable input value avoids copying all of its contents, but creating new

@@ -16,7 +16,9 @@ pub use builder::{ProgramFunction, ProgramNative, ProgramValue};
 mod composition;
 mod functions;
 mod native;
+pub(crate) mod source_copy;
 mod worklists;
+pub use source_copy::SourceCopies;
 pub use worklists::{Computational, NativeSequence, NativeTuple};
 
 type Expression = zirql::Expression<Stage, zirql::NativeSetOperator, Emitter>;
@@ -44,7 +46,8 @@ enum Stage {
     Match(composition::MatchStage),
     Paths(composition::PathStage),
     Filter(composition::FilterStage),
-    Data(Vec<data::Edit>),
+    Copy(source_copy::CopyStage),
+    Data(Vec<data::Edit>, Vec<(Located<String>, Located<String>)>),
 }
 
 impl Drop for Stage {
@@ -76,7 +79,8 @@ impl Drop for Stage {
                     zirql::dispose_native_value(value);
                 }
             }
-            Self::Parameter(_)
+            Self::Copy(_)
+            | Self::Parameter(_)
             | Self::Member(_)
             | Self::Query(..)
             | Self::Ordering(_)
@@ -89,7 +93,7 @@ impl Drop for Stage {
             | Self::Match(_)
             | Self::Filter(_)
             | Self::Paths(_)
-            | Self::Data(_) => {}
+            | Self::Data(..) => {}
         }
     }
 }
@@ -147,6 +151,8 @@ enum Kind {
     Declaration,
     Strings,
     Literals,
+    MemberCopies,
+    SourceCopies,
     Count,
     Tally,
     Record,
@@ -167,6 +173,8 @@ enum Kind {
 /// Constructed values have no input-source ranges; record labels preserve order.
 #[derive(Debug)]
 pub enum ReportValue<'a> {
+    /// Source copies are consumed only by an editing program's append statements.
+    SourceCopies(Rc<SourceCopies<'a>>),
     Retained(Arc<Self>),
     /// A best-effort native selection that skipped an uncertain observation.
     /// Ordinary output remains available; required nested observations refuse it.
@@ -200,7 +208,8 @@ impl<'a> ReportValue<'a> {
             | Self::IncompleteSelection { value, .. } => value.fields(),
             Self::Record(fields) => Some(fields),
             Self::Capture(capture) => Some(&capture.fields),
-            Self::Computational(_)
+            Self::SourceCopies(_)
+            | Self::Computational(_)
             | Self::Tuple(_)
             | Self::Sequence(_)
             | Self::Query(_)
@@ -216,7 +225,8 @@ impl<'a> ReportValue<'a> {
             | Self::EntitySequence { value, .. }
             | Self::IncompleteSelection { value, .. } => value.stream(),
             Self::Query(stream) => Some(stream),
-            Self::Computational(_)
+            Self::SourceCopies(_)
+            | Self::Computational(_)
             | Self::Tuple(_)
             | Self::Sequence(_)
             | Self::Record(_)
@@ -480,6 +490,7 @@ impl Program {
         let mut statements = Vec::new();
         let mut parameters = Vec::new();
         let mut edits = Vec::new();
+        let mut appends = Vec::new();
         let mut target_names = std::collections::BTreeSet::new();
         let mut output_seen = false;
         let mut invalid_binding = None;
@@ -566,7 +577,18 @@ impl Program {
             }
             let create = parser.cursor.take_word("create");
             let replace = !create && parser.cursor.take_word("replace");
-            if create || replace {
+            let append_start = parser.cursor.position;
+            let append = !create && !replace && parser.cursor.take_word("append") && {
+                parser.cursor.space();
+                parser
+                    .cursor
+                    .current()
+                    .is_some_and(|b| b.is_ascii_alphabetic() || b == b'\'')
+            };
+            if !create && !replace && !append {
+                parser.cursor.position = append_start;
+            }
+            if create || replace || append {
                 if output_seen {
                     return Err(parser
                         .cursor
@@ -596,6 +618,28 @@ impl Program {
                     .punctuation(b'=', "expected '=' after edit target")?;
                 parser.cursor.space();
                 let expression_range = parser.cursor.position..parser.expression_end()?;
+                if append {
+                    let (expression, kind, emits) =
+                        parser.composition_expression(expression_range.clone(), false, true)?;
+                    if emits || !matches!(kind, Kind::MemberCopies | Kind::SourceCopies) {
+                        return Err(QueryError::query(
+                            expression_range,
+                            "append requires native source copies",
+                        ));
+                    }
+                    let slot = Located::new(format!("\0append{}", appends.len()), range.clone());
+                    statements.push(Located::new(
+                        zirql::Statement::Bind {
+                            name: slot.clone(),
+                            expression,
+                        },
+                        expression_range,
+                    ));
+                    appends.push((Located::new(name.to_owned(), range), slot));
+                    parser.cursor.punctuation(b';', "expected ';' after edit")?;
+                    parser.cursor.space();
+                    continue;
+                }
                 let (_, names) = parser.pure_value::<()>(expression_range.clone())?;
                 parser
                     .preflight
@@ -616,7 +660,7 @@ impl Program {
                 continue;
             }
             if parser.cursor.take_word("emit") || parser.cursor.take_word("emit_document") {
-                if edits.is_empty() || output_seen {
+                if (edits.is_empty() && appends.is_empty()) || output_seen {
                     return Err(QueryError::query(
                         start..parser.cursor.position,
                         "emit requires an edit batch",
@@ -627,7 +671,7 @@ impl Program {
                 statements.push(Located::new(
                     zirql::Statement::Evaluate {
                         expression: value_stage(
-                            Stage::Data(std::mem::take(&mut edits)),
+                            Stage::Data(std::mem::take(&mut edits), std::mem::take(&mut appends)),
                             range.clone(),
                         ),
                         implicit_output: None,
@@ -638,7 +682,7 @@ impl Program {
                 parser.cursor.space();
                 continue;
             }
-            if !edits.is_empty() {
+            if !edits.is_empty() || !appends.is_empty() {
                 return Err(parser.cursor.error("an edit batch must end with emit"));
             }
             let quoted_let = source[start..].starts_with("let")
@@ -805,7 +849,7 @@ impl Program {
             statements.push(Located::new(statement, start..parser.cursor.position));
             parser.cursor.space();
         }
-        if !edits.is_empty() {
+        if !edits.is_empty() || !appends.is_empty() {
             return Err(parser.cursor.error("an edit batch must end with emit"));
         }
         let scalar_edit = parser.queries.iter().any(|query| {
@@ -816,6 +860,12 @@ impl Program {
                 .any(|stage| matches!(stage.kind, language::StageKind::FilterElements(_)))
         });
         let editing = document_seen || parser.queries.iter().any(|query| query.query.is_editing());
+        if !document_seen && let Some(range) = &parser.source_copy_range {
+            return Err(QueryError::query(
+                range.clone(),
+                "source-copy stages require an editing program ending with emit",
+            ));
+        }
         if scalar_edit
             && (document_seen
                 || parser
@@ -1220,6 +1270,7 @@ struct Parser<'a> {
     lexed: zincite_syntax::LexedSource,
     composition_error: Option<QueryError>,
     prepared_values: bool,
+    source_copy_range: Option<Range<usize>>,
 }
 impl<'a> Parser<'a> {
     fn new(source: &'a str, limits: ProgramLimits) -> Self {
@@ -1247,6 +1298,7 @@ impl<'a> Parser<'a> {
             preflight_range: None,
             composition_error: None,
             prepared_values: false,
+            source_copy_range: None,
             lexed: zincite_syntax::lex(source),
         }
     }
@@ -1992,7 +2044,10 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
                         budget,
                     );
                 }
-                Stage::Data(edits) => {
+                Stage::Copy(stage) => {
+                    return self.source_copy(stage, value, context, bindings, budget, range);
+                }
+                Stage::Data(edits, appends) => {
                     let facts = context
                         .report_facts(budget, range)
                         .map_err(zirql::EvaluationError::Host)?;
@@ -2002,10 +2057,25 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
                             "data construction requires read-only model context (--model)",
                         ))
                     })?;
+                    let mut copies = Vec::new();
+                    for (name, slot) in appends {
+                        budget.charge_results(1, zirql::Location::Query(name.range.clone()))?;
+                        let ReportValue::SourceCopies(copies_value) =
+                            functions::unretained(bindings.get(&slot.value, slot.range.clone())?)
+                        else {
+                            return Err(zirql::QueryError::query(
+                                name.range.clone(),
+                                "append requires native source copies",
+                            )
+                            .into());
+                        };
+                        copies.push((name, Rc::clone(copies_value)));
+                    }
                     let candidate = data::prepare_data_batch(
                         context.input,
                         &facts,
                         edits,
+                        &copies,
                         budget,
                         self.limits,
                         |expression, names, budget, range| {
@@ -2509,7 +2579,8 @@ impl<'a> NativeHost<'_> {
                     self.nesting,
                 )
                 .map_err(zirql::EvaluationError::Host)?,
-                ReportValue::Computational(_)
+                ReportValue::SourceCopies(_)
+                | ReportValue::Computational(_)
                 | ReportValue::Tuple(_)
                 | ReportValue::Sequence(_)
                 | ReportValue::Record(_)
@@ -2612,6 +2683,12 @@ fn copy_value<'a>(
         return Ok(value);
     }
     match value {
+        ReportValue::SourceCopies(value) => {
+            budget
+                .charge(1, zirql::Location::Query(range.clone()))
+                .map_err(pipeline::core_error)?;
+            return Ok(ReportValue::SourceCopies(Rc::clone(value)));
+        }
         ReportValue::Retained(value) => return copy_value(value, budget, range),
         ReportValue::IncompleteSelection { value, error } => {
             let value = copy_value(value, budget, range)?;
@@ -2721,6 +2798,7 @@ fn copy_admitted<'a>(value: &ReportValue<'a>) -> ReportValue<'a> {
         return value;
     }
     ReportValue::Query(match value {
+        ReportValue::SourceCopies(value) => return ReportValue::SourceCopies(Rc::clone(value)),
         ReportValue::Retained(value) => return ReportValue::Retained(Arc::clone(value)),
         ReportValue::Item(value) => return ReportValue::Item(Box::new(copy_admitted(value))),
         ReportValue::IncompleteSelection { value, error } => {
@@ -2789,7 +2867,10 @@ fn copy_admitted<'a>(value: &ReportValue<'a>) -> ReportValue<'a> {
 }
 fn value_units(value: &ReportValue<'_>) -> usize {
     match value {
-        ReportValue::Computational(_) | ReportValue::Tuple(_) | ReportValue::Sequence(_) => 1,
+        ReportValue::SourceCopies(_)
+        | ReportValue::Computational(_)
+        | ReportValue::Tuple(_)
+        | ReportValue::Sequence(_) => 1,
         ReportValue::Retained(value) => value_units(value),
         ReportValue::Item(value)
         | ReportValue::EntitySequence { value, .. }
@@ -2934,6 +3015,12 @@ fn admit_json<'a>(
     range: &Range<usize>,
 ) -> Result<(), QueryError> {
     match value {
+        ReportValue::SourceCopies(_) => {
+            return Err(QueryError::query(
+                range.clone(),
+                "source copies can only be consumed by append",
+            ));
+        }
         ReportValue::Computational(value) => {
             return Err(QueryError::query(
                 value.range(),
@@ -2997,6 +3084,12 @@ fn validate_value(
     range: &Range<usize>,
 ) -> Result<(), QueryError> {
     match value {
+        ReportValue::SourceCopies(_) => {
+            return Err(QueryError::query(
+                range.clone(),
+                "source copies can only be consumed by append",
+            ));
+        }
         // Computational values are valid retained library results. Rendering
         // rejects them recursively in admit_json, before any bytes escape.
         ReportValue::Tuple(value) => {
@@ -3064,6 +3157,10 @@ fn report_json<'a>(
     range: &Range<usize>,
 ) -> Result<Value, QueryError> {
     match value {
+        ReportValue::SourceCopies(_) => Err(QueryError::query(
+            range.clone(),
+            "source copies can only be consumed by append",
+        )),
         ReportValue::Computational(value) => Err(QueryError::query(
             value.range(),
             "queue and identity_set values cannot be rendered",
@@ -3143,6 +3240,7 @@ fn charge_render<'a>(
 
 fn render_bytes<'a>(value: &ReportValue<'a>, semantic: Option<&SemanticResult<'a>>) -> usize {
     match value {
+        ReportValue::SourceCopies(_) => 0,
         ReportValue::Computational(_) | ReportValue::Tuple(_) | ReportValue::Sequence(_) => {
             unreachable!("native containers use JSON")
         }
@@ -3455,8 +3553,9 @@ fn admit_written_members<'v, 'a>(
                                 }
                             }
                         }
-                        Stage::Parameter(_)
-                        | Stage::Data(_)
+                        Stage::Copy(_)
+                        | Stage::Parameter(_)
+                        | Stage::Data(..)
                         | Stage::MapSorting
                         | Stage::RetainPayload => {}
                     }

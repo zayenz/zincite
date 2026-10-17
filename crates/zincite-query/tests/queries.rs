@@ -7289,3 +7289,160 @@ fn shared_predicates_keep_native_operands_captures_and_scalar_edits() {
         .contains("report-only")
     );
 }
+
+#[test]
+fn source_copy_batches_keep_comments_names_and_original_reads() {
+    use zincite_query::{Program, ProgramLimits};
+    let limits = ProgramLimits::default();
+    let source = include_bytes!("fixtures/source-copies.dzn");
+    let input = Input::parse(source.to_vec(), FileMode::Data).unwrap();
+    let model = reduction_model("source-copies", include_str!("fixtures/source-copies.mzn"));
+    let query = include_str!("fixtures/source-copies.zq").replace(
+        "append People = copies;",
+        "let alias = copies; append People = alias;",
+    );
+    let program = Program::parse(&query, limits).unwrap();
+    let evaluate = |factor| {
+        program
+            .evaluate_with_model_and_parameters(
+                &input,
+                Some(&model),
+                zirql::ParameterInputs::Typed(&[(
+                    "factor".into(),
+                    zirql::ConstructedValue::Integer(factor),
+                )]),
+                limits,
+            )
+            .unwrap()
+            .render()
+            .unwrap()
+    };
+    assert_eq!(evaluate(1), source);
+    let grown = String::from_utf8(evaluate(2)).unwrap();
+    let original = std::str::from_utf8(source).unwrap();
+    let interior = original.split("people = [").nth(1).unwrap();
+    let interior = interior.split("];\n").next().unwrap();
+    assert!(grown.contains(interior));
+    let copied = interior
+        .replace("Alice:", "Copy_1_1:")
+        .replace("Bob:", "Copy_1_2:")
+        .replace("{ Bob }", "{ Copy_1_2 }")
+        .replace("{ Alice }", "{ Copy_1_1 }");
+    assert!(grown.contains(&copied), "{grown}");
+    assert!(grown.contains("People = { Alice, Bob , Copy_1_1, Copy_1_2 };"));
+    assert!(grown.contains("groups = [ { Alice, Bob } , { Copy_1_1, Copy_1_2 } ];"));
+    assert!(grown.contains(
+        "weights = [ 2, (+ /* weight */ 3) , 2, (+ /* weight */ 3) ];\nuntouched = 7;\n"
+    ));
+    assert_eq!(input.source_bytes(), source);
+}
+
+#[test]
+fn source_copy_batches_refuse_collisions_missing_dependents_and_growth_limits() {
+    use zincite_query::{Program, ProgramLimits};
+    let limits = ProgramLimits::default();
+    let source = include_str!("fixtures/source-copies.dzn");
+    let input = Input::parse(source.as_bytes().to_vec(), FileMode::Data).unwrap();
+    let model = reduction_model(
+        "source-copy-errors",
+        include_str!("fixtures/source-copies.mzn"),
+    );
+    let query =
+        include_str!("fixtures/source-copies.zq").replace("param factor: int;", "let factor = 2;");
+    let omitted = query
+        .lines()
+        .filter(|line| !line.starts_with("append people"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let error = Program::parse(&omitted, limits)
+        .unwrap()
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap_err();
+    assert!(error.message.contains("array coverage"), "{error:?}");
+    let collision = Input::parse(
+        source.replace("Alice", "Copy_1_1").into_bytes(),
+        FileMode::Data,
+    )
+    .unwrap();
+    let error = Program::parse(&query, limits)
+        .unwrap()
+        .evaluate_with_model(&collision, Some(&model), limits)
+        .unwrap_err();
+    assert!(error.message.contains("collision"), "{error:?}");
+    let outside_domain = Input::parse(
+        source
+            .replace("/* weight */ 3", "/* weight */ 4")
+            .into_bytes(),
+        FileMode::Data,
+    )
+    .unwrap();
+    let error = Program::parse(&query, limits)
+        .unwrap()
+        .evaluate_with_model(&outside_domain, Some(&model), limits)
+        .unwrap_err();
+    assert!(error.message.contains("domain"), "{error:?}");
+    let directive = Input::parse(
+        source
+            .replace("% Alice is a label here too.", "% zincite-fmt: skip")
+            .into_bytes(),
+        FileMode::Data,
+    )
+    .unwrap();
+    let error = Program::parse(&query, limits)
+        .unwrap()
+        .evaluate_with_model(&directive, Some(&model), limits)
+        .unwrap_err();
+    assert!(
+        error.message.contains("cannot copy source directives"),
+        "{error:?}"
+    );
+    let huge = query.replace("let factor = 2;", "let factor = 1000000000;");
+    let error = Program::parse(&huge, limits)
+        .unwrap()
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap_err();
+    assert!(error.message.contains("limit"), "{error:?}");
+    let error = Program::parse(
+        r#"items | filter(name("People")) | values | clone_members(1, "Copy")"#,
+        limits,
+    )
+    .and_then(|program| program.evaluate_with_model(&input, Some(&model), limits))
+    .unwrap_err();
+    assert!(error.message.contains("editing program"), "{error:?}");
+    let duplicated = query.replace("emit;", "append People = copies; emit;");
+    assert!(
+        Program::parse(&duplicated, limits)
+            .unwrap_err()
+            .message
+            .contains("duplicate")
+    );
+}
+
+#[test]
+fn source_copy_batches_refuse_enum_subset_elements() {
+    use zincite_query::{Program, ProgramLimits};
+    let limits = ProgramLimits::default();
+    let model = reduction_model(
+        "source-copy-enum-subset",
+        "enum People; set of People: Allowed; array[int] of Allowed: chosen; solve satisfy;",
+    );
+    let input = Input::parse(
+        b"People={A,B}; Allowed={A}; chosen=[A];".to_vec(),
+        FileMode::Data,
+    )
+    .unwrap();
+    let query = r#"
+        let copies = items | filter(name("People")) | values | clone_members(1, "Copy");
+        append People = copies;
+        append chosen = items | filter(name("chosen")) | values | clone_elements(copies);
+        emit;
+    "#;
+    let error = Program::parse(query, limits)
+        .unwrap()
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap_err();
+    assert!(
+        error.message.contains("enum subsets are unsupported"),
+        "{error:?}"
+    );
+}

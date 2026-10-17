@@ -4,8 +4,8 @@
 
 - Total: 145
 - Ready: 1
-- Blocked: 1
-- Done: 143
+- Blocked: 0
+- Done: 144
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -152,5 +152,5 @@
 | [base-141](tasks/141-avoid-repeated-source-locations-in-callable-output-lookup.md) | Avoid repeated source locations in callable output lookup | done | — |
 | [base-142](tasks/142-prove-nested-guest-group-membership-in-wedding-reductions.md) | Prove nested guest-group membership in wedding reductions | done | — |
 | [base-143](tasks/143-grow-wedding-instances-with-deterministic-guest-and-group-co.md) | Grow wedding instances with deterministic guest and group copies | done | — |
-| [base-144](tasks/144-copy-enum-backed-source-collections-in-one-query-edit-batch.md) | Copy enum-backed source collections in one query edit batch | ready | — |
-| [base-145](tasks/145-grow-wedding-data-through-an-introduced-query-language-walkt.md) | Grow wedding data through an introduced query-language walkthrough | blocked | base-144 |
+| [base-144](tasks/144-copy-enum-backed-source-collections-in-one-query-edit-batch.md) | Copy enum-backed source collections in one query edit batch | done | — |
+| [base-145](tasks/145-grow-wedding-data-through-an-introduced-query-language-walkt.md) | Grow wedding data through an introduced query-language walkthrough | ready | base-144 |
