@@ -41,7 +41,7 @@ export default defineConfig({
         { label: 'Query expressions', slug: 'guides/query-comprehension-contract' },
         'guides/reference',
       ] },
-      { label: 'Zirql language', link: 'https://zayenz.se/zirql/' },
+      { label: 'Zirql language', link: 'https://zayenz.se/zirql/guides/language-reference/' },
       { label: 'All projects on zayenz.se', link: 'https://zayenz.se/projects/' },
     ],
     expressiveCode: { shiki: { langs: [minizinc, zirql], langAlias: { 'rust,ignore': 'rust' } } },

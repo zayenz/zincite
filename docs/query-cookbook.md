@@ -41,8 +41,8 @@ costs = [|
 
 The staffing model follows the [introductory walkthrough](first-model.md).
 Here the data is in the model, and the `required` and `staff` declarations
-carry a `staffing_rule` annotation. Both constraints have string labels. The separate `data.dzn` file is for inspecting
-literal array and matrix shapes.
+carry a `staffing_rule` annotation. Both constraints have string labels. The
+separate `data.dzn` file is for inspecting literal array and matrix shapes.
 
 ## Count constraints
 
@@ -79,7 +79,8 @@ and generator-call names. The `max` in the variable domain and the `sum` in
 the objective are outside the selected constraints, so they do not appear.
 Operators such as `>=` are not call names. Remove the initial
 `filter(kind("constraint")) |` to include calls elsewhere in the file:
-`{"forall":2,"max":1,"sum":1}`.
+`{"max":1,"forall":2,"sum":1}`. Keys follow the first occurrence of each
+call name in the source.
 
 Navigation visits each selected root independently. If your selection contains
 both an expression and its parent, expanding `subtree` can visit the same call
@@ -109,8 +110,13 @@ This recipe uses model facts. Read the standard-library path from MiniZinc's
 configuration and pass it to Zincite:
 
 ```sh
-stdlib_dir=$(minizinc --config-dirs | python3 -c 'import json,sys; print(json.load(sys.stdin)["mznStdlibDir"])')
-zincite query --stdlib-dir "$stdlib_dir" 'filter(kind("declaration")) | declarations | filter(instantiation("var")) | types' staffing.mzn
+stdlib_dir=$(
+  minizinc --config-dirs |
+    python3 -c 'import json, sys; print(json.load(sys.stdin)["mznStdlibDir"])'
+)
+zincite query --stdlib-dir "$stdlib_dir" \
+  'filter(kind("declaration")) | declarations | filter(instantiation("var")) | types' \
+  staffing.mzn
 ```
 
 Output:
@@ -139,8 +145,14 @@ inventory. Input or query errors exit 2 with empty stdout.
 A predicate and a filtered comprehension select the same ordered rows:
 
 ```sh
-zincite query --program 'let rows=[(weight:2),(weight:5),(weight:3)]; rows | filter(row => row.weight > 2)' data.dzn
-zincite query --program '[row for row in [(weight:2),(weight:5),(weight:3)] if row.weight > 2]' data.dzn
+zincite query --program '
+let rows=[(weight:2),(weight:5),(weight:3)];
+rows | filter(row => row.weight > 2)
+' \
+  data.dzn
+zincite query --program \
+  '[row for row in [(weight:2),(weight:5),(weight:3)] if row.weight > 2]' \
+  data.dzn
 ```
 
 The implicit body is `filter(_.weight > 2)`. The MiniZinc-style comprehension
@@ -156,7 +168,12 @@ commands summarize that structure without evaluating MiniZinc expressions.
 For the array:
 
 ```sh
-zincite query 'filter(name("weights")) | values | json' data.dzn | python3 -c 'import json,sys; v=json.load(sys.stdin)[0]; print(v["kind"], v["indexing"], len(v["entries"]))'
+zincite query 'filter(name("weights")) | values | json' data.dzn |
+  python3 -c '
+import json, sys
+value = json.load(sys.stdin)[0]
+print(value["kind"], value["indexing"], len(value["entries"]))
+'
 ```
 
 Output:
@@ -168,7 +185,12 @@ array positional 3
 For the matrix:
 
 ```sh
-zincite query 'filter(name("costs")) | values | json' data.dzn | python3 -c 'import json,sys; v=json.load(sys.stdin)[0]; print(v["kind"], len(v["rows"]), [len(row["cells"]) for row in v["rows"]])'
+zincite query 'filter(name("costs")) | values | json' data.dzn |
+  python3 -c '
+import json, sys
+value = json.load(sys.stdin)[0]
+print(value["kind"], len(value["rows"]), [len(row["cells"]) for row in value["rows"]])
+'
 ```
 
 Output:

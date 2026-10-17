@@ -225,7 +225,7 @@ The [query guide](queries.md) covers reports and declaration uses; the
 models. [Data edits](data-edits.md) can help make smaller instances for
 investigation.
 
-Zincite's queries use [Zirql](https://zayenz.se/zirql/) for shared evaluation.
-Zincite supplies the MiniZinc syntax, source selections and model facts. You
-can learn the Zincite commands here without first learning how to embed Zirql
-in an application.
+For more about the arrays and comprehensions used in this report, see
+[Zirql's value guide](https://zayenz.se/zirql/guides/values/). Zincite supplies
+the MiniZinc input, source selections and model facts; Zirql evaluates the
+shared expressions.

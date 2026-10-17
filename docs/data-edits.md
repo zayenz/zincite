@@ -45,8 +45,9 @@ The first command keeps `1` and `3` in `weights`; the second removes the
 Filtering compares written literal elements. It cannot evaluate an arbitrary
 MiniZinc expression to decide whether to keep it. Removal includes comments
 attached to the removed entry or assignment; separated section comments remain.
-The implicit spelling is `filter_elements(_ > 0)`. These bodies use the closed
-Data expression policy; report-only calls and effects remain unavailable.
+The implicit spelling is `filter_elements(_ > 0)`. These bodies use the
+[data-edit expression subset](query-comprehension-contract.md#report-expressions-and-edit-grammar);
+report-only calls and effects remain unavailable.
 Direct `eq`, `lt`, `le`, `gt`, `ge` and `eq(member("A"))` comparisons also remain
 available.
 
@@ -207,7 +208,7 @@ shortfall = [0, 0, 0];
 ```
 
 `replace` calculates a new value for an existing assignment and changes its
-right-hand side. Both replacements form one batch. Adding staff now covers
+right-hand side. Both replacements form one batch. The extra staff cover
 every day's demand.
 
 The shortfall calculation uses `revised_available`, the value calculated in the
@@ -227,6 +228,11 @@ it cannot resolve stop the whole batch without a partial write. A changed
 scalar bound can therefore require changes to arrays indexed by that bound.
 The [data-expression contract](query-comprehension-contract.md#report-expressions-and-edit-grammar)
 lists the operations available in edits.
+
+Zirql's [value guide](https://zayenz.se/zirql/guides/values/) explains the shared
+arithmetic and comprehension rules. Use Zincite's expression contract above to
+check which operations an edit allows; read-only reports support more of the
+language.
 
 To start a new data document, supply an empty `.dzn` file and use `create` for
 each assignment. The model must still declare the targets, and the program

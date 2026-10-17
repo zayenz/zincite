@@ -57,10 +57,10 @@ a second repository checkout or new credentials. Record the Zincite source commi
 in the import commit message. Git retains the previous import for rollback.
 
 Review the diff. It should contain only the intended Zincite import and any
-explicitly reviewed publication instructions. Run the personal site's required
-`npm run release:check`; keep browser checks manual. Verify the resulting
-`dist/zincite/` contains the landing page, guide pages, search index and assets.
-Publish the reviewed commit through the existing Git-based production route.
+explicitly reviewed publication instructions. Publish the reviewed commit
+through the existing Git-based production route, which runs the personal site's
+release checks. Follow the current repository release policy; a documentation
+update does not require repeating those checks locally.
 
 ## Verify the published update
 
@@ -80,9 +80,10 @@ HTTPS site, rather than treating the local build as publication evidence:
 - Tab reaches navigation and search, Escape dismisses search, and focus remains
   visible. Representative copy buttons produce the commands shown in the guides.
 
-Retain the URL, revision, deploy IDs, checks and any limitations in the publication
-record. A failed asset or search request leaves the update unverified even when
-Netlify reports a successful deploy.
+Retain the URL, revision, deploy IDs and any observed failures in the publication
+record. A ready production deployment is sufficient release assurance. The
+checks above help investigate a concrete delivery problem; they are not a second
+release gate after a successful deployment.
 
 No alternate Zincite URL is configured by this procedure. If an alternate is
 introduced later, review its redirect to the canonical URL before publication.

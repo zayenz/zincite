@@ -45,10 +45,11 @@ explicitly requests JSON for a native result. For example, `--program 'count'`
 prints a number, while `--program 'report count'` wraps it in the JSON report
 with completeness and limitation fields.
 
-A data edit program requires `.dzn` input, `--model` for target declarations and
-an explicit final `emit;`. Read-only
+A `create`/`replace` batch requires `.dzn` input, `--model` for target
+declarations and an explicit final `emit;`. A single edit pipeline, such as
+`filter_elements`, follows its own input and model requirements. Read-only
 programs reject `--diff` and `--write`. See the [query guide](queries.md) for
-reports and the [data-edit guide](data-edits.md) for transformations.
+reports and the [data-edit guide](data-edits.md) for both edit forms.
 
 Program options `--max-work`, `--max-results`, `--max-items` and `--max-nesting`
 limit evaluation and output. They are not available for positional pipelines.

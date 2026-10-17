@@ -9,11 +9,13 @@ starts with a practical question: which day has too few staff, even though
 the total availability looks sufficient? The examples below develop source
 inspection and data reports in more detail.
 
-Zincite uses [Zirql](https://zayenz.se/zirql/) for shared query evaluation.
-Zincite supplies its own MiniZinc-oriented syntax and operations, including
-source selections, model facts and literal data. Use this guide for commands
-you can run in Zincite; the Zirql site explains the shared language and its
-Rust embedding interfaces.
+Zirql evaluates the expressions, bindings and collection operations in these
+queries. Zincite supplies MiniZinc input, source selections and model facts,
+and chooses how to render the results. Use this guide for complete commands;
+the [Zirql language reference](https://zayenz.se/zirql/guides/language-reference/)
+explains the shared syntax. Zincite's
+[expression contract](query-comprehension-contract.md) defines its additional
+MiniZinc forms and the smaller language allowed in data edits.
 
 Saved repository examples use the [v0.1.0 checkout](getting-started.md#build-from-a-checkout).
 Run their repository-relative paths from the checkout root. Examples that give
@@ -54,12 +56,14 @@ and result formats.
 Native selections support `tail(n)`, `reverse` and pass-through cardinality checks:
 
 ```zirql
-let selected = items;
+let selected = items | filter(kind("declaration"));
 let n = selected | count;
-let expected = n - 1;
 let message = "selection size changed";
-selected | tail(expected) | reverse | check(expected, message) | names
+selected | tail(n) | reverse | check(n, message) | names
 ```
+
+Run this with `--program` against `model.mzn` above. It prints `allocated`,
+then `capacity`, one name per line.
 
 `tail` keeps a suffix in its current order; `reverse` then reverses those rows,
 including duplicate occurrences. Zero keeps no rows and an oversized bound keeps
@@ -75,7 +79,9 @@ Program counts and messages can refer to parameters, bindings and local scopes.
 Positional queries use literal counts and double-quoted messages:
 
 ```sh
-zincite query 'items | tail(2) | reverse | check(2, "need two items") | names' data.dzn
+zincite query \
+  'filter(kind("declaration")) | tail(2) | reverse | check(2, "need two declarations") | names' \
+  model.mzn
 ```
 
 A check counts returned rows, including when a semantic result has limitations.
@@ -159,10 +165,10 @@ stays pear, then ash. Sorting retains the dictionary kind.
 
 Zincite accepts both `[row for row in samples if row.count > 1]` and
 `[row | row in samples where row.count > 1]`. Both use Zirql's reader and
-evaluator, with the same scope, order and limits. The [Zirql language guide](https://zayenz.se/zirql/guides/language-reference/)
-and [Zirium guide](https://zayenz.se/zirium/guides/query-language/) describe the
-shared language. Zincite retains its typed integer payloads and result envelope;
-the CSV and Zirium renderers print ordinary JSON integers.
+evaluator, with the same scope, order and limits. Zirql's
+[collection-order guide](https://zayenz.se/zirql/guides/values/#dictionaries-and-collection-order)
+explains dictionary and set ordering. Zincite wraps calculated integers in
+the `kind`/`value` objects shown above and adds the report's completeness fields.
 
 This program does not inspect `model.mzn`. To supply data from MiniZinc source,
 select native items and project their `names` or literal `values`, as in the
@@ -569,7 +575,10 @@ The semantic examples below use an installed MiniZinc standard library. Set
 Python 3 are on your path, you can read it from the installation:
 
 ```sh
-export MZN_STDLIB_DIR=$(minizinc --config-dirs | python3 -c 'import json,sys; print(json.load(sys.stdin)["mznStdlibDir"])')
+export MZN_STDLIB_DIR=$(
+  minizinc --config-dirs |
+    python3 -c 'import json, sys; print(json.load(sys.stdin)["mznStdlibDir"])'
+)
 ```
 
 Alternatively, pass `--stdlib-dir DIR` on each command. Use `-I DIR` for project
@@ -697,7 +706,9 @@ solve satisfy;
 This query keeps `A` and `C`, which refer directly to `B`:
 
 ```sh
-zincite query --program 'declarations | where_exists(referenced_declarations | filter(name("B"))) | names' connections.mzn
+zincite query --program \
+  'declarations | where_exists(referenced_declarations | filter(name("B"))) | names' \
+  connections.mzn
 ```
 
 The relation can read saved bindings and function parameters. A complete empty
@@ -711,7 +722,11 @@ attached to successful complete observations.
 an explicit union:
 
 ```sh
-zincite query --program 'let seed = declarations | filter(name("A")); seed | fixpoint(input union referenced_declarations) | names' connections.mzn
+zincite query --program '
+let seed = declarations | filter(name("A"));
+seed | fixpoint(input union referenced_declarations) | names
+' \
+  connections.mzn
 ```
 
 This returns `A`, `B`, `C`, `D` in that order. The body must keep the exact native
@@ -810,11 +825,19 @@ Sorting and extrema are available in reports, not data edits.
 
 ## Order native selections
 
-Keep the selected source items while ordering them by a scalar projection. For
-`int: A = 1; int: B = 1; int: C = 2;`:
+Keep the selected source items while ordering them by a scalar projection. Save
+these declarations as `ordering.mzn`:
+
+```minizinc title="ordering.mzn"
+int: A = 1;
+int: B = 1;
+int: C = 2;
+```
 
 ```sh
-zincite-query --program 'items | sort_by(expressions | tail(1) | values) | names' model.mzn
+zincite query --program \
+  'items | sort_by(expressions | tail(1) | values) | names' \
+  ordering.mzn
 ```
 
 The names are `A`, `B`, `C`; `A` stays before `B` because their keys tie.
@@ -859,7 +882,11 @@ solve satisfy;
 This report keeps the two most used declarations:
 
 ```sh
-zincite query --program 'let ds = declarations | filter(name("A") or name("B") or name("C")); ds | map_by(names, uses | count) | sort_by(value) | reverse | head(2)' dictionary.mzn
+zincite query --program '
+let ds = declarations | filter(name("A") or name("B") or name("C"));
+ds | map_by(names, uses | count) | sort_by(value) | reverse | head(2)
+' \
+  dictionary.mzn
 ```
 
 ```json
@@ -935,7 +962,9 @@ executing model calls.
 Function arguments and results are checked against the declared types.
 Recursion is limited by depth and total work. See the
 [function reference](reference.md#typed-query-functions) for scope, signatures
-and limits.
+and limits. Zirql's [functions and control-flow guide](https://zayenz.se/zirql/guides/functions-and-control-flow/)
+develops the shared language with smaller examples; `Node`, `Declaration` and
+the source-inspection operations here belong to Zincite.
 
 ## Walk declaration references
 
@@ -1173,7 +1202,11 @@ A colon separates each dictionary key expression from its value. This query
 needs no model facts and works with the existing `data.dzn` fixture:
 
 ```sh
-zincite query --program 'let words=["pear","apple"]; {w: {n mod 3 for n in 1..5} for w in words}' data.dzn
+zincite query --program '
+let words=["pear","apple"];
+{w: {n mod 3 for n in 1..5} for w in words}
+' \
+  data.dzn
 ```
 
 The dictionary keeps `pear`, then `apple`; each value is a set iterating as

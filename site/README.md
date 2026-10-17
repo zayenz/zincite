@@ -20,6 +20,11 @@ program statements and MiniZinc expression syntax added. Keep shared keywords
 and types aligned when updating it; highlighting does not validate syntax or
 promise that Zincite accepts every Zirql construct.
 
+Keep the MiniZinc source operations, output shapes and data-edit restrictions in
+the Zincite guides. Link to a specific Zirql guide when readers need the shared
+expression, collection or function rules. The local example should still be
+usable without following that link.
+
 Give saved-file examples a title after the language name, for example
 `zirql title="shortages.zq"`. Show input files directly in named code
 blocks; keep shell blocks for the commands that use them. Label a printed data

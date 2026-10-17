@@ -10,10 +10,11 @@ Start with [query reports](queries.md) or [data edits](data-edits.md) for a
 walkthrough. The [doubled-instance example](#a-complete-doubled-instance) below
 shows how to copy records while updating their indices and references together.
 
-Zincite uses [Zirql](https://zayenz.se/zirql/) to evaluate the queries. Its
-expressions follow MiniZinc 2.10.1 syntax where described here, but support only
-the operations listed on this page. A MiniZinc expression can parse correctly
-and still be unsupported in a query.
+Zincite uses Zirql to evaluate the queries. The
+[shared value guide](https://zayenz.se/zirql/guides/values/) explains expression
+evaluation and collection semantics. This page defines Zincite's MiniZinc
+spellings and permitted operations, including its data-edit restrictions. A
+MiniZinc expression can parse correctly and still be unsupported in a query.
 
 ## Combine source selections in a report
 
@@ -77,8 +78,8 @@ A mismatch is an error in a binding, function/predicate argument or generator,
 and tries the next arm in a value match. Predicate `_` reads the whole subject.
 
 Scalar element edits accept `filter_elements(value => value > 0)` and
-`filter_elements(_ > 0)`. These bodies retain Data's closed operator/helper
-policy, scalar/member distinctions and complete candidate checks. General
+`filter_elements(_ > 0)`. These bodies use the data-edit operators and helpers
+listed below, with distinct scalar and member values and complete candidate checks. General
 predicate syntax does not admit report-only helpers, declared functions,
 effects or unsupported nominal facts. Direct `eq(member("A"))` comparisons
 retain their existing identity rule.
@@ -311,7 +312,7 @@ unsupported element, fails at the set expression or source literal range before 
 serialization. Strings remain ordinary scalars, array elements and `++`
 operands. The [pinned specification](https://docs.minizinc.dev/en/2.10.1/spec.html#sets)
 permits broader fixed sets, but the tested MiniZinc 2.10.1 compiler rejects
-string set literals. This contract excludes them for both consumers.
+string set literals. Zincite query sets therefore exclude strings.
 
 Model calls, arbitrary built-ins, generator calls, interpolation, annotations,
 `let` inside a MiniZinc expression, decision values,
@@ -353,7 +354,7 @@ or string-to-member conversion is allowed.
 ### Constructed pipelines
 
 Completed positional arrays and MiniZinc comprehensions accept
-`filter(starts_with("prefix"))`, `count`, `sort`, `unique` and `tally` suffixes.
+`filter(predicate)`, `count`, `sort`, `unique` and `tally` suffixes.
 For example, `[x | x in [3,1,3]] | sort | unique`
 returns `[1,3]`. The generator pipe belongs to the comprehension; the suffix
 pipes consume its completed result. Saved constructed values accept suffixes
@@ -361,6 +362,9 @@ directly, as in `let numbers=[3,1,3]; numbers | sort | unique | count`, which
 returns `2`. Grouping also works, including for function calls such as
 `(make_rows()) | tally`. Native name and call pipelines retain their routing.
 
+Predicates can name their element, as in `filter(row => row.weight > 2)`, or
+use `_`, as in `filter(_.weight > 2)`. They return a fixed Boolean and may read
+visible bindings and call permitted pure functions.
 `filter(starts_with("a"))` retains strings beginning with `a`, in input order.
 Matching is exact and case-sensitive; an empty prefix matches every string.
 Non-string elements fail, including an incompatible declared element type on
@@ -377,8 +381,8 @@ refused when empty. Keyed arrays, records and native handles require explicit
 conversion or projection before these operations. A keyed array can become a
 positional one through `[e.value | e in entries(a)]`.
 
-Suffixes lower to Zirql's existing value nodes and use its evaluator and request
-budget. They are report-only, including unused lets and skipped branches in
+Suffixes use Zirql's evaluator and the same request budget as the surrounding
+expression. They are report-only, including unused lets and skipped branches in
 data-edit requests. A failure points to the responsible suffix and produces no
 partial CLI output. [The saved-selection example](queries.md#continue-a-calculated-array)
 shows native inputs and calculated arrays in one report.

@@ -116,8 +116,8 @@ unary tuples. Record literals also accept `(field: value)` without a comma,
 matching MiniZinc 2.10.1 beyond the printed record production. They retain a
 record node and field-label nodes rather than becoming parenthesized expressions.
 `variant_record` and `case` are reserved keywords without productions in the
-pinned grammar; they remain unsupported and produce diagnostics. Unsupported
-input produces diagnostics. Range-type bounds follow the numeric-expression
+pinned grammar; they remain unsupported and produce diagnostics.
+Range-type bounds follow the numeric-expression
 grammar with the compiler-supported `infinity` bound, including signed bounds.
 Their parentheses may contain numeric operators, identifiers and calls; call
 arguments and annotations use the general expression grammar. Global and local
@@ -201,7 +201,12 @@ by the objective expression. Each node retains its precise source range.
 
 `zincite-query` selects top-level items from one model or assignment-only data
 file and explicitly edits data assignments and enum membership. Its reusable
-library and both commands use the same pipeline stages:
+library and both commands use the same pipeline stages, listed below.
+
+Zirql supplies shared evaluation, while this library supplies MiniZinc inputs,
+model facts, source output and data edits. To build a host for another domain,
+see [Zirql's embedding guide](https://zayenz.se/zirql/guides/host-integration/).
+To call Zincite itself, use the APIs below.
 
 | Stage | Result |
 | --- | --- |
@@ -241,7 +246,7 @@ library and both commands use the same pipeline stages:
 
 Stages are separated by `|`. The initial selection is `items`, including for an
 empty query. Source or projected-string emission is implicit. `emit` and `json` are terminal.
-Only `json` may follow `count` or `tally`. A pipeline may contain one transformation stage,
+In positional query syntax, only `json` may follow `count` or `tally`. A pipeline may contain one transformation stage,
 followed only by its optional `emit`; document emission is implicit for
 edits. `emit_document` remains a compatibility alias requiring a transformation.
 `head` does not avoid parsing or evaluating the earlier selection. No input items
@@ -375,7 +380,12 @@ Query programs declare required scalar inputs with `param name: int;`,
 `--param name=value` option in either command:
 
 ```sh
-zincite-query --param factor=2 --program 'param factor: int; let d = items | filter(name("demand")) | values | one; sum([n * factor | n in d]);' data.dzn
+zincite-query --param factor=2 --program '
+param factor: int;
+let d = items | filter(name("demand")) | values | one;
+sum([n * factor | n in d]);
+' \
+  data.dzn
 zincite query --param factor=2 --program-file capacity-parameters.zq data.dzn
 ```
 
@@ -787,7 +797,11 @@ match. For example, `contains("Ångström", "ström")` is true,
 is true. Precomposed `é` does not contain decomposed `é`.
 
 ```sh
-zincite query --program 'let labels = items | names; [n | n in labels where starts_with(n, "work") /\ contains(n, "load")];' model.mzn
+zincite query --program '
+let labels = items | names;
+[n | n in labels where starts_with(n, "work") /\ contains(n, "load")];
+' \
+  model.mzn
 ```
 
 The [saved string-matching program](../crates/zincite-query/tests/fixtures/string-matching.zq)
@@ -995,7 +1009,7 @@ syntax, model evaluation or serialization. See the
 Use `zincite-query --program TEXT [FILE|-]` or `zincite query --program TEXT
 [FILE|-]` for inline programs. `-f PROGRAM` and `--program-file PROGRAM` read a
 file through the same Program API. Select one source: inline text, a program file
-or a legacy positional query. Repeated or mixed program sources fail. Program
+or a positional query. Repeated or mixed program sources fail. Program
 mode accepts at most one input file or `-` and has no positional query slot.
 Input and model options follow the [command reference](cli.md). Report programs
 reject `--diff` and `--write`; editing programs use the existing preview and
