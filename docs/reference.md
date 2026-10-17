@@ -1245,9 +1245,14 @@ inspection pipeline selects the same collection more than once.
 
 ### Enum reduction
 
+For an enum assignment such as `Guests = {A, B, C}`, `keep("A", "C")`
+selects members by name; `keep_first(2)` selects the first two in written order.
+These commands use `guests.dzn` from the
+[enum reduction walkthrough](data-edits.md#reduce-enum-membership):
+
 ```sh
-zincite query --model seating.mzn 'reduce_enum("Guests", keep("A", "C"))' data.dzn
-zincite-query --diff 'reduce_enum("Guests", keep_first(20))' data.dzn
+zincite query 'reduce_enum("Guests", keep("A", "C"))' guests.dzn
+zincite-query --diff 'reduce_enum("Guests", keep_first(2))' guests.dzn
 ```
 
 `reduce_enum` requires a top-level item selection in data mode and inspects the
@@ -1258,9 +1263,11 @@ member order; `keep_first` uses that order. Unknown requested members and
 constructed or anonymous enums are located errors. `keep()` and `keep_first(0)`
 allow empty retention.
 
-Explicit member keys establish enum identity without a model. With model facts,
-unique top-level declarations associate data assignments with enum identities,
-expanded types and written index domains. Positional slicing requires the full
+Explicit member keys establish enum identity without a model. Supply
+`--model model.mzn` when declarations are needed to associate positional data
+with the enum. With model facts, unique top-level declarations associate data
+assignments with enum identities, expanded types and written index domains.
+Positional slicing requires the full
 original enum domain and exact coverage; an enum index type alone does not prove
 that a named subset has the same membership. Unknown aliases, ambiguous
 associations, computed indices and starting-key tails remain unresolved.

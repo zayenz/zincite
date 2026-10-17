@@ -275,11 +275,34 @@ or include files. Syntax and bounded shape checks do not prove satisfiability.
 
 ## Grow a wedding instance
 
+Making a larger test instance often means copying entities and updating the
+data that refers to them. As an example, consider a wedding seating problem:
+guests are assigned to tables, some groups must sit together, and others must
+sit apart. Its input contains guest records, interests in conversation topics,
+the groups and table capacities.
+
 The [`grow-wedding` Rust example](../crates/zincite-query/examples/grow-wedding.rs)
-handles the seating model's nominal guest identifiers and commented records.
-It uses Zincite's public literal views and source-edit API. The ordinary query
-language keeps its existing restrictions on adding enum members and replacing
-commented values.
+copies this kind of data. Each additional copy gets fresh guest identifiers,
+and its groups refer to those new guests. For example, doubling these guests
+and their group:
+
+```minizinc
+Guests = {A, B};
+same_table = [{A, B}];
+```
+
+produces:
+
+```minizinc
+Guests = {A, B, GrownGuest_1_1, GrownGuest_1_2};
+same_table = [{A, B}, {GrownGuest_1_1, GrownGuest_1_2}];
+```
+
+The example uses Zincite's public literal views and source-edit API to read
+collections, map guest identifiers and prepare a complete candidate. Its source
+is a starting point for writing a transformer for your own data shape. The
+ordinary query language retains its restrictions on adding enum members and
+replacing commented values.
 
 Run it from a source checkout, choosing a separate output file:
 
@@ -324,15 +347,21 @@ normal query limits.
 The command buffers and reparses the complete candidate before printing. It
 has no in-place option. Invalid input or exceeded limits produce a diagnostic
 on stderr, exit status `2` and no candidate on stdout. Check the candidate with
-the matching model before using it. For the public control:
+your model before using it. The supplied `wedding.mzn` fixture declares the
+input types so MiniZinc can check this example; it contains no seating variables
+or constraints. Check the generated data against those declarations with:
 
 ```sh
 minizinc --instance-check-only \
   crates/zincite-query/examples/fixtures/wedding.mzn /tmp/wedding-grown.dzn
 ```
 
-This grows the written data deterministically. It does not create random guests
-or establish satisfiability: the seating model still chooses tables for all
-copies together, and capacity, symmetry and objective constraints can couple
-them. The [integer-indexed doubling example](#double-entities-and-their-dependent-data)
-above remains the query-language recipe for explicitly mapped integer keys.
+This copies the written data deterministically; it does not generate random
+guests or establish that a larger seating problem has a solution. A model that
+assigns all guests to tables can impose capacity, symmetry or objective
+constraints across copies. Copying records and their references does not make
+the copies independent problems.
+
+The [integer-indexed doubling example](#double-entities-and-their-dependent-data)
+above gives a query-language recipe for data with explicitly mapped integer
+keys.
