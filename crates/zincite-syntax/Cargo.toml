@@ -6,6 +6,6 @@ license.workspace = true
 description = "Source-preserving MiniZinc syntax for Zincite tooling"
 repository.workspace = true
 homepage.workspace = true
-documentation = "https://docs.rs/zincite-syntax/0.1.0"
+documentation = "https://docs.rs/zincite-syntax/0.1.1"
 readme = "README.md"
 include = ["/src/**", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE"]

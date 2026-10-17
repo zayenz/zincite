@@ -1,5 +1,16 @@
 # Release notes
 
+## 0.1.1
+
+- Complete enum reductions through supported nested literal guest-group iteration,
+  retaining explicit refusal for computed or unproved dependencies.
+- Add a source-preserving wedding growth example with deterministic guest and
+  group remapping, repeated capacities and bounded candidate output.
+- Avoid repeated source-location construction in callable output lookup. On the
+  retained Java-routing model, comprehensive linting improves from about 8.5 to
+  3.2 seconds with identical diagnostic output.
+- Clarify query guides and keep shared-language explanations self-contained.
+
 ## 0.1.0
 
 Zincite provides a root command and three standalone commands for MiniZinc

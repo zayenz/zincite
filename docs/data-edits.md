@@ -252,7 +252,7 @@ The [complete public example](query-comprehension-contract.md#a-complete-doubled
 provides `doubled.mzn`, `doubled.dzn` and a five-replacement program. The same
 files are retained under `crates/zincite-query/tests/fixtures/` as
 `doubled.mzn`, `doubled.dzn` and `double.zq`. From the
-[v0.1.0 checkout](getting-started.md#build-from-a-checkout) root:
+[v0.1.1 checkout](getting-started.md#build-from-a-checkout) root:
 
 ```sh
 zincite query --max-work 5000000 --model crates/zincite-query/tests/fixtures/doubled.mzn \

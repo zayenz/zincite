@@ -9,24 +9,27 @@ facts and source-preserving Data edits stay with Zincite.
 Use a current stable Rust toolchain. Add the library with:
 
 ```sh
-cargo add zincite-query@0.1.0
+cargo add zincite-query@0.1.1
 ```
 
 The standalone `zincite-query` command uses the same options and exit codes as
 `zincite query`:
 
 ```sh
-cargo install --locked --version '=0.1.0' zincite-query
+cargo install --locked --version '=0.1.1' zincite-query
 zincite-query --help
 ```
 
 See the [reader guides](https://zayenz.se/zincite/),
 [library reference](https://zayenz.se/zincite/guides/reference/#query-library)
-and [Rust API](https://docs.rs/zincite-query/0.1.0).
+and [Rust API](https://docs.rs/zincite-query/0.1.1).
 
 The archive includes the query examples under `tests/fixtures/`. Repository guide
-commands using `crates/zincite-query/tests/fixtures/` run from a v0.1.0 checkout;
-inside this crate, use `tests/fixtures/` instead.
+commands using `crates/zincite-query/tests/fixtures/` run from a v0.1.1 checkout;
+inside this crate, use `tests/fixtures/` instead. The archive also includes the
+`grow-wedding` example and its public control under `examples/`; see the
+[wedding growth guide](https://zayenz.se/zincite/guides/data-edits/#grow-a-wedding-instance)
+for its supported shapes and candidate-only output.
 
 Zincite targets MiniZinc 2.10.1 and does not run a compiler or solver. Read the
 [support limits](https://zayenz.se/zincite/guides/support/) before relying on

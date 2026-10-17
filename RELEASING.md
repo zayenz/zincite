@@ -1,86 +1,58 @@
-# Release Zincite 0.1.0
+# Release Zincite 0.1.1
 
-The installation guides describe the 0.1.0 release destination. Before
-publication, the crates.io installation commands, `v0.1.0` source links and
-versioned docs.rs pages are pending external checks. A source build or local
-archive check does not establish that those public destinations are available.
+The five workspace crates share version 0.1.1. Their shared-language dependency
+remains the published Zirql 0.1.0 release.
 
-## Check the source and contents
+## Prepare the source
 
-Use current stable Rust for the supported workspace checks:
+Update the workspace version, sibling dependency requirements, Cargo.lock,
+short changelog entry and current installation/API/source links together.
+Keep historical measurement and planning records at their recorded revisions.
+The query archive includes both `tests/fixtures/` and `examples/`.
+
+Commit and push the candidate to `main`. Use the existing CI workflow for Rust
+formatting, Clippy, tests, API documentation and package-content checks. Trust
+successful CI; version and documentation changes do not reopen accepted code
+reviews or require fresh installation environments or archive audits.
+
+## Publish the workspace
+
+After successful CI and authorized publication, use Cargo 1.99's normal
+workspace publication command:
 
 ```sh
-cargo +stable fmt --all -- --check
-cargo +stable clippy --workspace --all-targets --locked -- -D warnings
-RUSTDOCFLAGS="-D warnings" cargo +stable test --workspace --locked
-RUSTDOCFLAGS="-D warnings" cargo +stable doc --workspace --no-deps --locked
-cargo +stable package --workspace --list --locked
+cargo +1.99.0 publish --workspace --locked
 ```
 
-The last command inspects package contents; it does not verify a packaged build.
-All five archives need their sources, README and both license texts. Keep site
-output, `node_modules`, planning records and exploration assets out. Workspace
-integration tests that depend on fixtures outside their crate stay in the
-checkout. Query examples ship under `tests/fixtures/` in `zincite-query`.
+Cargo publishes dependencies before their consumers: `zincite-syntax`,
+`zincite-lint`, then `zincite-fmt` and `zincite-query`, and finally `zincite`.
+Zirql 0.1.0 must already be available from crates.io. Do not use local registry
+or path overrides for publication. If publication stops after some uploads,
+retain those versions and continue only the remaining packages; do not replace
+published artifacts. Successful CI and normal publication are sufficient
+release assurance.
 
-The source dependency on Zirql is the crates.io release `0.1.0`. Packaged
-manifests must replace sibling paths with registry version requirements.
-Inspect every normalized `Cargo.toml`, package file list
-and lockfile. Build and run the root and standalone commands from an isolated
-local installation, including formatting writes, lint warnings, a complete
-query and a later-error request with empty stdout.
-
-Before packaging, both consumers must build against the verified Zirql
-`0.1.0` registry release. Their accepted relevant suites and the CSV example
-must cover the same reviewed shared-language source. Rebuild artifacts after
-changes to the shared reader or adapters; retain the existing package, clean-install, CI and site checks.
-
-## Verify archives and publication order
-
-Cargo 1.99 supports native multi-package archive verification and publish dry
-runs. Run these commands from a clean candidate checkout:
+Publish only the intended tag and short release notes after the uploads:
 
 ```sh
-cargo +1.99.0 package --workspace --locked
-cargo +1.99.0 publish --workspace --dry-run --locked
+git tag -a v0.1.1 -m "Zincite 0.1.1"
+git push origin v0.1.1
+gh release create v0.1.1 --title "Zincite 0.1.1" --notes-file /path/to/release-notes.md
 ```
 
-These commands may stage unpublished workspace siblings together. They still
-need the actual Zirql 0.1.0 registry dependency. Its absence is a release gate;
-do not bypass verification or call a local dependency override registry proof.
-Final archives must resolve Zirql from crates.io without source overrides.
-Retain the clean candidate commits, archive hashes and command results.
+Do not use `git push --tags`. Report the version and public package/release URLs.
 
-Publish dependencies before their consumers:
+## Publish the guides
 
-1. `zirql` 0.1.0.
-2. `zincite-syntax` 0.1.0.
-3. `zincite-lint` 0.1.0.
-4. `zincite-fmt` and `zincite-query` 0.1.0.
-5. `zincite` 0.1.0.
-
-After each dependency is available, verify its real registry resolution before
-publishing the next consumer. Registry upload and release-tag pushes require
-separate authorization. After publication, install exact versions into a new
-prefix with `cargo install --locked --version '=0.1.0'` for the root and each
-standalone package. Run their help and the installation-guide examples outside
-the source tree. Verify registry checksums, docs.rs pages and `v0.1.0` source
-links against the accepted artifacts.
-
-## Check the documentation site
-
-From `site/`, with MiniZinc's standard library configured:
+Build the committed documentation with the production path:
 
 ```sh
-npm ci
-npm run check
+cd site
 SITE_URL=https://zayenz.se SITE_BASE=/zincite/ npm run build
-SITE_URL=https://zayenz.se SITE_BASE=/zincite/ npm run preview -- --host 127.0.0.1
 ```
 
-Check installation and guide pages at desktop and mobile widths, navigation,
-search results, keyboard focus and Escape, themes, code/table scrolling,
-canonical URLs and assets under `/zincite/`. Match fixture links to the release
-checkout. Follow the [site publication procedure](https://github.com/zayenz/zincite/blob/v0.1.0/site/PUBLISHING.md)
-only after separate authorization for the personal-site import. A source push
-does not publish the site.
+Follow [site/PUBLISHING.md](site/PUBLISHING.md) for the reviewed static import
+and Git-based deployment at zayenz.se. Its hosted build runs the existing
+release checks; do not repeat them locally solely for the import. A successful
+deployment completes the docs release. Further validation needs a concrete
+failure, known defect or explicit request.
