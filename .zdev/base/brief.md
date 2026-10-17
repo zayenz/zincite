@@ -894,6 +894,73 @@ explicit element filtering with equality and numeric comparisons, including
 indices only as part of an explicit filtering transformation; preserve enum keys.
 Report unsupported computed expressions rather than guessing their values.
 
+### Source-preserving growth in query programs
+
+On 2026-10-17 the user requested wedding-instance growth through Zincite's
+query language. Add generic source-copy stages and explicit edits to the existing
+Program. This extends the earlier restriction on adding enum members; ordinary
+constructed create/replace and enum_member retain their existing contracts.
+Zincite owns these native source values, member mappings and final edit checks.
+Do not add Zirql nominal identities, a second evaluator or wedding-specific
+library operations.
+
+The editing-program surface is:
+
+- A native literal stream followed by clone_members(additional_count, prefix)
+  selects one nonempty, distinct member-set assignment for a unique uninitialized
+  model enum. It returns ordered per-copy mappings. Generated names use prefix,
+  one-based copy number and one-based original member position, separated by
+  underscores. Check identifier spelling and collisions against input/model/include
+  names and other names appended by the batch; never silently choose another name.
+- clone_elements(copies) selects one supported rank-one literal collection and
+  copies its elements in copy-major, then original order. Remap only parsed member
+  references and explicit member keys established as belonging to the mapping's
+  enum. Keep other enums, strings, labels and comments unchanged.
+- repeat_elements(additional_count) copies selected literal collection elements
+  without remapping. It does not reindex explicit keys.
+- append Target = native_source_expression; appends those source copies to exactly
+  one original collection assignment, or appends member copies to their own enum.
+  Preserve the original RHS and its comments. Copy formatter directives only by
+  refusing the operation initially; existing document directive checks still apply.
+- scale_enum Target = factor; changes only the positive integer N in the bounded
+  enum constructor C(1..N) to checked N*factor. The enum must have one unique
+  uninitialized model declaration. Arbitrary constructors/expressions and affected
+  constructor-member references remain unsupported.
+
+These stages are available only in editing programs with model facts. Stage
+scalar arguments use the shared located expression evaluator and current immutable
+bindings/parameters. Counts are checked nonnegative integers; scale factors are
+positive integers. Copy results remain host-native source slices with generated
+identifier substitutions, never ordinary constructed values. Expose any required
+Rust wrapper types with private fields and the existing Program API; add no
+independent synthesis framework.
+
+All reads use the original input and all explicit edits form one batch ending in
+emit;. Reject duplicate targets across edit kinds. Validate affected literal values,
+member references and array coverage against final enum membership/cardinality,
+including unchanged affected .dzn assignments indexed by an edited enum. Validate
+these data assignments against retained model types and final supported domains;
+computed or ambiguous data obligations refuse with locations. Do not evaluate
+model-derived declarations, decision arrays, constraints or solve items. Preserve
+existing input/model-owner admission for retained native copy values. Do not
+validate a dependent constructed edit
+against stale enum facts; explicitly refuse combinations that cannot be checked
+within this bounded path. Unrelated supported create/replace edits may coexist.
+Charge mappings, fragment walks/copies, validation and rendering to the existing
+request budget before expansion. Preserve buffered output and existing CLI
+write/snapshot/permission checks; finish_candidate assembles/reparses one candidate.
+
+The wedding guide introduces its synthetic model and data before using them.
+Its editable .zq program chooses explicit guest, group, table and capacity edits;
+the factor includes the original copy and factor 1 preserves exact bytes. Explain
+that copied data does not establish satisfiability or independent subproblems.
+Keep the Rust example as optional implementation depth. Use focused public checks
+for copied comments/keys/groups, collisions, omitted dependent edits and one
+budget/refusal boundary. Exercise both CLI forms and a temporary-file write.
+Reuse the two named private model/data pairs below at factor 2, directly inspect
+mappings and unchanged originals, and use MiniZinc --instance-check-only without
+solving. No publication, deployment or broad test matrix is part of this work.
+
 ### Enum reduction and best effort
 
 `reduce_enum("Guests", keep("A", "B"))` keeps named members;
