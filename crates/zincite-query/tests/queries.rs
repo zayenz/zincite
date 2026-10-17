@@ -1199,6 +1199,72 @@ fn enum_reduction_retains_unsupported_group_accesses_beside_independent_edits() 
 }
 
 #[test]
+fn enum_reduction_proves_members_iterated_from_pruned_literal_groups() {
+    let model = reduction_model(
+        "nested-groups",
+        "enum Guests; array[int] of set of Guests: groups; array[Guests] of int: scores;\n\
+         constraint forall(group in groups)(forall(a,b in group where a < b)(scores[a] <= scores[b]));\n\
+         solve satisfy;",
+    );
+    let source = b"Guests = {A,B,C}; groups = [{B},{A,B},{A,C},{}]; scores = [10,20,30];";
+    let input = Input::parse(source.to_vec(), FileMode::Data).unwrap();
+    let result = reduce(
+        &input,
+        Some(&model),
+        "reduce_enum(\"Guests\", keep(\"A\", \"C\"))",
+    );
+    assert!(result.is_complete(), "{:?}", result.unresolved());
+    assert_eq!(
+        result.candidate().source_bytes(),
+        b"Guests = {A,C}; groups = [{A},{A,C},{}]; scores = [10,30];"
+    );
+    assert_eq!(input.source_bytes(), source);
+}
+
+#[test]
+fn enum_reduction_does_not_prove_shadowed_or_computed_group_members() {
+    let source = "enum Guests; array[int] of set of Guests: groups; array[int] of set of Guests: computed; array[Guests] of int: scores;\n\
+        constraint forall(group in groups)(let { set of Guests: group = {A}; } in forall(a in group)(scores[a] >= 0));\n\
+        constraint forall(group in computed)(forall(b in group)(scores[b] >= 0));\n\
+        solve satisfy;";
+    let model = reduction_model("unproved-group-members", source);
+    let input = Input::parse_named(
+        b"Guests = {A,B,C}; groups = [{A,B}]; computed = [{A}, {to_enum(Guests, 2)}]; scores = [10,20,30];".to_vec(),
+        FileMode::Data,
+        "groups.dzn",
+    ).unwrap();
+    let result = reduce(
+        &input,
+        Some(&model),
+        "reduce_enum(\"Guests\", keep(\"A\", \"C\"))",
+    );
+    assert!(!result.is_complete());
+    for access in [b"scores[a]".as_slice(), b"scores[b]"] {
+        assert!(
+            result
+                .unresolved()
+                .iter()
+                .any(|dependency| dependency.location.path == model.root
+                    && &source.as_bytes()[dependency.location.range.clone()] == access
+                    && dependency.message.contains("computed enum-indexed access")),
+            "{:?}",
+            result.unresolved()
+        );
+    }
+    assert!(
+        result
+            .unresolved()
+            .iter()
+            .any(
+                |dependency| dependency.location.path == std::path::Path::new("groups.dzn")
+                    && dependency.message.contains("computed set dependence")
+            ),
+        "{:?}",
+        result.unresolved()
+    );
+}
+
+#[test]
 fn enum_reduction_retains_computed_model_access_dependencies_with_original_locations() {
     let source = "\u{feff}enum Guests; array[Guests] of int: scores;\nint: chosen = scores[to_enum(Guests, 2)];\nint: first = scores[A];\nint: unchanged = let { array[1..3] of int: scores = [1,2,3]; } in scores[2];\nsolve satisfy;\n";
     let model = reduction_model("model-access", source);

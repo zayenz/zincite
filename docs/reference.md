@@ -1296,8 +1296,13 @@ dependencies; `is_complete()` means that list is empty. Surviving removed-member
 scalars, relevant computed accesses, missing alignment facts and direct dependencies
 in read-only model sources remain visible. An ordinary enum generator such as
 `forall(g in Guests)(scores[g] >= 0)` preserves member identity when its source
-resolves directly to the target enum. Numeric conversions such as `to_enum` and
-read-only model group accesses that need an index repair remain unresolved.
+resolves directly to the target enum. Nested iteration such as
+`forall(group in groups)(forall(g in group)(scores[g] >= 0))` also preserves
+membership when `groups` resolves to a uniquely associated positional data array
+of literal guest sets that the reducer prunes. Generator bindings retain their
+lexical identity; a shadowed name does not inherit this proof. Computed group
+sources, numeric conversions such as `to_enum` and read-only model group accesses
+that need an index repair remain unresolved.
 Strings and record labels are never rewritten as enum members. This bounded check
 does not establish satisfiability or full
 compiler type validity.

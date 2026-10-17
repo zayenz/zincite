@@ -645,10 +645,56 @@ impl<'a> Reducer<'a, '_, '_> {
             .map(|reference| ((reference.file, reference.location.range.start), reference))
             .collect();
         let members: HashSet<_> = self.members.iter().copied().collect();
+        // Group mappings identify the positional arrays whose sets the reducer
+        // prunes. Require literal members throughout before using them as a
+        // source of retained enum identities in the read-only model.
+        let mut literal_groups = HashSet::new();
+        for (id, rhs) in self.assignments.values() {
+            let rhs = structured::unwrapped(rhs);
+            if !self.groups.contains_key(&rhs.range().start) {
+                continue;
+            }
+            let mut literal = true;
+            for group in rhs.child_nodes() {
+                self.work.visit(self.range)?;
+                let group = structured::unwrapped(group);
+                if group.kind() != NodeKind::SetLiteral {
+                    literal = false;
+                    break;
+                }
+                for value in group.child_nodes() {
+                    self.work.visit(self.range)?;
+                    if !member(self.input, value).is_some_and(|value| members.contains(value)) {
+                        literal = false;
+                        break;
+                    }
+                }
+                if !literal {
+                    break;
+                }
+            }
+            if literal {
+                literal_groups.insert(id.0);
+            }
+        }
+        self.work.spend(bindings.declarations.len(), self.range)?;
+        let mut generator_bindings = BTreeMap::<_, Vec<_>>::new();
+        for declaration in &bindings.declarations {
+            if declaration.role == DeclarationRole::Generator {
+                generator_bindings
+                    .entry((
+                        declaration.file,
+                        declaration.syntax_range.start,
+                        declaration.syntax_range.end,
+                    ))
+                    .or_default()
+                    .push(declaration.id.0);
+            }
+        }
         for (file, source) in model.files.iter().enumerate() {
             let mut pending = vec![source.parsed.tree()];
             let mut accesses = Vec::new();
-            let mut enum_generators = HashSet::new();
+            let mut generators = Vec::new();
             while let Some(node) = pending.pop() {
                 self.work.spend(node.children().len().max(1), self.range)?;
                 if node.child_nodes().count() > self.limits.collection {
@@ -657,35 +703,47 @@ impl<'a> Reducer<'a, '_, '_> {
                         "query collection limit exceeded",
                     ));
                 }
-                if node.kind() == NodeKind::Generator {
+                if node.kind() == NodeKind::Generator
+                    && node.children().iter().any(|child| {
+                        matches!(child, zincite_syntax::SyntaxElement::Token(index)
+                            if source.parsed.tokens()[*index].kind == TokenKind::In)
+                    })
+                {
                     let generator_source =
                         structured::unwrapped(node.child_nodes().next().unwrap());
                     let location = source.location(generator_source.range());
                     if generator_source.kind() == NodeKind::Expression
-                        && references
-                            .get(&(file, location.range.start))
-                            .is_some_and(|reference| {
-                                reference.resolution == BindingResolution::Resolved(target)
-                            })
+                        && let Some(reference) = references.get(&(file, location.range.start))
+                        && let BindingResolution::Resolved(id) = reference.resolution
+                        && let Some(bound) =
+                            generator_bindings.get(&(file, node.range().start, node.range().end))
                     {
-                        self.work.spend(bindings.declarations.len(), self.range)?;
-                        enum_generators.extend(
-                            bindings
-                                .declarations
-                                .iter()
-                                .filter(|declaration| {
-                                    declaration.file == file
-                                        && declaration.role == DeclarationRole::Generator
-                                        && declaration.syntax_range == node.range()
-                                })
-                                .map(|declaration| declaration.id.0),
-                        );
+                        generators.push((id, bound));
                     }
                 }
                 if node.kind() == NodeKind::ArrayAccessExpression {
                     accesses.push(node);
                 }
                 pending.extend(node.child_nodes());
+            }
+            // Resolve the two supported steps separately: arrays yield sets,
+            // then those bound sets yield members. Binding identities preserve
+            // lexical scope even when CST visitation encounters a body first.
+            let mut enum_generators = HashSet::new();
+            let mut group_generators = HashSet::new();
+            for (source, bound) in &generators {
+                self.work.spend(bound.len(), self.range)?;
+                if *source == target {
+                    enum_generators.extend(bound.iter().copied());
+                } else if literal_groups.contains(&source.0) {
+                    group_generators.extend(bound.iter().copied());
+                }
+            }
+            for (source, bound) in &generators {
+                self.work.spend(bound.len(), self.range)?;
+                if group_generators.contains(&source.0) {
+                    enum_generators.extend(bound.iter().copied());
+                }
             }
             for node in accesses {
                 let mut children = node.child_nodes();

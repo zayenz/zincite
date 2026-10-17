@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-142"
 key = "complete-wedding-reductions"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 blocked_by = []
@@ -25,12 +25,21 @@ The user selected the wedding cases for a dependable reduction workflow on 2026-
 
 ## Done when
 
-- [ ] Nested iteration over supported literal guest-group arrays supplies a sound membership proof for selectors in the selected model; ordinary unrelated/unproved computed selectors still leave incomplete outcomes and refuse writes.
-- [ ] The small12-to8 and mixed150-to110 wedding reductions complete, retain intended enum/record keys and pruned groups, preserve unrelated data and original bytes outside edits, and permit writing only complete candidates to temporary copies.
-- [ ] Focused public-behavior regression coverage demonstrates this nested proof and one nearby unproved/refused case. Public docs explain the supported case and retained limits without publishing private data.
+- [x] Nested iteration over supported literal guest-group arrays supplies a sound membership proof for selectors in the selected model; ordinary unrelated/unproved computed selectors still leave incomplete outcomes and refuse writes.
+- [x] The small12-to8 and mixed150-to110 wedding reductions complete, retain intended enum/record keys and pruned groups, preserve unrelated data and original bytes outside edits, and permit writing only complete candidates to temporary copies.
+- [x] Focused public-behavior regression coverage demonstrates this nested proof and one nearby unproved/refused case. Public docs explain the supported case and retained limits without publishing private data.
 
 ## Validation
 
 - Run focused query reduction tests and cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, cargo test --workspace.
 - Exercise both zincite query and zincite-query on the two named private cases using the kept sets already in scripts/query-acceptance.md; compare direct retained/removed data and group references, run MiniZinc --instance-check-only on originals and candidates with the existing installed stdlib/Gecode include setup, and confirm original files unchanged. No solver run.
 - Run git diff --check and zdev check base --format json.
+
+## Result
+
+Proved retained enum membership through supported nested literal group iteration. Both wedding reductions now complete with candidates identical to prior previews; unsupported sources remain refused.
+
+Validation:
+
+- Independent Astra/high verification PASS on Wc0633cf622611c16; nine focused and 504 workspace tests, formatting, Clippy, diff and zdev checks passed.
+- Both command forms accepted 12-to-8 and150-to-110 reductions and safe temporary writes; direct data checks, MiniZinc instance-only acceptance, original hashes and unproved-write refusal reconciled from34 saved commands.

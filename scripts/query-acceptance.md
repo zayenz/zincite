@@ -5,7 +5,9 @@ acceptance and base-100 resource failures below are historical captured outcomes
 The adopted contract accepts the named private reductions as incomplete previews;
 complete structured control and write-refusal evidence is included below.
 Base-101 repaired the remaining normal-library use-consumer resource failure;
-final navigation and validation evidence is recorded in the last section.
+final navigation and validation evidence is recorded below. The
+[2026-10-17 nested-group check](#complete-nested-group-reductions-2026-10-17)
+supersedes the incomplete wedding outcomes for the supported group iteration.
 
 Release build at `e7b8f012952f78b84eef18528a831ec77360008a`; Rust 1.98.1;
 Apple M1 Max, arm64, macOS 26.6.2. Production code was unchanged. Both
@@ -893,3 +895,37 @@ refuses at the responsible query range. Every refusal has ten measured samples
 plus its first-use observation and is excluded from successful throughput
 statistics. The existing broad initial declaration conversion remains a named
 host scaling concern; the worklist runtime and defaults are unchanged.
+
+## Complete nested-group reductions (2026-10-17)
+
+Base-142 completes both named wedding reductions. Their four model accesses use
+guests bound by nested iteration over literal group arrays that the reducer
+prunes. The proof follows resolved `in` generator bindings and a unique
+model/data association. Shadowed bindings and computed group sources or selectors
+remain unproved.
+
+Release binaries built from `d64fc661c8e088f2f31f32d2431957b1d12c4867` plus the
+base-142 reduction change used the same model, inputs, retained prefixes and
+library configuration as the earlier commands. Both `zincite query` and
+`zincite-query` returned 0 with empty stderr. Their candidate bytes match each
+other and the earlier incomplete previews.
+
+| Case | Guests and keyed records | Same-table groups | Different-table groups | Candidate bytes |
+| --- | --- | --- | --- | ---: |
+| Small | 12 → 8 | 2 → 2 | 1 → 0 | 1,001 |
+| Mixed | 150 → 110 | 23 → 23 | 14 → 14 | 21,405 |
+
+Direct inspection confirmed retained keys/order, byte-identical record values,
+exact pruned group memberships and unchanged unrelated source fragments. Both
+commands wrote complete candidates to temporary copies, preserving mode `0640`.
+An unproved computed-group example still returned 1 for `--write`, with no stdout
+or input change. The private model and originals retained their hashes.
+MiniZinc 2.10.1 accepted both originals and candidates with
+`--instance-check-only --solver gecode`; no solver ran.
+
+The focused reduction tests, workspace formatting, warning-fatal Clippy,
+workspace tests and `git diff --check` pass. Raw commands, streams, hashes,
+direct-check results and temporary candidates remain in
+`/private/tmp/zincite142-evidence/`, with the completed run in `report.json`.
+No private source or data was added to the repository. The historical incomplete
+captures above retain their original meaning and revisions.
