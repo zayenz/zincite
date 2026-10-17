@@ -68,10 +68,10 @@ arguments such as `row => row.weight > 0` or the implicit `_` subject. See the
 [query guide](https://zayenz.se/zincite/guides/queries/#select-values-with-a-predicate)
 for patterns, native subjects and data-edit limits.
 
-Zirql supplies the shared expression language. Its
+Zincite's guides cover query syntax, collection order, optional values and
+validated data edits. Zirql supplies the shared evaluator; its
 [values and comprehensions guide](https://zayenz.se/zirql/guides/values/)
-explains calculations, collection order and optional values. Zincite's guides
-define how to read MiniZinc data, inspect model facts and validate data edits.
+offers additional examples and background.
 
 ## Exit codes
 

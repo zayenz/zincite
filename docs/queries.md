@@ -9,13 +9,14 @@ starts with a practical question: which day has too few staff, even though
 the total availability looks sufficient? The examples below develop source
 inspection and data reports in more detail.
 
-Zirql evaluates the expressions, bindings and collection operations in these
-queries. Zincite supplies MiniZinc input, source selections and model facts,
-and chooses how to render the results. Use this guide for complete commands;
-the [Zirql language reference](https://zayenz.se/zirql/guides/language-reference/)
-explains the shared syntax. Zincite's
-[expression contract](query-comprehension-contract.md) defines its additional
-MiniZinc forms and the smaller language allowed in data edits.
+This guide explains the syntax and result rules used in its examples. The
+[expression contract](query-comprehension-contract.md) lists supported operators,
+collection forms and the smaller language allowed in data edits.
+
+Zirql evaluates the shared expressions, bindings and collection operations;
+Zincite supplies MiniZinc input, source selections, model facts and rendering.
+The [Zirql language reference](https://zayenz.se/zirql/guides/language-reference/)
+offers further examples and background on the evaluator shared with other tools.
 
 Saved repository examples use the [v0.1.0 checkout](getting-started.md#build-from-a-checkout).
 Run their repository-relative paths from the checkout root. Examples that give
@@ -158,6 +159,11 @@ zincite query --program-file counts.zq model.mzn
 {"complete":true,"limitations":[],"result":{"birch":{"kind":"integer","value":3},"pear":{"kind":"integer","value":2},"ash":{"kind":"integer","value":2}}}
 ```
 
+`[row for row in samples if row.count > 1]` visits each array element in order.
+`row` names that element, `.count` reads its record field, and `if` keeps only
+elements for which the comparison is true. Omitting `if` keeps every element;
+the expression before `for` chooses what to put in the result array.
+
 `selected` contains pear, ash and birch in their input order. The dictionary uses
 their labels as string keys and their counts as values. `descending=true` puts
 the largest count first. Pear and ash both have count 2, so their incoming order
@@ -165,10 +171,13 @@ stays pear, then ash. Sorting retains the dictionary kind.
 
 Zincite accepts both `[row for row in samples if row.count > 1]` and
 `[row | row in samples where row.count > 1]`. Both use Zirql's reader and
-evaluator, with the same scope, order and limits. Zirql's
+evaluator, with the same scope, order and limits. Dictionaries keep insertion
+order and reject duplicate keys; sets keep the first occurrence of each value.
+Sorting is explicit. The [dictionary examples](#build-a-dictionary-from-string-keys)
+show these rules locally; Zirql's
 [collection-order guide](https://zayenz.se/zirql/guides/values/#dictionaries-and-collection-order)
-explains dictionary and set ordering. Zincite wraps calculated integers in
-the `kind`/`value` objects shown above and adds the report's completeness fields.
+provides further detail. Zincite wraps calculated integers in the `kind`/`value`
+objects shown above and adds the report's completeness fields.
 
 This program does not inspect `model.mzn`. To supply data from MiniZinc source,
 select native items and project their `names` or literal `values`, as in the
@@ -959,12 +968,18 @@ function form gives you control over the traversal when adapting the query
 to a more specific source pattern. It inspects syntax without resolving or
 executing model calls.
 
+`fn` declares the function name, typed parameters and the result type after
+`->`. Its body can bind local values with `let`; the final expression supplies
+the return value. A conditional chooses one value and must include `else`.
+Functions are pure: they can inspect source and calculate values, but cannot
+edit data or emit output.
+
 Function arguments and results are checked against the declared types.
-Recursion is limited by depth and total work. See the
-[function reference](reference.md#typed-query-functions) for scope, signatures
-and limits. Zirql's [functions and control-flow guide](https://zayenz.se/zirql/guides/functions-and-control-flow/)
-develops the shared language with smaller examples; `Node`, `Declaration` and
-the source-inspection operations here belong to Zincite.
+Recursion is limited by depth and total work. Zincite's
+[function reference](reference.md#typed-query-functions) covers scope, signatures
+and limits. For more scalar examples, see Zirql's
+[functions and control-flow guide](https://zayenz.se/zirql/guides/functions-and-control-flow/).
+`Node`, `Declaration` and the source-inspection operations here belong to Zincite.
 
 ## Walk declaration references
 

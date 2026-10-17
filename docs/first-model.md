@@ -186,7 +186,9 @@ and calculations, and a bound name cannot be reassigned. For example,
 The second line reads `available` in the same way. `required[d]` and
 `available[d]` then select the values for day `d`. The comprehension visits
 the indices in `required`, keeps days with a shortage, and constructs a record
-for each one. For these three-element arrays, the index set is `1..3`.
+for each one. `(day: d, missing: ...)` names the record's two fields. Inside the
+array brackets, `|` introduces the generator and `where` keeps only indices
+whose condition is true. For these three-element arrays, the index set is `1..3`.
 `values` reads literals written in the data file; it does not evaluate a
 MiniZinc expression such as `required = [n * 2 | n in 1..3];`.
 
@@ -225,7 +227,6 @@ The [query guide](queries.md) covers reports and declaration uses; the
 models. [Data edits](data-edits.md) can help make smaller instances for
 investigation.
 
-For more about the arrays and comprehensions used in this report, see
-[Zirql's value guide](https://zayenz.se/zirql/guides/values/). Zincite supplies
-the MiniZinc input, source selections and model facts; Zirql evaluates the
-shared expressions.
+Zincite's [expression reference](query-comprehension-contract.md) covers array
+access, comprehension scope and report output. For further examples of the
+shared calculations, see [Zirql's value guide](https://zayenz.se/zirql/guides/values/).

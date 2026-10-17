@@ -207,6 +207,12 @@ available = [4, 5, 4];
 shortfall = [0, 0, 0];
 ```
 
+`[n + 1 | n in available]` visits the stored values in order and adds one to
+each, producing a positional array. The second comprehension visits array keys
+with `index_set(required)` and reads each day's values with `[day]`. Its
+`if ... then ... else ... endif` chooses the shortage or zero; the `else` is
+required.
+
 `replace` calculates a new value for an existing assignment and changes its
 right-hand side. Both replacements form one batch. The extra staff cover
 every day's demand.
@@ -227,12 +233,10 @@ the final set of edits. Conflicting targets, arithmetic errors or dependencies
 it cannot resolve stop the whole batch without a partial write. A changed
 scalar bound can therefore require changes to arrays indexed by that bound.
 The [data-expression contract](query-comprehension-contract.md#report-expressions-and-edit-grammar)
-lists the operations available in edits.
-
-Zirql's [value guide](https://zayenz.se/zirql/guides/values/) explains the shared
-arithmetic and comprehension rules. Use Zincite's expression contract above to
-check which operations an edit allows; read-only reports support more of the
-language.
+covers arithmetic, comprehension scope, array ordering and the operations an
+edit allows. Read-only reports support more of the language. Zirql's
+[value guide](https://zayenz.se/zirql/guides/values/) offers additional background
+on those shared calculations.
 
 To start a new data document, supply an empty `.dzn` file and use `create` for
 each assignment. The model must still declare the targets, and the program

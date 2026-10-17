@@ -10,11 +10,10 @@ Start with [query reports](queries.md) or [data edits](data-edits.md) for a
 walkthrough. The [doubled-instance example](#a-complete-doubled-instance) below
 shows how to copy records while updating their indices and references together.
 
-Zincite uses Zirql to evaluate the queries. The
-[shared value guide](https://zayenz.se/zirql/guides/values/) explains expression
-evaluation and collection semantics. This page defines Zincite's MiniZinc
-spellings and permitted operations, including its data-edit restrictions. A
-MiniZinc expression can parse correctly and still be unsupported in a query.
+A MiniZinc expression can parse correctly and still be unsupported in a query.
+Zincite uses Zirql to evaluate supported expressions;
+its [value guide](https://zayenz.se/zirql/guides/values/) provides additional
+examples across hosts.
 
 ## Combine source selections in a report
 
