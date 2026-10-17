@@ -1,0 +1,15 @@
+% unchanged heading
+Topics = {Music, Food};
+Guests = {A, B};
+guests = [
+  A: (name: "A", surname: "Example", gender: NA,
+      % inside the record
+      interest: [1, 2]),
+  % between records
+  B: (name: "B", surname: "Example", gender: Woman, interest: [2, 1])
+];
+same_table = [{A, B}];
+different_tables = [{A}, {B}];
+Tables = T(1..2);
+table_capacities = [2, 3];
+max_gender_imbalance_per_table = 1; % unchanged setting

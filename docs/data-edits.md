@@ -272,3 +272,67 @@ copies the two-column capacity rows, and maps group membership to `{1,2}` and
 Zincite refuses that edit. The program must specify any relationships between
 copies and any enum member mappings. It never adds enum members or edits model
 or include files. Syntax and bounded shape checks do not prove satisfiability.
+
+## Grow a wedding instance
+
+The [`grow-wedding` Rust example](../crates/zincite-query/examples/grow-wedding.rs)
+handles the seating model's nominal guest identifiers and commented records.
+It uses Zincite's public literal views and source-edit API. The ordinary query
+language keeps its existing restrictions on adding enum members and replacing
+commented values.
+
+Run it from a source checkout, choosing a separate output file:
+
+```sh
+cargo run --quiet -p zincite-query --example grow-wedding -- \
+  crates/zincite-query/examples/fixtures/wedding.dzn 2 > /tmp/wedding-grown.dzn
+```
+
+The [public input](../crates/zincite-query/examples/fixtures/wedding.dzn) has two
+guests and two tables. Factor `2` produces four of each; factor `1` preserves
+the original bytes. The factor is the total number of copies, including the
+original. Original guest symbols stay unchanged. Additional copies use
+`GrownGuest_1_1`, `GrownGuest_1_2`, and so on, with the copy number followed by
+the guest's position in the original enum. A name collision stops the command.
+
+Each copied guest keeps the original record, including display-name strings,
+interest values and internal comments. Copies of `same_table` and
+`different_tables` refer to guests from their own copy. Table capacities repeat
+in their original order, and `Tables = T(1..N)` becomes `T(1..N*factor)` with
+the calculated integer written in place. Unrelated assignment bytes and all
+original comments remain unchanged. Comments inside copied collections are
+copied too; prose in a comment is not updated to describe the larger instance.
+
+The example accepts exactly these data assignments:
+
+- `Topics` and `Guests`: nonempty literal sets of distinct enum member names.
+- `guests`: an explicitly guest-keyed array covering `Guests` exactly once.
+  Each record has string `name` and `surname`, `gender` equal to `Man`, `Woman`
+  or `NA`, and a positional integer `interest` array with one value per topic.
+- `same_table` and `different_tables`: positional arrays of literal guest sets.
+- `Tables`: the constructor `T(1..N)` with a positive decimal integer `N`.
+- `table_capacities`: a positional array of `N` literal integers.
+- `max_gender_imbalance_per_table`: a literal integer.
+
+Extra or repeated assignments, computed values, unknown group members and
+unsupported shapes are refused. Member keys must be direct identifier tokens;
+parenthesized keys and formatter directives are unsupported. The factor is
+limited to `1..1000`, input to 1 MiB and output to 16 MiB. Original token count
+times the factor must also fit 200,000 tokens; the literal reader retains its
+normal query limits.
+
+The command buffers and reparses the complete candidate before printing. It
+has no in-place option. Invalid input or exceeded limits produce a diagnostic
+on stderr, exit status `2` and no candidate on stdout. Check the candidate with
+the matching model before using it. For the public control:
+
+```sh
+minizinc --instance-check-only \
+  crates/zincite-query/examples/fixtures/wedding.mzn /tmp/wedding-grown.dzn
+```
+
+This grows the written data deterministically. It does not create random guests
+or establish satisfiability: the seating model still chooses tables for all
+copies together, and capacity, symmetry and objective constraints can couple
+them. The [integer-indexed doubling example](#double-entities-and-their-dependent-data)
+above remains the query-language recipe for explicitly mapped integer keys.
