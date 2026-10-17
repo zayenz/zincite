@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 143
-- Ready: 3
+- Ready: 2
 - Blocked: 0
-- Done: 140
+- Done: 141
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -149,6 +149,6 @@
 | [base-138](tasks/138-measure-current-lint-runtime-on-a-small-varied-model-set.md) | Measure current lint runtime on a small varied model set | done | base-137 |
 | [base-139](tasks/139-profile-java-routing-thesis-and-all-lint-cost-within-a-fixed.md) | Profile java-routing thesis and all lint cost within a fixed budget | done | base-138 |
 | [base-140](tasks/140-use-let-for-immutable-input-and-calculated-query-bindings.md) | Use let for immutable input and calculated query bindings | done | — |
-| [base-141](tasks/141-avoid-repeated-source-locations-in-callable-output-lookup.md) | Avoid repeated source locations in callable output lookup | ready | — |
+| [base-141](tasks/141-avoid-repeated-source-locations-in-callable-output-lookup.md) | Avoid repeated source locations in callable output lookup | done | — |
 | [base-142](tasks/142-prove-nested-guest-group-membership-in-wedding-reductions.md) | Prove nested guest-group membership in wedding reductions | ready | — |
 | [base-143](tasks/143-grow-wedding-instances-with-deterministic-guest-and-group-co.md) | Grow wedding instances with deterministic guest and group copies | ready | — |

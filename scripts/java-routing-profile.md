@@ -224,3 +224,87 @@ against the matched release `libzincite_lint-11ce169f5d12d88c.rlib` and dependen
 directory. Its source and the exact commands remain available locally.
 Only this report and its link were changed; no new tests, dependencies,
 production instrumentation, source/data rewrite or semantic repair was added.
+
+## Callable lookup hoist, 2026-10-17
+
+Task base-141 implements the local change proposed above. The `type_of` closure
+now computes the requested physical range before scanning expression rows. Its
+file/range equality, first-match selection and returned type are unchanged.
+The `file` parameter has an explicit `FileId` annotation because the moved
+calculation otherwise precedes the use that resolved its type.
+
+The baseline is release source `64795212530907c4aac4eca8e3ba21167772acae`;
+the candidate differs only by this hoist. Both native binaries were built in
+the same source worktree with Rust `1.98.1 (48a229cea 2026-09-01)` and:
+
+```sh
+CARGO_BUILD_JOBS=2 CARGO_PROFILE_RELEASE_DEBUG=1 \
+  CARGO_TARGET_DIR=/private/tmp/zincite-141-VARIANT-target \
+  cargo build --release --locked -p zincite-lint --bin zincite-lint
+```
+
+`VARIANT` is `before` or `after`; the before binary was built before editing.
+The input root and explicit standard library are the paths in Matched setup
+above. The root remains 85,229 bytes with the same SHA-256, and all 598 input
+files recorded by the earlier closure have unchanged hashes before and after
+this comparison. Inputs were read-only. This run uses the ordinary include
+closure, with no solver-specific include path, precheck, solver run or additional
+workload.
+
+Each native command was:
+
+```sh
+/private/tmp/zincite-141-VARIANT-target/release/zincite-lint \
+  --isolated --show-limitations --rules SELECTION --stdlib-dir "$STDLIB" "$ROOT"
+```
+
+There were three fresh processes per preset and revision, 18 in total, each
+with a 60-second deadline. Rounds visited default, thesis and all, pairing
+before/after in rounds 1 and 3 and after/before in round 2. The coordinator
+paused the other task-owned builds and tests for the complete timing window.
+Caches were ordinarily warm; first invocations are included, with no separate
+warmup or controlled cold-cache claim. External system activity was not
+controlled. Timing includes process creation through completion and complete
+stream capture. The existing `scripts/bench-save.py::file_invoke` helper and
+WNOWAIT bridge supplied exact-child CPU time and peak RSS via `wait4`.
+
+| Preset | Before elapsed s, samples 1 / 2 / 3 | After elapsed s, samples 1 / 2 / 3 | Before / after median s | Speedup |
+| --- | --- | --- | --- | ---: |
+| default | 1.3761 / 1.3654 / 1.3741 | 1.3615 / 1.3562 / 1.3643 | 1.3741 / 1.3615 | 1.01× |
+| thesis | 8.6933 / 8.4025 / 8.4939 | 3.1489 / 3.1385 / 3.1470 | 8.4939 / 3.1470 | 2.70× |
+| all | 8.4254 / 8.5321 / 8.4507 | 3.1761 / 3.2019 / 3.2825 | 8.4507 / 3.2019 | 2.64× |
+
+Speedup is the ratio of elapsed-time medians, before divided by after. The
+three samples show the observed spread; they do not establish a p95.
+Thesis saves 5.35 seconds and all saves 5.25 seconds at their medians. The default
+median changes by less than 1%, which does not establish a meaningful benefit
+for that preset. Median child CPU times similarly fall from 8.4550 to 3.1407
+seconds for thesis and from 8.4354 to 3.1961 seconds for all. Peak RSS ranges
+remain broadly comparable: thesis 136.5–140.2 MiB before and 135.3–136.8 MiB
+after; all 141.8–144.1 MiB before and 141.0–144.2 MiB after. This comparison
+measures no allocation counts and supports no broader memory claim.
+
+For each preset, all six processes had identical exit status and byte-identical
+complete stderr; every stdout was empty. All exited 1 for warnings. Default
+retains 684 warnings and no located limitation; thesis retains 568 warnings and
+one limitation; all retains 1,252 warnings and one limitation. There were no
+info or error diagnostics. Both thesis and all still report the same
+`search-coverage` limitation at `std/element.mzn:14:72`, bytes 544..552: output
+dependency array access has no exact traversal membership proof. This run
+compares native statuses and diagnostics; it does not repeat the earlier
+instrumented rule-partition analysis or resolve that limitation.
+
+All 18 children were reaped without timeout, totalling 78.2905 process-seconds.
+Raw streams, individual sample records, input and binary hashes, the exact
+schedule, and regenerated `analysis.json` remain in
+`/private/tmp/zincite141-20261017/`. The temporary controller is
+`/private/tmp/zincite141-measure.py`; its `analyze --name zincite141-20261017`
+command reads the saved captures without invoking the linter. The unchanged
+binaries are retained in the two target directories above. This evidence
+supports the bounded hoist on java-routing; wider lookup changes need separate
+measurements.
+
+`cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`, and
+`cargo test --workspace` pass, with 502 tests passed and none failed or ignored.
+No test, benchmark case, cache or lookup index was added.

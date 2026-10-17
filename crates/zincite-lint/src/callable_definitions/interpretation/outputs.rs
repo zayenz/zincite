@@ -394,18 +394,16 @@ impl<'a> BodyInterpreter<'a, '_> {
                 .last()?,
         );
         let view = &instance.view.view();
-        let type_of = |file, node: &SyntaxNode, view: &crate::callables::CallableView<'_>| {
-            self.source
-                .view(file, node, view)
-                .expressions
-                .iter()
-                .find(|e| {
-                    e.file == file
-                        && e.location.range
-                            == self.source.context.files[file].location(node.range()).range
-                })
-                .map(|e| e.ty.clone())
-        };
+        let type_of =
+            |file: FileId, node: &SyntaxNode, view: &crate::callables::CallableView<'_>| {
+                let range = self.source.context.files[file].location(node.range()).range;
+                self.source
+                    .view(file, node, view)
+                    .expressions
+                    .iter()
+                    .find(|e| e.file == file && e.location.range == range)
+                    .map(|e| e.ty.clone())
+            };
         let boolean = |node: &SyntaxNode| {
             type_of(file, node, view)
                 .is_some_and(|ty| ty.known() && !optional(&ty) && ty.kind == TypeKind::Bool)
