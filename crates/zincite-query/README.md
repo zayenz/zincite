@@ -26,10 +26,20 @@ and [Rust API](https://docs.rs/zincite-query/0.1.1).
 
 The archive includes the query examples under `tests/fixtures/`. Repository guide
 commands using `crates/zincite-query/tests/fixtures/` run from a v0.1.1 checkout;
-inside this crate, use `tests/fixtures/` instead. The archive also includes the
-`grow-wedding` example and its public control under `examples/`; see the
+inside this crate, use `tests/fixtures/` instead. The `examples/` directory is
+included in the package too.
+
+The development checkout includes `examples/fixtures/grow-wedding.zq` with a
+complete synthetic model and data file. The query grows guest members, records,
+groups, tables and capacities as one validated candidate, using native source
+copies to retain comments and spelling. The
 [wedding growth guide](https://zayenz.se/zincite/guides/data-edits/#grow-a-wedding-instance)
-for its supported shapes and candidate-only output.
+introduces the input, query, supported shapes and preview/save/write commands.
+These operations are not in the published 0.1.1 packages. Build the development
+checkout with `cargo build --release -p zincite -p zincite-query` from the
+repository root. The `grow-wedding` Rust example remains an optional illustration
+of direct literal views and source-edit APIs, with its own fixed data shape and
+limits.
 
 Zincite targets MiniZinc 2.10.1 and does not run a compiler or solver. Read the
 [support limits](https://zayenz.se/zincite/guides/support/) before relying on

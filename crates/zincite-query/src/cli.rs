@@ -31,7 +31,20 @@ Functions share work/results with reports; active call depth defaults to 64.
 Reports support length, checked integer sum, forall, exists and literal-message require.
 Array reducers are eager; these pure expressions do not execute a model or solver.
 Programs construct arrays, records and sets with bounded MiniZinc comprehensions.
-create/replace assignments end with emit; data batches require --model.
+Data batches use create/replace, native append or bounded scale_enum and end with emit;
+all require --model. Each target appears once; final checks include affected unchanged data.
+Source-copy stages take one original assignment through values, without one:
+    clone_members(ADDITIONAL,PREFIX) creates fresh member maps for an explicit enum set.
+    clone_elements(COPIES) copies collection elements with typed member/key remapping.
+    repeat_elements(ADDITIONAL) copies elements unchanged, without reindexing keys.
+Bind clone_members output, then use append Target = COPIES; or append a copy pipeline.
+Copies retain comments, strings and unrelated enums; copied directives are refused.
+scale_enum Target = FACTOR; multiplies the literal positive N in C(1..N), checked for overflow.
+FACTOR must be positive; constructor-member references outside that assignment are unsupported.
+Copy/scale edits validate final literal types, member domains and array coverage.
+Computed/optional values, matrices, starting-key arrays and enum subsets are unsupported
+by source-copy edits. Affected constructed create/replace targets are refused.
+Copy stages and scale_enum are development-checkout features, absent from published 0.1.1.
 Inspect MiniZinc source or change data assignments and enum membership.
 No input or '-' reads stdin; .dzn paths select assignment-only data syntax.
 Syntax queries do not load includes or require a MiniZinc library or solver.
@@ -82,7 +95,7 @@ Range bounds are half-open original byte coordinates, including a BOM.
 JSON includes node kind, names, file, range and exact UTF-8 text.
 Node navigation preserves per-root written order and overlapping duplicates.
 Counts describe written occurrences, not execution frequency.
-Only emit may follow one transformation stage. Edits require data mode.
+In a positional QUERY, only emit may follow a transformation stage. Edits require data mode.
 Comments inside a replaced expression cause a located placement error.
 Element comparisons: eq(VALUE), lt(NUMBER), le(NUMBER), gt(NUMBER), ge(NUMBER).
 Equality accepts numbers, Booleans, strings and explicit member(\"A\") identities.
@@ -129,7 +142,7 @@ positional queries use nonnegative integer counts and double-quoted messages.
 Options:
     --program TEXT         Run an inline program; one native expression needs no ';'
     --param name=value     Supply one required int, string or bool input (repeatable)
-    -f, --program-file PATH Read bindings, reports or create/replace data batches
+    -f, --program-file PATH Read bindings, reports or explicit data-edit batches
     --max-work N           Program work allowance (default 1000000)
     --max-results N        Program aggregate entries (default 100000)
     --max-items N          Program stream ceiling (default 100000)

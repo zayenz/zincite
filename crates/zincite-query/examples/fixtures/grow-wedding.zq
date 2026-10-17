@@ -1,0 +1,17 @@
+param factor: int;
+let additional = factor - 1;
+
+let copies = items | filter(name("Guests")) | values
+    | clone_members(additional, "GrownGuest");
+
+append Guests = copies;
+append guests = items | filter(name("guests")) | values
+    | clone_elements(copies);
+append same_table = items | filter(name("same_table")) | values
+    | clone_elements(copies);
+append different_tables = items | filter(name("different_tables")) | values
+    | clone_elements(copies);
+scale_enum Tables = factor;
+append table_capacities = items | filter(name("table_capacities")) | values
+    | repeat_elements(additional);
+emit;

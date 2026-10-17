@@ -266,7 +266,7 @@ fn assignment<'a>(
         {
             return Err(QueryError::input(
                 input.original_range(node.range()),
-                "append requires exactly one original assignment",
+                "source edits require exactly one original assignment",
             ));
         }
     }
@@ -314,7 +314,7 @@ fn uninitialized(
     if children != usize::from(role == DeclarationRole::Value) {
         return Err(QueryError::query(
             range.clone(),
-            "append requires an uninitialized model declaration",
+            "source edits require an uninitialized model declaration",
         ));
     }
     Ok(declaration.id)
@@ -665,20 +665,168 @@ fn existing_names(
     Ok(names)
 }
 
+pub(crate) struct EnumScale {
+    declaration: DeclarationId,
+    pub(crate) edit: Option<TextEdit>,
+}
+
+/// A constructor domain supplies a count, never synthesized member identities.
+struct ConstructorDomain<'a> {
+    name: &'a str,
+    name_range: Range<usize>,
+    bound_range: Range<usize>,
+    count: i64,
+}
+
+fn constructor_domain<'a>(
+    input: &'a Input,
+    rhs: &SyntaxNode,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<ConstructorDomain<'a>, QueryError> {
+    let rhs = structured::unwrapped(rhs);
+    let invalid = || {
+        QueryError::input(
+            input.original_range(rhs.range()),
+            "scale_enum requires a named constructor C(1..N) with a positive literal integer N",
+        )
+    };
+    let mut significant = Vec::new();
+    let tokens = input.syntax().tokens();
+    let start = tokens.partition_point(|token| token.range.start < rhs.range().start);
+    for (offset, token) in tokens[start..]
+        .iter()
+        .enumerate()
+        .take_while(|(_, t)| t.range.end <= rhs.range().end)
+    {
+        charge(budget, 1, range)?;
+        if !matches!(token.kind, T::Whitespace | T::LineComment | T::BlockComment) {
+            if significant.len() == 6 {
+                return Err(invalid());
+            }
+            significant.push(start + offset);
+        }
+    }
+    let [name, left, low, dots, high, right] = significant.as_slice() else {
+        return Err(invalid());
+    };
+    if !matches!(tokens[*name].kind, T::Identifier | T::QuotedIdentifier)
+        || tokens[*low].kind != T::IntegerLiteral
+        || tokens[*high].kind != T::IntegerLiteral
+        || input.token_bytes(*left) != b"("
+        || input.token_bytes(*dots) != b".."
+        || input.token_bytes(*right) != b")"
+    {
+        return Err(invalid());
+    }
+    let integer = |index, budget: &mut Budget| {
+        let literal = LiteralValue {
+            file: "",
+            range: input.token_range(index),
+            spelling: input.token_bytes(index),
+            kind: L::Integer,
+        };
+        comprehension::written_scalar(&literal, input, budget)
+    };
+    let zirql::ConstructedValue::Integer(count) = integer(*high, budget)? else {
+        return Err(invalid());
+    };
+    if integer(*low, budget)? != zirql::ConstructedValue::Integer(1) || count <= 0 {
+        return Err(invalid());
+    }
+    let name_text =
+        crate::identifier_identity(std::str::from_utf8(input.token_bytes(*name)).unwrap());
+    if name_text == "anon_enum" {
+        return Err(invalid());
+    }
+    Ok(ConstructorDomain {
+        name: name_text,
+        name_range: input.token_range(*name),
+        bound_range: input.token_range(*high),
+        count,
+    })
+}
+
+pub(crate) fn prepare_scale(
+    input: &Input,
+    facts: &ModelFacts<'_>,
+    edit: &data::Edit,
+    factor: &zirql::ConstructedValue,
+    budget: &mut Budget,
+) -> Result<EnumScale, QueryError> {
+    let zirql::ConstructedValue::Integer(factor) = factor.data() else {
+        return Err(QueryError::query(
+            edit.range.clone(),
+            "scale_enum factor must be a positive integer",
+        ));
+    };
+    if *factor <= 0 {
+        return Err(QueryError::query(
+            edit.range.clone(),
+            "scale_enum factor must be a positive integer",
+        ));
+    }
+    let declaration = uninitialized(
+        facts,
+        &edit.name.value,
+        DeclarationRole::Enum,
+        budget,
+        &edit.name.range,
+    )?;
+    let rhs = crate::assignment_rhs(assignment(
+        input,
+        &edit.name.value,
+        budget,
+        &edit.name.range,
+    )?)
+    .unwrap();
+    let domain = constructor_domain(input, rhs, budget, &edit.range)?;
+    let count = domain.count.checked_mul(*factor).ok_or_else(|| {
+        QueryError::query(
+            edit.range.clone(),
+            "scale_enum bound multiplication overflow",
+        )
+    })?;
+    for (i, token) in input.syntax().tokens().iter().enumerate() {
+        charge(budget, 1, &edit.range)?;
+        if matches!(token.kind, T::Identifier | T::QuotedIdentifier)
+            && input.token_range(i) != domain.name_range
+            && crate::identifier_identity(std::str::from_utf8(input.token_bytes(i)).unwrap())
+                == domain.name
+        {
+            return Err(QueryError::input(
+                input.token_range(i),
+                "scale_enum cannot remap constructor references outside its defining assignment",
+            ));
+        }
+    }
+    charge(budget, 22, &edit.range)?;
+    Ok(EnumScale {
+        declaration,
+        edit: (count != domain.count).then(|| TextEdit {
+            range: domain.bound_range,
+            replacement: vec![EditPart::Text(count.to_string())],
+        }),
+    })
+}
+
+// Keep the three edit inputs explicit alongside their shared validation context.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare_appends<'a>(
     input: &Input,
     facts: &ModelFacts<'a>,
     copies: &[(&Located<String>, Rc<SourceCopies<'a>>)],
-    edits: &[data::Edit],
+    edits: &[&data::Edit],
+    scales: &[EnumScale],
     budget: &mut Budget,
     limits: Limits,
     range: &Range<usize>,
 ) -> Result<Vec<TextEdit>, QueryError> {
-    if copies.is_empty() {
+    if copies.is_empty() && scales.is_empty() {
         return Ok(Vec::new());
     }
     let mut names = existing_names(input, facts, budget, range)?;
-    let mut changed = Vec::new();
+    let mut changed: Vec<_> = scales.iter().map(|scale| scale.declaration).collect();
     for (target, copy) in copies {
         admit_owner(copy, input, facts, range)?;
         if let CopyKind::Members { declaration, maps } = &copy.kind {
@@ -790,14 +938,15 @@ pub(crate) fn validate_candidate(
     candidate: &Input,
     facts: &ModelFacts<'_>,
     copies: &[(&Located<String>, Rc<SourceCopies<'_>>)],
+    scales: &[EnumScale],
     budget: &mut Budget,
     limits: Limits,
     range: &Range<usize>,
 ) -> Result<(), QueryError> {
-    if copies.is_empty() {
+    if copies.is_empty() && scales.is_empty() {
         return Ok(());
     }
-    charge(budget, copies.len(), range)?;
+    charge(budget, copies.len() + scales.len(), range)?;
     budget
         .charge_results(copies.len(), zirql::Location::Query(range.clone()))
         .map_err(pipeline::core_error)?;
@@ -807,6 +956,7 @@ pub(crate) fn validate_candidate(
             CopyKind::Members { declaration, maps } if !maps.is_empty() => Some(*declaration),
             _ => None,
         })
+        .chain(scales.iter().map(|scale| scale.declaration))
         .collect();
     let mut checker = Validator::new(candidate, facts, budget, limits, range);
     for node in candidate.syntax().tree().child_nodes() {
@@ -867,6 +1017,18 @@ pub(crate) fn validate_candidate(
         }
     }
     Ok(())
+}
+enum Axis {
+    Keys(Vec<String>),
+    Cardinality(usize),
+}
+impl Axis {
+    fn len(&self) -> usize {
+        match self {
+            Self::Keys(keys) => keys.len(),
+            Self::Cardinality(n) => *n,
+        }
+    }
 }
 struct Validator<'a, 'm, 'model, 'b> {
     input: &'a Input,
@@ -993,16 +1155,45 @@ impl<'a, 'm, 'model, 'b> Validator<'a, 'm, 'model, 'b> {
         }
         Ok(())
     }
-    fn axis(&mut self, domain: &Domain) -> Result<Option<Vec<String>>, QueryError> {
+    fn enum_axis(&mut self, id: DeclarationId) -> Result<Axis, QueryError> {
+        let declaration = &self.facts.bindings().declarations[id.0];
+        let node =
+            comprehension::declaration_node(self.facts, id, self.budget, self.range)?.unwrap();
+        if !node.child_nodes().any(|n| n.kind() != N::Annotation) {
+            uninitialized(
+                self.facts,
+                &declaration.name,
+                DeclarationRole::Enum,
+                self.budget,
+                self.range,
+            )?;
+            let rhs = crate::assignment_rhs(assignment(
+                self.input,
+                &declaration.name,
+                self.budget,
+                self.range,
+            )?)
+            .unwrap();
+            if structured::unwrapped(rhs).kind() != N::SetLiteral {
+                let domain = constructor_domain(self.input, rhs, self.budget, self.range)?;
+                let count = usize::try_from(domain.count).map_err(|_| {
+                    QueryError::input(domain.bound_range, "constructor cardinality overflow")
+                })?;
+                return Ok(Axis::Cardinality(count));
+            }
+        }
+        self.members(id).map(Axis::Keys)
+    }
+    fn axis(&mut self, domain: &Domain) -> Result<Option<Axis>, QueryError> {
         charge(self.budget, 1, self.range)?;
         match domain {
-            Domain::Enum(id) => self.members(*id).map(Some),
+            Domain::Enum(id) => self.enum_axis(*id).map(Some),
             Domain::Named {
                 declaration,
                 domain,
             } => {
                 if self.facts.bindings().declarations[declaration.0].role == DeclarationRole::Enum {
-                    self.members(*declaration).map(Some)
+                    self.enum_axis(*declaration).map(Some)
                 } else {
                     self.axis(domain)
                 }
@@ -1042,7 +1233,9 @@ impl<'a, 'm, 'model, 'b> Validator<'a, 'm, 'model, 'b> {
                         "query collection limit exceeded",
                     ));
                 }
-                Ok(Some((low..=high).map(|n| n.to_string()).collect()))
+                Ok(Some(Axis::Keys(
+                    (low..=high).map(|n| n.to_string()).collect(),
+                )))
             }
             _ => Err(QueryError::query(
                 self.range.clone(),
@@ -1125,6 +1318,7 @@ impl<'a, 'm, 'model, 'b> Validator<'a, 'm, 'model, 'b> {
                         && reference.resolution == zincite_lint::BindingResolution::Resolved(*id)
                     {
                         full_enum = true;
+                        break;
                     }
                 }
                 if !full_enum {
@@ -1213,10 +1407,16 @@ impl<'a, 'm, 'model, 'b> Validator<'a, 'm, 'model, 'b> {
                 let mut keys = BTreeSet::new();
                 for entry in entries {
                     if let Some(key) = &entry.key {
+                        if matches!(axis, Some(Axis::Cardinality(_))) {
+                            return Err(QueryError::input(
+                                key.range.clone(),
+                                "constructor-indexed arrays require positional entries",
+                            ));
+                        }
                         charge(
                             self.budget,
                             key.spelling.len().saturating_mul(2)
-                                + axis.as_ref().map_or(0, Vec::len)
+                                + axis.as_ref().map_or(0, Axis::len)
                                 + 1,
                             self.range,
                         )?;
@@ -1240,7 +1440,9 @@ impl<'a, 'm, 'model, 'b> Validator<'a, 'm, 'model, 'b> {
                             _ => return Err(invalid()),
                         };
                         if !keys.insert(key.clone())
-                            || axis.as_ref().is_some_and(|axis| !axis.contains(&key))
+                            || axis.as_ref().is_some_and(
+                                |axis| matches!(axis, Axis::Keys(keys) if !keys.contains(&key)),
+                            )
                         {
                             return Err(invalid());
                         }

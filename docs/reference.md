@@ -956,13 +956,16 @@ binders; a head key such as `e.key` after `entries` cannot recover empty axes.
 Direct `zip_exact` retains established empty axes. Pure `.dzn` reports retain an explicitly supplied `--model` without using
 the semantic query's `.mzn` root path.
 
-Model calls remain unsupported. Data batches use `create` and `replace`, followed
-by one `emit;` (`emit_document;` remains an explicit document-emission spelling).
+Model calls remain unsupported. Constructed data batches use `create` and
+`replace`. The development checkout also supports native `append` and bounded
+`scale_enum` edits, described under [source-copy edits](#source-copy-edits).
+All data batches end with one `emit;` (`emit_document;` remains an explicit
+document-emission spelling).
 Input bindings and calculations may interleave before the edits. Every binding
 reads the original input. Native data reads use the bounded selection, filtering
 and value-projection stages in the [data contract](query-comprehension-contract.md#report-expressions-and-edit-grammar), including shared `one`. Native
 report composition remains excluded.
-Data expression calls are exactly `index_set` and `enum_member`. Report-only
+Constructed data expression calls are exactly `index_set` and `enum_member`. Report-only
 calls are refused in unused preceding lets,
 skipped branches and edit RHSs. A batch cannot include report/query emissions or
 repeat a target name. Creation requires an absent assignment; replacement requires
@@ -1245,9 +1248,10 @@ inspection pipeline selects the same collection more than once.
 
 #### Source-copy edits
 
-The development checkout supports `append Target = native_expression;` in a data
-program ending with `emit;`. These stages require `--model` (or retained model
-facts in Rust) and one original assignment selected through `values`:
+The development checkout supports explicit source-copy and enum-scaling edits
+in a data program ending with `emit;`. All require `--model` (or retained model
+facts in Rust). The copy stages take one original assignment selected through
+`values`, without `one`:
 
 | Stage | Native result |
 | --- | --- |
@@ -1255,11 +1259,20 @@ facts in Rust) and one original assignment selected through `values`:
 | `clone_elements(copies)` | Literal collection interiors with typed member/key substitutions |
 | `repeat_elements(additional_count)` | Literal collection interiors with original tokens |
 
-Counts are nonnegative integer expressions; the prefix is a string expression
-whose contents form a plain identifier prefix. Current parameters and earlier
-immutable bindings are available. Names are `prefix_copy_position`, with both
+Counts are nonnegative integer expressions. The prefix is a string expression
+whose contents start with an ASCII letter and contain only ASCII letters, digits
+and underscores. Current parameters and earlier immutable bindings are available. Names are `prefix_copy_position`, with both
 numbers starting at one. Copies are appended in copy order and original written
-order. Zero copies preserve the input bytes exactly.
+order. Zero copies preserve the input bytes exactly. Generated names must not
+collide with input identifiers, model/include declarations or another appended
+member. `clone_members` requires a nonempty set of distinct explicit members.
+`clone_elements` takes a saved member-copy binding; repetition performs no
+remapping or explicit-key reindexing.
+
+| Statement | Effect |
+| --- | --- |
+| `append Target = native_expression;` | Append native member or element copies to one original collection assignment. |
+| `scale_enum Target = factor;` | Multiply the literal positive bound in one original `C(1..N)` enum assignment. |
 
 `append` retains the target's original RHS bytes and inserts copies before its
 closing delimiter. Member maps can append only to their own enum. Other copies
@@ -1271,12 +1284,27 @@ directly or through a type alias; enum subset domains refuse, including in neste
 collections and records. Starting-key arrays, matrices, computed data, optional
 types, unavailable domains, duplicate keys and copied directives refuse.
 
+`scale_enum` requires a unique uninitialized model enum and the exact bounded
+constructor shape `C(1..N)`, with a named constructor and a positive integer
+literal `N`. Its factor uses the shared scalar evaluator and must be a positive
+integer. Checked multiplication produces the new bound; only that token changes.
+Factor 1 preserves the original bytes. Computed bounds, other constructor forms
+and constructor-member references outside the defining assignment refuse with
+locations, including explicit `C(1)` array keys and member values. Positional
+arrays use the final enum cardinality for coverage. Leaving an affected array
+unchanged does not exempt it from that check.
+
 Copy values stay native and retain their input/model owner. They can be bound and
 reused, but cannot become ordinary constructed values or report output. Each edit
 target must be unique across all edit kinds. Constructed edits whose types depend
 on a changed enum refuse; unrelated supported create/replace edits may coexist.
-Model-derived expressions and decision declarations do not become data-validation
-obligations. See the [source-copy contract and runnable fixtures](query-comprehension-contract.md#copy-existing-enum-backed-data).
+All reads use the original input. Model-derived expressions and decision
+declarations do not become data-validation obligations. Candidate assembly,
+validation and reparsing finish before any output or write. An error leaves
+stdout empty and the input unchanged. Normal [program limits](#program-limits)
+and [file-write checks](cli.md) apply. See the
+[source-copy contract](query-comprehension-contract.md#copy-existing-enum-backed-data)
+and the complete [wedding growth query](data-edits.md#grow-a-wedding-instance).
 This syntax is not present in the published 0.1.1 packages.
 
 ### Enum reduction

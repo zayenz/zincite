@@ -7446,3 +7446,130 @@ fn source_copy_batches_refuse_enum_subset_elements() {
         "{error:?}"
     );
 }
+
+#[test]
+fn wedding_query_scales_constructor_and_copies_source_in_one_batch() {
+    use zincite_query::{Program, ProgramLimits};
+    let limits = ProgramLimits::default();
+    let source = include_bytes!("../examples/fixtures/wedding.dzn");
+    let input = Input::parse(source.to_vec(), FileMode::Data).unwrap();
+    let model = reduction_model(
+        "wedding-query",
+        include_str!("../examples/fixtures/wedding.mzn"),
+    );
+    let program =
+        Program::parse(include_str!("../examples/fixtures/grow-wedding.zq"), limits).unwrap();
+    let evaluate = |factor| {
+        program
+            .evaluate_with_model_and_parameters(
+                &input,
+                Some(&model),
+                zirql::ParameterInputs::Typed(&[(
+                    "factor".into(),
+                    zirql::ConstructedValue::Integer(factor),
+                )]),
+                limits,
+            )
+            .unwrap()
+            .render()
+            .unwrap()
+    };
+    assert_eq!(evaluate(1), source);
+    let grown = String::from_utf8(evaluate(2)).unwrap();
+    let original = std::str::from_utf8(source).unwrap();
+    let records = original
+        .split("guests = [")
+        .nth(1)
+        .unwrap()
+        .split("];\n")
+        .next()
+        .unwrap();
+    assert!(grown.contains(records));
+    assert!(
+        grown.contains(
+            &records
+                .replace("A:", "GrownGuest_1_1:")
+                .replace("B:", "GrownGuest_1_2:")
+        ),
+        "{grown}"
+    );
+    assert!(
+        grown.contains("Guests = {A, B,GrownGuest_1_1, GrownGuest_1_2};"),
+        "{grown}"
+    );
+    assert!(
+        grown.contains("same_table = [{A, B},{GrownGuest_1_1, GrownGuest_1_2}];"),
+        "{grown}"
+    );
+    assert!(
+        grown.contains("different_tables = [{A}, {B},{GrownGuest_1_1}, {GrownGuest_1_2}];"),
+        "{grown}"
+    );
+    assert!(
+        grown.contains("Tables = T(1..4);\ntable_capacities = [2, 3,2, 3];"),
+        "{grown}"
+    );
+    assert!(grown.starts_with("% unchanged heading\nTopics = {Music, Food};"));
+    assert!(grown.ends_with("max_gender_imbalance_per_table = 1; % unchanged setting\n"));
+    assert_eq!(input.source_bytes(), source);
+}
+
+#[test]
+fn enum_scaling_refuses_missing_coverage_and_unsupported_sources() {
+    use zincite_query::{Program, ProgramLimits};
+    let limits = ProgramLimits::default();
+    let model = reduction_model(
+        "enum-scaling",
+        "enum Tables; array[Tables] of int: capacities; int: count; solve satisfy;",
+    );
+    let query = "scale_enum Tables = 2; append capacities = items | filter(name(\"capacities\")) | values | repeat_elements(1); emit;";
+    let source = "Tables = T(1..2); capacities = [3,4]; count = 1;";
+    let evaluate = |query: &str, source: &str| {
+        Program::parse(query, limits).and_then(|p| {
+            p.evaluate_with_model(
+                &Input::parse(source.as_bytes().to_vec(), FileMode::Data).unwrap(),
+                Some(&model),
+                limits,
+            )
+            .map(|mut result| result.render().unwrap())
+        })
+    };
+    let input = source.replace("1..2", "1.. /* bound */ 0x2");
+    let unchanged = query
+        .replace("Tables = 2", "Tables = 1")
+        .replace("repeat_elements(1)", "repeat_elements(0)");
+    assert_eq!(evaluate(&unchanged, &input).unwrap(), input.as_bytes());
+    let grown = String::from_utf8(evaluate(query, &input).unwrap()).unwrap();
+    assert!(grown.contains("T(1.. /* bound */ 4)"));
+    for (q, s, message) in [
+        ("scale_enum Tables = 2; emit;".into(), source.into(), "array coverage"),
+        (query.into(), source.replace("1..2", "1..count"), "positive literal"),
+        (query.into(), source.replace("T(1..2)", "anon_enum(1..2)"), "named constructor"),
+        (query.replace("Tables = 2", "Tables = 0"), source.into(), "positive integer"),
+        (query.replace("Tables = 2", "Tables = 9223372036854775807"), source.into(), "overflow"),
+        (query.into(), source.replace("count = 1", "count = T(1)"), "constructor references"),
+        (query.replace("append capacities = items | filter(name(\"capacities\")) | values | repeat_elements(1)", "replace capacities = [3,4,3,4]"), source.into(), "constructed edits"),
+        (query.replace("emit;", "scale_enum Tables = 1; emit;"), source.into(), "duplicate edit target"),
+    ] {
+        let error = evaluate(&q, &s).unwrap_err();
+        assert!(error.message.contains(message), "{q}: {error:?}");
+    }
+    let mixed = query.replace("emit;", "replace count = 2; emit;");
+    assert!(
+        String::from_utf8(evaluate(&mixed, source).unwrap())
+            .unwrap()
+            .contains("count = 2;")
+    );
+    let function = "fn scale_enum(n:int)->int { n + 1 } scale_enum(1) | json;";
+    let output = Program::parse(function, limits)
+        .unwrap()
+        .evaluate(
+            &Input::parse(b"x=1;".to_vec(), FileMode::Data).unwrap(),
+            limits,
+        )
+        .unwrap()
+        .render()
+        .unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(report["result"]["value"], 2);
+}

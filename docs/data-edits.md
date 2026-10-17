@@ -276,92 +276,266 @@ or include files. Syntax and bounded shape checks do not prove satisfiability.
 ## Grow a wedding instance
 
 Making a larger test instance often means copying entities and updating the
-data that refers to them. As an example, consider a wedding seating problem:
-guests are assigned to tables, some groups must sit together, and others must
-sit apart. Its input contains guest records, interests in conversation topics,
-the groups and table capacities.
+data that refers to them. As one example, consider a wedding seating problem:
+guests are assigned to tables, some groups should sit together, and others
+should sit apart. Each guest has a record with a name, gender and interests in
+conversation topics. The data also gives the available tables and their capacities.
 
-The [`grow-wedding` Rust example](../crates/zincite-query/examples/grow-wedding.rs)
-copies this kind of data. Each additional copy gets fresh guest identifiers,
-and its groups refer to those new guests. For example, doubling these guests
-and their group:
+The query below copies guests and their groups, adds tables and repeats their
+capacities. The factor includes the original: `2` doubles the instance, while
+`1` preserves the original bytes. Each additional copy gets fresh guest
+identifiers and references to guests from that copy.
 
-```minizinc
-Guests = {A, B};
-same_table = [{A, B}];
-```
-
-produces:
-
-```minizinc
-Guests = {A, B, GrownGuest_1_1, GrownGuest_1_2};
-same_table = [{A, B}, {GrownGuest_1_1, GrownGuest_1_2}];
-```
-
-The example uses Zincite's public literal views and source-edit API to read
-collections, map guest identifiers and prepare a complete candidate. Its source
-is a starting point for writing a transformer for your own data shape. The
-ordinary query language retains its restrictions on adding enum members and
-replacing commented values.
-
-Run it from a source checkout, choosing a separate output file:
+These operations require the current development checkout. They are not in the
+published 0.1.1 packages or the v0.1.1 checkout. From the development checkout
+root, build both command forms:
 
 ```sh
-cargo run --quiet -p zincite-query --example grow-wedding -- \
-  crates/zincite-query/examples/fixtures/wedding.dzn 2 > /tmp/wedding-grown.dzn
+cargo build --release -p zincite -p zincite-query
 ```
 
-The [public input](../crates/zincite-query/examples/fixtures/wedding.dzn) has two
-guests and two tables. Factor `2` produces four of each; factor `1` preserves
-the original bytes. The factor is the total number of copies, including the
-original. Original guest symbols stay unchanged. Additional copies use
-`GrownGuest_1_1`, `GrownGuest_1_2`, and so on, with the copy number followed by
-the guest's position in the original enum. A name collision stops the command.
+Configure the [MiniZinc standard library](queries.md#inspect-semantic-facts) for
+model-backed queries. The commands below use the checkout binaries and the
+retained files under `crates/zincite-query/examples/fixtures/`. The complete
+files are also shown here so you can adapt them to your own data.
 
-Each copied guest keeps the original record, including display-name strings,
-interest values and internal comments. Copies of `same_table` and
-`different_tables` refer to guests from their own copy. Table capacities repeat
-in their original order, and `Tables = T(1..N)` becomes `T(1..N*factor)` with
-the calculated integer written in place. Unrelated assignment bytes and all
-original comments remain unchanged. Comments inside copied collections are
-copied too; prose in a comment is not updated to describe the larger instance.
+### Declare the input and supply a small instance
 
-The example accepts exactly these data assignments:
+The model declares input types and a trivial solve item. It contains no seating
+variables or constraints:
 
-- `Topics` and `Guests`: nonempty literal sets of distinct enum member names.
-- `guests`: an explicitly guest-keyed array covering `Guests` exactly once.
-  Each record has string `name` and `surname`, `gender` equal to `Man`, `Woman`
-  or `NA`, and a positional integer `interest` array with one value per topic.
-- `same_table` and `different_tables`: positional arrays of literal guest sets.
-- `Tables`: the constructor `T(1..N)` with a positive decimal integer `N`.
-- `table_capacities`: a positional array of `N` literal integers.
-- `max_gender_imbalance_per_table`: a literal integer.
+```minizinc title="wedding.mzn"
+enum Topics;
+enum Guests;
+enum Genders = {Man, Woman, NA};
+type GuestInfo = record(
+    string: name,
+    string: surname,
+    Genders: gender,
+    array[Topics] of int: interest
+);
+array[Guests] of GuestInfo: guests;
+array[int] of set of Guests: same_table;
+array[int] of set of Guests: different_tables;
+enum Tables;
+array[Tables] of int: table_capacities;
+int: max_gender_imbalance_per_table;
+solve satisfy;
+```
 
-Extra or repeated assignments, computed values, unknown group members and
-unsupported shapes are refused. Member keys must be direct identifier tokens;
-parenthesized keys and formatter directives are unsupported. The factor is
-limited to `1..1000`, input to 1 MiB and output to 16 MiB. Original token count
-times the factor must also fit 200,000 tokens; the literal reader retains its
-normal query limits.
+`Guests` supplies the keys of `guests`. Each record's `interest` array has one
+integer per member of `Topics`, in topic order. `same_table` and
+`different_tables` contain sets of guests; their `array[int]` declarations allow
+the number of groups to grow. `Tables` indexes `table_capacities`. The gender
+imbalance limit is a separate scalar setting.
 
-The command buffers and reparses the complete candidate before printing. It
-has no in-place option. Invalid input or exceeded limits produce a diagnostic
-on stderr, exit status `2` and no candidate on stdout. Check the candidate with
-your model before using it. The supplied `wedding.mzn` fixture declares the
-input types so MiniZinc can check this example; it contains no seating variables
-or constraints. Check the generated data against those declarations with:
+This synthetic input has two guests, two topics and two tables:
+
+```minizinc title="wedding.dzn"
+% unchanged heading
+Topics = {Music, Food};
+Guests = {A, B};
+guests = [
+  A: (name: "A", surname: "Example", gender: NA,
+      % inside the record
+      interest: [1, 2]),
+  % between records
+  B: (name: "B", surname: "Example", gender: Woman, interest: [2, 1])
+];
+same_table = [{A, B}];
+different_tables = [{A}, {B}];
+Tables = T(1..2);
+table_capacities = [2, 3];
+max_gender_imbalance_per_table = 1; % unchanged setting
+```
+
+The comments are intentional. Growing a source collection retains the original
+comments and copies those inside it with the elements.
+
+### Choose each edit in a query
+
+Save this program as `grow-wedding.zq`, or use the
+[retained query](https://github.com/zayenz/zincite/blob/main/crates/zincite-query/examples/fixtures/grow-wedding.zq):
+
+```zirql title="grow-wedding.zq"
+param factor: int;
+let additional = factor - 1;
+
+let copies = items | filter(name("Guests")) | values
+    | clone_members(additional, "GrownGuest");
+
+append Guests = copies;
+append guests = items | filter(name("guests")) | values
+    | clone_elements(copies);
+append same_table = items | filter(name("same_table")) | values
+    | clone_elements(copies);
+append different_tables = items | filter(name("different_tables")) | values
+    | clone_elements(copies);
+scale_enum Tables = factor;
+append table_capacities = items | filter(name("table_capacities")) | values
+    | repeat_elements(additional);
+emit;
+```
+
+`param factor: int;` requires a command-line value such as `--param factor=2`.
+`additional` counts copies beyond the original. `items` selects the input
+assignments, `filter(name("Guests"))` keeps the guest enum assignment, and
+`values` reads its literal right-hand side. `clone_members` checks that exactly
+one original assignment was selected and builds the fresh member mappings.
+
+These native copy stages take `values` directly. Do not add `one` here.
+In the earlier constructed-data examples, `one` extracts a value for arithmetic
+or a comprehension; copying instead needs the original literal selection,
+including its source text and model type. The saved `copies` value is an opaque
+member mapping consumed by `append` and `clone_elements`.
+
+For factor `2`, the mapping is:
+
+| Original guest | Additional copy |
+| --- | --- |
+| `A` | `GrownGuest_1_1` |
+| `B` | `GrownGuest_1_2` |
+
+The prefix is chosen in the query. The first number identifies the additional
+copy and the second is the guest's position in the original enum; both start
+at one. A collision with an existing input or model/include name, or another
+name added by the batch, stops the request.
+
+`append Guests = copies;` adds the new members. The next three appends copy
+records and group sets with the same mapping. Only parsed guest references and
+guest keys change. The strings `"A"` and `"B"`, record field labels, gender
+members and interest values keep their original spelling. Comments keep their
+text too, even if their prose describes the original instance.
+
+`scale_enum Tables = factor;` changes `Tables = T(1..2)` to `Tables = T(1..4)`.
+It changes only the literal upper bound. The final append repeats the capacities
+in order, giving `[2, 3,2, 3]`. The factor-2 candidate therefore has four guest
+records and four tables, with these guest and group assignments:
+
+```minizinc
+Guests = {A, B,GrownGuest_1_1, GrownGuest_1_2};
+same_table = [{A, B},{GrownGuest_1_1, GrownGuest_1_2}];
+different_tables = [{A}, {B},{GrownGuest_1_1}, {GrownGuest_1_2}];
+```
+
+Copies retain source spacing; Zincite adds separators without formatting the
+whole collection.
+
+Every target is explicit. Zincite does not discover which collections you want
+to copy. Every read sees the original file, and the final `emit;` prepares one
+complete candidate after checking the whole batch. The checks include unchanged
+data assignments affected by the grown enums. Omitting the `guests` or
+`table_capacities` append leaves too few entries and fails validation.
+
+### Preview, save and write
+
+Preview the changes from the checkout root:
+
+```sh
+target/release/zincite query \
+  --model crates/zincite-query/examples/fixtures/wedding.mzn \
+  --param factor=2 \
+  --max-work 50000000 \
+  --diff \
+  -f crates/zincite-query/examples/fixtures/grow-wedding.zq \
+  crates/zincite-query/examples/fixtures/wedding.dzn
+```
+
+Omit `--diff` to print the complete candidate, including unchanged assignments:
+
+```sh
+target/release/zincite query \
+  --model crates/zincite-query/examples/fixtures/wedding.mzn \
+  --param factor=2 \
+  --max-work 50000000 \
+  -f crates/zincite-query/examples/fixtures/grow-wedding.zq \
+  crates/zincite-query/examples/fixtures/wedding.dzn
+```
+
+Both commands leave the input untouched. Save a separate candidate by redirecting
+standard output. The standalone command accepts the same options:
+
+```sh
+target/release/zincite-query \
+  --model crates/zincite-query/examples/fixtures/wedding.mzn \
+  --param factor=2 \
+  --max-work 50000000 \
+  -f crates/zincite-query/examples/fixtures/grow-wedding.zq \
+  crates/zincite-query/examples/fixtures/wedding.dzn \
+  > /tmp/wedding-grown.dzn
+```
+
+Use a separate output path: shell redirection opens that path before Zincite
+reads its input. Check a successful candidate against the supplied declarations:
 
 ```sh
 minizinc --instance-check-only \
-  crates/zincite-query/examples/fixtures/wedding.mzn /tmp/wedding-grown.dzn
+  crates/zincite-query/examples/fixtures/wedding.mzn \
+  /tmp/wedding-grown.dzn
 ```
 
-This copies the written data deterministically; it does not generate random
-guests or establish that a larger seating problem has a solution. A model that
-assigns all guests to tables can impose capacity, symmetry or objective
-constraints across copies. Copying records and their references does not make
-the copies independent problems.
+To try in-place editing without changing the fixture, copy it first:
 
-The [integer-indexed doubling example](#double-entities-and-their-dependent-data)
-above gives a query-language recipe for data with explicitly mapped integer
-keys.
+```sh
+cp crates/zincite-query/examples/fixtures/wedding.dzn /tmp/wedding-to-grow.dzn
+target/release/zincite query \
+  --model crates/zincite-query/examples/fixtures/wedding.mzn \
+  --param factor=2 \
+  --max-work 50000000 \
+  --write \
+  -f crates/zincite-query/examples/fixtures/grow-wedding.zq \
+  /tmp/wedding-to-grow.dzn
+```
+
+`--write` prints no candidate. It checks that the input still matches the read
+snapshot, preserves its permissions and replaces the file atomically after
+validation. It refuses stdin and symlink targets. The model and query remain
+read-only inputs. Re-running the growth program reads the file's current contents;
+the fixed prefix can then collide with names from a previous run.
+
+### Supported data and limits
+
+Member cloning requires a nonempty set of distinct explicit enum members and a
+unique uninitialized enum declaration in the model. Element copying accepts
+literal sets and rank-one positional or fully keyed arrays. Their elements can
+contain records, tuples, sets and nested rank-one arrays. Model types establish
+which references belong to the copied enum. Enum-valued elements must use the
+full enum domain, directly or through a type alias; enum subset domains are
+refused, including nested subsets. Repetition does not reindex explicit keys,
+so repeating keyed entries can produce a duplicate-key error.
+
+`scale_enum` accepts only a unique model-backed enum assignment of the form
+`C(1..N)`, with a positive literal integer `N` and a positive integer factor.
+Multiplication is checked for overflow. Dependent positional arrays are checked
+against the final cardinality. Constructor-member values or explicit keys such
+as `T(1)` elsewhere in the data are unsupported. The operation does not evaluate
+arbitrary constructor arguments or computed bounds.
+
+Computed data, optional types, matrices, starting-key arrays and unavailable or
+ambiguous domains are refused by these copy edits. Copying formatter or lint
+directives is also refused. Original bytes outside the explicit edits remain
+unchanged. Other supported `create` or `replace` edits can share the batch when
+their types do not depend on a changed enum; each target can appear only once.
+
+The query uses the normal program limits: 1,000,000 work units, 100,000 aggregate
+result units, 100,000 entries in one stream and nesting depth 64 by default.
+The commands raise the work allowance to 50,000,000 for model loading, copying
+and final validation. Counts and factors have no separate example-specific cap;
+expansion must fit the active limits. The [program limits](reference.md#program-limits)
+describe the overrides and accounting.
+
+Zincite validates and reparses the complete candidate before printing or writing
+it. A collision, unsupported value, coverage failure or exceeded limit produces
+a located diagnostic on stderr, exits `2` and leaves stdout empty and the input
+unchanged. Successful growth exits `0`.
+
+This transformation copies written data deterministically. Data validity does
+not establish satisfiability: a model can impose constraints across all guests
+and tables, so copied records and references do not make independent seating
+problems. Neither Zincite nor the instance check solves the model.
+
+The [source-copy reference](reference.md#source-copy-edits) defines the operations
+in detail. For lower-level Rust use, the optional
+[`grow-wedding` example](../crates/zincite-query/examples/grow-wedding.rs)
+shows direct literal views and source-edit APIs. Its fixed wedding shape and
+separate example limits do not define the query language's limits.

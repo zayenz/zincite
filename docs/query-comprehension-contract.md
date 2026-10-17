@@ -126,7 +126,9 @@ parameter      = "param" ascii-ident ":" ("int" | "string" | "bool") ";" ;
 binding        = "let" ident "=" expression ";" ;
 output         = ["report"] expression ;
 edit-batch     = edit+ ("emit" | "emit_document") ";" ;
-edit           = ("create" | "replace") ident "=" expression ";" ;
+edit           = ("create" | "replace") ident "=" expression ";"
+               | "append" ident "=" native-source-expression ";"
+               | "scale_enum" ident "=" expression ";" ;
 
 array-comp     = "[" expression "|" generators "]" ;
 indexed-comp   = "[" key ":" expression "|" generators "]" ;
@@ -140,6 +142,12 @@ binder         = ident | "_" ;
 ident          = MiniZinc identifier or quoted identifier ;
 ascii-ident    = ASCII letter or "_", followed by ASCII letters, digits or "_" ;
 ```
+
+`create` and `replace` calculate ordinary data values. `append` consumes opaque
+native copies from the stages described under [source copying](#copy-existing-enum-backed-data).
+`scale_enum` takes a positive integer scalar expression and changes a supported
+enum constructor's literal upper bound. `append` and `scale_enum` require model
+facts and are available in the development checkout, not published 0.1.1.
 
 The brackets, key prefix and generator forms match the pinned [array and
 indexed array comprehensions](https://docs.minizinc.dev/en/2.10.1/spec.html#indexed-array-comprehensions).
@@ -595,15 +603,15 @@ Source-copy stages retain those bytes and change only established enum member
 and key tokens. This functionality is available in the development checkout;
 the published 0.1.1 commands do not contain it.
 
-The small [model](../crates/zincite-query/tests/fixtures/source-copies.mzn) declares
+The small [model](https://github.com/zayenz/zincite/blob/main/crates/zincite-query/tests/fixtures/source-copies.mzn) declares
 `People`, an array of person records, group sets, and integer weights. Its
-[data file](../crates/zincite-query/tests/fixtures/source-copies.dzn) defines
+[data file](https://github.com/zayenz/zincite/blob/main/crates/zincite-query/tests/fixtures/source-copies.dzn) defines
 `Alice` and `Bob`, with comments on their records. Each record contains a display
 label, an unrelated colour enum, and a set of friends. The
-[complete query](../crates/zincite-query/tests/fixtures/source-copies.zq) grows all
+[complete query](https://github.com/zayenz/zincite/blob/main/crates/zincite-query/tests/fixtures/source-copies.zq) grows all
 four assignments explicitly:
 
-```text
+```zirql
 param factor: int;
 let additional = factor - 1;
 let prefix = "Copy";
@@ -621,7 +629,9 @@ friend references and group members use those names. Display labels, colour
 members and comments keep their original bytes. `factor=1` makes no additional
 copies and returns the exact original file. Counts and prefixes use ordinary
 shared scalar expressions and the current parameters and immutable bindings.
-The stages take a native literal stream directly, without `one`.
+The stages take a native literal stream directly, without `one`. `one` extracts
+an ordinary value for calculations; copying needs the selected source literal
+and its retained model type.
 
 `clone_members(additional_count, prefix)` requires one nonempty literal member-set
 assignment and its unique uninitialized model enum. The prefix must start with
@@ -652,10 +662,29 @@ elements must use the full enum domain, directly or through a type alias; subset
 domains are refused, including inside arrays, records, tuples and sets.
 Model-derived values, decision arrays, constraints and solve items are not evaluated.
 
+`scale_enum Target = factor;` grows a constructor-backed enum with exactly one
+original assignment and one unique uninitialized model enum declaration. The
+assignment must have the form `C(1..N)`, where `C` is a named constructor and `N`
+is a positive integer literal. The factor is a positive integer expression using
+the current parameters and immutable bindings. Zincite checks multiplication for
+overflow and changes only the upper-bound token to the calculated integer.
+Factor 1 preserves the original bytes.
+
+For example, `scale_enum Tables = 2;` changes `Tables = T(1..2);` to
+`Tables = T(1..4);`. A positional `array[Tables]` assignment must contain four
+entries in the final candidate, even if the query leaves that assignment
+unchanged. Use `repeat_elements` and an explicit `append` when the new tables
+should repeat the original capacities. Other constructor forms, computed bounds
+and constructor-member references such as `T(1)` outside the defining assignment
+are refused. The bounded check uses the enum's cardinality; it does not evaluate
+constructor members or general MiniZinc expressions. The
+[wedding walkthrough](data-edits.md#grow-a-wedding-instance) combines guest
+member cloning and table scaling in one complete program.
+
 Copy stages are available only in programs with model facts and a terminal
 `emit;`. Their results are opaque native source values, consumed by `append`;
 they cannot be emitted or used as constructed values. All reads use the original
-input. Duplicate targets across append/create/replace fail. A constructed edit
+input. Duplicate targets across append/scale_enum/create/replace fail. A constructed edit
 whose type uses a changed enum is refused; unrelated supported constructed edits
 can share the batch. Ordinary `create`, `replace` and `enum_member` keep their
 existing rules.

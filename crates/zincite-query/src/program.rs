@@ -588,7 +588,18 @@ impl Program {
             if !create && !replace && !append {
                 parser.cursor.position = append_start;
             }
-            if create || replace || append {
+            let scale_enum =
+                !create && !replace && !append && parser.cursor.take_word("scale_enum") && {
+                    parser.cursor.space();
+                    parser
+                        .cursor
+                        .current()
+                        .is_some_and(|b| b.is_ascii_alphabetic() || b == b'\'')
+                };
+            if !create && !replace && !append && !scale_enum {
+                parser.cursor.position = append_start;
+            }
+            if create || replace || append || scale_enum {
                 if output_seen {
                     return Err(parser
                         .cursor
@@ -649,7 +660,13 @@ impl Program {
                     )
                     .map_err(pipeline::core_error)?;
                 edits.push(data::Edit {
-                    create,
+                    kind: if scale_enum {
+                        data::EditKind::ScaleEnum
+                    } else if create {
+                        data::EditKind::Create
+                    } else {
+                        data::EditKind::Replace
+                    },
                     name: Located::new(name.to_owned(), range),
                     source: source[expression_range.clone()].to_owned(),
                     range: expression_range,

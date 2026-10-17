@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 145
-- Ready: 1
+- Ready: 0
 - Blocked: 0
-- Done: 144
+- Done: 145
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -153,4 +153,4 @@
 | [base-142](tasks/142-prove-nested-guest-group-membership-in-wedding-reductions.md) | Prove nested guest-group membership in wedding reductions | done | — |
 | [base-143](tasks/143-grow-wedding-instances-with-deterministic-guest-and-group-co.md) | Grow wedding instances with deterministic guest and group copies | done | — |
 | [base-144](tasks/144-copy-enum-backed-source-collections-in-one-query-edit-batch.md) | Copy enum-backed source collections in one query edit batch | done | — |
-| [base-145](tasks/145-grow-wedding-data-through-an-introduced-query-language-walkt.md) | Grow wedding data through an introduced query-language walkthrough | ready | base-144 |
+| [base-145](tasks/145-grow-wedding-data-through-an-introduced-query-language-walkt.md) | Grow wedding data through an introduced query-language walkthrough | done | base-144 |

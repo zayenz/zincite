@@ -7,9 +7,16 @@ use zirql::{
     Budget, ConstructedValue as V, Located, ValueExpression as E, ValueExpressionKind as K,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EditKind {
+    Create,
+    Replace,
+    ScaleEnum,
+}
+
 #[derive(Debug)]
 pub(crate) struct Edit {
-    pub create: bool,
+    pub kind: EditKind,
     pub name: Located<String>,
     pub source: String,
     pub range: Range<usize>,
@@ -77,8 +84,22 @@ pub(crate) fn prepare_data_batch<'a>(
         &range,
         false,
     )?;
+    let mut scales = Vec::new();
+    let mut constructed = Vec::new();
+    for edit in edits {
+        if edit.kind == EditKind::ScaleEnum {
+            let lowered = c::read_data(&edit.source, edit.range.clone(), budget, limits.nesting)?;
+            let factor = evaluate(&lowered, &edit.names, budget, &edit.range)?;
+            scales.push(crate::program::source_copy::prepare_scale(
+                input, facts, edit, &factor, budget,
+            )?);
+        } else {
+            constructed.push(edit);
+        }
+    }
+    let edits = constructed.as_slice();
     let mut copy_edits = crate::program::source_copy::prepare_appends(
-        input, facts, copies, edits, budget, limits, &range,
+        input, facts, copies, edits, &scales, budget, limits, &range,
     )?;
     let mut targets = Vec::with_capacity(edits.len());
     for edit in edits {
@@ -115,12 +136,12 @@ pub(crate) fn prepare_data_batch<'a>(
             .filter(|item| item.name == Some(edit.name.value.as_str()));
         let assignment = matching.next();
         if matching.next().is_some()
-            || (edit.create && assignment.is_some())
-            || (!edit.create && assignment.is_none())
+            || (edit.kind == EditKind::Create && assignment.is_some())
+            || (edit.kind == EditKind::Replace && assignment.is_none())
         {
             return Err(QueryError::query(
                 edit.name.range.clone(),
-                if edit.create {
+                if edit.kind == EditKind::Create {
                     "create requires an absent assignment"
                 } else {
                     "replace requires exactly one original assignment"
@@ -233,6 +254,11 @@ pub(crate) fn prepare_data_batch<'a>(
         });
     }
     text_edits.append(&mut copy_edits);
+    for scale in &scales {
+        if let Some(edit) = &scale.edit {
+            text_edits.push(edit.clone());
+        }
+    }
     let length = text_edits
         .iter()
         .try_fold(input.source_bytes().len(), |len, edit| {
@@ -285,7 +311,7 @@ pub(crate) fn prepare_data_batch<'a>(
     let candidate = crate::finish_candidate(input, &text_edits, &[], &mut Work { budget }, &range)?;
     validate_affected_assignments(input, &candidate, facts, edits, &scalars, budget, limits)?;
     crate::program::source_copy::validate_candidate(
-        &candidate, facts, copies, budget, limits, &range,
+        &candidate, facts, copies, &scales, budget, limits, &range,
     )?;
     Ok(candidate)
 }
@@ -839,7 +865,7 @@ fn validate_affected_assignments(
     original: &Input,
     candidate: &Input,
     facts: &ModelFacts<'_>,
-    edits: &[Edit],
+    edits: &[&Edit],
     scalars: &BTreeMap<usize, i64>,
     budget: &mut Budget,
     limits: Limits,
