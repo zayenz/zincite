@@ -44,7 +44,6 @@ FACTOR must be positive; constructor-member references outside that assignment a
 Copy/scale edits validate final literal types, member domains and array coverage.
 Computed/optional values, matrices, starting-key arrays and enum subsets are unsupported
 by source-copy edits. Affected constructed create/replace targets are refused.
-Copy stages and scale_enum are development-checkout features, absent from published 0.1.1.
 Inspect MiniZinc source or change data assignments and enum membership.
 No input or '-' reads stdin; .dzn paths select assignment-only data syntax.
 Syntax queries do not load includes or require a MiniZinc library or solver.

@@ -4,7 +4,7 @@ default-members = [".", "crates/zincite-syntax", "crates/zincite-fmt", "crates/z
 resolver = "3"
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/zayenz/zincite"
@@ -23,6 +23,6 @@ readme = "README.md"
 include = ["/src/**", "/build.rs", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE", "/CHANGELOG.md", "/RELEASING.md", "/assets/zincite-logo-light.svg", "/assets/zincite-logo-dark.svg"]
 
 [dependencies]
-zincite-fmt = { version = "0.1.1", path = "crates/zincite-fmt" }
-zincite-lint = { version = "0.1.1", path = "crates/zincite-lint" }
-zincite-query = { version = "0.1.1", path = "crates/zincite-query" }
+zincite-fmt = { version = "0.1.2", path = "crates/zincite-fmt" }
+zincite-lint = { version = "0.1.2", path = "crates/zincite-lint" }
+zincite-query = { version = "0.1.2", path = "crates/zincite-query" }

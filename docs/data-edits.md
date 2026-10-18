@@ -252,7 +252,7 @@ The [complete public example](query-comprehension-contract.md#a-complete-doubled
 provides `doubled.mzn`, `doubled.dzn` and a five-replacement program. The same
 files are retained under `crates/zincite-query/tests/fixtures/` as
 `doubled.mzn`, `doubled.dzn` and `double.zq`. From the
-[v0.1.1 checkout](getting-started.md#build-from-a-checkout) root:
+[v0.1.2 checkout](getting-started.md#build-from-a-checkout) root:
 
 ```sh
 zincite query --max-work 5000000 --model crates/zincite-query/tests/fixtures/doubled.mzn \
@@ -286,9 +286,9 @@ capacities. The factor includes the original: `2` doubles the instance, while
 `1` preserves the original bytes. Each additional copy gets fresh guest
 identifiers and references to guests from that copy.
 
-These operations require the current development checkout. They are not in the
-published 0.1.1 packages or the v0.1.1 checkout. From the development checkout
-root, build both command forms:
+These operations are available since Zincite 0.1.2. From the
+[v0.1.2 checkout](getting-started.md#build-from-a-checkout) root, build both
+command forms:
 
 ```sh
 cargo build --release -p zincite -p zincite-query
@@ -355,7 +355,7 @@ comments and copies those inside it with the elements.
 ### Choose each edit in a query
 
 Save this program as `grow-wedding.zq`, or use the
-[retained query](https://github.com/zayenz/zincite/blob/main/crates/zincite-query/examples/fixtures/grow-wedding.zq):
+[retained query](https://github.com/zayenz/zincite/blob/v0.1.2/crates/zincite-query/examples/fixtures/grow-wedding.zq):
 
 ```zirql title="grow-wedding.zq"
 param factor: int;

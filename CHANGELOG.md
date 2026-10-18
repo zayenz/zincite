@@ -1,5 +1,14 @@
 # Release notes
 
+## 0.1.2
+
+- Copy native enum members and collection elements with `clone_members`,
+  `clone_elements`, `repeat_elements` and `append`, retaining comments and spelling
+  while validating the complete candidate against model facts.
+- Grow bounded constructor enums with `scale_enum` and document a complete wedding
+  growth query with preview, save and write commands.
+- Require Zirql 0.1.1 for shared evaluator performance improvements.
+
 ## 0.1.1
 
 - Complete enum reductions through supported nested literal guest-group iteration,

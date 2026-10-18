@@ -1,7 +1,7 @@
-# Release Zincite 0.1.1
+# Release Zincite 0.1.2
 
-The five workspace crates share version 0.1.1. Their shared-language dependency
-remains the published Zirql 0.1.0 release.
+The five workspace crates share version 0.1.2. Their shared-language dependency
+requires Zirql 0.1.1 or later.
 
 ## Prepare the source
 
@@ -26,7 +26,7 @@ cargo +1.99.0 publish --workspace --locked
 
 Cargo publishes dependencies before their consumers: `zincite-syntax`,
 `zincite-lint`, then `zincite-fmt` and `zincite-query`, and finally `zincite`.
-Zirql 0.1.0 must already be available from crates.io. Do not use local registry
+Zirql 0.1.1 must already be available from crates.io. Do not use local registry
 or path overrides for publication. If publication stops after some uploads,
 retain those versions and continue only the remaining packages; do not replace
 published artifacts. Successful CI and normal publication are sufficient
@@ -35,9 +35,9 @@ release assurance.
 Publish only the intended tag and short release notes after the uploads:
 
 ```sh
-git tag -a v0.1.1 -m "Zincite 0.1.1"
-git push origin v0.1.1
-gh release create v0.1.1 --title "Zincite 0.1.1" --notes-file /path/to/release-notes.md
+git tag -a v0.1.2 -m "Zincite 0.1.2"
+git push origin v0.1.2
+gh release create v0.1.2 --title "Zincite 0.1.2" --notes-file /path/to/release-notes.md
 ```
 
 Do not use `git push --tags`. Report the version and public package/release URLs.

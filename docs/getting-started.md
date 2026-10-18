@@ -1,23 +1,23 @@
 # Install Zincite
 
-Use a current stable Rust toolchain to install Zincite 0.1.1:
+Use a current stable Rust toolchain to install Zincite 0.1.2:
 
 ```sh
-cargo install --locked --version '=0.1.1' zincite
+cargo install --locked --version '=0.1.2' zincite
 ```
 
 The root command provides `zincite fmt`, `zincite lint` and `zincite query`.
 To install the standalone commands instead, use:
 
 ```sh
-cargo install --locked --version '=0.1.1' zincite-fmt
-cargo install --locked --version '=0.1.1' zincite-lint
-cargo install --locked --version '=0.1.1' zincite-query
+cargo install --locked --version '=0.1.2' zincite-fmt
+cargo install --locked --version '=0.1.2' zincite-lint
+cargo install --locked --version '=0.1.2' zincite-query
 ```
 
 Both invocation forms use the same options, defaults and exit codes. Run
 `zincite --help` for the command list, or a standalone command's `--help` for
-its options. `zincite --version` reports `0.1.1` and the build's Git revision
+its options. `zincite --version` reports `0.1.2` and the build's Git revision
 when available. A build without Git reports just the package version.
 
 ## Build from a checkout
@@ -26,7 +26,7 @@ For contributions or the repository's saved examples, check out the matching
 release and run commands from its root:
 
 ```sh
-git clone --branch v0.1.1 https://github.com/zayenz/zincite.git
+git clone --branch v0.1.2 https://github.com/zayenz/zincite.git
 cd zincite
 cargo install --locked --path .
 ```

@@ -8,7 +8,7 @@ non-UTF-8 bytes in comments are preserved.
 
 ## Versions and Rust support
 
-Zincite 0.1.1 supports the current stable Rust toolchain. No separate minimum
+Zincite 0.1.2 supports the current stable Rust toolchain. No separate minimum
 Rust version is promised. The command-line tools and library crates share the
 same release version. Formatting and interfaces may change in the 0.1 series;
 review the [release notes](../CHANGELOG.md) when upgrading.

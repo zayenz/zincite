@@ -18,7 +18,7 @@ Zincite supplies MiniZinc input, source selections, model facts and rendering.
 The [Zirql language reference](https://zayenz.se/zirql/guides/language-reference/)
 offers further examples and background on the evaluator shared with other tools.
 
-Saved repository examples use the [v0.1.1 checkout](getting-started.md#build-from-a-checkout).
+Saved repository examples use the [v0.1.2 checkout](getting-started.md#build-from-a-checkout).
 Run their repository-relative paths from the checkout root. Examples that give
 file contents can be run in a new directory with the installed commands.
 

@@ -957,7 +957,7 @@ Direct `zip_exact` retains established empty axes. Pure `.dzn` reports retain an
 the semantic query's `.mzn` root path.
 
 Model calls remain unsupported. Constructed data batches use `create` and
-`replace`. The development checkout also supports native `append` and bounded
+`replace`. Zincite also supports native `append` and bounded
 `scale_enum` edits, described under [source-copy edits](#source-copy-edits).
 All data batches end with one `emit;` (`emit_document;` remains an explicit
 document-emission spelling).
@@ -979,8 +979,8 @@ targets can establish empty axes; they cannot repair nonempty keys or holes.
 See the [data-edit guide](data-edits.md#construct-new-data) and the
 [explicit doubled instance](query-comprehension-contract.md#a-complete-doubled-instance).
 The single-pipeline `Query` API also supports the assignment edits described
-below. Add the 0.1.1 library to a Rust project with `cargo add zincite-query@0.1.1`.
-The [Rust API documentation](https://docs.rs/zincite-query/0.1.1) describes its
+below. Add the 0.1.2 library to a Rust project with `cargo add zincite-query@0.1.2`.
+The [Rust API documentation](https://docs.rs/zincite-query/0.1.2) describes its
 native result types.
 
 #### Brace collections in reports
@@ -1116,7 +1116,7 @@ copies, aliases, ordering and set results, including discarded or empty results;
 strict nested observations refuse that value.
 
 The [walkthrough](queries.md#filter-connections-and-accumulate-declarations)
-shows both forms. From the [v0.1.1 checkout](getting-started.md#build-from-a-checkout)
+shows both forms. From the [v0.1.2 checkout](getting-started.md#build-from-a-checkout)
 root, the saved program also runs as:
 
 ```sh
@@ -1248,7 +1248,7 @@ inspection pipeline selects the same collection more than once.
 
 #### Source-copy edits
 
-The development checkout supports explicit source-copy and enum-scaling edits
+Since version 0.1.2, Zincite supports explicit source-copy and enum-scaling edits
 in a data program ending with `emit;`. All require `--model` (or retained model
 facts in Rust). The copy stages take one original assignment selected through
 `values`, without `one`:
@@ -1305,7 +1305,6 @@ stdout empty and the input unchanged. Normal [program limits](#program-limits)
 and [file-write checks](cli.md) apply. See the
 [source-copy contract](query-comprehension-contract.md#copy-existing-enum-backed-data)
 and the complete [wedding growth query](data-edits.md#grow-a-wedding-instance).
-This syntax is not present in the published 0.1.1 packages.
 
 ### Enum reduction
 

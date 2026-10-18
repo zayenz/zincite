@@ -147,7 +147,7 @@ ascii-ident    = ASCII letter or "_", followed by ASCII letters, digits or "_" ;
 native copies from the stages described under [source copying](#copy-existing-enum-backed-data).
 `scale_enum` takes a positive integer scalar expression and changes a supported
 enum constructor's literal upper bound. `append` and `scale_enum` require model
-facts and are available in the development checkout, not published 0.1.1.
+facts and are available since Zincite 0.1.2.
 
 The brackets, key prefix and generator forms match the pinned [array and
 indexed array comprehensions](https://docs.minizinc.dev/en/2.10.1/spec.html#indexed-array-comprehensions).
@@ -600,15 +600,14 @@ An error leaves stdout empty and the original file unchanged.
 
 A collection with comments often needs to grow without rebuilding its values.
 Source-copy stages retain those bytes and change only established enum member
-and key tokens. This functionality is available in the development checkout;
-the published 0.1.1 commands do not contain it.
+and key tokens. These operations are available since Zincite 0.1.2.
 
-The small [model](https://github.com/zayenz/zincite/blob/main/crates/zincite-query/tests/fixtures/source-copies.mzn) declares
+The small [model](https://github.com/zayenz/zincite/blob/v0.1.2/crates/zincite-query/tests/fixtures/source-copies.mzn) declares
 `People`, an array of person records, group sets, and integer weights. Its
-[data file](https://github.com/zayenz/zincite/blob/main/crates/zincite-query/tests/fixtures/source-copies.dzn) defines
+[data file](https://github.com/zayenz/zincite/blob/v0.1.2/crates/zincite-query/tests/fixtures/source-copies.dzn) defines
 `Alice` and `Bob`, with comments on their records. Each record contains a display
 label, an unrelated colour enum, and a set of friends. The
-[complete query](https://github.com/zayenz/zincite/blob/main/crates/zincite-query/tests/fixtures/source-copies.zq) grows all
+[complete query](https://github.com/zayenz/zincite/blob/v0.1.2/crates/zincite-query/tests/fixtures/source-copies.zq) grows all
 four assignments explicitly:
 
 ```zirql
