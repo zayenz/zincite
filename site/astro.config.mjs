@@ -23,7 +23,7 @@ export default defineConfig({
     customCss: ['./src/styles/custom.css'],
     social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/zayenz/zincite' }],
     sidebar: [
-      { label: 'Start here', items: ['guides/getting-started', 'guides/first-model', 'guides/support'] },
+      { label: 'Start here', items: [{ label: 'Overview', slug: '' }, 'guides/getting-started', 'guides/first-model', 'guides/support'] },
       { label: 'Formatting', items: ['guides/formatting', 'guides/formatting-style', 'guides/format-on-save'] },
       { label: 'Linting', items: [
         { label: 'Running the linter', slug: 'guides/linting' },
