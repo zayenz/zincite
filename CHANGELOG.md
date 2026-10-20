@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.2.0
+
+- Adopt Zirql 0.2 for general constructed dictionary keys and set elements,
+  including nested collections and dictionary-valued tally results.
+- Render general report dictionaries as tagged key/value entries while retaining
+  ordinary string-key JSON objects. Update public collection/declaration adapters.
+- Load model facts for enum types nested in dictionary signatures.
+- Keep MiniZinc data edits restricted to representable data. General native sets
+  and dictionaries remain outside the current host representation.
+
 ## 0.1.2
 
 - Copy native enum members and collection elements with `clone_members`,
