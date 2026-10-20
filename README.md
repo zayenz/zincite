@@ -10,7 +10,7 @@ Zincite formats, lints and queries MiniZinc model (`.mzn`) and data (`.dzn`)
 files. Use it to keep layout consistent, get feedback on modelling choices,
 and inspect source or data without running a compiler or solver. The Rust
 commands share a source-preserving parser and target MiniZinc 2.10.1.
-Formatting and interfaces may change in the 0.1 series.
+Formatting and interfaces may change in the 0.x series.
 
 The [documentation site](https://zayenz.se/zincite/) introduces the tools.
 Start with the [staffing walkthrough](https://zayenz.se/zincite/guides/first-model/): format a model,

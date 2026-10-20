@@ -10,7 +10,7 @@ non-UTF-8 bytes in comments are preserved.
 
 Zincite 0.2.0 supports the current stable Rust toolchain. No separate minimum
 Rust version is promised. The command-line tools and library crates share the
-same release version. Formatting and interfaces may change in the 0.1 series;
+same release version. Formatting and interfaces may change in the 0.x series;
 review the [release notes](../CHANGELOG.md) when upgrading.
 
 ## What each command checks
