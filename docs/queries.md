@@ -18,7 +18,7 @@ Zincite supplies MiniZinc input, source selections, model facts and rendering.
 The [Zirql language reference](https://zayenz.se/zirql/guides/language-reference/)
 offers further examples and background on the evaluator shared with other tools.
 
-Saved repository examples use the [v0.1.2 checkout](getting-started.md#build-from-a-checkout).
+Saved repository examples use the [v0.2.0 checkout](getting-started.md#build-from-a-checkout).
 Run their repository-relative paths from the checkout root. Examples that give
 file contents can be run in a new directory with the installed commands.
 
@@ -1230,16 +1230,24 @@ fields inside the complete report envelope. Saving a dictionary retains its
 keys, values and insertion order. `{w: 1}` reads the bound string `w`;
 `{"w": 1}` uses the literal key `w`.
 
-Each key must be a present string. A duplicate key fails before evaluating
-its value. `d["pear"]` is strict and fails if the stored entry is missing;
-`lookup(d, "pear")` returns absence for a valid missing entry. A present absent
-value remains distinct from a missing entry.
+Keys can be constructed values, including strings, arrays, tuples, sets and
+dictionaries. A duplicate key fails before evaluating its value. Sets compare
+by membership and dictionaries by associations, independently of insertion order;
+arrays and tuples retain position order. Different kinds remain distinct keys.
+Bracket access is strict; `lookup(d, key)` returns absence for a valid missing
+entry. A present absent value remains distinct from a missing entry. General
+dictionaries use tagged `dictionary` JSON entries with explicit keys and values;
+string dictionaries retain ordinary object output.
 
 `{3, 1, 3}` keeps `3, 1`, and `sort({3, 1, 3})` keeps the set kind in order
-`1, 3`. Empty `{}` is a dictionary. Use `set<int>()`, `set<bool>()` or
-`set<float>()` for typed empty scalar sets. Nominal values and empty nominal
-sets retain their host-supplied type identity. Strings are not set elements.
+`1, 3`. Empty `{}` is a dictionary. Use `set<int>()`, `set<bool>()`,
+`set<float>()` or `set<string>()` for typed empty scalar sets, and `set<value>()`
+for an empty general set. Report sets can contain mixed and nested constructed
+values. Nominal values and empty nominal sets retain their host-supplied identity.
 Natural MiniZinc sets, `(field: value)` records and `|` comprehensions remain
-available. The common dictionary and typed empty syntax is report-only; the
+available. General dictionaries and string, mixed or nested sets remain outside
+data edits and `.dzn` serialization. Native node/declaration containers retain
+their existing host-specific support. The common dictionary and typed empty
+syntax is report-only; the
 [data-edit expression rules](query-comprehension-contract.md#report-expressions-and-edit-grammar)
 retain their existing closed subset.

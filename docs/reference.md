@@ -612,12 +612,14 @@ query or model location and append bounded function-call context.
 | Signature form | Accepted values |
 | --- | --- |
 | `bool`, `int`, `float`, `string` | Checked fixed scalars. |
+| `value` | Any constructed value; excludes native handles and computational worklists. |
+| `dict<K, V>` | Constructed keys and values matching their declared types. |
 | `EnumName` | A member of that actual enum in the current retained model. |
 | `opt T` | Absence or a value matching `T`. |
 | `sequence<T>` | A homogeneous positional sequence, including an empty sequence with its element contract. |
 | `tuple<T, U>` | Fixed positions with the declared types. |
 | `record{label: T, other: opt U}` | Declared labels; optional fields may be omitted. |
-| `set<T>` | Supported Boolean, integer, float or nominal set elements. |
+| `set<T>` | Boolean, integer, float, string or nominal elements; `set<value>` admits mixed and nested constructed values. |
 | `keyed<T>` | A keyed array whose cells match `T`, preserving its axes. |
 | `Node`, `Declaration` | One native syntax node or semantic declaration. |
 
@@ -775,7 +777,10 @@ require fixed Booleans and charge each candidate before filtering.
 
 Pure values include signed 64-bit integers, finite binary64 floats, Booleans,
 strings, resolved enum members, positional/keyed arrays, matrices, tuples,
-ordered records and homogeneous Boolean/integer/float/nominal sets. Supported operations include checked arithmetic, exact
+ordered records, general dictionaries and sets of constructed values, including
+strings and nested or mixed values. Data edits retain their narrower supported
+MiniZinc shapes; native containers retain their host-specific support.
+Supported operations include checked arithmetic, exact
 numeric promotion, comparison, equality, membership, concatenation, access,
 finite inclusive integer ranges, rank-one `index_set`, `enum_member`, report-only
 `length`/`sum`/`forall`/`exists`/`require`/`group_by`/`entries`/`zip_exact`,
@@ -979,15 +984,16 @@ targets can establish empty axes; they cannot repair nonempty keys or holes.
 See the [data-edit guide](data-edits.md#construct-new-data) and the
 [explicit doubled instance](query-comprehension-contract.md#a-complete-doubled-instance).
 The single-pipeline `Query` API also supports the assignment edits described
-below. Add the 0.1.2 library to a Rust project with `cargo add zincite-query@0.1.2`.
-The [Rust API documentation](https://docs.rs/zincite-query/0.1.2) describes its
+below. Add the 0.2.0 library to a Rust project with `cargo add zincite-query@0.2.0`.
+The [Rust API documentation](https://docs.rs/zincite-query/0.2.0) describes its
 native result types.
 
 #### Brace collections in reports
 
 `{3, 1, 3}` constructs an integer set in first-insertion order, removing
-repeated values. `{k: value}` constructs a dictionary using the string value
-of `k`; quoted keys remain literal strings. Repeated `for name in source`
+repeated values. `{k: value}` constructs a dictionary using the constructed value
+of `k`, including an array, tuple, set or dictionary; quoted keys remain literal
+strings. Repeated `for name in source`
 clauses and optional `if condition` filters use the shared evaluator:
 
 ```zirql
@@ -997,14 +1003,20 @@ clauses and optional `if condition` filters use the shared evaluator:
 ```
 
 The keys are `pear!`, then `apple!`; both sets keep `1, 2, 0`. Each dictionary
-key runs and is checked for a collision before its value runs. Keys require
-present strings. Strict `.field` and `[key]` access fail on a missing stored
-field; `lookup` is optional. Declared record schemas still constrain labels.
+key runs and is checked for a collision before its value runs. Arrays and tuples
+compare by position, sets by membership, and dictionaries by associations,
+independently of insertion order. Different value kinds remain distinct keys.
+Strict `.field` selects a string field; `[key]` accepts general keys and fails
+when missing. `lookup` is optional. Declared record schemas still constrain labels.
+General dictionaries render as tagged `dictionary` entries with explicit keys
+and values; string dictionaries retain ordinary JSON object output.
 
-Empty `{}` is a dictionary. `set<int>()`, `set<bool>()` and `set<float>()`
-construct typed empty scalar sets. Natural MiniZinc set/comprehension/record
-forms remain supported. These common report forms do not expand data-edit
-syntax, model evaluation or serialization. See the
+Empty `{}` is a dictionary. `set<int>()`, `set<bool>()`, `set<float>()` and
+`set<string>()` construct typed empty scalar sets. `set<value>()` constructs an
+empty general set; report sets can contain mixed and nested constructed values.
+Natural MiniZinc set/comprehension/record forms remain supported. General dictionaries and string, mixed or nested sets
+are refused by the data-edit boundary. These report forms do not expand native
+node/declaration containers, model evaluation or `.dzn` serialization. See the
 [dictionary example](queries.md#build-a-dictionary-from-string-keys).
 
 #### Program invocation and Rust results
@@ -1116,7 +1128,7 @@ copies, aliases, ordering and set results, including discarded or empty results;
 strict nested observations refuse that value.
 
 The [walkthrough](queries.md#filter-connections-and-accumulate-declarations)
-shows both forms. From the [v0.1.2 checkout](getting-started.md#build-from-a-checkout)
+shows both forms. From the [v0.2.0 checkout](getting-started.md#build-from-a-checkout)
 root, the saved program also runs as:
 
 ```sh

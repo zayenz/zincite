@@ -845,10 +845,8 @@ pub(crate) fn validate_numeric_domain(
         .map_err(pipeline::core_error)
         .map_err(domain_error)?;
     let values = match domain {
-        V::Array(values)
-        | V::Set {
-            elements: values, ..
-        } => values,
+        V::Array(values) => values,
+        V::Set { elements, .. } => elements.into_vec(),
         _ => unreachable!("validated interval/set constructor"),
     };
     charge(budget, values.len(), range)?;
@@ -1130,11 +1128,12 @@ fn serialize(
             append(output, "\"", budget, range)
         }
         V::Member(m) => append(output, member_spelling(m, facts, range)?, budget, range),
-        V::Array(values)
-        | V::Tuple(values)
-        | V::Set {
-            elements: values, ..
-        } => {
+        V::Array(_) | V::Tuple(_) | V::Set { .. } => {
+            let values: &[V] = match value.data() {
+                V::Array(values) | V::Tuple(values) => values,
+                V::Set { elements, .. } => elements,
+                _ => unreachable!("matched element collection"),
+            };
             let (open, close) = match value {
                 V::Array(_) => ("[", "]"),
                 V::Tuple(_) => ("(", ")"),
@@ -1152,6 +1151,10 @@ fn serialize(
             }
             append(output, close, budget, range)
         }
+        V::Dictionary(_) => Err(QueryError::query(
+            range.clone(),
+            "general dictionaries are unavailable in data edits",
+        )),
         V::Record(fields) => {
             append(output, "(", budget, range)?;
             for (i, (label, child)) in fields.iter().enumerate() {

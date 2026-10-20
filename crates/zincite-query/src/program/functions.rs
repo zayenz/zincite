@@ -422,7 +422,10 @@ pub(super) fn recover_call_value(
 fn constructed_signature(signature: &zirql::SignatureType) -> bool {
     use zirql::SignatureType as S;
     match signature {
-        S::Boolean | S::Integer | S::Float | S::String => true,
+        S::Value | S::Boolean | S::Integer | S::Float | S::String => true,
+        S::Dictionary(key, value) => {
+            constructed_signature(&key.value) && constructed_signature(&value.value)
+        }
         S::Optional(value) | S::Sequence(value) | S::Set(value) | S::Keyed(value) => {
             constructed_signature(&value.value)
         }
@@ -1055,6 +1058,24 @@ impl<'a> zirql::FunctionHost<Context<'_, 'a>> for composition::CompositionHost<'
     ) -> Result<Kind, zirql::QueryError> {
         budget.charge(1, zirql::Location::Query(range.clone()))?;
         Ok(match declaration {
+            D::Value => Kind::Value(Rc::new(vec![zirql::ValueType::Unestablished])),
+            D::Dictionary(key, value) => {
+                if native_declaration(declaration) {
+                    return Err(zirql::QueryError::query(
+                        range.clone(),
+                        "dictionaries containing native values are unavailable in Zincite",
+                    ));
+                }
+                let key_kind = self.declaration_kind(key, budget, range)?;
+                let value_kind = self.declaration_kind(value, budget, range)?;
+                let keys = self
+                    .scalar_types(&key_kind, budget, range)?
+                    .unwrap_or_else(|| vec![zirql::ValueType::Unestablished]);
+                let values = self
+                    .scalar_types(&value_kind, budget, range)?
+                    .unwrap_or_else(|| vec![zirql::ValueType::Unestablished]);
+                Kind::Value(Rc::new(vec![zirql::ValueType::Dictionary { keys, values }]))
+            }
             D::Boolean => Kind::Scalar(zirql::ParameterType::Bool),
             D::Integer => Kind::Scalar(zirql::ParameterType::Int),
             D::String => Kind::Scalar(zirql::ParameterType::String),
@@ -1850,6 +1871,9 @@ pub(super) fn signature_needs_model(signature: &zirql::SignatureType) -> bool {
         | S::Keyed(inner)
         | S::Queue(inner)
         | S::IdentitySet(inner) => signature_needs_model(&inner.value),
+        S::Dictionary(key, value) => {
+            signature_needs_model(&key.value) || signature_needs_model(&value.value)
+        }
         S::Tuple(fields) => fields
             .iter()
             .any(|field| signature_needs_model(&field.value)),
@@ -1897,6 +1921,7 @@ fn native_declaration(declaration: &D<Kind>) -> bool {
         D::Optional(inner) | D::Sequence(inner) | D::Array(inner) | D::Keyed(inner) => {
             native_declaration(inner)
         }
+        D::Dictionary(key, value) => native_declaration(key) || native_declaration(value),
         D::Record(fields) => fields.iter().any(|(_, field)| native_declaration(field)),
         D::Tuple(fields) => fields.iter().any(native_declaration),
         _ => false,
@@ -1958,6 +1983,7 @@ pub(super) fn check_signature(
             | S::Keyed(_)
             | S::Queue(_)
             | S::IdentitySet(_) => 1,
+            S::Dictionary(_, _) => 2,
             S::Tuple(values) => values.len(),
             S::Record(fields) => fields.len(),
             _ => 0,
@@ -1976,9 +2002,13 @@ pub(super) fn check_signature(
             | S::Sequence(value)
             | S::Set(value)
             | S::Keyed(value) => pending.push((value, depth + 1)),
+            S::Dictionary(key, value) => {
+                pending.push((key, depth + 1));
+                pending.push((value, depth + 1));
+            }
             S::Tuple(values) => pending.extend(values.iter().map(|value| (value, depth + 1))),
             S::Record(fields) => pending.extend(fields.iter().map(|(_, value)| (value, depth + 1))),
-            S::Boolean | S::Integer | S::Float | S::String | S::Named(_) => {}
+            S::Value | S::Boolean | S::Integer | S::Float | S::String | S::Named(_) => {}
         }
     }
     Ok(())

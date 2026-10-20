@@ -40,17 +40,21 @@ the narrower set of input stages and expressions below.
 
 Read-only reports also accept `{key: value}` dictionaries and
 `{key: value for name in source if condition}` comprehensions. Keys are
-expressions that must return present strings. Each key is checked for a
-duplicate before its value runs. The dictionary keeps successful generation
-order and uses the same record data and declared schemas as quoted static
-fields. `d[key]` and `d.field` fail on a missing stored field; `lookup(d,key)`
-returns absence for a valid missing key.
+expressions returning constructed values, including arrays, tuples, sets and
+other dictionaries. Each key is checked for a duplicate before its value runs.
+Dictionaries preserve generation order. String keys retain record data and declared
+schemas; `.field` selects a static string field. Bracket access accepts general
+keys and fails when missing; `lookup(d,key)` returns absence for a valid missing key.
+Arrays and tuples compare by position, sets by membership, and dictionaries by
+associations, independently of insertion order. Different kinds remain distinct.
 
 Bare sets accept `{3, 1, 3}` and `{n mod 3 for n in 1..5}`. They keep `3, 1`
 and `1, 2, 0` respectively. Empty `{}` is a dictionary in this report syntax;
-`set<int>()`, `set<bool>()` and `set<float>()` supply typed empty scalar sets.
-Nominal identities and empty nominal sets remain supplied by the host. String
-sets remain unsupported. Arrays, tuples, grouping and function/control blocks
+`set<int>()`, `set<bool>()`, `set<float>()` and `set<string>()` supply typed
+empty scalar sets; `set<value>()` supplies an empty general set. Report sets can
+contain mixed and nested constructed values. Nominal identities and empty nominal
+sets remain supplied by the host. `value`, `dict<K,V>` and `set<value>` are
+available in function declarations. Arrays, tuples, grouping and function/control blocks
 compose with these values; a final collection inside a block has its own braces.
 
 The common `for ... in ... if ...` comprehension and MiniZinc
@@ -311,15 +315,12 @@ uses a positive one-based position. `if` and `elseif` evaluate conditions in
 order, then only the chosen branch. A false `where` skips the head. An
 unevaluated branch cannot suppress a parse, type or unsupported-form error;
 those checks run before evaluation. At runtime a skipped branch does not
-produce arithmetic or missing-key errors. Set construction, set generators and
-set membership accept only homogeneous fixed Booleans, signed integers, finite
-floats or resolved members of one enum. A constructed set removes duplicates
-by typed identity and renders in first-insertion order. A string set, or a set with another
-unsupported element, fails at the set expression or source literal range before report or `.dzn`
-serialization. Strings remain ordinary scalars, array elements and `++`
-operands. The [pinned specification](https://docs.minizinc.dev/en/2.10.1/spec.html#sets)
-permits broader fixed sets, but the tested MiniZinc 2.10.1 compiler rejects
-string set literals. Zincite query sets therefore exclude strings.
+produce arithmetic or missing-key errors. Report sets remove duplicates by
+structural identity and retain first-insertion order. Data edits retain their
+homogeneous fixed Boolean, signed-integer, finite-float or resolved-enum-member
+set subset. String sets, nested or mixed sets and general dictionaries are
+refused at the data boundary; report support does not imply `.dzn` serialization
+support.
 
 Model calls, arbitrary built-ins, generator calls, interpolation, annotations,
 `let` inside a MiniZinc expression, decision values,
@@ -379,13 +380,15 @@ empty input. `count` returns the number of present positional entries as an
 integer, including zero for an empty array. A filter can precede another stage,
 for example `rows | filter(starts_with("a")) | count`.
 
-`sort` is stable ascending scalar ordering with the same homogeneous key rules
-as `sort(xs)`. `unique` retains the first equal scalar, preserving input order.
-`tally` accepts only strings and returns a dictionary of integer counts in
-first-seen key order. It is terminal: another stage after it is an error. Untyped empty
-arrays are accepted; an established incompatible element contract is still
-refused when empty. Keyed arrays, records and native handles require explicit
-conversion or projection before these operations. A keyed array can become a
+`sort` uses stable ascending constructed ordering, including structural collection
+keys. `unique` retains the first equal scalar, preserving input order.
+`tally` accepts constructed values and returns a dictionary of integer counts
+with the original values as keys in first-seen order. The tally suffix remains
+terminal; use a saved result or an explicit function for further operations.
+String tallies preserve
+ordinary string-key dictionary output; set keys retain their unordered identity.
+Empty input returns an empty dictionary. Keyed arrays, records and native handles
+require explicit conversion or projection before these operations. A keyed array can become a
 positional one through `[e.value | e in entries(a)]`.
 
 Suffixes use Zirql's evaluator and the same request budget as the surrounding
@@ -483,8 +486,11 @@ a scalar or collection value: `{"kind":"integer","value":7}` (similarly
 `{"kind":"set","elements":[...]}`, `{"kind":"tuple","elements":[...]}`,
 an ordered dictionary object such as `{"weight":{"kind":"integer","value":7}}`, or
 `{"kind":"array","indexing":"positional"|"explicit","axes":[[key,...],...],"entries":[{"key":[key,...],"value":...}]}`.
-Dictionary keys preserve insertion/current order recursively; empty dictionaries
-render as `{}`. Native `map_by(key_query,value_query)` uses the same ordered
+General dictionaries render as `{"kind":"dictionary","entries":[{"key":...,
+"value":...}]}`, with recursively tagged keys and values. String dictionaries
+retain their ordinary object output. Dictionary keys preserve insertion/current
+order recursively; empty general dictionaries have an empty `entries` array and
+empty string dictionaries render as `{}`. Native `map_by(key_query,value_query)` uses the same ordered
 storage while retaining native payloads. It evaluates key then value against
 the same singleton and rejects a duplicate before its value. `sort_by(value)`
 uses present homogeneous integer, finite-float, string or coherent nominal
@@ -602,12 +608,12 @@ A collection with comments often needs to grow without rebuilding its values.
 Source-copy stages retain those bytes and change only established enum member
 and key tokens. These operations are available since Zincite 0.1.2.
 
-The small [model](https://github.com/zayenz/zincite/blob/v0.1.2/crates/zincite-query/tests/fixtures/source-copies.mzn) declares
+The small [model](https://github.com/zayenz/zincite/blob/v0.2.0/crates/zincite-query/tests/fixtures/source-copies.mzn) declares
 `People`, an array of person records, group sets, and integer weights. Its
-[data file](https://github.com/zayenz/zincite/blob/v0.1.2/crates/zincite-query/tests/fixtures/source-copies.dzn) defines
+[data file](https://github.com/zayenz/zincite/blob/v0.2.0/crates/zincite-query/tests/fixtures/source-copies.dzn) defines
 `Alice` and `Bob`, with comments on their records. Each record contains a display
 label, an unrelated colour enum, and a set of friends. The
-[complete query](https://github.com/zayenz/zincite/blob/v0.1.2/crates/zincite-query/tests/fixtures/source-copies.zq) grows all
+[complete query](https://github.com/zayenz/zincite/blob/v0.2.0/crates/zincite-query/tests/fixtures/source-copies.zq) grows all
 four assignments explicitly:
 
 ```zirql

@@ -1101,7 +1101,7 @@ fn native_composition_inline_and_file_keep_results_status_and_buffering() {
         );
         assert_eq!(output.stdout, expected);
     }
-    let failure = format!("{program_source} [1] | tally;");
+    let failure = format!("{program_source} 1 | tally;");
     std::fs::write(&program_path, &failure).unwrap();
     for arguments in [
         vec![
@@ -1952,10 +1952,7 @@ fn brace_reports_match_inline_files_and_buffer_duplicate_failures() {
             assert!(inline.stdout.is_empty());
             for result in [inline, file] {
                 let message = String::from_utf8_lossy(&result.stderr);
-                assert!(
-                    message.contains("duplicate dictionary key: pear"),
-                    "{message}"
-                );
+                assert!(message.contains("duplicate dictionary key"), "{message}");
                 assert!(message.contains("40..49"));
             }
         }

@@ -6,11 +6,11 @@ license.workspace = true
 description = "MiniZinc source lint advice"
 repository.workspace = true
 homepage.workspace = true
-documentation = "https://docs.rs/zincite-lint/0.1.2"
+documentation = "https://docs.rs/zincite-lint/0.2.0"
 readme = "README.md"
 include = ["/src/**", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE"]
 
 [dependencies]
-zincite-syntax = { version = "0.1.2", path = "../zincite-syntax" }
+zincite-syntax = { version = "0.2.0", path = "../zincite-syntax" }
 toml = { version = "1.1.2", default-features = false, features = ["parse", "serde", "std", "display"] }
 annotate-snippets = "0.12"

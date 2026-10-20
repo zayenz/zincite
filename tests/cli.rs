@@ -1180,7 +1180,7 @@ fn native_composition_inline_and_file_keep_results_status_and_buffering() {
         );
         assert_eq!(output.stdout, expected_output);
     }
-    let failure = format!("{program_source} [1] | tally;");
+    let failure = format!("{program_source} 1 | tally;");
     std::fs::write(&program_path, &failure).unwrap();
     for arguments in [
         vec![

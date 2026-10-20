@@ -1359,7 +1359,7 @@ fn project_literal(
                 };
                 K::Literal(V::Set {
                     element_type,
-                    elements: Vec::new(),
+                    elements: Vec::new().into(),
                 })
             } else {
                 K::Set(children)
@@ -1650,6 +1650,14 @@ fn copy_declaration(
             }
             D::Record(output)
         }
+        D::Value => D::Value,
+        D::Dictionary(key, value) => {
+            budget.charge_results(2, location)?;
+            D::Dictionary(
+                Box::new(copy_declaration(key, budget, range, depth + 1)?),
+                Box::new(copy_declaration(value, budget, range, depth + 1)?),
+            )
+        }
         D::Boolean => D::Boolean,
         D::Integer => D::Integer,
         D::Float => D::Float,
@@ -1688,6 +1696,10 @@ pub(crate) fn value_facts(
         V::String(_) => T::String,
         V::Member(member) => T::Member(member.type_id),
         V::Record(_) => T::RecordKind,
+        V::Dictionary(_) => T::Dictionary {
+            keys: vec![T::Unestablished],
+            values: vec![T::Unestablished],
+        },
         V::Tuple(_) => T::TupleKind,
         V::Set { element_type, .. } => T::Set(*element_type),
         V::Array(_) => T::Array(zirql::ArrayType::Elements(Vec::new())),
@@ -1946,6 +1958,11 @@ fn check_data_declaration(
     use zirql::DeclaredType as D;
     budget.charge(1, location.clone())?;
     match ty {
+        D::Value
+        | D::Dictionary(_, _)
+        | D::Set(zirql::SetElementType::Value | zirql::SetElementType::String) => {
+            return Err(zirql::QueryError { location: location.clone(), message: "general values, dictionaries and general or string sets are unavailable in data expressions".into(), category: zirql::QueryErrorCategory::Other });
+        }
         D::Optional(_) => {
             return Err(zirql::QueryError {
                 location: location.clone(),
@@ -2036,14 +2053,35 @@ fn check_shape(
                 check_shape(&entry.value, budget, location)?;
             }
         }
-        V::Array(values)
-        | V::Tuple(values)
-        | V::Set {
-            elements: values, ..
-        } => {
+        V::Array(values) | V::Tuple(values) => {
             for value in values {
                 check_shape(value, budget, location)?;
             }
+        }
+        V::Set {
+            element_type,
+            elements,
+        } => {
+            if matches!(
+                element_type,
+                Some(zirql::SetElementType::Value | zirql::SetElementType::String)
+            ) {
+                return Err(zirql::QueryError {
+                    location: location.clone(),
+                    message: "general and string sets are unavailable in data expressions".into(),
+                    category: zirql::QueryErrorCategory::Other,
+                });
+            }
+            for value in elements {
+                check_shape(value, budget, location)?;
+            }
+        }
+        V::Dictionary(_) => {
+            return Err(zirql::QueryError {
+                location: location.clone(),
+                message: "general dictionaries are unavailable in data expressions".into(),
+                category: zirql::QueryErrorCategory::Other,
+            });
         }
         V::Record(fields) => {
             for (_, value) in fields {
@@ -2125,6 +2163,23 @@ fn tagged(value: &V, budget: &mut Budget, range: &Range<usize>) -> Result<Value,
                 ("entries", Value::Array(output_entries)),
             ])
         }
+        V::Dictionary(entries) => {
+            let mut output = slots(budget, entries.len(), range)?;
+            for (key, value) in entries {
+                charge(budget, 32, range)?;
+                budget
+                    .charge_results(5, zirql::Location::Query(range.clone()))
+                    .map_err(pipeline::core_error)?;
+                output.push(object([
+                    ("key", tagged(key, budget, range)?),
+                    ("value", tagged(value, budget, range)?),
+                ]));
+            }
+            object([
+                ("kind", Value::String("dictionary".into())),
+                ("entries", Value::Array(output)),
+            ])
+        }
         V::Record(fields) => {
             budget
                 .charge_results(fields.len(), zirql::Location::Query(range.clone()))
@@ -2162,10 +2217,12 @@ fn tagged(value: &V, budget: &mut Budget, range: &Range<usize>) -> Result<Value,
                 ("entries", Value::Array(entries)),
             ])
         }
-        V::Tuple(values)
-        | V::Set {
-            elements: values, ..
-        } => {
+        V::Tuple(_) | V::Set { .. } => {
+            let values: &[V] = match value.data() {
+                V::Tuple(values) => values,
+                V::Set { elements, .. } => elements,
+                _ => unreachable!("matched element collection"),
+            };
             let mut elements = slots(budget, values.len(), range)?;
             for value in values {
                 elements.push(tagged(value, budget, range)?);

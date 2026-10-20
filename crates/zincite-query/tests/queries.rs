@@ -2614,7 +2614,6 @@ fn keyed_reports_refuse_shape_identity_and_unestablished_empty_axes() {
         ("report [i+1: i | i in 1..0];", "empty"),
         ("report [(i,j):1 | i in 1..0,j in 1..i];", "empty"),
         ("report [i:1 | i in []];", "empty"),
-        ("report {\"no\"};", "set"),
         (
             "report if true then 1 else enum_member(Guest,\"Zulu\") endif;",
             "model context",
@@ -4156,6 +4155,14 @@ fn typed_query_signatures_resolve_current_enum_identity_and_lazy_defaults() {
     nested
         .evaluate_with_model(&input, Some(&model), limits)
         .unwrap();
+    let dictionaries = Program::parse(
+        "fn key_identity(xs:dict<Colour,int>)->dict<Colour,int> { xs } fn value_identity(xs:dict<int,Shade>)->dict<int,Shade> { xs } report 1;",
+        limits,
+    ).unwrap();
+    assert!(dictionaries.requires_model_facts());
+    dictionaries
+        .evaluate_with_model(&input, Some(&model), limits)
+        .unwrap();
     let wrong_nested=Program::parse(r#"fn groups(xs:sequence<set<Colour>>)->sequence<set<Colour>> { xs } report groups([{enum_member(Shade,"Dark")}]);"#,limits).unwrap();
     assert!(
         wrong_nested
@@ -5652,6 +5659,10 @@ fn saved_native_and_minizinc_values_compose_with_shared_suffixes() {
                 ("a".into(), V::Integer(1)),
             ]),
         ),
+        (
+            "[1] | tally",
+            V::Dictionary(vec![(V::Integer(1), V::Integer(1))].into()),
+        ),
         ("[] | sort | unique", V::Array(vec![])),
         ("length(([x | x in [2,1,2]] | unique))", V::Integer(2)),
         (
@@ -5674,7 +5685,7 @@ fn saved_native_and_minizinc_values_compose_with_shared_suffixes() {
         );
     }
     for (request, stage) in [
-        ("[1] | tally", "tally"),
+        ("1 | tally", "tally"),
         (r#"["a"] | tally | sort"#, "sort"),
         ("[2:3,5:1] | sort", "sort"),
         ("[1] | names", "names"),
@@ -6883,7 +6894,7 @@ fn brace_collections_keep_data_order_function_locals_and_minizinc_forms() {
         ["pear!", "apple!"]
     );
     assert!(
-        matches!(fields[0].1.data(),V::Set {elements,..} if elements == &[V::Integer(3),V::Integer(1)])
+        matches!(fields[0].1.data(),V::Set {elements,..} if elements[..] == [V::Integer(3),V::Integer(1)])
     );
     assert!(
         Program::parse(r#"let held={"pear":1}; create report=held; emit;"#, limits)
@@ -6900,7 +6911,7 @@ fn brace_collections_keep_data_order_function_locals_and_minizinc_forms() {
         panic!("function result")
     };
     assert!(
-        matches!(value.data(),V::Set {elements,..} if elements == &[V::Integer(3),V::Integer(1)])
+        matches!(value.data(),V::Set {elements,..} if elements[..] == [V::Integer(3),V::Integer(1)])
     );
     let ReportValue::Constructed(value) = result.emissions()[1].value() else {
         panic!("natural forms")
@@ -6909,9 +6920,43 @@ fn brace_collections_keep_data_order_function_locals_and_minizinc_forms() {
         panic!("array")
     };
     assert!(
-        matches!(values[1].data(),V::Set {elements,..} if elements == &[V::Integer(1),V::Integer(2),V::Integer(0)])
+        matches!(values[1].data(),V::Set {elements,..} if elements[..] == [V::Integer(1),V::Integer(2),V::Integer(0)])
     );
     assert!(matches!(values[2].data(),V::Record(fields) if fields[0].0=="score"));
+
+    assert!(
+        Program::parse(r#"let held={{1,2}:1}; create report=held; emit;"#, limits)
+            .unwrap_err()
+            .message
+            .contains("report-only")
+    );
+    let source = r#"fn identity(d:dict<value,value>) -> dict<value,value> { d }
+        let words=["ash","apple","birch","apple"];
+        let counts=[{words[i],words[i+1]} | i in index_set(words) where i<length(words)] | tally;
+        report identity(counts);
+        report counts[{"birch","apple"}];
+        report {{1,2},{2,1},[1],(1,2)};"#;
+    let mut result = Program::parse(source, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let rendered: Vec<serde_json::Value> = std::str::from_utf8(&result.render().unwrap())
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(rendered[0]["result"]["kind"], "dictionary");
+    assert_eq!(
+        rendered[0]["result"]["entries"].as_array().unwrap().len(),
+        2
+    );
+    assert_eq!(rendered[0]["result"]["entries"][1]["key"]["kind"], "set");
+    assert_eq!(rendered[0]["result"]["entries"][1]["value"]["value"], 2);
+    assert_eq!(rendered[1]["result"]["value"], 2);
+    assert_eq!(
+        rendered[2]["result"]["elements"].as_array().unwrap().len(),
+        3
+    );
 }
 
 #[test]
@@ -7007,7 +7052,7 @@ fn typed_indexed_reports_retain_declared_domains_and_empty_nominal_identity() {
         declared_axis_sources: Some(vec![
             e(K::Literal(V::Set {
                 element_type: Some(zirql::SetElementType::Member(zirql::NominalTypeId(7))),
-                elements: vec![],
+                elements: vec![].into(),
             })),
             e(K::Array(vec![int(8), int(1)])),
         ]),

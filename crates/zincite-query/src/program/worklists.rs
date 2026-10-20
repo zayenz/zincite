@@ -92,6 +92,11 @@ pub(super) fn declaration(
             D::Optional(v) | D::Sequence(v) | D::Array(v) | D::Queue(v) | D::Keyed(v) => {
                 pending.push(v)
             }
+            D::Dictionary(key, value) => {
+                budget.charge_results(2, location.clone())?;
+                pending.push(key);
+                pending.push(value);
+            }
             D::Tuple(values) => {
                 budget.charge_results(values.len(), location.clone())?;
                 pending.extend(values);

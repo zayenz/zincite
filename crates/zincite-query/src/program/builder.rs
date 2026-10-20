@@ -801,9 +801,13 @@ fn dispose_signature(signature: zirql::SignatureType) {
             | S::Keyed(value)
             | S::Queue(value)
             | S::IdentitySet(value) => pending.push(value.value),
+            S::Dictionary(key, value) => {
+                pending.push(key.value);
+                pending.push(value.value);
+            }
             S::Tuple(values) => pending.extend(values.into_iter().map(|value| value.value)),
             S::Record(fields) => pending.extend(fields.into_iter().map(|(_, value)| value.value)),
-            S::Boolean | S::Integer | S::Float | S::String | S::Named(_) => {}
+            S::Value | S::Boolean | S::Integer | S::Float | S::String | S::Named(_) => {}
         }
     }
 }

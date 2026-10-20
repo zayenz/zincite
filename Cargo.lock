@@ -199,7 +199,7 @@ checksum = "0592e1c9d151f854e6fd382574c3a0855250e1d9b2f99d9281c6e6391af352f1"
 
 [[package]]
 name = "zincite"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "zincite-fmt",
  "zincite-lint",
@@ -208,7 +208,7 @@ dependencies = [
 
 [[package]]
 name = "zincite-fmt"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "ec4rs",
  "zincite-lint",
@@ -217,7 +217,7 @@ dependencies = [
 
 [[package]]
 name = "zincite-lint"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "annotate-snippets",
  "toml",
@@ -226,7 +226,7 @@ dependencies = [
 
 [[package]]
 name = "zincite-query"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "serde_json",
  "zincite-lint",
@@ -236,13 +236,13 @@ dependencies = [
 
 [[package]]
 name = "zincite-syntax"
-version = "0.1.2"
+version = "0.2.0"
 
 [[package]]
 name = "zirql"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4b781febb1a97bc49926f599d17fc77a14e1970eae5dbf2c0d2be05996634a1"
+checksum = "ee4d5bd02fd029cf3d770b074537af2143287d2faf6f60aa0466b309d169ca8f"
 dependencies = [
  "serde_json",
 ]
