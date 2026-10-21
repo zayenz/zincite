@@ -4096,6 +4096,23 @@ fn typed_query_functions_refuse_written_scope_purity_kinds_and_limits() {
             Program::parse(source, limits).and_then(|program| program.evaluate(&input, limits));
         assert!(result.is_err(), "accepted {source}");
     }
+    let protected = r#"
+/* fn hidden() -> int { 1 } */
+report later("fn inside() -> int { 2 }");
+# fn comment() -> int { 3 }
+fn later(value: string) -> record{text: string} { (text: value) }
+"#;
+    let rendered = Program::parse(protected, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap()
+        .render()
+        .unwrap();
+    assert!(
+        String::from_utf8(rendered)
+            .unwrap()
+            .contains("fn inside() -> int { 2 }")
+    );
     let deep = Program::parse(
         "fn deep(n: int) -> int { if n = 0 then 0 else 1 + deep(n - 1) endif } report deep(20);",
         limits,

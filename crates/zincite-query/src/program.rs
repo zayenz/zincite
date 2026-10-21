@@ -462,379 +462,22 @@ impl Program {
             ));
         }
         let mut parser = Parser::new(source, limits);
-        parser.collect_functions()?;
         parser.prepared = true;
-        let mut statements = Vec::new();
-        let mut parameters = Vec::new();
-        let mut edits = Vec::new();
-        let mut appends = Vec::new();
-        let mut target_names = std::collections::BTreeSet::new();
-        let mut output_seen = false;
-        let mut invalid_binding = None;
-        let mut document_seen = false;
-        parser.cursor.space();
-        while parser.cursor.position < source.len() {
-            let start = parser.cursor.position;
-            if let Some(range) = parser
-                .function_ranges
-                .iter()
-                .find(|range| range.start == start)
-            {
-                parser.cursor.position = range.end;
-                parser.cursor.space();
-                continue;
-            }
-            if document_seen {
-                return Err(parser.cursor.error("no statement may follow emit"));
-            }
-            let mut reader = zirql::ArgumentReader::new(source, parser.cursor.position)
-                .map_err(pipeline::core_error)?;
-            if source[parser.cursor.position..].starts_with("param")
-                && let Some(zirql::CommonStatement::Param(declaration)) =
-                    zirql::read_statement_prefix(&mut reader, &mut parser.preflight)
-                        .map_err(pipeline::core_error)?
-            {
-                parser.begin_pure(declaration.name.range.clone())?;
-                parser.cursor.position = reader.position();
-                parser
-                    .cursor
-                    .punctuation(b';', "expected ';' after parameter declaration")?;
-                if parser.names.contains_key(&declaration.name.value)
-                    || is_program_binding_keyword(&declaration.name.value)
-                {
-                    return Err(QueryError::query(
-                        declaration.name.range,
-                        "parameter name is reserved or already defined",
-                    ));
-                }
-                parser
-                    .preflight
-                    .charge(
-                        declaration.name.value.len() + 1,
-                        zirql::Location::Query(declaration.name.range.clone()),
-                    )
-                    .map_err(pipeline::core_error)?;
-                parser
-                    .preflight
-                    .charge_results(1, zirql::Location::Query(declaration.name.range.clone()))
-                    .map_err(pipeline::core_error)?;
-                parser.names.insert(
-                    declaration.name.value.clone(),
-                    Kind::Scalar(declaration.ty.value),
-                );
-                parser
-                    .preflight
-                    .charge(
-                        declaration.name.value.len() + 1,
-                        zirql::Location::Query(declaration.name.range.clone()),
-                    )
-                    .and_then(|()| {
-                        parser.preflight.charge_results(
-                            2,
-                            zirql::Location::Query(declaration.name.range.clone()),
-                        )
-                    })
-                    .map_err(pipeline::core_error)?;
-                statements.push(Located::new(
-                    zirql::Statement::Bind {
-                        name: declaration.name.clone(),
-                        expression: value_stage(
-                            Stage::Parameter(parameters.len()),
-                            declaration.name.range.clone(),
-                        ),
-                    },
-                    declaration.name.range.clone(),
-                ));
-                parameters.push(declaration);
-                parser.cursor.space();
-                continue;
-            }
-            let create = parser.cursor.take_word("create");
-            let replace = !create && parser.cursor.take_word("replace");
-            let append_start = parser.cursor.position;
-            let append = !create && !replace && parser.cursor.take_word("append") && {
-                parser.cursor.space();
-                parser
-                    .cursor
-                    .current()
-                    .is_some_and(|b| b.is_ascii_alphabetic() || b == b'\'')
-            };
-            if !create && !replace && !append {
-                parser.cursor.position = append_start;
-            }
-            let scale_enum =
-                !create && !replace && !append && parser.cursor.take_word("scale_enum") && {
-                    parser.cursor.space();
-                    parser
-                        .cursor
-                        .current()
-                        .is_some_and(|b| b.is_ascii_alphabetic() || b == b'\'')
-                };
-            if !create && !replace && !append && !scale_enum {
-                parser.cursor.position = append_start;
-            }
-            if create || replace || append || scale_enum {
-                if output_seen {
-                    return Err(parser
-                        .cursor
-                        .error("an edit batch cannot include report or query emissions"));
-                }
-                let (name, range) = parser.identifier("expected an assignment target")?;
-                if !parser.minizinc_identifier(&range) {
-                    return Err(QueryError::query(
-                        range,
-                        "expected a MiniZinc identifier or quoted identifier",
-                    ));
-                }
-                parser.begin_pure(range.clone())?;
-                parser
-                    .preflight
-                    .charge(name.len() + 1, zirql::Location::Query(range.clone()))
-                    .map_err(pipeline::core_error)?;
-                parser
-                    .preflight
-                    .charge_results(1, zirql::Location::Query(range.clone()))
-                    .map_err(pipeline::core_error)?;
-                if !target_names.insert(name.to_owned()) {
-                    return Err(QueryError::query(range, "duplicate edit target"));
-                }
-                parser
-                    .cursor
-                    .punctuation(b'=', "expected '=' after edit target")?;
-                parser.cursor.space();
-                let expression_range = parser.cursor.position..parser.expression_end()?;
-                if append {
-                    let (expression, kind, emits) =
-                        parser.composition_expression(expression_range.clone(), false, true)?;
-                    if emits || !matches!(kind, Kind::MemberCopies | Kind::SourceCopies) {
-                        return Err(QueryError::query(
-                            expression_range,
-                            "append requires native source copies",
-                        ));
-                    }
-                    let slot = Located::new(format!("\0append{}", appends.len()), range.clone());
-                    statements.push(Located::new(
-                        zirql::Statement::Bind {
-                            name: slot.clone(),
-                            expression,
-                        },
-                        expression_range,
-                    ));
-                    appends.push((Located::new(name.to_owned(), range), slot));
-                    parser.cursor.punctuation(b';', "expected ';' after edit")?;
-                    parser.cursor.space();
-                    continue;
-                }
-                let (_, names) = parser.pure_value::<()>(expression_range.clone())?;
-                parser
-                    .preflight
-                    .charge(
-                        expression_range.len() + name.len() + 1,
-                        zirql::Location::Query(range.clone()),
-                    )
-                    .map_err(pipeline::core_error)?;
-                edits.push(data::Edit {
-                    kind: if scale_enum {
-                        data::EditKind::ScaleEnum
-                    } else if create {
-                        data::EditKind::Create
-                    } else {
-                        data::EditKind::Replace
-                    },
-                    name: Located::new(name.to_owned(), range),
-                    source: source[expression_range.clone()].to_owned(),
-                    range: expression_range,
-                    names,
-                });
-                parser.cursor.punctuation(b';', "expected ';' after edit")?;
-                parser.cursor.space();
-                continue;
-            }
-            if parser.cursor.take_word("emit") || parser.cursor.take_word("emit_document") {
-                if (edits.is_empty() && appends.is_empty()) || output_seen {
-                    return Err(QueryError::query(
-                        start..parser.cursor.position,
-                        "emit requires an edit batch",
-                    ));
-                }
-                parser.cursor.punctuation(b';', "expected ';' after emit")?;
-                let range = start..parser.cursor.position;
-                statements.push(Located::new(
-                    zirql::Statement::Evaluate {
-                        expression: value_stage(
-                            Stage::Data(std::mem::take(&mut edits), std::mem::take(&mut appends)),
-                            range.clone(),
-                        ),
-                        implicit_output: None,
-                    },
-                    range,
-                ));
-                document_seen = true;
-                parser.cursor.space();
-                continue;
-            }
-            if !edits.is_empty() || !appends.is_empty() {
-                return Err(parser.cursor.error("an edit batch must end with emit"));
-            }
-            let quoted_let = source[start..].starts_with("let")
-                && parser
-                    .lexed
-                    .tokens()
-                    .iter()
-                    .filter(|token| {
-                        token.range.start >= start
-                            && !matches!(
-                                token.kind,
-                                zincite_syntax::TokenKind::Whitespace
-                                    | zincite_syntax::TokenKind::LineComment
-                                    | zincite_syntax::TokenKind::BlockComment
-                            )
-                    })
-                    .nth(1)
-                    .is_some_and(|token| token.kind == zincite_syntax::TokenKind::QuotedIdentifier);
-            if quoted_let {
-                parser.cursor.take_word("let");
-            }
-            let mut reader =
-                zirql::ArgumentReader::new(source, start).map_err(pipeline::core_error)?;
-            let pattern = if quoted_let {
-                None
-            } else {
-                zirql::read_pattern_let(&mut reader, &mut parser.preflight, limits.nesting)
-                    .map_err(pipeline::core_error)?
-            };
-            let is_let = pattern.is_some() || quoted_let;
-            if let Some(pattern) = &pattern {
-                parser.cursor.position = reader.position();
-                for name in zirql::pattern_names(pattern, &mut parser.preflight)
-                    .map_err(pipeline::core_error)?
-                {
-                    if !parser.minizinc_identifier(&name.range) {
-                        invalid_binding = Some(name.range.clone());
-                    }
-                    if is_program_binding_keyword(&name.value) {
-                        return Err(QueryError::query(
-                            name.range.clone(),
-                            "binding name is reserved by the program grammar",
-                        ));
-                    }
-                    if parser.names.contains_key(&name.value) {
-                        return Err(QueryError::query(
-                            name.range.clone(),
-                            "binding is already defined",
-                        ));
-                    }
-                }
-                if !matches!(pattern.value, zirql::PatternKind::Name(_)) {
-                    parser.prepared = true;
-                }
-            }
-            let binding = if quoted_let {
-                let (name, range) = parser.identifier("expected a binding name")?;
-                if !parser.minizinc_identifier(&range) {
-                    invalid_binding = Some(range.clone());
-                }
-                if is_program_binding_keyword(name) {
-                    return Err(QueryError::query(
-                        range,
-                        "binding name is reserved by the program grammar",
-                    ));
-                }
-                if parser.names.contains_key(name) {
-                    return Err(QueryError::query(range, "binding is already defined"));
-                }
-                parser
-                    .cursor
-                    .punctuation(b'=', "expected '=' after binding name")?;
-                Some(Located::new(name.to_owned(), range))
-            } else if let Some(Located {
-                value: zirql::PatternKind::Name(name),
-                ..
-            }) = &pattern
-            {
-                Some(name.clone())
-            } else {
-                None
-            };
-            let report = !is_let && binding.is_none() && parser.cursor.take_word("report");
-            parser.cursor.space();
-            let expression_start = parser.cursor.position;
-            let expression_end = match parser.expression_end() {
-                Ok(end) => end,
-                Err(_) if !is_let && binding.is_none() => source.len(),
-                Err(error) => return Err(error),
-            };
-            let query_start = parser.queries.len();
-            let (expression, kind, emits) =
-                parser.composition_expression(expression_start..expression_end, !is_let, is_let)?;
-            let editing_expression = parser.queries[query_start..]
-                .iter()
-                .any(|query| query.query.is_editing());
-            if is_let && editing_expression {
-                return Err(QueryError::query(
-                    expression.range.clone(),
-                    "a binding cannot perform an edit",
-                ));
-            }
-            if (binding.is_some() || is_let) && emits {
-                return Err(QueryError::query(
-                    expression.range.clone(),
-                    "a binding cannot emit",
-                ));
-            }
-            if !(!is_let && binding.is_none() && parser.cursor.position == source.len()) {
-                parser
-                    .cursor
-                    .punctuation(b';', "expected ';' after program statement")?;
-            }
-            output_seen |= binding.is_none() && !is_let;
-            let statement = if let Some(pattern) =
-                pattern.filter(|p| !matches!(p.value, zirql::PatternKind::Name(_)))
-            {
-                let names = zirql::pattern_names(&pattern, &mut parser.preflight)
-                    .map_err(pipeline::core_error)?
-                    .into_iter()
-                    .cloned()
-                    .collect::<Vec<_>>();
-                for name in &names {
-                    parser.names.insert(name.value.clone(), Kind::Constructed);
-                }
-                let range = expression.range.clone();
-                let value = functions::into_value(expression);
-                zirql::Statement::BindFields {
-                    names,
-                    expression: value_stage(Stage::PatternBinding(pattern, value), range),
-                }
-            } else if let Some(name) = binding {
-                parser.names.insert(name.value.clone(), kind);
-                zirql::Statement::Bind { name, expression }
-            } else {
-                zirql::Statement::Evaluate {
-                    expression,
-                    implicit_output: Some(
-                        if report
-                            || !editing_expression
-                                && matches!(
-                                    kind,
-                                    Kind::Record
-                                        | Kind::Dictionary(_)
-                                        | Kind::Constructed
-                                        | Kind::Value(_)
-                                        | Kind::Capture(_)
-                                        | Kind::Captures(_)
-                                )
-                        {
-                            Emitter::Json
-                        } else {
-                            Emitter::Source
-                        },
-                    ),
-                }
-            };
-            statements.push(Located::new(statement, start..parser.cursor.position));
-            parser.cursor.space();
-        }
-        if !edits.is_empty() || !appends.is_empty() {
+        let mut budget =
+            std::mem::replace(&mut parser.preflight, Budget::for_program(limits.core()));
+        let parsed = zirql::read_program(source, &[], &mut parser, &mut budget, limits.nesting);
+        parser.preflight = budget;
+        let parsed = parsed.map_err(pipeline::core_error)?;
+        let statements = parsed.statements;
+        let parameters = parsed
+            .parameters
+            .into_iter()
+            .map(|parameter| parameter.declaration)
+            .collect();
+        parser.functions = parsed.functions;
+        let document_seen = parser.document_seen;
+        let invalid_binding = parser.invalid_binding.take();
+        if !parser.edits.is_empty() || !parser.appends.is_empty() {
             return Err(parser.cursor.error("an edit batch must end with emit"));
         }
         let scalar_edit = parser.queries.iter().any(|query| {
@@ -1248,7 +891,6 @@ struct Parser<'a> {
     names: BTreeMap<String, Kind>,
     queries: Vec<ProgramQuery>,
     functions: Vec<zirql::UnresolvedPatternFunctionDeclaration<Expression>>,
-    function_ranges: Vec<Range<usize>>,
     function_names: std::collections::BTreeSet<String>,
     constructed_functions: std::collections::BTreeSet<String>,
     function_scope: Option<BTreeMap<String, Kind>>,
@@ -1261,6 +903,14 @@ struct Parser<'a> {
     composition_error: Option<QueryError>,
     prepared_values: bool,
     source_copy_range: Option<Range<usize>>,
+    edits: Vec<data::Edit>,
+    appends: Vec<(Located<String>, Located<String>)>,
+    target_names: std::collections::BTreeSet<String>,
+    output_seen: bool,
+    document_seen: bool,
+    invalid_binding: Option<Range<usize>>,
+    expression_kind: Kind,
+    editing_expression: bool,
 }
 impl<'a> Parser<'a> {
     fn new(source: &'a str, limits: ProgramLimits) -> Self {
@@ -1277,7 +927,6 @@ impl<'a> Parser<'a> {
             names: BTreeMap::new(),
             queries: Vec::new(),
             functions: Vec::new(),
-            function_ranges: Vec::new(),
             function_names: std::collections::BTreeSet::new(),
             constructed_functions: std::collections::BTreeSet::new(),
             function_scope: None,
@@ -1289,6 +938,14 @@ impl<'a> Parser<'a> {
             composition_error: None,
             prepared_values: false,
             source_copy_range: None,
+            edits: Vec::new(),
+            appends: Vec::new(),
+            target_names: std::collections::BTreeSet::new(),
+            output_seen: false,
+            document_seen: false,
+            invalid_binding: None,
+            expression_kind: Kind::Constructed,
+            editing_expression: false,
             lexed: zincite_syntax::lex(source),
         }
     }
@@ -1350,14 +1007,8 @@ impl<'a> Parser<'a> {
     }
     fn begin_pure(&mut self, range: Range<usize>) -> Result<(), QueryError> {
         if self.preflight_range.is_none() {
-            let units = self
-                .cursor
-                .source
-                .len()
-                .checked_add(self.lexed.tokens().len())
-                .ok_or_else(|| {
-                    QueryError::query(range.clone(), "program allocation size overflow")
-                })?;
+            // The common program reader admits the source scan.
+            let units = self.lexed.tokens().len();
             self.preflight
                 .charge(units, zirql::Location::Query(range.clone()))
                 .map_err(pipeline::core_error)?;
@@ -3480,4 +3131,311 @@ fn admit_written_members<'v, 'a>(
         }
     }
     Ok(())
+}
+
+impl zirql::ProgramReaderHost for Parser<'_> {
+    fn function_name(
+        &mut self,
+        name: Located<&str>,
+        budget: &mut Budget,
+    ) -> Result<(), zirql::QueryError> {
+        budget.charge(
+            name.value.len() + 1,
+            zirql::Location::Query(name.range.clone()),
+        )?;
+        budget.charge_results(1, zirql::Location::Query(name.range.clone()))?;
+        self.function_names.insert(name.value.to_owned());
+        Ok(())
+    }
+    fn function_scope(&mut self, active: bool) {
+        self.function_scope = active.then(BTreeMap::new);
+    }
+    fn admit_functions(
+        &mut self,
+        functions: &mut [zirql::UnresolvedPatternFunctionDeclaration<Expression>],
+        budget: &mut Budget,
+    ) -> Result<(), zirql::QueryError> {
+        self.admit_program_functions(functions, budget)
+            .map_err(composition::query_error)
+    }
+    fn admit_name(
+        &mut self,
+        name: Located<&str>,
+        parameter: bool,
+    ) -> Result<(), zirql::QueryError> {
+        if is_program_binding_keyword(name.value) {
+            return Err(zirql::QueryError::query(
+                name.range.clone(),
+                if parameter {
+                    "parameter name is reserved or already defined"
+                } else {
+                    "binding name is reserved by the program grammar"
+                },
+            ));
+        }
+        if !self.minizinc_identifier(&name.range) {
+            self.invalid_binding = Some(name.range.clone());
+        }
+        Ok(())
+    }
+    fn read_host_statement(
+        &mut self,
+        reader: &mut zirql::ArgumentReader<'_>,
+        _: &[&str],
+        budget: &mut Budget,
+        _: usize,
+    ) -> Result<Option<Vec<Located<zirql::ReadStatement<Self>>>>, zirql::QueryError> {
+        self.cursor.position = reader.position();
+        std::mem::swap(&mut self.preflight, budget);
+        let result = (|| -> Result<_, QueryError> {
+            let start = self.cursor.position;
+            if self.document_seen {
+                return Err(self.cursor.error("no statement may follow emit"));
+            }
+            let mut statements = Vec::new();
+            let create = self.cursor.take_word("create");
+            let replace = !create && self.cursor.take_word("replace");
+            let append_start = self.cursor.position;
+            let append = !create && !replace && self.cursor.take_word("append") && {
+                self.cursor.space();
+                self.cursor
+                    .current()
+                    .is_some_and(|b| b.is_ascii_alphabetic() || b == b'\'')
+            };
+            if !create && !replace && !append {
+                self.cursor.position = append_start;
+            }
+            let scale_enum =
+                !create && !replace && !append && self.cursor.take_word("scale_enum") && {
+                    self.cursor.space();
+                    self.cursor
+                        .current()
+                        .is_some_and(|b| b.is_ascii_alphabetic() || b == b'\'')
+                };
+            if !create && !replace && !append && !scale_enum {
+                self.cursor.position = append_start;
+            }
+            if create || replace || append || scale_enum {
+                if self.output_seen {
+                    return Err(self
+                        .cursor
+                        .error("an edit batch cannot include report or query emissions"));
+                }
+                let (name, range) = self.identifier("expected an assignment target")?;
+                if !self.minizinc_identifier(&range) {
+                    return Err(QueryError::query(
+                        range,
+                        "expected a MiniZinc identifier or quoted identifier",
+                    ));
+                }
+                self.begin_pure(range.clone())?;
+                self.preflight
+                    .charge(name.len() + 1, zirql::Location::Query(range.clone()))
+                    .map_err(pipeline::core_error)?;
+                self.preflight
+                    .charge_results(1, zirql::Location::Query(range.clone()))
+                    .map_err(pipeline::core_error)?;
+                if !self.target_names.insert(name.to_owned()) {
+                    return Err(QueryError::query(range, "duplicate edit target"));
+                }
+                self.cursor
+                    .punctuation(b'=', "expected '=' after edit target")?;
+                self.cursor.space();
+                let expression_range = self.cursor.position..self.expression_end()?;
+                if append {
+                    let (expression, kind, emits) =
+                        self.composition_expression(expression_range.clone(), false, true)?;
+                    if emits || !matches!(kind, Kind::MemberCopies | Kind::SourceCopies) {
+                        return Err(QueryError::query(
+                            expression_range,
+                            "append requires native source copies",
+                        ));
+                    }
+                    let slot =
+                        Located::new(format!("\0append{}", self.appends.len()), range.clone());
+                    statements.push(Located::new(
+                        zirql::Statement::Bind {
+                            name: slot.clone(),
+                            expression,
+                        },
+                        expression_range,
+                    ));
+                    self.appends
+                        .push((Located::new(name.to_owned(), range), slot));
+                    self.cursor.punctuation(b';', "expected ';' after edit")?;
+                    self.cursor.space();
+                    return Ok(Some(statements));
+                }
+                let (_, names) = self.pure_value::<()>(expression_range.clone())?;
+                self.preflight
+                    .charge(
+                        expression_range.len() + name.len() + 1,
+                        zirql::Location::Query(range.clone()),
+                    )
+                    .map_err(pipeline::core_error)?;
+                self.edits.push(data::Edit {
+                    kind: if scale_enum {
+                        data::EditKind::ScaleEnum
+                    } else if create {
+                        data::EditKind::Create
+                    } else {
+                        data::EditKind::Replace
+                    },
+                    name: Located::new(name.to_owned(), range),
+                    source: self.cursor.source[expression_range.clone()].to_owned(),
+                    range: expression_range,
+                    names,
+                });
+                self.cursor.punctuation(b';', "expected ';' after edit")?;
+                self.cursor.space();
+                return Ok(Some(statements));
+            }
+            if self.cursor.take_word("emit") || self.cursor.take_word("emit_document") {
+                if (self.edits.is_empty() && self.appends.is_empty()) || self.output_seen {
+                    return Err(QueryError::query(
+                        start..self.cursor.position,
+                        "emit requires an edit batch",
+                    ));
+                }
+                self.cursor.punctuation(b';', "expected ';' after emit")?;
+                let range = start..self.cursor.position;
+                statements.push(Located::new(
+                    zirql::Statement::Evaluate {
+                        expression: value_stage(
+                            Stage::Data(
+                                std::mem::take(&mut self.edits),
+                                std::mem::take(&mut self.appends),
+                            ),
+                            range.clone(),
+                        ),
+                        implicit_output: None,
+                    },
+                    range,
+                ));
+                self.document_seen = true;
+                self.cursor.space();
+                return Ok(Some(statements));
+            }
+            if !self.edits.is_empty() || !self.appends.is_empty() {
+                return Err(self.cursor.error("an edit batch must end with emit"));
+            }
+
+            Ok(None)
+        })();
+        std::mem::swap(&mut self.preflight, budget);
+        if matches!(result, Ok(Some(_))) {
+            reader.advance(self.cursor.position - reader.position())?;
+        }
+        result.map_err(composition::query_error)
+    }
+    fn read_program_expression(
+        &mut self,
+        reader: &mut zirql::ArgumentReader<'_>,
+        _: &[&str],
+        purpose: zirql::ProgramExpression,
+        budget: &mut Budget,
+        _: usize,
+    ) -> Result<Expression, zirql::QueryError> {
+        self.cursor.position = reader.position();
+        std::mem::swap(&mut self.preflight, budget);
+        let result = (|| -> Result<_, QueryError> {
+            self.cursor.space();
+            let binding = purpose == zirql::ProgramExpression::Binding;
+            let start = self.cursor.position;
+            let end = match self.expression_end() {
+                Ok(end) => end,
+                Err(_) if !binding => self.cursor.source.len(),
+                Err(error) => return Err(error),
+            };
+            let query_start = self.queries.len();
+            let (expression, kind, emits) =
+                self.composition_expression(start..end, !binding, binding)?;
+            self.editing_expression = self.queries[query_start..]
+                .iter()
+                .any(|query| query.query.is_editing());
+            if binding && (self.editing_expression || emits) {
+                let message = if emits {
+                    "a binding cannot emit"
+                } else {
+                    "a binding cannot perform an edit"
+                };
+                zirql::dispose_expression(expression);
+                return Err(QueryError::query(start..end, message));
+            }
+            self.expression_kind = kind;
+            self.output_seen |= !binding;
+            Ok(expression)
+        })();
+        std::mem::swap(&mut self.preflight, budget);
+        if result.is_ok() {
+            reader.advance(self.cursor.position - reader.position())?;
+        }
+        result.map_err(composition::query_error)
+    }
+    fn parameter_statement(
+        &mut self,
+        declaration: &zirql::ParameterDeclaration,
+        index: usize,
+        budget: &mut Budget,
+    ) -> Result<Option<Located<zirql::ReadStatement<Self>>>, zirql::QueryError> {
+        std::mem::swap(&mut self.preflight, budget);
+        let admission = self.begin_pure(declaration.name.range.clone());
+        std::mem::swap(&mut self.preflight, budget);
+        admission.map_err(composition::query_error)?;
+        self.names.insert(
+            declaration.name.value.clone(),
+            Kind::Scalar(declaration.ty.value),
+        );
+        Ok(Some(Located::new(
+            zirql::Statement::Bind {
+                name: declaration.name.clone(),
+                expression: value_stage(Stage::Parameter(index), declaration.name.range.clone()),
+            },
+            declaration.name.range.clone(),
+        )))
+    }
+    fn binding_statement(
+        &mut self,
+        pattern: zirql::Pattern,
+        names: Vec<Located<String>>,
+        expression: Expression,
+        _: &mut Budget,
+    ) -> Result<zirql::ReadStatement<Self>, zirql::QueryError> {
+        if let zirql::PatternKind::Name(name) = pattern.value {
+            self.names
+                .insert(name.value.clone(), self.expression_kind.clone());
+            Ok(zirql::Statement::Bind { name, expression })
+        } else {
+            self.prepared = true;
+            for name in &names {
+                self.names.insert(name.value.clone(), Kind::Constructed);
+            }
+            let range = expression.range.clone();
+            let value = functions::into_value(expression);
+            Ok(zirql::Statement::BindFields {
+                names,
+                expression: value_stage(Stage::PatternBinding(pattern, value), range),
+            })
+        }
+    }
+    fn implicit_output(&mut self, purpose: zirql::ProgramExpression) -> Option<Emitter> {
+        Some(
+            if purpose == zirql::ProgramExpression::Report
+                || !self.editing_expression
+                    && matches!(
+                        self.expression_kind,
+                        Kind::Record
+                            | Kind::Dictionary(_)
+                            | Kind::Constructed
+                            | Kind::Value(_)
+                            | Kind::Capture(_)
+                            | Kind::Captures(_)
+                    )
+            {
+                Emitter::Json
+            } else {
+                Emitter::Source
+            },
+        )
+    }
 }

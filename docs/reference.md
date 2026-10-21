@@ -200,7 +200,7 @@ by the objective expression. Each node retains its precise source range.
 ## Development report transformations
 
 The development query adapter pins Zirql Git revision
-`5d6a466a6ee9bac2a90c2dfbc5579a0b0c12f08d`. It supports positional `map` and
+`23b4e4e70a9225dfeea51642c130da2431b12d9d`. It supports positional `map` and
 `flat_map`, selective `case` generators, `windows`, `runs_by`, record updates
 with `with`, and full `align` by a unique field. The
 [report transformation example](query-comprehension-contract.md#transform-report-rows)
@@ -230,6 +230,16 @@ satisfy their scalar contract. Zincite retains its own classification of native
 scalar/value wrappers, MiniZinc model admission and Data edit restrictions.
 Counts and source-copy bounds use the shared located nonnegative integer
 conversion. See [the adapter API contract](https://zayenz.se/zirql/guides/host-integration/#declaration-metadata-and-scalar-arguments).
+
+## Common program reader
+
+Text programs use Zirql's `read_program` for top-level function collection,
+parameters, pattern lets, duplicate checks, sequential scope and separators.
+Zincite callbacks admit native types/expressions and lower its source/edit
+statements; output and atomic candidate validation stay in Zincite. The public
+`Program::parse` API remains read-only. See [program syntax and output](queries.md#program-syntax-and-output)
+for the supported surface and runnable recipe. These APIs use this development
+checkout's pinned Zirql revision; registry Zirql 0.2.0 does not include the reader.
 
 ## Query library
 
@@ -988,7 +998,7 @@ extract exactly one value from a projection. Native node and semantic selections
 retain their identities; use an explicit projection before passing them to a
 scalar operation or comprehension.
 
-The development dependency pins Zirql `5d6a466a6ee9bac2a90c2dfbc5579a0b0c12f08d`.
+The development dependency pins Zirql `23b4e4e70a9225dfeea51642c130da2431b12d9d`.
 Zirql traverses mixed native/constructed containers, converts constructed nodes
 with its tagged-data codec, and writes JSON with the active request budget.
 Zincite supplies native source/semantic descriptors, shape admission and the

@@ -75,97 +75,29 @@ fn native_function<'c, 'a, 'h, 'q>(
 }
 
 impl Parser<'_> {
-    pub(super) fn collect_functions(&mut self) -> Result<(), QueryError> {
-        use zincite_syntax::TokenKind as T;
-        let mut depth = 0usize;
-        for (index, token) in self.lexed.tokens().iter().enumerate() {
-            if depth == 0 && &self.cursor.source[token.range.clone()] == "fn" {
-                let mut following = self.lexed.tokens()[index + 1..].iter().filter(|token| {
-                    !matches!(token.kind, T::Whitespace | T::LineComment | T::BlockComment)
-                });
-                if let (Some(name), Some(open)) = (following.next(), following.next())
-                    && open.kind == T::LeftParen
-                {
-                    self.function_names
-                        .insert(self.cursor.source[name.range.clone()].to_owned());
-                }
+    pub(super) fn admit_program_functions(
+        &mut self,
+        functions: &mut [zirql::UnresolvedPatternFunctionDeclaration<Expression>],
+        budget: &mut Budget,
+    ) -> Result<(), QueryError> {
+        for function in functions.iter() {
+            check_signature(&function.result, budget, self.limits.nesting)?;
+            for parameter in &function.parameters {
+                check_signature(&parameter.value.declaration, budget, self.limits.nesting)?;
             }
-            match token.kind {
-                T::LeftParen | T::LeftBracket | T::LeftBrace | T::MatrixStart => depth += 1,
-                T::RightParen | T::RightBracket | T::RightBrace | T::MatrixEnd => {
-                    depth = depth.saturating_sub(1)
-                }
-                _ => {}
-            }
+            check_value(&function.value, budget, self.limits.nesting)?;
+            self.report_model_demand |= signature_needs_model(&function.result.value)
+                || function
+                    .parameters
+                    .iter()
+                    .any(|parameter| signature_needs_model(&parameter.value.declaration.value));
         }
-        let mut position = 0;
-        let mut depth = 0usize;
-        while position < self.lexed.tokens().len() {
-            let token = self.lexed.tokens()[position].clone();
-            if depth == 0 && &self.cursor.source[token.range.clone()] == "fn" {
-                let start = token.range.start;
-                let mut reader = zirql::ArgumentReader::new(self.cursor.source, start)
-                    .map_err(pipeline::core_error)?;
-                let mut budget =
-                    std::mem::replace(&mut self.preflight, Budget::for_program(self.limits.core()));
-                let result = zirql::read_unresolved_pattern_function_declaration(
-                    &mut reader,
-                    self,
-                    &mut budget,
-                    self.limits.nesting,
-                );
-                self.preflight = budget;
-                if let Some(function) = result.map_err(pipeline::core_error)? {
-                    let admission = (|| {
-                        check_signature(
-                            &function.result,
-                            &mut self.preflight,
-                            self.limits.nesting,
-                        )?;
-                        for parameter in &function.parameters {
-                            check_signature(
-                                &parameter.value.declaration,
-                                &mut self.preflight,
-                                self.limits.nesting,
-                            )?;
-                        }
-                        check_value(&function.value, &mut self.preflight, self.limits.nesting)?;
-                        Ok::<(), QueryError>(())
-                    })();
-                    if let Err(error) = admission {
-                        zirql::dispose_unresolved_pattern_functions(vec![function]);
-                        return Err(error);
-                    }
-
-                    self.report_model_demand |= signature_needs_model(&function.result.value)
-                        || function.parameters.iter().any(|parameter| {
-                            signature_needs_model(&parameter.value.declaration.value)
-                        });
-                    self.function_ranges.push(start..reader.position());
-                    self.functions.push(function);
-                    position = self
-                        .lexed
-                        .tokens()
-                        .partition_point(|token| token.range.start < reader.position());
-                    continue;
-                }
-            }
-            match token.kind {
-                T::LeftParen | T::LeftBracket | T::LeftBrace | T::MatrixStart => depth += 1,
-                T::RightParen | T::RightBracket | T::RightBrace | T::MatrixEnd => {
-                    depth = depth.saturating_sub(1)
-                }
-                _ => {}
-            }
-            position += 1;
-        }
-        self.constructed_functions = self
-            .functions
+        self.constructed_functions = functions
             .iter()
             .filter(|function| constructed_signature(&function.result.value))
             .map(|function| function.name.value.clone())
             .collect();
-        for function in &mut self.functions {
+        for function in functions {
             normalize_value(
                 &mut function.value,
                 &BTreeMap::new(),
@@ -173,7 +105,6 @@ impl Parser<'_> {
                 &self.constructed_functions,
             );
         }
-        self.cursor.position = 0;
         Ok(())
     }
     pub(super) fn reader_locals(&self) -> Vec<String> {

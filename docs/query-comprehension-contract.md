@@ -15,6 +15,13 @@ Zincite uses Zirql to evaluate supported expressions;
 its [value guide](https://zayenz.se/zirql/guides/values/) provides additional
 examples across hosts.
 
+Program declarations and lexical statement order use Zirql's common reader.
+Host admission still applies to every Data/edit expression, including unused
+branches and functions: sharing the reader does not widen this closed subset.
+Source coordinates, quoted MiniZinc names, original input ownership and atomic
+`emit;` batches remain Zincite responsibilities. The [query guide](queries.md#program-syntax-and-output)
+lists the supported statement surface.
+
 ## Combine source selections in a report
 
 Source selections and semantic queries can feed a report directly. Use
@@ -95,7 +102,7 @@ Zincite responsibilities.
 ## Transform report rows
 
 The development checkout pins Zirql
-[`5d6a466a6ee9bac2a90c2dfbc5579a0b0c12f08d`](https://github.com/zayenz/zirql/commit/5d6a466a6ee9bac2a90c2dfbc5579a0b0c12f08d).
+[`23b4e4e70a9225dfeea51642c130da2431b12d9d`](https://github.com/zayenz/zirql/commit/23b4e4e70a9225dfeea51642c130da2431b12d9d).
 The following report forms require that checkout; the published Zirql 0.2.0
 integration predates them.
 

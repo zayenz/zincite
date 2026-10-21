@@ -23,6 +23,37 @@ Saved repository examples use the [v0.2.0 checkout](getting-started.md#build-fro
 Run their repository-relative paths from the checkout root. Examples that give
 file contents can be run in a new directory with the installed commands.
 
+## Program syntax and output
+
+`--program` and `--program-file` use Zirql's common declaration and statement
+reader. `param name: int|string|bool;` declares caller data; `let pattern =
+expression;` saves a value; `report expression;` requests JSON. Ordinary query
+statements choose native source output or report output from their result kind.
+A final evaluation may omit its semicolon. Functions use `fn name(...) -> Type
+{ ... }` without a following separator. A single query needs no declarations.
+
+Function names are available throughout the program. Parameters and bindings
+become available at their written positions, and a repeated name is an error.
+Functions receive arguments explicitly; they cannot capture program parameters,
+bindings or the current input. The reader ignores function-like text inside
+strings, comments and nested bodies.
+
+Zincite retains MiniZinc quoted names, source-copy operations and the smaller
+Data/edit language described in the [expression contract](query-comprehension-contract.md).
+`create`, `replace`, `append` and `scale_enum` form an atomic batch ending with
+`emit;` (`emit_document;` is its alias). No statement follows that terminator.
+Bindings cannot edit or emit. Parsing builds syntax only; preparation and
+execution validate native facts and the complete candidate before output.
+Zincite output stages remain terminal and later errors leave stdout empty.
+
+Run the existing function recipe from this development checkout:
+
+```sh
+cargo run --locked --bin zincite -- query --program-file \
+  crates/zincite-query/tests/fixtures/recursive-functions.zq \
+  crates/zincite-query/tests/fixtures/recursive-functions.mzn
+```
+
 ## Select items and calls
 
 Save this small model as `model.mzn`. It shares a capacity across three
@@ -1263,7 +1294,7 @@ retain their existing closed subset.
 
 ## Render a mixed native report
 
-The development Git dependency at Zirql `5d6a466a6ee9bac2a90c2dfbc5579a0b0c12f08d`
+The development Git dependency at Zirql `23b4e4e70a9225dfeea51642c130da2431b12d9d`
 uses the shared tagged-data codec inside native reports. Against `model.mzn`
 above, run:
 
