@@ -212,3 +212,15 @@ and query stages.
 To calculate with the values themselves, [bind a named assignment with
 `let`](queries.md#read-a-named-assignment). That example sums a literal array
 inside the query and combines it with another assignment in one report.
+
+## Select constructed rows
+
+```text
+let limit=2;
+report [3,1,3] | filter(_>1) | head(limit) | reverse | check(limit,"two rows");
+```
+
+This reports `[3,3]`. The development checkout accepts runtime bounds and check
+messages. Dictionary filters test values and keep their keys/order. See the
+[collection reference](reference.md#collection-selection-and-cardinality) for
+kinds, declarations and the Data boundary.

@@ -200,7 +200,7 @@ by the objective expression. Each node retains its precise source range.
 ## Development report transformations
 
 The development query adapter pins Zirql Git revision
-`f89cb7a68a6124e0938ea582e03efc040b5ecafe`. It supports positional `map` and
+`0345851b57b35b7ade4de77466350cba56fe02ea`. It supports positional `map` and
 `flat_map`, selective `case` generators, `windows`, `runs_by`, record updates
 with `with`, and full `align` by a unique field. The
 [report transformation example](query-comprehension-contract.md#transform-report-rows)
@@ -1018,7 +1018,7 @@ extract exactly one value from a projection. Native node and semantic selections
 retain their identities; use an explicit projection before passing them to a
 scalar operation or comprehension.
 
-The development dependency pins Zirql `f89cb7a68a6124e0938ea582e03efc040b5ecafe`.
+The development dependency pins Zirql `0345851b57b35b7ade4de77466350cba56fe02ea`.
 Zirql traverses mixed native/constructed containers, converts constructed nodes
 with its tagged-data codec, and writes JSON with the active request budget.
 Zincite supplies native source/semantic descriptors, shape admission and the
@@ -1855,3 +1855,28 @@ Markdown bytes. `render()` buffers all emission requests together and spends
 the remaining request budget; an error returns no partial output. JSON keeps its
 existing completion envelope, and native source/candidate output keeps Zincite's
 source-preserving path. See the [inline and file recipe](queries.md#markdown-reports).
+
+## Collection selection and cardinality
+
+The development checkout applies `filter`, `count`, `length`, `head`, `tail`,
+`reverse` and `check` to positional arrays, sets, dictionaries and admitted native
+selections/maps. Filter tests dictionary values and preserves their keys/order.
+Bounds are nonnegative integer expressions; zero and oversized bounds are valid.
+`check` requires nonempty input, an exact count, or a message, and returns the
+unchanged input on success. Declared empty element/key/value schemas survive
+selection. Keyed arrays expose present-cell count/length; convert them explicitly
+before removal or reversal. Data construction retains its closed subset and
+refuses these report-only selection nodes.
+
+```text
+let limit=2;
+report [3,1,3] | filter(_>1) | head(limit) | reverse | check(limit,"two rows");
+```
+
+The report is `[3,3]`. Rust `ProgramValue` uses Zirql's `Filter`, `Head`, `Tail`,
+`Reverse` and `Check` value nodes; count is `Reduce` with `ValueReducer::Length`.
+Native query leaves preserve Zincite's owner and completeness checks. Full
+signatures and empty behavior are in the
+[shared collection reference](https://zayenz.se/zirql/guides/library-pipelines/#filter).
+These additions require this development checkout; published versions retain
+their documented support.

@@ -244,9 +244,30 @@ fn value_suffix_kind(
     {
         return Some(zirql::ValueSuffixKind::Sort);
     }
+    match stage {
+        ExpressionStep::Head(_) => return Some(zirql::ValueSuffixKind::Head),
+        ExpressionStep::Tail(_) => return Some(zirql::ValueSuffixKind::Tail),
+        ExpressionStep::Check { .. } => return Some(zirql::ValueSuffixKind::Check),
+        _ => {}
+    }
     if let ExpressionStep::Collection(operation) = stage {
+        match operation {
+            zirql::Stage::Head(n) | zirql::Stage::Tail(n) => {
+                i64::try_from(*n).ok()?;
+            }
+            zirql::Stage::Check {
+                expected: Some(n), ..
+            } => {
+                i64::try_from(*n).ok()?;
+            }
+            _ => {}
+        }
         return Some(match operation {
             zirql::Stage::Count => zirql::ValueSuffixKind::Count,
+            zirql::Stage::Head(_) => zirql::ValueSuffixKind::Head,
+            zirql::Stage::Tail(_) => zirql::ValueSuffixKind::Tail,
+            zirql::Stage::Reverse => zirql::ValueSuffixKind::Reverse,
+            zirql::Stage::Check { .. } => zirql::ValueSuffixKind::Check,
             zirql::Stage::Unique => zirql::ValueSuffixKind::Unique,
             zirql::Stage::Tally => zirql::ValueSuffixKind::Tally,
             _ => return None,
@@ -258,8 +279,23 @@ fn value_suffix_kind(
     let [stage] = queries[*index].query.stages.as_slice() else {
         return None;
     };
+    match &stage.kind {
+        language::StageKind::Head(n) | language::StageKind::Tail(n) => {
+            i64::try_from(*n).ok()?;
+        }
+        language::StageKind::Check {
+            expected: Some(n), ..
+        } => {
+            i64::try_from(*n).ok()?;
+        }
+        _ => {}
+    }
     Some(match stage.kind {
         language::StageKind::Count => zirql::ValueSuffixKind::Count,
+        language::StageKind::Head(_) => zirql::ValueSuffixKind::Head,
+        language::StageKind::Tail(_) => zirql::ValueSuffixKind::Tail,
+        language::StageKind::Reverse => zirql::ValueSuffixKind::Reverse,
+        language::StageKind::Check { .. } => zirql::ValueSuffixKind::Check,
         language::StageKind::Unique => zirql::ValueSuffixKind::Unique,
         language::StageKind::Tally => zirql::ValueSuffixKind::Tally,
         _ => return None,
@@ -329,10 +365,80 @@ fn take_constructed_suffix(
                     take(input, queries)?
                 };
                 for step in std::mem::take(steps) {
-                    let suffix = value_suffix_kind(&step.value, queries)
-                        .expect("suffixes checked above")
-                        .without_arguments()
-                        .expect("host suffix has no arguments");
+                    let kind =
+                        value_suffix_kind(&step.value, queries).expect("suffixes checked above");
+                    let literal =
+                        |value| Box::new(Located::new(K::Literal(value), step.range.clone()));
+                    let suffix = match step.value {
+                        ExpressionStep::Head(value) => zirql::ValueSuffix::Head(Box::new(
+                            Arc::try_unwrap(value).expect("parser-owned bound"),
+                        )),
+                        ExpressionStep::Tail(value) => zirql::ValueSuffix::Tail(Box::new(
+                            Arc::try_unwrap(value).expect("parser-owned bound"),
+                        )),
+                        ExpressionStep::Check { operand, message } => zirql::ValueSuffix::Check {
+                            operand: operand.map(|v| {
+                                Box::new(Arc::try_unwrap(v).expect("parser-owned check operand"))
+                            }),
+                            message: message.map(|v| {
+                                Box::new(Arc::try_unwrap(v).expect("parser-owned check message"))
+                            }),
+                        },
+                        ExpressionStep::Collection(operation) => match operation {
+                            zirql::Stage::Head(n) => {
+                                zirql::ValueSuffix::Head(literal(zirql::ConstructedValue::Integer(
+                                    i64::try_from(n).expect("admitted bound"),
+                                )))
+                            }
+                            zirql::Stage::Tail(n) => {
+                                zirql::ValueSuffix::Tail(literal(zirql::ConstructedValue::Integer(
+                                    i64::try_from(n).expect("admitted bound"),
+                                )))
+                            }
+                            zirql::Stage::Check { expected, message } => {
+                                zirql::ValueSuffix::Check {
+                                    operand: expected.map(|n| {
+                                        literal(zirql::ConstructedValue::Integer(
+                                            i64::try_from(n).expect("admitted count"),
+                                        ))
+                                    }),
+                                    message: message
+                                        .map(|s| literal(zirql::ConstructedValue::String(s))),
+                                }
+                            }
+                            _ => kind.without_arguments().expect("argument-free suffix"),
+                        },
+                        ExpressionStep::Stage(Stage::Query(index, _)) => {
+                            match &queries[index].query.stages[0].kind {
+                                language::StageKind::Head(n) => zirql::ValueSuffix::Head(literal(
+                                    zirql::ConstructedValue::Integer(
+                                        i64::try_from(*n).expect("admitted bound"),
+                                    ),
+                                )),
+                                language::StageKind::Tail(n) => zirql::ValueSuffix::Tail(literal(
+                                    zirql::ConstructedValue::Integer(
+                                        i64::try_from(*n).expect("admitted bound"),
+                                    ),
+                                )),
+                                language::StageKind::Check { expected, message } => {
+                                    zirql::ValueSuffix::Check {
+                                        operand: expected.map(|n| {
+                                            literal(zirql::ConstructedValue::Integer(
+                                                i64::try_from(n).expect("admitted count"),
+                                            ))
+                                        }),
+                                        message: message.as_ref().map(|s| {
+                                            literal(zirql::ConstructedValue::String(s.clone()))
+                                        }),
+                                    }
+                                }
+                                _ => kind
+                                    .without_arguments()
+                                    .expect("legacy argument-free suffix"),
+                            }
+                        }
+                        _ => kind.without_arguments().expect("argument-free suffix"),
+                    };
                     value = zirql::lower_value_suffix(value, Located::new(suffix, step.range))
                         .expect("the checked suffix chain ends at tally");
                 }

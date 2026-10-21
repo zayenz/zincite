@@ -59,3 +59,13 @@ Zincite targets MiniZinc 2.10.1 and does not run a compiler or solver. Read the
 semantic results. Formatting and interfaces may change in the 0.1 series.
 
 Licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
+
+## Collection value nodes
+
+Development `ProgramValue` reports build Zirql's `Filter`, `Head`, `Tail`,
+`Reverse` and `Check` nodes directly. Bound/check arguments are expressions;
+`Reduce { operator: ValueReducer::Length, .. }` supplies count/length. Native
+query leaves keep their owner/completeness contracts. See the
+[host collection reference](../../docs/reference.md#collection-selection-and-cardinality)
+and [runnable recipe](../../docs/query-cookbook.md#select-constructed-rows).
+Data admission retains its closed subset.

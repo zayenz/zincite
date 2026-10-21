@@ -1253,6 +1253,9 @@ fn validate_stages(query: &Query, mut kind: Kind) -> Result<Kind, QueryError> {
                         | Kind::Declarations
                         | Kind::Types
                         | Kind::Instantiations
+                        | Kind::Dictionary(_)
+                        | Kind::Record
+                        | Kind::Tally
                 );
                 kind = Kind::Count;
                 valid
@@ -1271,7 +1274,7 @@ fn validate_stages(query: &Query, mut kind: Kind) -> Result<Kind, QueryError> {
                     | Kind::Types
                     | Kind::Instantiations
             ),
-            S::Head(_) | S::Tail(_) | S::Reverse
+            S::Head(_) | S::Tail(_) | S::Reverse | S::Check { .. }
                 if matches!(kind, Kind::Dictionary(_) | Kind::Record | Kind::Tally) =>
             {
                 true

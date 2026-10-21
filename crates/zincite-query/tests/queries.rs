@@ -5937,7 +5937,7 @@ fn native_stream_controls_reuse_saved_values_and_scoped_arguments() {
     for source in [
         r#"let unused=head(0) | check(true); report 1;"#,
         r#"fn unused()->int { let bad=head(0) | check(false); 1 } report 1;"#,
-        r#"report [1,2] | tail(1);"#,
+        r#"report (1,2) | tail(1);"#,
         r#"let unused=items | reverse; replace a=2; emit;"#,
     ] {
         assert!(
@@ -7842,4 +7842,59 @@ fn scalar_conversions_use_shared_reports_and_stay_out_of_all_data_branches() {
             .evaluate(&input, limits)
             .is_err()
     );
+}
+
+#[test]
+fn collection_selection_matches_typed_values_and_keeps_dictionary_values() {
+    use zincite_query::{Program, ProgramLimits, ProgramValue, ReportValue};
+    use zirql::{ConstructedValue as V, Located, ValueExpressionKind as K};
+    let limits = ProgramLimits::default();
+    let input = Input::parse(b"x=1;".to_vec(), FileMode::Data).unwrap();
+    let source = r#"let limit=2; let message="kept" ++ " rows"; report [3,1,3] | filter(_>1) | head(limit) | tail(9) | reverse | check(limit,message);"#;
+    let parsed = Program::parse(source, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    fn e(
+        kind: K<zirql::Expression<zincite_query::ProgramNative, zirql::NativeSetOperator, ()>>,
+    ) -> ProgramValue {
+        Located::new(kind, 0..1)
+    }
+    let value = e(K::Check {
+        collection: Box::new(e(K::Reverse(Box::new(e(K::Head {
+            collection: Box::new(e(K::Literal(V::Array(vec![V::Integer(3), V::Integer(3)])))),
+            count: Box::new(e(K::Literal(V::Integer(2)))),
+        }))))),
+        operand: Some(Box::new(e(K::Literal(V::Integer(2))))),
+        message: Some(Box::new(e(K::Literal(V::String("kept rows".into()))))),
+    });
+    let typed = Program::from_values(vec![], vec![], value, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let ReportValue::Constructed(expected) = typed.emissions()[0].value() else {
+        panic!("constructed")
+    };
+    let ReportValue::Constructed(actual) = parsed.emissions()[0].value() else {
+        panic!("constructed")
+    };
+    assert_eq!(actual, expected);
+    let dictionary = Program::parse(r#"report {"a":1,"b":3,"c":2} | filter(_>1) | reverse | head(1); report length({1,2}); report {1:2} | filter(false) | check(0) | count;"#, limits).unwrap().evaluate(&input, limits).unwrap();
+    let ReportValue::Constructed(value) = dictionary.emissions()[0].value() else {
+        panic!("dictionary")
+    };
+    assert_eq!(value.data(), &V::Record(vec![("c".into(), V::Integer(2))]));
+    for source in [
+        "report [] | head(true);",
+        "report [] | check(0,7);",
+        "replace x = [1] | head(1);",
+        "replace x = [1] | reverse;",
+    ] {
+        assert!(
+            Program::parse(source, limits)
+                .and_then(|p| p.evaluate(&input, limits))
+                .is_err(),
+            "{source}"
+        );
+    }
 }

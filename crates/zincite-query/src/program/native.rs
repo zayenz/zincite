@@ -13,7 +13,7 @@ pub(super) enum Shape<'a> {
         item: bool,
     },
     Sequence(Rc<zirql::DeclaredType<Kind>>),
-    Array,
+    Array(Option<zirql::DeclaredType<()>>),
     Captures(Rc<zirql::NativeCapture<Kind>>),
     Capture,
 }
@@ -29,7 +29,7 @@ impl<'a> Shape<'a> {
         budget.charge(values.len() + 1, location.clone())?;
         budget.charge_results(values.len() + 1, location)?;
         Ok(match self {
-            Self::Array => {
+            Self::Array(declaration) => {
                 let mut array = Vec::with_capacity(values.len());
                 for value in values {
                     let value = functions::owned(value, budget, range)
@@ -47,7 +47,14 @@ impl<'a> Shape<'a> {
                         _ => unreachable!("constructed array filter keeps constructed elements"),
                     });
                 }
-                ReportValue::Constructed(zirql::ConstructedValue::Array(array))
+                let value = zirql::ConstructedValue::Array(array);
+                ReportValue::Constructed(match declaration {
+                    Some(declaration) => zirql::ConstructedValue::Declared {
+                        value: Box::new(value),
+                        declaration,
+                    },
+                    None => value,
+                })
             }
             Self::Sequence(element) => ReportValue::Sequence(NativeSequence {
                 values: Rc::new(values),
@@ -191,12 +198,18 @@ impl<'a> composition::CompositionHost<'_, '_> {
             ReportValue::Constructed(value)
                 if matches!(value.data(), zirql::ConstructedValue::Array(_)) =>
             {
+                let (value, declaration) = match value {
+                    zirql::ConstructedValue::Declared { value, declaration } => {
+                        (*value, Some(declaration))
+                    }
+                    value => (value, None),
+                };
                 let zirql::ConstructedValue::Array(values) = value.into_data() else {
                     unreachable!()
                 };
                 budget.charge_results(values.len(), location)?;
                 Ok((
-                    Shape::Array,
+                    Shape::Array(declaration),
                     values.into_iter().map(ReportValue::Constructed).collect(),
                 ))
             }
@@ -848,7 +861,7 @@ pub(super) fn shape<'a>(value: &ReportValue<'a>) -> Shape<'a> {
         ReportValue::Sequence(sequence) => Shape::Sequence(Rc::clone(&sequence.element)),
         ReportValue::Captures(captures) => Shape::Captures(Rc::clone(&captures.schema)),
         ReportValue::Capture(_) => Shape::Capture,
-        ReportValue::Constructed(_) | ReportValue::SharedConstructed(_) => Shape::Array,
+        ReportValue::Constructed(_) | ReportValue::SharedConstructed(_) => Shape::Array(None),
         ReportValue::Query(stream) => {
             let (kind, entities) = match stream {
                 SemanticStream::Entities(rows) => {

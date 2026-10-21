@@ -1699,37 +1699,36 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
             return Ok(input.clone());
         }
         if let Kind::Value(types) = input {
-            let mut elements = Vec::new();
-            for ty in types.iter() {
-                let ty = if let zirql::ValueType::Declared { actual, .. } = ty {
-                    actual.as_ref()
-                } else {
-                    ty
-                };
-                let values = match ty {
-                    zirql::ValueType::Array(
-                        zirql::ArrayType::Positions(values) | zirql::ArrayType::Elements(values),
-                    )
-                    | zirql::ValueType::ArrayKind(values) => values,
-                    _ => {
-                        return Err(zirql::QueryError::query(
-                            range.clone(),
-                            "filter needs a positional list or native selection",
-                        ));
-                    }
-                };
-                elements.extend(zirql::copy_value_types(
-                    values,
-                    budget,
-                    zirql::Location::Query(range.clone()),
-                )?);
-            }
-            if elements.is_empty() {
-                elements.push(zirql::ValueType::Unestablished);
-            }
-            return Ok(Kind::Value(Rc::new(elements)));
+            return Ok(Kind::Value(Rc::new(zirql::collection_subject_types(
+                types,
+                budget,
+                zirql::Location::Query(range.clone()),
+            )?)));
         }
         match input {
+            Kind::Dictionary(values) => {
+                if let Some(first) = values.first()
+                    && values.iter().all(|value| value == first)
+                {
+                    return Ok(first.clone());
+                }
+                let mut types = Vec::new();
+                for value in values.iter() {
+                    let Some(facts) = self.scalar_types(value, budget, range)? else {
+                        return Err(zirql::QueryError::query(
+                            range.clone(),
+                            "dictionary values need one admitted subject kind",
+                        ));
+                    };
+                    types.extend(facts);
+                }
+                if types.is_empty() {
+                    types.push(zirql::ValueType::Unestablished);
+                }
+                Ok(Kind::Value(Rc::new(types)))
+            }
+            Kind::Tally => Ok(Kind::Count),
+            Kind::Record => Ok(Kind::Constructed),
             Kind::Sequence(element) => {
                 use zirql::FunctionHost;
                 self.declaration_kind(element, budget, range)
@@ -1903,7 +1902,24 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         {
             *item = false;
         }
-        shape.restore(items, context, budget, range)
+        let restored = shape.restore(items, context, budget, range)?;
+        match restored {
+            ReportValue::Constructed(selected) => {
+                match zirql::RuntimeTypeHost::constructed_value(self, &input) {
+                    Some(original) => Ok(ReportValue::Constructed(
+                        zirql::restore_collection_declaration(
+                            original,
+                            selected,
+                            policy == zirql::SelectionShape::Filter,
+                            budget,
+                            zirql::Location::Query(range.clone()),
+                        )?,
+                    )),
+                    None => Ok(ReportValue::Constructed(selected)),
+                }
+            }
+            restored => Ok(restored),
+        }
     }
     fn admit_selection(
         &self,

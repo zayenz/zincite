@@ -116,7 +116,7 @@ Zincite responsibilities.
 ## Transform report rows
 
 The development checkout pins Zirql
-[`f89cb7a68a6124e0938ea582e03efc040b5ecafe`](https://github.com/zayenz/zirql/commit/f89cb7a68a6124e0938ea582e03efc040b5ecafe).
+[`0345851b57b35b7ade4de77466350cba56fe02ea`](https://github.com/zayenz/zirql/commit/0345851b57b35b7ade4de77466350cba56fe02ea).
 The following report forms require that checkout; the published Zirql 0.2.0
 integration predates them.
 
