@@ -63,10 +63,29 @@ evaluator. Natural MiniZinc records retain the forms below. The
 common dictionary and typed empty forms are read-only report syntax. Data edits
 retain the closed MiniZinc subset and serialization checks below.
 
+## Shared reader routing and names
+
+Zirql distinguishes constructed ordering calls such as
+`sort_by([(score: 2), (score: 1)], "score")` from native selectors such as
+`items | sort_by(names)`. A comma at the call's own argument level selects the
+constructed form; nested calls, strings, quoted identifiers and comments retain
+their existing meaning. Saved values and constructed function results use the
+same suffix grammar, including terminal `tally`. Forward function calls keep
+their declared native or constructed result kind after all declarations are read.
+
+Binding names use the common reader's identifier spelling and Zincite's
+MiniZinc identifier rules. Contextual names such as `if`, `match` and `present`
+remain available where admitted; quoted names retain their logical identity.
+The program reserves `let`, `report`, `json`, `emit`, `create`, `replace` and
+`emit_document` in binding positions. Function declarations also reject common
+operation names and Zincite's native operations. MiniZinc source grammar,
+nominal member lookup, native ownership and the closed Data/edit policy remain
+Zincite responsibilities.
+
 ## Transform report rows
 
 The development checkout pins Zirql
-[`90d184e9376a5ab039eecba0e62f3f1afd778a9b`](https://github.com/zayenz/zirql/commit/90d184e9376a5ab039eecba0e62f3f1afd778a9b).
+[`62b2d350f61d52e5bfd554724d750143ed451008`](https://github.com/zayenz/zirql/commit/62b2d350f61d52e5bfd554724d750143ed451008).
 The following report forms require that checkout; the published Zirql 0.2.0
 integration predates them.
 

@@ -439,6 +439,14 @@ pub struct Program {
     prepared_values: bool,
     prepared: bool,
 }
+fn is_program_binding_keyword(name: &str) -> bool {
+    (zirql::is_common_keyword(name) && matches!(name, "let" | "report"))
+        || matches!(
+            name,
+            "json" | "emit" | "create" | "replace" | "emit_document"
+        )
+}
+
 impl Program {
     /// Parse immutable bindings, reports, or one terminal data edit batch.
     /// All names, terminal emitters and supported result transitions are checked
@@ -489,10 +497,7 @@ impl Program {
                     .cursor
                     .punctuation(b';', "expected ';' after parameter declaration")?;
                 if parser.names.contains_key(&declaration.name.value)
-                    || matches!(
-                        declaration.name.value.as_str(),
-                        "let" | "report" | "json" | "emit" | "create" | "replace" | "emit_document"
-                    )
+                    || is_program_binding_keyword(&declaration.name.value)
                 {
                     return Err(QueryError::query(
                         declaration.name.range,
@@ -704,10 +709,7 @@ impl Program {
                     if !parser.minizinc_identifier(&name.range) {
                         invalid_binding = Some(name.range.clone());
                     }
-                    if matches!(
-                        name.value.as_str(),
-                        "let" | "report" | "json" | "emit" | "create" | "replace" | "emit_document"
-                    ) {
+                    if is_program_binding_keyword(&name.value) {
                         return Err(QueryError::query(
                             name.range.clone(),
                             "binding name is reserved by the program grammar",
@@ -729,10 +731,7 @@ impl Program {
                 if !parser.minizinc_identifier(&range) {
                     invalid_binding = Some(range.clone());
                 }
-                if matches!(
-                    name,
-                    "let" | "report" | "json" | "emit" | "create" | "replace" | "emit_document"
-                ) {
+                if is_program_binding_keyword(name) {
                     return Err(QueryError::query(
                         range,
                         "binding name is reserved by the program grammar",
@@ -1487,11 +1486,9 @@ impl<'a> Parser<'a> {
             .partition_point(|token| token.range.start < range.start);
         self.lexed.tokens().get(i).is_some_and(|token| {
             token.range == *range
-                && matches!(
-                    token.kind,
-                    zincite_syntax::TokenKind::Identifier
-                        | zincite_syntax::TokenKind::QuotedIdentifier
-                )
+                && (token.kind == zincite_syntax::TokenKind::QuotedIdentifier
+                    || token.kind == zincite_syntax::TokenKind::Identifier
+                        && zirql::is_unquoted_binding_name(&self.cursor.source[range.clone()]))
         })
     }
     fn identifier(&mut self, message: &str) -> Result<(&'a str, Range<usize>), QueryError> {

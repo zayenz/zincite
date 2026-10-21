@@ -203,13 +203,15 @@ impl Parser<'_> {
         }
         let retained_record = native_record
             && functions::retain_native_record(&mut value, &self.names, &self.queries);
+        // Functions are collected before their result declarations are known.
+        // Recover that late semantic fact before choosing native/value lowering.
         functions::recover_call_value(&mut value, &self.queries, &self.constructed_functions);
         let native = matches!(
             value.value,
             zirql::ValueExpressionKind::NativeQuery(_) | zirql::ValueExpressionKind::NativeValue(_)
         );
         if !native && !retained_record {
-            functions::lower_primitives(
+            functions::lower_recovered_value(
                 &mut value,
                 &self.names,
                 &self.queries,

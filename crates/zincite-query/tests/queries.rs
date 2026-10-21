@@ -5531,6 +5531,19 @@ fn saved_native_and_minizinc_values_compose_with_shared_suffixes() {
             expected = Some(rendered);
         }
     }
+    // Forward result facts are unavailable while the caller body is read.
+    let forward = r#"fn ordered()->sequence<string> { labels() | sort | unique }
+        fn labels()->sequence<string> { ["b","a","b"] }
+        let saved=ordered(); report saved | count;"#;
+    let result = Program::parse(forward, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    assert!(
+        matches!(result.emissions()[0].value(), ReportValue::Constructed(value)
+        if value.data() == &V::Integer(2))
+    );
+
     let siblings = r#"let selected=items | head(1);
         (saved:selected | count, current:count, names:selected | names)"#;
     for prefix in ["", "fn unused(n:int)->int { n } "] {

@@ -177,6 +177,17 @@ pub(super) fn lower_primitives(
     constructed_functions: &std::collections::BTreeSet<String>,
 ) {
     recover_call_value(expression, queries, constructed_functions);
+    lower_recovered_value(expression, names, queries, constructed_functions);
+}
+
+// The caller already applied late-known function result facts at this root.
+// Children still use the complete recovery/lowering entry point.
+pub(super) fn lower_recovered_value(
+    expression: &mut E<Expression>,
+    names: &BTreeMap<String, Kind>,
+    queries: &[ProgramQuery],
+    constructed_functions: &std::collections::BTreeSet<String>,
+) {
     if let K::Name(name) = &expression.value
         && matches!(
             names.get(name),
@@ -253,38 +264,28 @@ fn constructed_signature(signature: &zirql::SignatureType) -> bool {
         _ => false,
     }
 }
-fn common_suffix(
+// Payload mapping stays with the host. Spelling, terminal classification and
+// lowering use the same suffix kinds as the reader.
+fn value_suffix_kind(
     stage: &ExpressionStep<Stage, Emitter>,
     queries: &[ProgramQuery],
-) -> Option<zirql::ValueSuffix<Expression>> {
+) -> Option<zirql::ValueSuffixKind> {
     if matches!(stage, ExpressionStep::Stage(Stage::Ordering(order)) if order.order == zirql::NativeOrder::Sort && order.selector.is_none())
     {
-        return Some(zirql::ValueSuffix::Sort);
+        return Some(zirql::ValueSuffixKind::Sort);
     }
     let ExpressionStep::Stage(Stage::Query(index, _)) = stage else {
         return None;
     };
-    match queries[*index].query.stages.as_slice() {
-        [
-            language::Stage {
-                kind: language::StageKind::Count,
-                ..
-            },
-        ] => Some(zirql::ValueSuffix::Count),
-        [
-            language::Stage {
-                kind: language::StageKind::Unique,
-                ..
-            },
-        ] => Some(zirql::ValueSuffix::Unique),
-        [
-            language::Stage {
-                kind: language::StageKind::Tally,
-                ..
-            },
-        ] => Some(zirql::ValueSuffix::Tally),
-        _ => None,
-    }
+    let [stage] = queries[*index].query.stages.as_slice() else {
+        return None;
+    };
+    Some(match stage.kind {
+        language::StageKind::Count => zirql::ValueSuffixKind::Count,
+        language::StageKind::Unique => zirql::ValueSuffixKind::Unique,
+        language::StageKind::Tally => zirql::ValueSuffixKind::Tally,
+        _ => return None,
+    })
 }
 fn constructed_call(
     query: &Expression,
@@ -316,10 +317,7 @@ fn constructed_call(
                     if terminal {
                         return None;
                     }
-                    terminal = matches!(
-                        common_suffix(&step.value, queries)?,
-                        zirql::ValueSuffix::Tally
-                    );
+                    terminal = value_suffix_kind(&step.value, queries)?.is_terminal();
                 }
                 Some(terminal)
             }
@@ -357,8 +355,10 @@ fn take_constructed_suffix(
                     take(input, queries)?
                 };
                 for step in std::mem::take(steps) {
-                    let suffix =
-                        common_suffix(&step.value, queries).expect("suffixes checked above");
+                    let suffix = value_suffix_kind(&step.value, queries)
+                        .expect("suffixes checked above")
+                        .without_arguments()
+                        .expect("host suffix has no arguments");
                     value = zirql::lower_value_suffix(value, Located::new(suffix, step.range))
                         .expect("the checked suffix chain ends at tally");
                 }
@@ -932,7 +932,8 @@ impl<'a> zirql::FunctionHost<Context<'_, 'a>> for composition::CompositionHost<'
         })
     }
     fn is_operation_name(&self, name: &str) -> bool {
-        composition::domain_stage(name)
+        zirql::is_common_operation_name(name)
+            || composition::domain_stage(name)
             || Primitive::named(name).is_some()
             || matches!(
                 name,
@@ -941,12 +942,6 @@ impl<'a> zirql::FunctionHost<Context<'_, 'a>> for composition::CompositionHost<'
                     | "replace"
                     | "fn"
                     | "enum_member"
-                    | "sort"
-                    | "sort_by"
-                    | "min"
-                    | "min_by"
-                    | "max"
-                    | "max_by"
                     | "min_all"
                     | "min_all_by"
                     | "max_all"
