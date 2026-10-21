@@ -200,7 +200,7 @@ by the objective expression. Each node retains its precise source range.
 ## Development report transformations
 
 The development query adapter pins Zirql Git revision
-`40640084c88e56aa58538efbb254a78b6a021bbe`. It supports positional `map` and
+`90d184e9376a5ab039eecba0e62f3f1afd778a9b`. It supports positional `map` and
 `flat_map`, selective `case` generators, `windows`, `runs_by`, record updates
 with `with`, and full `align` by a unique field. The
 [report transformation example](query-comprehension-contract.md#transform-report-rows)
@@ -959,6 +959,13 @@ extract exactly one value from a projection. Native node and semantic selections
 retain their identities; use an explicit projection before passing them to a
 scalar operation or comprehension.
 
+The development dependency pins Zirql `90d184e9376a5ab039eecba0e62f3f1afd778a9b`.
+Zirql traverses mixed native/constructed containers, converts constructed nodes
+with its tagged-data codec, and writes JSON with the active request budget.
+Zincite supplies native source/semantic descriptors, shape admission and the
+completion envelope. Native sequences stay ordinary arrays even when a child
+is tagged constructed data. See [mixed report output](queries.md#render-a-mixed-native-report).
+
 A `let` binding can retain a native result or hold calculated data. Constructing
 a dictionary in a binding, as in `let r = (count: n); r`, produces an ordered
 JSON object with tagged constructed fields. Native dictionary payloads retain
@@ -1076,6 +1083,11 @@ statements. `Program::is_editing()` identifies a data batch or scalar edit pipel
 `ProgramResult::candidate()` exposes its reparsed complete data document.
 `ProgramResult::emissions()` exposes report values; `semantic()` retains
 the public fact owner and `is_complete()`/`limitations()` retain uncertainty.
+The legacy `QueryResult::render(&self) -> Vec<u8>` stays infallible and has no
+retained request budget. It keeps its native-only compatibility rendering.
+Program rendering uses the shared writer and spends its active request allowance;
+it does not open a fresh rendering budget.
+
 Call `render(&mut self)` to obtain one output buffer, then write those bytes only
 after success. Every JSON emission uses `{complete, limitations, result}`, including
 syntax-only reports. Repeated rendering spends the same remaining allowance again.

@@ -296,8 +296,10 @@ impl<'a> ProgramResult<'a> {
         self.limitations().is_empty()
     }
 
-    /// Render all requested outputs into one buffer. Repeated rendering charges
-    /// the allowance again; a failure returns no partial bytes.
+    /// Render all requested outputs into one buffer. Zirql traverses mixed report
+    /// containers and encodes constructed nodes as tagged data; Zincite supplies
+    /// native projections and completion fields. Repeated rendering charges the
+    /// allowance again; a failure returns no partial bytes.
     pub fn render(&mut self) -> Result<Vec<u8>, QueryError> {
         if let Some(candidate) = &self.candidate {
             self.budget
@@ -319,18 +321,16 @@ impl<'a> ProgramResult<'a> {
                         &emission.range,
                     )?;
                     if let QueryResult::Tally(values) = result.as_ref() {
-                        let mut output = Vec::new();
-                        serde_json::to_writer(
-                            BudgetWriter {
-                                bytes: &mut output,
-                                budget: &mut self.budget,
-                                range: &emission.range,
-                            },
+                        let mut output = zirql::render_json_value(
                             &crate::inspection::tally_json(values),
+                            zirql::JsonLayout::Compact,
+                            &mut self.budget,
+                            zirql::Location::Query(emission.range.clone()),
                         )
-                        .map_err(|error| {
-                            QueryError::query(emission.range.clone(), error.to_string())
-                        })?;
+                        .map_err(pipeline::core_error)?;
+                        self.budget
+                            .charge_results(1, zirql::Location::Query(emission.range.clone()))
+                            .map_err(pipeline::core_error)?;
                         self.budget
                             .charge(1, zirql::Location::Query(emission.range.clone()))
                             .map_err(pipeline::core_error)?;
@@ -350,14 +350,6 @@ impl<'a> ProgramResult<'a> {
                     self.semantic.as_ref().unwrap().render_stream(stream)
                 }
                 _ => {
-                    admit_json(
-                        &emission.value,
-                        self.semantic.as_ref(),
-                        &mut Work {
-                            budget: &mut self.budget,
-                        },
-                        &emission.range,
-                    )?;
                     // The envelope owns completion metadata and limitation rows.
                     self.budget
                         .charge_results(
@@ -391,18 +383,16 @@ impl<'a> ProgramResult<'a> {
                         .as_object_mut()
                         .unwrap()
                         .insert("result".to_owned(), value);
-                    let mut output = Vec::new();
-                    serde_json::to_writer(
-                        BudgetWriter {
-                            bytes: &mut output,
-                            budget: &mut self.budget,
-                            range: &emission.range,
-                        },
+                    let mut output = zirql::render_json_value(
                         &envelope,
+                        zirql::JsonLayout::Compact,
+                        &mut self.budget,
+                        zirql::Location::Query(emission.range.clone()),
                     )
-                    .map_err(|error| {
-                        QueryError::query(emission.range.clone(), error.to_string())
-                    })?;
+                    .map_err(pipeline::core_error)?;
+                    self.budget
+                        .charge_results(1, zirql::Location::Query(emission.range.clone()))
+                        .map_err(pipeline::core_error)?;
                     self.budget
                         .charge(1, zirql::Location::Query(emission.range.clone()))
                         .map_err(pipeline::core_error)?;
@@ -417,24 +407,6 @@ impl<'a> ProgramResult<'a> {
         Ok(bytes)
     }
 }
-struct BudgetWriter<'a> {
-    bytes: &'a mut Vec<u8>,
-    budget: &'a mut Budget,
-    range: &'a Range<usize>,
-}
-impl std::io::Write for BudgetWriter<'_> {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.budget
-            .charge(bytes.len(), zirql::Location::Query(self.range.clone()))
-            .map_err(std::io::Error::other)?;
-        self.bytes.extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
 /// A parsed report or data program. Query-source strings lower once. Edit RHS
 /// expressions are lowered again with target evidence under the request budget;
 /// their original program coordinates are retained. Generated text is not evaluated.
@@ -3019,75 +2991,6 @@ fn subject_bytes(subject: &crate::SemanticSubject<'_>) -> usize {
         _ => 0,
     }
 }
-fn admit_json<'a>(
-    value: &ReportValue<'a>,
-    semantic: Option<&SemanticResult<'a>>,
-    work: &mut Work,
-    range: &Range<usize>,
-) -> Result<(), QueryError> {
-    match value {
-        ReportValue::SourceCopies(_) => {
-            return Err(QueryError::query(
-                range.clone(),
-                "source copies can only be consumed by append",
-            ));
-        }
-        ReportValue::Computational(value) => {
-            return Err(QueryError::query(
-                value.range(),
-                "queue and identity_set values cannot be rendered",
-            ));
-        }
-        ReportValue::Tuple(value) => {
-            work.produce(value.values().len() + 1, range)?;
-            for value in value.values() {
-                admit_json(value, semantic, work, range)?;
-            }
-        }
-        ReportValue::Sequence(value) => {
-            work.produce(value.values().len() + 1, range)?;
-            for value in value.values() {
-                admit_json(value, semantic, work, range)?;
-            }
-        }
-        ReportValue::Retained(value) => return admit_json(value, semantic, work, range),
-        ReportValue::Item(value)
-        | ReportValue::EntitySequence { value, .. }
-        | ReportValue::IncompleteSelection { value, .. } => {
-            return admit_json(value, semantic, work, range);
-        }
-        ReportValue::Constructed(_) | ReportValue::SharedConstructed(_) => {}
-        ReportValue::Capture(capture) => {
-            work.produce(1 + capture.fields.len(), range)?;
-            for (label, value) in &capture.fields {
-                work.spend(label.len(), range)?;
-                admit_json(value, semantic, work, range)?;
-            }
-        }
-        ReportValue::Captures(captures) => {
-            work.produce(1 + captures.rows.len(), range)?;
-            for capture in &captures.rows {
-                work.produce(1 + capture.fields.len(), range)?;
-                for (label, value) in &capture.fields {
-                    work.spend(label.len(), range)?;
-                    admit_json(value, semantic, work, range)?;
-                }
-            }
-        }
-        ReportValue::Record(fields) => {
-            work.produce(1 + fields.len(), range)?;
-            for (label, value) in fields {
-                work.spend(label.len(), range)?;
-                admit_json(value, semantic, work, range)?;
-            }
-        }
-        ReportValue::Query(SemanticStream::Inspection(value)) => {
-            inspection::admit_json(value, work, range)?
-        }
-        ReportValue::Query(stream) => semantic.unwrap().admit_program_json(stream, work, range)?,
-    }
-    Ok(())
-}
 fn validate_value(
     value: &ReportValue<'_>,
     json: bool,
@@ -3102,7 +3005,7 @@ fn validate_value(
             ));
         }
         // Computational values are valid retained library results. Rendering
-        // rejects them recursively in admit_json, before any bytes escape.
+        // rejects them during shared report traversal, before any bytes escape.
         ReportValue::Tuple(value) => {
             for value in value.values() {
                 validate_value(value, true, budget, range)?;
@@ -3167,71 +3070,79 @@ fn report_json<'a>(
     budget: &mut Budget,
     range: &Range<usize>,
 ) -> Result<Value, QueryError> {
-    match value {
-        ReportValue::SourceCopies(_) => Err(QueryError::query(
-            range.clone(),
-            "source copies can only be consumed by append",
-        )),
-        ReportValue::Computational(value) => Err(QueryError::query(
-            value.range(),
-            "queue and identity_set values cannot be rendered",
-        )),
-        ReportValue::Tuple(value) => value
-            .values()
-            .iter()
-            .map(|v| report_json(v, semantic, budget, range))
-            .collect::<Result<Vec<_>, _>>()
-            .map(Value::Array),
-        ReportValue::Sequence(value) => value
-            .values()
-            .iter()
-            .map(|v| report_json(v, semantic, budget, range))
-            .collect::<Result<Vec<_>, _>>()
-            .map(Value::Array),
-        ReportValue::Retained(value) => report_json(value, semantic, budget, range),
-        ReportValue::Item(value)
-        | ReportValue::EntitySequence { value, .. }
-        | ReportValue::IncompleteSelection { value, .. } => {
-            report_json(value, semantic, budget, range)
-        }
-        ReportValue::Constructed(value) => comprehension::json_value(value, budget, range),
-        ReportValue::SharedConstructed(value) => comprehension::json_value(value, budget, range),
-        ReportValue::Capture(capture) => capture
-            .fields
-            .iter()
-            .map(|(label, value)| Ok((label.clone(), report_json(value, semantic, budget, range)?)))
-            .collect::<Result<serde_json::Map<_, _>, _>>()
-            .map(Value::Object),
-        ReportValue::Captures(captures) => captures
-            .rows
-            .iter()
-            .map(|capture| {
-                capture
-                    .fields
-                    .iter()
-                    .map(|(label, value)| {
-                        Ok((label.clone(), report_json(value, semantic, budget, range)?))
-                    })
-                    .collect::<Result<serde_json::Map<_, _>, _>>()
-                    .map(Value::Object)
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map(Value::Array),
-        ReportValue::Record(fields) => fields
-            .iter()
-            .map(|(label, value)| Ok((label.clone(), report_json(value, semantic, budget, range)?)))
-            .collect::<Result<serde_json::Map<_, _>, _>>()
-            .map(Value::Object),
-        ReportValue::Query(stream) => {
-            if let Some(semantic) = semantic {
-                semantic.json_stream(stream)
-            } else {
-                let SemanticStream::Inspection(value) = stream else {
-                    unreachable!()
-                };
-                inspection::json_value(value)
+    zirql::to_report_json_value(
+        &mut ReportRenderer { semantic, range },
+        value,
+        budget,
+        zirql::Location::Query(range.clone()),
+    )
+    .map_err(|error| match error {
+        zirql::EvaluationError::Core(error) => pipeline::core_error(error),
+        zirql::EvaluationError::Host(error) => error,
+    })
+}
+
+struct ReportRenderer<'s, 'a> {
+    semantic: Option<&'s SemanticResult<'a>>,
+    range: &'s Range<usize>,
+}
+impl<'a> zirql::RenderHost for ReportRenderer<'_, 'a> {
+    type Value = ReportValue<'a>;
+    type Error = QueryError;
+
+    fn view<'v>(
+        &mut self,
+        value: &'v ReportValue<'a>,
+        _context: zirql::RenderContext,
+        budget: &mut Budget,
+        _location: &zirql::Location,
+    ) -> Result<zirql::RenderView<'v, ReportValue<'a>>, QueryError> {
+        use zirql::RenderView as View;
+        Ok(match value {
+            ReportValue::SourceCopies(_) => {
+                return Err(QueryError::query(
+                    self.range.clone(),
+                    "source copies can only be consumed by append",
+                ));
             }
-        }
+            ReportValue::Computational(value) => {
+                return Err(QueryError::query(
+                    value.range(),
+                    "queue and identity_set values cannot be rendered",
+                ));
+            }
+            ReportValue::Retained(value) => View::Value(value),
+            ReportValue::Item(value)
+            | ReportValue::EntitySequence { value, .. }
+            | ReportValue::IncompleteSelection { value, .. } => View::Value(value),
+            ReportValue::Tuple(value) => View::Sequence(value.values()),
+            ReportValue::Sequence(value) => View::Sequence(value.values()),
+            ReportValue::Record(fields) => View::Record(fields),
+            ReportValue::Capture(capture) => View::Capture(capture),
+            ReportValue::Captures(captures) => View::Captures(&captures.rows),
+            ReportValue::Constructed(value) => {
+                comprehension::validate_report_shape(value, budget, self.range)?;
+                View::Constructed(value, zirql::JsonRepresentation::Tagged)
+            }
+            ReportValue::SharedConstructed(value) => {
+                comprehension::validate_report_shape(value, budget, self.range)?;
+                View::Constructed(value, zirql::JsonRepresentation::Tagged)
+            }
+            ReportValue::Query(stream) => {
+                let mut work = Work { budget };
+                let projected = if let Some(semantic) = self.semantic {
+                    semantic.admit_program_json(stream, &mut work, self.range)?;
+                    semantic.json_stream(stream)?
+                } else {
+                    let SemanticStream::Inspection(value) = stream else {
+                        unreachable!()
+                    };
+                    inspection::admit_json(value, &mut work, self.range)?;
+                    inspection::json_value(value)?
+                };
+                View::Projected(projected)
+            }
+        })
     }
 }
 fn charge_render<'a>(

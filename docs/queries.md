@@ -14,7 +14,8 @@ This guide explains the syntax and result rules used in its examples. The
 collection forms and the smaller language allowed in data edits.
 
 Zirql evaluates the shared expressions, bindings and collection operations;
-Zincite supplies MiniZinc input, source selections, model facts and rendering.
+Zincite supplies MiniZinc input, source selections, model facts and native
+projections. Zirql renders the ordinary report containers and constructed data.
 The [Zirql language reference](https://zayenz.se/zirql/guides/language-reference/)
 offers further examples and background on the evaluator shared with other tools.
 
@@ -1251,3 +1252,21 @@ their existing host-specific support. The common dictionary and typed empty
 syntax is report-only; the
 [data-edit expression rules](query-comprehension-contract.md#report-expressions-and-edit-grammar)
 retain their existing closed subset.
+
+## Render a mixed native report
+
+The development Git dependency at Zirql `90d184e9376a5ab039eecba0e62f3f1afd778a9b`
+uses the shared tagged-data codec inside native reports. Against `model.mzn`
+above, run:
+
+```sh
+zincite-query --program 'report (subject: items | head(1), count: 1);' model.mzn
+```
+
+The `subject` field keeps Zincite's source descriptor and the constructed
+`count` uses `{"kind":"integer","value":1}`. Native sequences remain plain
+arrays; constructed tuples, sets and arrays retain their tagged kinds. Records
+and native string dictionaries keep field order. The `complete`, `limitations`
+and `result` envelope belongs to Zincite, including original file coordinates.
+A rendering error leaves stdout empty even after an earlier emitter. MiniZinc
+source output still uses Zincite's source-preserving renderer.
