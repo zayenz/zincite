@@ -61,38 +61,19 @@ the narrower set of input stages and expressions below.
 
 ## Common brace forms in read-only reports
 
-Read-only reports also accept `{key: value}` dictionaries and
-`{key: value for name in source if condition}` comprehensions. Keys are
-expressions returning constructed values, including arrays, tuples, sets and
-other dictionaries. Each key is checked for a duplicate before its value runs.
-Dictionaries preserve generation order. String keys retain record data and declared
-schemas; `.field` selects a static string field. Bracket access accepts general
-keys and fails when missing; `lookup(d,key)` returns absence for a valid missing key.
-Arrays and tuples compare by position, sets by membership, and dictionaries by
-associations, independently of insertion order. Different kinds remain distinct.
-Infix equality requires compatible underlying types, including native tuples,
-capture records and positional sequences holding ordinary data. For example,
-`[1, 2] == [9, true]` fails even though the first pair already differs. Deferred
-checks run when the comparison executes; an untaken branch does not inspect its
-values. Optional declarations and empty sequence schemas remain part of admission.
-Infix `<`, `<=`, `>` and `>=` require present numbers with exact mixed-number
-conversion. Native collection wrappers retain that rule; structural sort order
-is a separate operation. Native CST leaves retain their exact source identity.
+Read-only reports use Zirql's [dictionary and set forms](https://zayenz.se/zirql/guides/library-collections/),
+[comparison operators](https://zayenz.se/zirql/guides/library-operators/#equality)
+and [comprehensions](https://zayenz.se/zirql/guides/library-collections/#comprehensions).
+Both `[head for pattern in source if condition]` and MiniZinc
+`[head | pattern in source where condition]` use the common reader and evaluator.
+Natural MiniZinc records keep `(field: value)` syntax. Native CST leaves retain
+source identity; ordinary data in native wrappers follows the shared operators.
 
-Bare sets accept `{3, 1, 3}` and `{n mod 3 for n in 1..5}`. They keep `3, 1`
-and `1, 2, 0` respectively. Empty `{}` is a dictionary in this report syntax;
-`set<int>()`, `set<bool>()`, `set<float>()` and `set<string>()` supply typed
-empty scalar sets; `set<value>()` supplies an empty general set. Report sets can
-contain mixed and nested constructed values. Nominal identities and empty nominal
-sets remain supplied by the host. `value`, `dict<K,V>` and `set<value>` are
-available in function declarations. Arrays, tuples, grouping and function/control blocks
-compose with these values; a final collection inside a block has its own braces.
-
-The common `for ... in ... if ...` comprehension and MiniZinc
-`| ... in ... where ...` comprehension use the same reader, patterns and
-evaluator. Natural MiniZinc records retain the forms below. The
-common dictionary and typed empty forms are read-only report syntax. Data edits
-retain the closed MiniZinc subset and serialization checks below.
+Empty `{}` is a report dictionary. Typed empty sets and mixed/nested sets are
+report forms; nominal members and empty nominal sets need host evidence.
+`value`, `dict<K,V>` and `set<value>` are available in function declarations.
+These report forms do not extend the closed Data subset or `.dzn` serialization
+permissions below.
 
 ## Shared reader routing and names
 
@@ -120,15 +101,11 @@ The development checkout pins Zirql
 The following report forms require that checkout; the published Zirql 0.2.0
 integration predates them.
 
-`map(pattern => expression)` transforms each positional item. `flat_map` uses
-the same body and joins its positional results by one level. A `case` generator
-skips pattern mismatches; an ordinary generator still fails on a mismatch.
-`windows(n)` produces complete overlapping windows with stride one and positive
-size. `runs_by("field")` groups consecutive equal keys into `key`/`items`
-records. A record followed by `with {field: value}` replaces existing fields
-without changing their order. `align(before, after, by="field")` requires unique
-present keys on each side and returns `key`, optional `before` and optional
-`after`, in left order followed by right-only keys.
+Use the shared entries for [map and flat_map](https://zayenz.se/zirql/guides/library-pipelines/#map),
+[selective comprehensions](https://zayenz.se/zirql/guides/library-collections/#comprehensions),
+[windows and runs](https://zayenz.se/zirql/guides/library-grouping/),
+[record updates](https://zayenz.se/zirql/guides/library-operators/#record-update)
+and [alignment](https://zayenz.se/zirql/guides/library-grouping/#align).
 
 For example, run this from the development checkout:
 
@@ -160,12 +137,10 @@ tests its singleton input; a path target tests the candidate declaration; a
 native match guard tests the original query input and sees its separate named
 captures. Nested predicates rebind `_`. Explicit outer names remain captures.
 
-All shared binding positions accept exact tuples and positional lists.
-`[head, next, ..]` requires two list elements and discards the remainder;
-`[head, next]` requires exactly two. Patterns never convert native handles,
-sets or keyed arrays to lists. Names install together after a successful match.
-A mismatch is an error in a binding, function/predicate argument or generator,
-and tries the next arm in a value match. Predicate `_` reads the whole subject.
+Binding, function/predicate argument, generator and value-match patterns use
+Zirql's [shared destructuring rules](https://zayenz.se/zirql/guides/functions-and-control-flow/#destructure-records-and-tuples).
+Native handles, sets and keyed arrays need an established view or explicit
+conversion before positional list matching.
 
 Scalar element edits accept `filter_elements(value => value > 0)` and
 `filter_elements(_ > 0)`. These bodies use the data-edit operators and helpers
@@ -285,94 +260,21 @@ spelling; it never replaces matching text inside strings or field labels.
 Reports additionally accept `length(a)`, `sum(a)`, `forall(a)`, `exists(a)`,
 `require(condition, value, "message")`, `group_by(rows, "field")`, `entries(a)`,
 `zip_exact(a,b)`, `contains(text, fragment)`, `starts_with(text, prefix)` and
-`ends_with(text, suffix)`, plus report ordering and optional extrema below.
+`ends_with(text, suffix)`, plus report ordering and optional extrema linked below.
 
-String matching accepts two strings and returns a fixed Boolean. Matching is
-exact and case-sensitive, without coercion, regex, case folding or Unicode
-normalization. Empty search strings match, including an empty text. Both
-operands evaluate in written order. Known non-string operands are rejected
-before evaluation, including in skipped branches. String scans count towards
-the program's work limit. These helpers are report-only, including in unused
-bindings and skipped data-edit branches.
-
-Each reducer takes one ordinary array expression. The array materializes fully
-before reduction; generator-call spellings such as `forall(i in 1..3)(...)` are
-unsupported. Length counts present values without flattening nested arrays. Sum accepts only integers and performs
-checked addition in stored order. The quantifiers require fixed Booleans and
-scan every stored element. Positional and keyed arrays use the same reducers;
-keyed reducers visit stored cells, including in sparse arrays. Array indices
-must still be valid. Data edits require contiguous axes and complete rectangular
-coverage.
-
-| Call | Empty array result |
-| --- | --- |
-| `length([])` | `0` |
-| `sum([])` | `0` |
-| `forall([])` | `true` |
-| `exists([])` | `false` |
-
-`require(condition, value, "message")` returns `value` when the condition is
-true. Otherwise, it stops the report with the supplied literal message. A false
-condition skips the value's arithmetic and array accesses. Syntax, names and
-known types are checked before evaluation, so the skipped value cannot hide an
-unsupported operation or a known type mismatch. Those checks may inspect input
-values even when the condition will be false.
-
-`sort(xs)` and `sort_by(rows, "field")` stably order positional values
-or original records. They are ascending unless the final literal option is
-`descending=true`; `descending=false` is the default. Descending ties retain
-input order. The selector is one static string literal. This local option uses
-`=`, not a general named-argument or equality expression.
-
-`min(xs)`/`max(xs)` return an optional element, and `min_by(rows, "field")`/
-`max_by(rows, "field")` an optional original record. Empty input returns `<>`;
-the first input wins a tie. Use `min([]) default 0` for an explicit empty policy.
-Keys use structural order: absence, Boolean, integer, finite float, string,
-nominal member, array, tuple, set, dictionary, then keyed array. Integers and
-floats retain distinct ranks. Arrays and tuples compare positionally; sets and
-dictionaries compare canonical membership and associations. Nominal members use
-coherent type identity and declaration order. Actual absent keys, mixed kinds
-and compound keys are valid. Other row fields, declarations and member
-identities survive. Missing fields, invalid row shapes and incoherent nominal
-metadata fail, including a later bad key in extrema. Native selectors require
-exactly one key. Construct a field such as
-`score: lookup(row, "score") default 0` first when a missing score should become
-zero.
-Keyed arrays need explicit positional conversion, such as `[e.value | e in
-entries(a)]`.
-
-All six calls are report-only, including in unused bindings and skipped edit
-branches. Sorting extracts keys once and needs O(n) temporary storage and
-O(n log n) comparisons. Extrema scan the input once and select the winning
-value. This work, temporary storage and output copying count towards the program
-limits. A limit error produces no partial output.
-See the [ordering report](queries.md#sort-rows-and-select-extrema).
-
-`group_by` takes exactly two arguments: a positional record array and one string
-literal field selector. Keys must be homogeneous integers, strings or resolved
-members of one enum. It returns positional `key`/`items` records in first-seen
-key order; each items array retains row order and duplicates. Other row fields
-may differ. Empty input returns an empty array. Missing fields fail when
-executed, while known incompatible keys fail before evaluation, even in skipped
-branches.
-Key refusals point to the selector; non-array input and non-record rows point
-to the call. Keyed arrays need an explicit positional comprehension conversion.
-
-`entries` takes exactly one keyed array and returns positional records with
-`key` followed by `value` in present-cell order. Rank-one keys are scalar integers
-or resolved members; higher-rank keys are tuples in dimension order. Empty
-input gives an ordinary empty positional array. The source retains its axes.
-
-`zip_exact` takes exactly two keyed arrays whose ordered axes and present full
-keys are identical. It returns a keyed array of two-element tuple cells, left
-value followed by right value, retaining left axes and keys. Tuple components
-may have different value types. Equal empty axes are retained. Different rank,
-axis types/order, integer keys, nominal identity/metadata or key coverage causes
-a refusal; equal counts are insufficient. There is no truncation, filling,
-reindexing or data write. Both operands run once, left before right. Known input
-kinds, ranks and index types are checked in every branch.
-Alignment errors point to the call; errors within an operand point to that
-operand.
+The [scalar and string entries](https://zayenz.se/zirql/guides/library-strings/),
+[reductions](https://zayenz.se/zirql/guides/library-collections/#length),
+[requirements](https://zayenz.se/zirql/guides/library-presence/#require),
+[ordering and extrema](https://zayenz.se/zirql/guides/library-ordering/),
+[grouping](https://zayenz.se/zirql/guides/library-grouping/#group_by),
+[entries](https://zayenz.se/zirql/guides/library-collections/#entries) and
+[exact pairing](https://zayenz.se/zirql/guides/library-collections/#zip_exact)
+define their signatures, order, empty results and errors. The
+[ordering report](queries.md#sort-rows-and-select-extrema),
+[machine groups](queries.md#group-machine-demands) and
+[matrix comparison](queries.md#compare-keyed-matrix-cells) provide MiniZinc inputs
+and executable programs. Generator-call shorthand such as
+`forall(i in 1..3)(...)` remains unsupported in query expressions.
 
 Read-only keyed operands may have noncontiguous axes and missing cells. Helpers
 retain their stored keys; they do not fill holes. Data edits still require
@@ -388,10 +290,11 @@ preceding `let` bindings, including unused lets and skipped branches, and in eve
 are `index_set` and `enum_member`.
 The edit rules below apply to the whole program, including its bindings.
 
-The operators below use the [MiniZinc 2.10.1 precedence and associativity
-table](https://docs.minizinc.dev/en/2.10.1/spec.html#operators). Parentheses
-can remove any ambiguity. Operations reject incompatible types rather than
-coercing strings, record labels, members or keys.
+The following operator list defines the closed MiniZinc Data subset. The shared
+[operator entries](https://zayenz.se/zirql/guides/library-operators/) own execution,
+comparison and access semantics; [concatenation](https://zayenz.se/zirql/guides/library-strings/#string-concatenation)
+also accepts positional arrays. MiniZinc spellings and the allowed data shapes
+below remain Zincite admission rules.
 
 | Form | Accepted operands and result |
 | --- | --- |
@@ -459,74 +362,32 @@ or string-to-member conversion is allowed.
 
 ### Constructed pipelines
 
-Completed positional arrays and MiniZinc comprehensions accept
-`filter(predicate)`, `count`, `sort`, `unique` and `tally` suffixes.
-For example, `[x | x in [3,1,3]] | sort | unique`
-returns `[1,3]`. The generator pipe belongs to the comprehension; the suffix
-pipes consume its completed result. Saved constructed values accept suffixes
-directly, as in `let numbers=[3,1,3]; numbers | sort | unique | count`, which
-returns `2`. Grouping also works, including for function calls such as
-`(make_rows()) | tally`. Native name and call pipelines retain their routing.
-
-Predicates can name their element, as in `filter(row => row.weight > 2)`, or
-use `_`, as in `filter(_.weight > 2)`. They return a fixed Boolean and may read
-visible bindings and call permitted pure functions.
-`filter(starts_with("a"))` retains strings beginning with `a`, in input order.
-Matching is exact and case-sensitive; an empty prefix matches every string.
-Non-string elements fail, including an incompatible declared element type on
-empty input. `count` returns the number of present positional entries as an
-integer, including zero for an empty array. A filter can precede another stage,
-for example `rows | filter(starts_with("a")) | count`.
-
-`sort` uses stable ascending constructed ordering, including structural collection
-keys. `unique` retains the first structurally equal value, preserving input order.
-`tally` accepts constructed values and returns a dictionary of integer counts
-with the original values as keys in first-seen order. The result supports
-dictionary operations, including bounds, reversal, check and value sorting.
-String tallies preserve
-ordinary string-key dictionary output; set keys retain their unordered identity.
-Empty input returns an empty dictionary. Keyed arrays, records and native handles
-require explicit conversion or projection before these operations. A keyed array can become a
-positional one through `[e.value | e in entries(a)]`.
-
-Suffixes use Zirql's evaluator and the same request budget as the surrounding
-expression. They are report-only, including unused lets and skipped branches in
-data-edit requests. A failure points to the responsible suffix and produces no
-partial CLI output. [The saved-selection example](queries.md#continue-a-calculated-array)
-shows native inputs and calculated arrays in one report.
+Report values use Zirql's [collection stages](https://zayenz.se/zirql/guides/library-pipelines/)
+and [ordering](https://zayenz.se/zirql/guides/library-ordering/), including
+continuations on saved values and tally dictionaries. The comprehension pipe
+stays inside brackets; suffix pipes consume its completed result. String arrays
+also accept the compact `filter(starts_with("a"))` spelling. Use
+`[e.value | e in entries(a)]` to project keyed cells to a positional sequence.
+These operations remain report-only in unused lets and skipped Data branches.
+[Continue a calculated array](queries.md#continue-a-calculated-array) combines
+native inputs and report values.
 
 ## Optional read-only values
 
-`<>` represents absence. `occurs(value)` and `absent(value)` inspect presence;
-zero, false, empty strings and empty containers remain present. Arithmetic,
-ordering and filters require present operands. Optional equality checks known
-underlying declarations before comparing presence.
+The shared [presence and lookup reference](https://zayenz.se/zirql/guides/library-presence/)
+defines `occurs`, `absent`, `lookup`, `has_key`, lazy `default` and strict access.
+Zincite spells absence `<>` and renders it as `{"kind":"absent"}` in tagged data.
+Records emit stored fields and keyed arrays emit stored cells; a stored absent
+cell remains distinct from an omitted cell.
 
-`lookup(value, key)` reads a record string label, a one-based positional index,
-or a scalar/tuple keyed-array key. A compatible missing key returns absence.
-`has_key(value, key)` reports whether storage contains the key, so a stored
-`<>` counts as present storage. Wrong containers, key types, ranks and enum
-identities fail. With a retained record declaration, an undeclared label also
-fails. Ordinary dot and bracket accesses still fail on missing data.
-
-`value default fallback` evaluates its left operand once and selects the
-fallback only for absence. Both branches receive syntax, scope, purity and
-known-type checks. A fallback-only binding is not projected, scanned or copied,
-and a fallback-only enum member is not resolved, until selected. Selected errors
-keep their original locations and share the request budget. Parenthesize mixed
-operators; `default` follows MiniZinc precedence and associates left to right.
-
-When a model declares a record's type, that declaration determines which fields
-are required or optional. Optional fields may be omitted. Missing required
-fields, extra labels and incompatible values are errors. Rust callers can use
-`ConstructedValue::data()` to inspect a value while keeping its declaration
-information. Decision values and computed source expressions are unsupported.
-
-Tagged reports render absence as `{"kind":"absent"}`. Records emit only stored
-fields and keyed arrays only stored cells. Data requests refuse absence,
-optional source or target declarations, and these operations, including unused lets and
-skipped branches. External parameters remain required int/string/bool inputs.
-See the [optional report](queries.md#read-optional-fields-and-sparse-cells).
+Retained model declarations constrain field names, optionality, index types and
+nominal identity. Decision values and computed source expressions remain
+unsupported. Rust callers can inspect `ConstructedValue::data()` while retaining
+its declaration. Data requests refuse absence and optional sources, targets and
+values, including in unused lets and skipped branches. External parameters
+remain required int/string/bool inputs. The
+[optional report](queries.md#read-optional-fields-and-sparse-cells) demonstrates
+these distinctions with a model and sparse data.
 
 ## Constructed shape and result
 
@@ -988,33 +849,22 @@ describes `Program`, its result types and candidate handling.
 
 ## Native ordering and sets
 
-Read-only native ordering uses the same structural key rules as constructed ordering.
-The [ordering walkthrough](queries.md#order-native-selections) shows the
-selection forms. `sort`, `min`, `max`, `min_all` and `max_all` each accept an
-optional `*_by(selector)` form. Selectors use one incoming subject and the
-surrounding lexical bindings. Explicit input stages retain their original-input
-meaning. Native counts retain their unsigned range in the integer rank.
-Absence sorts first, followed by Boolean, integer, finite float, string, nominal
-member and compounds in the shared kind order. Missing fields and invalid native
-selector cardinality fail. Nominal keys retain host identities and coherent
-metadata, including nested members. Every key is admitted before comparisons
-or extrema selection.
+The [shared ordering reference](https://zayenz.se/zirql/guides/library-ordering/)
+covers native and constructed forms together. Zincite admits scalar string and
+literal streams directly; source handles need an explicit projection. Native
+counts retain their unsigned range, nominal keys retain declaration identity,
+and empty native extrema retain their selection kind and owner. Selectors see
+one incoming subject and lexical bindings; explicit input stages still read the
+original input. The [walkthrough](queries.md#order-native-selections) retains
+source nodes while ranking their values.
 
-Sorts keep incoming ties; single extrema keep the first tie and all-ties extrema
-retain every tied subject in input order. Empty native extrema produce an empty
-selection with the same native kind, element contract and owner. Constructed
-extrema remain optional and return `<>` when empty. Known unsupported input or
-selector kinds and effects fail before iteration, including unused branches.
-
-Native `union` keeps first occurrence from left then right. `intersect` and
-`except` deduplicate in left order. The operands execute left then right against
-the same incoming input. Only established identity-bearing selections are
-admitted; no identity comes from rendered text. All handles and owners in both
-operands are validated, even when they are discarded or the result is empty.
-Native and constructed tally dictionaries retain first-seen keys through saved,
-nested and JSON results. Ordering, identity work, copying and temporary storage
-use the active request budget. Data-edit input and expression permissions remain
-the closed subset described above.
+[Native set operators](https://zayenz.se/zirql/guides/library-native/#native-set-operators)
+use source identity. Nodes, semantic entities/type/instantiation rows and strings
+are admitted; literal streams, counts, dictionaries, captures and computational
+identity sets are not. Singular nodes and declarations contribute one row and
+set results are selections. Zincite validates every operand's owner, including
+discarded rows, and retains completeness evidence through empty results.
+These operations do not widen the Data subset.
 
 ## Native existence and fixed points
 
@@ -1046,10 +896,9 @@ nested evaluation spend the active budget. See the
 Ordinary reports and pure functions accept the shared `parse_int`, `parse_float`
 and `to_string` calls. See the [scalar contract](https://zayenz.se/zirql/guides/library-strings/#parse_int)
 and [native count report recipe](queries.md#explicit-scalar-conversions-in-reports).
-Native selections require an existing scalar projection first. The closed Data
-subset permits only the existing unary positive, negative and Boolean-not
-operators; conversions are report-only even in unused bindings, skipped branches
-and empty comprehensions. They do not change source literal parsing or model-backed
+Native selections require an existing scalar projection first. The closed Data subset retains its existing
+operator/helper allowlist; conversions are report-only even in unused bindings,
+skipped branches and empty comprehensions. They do not change source literal parsing or model-backed
 construction rules.
 
 Native unique and tally share the [same operation contract](https://zayenz.se/zirql/guides/library-pipelines/#unique).

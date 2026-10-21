@@ -9,9 +9,10 @@ starts with a practical question: which day has too few staff, even though
 the total availability looks sufficient? The examples below develop source
 inspection and data reports in more detail.
 
-This guide explains the syntax and result rules used in its examples. The
-[expression contract](query-comprehension-contract.md) lists supported operators,
-collection forms and the smaller language allowed in data edits.
+This guide develops MiniZinc source and data recipes. The
+[Zirql library reference](https://zayenz.se/zirql/guides/library-reference/) owns
+shared function and operator contracts. The [expression contract](query-comprehension-contract.md)
+describes Zincite syntax, native projections and the smaller language allowed in data edits.
 
 Zirql evaluates shared expressions, bindings and collection operations, including
 native filtering, matching, ordering, dictionaries, existence, fixed points and
@@ -872,13 +873,9 @@ zincite query --program-file rank-machines.zq jobs.dzn
 `busiest` is the `b` record. Sorting preserves input order for equal keys;
 `min_by` and `max_by` choose the first record on a tie.
 
-Use `sort` for array elements and `sort_by` for record fields. Keys use structural
-order: absence, Boolean, integer, finite float, string, nominal member, array,
-tuple, set, dictionary, then keyed array. Integer and float kinds stay distinct.
-Compounds compare recursively; sets and dictionaries use canonical membership
-and associations. An actual absent key is valid. To supply a missing score deliberately,
-construct a field such as `score: lookup(row, "score") default 0` before
-sorting. Empty extrema return `<>`, so `min([]) default 0` supplies zero.
+See the shared [ordering and extrema reference](https://zayenz.se/zirql/guides/library-ordering/)
+for supported collections, key order, missing-key failures and empty results.
+Use an explicit `lookup`/`default` field when a missing score should become zero.
 Sorting and extrema are available in reports, not data edits.
 
 ## Order native selections
@@ -952,18 +949,12 @@ ds | map_by(names, uses | count) | sort_by(value) | reverse | head(2)
 {"complete":true,"limitations":[],"result":{"B":2,"A":1}}
 ```
 
-Each key selector runs before its value selector, against the same original
-singleton. Both can read outer bindings; explicit sources such as `items`
-still read the original input. A duplicate key fails before its value runs.
-Payloads retain their native handles and source ranges until rendering.
-
-Dictionaries retain insertion order through bindings and nesting.
-`sort_by(value)` uses the same structural order for supported ordinary data,
-including Boolean, absent, mixed and compound values. Sorting keeps the current order within ties, so
-`reverse | sort_by(value)` keeps equal values in their reversed order.
-`head(n)` and `tail(n)` retain dictionary kind, including zero, empty and
-oversized bounds. Native `tally` dictionaries support the same sorting and bounds
-without recounting their entries.
+The shared [map_by entry](https://zayenz.se/zirql/guides/library-native/#map_by)
+explains correlated selector scope and duplicate keys. Zincite retains source
+handles and ranges in each payload; explicit sources such as `items` still read
+the original input. [Dictionary ordering](https://zayenz.se/zirql/guides/library-ordering/#sort_by)
+and [collection selection](https://zayenz.se/zirql/guides/library-pipelines/)
+apply to the result, including native tally dictionaries.
 
 Constructed dictionary fields keep their existing tagged values inside an
 ordered JSON object. For example:
