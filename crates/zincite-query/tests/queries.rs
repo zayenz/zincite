@@ -7741,3 +7741,44 @@ fn adopted_report_extensions_keep_order_and_native_builder_values() {
         assert!(error.message.contains("report-only"), "{source}: {error:?}");
     }
 }
+
+#[test]
+fn scalar_conversions_use_shared_reports_and_stay_out_of_all_data_branches() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    use zirql::ConstructedValue as V;
+    let limits = ProgramLimits::default();
+    let input = Input::parse(b"amount=\"002\";".to_vec(), FileMode::Data).unwrap();
+    let program = Program::parse(r#"fn label(n:int)->string { to_string(parse_int(to_string(n))) } let total=items | count; report (label:label(total), price:parse_float("1.25e1"));"#, limits).unwrap();
+    let result = program.evaluate(&input, limits).unwrap();
+    let ReportValue::Constructed(value) = result.emissions()[0].value() else {
+        panic!("constructed")
+    };
+    assert_eq!(
+        value.data(),
+        &V::Record(vec![
+            (
+                "label".into(),
+                V::Declared {
+                    value: Box::new(V::String("1".into())),
+                    declaration: zirql::DeclaredType::String
+                }
+            ),
+            ("price".into(), V::Float(12.5))
+        ])
+    );
+    for source in [
+        "let unused=parse_int(\"2\"); create changed=1; emit;",
+        "create changed=if false then parse_float(\"2\") else 1.0 endif; emit;",
+        "create changed=[to_string(n) | n in []]; emit;",
+    ] {
+        let error = Program::parse(source, limits).unwrap_err();
+        assert!(error.message.contains("report-only"), "{source}: {error:?}");
+    }
+    let source = "fn bad(n:int)->int { parse_int(n) } report 1;";
+    assert!(
+        Program::parse(source, limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .is_err()
+    );
+}

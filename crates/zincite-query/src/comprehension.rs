@@ -238,8 +238,13 @@ pub(crate) fn admit_data<Q>(
             K::One(operand) if matches!(operand.value, K::NativeQuery(_) | K::NativeValue(_)) => {
                 pending.push(operand)
             }
-            K::Unary { operand, .. }
-            | K::Field { value: operand, .. }
+            K::Unary { operator, operand } => {
+                if !matches!(operator, U::Positive | U::Negative | U::Not) {
+                    return Err(refused());
+                }
+                pending.push(operand);
+            }
+            K::Field { value: operand, .. }
             | K::TupleAccess { value: operand, .. }
             | K::IndexSet(operand) => pending.push(operand),
             K::Binary {

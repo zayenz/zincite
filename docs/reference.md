@@ -200,7 +200,7 @@ by the objective expression. Each node retains its precise source range.
 ## Development report transformations
 
 The development query adapter pins Zirql Git revision
-`aa6e7c3eed515e703fe055c8d880e2685d0ac7f6`. It supports positional `map` and
+`402eede8a28008b52a36afa1fd301b3bab251e0a`. It supports positional `map` and
 `flat_map`, selective `case` generators, `windows`, `runs_by`, record updates
 with `with`, and full `align` by a unique field. The
 [report transformation example](query-comprehension-contract.md#transform-report-rows)
@@ -969,7 +969,7 @@ extract exactly one value from a projection. Native node and semantic selections
 retain their identities; use an explicit projection before passing them to a
 scalar operation or comprehension.
 
-The development dependency pins Zirql `aa6e7c3eed515e703fe055c8d880e2685d0ac7f6`.
+The development dependency pins Zirql `402eede8a28008b52a36afa1fd301b3bab251e0a`.
 Zirql traverses mixed native/constructed containers, converts constructed nodes
 with its tagged-data codec, and writes JSON with the active request budget.
 Zincite supplies native source/semantic descriptors, shape admission and the

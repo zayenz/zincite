@@ -1255,7 +1255,7 @@ retain their existing closed subset.
 
 ## Render a mixed native report
 
-The development Git dependency at Zirql `aa6e7c3eed515e703fe055c8d880e2685d0ac7f6`
+The development Git dependency at Zirql `402eede8a28008b52a36afa1fd301b3bab251e0a`
 uses the shared tagged-data codec inside native reports. Against `model.mzn`
 above, run:
 
@@ -1306,3 +1306,28 @@ available on `ProgramResult` and through the CLI's existing diagnostics and exit
 status. Evaluation and rendering finish before any bytes reach stdout. The
 [library reference](reference.md#markdown-program-results) shows the same report
 through `Program::parse`, `evaluate` and `render`.
+
+## Explicit scalar conversions in reports
+
+Project a native selection to its count before converting it to text. This pure
+function adds a label to an ordinary report over `calls.mzn` from the destructuring
+example above:
+
+```zirql title="conversion-report.zq"
+fn label(total:int) -> string { "items=" ++ to_string(total) }
+let total = items | count;
+report (label: label(total), parsed: parse_int("002"), price: parse_float("1.25e1"));
+```
+
+```sh
+zincite query --program-file conversion-report.zq calls.mzn
+zincite-query --program-file conversion-report.zq calls.mzn
+```
+
+The parsed quantity is `2` and the price is `12.5`. The
+[shared scalar reference](https://zayenz.se/zirql/guides/library-strings/#parse_int)
+defines the decimal grammar, finite limits and formatting. These calls use the
+shared evaluator in reports and pure functions. They require this development
+checkout's pinned Zirql revision and are unavailable in Data/edit expressions,
+including unused bindings and unselected branches. Native ownership, model facts
+and edit safety remain Zincite responsibilities.

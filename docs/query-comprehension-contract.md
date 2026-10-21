@@ -85,7 +85,7 @@ Zincite responsibilities.
 ## Transform report rows
 
 The development checkout pins Zirql
-[`aa6e7c3eed515e703fe055c8d880e2685d0ac7f6`](https://github.com/zayenz/zirql/commit/aa6e7c3eed515e703fe055c8d880e2685d0ac7f6).
+[`402eede8a28008b52a36afa1fd301b3bab251e0a`](https://github.com/zayenz/zirql/commit/402eede8a28008b52a36afa1fd301b3bab251e0a).
 The following report forms require that checkout; the published Zirql 0.2.0
 integration predates them.
 
@@ -997,3 +997,14 @@ selections refuse with one bounded checkpoint. Native copying, comparison and
 nested evaluation spend the active budget. See the
 [walkthrough](queries.md#filter-connections-and-accumulate-declarations) and
 [reference](reference.md#native-existence-and-fixed-points).
+
+## Explicit scalar conversions
+
+Ordinary reports and pure functions accept the shared `parse_int`, `parse_float`
+and `to_string` calls. See the [scalar contract](https://zayenz.se/zirql/guides/library-strings/#parse_int)
+and [native count report recipe](queries.md#explicit-scalar-conversions-in-reports).
+Native selections require an existing scalar projection first. The closed Data
+subset permits only the existing unary positive, negative and Boolean-not
+operators; conversions are report-only even in unused bindings, skipped branches
+and empty comprehensions. They do not change source literal parsing or model-backed
+construction rules.
