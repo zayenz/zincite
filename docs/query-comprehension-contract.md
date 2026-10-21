@@ -116,7 +116,7 @@ Zincite responsibilities.
 ## Transform report rows
 
 The development checkout pins Zirql
-[`0345851b57b35b7ade4de77466350cba56fe02ea`](https://github.com/zayenz/zirql/commit/0345851b57b35b7ade4de77466350cba56fe02ea).
+[`05c25a3d5f34ad431f573c55ddb0b7105a58b395`](https://github.com/zayenz/zirql/commit/05c25a3d5f34ad431f573c55ddb0b7105a58b395).
 The following report forms require that checkout; the published Zirql 0.2.0
 integration predates them.
 
@@ -318,20 +318,26 @@ known types are checked before evaluation, so the skipped value cannot hide an
 unsupported operation or a known type mismatch. Those checks may inspect input
 values even when the condition will be false.
 
-`sort(xs)` and `sort_by(rows, "field")` stably order positional scalar values
+`sort(xs)` and `sort_by(rows, "field")` stably order positional values
 or original records. They are ascending unless the final literal option is
 `descending=true`; `descending=false` is the default. Descending ties retain
 input order. The selector is one static string literal. This local option uses
 `=`, not a general named-argument or equality expression.
 
-`min(xs)`/`max(xs)` return an optional scalar, and `min_by(rows, "field")`/
+`min(xs)`/`max(xs)` return an optional element, and `min_by(rows, "field")`/
 `max_by(rows, "field")` an optional original record. Empty input returns `<>`;
 the first input wins a tie. Use `min([]) default 0` for an explicit empty policy.
-Keys require present homogeneous integers, finite floats, exact strings or one
-nominal type. Integers and floats do not mix; nominal members use declaration
-order. Other row fields, declarations and member identities survive. A missing,
-absent or incompatible field fails at the selector, including a later bad key
-in extrema. Project a `lookup(row, "score") default 0` key first when intended.
+Keys use structural order: absence, Boolean, integer, finite float, string,
+nominal member, array, tuple, set, dictionary, then keyed array. Integers and
+floats retain distinct ranks. Arrays and tuples compare positionally; sets and
+dictionaries compare canonical membership and associations. Nominal members use
+coherent type identity and declaration order. Actual absent keys, mixed kinds
+and compound keys are valid. Other row fields, declarations and member
+identities survive. Missing fields, invalid row shapes and incoherent nominal
+metadata fail, including a later bad key in extrema. Native selectors require
+exactly one key. Construct a field such as
+`score: lookup(row, "score") default 0` first when a missing score should become
+zero.
 Keyed arrays need explicit positional conversion, such as `[e.value | e in
 entries(a)]`.
 
@@ -585,8 +591,9 @@ order recursively; empty general dictionaries have an empty `entries` array and
 empty string dictionaries render as `{}`. Native `map_by(key_query,value_query)` uses the same ordered
 storage while retaining native payloads. It evaluates key then value against
 the same singleton and rejects a duplicate before its value. `sort_by(value)`
-uses present homogeneous integer, finite-float, string or coherent nominal
-keys; native counts use checked signed conversion. Sorting keeps current-order
+uses structural keys, including mixed kinds, absence and ordinary compounds;
+native counts retain their unsigned range. Integer and float kinds have separate
+ranks. Sorting keeps current-order
 ties. Dictionary `reverse`, `head` and `tail` preserve kind and retained order,
 including empty, zero and oversized bounds. Native tally keeps its stored
 first-seen keys and counts through these operations. Both selectors and known
@@ -981,15 +988,17 @@ describes `Program`, its result types and candidate handling.
 
 ## Native ordering and sets
 
-Read-only native ordering uses the same scalar key rules as constructed ordering.
+Read-only native ordering uses the same structural key rules as constructed ordering.
 The [ordering walkthrough](queries.md#order-native-selections) shows the
 selection forms. `sort`, `min`, `max`, `min_all` and `max_all` each accept an
 optional `*_by(selector)` form. Selectors use one incoming subject and the
 surrounding lexical bindings. Explicit input stages retain their original-input
-meaning. Native counts enter the signed key domain through checked conversion.
-Missing, absent, Boolean or mixed integer/float keys fail. Nominal keys retain
-host identities and coherent declaration metadata. Every key is admitted before
-sorting or selecting extrema.
+meaning. Native counts retain their unsigned range in the integer rank.
+Absence sorts first, followed by Boolean, integer, finite float, string, nominal
+member and compounds in the shared kind order. Missing fields and invalid native
+selector cardinality fail. Nominal keys retain host identities and coherent
+metadata, including nested members. Every key is admitted before comparisons
+or extrema selection.
 
 Sorts keep incoming ties; single extrema keep the first tie and all-ties extrema
 retain every tied subject in input order. Empty native extrema produce an empty

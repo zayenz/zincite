@@ -4447,6 +4447,17 @@ fn report_ordering_keeps_rows_ties_optional_results_and_selector_ranges() {
         };
         assert_eq!(value.data(), &V::Array(vec![V::Integer(selected)]));
     }
+    let structural = r#"fn key(n:Node)->sequence<int> { [1, 2] }
+        report items | sort_by(key(input)) | count;
+        report sort([[1], "a", -2.0, 1, true, <>]);"#;
+    let result = Program::parse(structural, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    assert_eq!(result.emissions().len(), 2);
+    assert!(
+        matches!(result.emissions()[1].value(), ReportValue::Constructed(value) if value.data() == &V::Array(vec![V::Absent, V::Boolean(true), V::Integer(1), V::Float(-2.0), V::String("a".into()), V::Array(vec![V::Integer(1)])]))
+    );
     let dictionary_sorts = r#"
         let key="pear";
         let dictionary={key:2,"ash":1,"elm":2};
@@ -4489,11 +4500,8 @@ fn report_ordering_keeps_rows_ties_optional_results_and_selector_ranges() {
         .unwrap_err();
     assert_eq!(&quoted_failure[error.range], "\"value\"");
     assert!(error.message.contains("record rows"));
-    for source in [
-        r#"report min_by([(score: 1), (other: 2)], "score");"#,
-        r#"report max_by([(score: 1), (score: <>)], "score");"#,
-        r#"report sort_by([(score: 1), (score: "2")], "score");"#,
-    ] {
+    {
+        let source = r#"report min_by([(score: 1), (other: 2)], "score");"#;
         let failure = Program::parse(source, limits)
             .and_then(|p| p.evaluate(&input, limits))
             .unwrap_err();
@@ -4504,7 +4512,6 @@ fn report_ordering_keeps_rows_ties_optional_results_and_selector_ranges() {
         "report sort([1], descending=true, descending=false);",
         "report sort([1], other=true);",
         "report min([1], descending=true);",
-        "report sort([1, 2.0]);",
     ] {
         assert!(
             Program::parse(source, limits)
@@ -4547,11 +4554,13 @@ fn report_ordering_keeps_rows_ties_optional_results_and_selector_ranges() {
     assert_eq!(first.type_id, second.type_id);
     assert_ne!(first.member_id, second.member_id);
     let source = r#"report min_by([(score:enum_member(Colour,"Red")),(score:enum_member(Shade,"Dark"))],"score");"#;
-    let error = Program::parse(source, limits)
+    let result = Program::parse(source, limits)
         .unwrap()
         .evaluate_with_model(&input, Some(&model), limits)
-        .unwrap_err();
-    assert_eq!(&source[error.range], "\"score\"");
+        .unwrap();
+    assert!(
+        matches!(result.emissions()[0].value(), ReportValue::Constructed(value) if matches!(value.data(), V::Record(fields) if matches!(&fields[0].1, V::Member(member) if member.member_name == "Red")))
+    );
     let limited = Program::parse("report sort([4,3,2,1]);", limits)
         .unwrap()
         .evaluate(&input, ProgramLimits { work: 50, ..limits })
@@ -5758,10 +5767,10 @@ fn saved_native_and_minizinc_values_compose_with_shared_suffixes() {
     }
     let typed_empty =
         "fn bad(xs:sequence<record{x:int}>)->sequence<record{x:int}> { (xs) | sort } bad([])";
-    let error = Program::parse(typed_empty, limits)
-        .and_then(|p| p.evaluate(&input, limits))
-        .unwrap_err();
-    assert_eq!(&typed_empty[error.range], "sort", "{}", error.message);
+    Program::parse(typed_empty, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
     let program = Program::parse(body, limits).unwrap();
     let error = program
         .evaluate(
@@ -6132,10 +6141,6 @@ fn native_ordering_and_operand_order_sets_keep_values_and_owners() {
     result.render().unwrap();
     for source in [
         r#"items | filter(name("missing")) | sort"#,
-        r#"items | filter(name("missing")) | sort_by(true)"#,
-        r#"fn bad(n:Node)->bool { true } items | filter(name("missing")) | sort_by(bad(input))"#,
-        r#"items | sort_by(<>)"#,
-        r#"items | filter(name("A") or name("positive")) | sort_by(expressions | tail(1) | values)"#,
         r#"items | sort_by(names | head(0))"#,
         r#"items | sort_by(values | emit)"#,
         r#"(items | values) union (items | values)"#,
@@ -6603,20 +6608,12 @@ fn native_dictionaries_keep_payloads_order_and_preflight_contracts() {
             "exactly one string",
         ),
         (
-            r#"let b=true; let unused=items | head(0) | map_by(names,b) | sort_by(value); report 1;"#,
-            "supported scalar values",
-        ),
-        (
             r#"items | head(0) | map_by(names,names | emit)"#,
             "cannot emit",
         ),
         (
             r#"let bad=items | head(0) | map_by(names, input) | sort_by(value); report 1;"#,
-            "supported scalar values",
-        ),
-        (
-            r#"fn nested(n:Node)->record{x:int} { (x:1) } let unused=items | head(0) | map_by(names,nested(input)) | sort_by(value); report 1;"#,
-            "supported scalar values",
+            "supported data values",
         ),
         (
             r#"items | head(1) | map_by(names | head(0),names)"#,
@@ -6625,10 +6622,6 @@ fn native_dictionaries_keep_payloads_order_and_preflight_contracts() {
         (
             r#"items | head(1) | map_by(items | names,names)"#,
             "exactly one string",
-        ),
-        (
-            r#"items | filter(name("A") or name("positive")) | map_by(names, expressions | tail(1) | values) | sort_by(value)"#,
-            "homogeneous key types",
         ),
     ] {
         let error = Program::parse(source, limits)

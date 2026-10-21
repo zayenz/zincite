@@ -200,7 +200,7 @@ by the objective expression. Each node retains its precise source range.
 ## Development report transformations
 
 The development query adapter pins Zirql Git revision
-`0345851b57b35b7ade4de77466350cba56fe02ea`. It supports positional `map` and
+`05c25a3d5f34ad431f573c55ddb0b7105a58b395`. It supports positional `map` and
 `flat_map`, selective `case` generators, `windows`, `runs_by`, record updates
 with `with`, and full `align` by a unique field. The
 [report transformation example](query-comprehension-contract.md#transform-report-rows)
@@ -923,10 +923,12 @@ during preflight. Undefined names and incompatible known types still fail.
 Their optional final `descending=true` reverses key order and keeps input ties;
 `descending=false` is the default. `min`/`max` and `min_by`/`max_by` select the
 first tied scalar or original record and return `<>` for empty input. Defaults
-are explicit, as in `min([]) default 0`. Keys must be present homogeneous int,
-finite float, exact string or one nominal type; no numeric coercion or automatic
-absence order. Nominal order follows the declaration. Missing/absent/incompatible
-fields point to the literal selector. These calls are report-only and share
+are explicit, as in `min([]) default 0`. Keys use structural order: absence,
+Boolean, integer, finite float, string, nominal member, array, tuple, set,
+dictionary, then keyed array. Integers and floats retain separate ranks.
+Compounds compare recursively; sets and dictionaries use canonical membership
+and associations. Nominal order follows coherent declarations. Missing fields
+and invalid record rows point to the literal selector; actual absent keys are valid. These calls are report-only and share
 work, scratch, output-copy and comparison limits. See the [complete contract](query-comprehension-contract.md#report-expressions-and-edit-grammar)
 and [executable report](queries.md#sort-rows-and-select-extrema).
 
@@ -935,8 +937,9 @@ Native report pipelines accept `sort`, `min`, `max`, `min_all`, `max_all` and
 can use the containing lexical bindings. Direct ordering accepts scalar string
 or literal streams; handles need an explicit scalar projection, for example
 `items | filter(name("A") or name("B")) | sort_by(expressions | tail(1) | values)`. Each selector must
-produce exactly one present integer, finite float, exact string or nominal
-member of one coherent type. Counts use checked signed conversion. All keys
+produce one ordinary data key, including a compound, Boolean or absence.
+Native scalar projections must produce exactly one value. Counts retain their
+unsigned range without conversion to signed integers. All keys
 are checked, including keys that cannot win an extremum. Sorting keeps ties;
 single extrema keep the first tie and all-ties forms retain tied items in their
 incoming order. Empty native extrema retain the empty selection's kind and
@@ -958,7 +961,7 @@ Use `(left union right) | names` to continue from a combined selection.
 string dictionary. The key must produce exactly one string. Each selector sees
 the same singleton and lexical scope; a duplicate fails before its value runs.
 Payloads can retain any admitted pure native or constructed value.
-`dictionary | sort_by(value)` uses the typed scalar key contract above and
+`dictionary | sort_by(value)` uses the structural key contract above and
 keeps current-order ties. `reverse`, `head(n)` and `tail(n)` retain dictionary
 kind for unsorted, sorted, empty, zero and oversized selections. Native `tally`
 counts support these operations directly. JSON object member order agrees with
@@ -982,7 +985,7 @@ Constructed positional arrays also accept `| filter(word => starts_with(word,"a"
 `| count`, `| sort`, `| unique` and terminal `| tally`. The same filter can use `filter(starts_with(_,"a"))` or the compact
 `filter(starts_with("a"))`. General predicates require a fixed Boolean and may
 use lexical captures and permitted pure calls. Their subject is one element; `count` returns the number of present
-array entries. `sort` uses the scalar ordering above; `unique` keeps first
+array entries. `sort` uses the structural ordering above; `unique` keeps first
 occurrences; string-only `tally` produces a count dictionary in first-seen key order.
 Use grouping for saved values or calls, such as `(rows) | sort | unique`.
 MiniZinc comprehension pipes stay inside brackets. Keyed inputs need an explicit
@@ -1018,7 +1021,7 @@ extract exactly one value from a projection. Native node and semantic selections
 retain their identities; use an explicit projection before passing them to a
 scalar operation or comprehension.
 
-The development dependency pins Zirql `0345851b57b35b7ade4de77466350cba56fe02ea`.
+The development dependency pins Zirql `05c25a3d5f34ad431f573c55ddb0b7105a58b395`.
 Zirql traverses mixed native/constructed containers, converts constructed nodes
 with its tagged-data codec, and writes JSON with the active request budget.
 Zincite supplies native source/semantic descriptors, shape admission and the

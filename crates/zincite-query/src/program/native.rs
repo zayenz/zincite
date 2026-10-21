@@ -369,7 +369,7 @@ impl<'a> composition::CompositionHost<'_, '_> {
     }
 }
 
-pub(super) fn scalar_key<'a>(
+pub(super) fn ordering_key<'a>(
     value: ReportValue<'a>,
     context: &mut Context<'_, 'a>,
     budget: &mut Budget,
@@ -388,26 +388,36 @@ pub(super) fn scalar_key<'a>(
             let QueryResult::Count(count) = *result else {
                 unreachable!()
             };
-            return count_key(count, range);
+            return Ok(zirql::NativeOrderKey::Count(count));
         }
         ReportValue::Query(stream) => {
             let facts = context
                 .report_facts(budget, range)
                 .map_err(zirql::EvaluationError::Host)?;
-            comprehension::project(&stream, facts.as_deref(), budget, range, nesting)
-                .map_err(zirql::EvaluationError::Host)?
+            let projected =
+                comprehension::project(&stream, facts.as_deref(), budget, range, nesting)
+                    .map_err(zirql::EvaluationError::Host)?;
+            match projected {
+                zirql::ConstructedValue::Array(mut values) if values.len() == 1 => {
+                    values.pop().unwrap()
+                }
+                zirql::ConstructedValue::Array(_) => {
+                    return Err(zirql::QueryError::query(
+                        range.clone(),
+                        "ordering selector needs exactly one native projected value",
+                    )
+                    .into());
+                }
+                value => value,
+            }
         }
         _ => {
             return Err(zirql::QueryError::query(
                 range.clone(),
-                "ordering selector needs one present scalar",
+                "ordering selector needs one supported data value",
             )
             .into());
         }
-    };
-    let value = match value {
-        zirql::ConstructedValue::Array(mut values) if values.len() == 1 => values.pop().unwrap(),
-        value => value,
     };
     Ok(zirql::NativeOrderKey::Value(value))
 }
@@ -520,33 +530,22 @@ fn validate_row<'a>(
 }
 
 pub(super) fn supported_key(kind: &Kind) -> bool {
-    match kind {
-        Kind::Count | Kind::Strings | Kind::Literals | Kind::Constructed => true,
-        Kind::Scalar(zirql::ParameterType::Int | zirql::ParameterType::String) => true,
-        Kind::Value(types) => types.iter().all(ordered_key_type),
-        _ => false,
-    }
+    matches!(
+        kind,
+        Kind::Count
+            | Kind::Strings
+            | Kind::Literals
+            | Kind::Constructed
+            | Kind::Scalar(_)
+            | Kind::Value(_)
+    )
 }
 
-fn ordered_key_type(ty: &zirql::ValueType) -> bool {
-    use zirql::ValueType as T;
-    match ty {
-        T::Declared {
-            actual,
-            declaration,
-        } if matches!(actual.as_ref(), T::Unestablished) => declared_scalar_key(declaration, false),
-        T::Declared { actual, .. } => ordered_key_type(actual),
-        T::Integer | T::Float | T::String | T::Member(_) | T::Unestablished => true,
-        _ => false,
-    }
-}
-
-fn declared_scalar_key(mut declaration: &D<()>, string_only: bool) -> bool {
+fn declared_string_key(mut declaration: &D<()>) -> bool {
     while let D::Optional(inner) = declaration {
         declaration = inner;
     }
     matches!(declaration, D::String)
-        || !string_only && matches!(declaration, D::Integer | D::Float | D::Member(_))
 }
 
 fn string_type(ty: &zirql::ValueType) -> bool {
@@ -556,7 +555,7 @@ fn string_type(ty: &zirql::ValueType) -> bool {
         T::Declared {
             actual,
             declaration,
-        } if matches!(actual.as_ref(), T::Unestablished) => declared_scalar_key(declaration, true),
+        } if matches!(actual.as_ref(), T::Unestablished) => declared_string_key(declaration),
         T::Declared { actual, .. } => string_type(actual),
         _ => false,
     }
@@ -582,18 +581,9 @@ pub(super) fn map_sort_kind(input: &Kind, range: &Range<usize>) -> Result<Kind, 
         Kind::Tally | Kind::Record => Ok(input.clone()),
         _ => Err(zirql::QueryError::query(
             range.clone(),
-            "dictionary value sorting requires supported scalar values",
+            "dictionary value sorting requires supported data values",
         )),
     }
-}
-
-fn count_key(count: usize, range: &Range<usize>) -> Result<zirql::NativeOrderKey, Failure> {
-    let count = i64::try_from(count).map_err(|_| {
-        zirql::QueryError::query(range.clone(), "native count exceeds signed sort key range")
-    })?;
-    Ok(zirql::NativeOrderKey::Value(
-        zirql::ConstructedValue::Integer(count),
-    ))
 }
 
 pub(super) fn string_keys(

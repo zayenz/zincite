@@ -276,7 +276,7 @@ let ordered = rows | sort | unique;
 Run `zincite query -f names.zq data.dzn`, or pass the same source with
 `--program`. The comprehension uses MiniZinc's generator pipe inside brackets.
 The outer pipes continue the completed array through Zirql's shared collection
-operations. `sort` orders homogeneous scalars; `unique` keeps the first equal
+operations. `sort` uses structural value order; `unique` keeps the first equal
 value. For string frequencies, replace the last binding with
 `let ordered = rows | tally;`. Its result is a dictionary with string keys in first-seen order
 and integer counts.
@@ -871,8 +871,11 @@ zincite query --program-file rank-machines.zq jobs.dzn
 `busiest` is the `b` record. Sorting preserves input order for equal keys;
 `min_by` and `max_by` choose the first record on a tie.
 
-Use `sort` for an array of scalars and `sort_by` for records. Keys must be
-present and have compatible types. To supply a missing score deliberately,
+Use `sort` for array elements and `sort_by` for record fields. Keys use structural
+order: absence, Boolean, integer, finite float, string, nominal member, array,
+tuple, set, dictionary, then keyed array. Integer and float kinds stay distinct.
+Compounds compare recursively; sets and dictionaries use canonical membership
+and associations. An actual absent key is valid. To supply a missing score deliberately,
 construct a field such as `score: lookup(row, "score") default 0` before
 sorting. Empty extrema return `<>`, so `min([]) default 0` supplies zero.
 Sorting and extrema are available in reports, not data edits.
@@ -897,9 +900,10 @@ zincite query --program \
 The names are `A`, `B`, `C`; `A` stays before `B` because their keys tie.
 Replace `sort_by` with `min_by` to retain `A`, or `min_all_by` to retain both
 `A` and `B`. `max_by` and `max_all_by` retain `C`. The selected nodes keep their
-original file and byte ranges. A selector must return one present integer,
-finite float, string or nominal member. Nominal keys use declaration order.
-Counts are checked before conversion to signed keys. Empty native extrema keep
+original file and byte ranges. A selector may return an ordinary compound,
+Boolean or absent key. Native scalar projections must return exactly one value;
+opaque source nodes need an explicit projection. Nominal keys use coherent
+declaration order. Counts retain their unsigned range. Empty native extrema keep
 an empty selection of the same kind; constructed `min([])` still returns `<>`.
 
 Set expressions keep operand order. For declarations whose written references
@@ -953,9 +957,8 @@ still read the original input. A duplicate key fails before its value runs.
 Payloads retain their native handles and source ranges until rendering.
 
 Dictionaries retain insertion order through bindings and nesting.
-`sort_by(value)` orders present homogeneous integers, finite floats, strings or
-members of one nominal type. Boolean, absent, mixed numeric and nested values
-cannot supply sort keys. Sorting keeps the current order within ties, so
+`sort_by(value)` uses the same structural order for supported ordinary data,
+including Boolean, absent, mixed and compound values. Sorting keeps the current order within ties, so
 `reverse | sort_by(value)` keeps equal values in their reversed order.
 `head(n)` and `tail(n)` retain dictionary kind, including zero, empty and
 oversized bounds. Native `tally` dictionaries support the same sorting and bounds
@@ -1299,7 +1302,7 @@ retain their existing closed subset.
 
 ## Render a mixed native report
 
-The development Git dependency at Zirql `0345851b57b35b7ade4de77466350cba56fe02ea`
+The development Git dependency at Zirql `05c25a3d5f34ad431f573c55ddb0b7105a58b395`
 uses the shared tagged-data codec inside native reports. Against `model.mzn`
 above, run:
 

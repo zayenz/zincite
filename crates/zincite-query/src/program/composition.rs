@@ -1951,7 +1951,7 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         } else {
             Err(zirql::QueryError::query(
                 range.clone(),
-                "native ordering needs an explicit supported scalar key",
+                "native ordering needs an explicit supported data key",
             ))
         }
     }
@@ -1962,7 +1962,7 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<zirql::NativeOrderKey, zirql::EvaluationError<QueryError>> {
-        native::scalar_key(value, context, budget, range, self.0.nesting)
+        native::ordering_key(value, context, budget, range, self.0.nesting)
     }
     fn mapping_kind(
         &self,
