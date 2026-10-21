@@ -76,7 +76,7 @@ pub(crate) fn read_data<Q>(
             "native expression is unavailable here",
         ))
     })?;
-    let expression = crate::program::builder::map_queries(value, &mut |_| {
+    let expression = zirql::map_value_payloads(value, &mut |_| {
         unreachable!("Data reader has no native values")
     });
     Ok(LoweredValue {
@@ -223,6 +223,7 @@ pub(crate) fn admit_data<Q>(
                 }
                 for clause in clauses {
                     match &clause.value {
+                        ValueGenerator::In { case: true, .. } => return Err(refused()),
                         ValueGenerator::In { source, filter, .. }
                         | ValueGenerator::Bind {
                             value: source,
@@ -353,173 +354,47 @@ pub(crate) fn eager_names<Q>(
     names: &mut BTreeSet<String>,
     budget: &mut Budget,
 ) -> Result<(), QueryError> {
-    charge(budget, 1, &expression.range)?;
-    match &expression.value {
-        K::Block { .. }
-        | K::ValueMatch { .. }
-        | K::Queue { .. }
-        | K::PopFront(_)
-        | K::PushBackAll { .. }
-        | K::IdentitySet { .. }
-        | K::Insert { .. }
-        | K::Fold { .. }
-        | K::Scan { .. }
-        | K::Loop { .. }
-        | K::Break(_)
-        | K::Continue(_) => {
-            return Err(QueryError::query(
-                expression.range.clone(),
-                "control values require a prepared report program",
-            ));
-        }
-        K::SubjectScope { subject, argument } => {
-            eager_names(subject, names, budget)?;
-            eager_names(&argument.body, names, budget)?;
-        }
-        K::PredicateScope { subject, predicate } => {
-            eager_names(subject, names, budget)?;
-            eager_names(&predicate.body, names, budget)?;
-        }
-        K::Filter { array, predicate } => {
-            eager_names(array, names, budget)?;
-            eager_names(&predicate.body, names, budget)?;
-        }
-        K::Name(name) => {
-            charge(budget, name.len() + 1, &expression.range)?;
-            budget
-                .charge_results(1, zirql::Location::Query(expression.range.clone()))
-                .map_err(pipeline::core_error)?;
-            names.insert(name.clone());
-        }
-        K::CurrentInput
-        | K::Literal(_)
-        | K::NativeQuery(_)
-        | K::NativeValue(_)
-        | K::PredicateSubject => {}
-        K::Call { arguments, .. } => {
-            for argument in arguments {
-                eager_names(argument, names, budget)?;
+    let mut pending = vec![expression];
+    while let Some(expression) = pending.pop() {
+        charge(budget, 1, &expression.range)?;
+        match &expression.value {
+            K::Block { .. }
+            | K::ValueMatch { .. }
+            | K::Queue { .. }
+            | K::PopFront(_)
+            | K::PushBackAll { .. }
+            | K::IdentitySet { .. }
+            | K::Insert { .. }
+            | K::Fold { .. }
+            | K::Scan { .. }
+            | K::Loop { .. }
+            | K::Break(_)
+            | K::Continue(_) => {
+                return Err(QueryError::query(
+                    expression.range.clone(),
+                    "control values require a prepared report program",
+                ));
             }
-        }
-        K::Default { value, .. } => eager_names(value, names, budget)?,
-        K::Array(values) | K::Tuple(values) | K::Set(values) => {
-            for value in values {
-                eager_names(value, names, budget)?;
+            K::Name(name) => {
+                charge(budget, name.len() + 1, &expression.range)?;
+                budget
+                    .charge_results(1, zirql::Location::Query(expression.range.clone()))
+                    .map_err(pipeline::core_error)?;
+                names.insert(name.clone());
             }
+            _ => {}
         }
-        K::Record(fields) => {
-            for (_, value) in fields {
-                eager_names(value, names, budget)?;
-            }
+        let width = zirql::value_child_count(expression);
+        budget
+            .charge_results(width, zirql::Location::Query(expression.range.clone()))
+            .map_err(pipeline::core_error)?;
+        let start = pending.len();
+        if let K::Default { value, .. } = &expression.value {
+            pending.push(value);
+        } else {
+            zirql::for_each_value_child(expression, |child| pending.push(child));
         }
-        K::Dictionary(entries) | K::KeyedArray { entries, .. } => {
-            if let K::KeyedArray {
-                declared_axis_sources,
-                ..
-            } = &expression.value
-            {
-                for source in declared_axis_sources.iter().flatten() {
-                    eager_names(source, names, budget)?;
-                }
-            }
-            for (key, value) in entries {
-                eager_names(key, names, budget)?;
-                eager_names(value, names, budget)?;
-            }
-        }
-        K::Unique(value)
-        | K::Tally(value)
-        | K::Occurs(value)
-        | K::Absent(value)
-        | K::One(value)
-        | K::IndexSet(value)
-        | K::Entries(value)
-        | K::Unary { operand: value, .. }
-        | K::Field { value, .. }
-        | K::TupleAccess { value, .. }
-        | K::Reduce { array: value, .. }
-        | K::Sort { array: value, .. }
-        | K::Extremum { array: value, .. }
-        | K::GroupBy { rows: value, .. } => eager_names(value, names, budget)?,
-        K::Lookup {
-            value: left,
-            key: right,
-        }
-        | K::HasKey {
-            value: left,
-            key: right,
-        }
-        | K::Binary { left, right, .. }
-        | K::ZipExact { left, right }
-        | K::Range {
-            lower: left,
-            upper: right,
-        }
-        | K::ArrayAccess {
-            array: left,
-            index: right,
-        }
-        | K::Require {
-            condition: left,
-            value: right,
-            ..
-        } => {
-            eager_names(left, names, budget)?;
-            eager_names(right, names, budget)?;
-        }
-        K::Conditional {
-            branches,
-            otherwise,
-        } => {
-            for (condition, value) in branches {
-                eager_names(condition, names, budget)?;
-                eager_names(value, names, budget)?;
-            }
-            eager_names(otherwise, names, budget)?;
-        }
-        K::Comprehension { clauses, head, .. }
-        | K::DictionaryComprehension { clauses, head, .. }
-        | K::KeyedComprehension { clauses, head, .. } => {
-            if let K::KeyedComprehension {
-                declared_axis_sources,
-                ..
-            } = &expression.value
-            {
-                for source in declared_axis_sources.iter().flatten() {
-                    eager_names(source, names, budget)?;
-                }
-            }
-            eager_names(head, names, budget)?;
-            if let K::DictionaryComprehension { key, .. } = &expression.value {
-                eager_names(key, names, budget)?;
-            }
-            if let K::KeyedComprehension {
-                key,
-                empty_axis_sources,
-                ..
-            } = &expression.value
-            {
-                eager_names(key, names, budget)?;
-                for value in empty_axis_sources.iter().flatten() {
-                    eager_names(value, names, budget)?;
-                }
-            }
-            for clause in clauses {
-                match &clause.value {
-                    ValueGenerator::In { source, filter, .. }
-                    | ValueGenerator::Bind {
-                        value: source,
-                        filter,
-                        ..
-                    } => {
-                        eager_names(source, names, budget)?;
-                        if let Some(filter) = filter {
-                            eager_names(filter, names, budget)?;
-                        }
-                    }
-                }
-            }
-        }
+        pending[start..].reverse();
     }
     Ok(())
 }
@@ -2295,7 +2170,7 @@ pub(crate) fn read_scalar_predicate(
         ));
     }
     let range = predicate.body.range.clone();
-    let body = crate::program::builder::map_queries(
+    let body = zirql::map_value_payloads(
         predicate.bind(Located::new(K::Name("\0scalar".into()), range)),
         &mut |_| unreachable!("scalar predicate has no native query"),
     );

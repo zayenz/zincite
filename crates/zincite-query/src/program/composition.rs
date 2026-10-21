@@ -425,23 +425,6 @@ impl Parser<'_> {
             Stage::FunctionValue(value)
             | Stage::FunctionSource(value)
             | Stage::PatternBinding(_, value) => self.admit_data_value(value, budget, true),
-            Stage::RecordValue(fields) => {
-                if self
-                    .cursor
-                    .source
-                    .get(range.clone())
-                    .is_some_and(|text| text.trim_start().starts_with('{'))
-                {
-                    return Err(QueryError::query(
-                        range.clone(),
-                        "report-only form is unavailable in data expressions",
-                    ));
-                }
-                for (_, value) in fields {
-                    self.admit_data_value(value, budget, false)?;
-                }
-                Ok(())
-            }
             Stage::Filter(predicate) => {
                 for guard in guard_leaves(predicate.get()) {
                     if semantic::requests_facts(&guard.stage) {
@@ -1312,12 +1295,6 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
             Stage::FunctionValue(value) | Stage::FunctionSource(value) => {
                 return Ok(vec![(value, Kind::Nodes)]);
             }
-            Stage::RecordValue(fields) => {
-                return Ok(fields
-                    .iter()
-                    .map(|(_, value)| (value, Kind::Nodes))
-                    .collect());
-            }
             Stage::Projection(projection) => {
                 return Ok(projection
                     .get()
@@ -1496,15 +1473,6 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
                     }
                 }
             }
-            Stage::RecordValue(fields) => {
-                for (_, expression) in fields {
-                    result.push(zirql::ScopedNativeArgument {
-                        expression,
-                        relative: Some(input.clone()),
-                        locals: Vec::new(),
-                    });
-                }
-            }
             Stage::FunctionValue(expression) => result.push(zirql::ScopedNativeArgument {
                 expression,
                 relative: Some(input.clone()),
@@ -1586,23 +1554,6 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
                         budget,
                         range,
                     );
-                }
-                Stage::RecordValue(fields) => {
-                    let mut values = Vec::with_capacity(fields.len());
-                    for (name, expression) in fields {
-                        let relative =
-                            self.copy_value(&value, arguments.parts().0, budget, range)?;
-                        let value = arguments.evaluate_native(expression, relative, budget)?;
-                        budget.charge(
-                            name.value.len() + 1,
-                            zirql::Location::Query(name.range.clone()),
-                        )?;
-                        values.push((
-                            name.value.clone(),
-                            ReportValue::Retained(value.into_shared()),
-                        ));
-                    }
-                    return self.construct_record(values, arguments.parts().0, budget, range);
                 }
                 Stage::FunctionValue(expression) | Stage::FunctionSource(expression) => {
                     let selected = arguments.evaluate_native(expression, value, budget)?;
@@ -1819,72 +1770,6 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
             Stage::Mapping(mapping) => self.map_kind(mapping, input, scope, budget, range),
             Stage::MapSorting => native::map_sort_kind(input, range),
             Stage::RetainPayload => Ok(Kind::Payload(Rc::new(input.clone()))),
-            Stage::RecordValue(fields) => {
-                let mut kinds = Vec::with_capacity(fields.len());
-                let mut scalar_fields = Some(Vec::with_capacity(fields.len()));
-                for (name, value) in fields {
-                    let kind = zirql::pattern_function_value_kind_borrowed(
-                        self.0
-                            .declarations
-                            .iter()
-                            .zip(self.0.signatures)
-                            .map(|(body, signature)| body.with_signature(signature)),
-                        self,
-                        value,
-                        scope,
-                        Some(input.clone()),
-                        budget,
-                    )?;
-                    let kind = match kind {
-                        Kind::Payload(kind) => (*kind).clone(),
-                        kind => kind,
-                    };
-                    match self.scalar_types(&kind, budget, &value.range)? {
-                        Some(types) => {
-                            if let Some(fields) = &mut scalar_fields {
-                                fields.push((name, types));
-                            }
-                        }
-                        None => scalar_fields = None,
-                    }
-                    kinds.push((name.value.clone(), kind));
-                }
-                let Some(fields) = scalar_fields else {
-                    return Ok(Kind::Capture(Rc::new(zirql::NativeCapture {
-                        fields: kinds,
-                    })));
-                };
-                let location = zirql::Location::Query(range.clone());
-                let mut records = vec![zirql::ValueType::Record(Vec::new())];
-                for (name, types) in fields {
-                    let mut next = Vec::new();
-                    for record in &records {
-                        for ty in &types {
-                            budget.charge(name.value.len() + 1, location.clone())?;
-                            budget.charge_results(1, location.clone())?;
-                            let mut copied = zirql::copy_value_types(
-                                std::slice::from_ref(record),
-                                budget,
-                                location.clone(),
-                            )?;
-                            let zirql::ValueType::Record(mut fields) = copied.pop().unwrap() else {
-                                unreachable!()
-                            };
-                            let ty = zirql::copy_value_types(
-                                std::slice::from_ref(ty),
-                                budget,
-                                location.clone(),
-                            )?
-                            .pop()
-                            .unwrap();
-                            fields.push((name.value.clone(), ty));
-                            next.push(zirql::ValueType::Record(fields));
-                        }
-                    }
-                    records = next;
-                }
-                Ok(Kind::Value(Rc::new(records)))
-            }
             Stage::FunctionValue(value) | Stage::FunctionSource(value) => {
                 functions::value_kind(value, self, input, scope, budget)
             }
@@ -2077,10 +1962,7 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
     }
     fn is_explicit_source(&self, stage: &Stage) -> bool {
         match stage {
-            Stage::FunctionSource(_)
-            | Stage::RecordValue(_)
-            | Stage::Primitive(..)
-            | Stage::Member(_) => true,
+            Stage::FunctionSource(_) | Stage::Primitive(..) | Stage::Member(_) => true,
             Stage::Match(matching) => {
                 matching
                     .get()

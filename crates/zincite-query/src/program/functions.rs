@@ -202,211 +202,25 @@ pub(super) fn lower_primitives(
         };
         expression.value = K::NativeQuery(query);
     }
-    // Registered native calls retain their host payload. User calls stay shared.
-    match &mut expression.value {
-        K::SubjectScope { subject, argument } => {
-            lower_primitives(subject, names, queries, constructed_functions);
-            lower_primitives(&mut argument.body, names, queries, constructed_functions);
-        }
-        K::PredicateScope { subject, predicate } => {
-            lower_primitives(subject, names, queries, constructed_functions);
-            lower_primitives(&mut predicate.body, names, queries, constructed_functions);
-        }
-        K::Filter { array, predicate } => {
-            lower_primitives(array, names, queries, constructed_functions);
-            lower_primitives(&mut predicate.body, names, queries, constructed_functions);
-        }
-        K::Call {
-            function,
-            arguments,
-        } => {
-            for argument in arguments.iter_mut() {
-                lower_primitives(argument, names, queries, constructed_functions);
-            }
-            if let Some(primitive) = Primitive::named(&function.value) {
-                let arguments = std::mem::take(arguments);
-                expression.value = K::NativeValue(Box::new(value_stage(
-                    Stage::Primitive(primitive, arguments),
-                    expression.range.clone(),
-                )));
-            }
-        }
-        K::Array(values) | K::Tuple(values) | K::Set(values) => {
-            for value in values {
-                lower_primitives(value, names, queries, constructed_functions);
-            }
-        }
-        K::Record(fields) => {
-            for (_, value) in fields.iter_mut() {
-                lower_primitives(value, names, queries, constructed_functions);
-            }
-            let fields = std::mem::take(fields);
-            expression.value = K::NativeValue(Box::new(value_stage(
-                Stage::RecordValue(fields),
-                expression.range.clone(),
-            )));
-        }
-        K::Unary { operand, .. }
-        | K::Unique(operand)
-        | K::Tally(operand)
-        | K::Occurs(operand)
-        | K::Absent(operand)
-        | K::One(operand)
-        | K::IndexSet(operand)
-        | K::Entries(operand)
-        | K::Reduce { array: operand, .. }
-        | K::Sort { array: operand, .. }
-        | K::Extremum { array: operand, .. }
-        | K::GroupBy { rows: operand, .. }
-        | K::Field { value: operand, .. }
-        | K::TupleAccess { value: operand, .. } => {
-            lower_primitives(operand, names, queries, constructed_functions)
-        }
-        K::Binary { left, right, .. }
-        | K::Lookup {
-            value: left,
-            key: right,
-        }
-        | K::HasKey {
-            value: left,
-            key: right,
-        }
-        | K::Default {
-            value: left,
-            fallback: right,
-        }
-        | K::ZipExact { left, right }
-        | K::Range {
-            lower: left,
-            upper: right,
-        }
-        | K::ArrayAccess {
-            array: left,
-            index: right,
-        } => {
-            lower_primitives(left, names, queries, constructed_functions);
-            lower_primitives(right, names, queries, constructed_functions);
-        }
-        K::Require {
-            condition, value, ..
-        } => {
-            lower_primitives(condition, names, queries, constructed_functions);
-            lower_primitives(value, names, queries, constructed_functions);
-        }
-        K::Conditional {
-            branches,
-            otherwise,
-        } => {
-            for (condition, value) in branches {
-                lower_primitives(condition, names, queries, constructed_functions);
-                lower_primitives(value, names, queries, constructed_functions);
-            }
-            lower_primitives(otherwise, names, queries, constructed_functions);
-        }
-        K::Comprehension { clauses, head, .. } => {
-            lower_generators(clauses, names, queries, constructed_functions);
-            lower_primitives(head, names, queries, constructed_functions);
-        }
-        K::DictionaryComprehension { clauses, key, head } => {
-            lower_generators(clauses, names, queries, constructed_functions);
-            lower_primitives(key, names, queries, constructed_functions);
-            lower_primitives(head, names, queries, constructed_functions);
-        }
-        K::KeyedComprehension {
-            clauses,
-            key,
-            head,
-            declared_axis_sources,
-            empty_axis_sources,
-        } => {
-            for source in declared_axis_sources.iter_mut().flatten() {
-                lower_primitives(source, names, queries, constructed_functions);
-            }
-            lower_generators(clauses, names, queries, constructed_functions);
-            lower_primitives(key, names, queries, constructed_functions);
-            lower_primitives(head, names, queries, constructed_functions);
-            for value in empty_axis_sources.iter_mut().flatten() {
-                lower_primitives(value, names, queries, constructed_functions);
-            }
-        }
-        K::KeyedArray {
-            declared_axis_sources,
-            entries,
-            ..
-        } => {
-            for source in declared_axis_sources.iter_mut().flatten() {
-                lower_primitives(source, names, queries, constructed_functions);
-            }
-            for (key, value) in entries {
-                lower_primitives(key, names, queries, constructed_functions);
-                lower_primitives(value, names, queries, constructed_functions);
-            }
-        }
-        K::Dictionary(entries) => {
-            for (key, value) in entries {
-                lower_primitives(key, names, queries, constructed_functions);
-                lower_primitives(value, names, queries, constructed_functions);
-            }
-        }
-        K::Block { bindings, value } => {
-            for (_, initializer) in bindings {
-                lower_primitives(initializer, names, queries, constructed_functions);
-            }
-            lower_primitives(value, names, queries, constructed_functions);
-        }
-        K::ValueMatch { subject, arms } => {
-            lower_primitives(subject, names, queries, constructed_functions);
-            for arm in arms {
-                if let Some(guard) = &mut arm.guard {
-                    lower_primitives(guard, names, queries, constructed_functions);
-                }
-                lower_primitives(&mut arm.value, names, queries, constructed_functions);
-            }
-        }
-        K::Queue { items, .. } | K::PopFront(items) | K::Break(items) => {
-            lower_primitives(items, names, queries, constructed_functions)
-        }
-        K::PushBackAll {
-            queue: left,
-            items: right,
-        }
-        | K::Insert {
-            set: left,
-            item: right,
-        }
-        | K::Fold {
-            items: left,
-            initial: right,
-            ..
-        }
-        | K::Scan {
-            items: left,
-            initial: right,
-            ..
-        } => {
-            lower_primitives(left, names, queries, constructed_functions);
-            lower_primitives(right, names, queries, constructed_functions);
-        }
-        K::Loop { states, body } => {
-            for (_, value) in states {
-                lower_primitives(value, names, queries, constructed_functions);
-            }
-            lower_primitives(body, names, queries, constructed_functions);
-        }
-        K::Continue(values) => {
-            for value in values {
-                lower_primitives(value, names, queries, constructed_functions);
-            }
-        }
-        K::IdentitySet { .. } => {}
-        K::CurrentInput
-        | K::Literal(_)
-        | K::Name(_)
-        | K::NativeQuery(_)
-        | K::NativeValue(_)
-        | K::PredicateSubject => {}
+    // Admission bounded this tree before lowering. Hosts rewrite native leaves;
+    // Zirql owns child and generator structure and ordinary record evaluation.
+    zirql::for_each_value_child_mut(expression, |child| {
+        lower_primitives(child, names, queries, constructed_functions);
+    });
+    if let K::Call {
+        function,
+        arguments,
+    } = &mut expression.value
+        && let Some(primitive) = Primitive::named(&function.value)
+    {
+        let arguments = std::mem::take(arguments);
+        expression.value = K::NativeValue(Box::new(value_stage(
+            Stage::Primitive(primitive, arguments),
+            expression.range.clone(),
+        )));
     }
 }
+
 pub(super) fn recover_call_value(
     expression: &mut E<Expression>,
     queries: &[ProgramQuery],
@@ -576,29 +390,6 @@ fn take_source_call(query: &mut Expression) -> Option<E<Expression>> {
             ))
         }
         _ => None,
-    }
-}
-fn lower_generators(
-    clauses: &mut [Located<zirql::ValueGenerator<Expression>>],
-    names: &BTreeMap<String, Kind>,
-    queries: &[ProgramQuery],
-    constructed_functions: &std::collections::BTreeSet<String>,
-) {
-    for clause in clauses {
-        match &mut clause.value {
-            zirql::ValueGenerator::In { source, filter, .. } => {
-                lower_primitives(source, names, queries, constructed_functions);
-                if let Some(value) = filter {
-                    lower_primitives(value, names, queries, constructed_functions);
-                }
-            }
-            zirql::ValueGenerator::Bind { value, filter, .. } => {
-                lower_primitives(value, names, queries, constructed_functions);
-                if let Some(value) = filter {
-                    lower_primitives(value, names, queries, constructed_functions);
-                }
-            }
-        }
     }
 }
 
@@ -1113,14 +904,6 @@ impl<'a> zirql::FunctionHost<Context<'_, 'a>> for composition::CompositionHost<'
                         })
                         .collect::<Result<_, zirql::QueryError>>()?,
                 }))
-            }
-            D::Sequence(inner) | D::Array(inner)
-                if matches!(inner.as_ref(), D::Record(_)) && native_declaration(inner) =>
-            {
-                let Kind::Capture(schema) = self.declaration_kind(inner, budget, range)? else {
-                    unreachable!()
-                };
-                Kind::Captures(schema)
             }
             D::Sequence(inner) | D::Array(inner) if native_declaration(inner) => {
                 Kind::Sequence(worklists::declaration(inner, budget, range)?)
@@ -2069,49 +1852,8 @@ fn check_values<'v, Q>(
         budget
             .charge(1, zirql::Location::Query(value.range.clone()))
             .map_err(pipeline::core_error)?;
-        // Admit known widths before allocating child references or native slots.
-        let width = match &value.value {
-            K::Call { arguments, .. }
-            | K::Array(arguments)
-            | K::Tuple(arguments)
-            | K::Set(arguments)
-            | K::Continue(arguments) => arguments.len(),
-            K::Record(fields) => fields.len(),
-            K::Conditional { branches, .. } => branches.len().saturating_mul(2).saturating_add(1),
-            K::Block { bindings, .. } => bindings.len().saturating_add(1),
-            K::Loop { states, .. } => states.len().saturating_add(1),
-            K::ValueMatch { arms, .. } => arms.len().saturating_mul(2).saturating_add(1),
-            K::Dictionary(entries) => entries.len().saturating_mul(2),
-            K::KeyedArray {
-                entries,
-                declared_axis_sources,
-                ..
-            } => entries
-                .len()
-                .saturating_mul(2)
-                .saturating_add(declared_axis_sources.as_ref().map_or(0, Vec::len)),
-            K::Comprehension { clauses, .. } => clauses.len().saturating_mul(2).saturating_add(1),
-            K::DictionaryComprehension { clauses, .. } => {
-                clauses.len().saturating_mul(2).saturating_add(2)
-            }
-            K::KeyedComprehension {
-                clauses,
-                declared_axis_sources,
-                empty_axis_sources,
-                ..
-            } => clauses
-                .len()
-                .saturating_mul(2)
-                .saturating_add(2)
-                .saturating_add(empty_axis_sources.as_ref().map_or(0, Vec::len))
-                .saturating_add(declared_axis_sources.as_ref().map_or(0, Vec::len)),
-            K::CurrentInput
-            | K::Literal(_)
-            | K::Name(_)
-            | K::NativeQuery(_)
-            | K::NativeValue(_) => 0,
-            _ => 2,
-        };
+        // Zirql counts and enumerates every expression/generator form.
+        let width = zirql::value_child_count(value);
         let location = zirql::Location::Query(value.range.clone());
         budget
             .charge(width, location.clone())
@@ -2121,39 +1863,13 @@ fn check_values<'v, Q>(
             .map_err(pipeline::core_error)?;
         let mut children: Vec<&E<Q>> = Vec::with_capacity(width);
         match &value.value {
-            K::Queue { items, element } => {
-                if let Some(element) = element {
-                    check_signature(element, budget, nesting.saturating_sub(depth + 1))?;
-                }
-                children.push(items);
+            K::Queue {
+                element: Some(element),
+                ..
             }
-            K::IdentitySet { element } => {
+            | K::IdentitySet { element } => {
                 check_signature(element, budget, nesting.saturating_sub(depth + 1))?;
             }
-            K::PopFront(value) | K::Break(value) => children.push(value),
-            K::PushBackAll {
-                queue: left,
-                items: right,
-            }
-            | K::Insert {
-                set: left,
-                item: right,
-            }
-            | K::Fold {
-                items: left,
-                initial: right,
-                ..
-            }
-            | K::Scan {
-                items: left,
-                initial: right,
-                ..
-            } => children.extend([left.as_ref(), right.as_ref()]),
-            K::Loop { states, body } => {
-                children.extend(states.iter().map(|(_, v)| v));
-                children.push(body);
-            }
-            K::Continue(values) => children.extend(values),
             K::Literal(literal) if literals => {
                 zirql::constructed_value_type(
                     literal,
@@ -2162,33 +1878,22 @@ fn check_values<'v, Q>(
                 )
                 .map_err(pipeline::core_error)?;
             }
-            K::SubjectScope { subject, argument } => {
+            K::SubjectScope { argument, .. }
+            | K::Map { argument, .. }
+            | K::FlatMap { argument, .. } => {
                 if let Some(pattern) = &argument.argument {
                     zirql::pattern_names(pattern, budget).map_err(pipeline::core_error)?;
                 }
-                children.extend([subject.as_ref(), argument.body.as_ref()]);
             }
-            K::PredicateScope { subject, predicate } => {
+            K::PredicateScope { predicate, .. } | K::Filter { predicate, .. } => {
                 if let Some(pattern) = &predicate.argument {
                     zirql::pattern_names(pattern, budget).map_err(pipeline::core_error)?;
                 }
-                children.extend([subject.as_ref(), predicate.body.as_ref()]);
             }
-            K::Filter { array, predicate } => {
-                if let Some(pattern) = &predicate.argument {
-                    zirql::pattern_names(pattern, budget).map_err(pipeline::core_error)?;
-                }
-                children.extend([array.as_ref(), predicate.body.as_ref()]);
-            }
-            K::Literal(_) | K::CurrentInput | K::Name(_) | K::PredicateSubject => {}
             K::NativeQuery(query) | K::NativeValue(query) => natives.push(query.as_ref()),
-            K::Call { arguments, .. }
-            | K::Array(arguments)
-            | K::Tuple(arguments)
-            | K::Set(arguments) => children.extend(arguments),
-            K::Record(fields) => {
+            K::Record(fields) | K::With { fields, .. } => {
                 let mut labels = std::collections::BTreeSet::new();
-                for (name, field) in fields {
+                for (name, _) in fields {
                     budget
                         .charge(
                             name.value.len() + 1,
@@ -2201,129 +1906,46 @@ fn check_values<'v, Q>(
                             "duplicate report label",
                         ));
                     }
-                    children.push(field);
                 }
             }
-            K::Unary { operand, .. }
-            | K::Unique(operand)
-            | K::Tally(operand)
-            | K::Occurs(operand)
-            | K::Absent(operand)
-            | K::One(operand)
-            | K::IndexSet(operand)
-            | K::Entries(operand)
-            | K::Reduce { array: operand, .. }
-            | K::Sort { array: operand, .. }
-            | K::Extremum { array: operand, .. }
-            | K::GroupBy { rows: operand, .. }
-            | K::Field { value: operand, .. }
-            | K::TupleAccess { value: operand, .. } => children.push(operand),
-            K::Binary { left, right, .. }
-            | K::Lookup {
-                value: left,
-                key: right,
-            }
-            | K::HasKey {
-                value: left,
-                key: right,
-            }
-            | K::ZipExact { left, right }
-            | K::Range {
-                lower: left,
-                upper: right,
-            }
-            | K::ArrayAccess {
-                array: left,
-                index: right,
-            }
-            | K::Require {
-                condition: left,
-                value: right,
-                ..
-            } => children.extend([left.as_ref(), right.as_ref()]),
-            K::Default { value, fallback } => {
-                children.push(value);
-                if !eager {
-                    children.push(fallback);
-                }
-            }
-            K::Conditional {
-                branches,
-                otherwise,
-            } => {
-                children.extend(branches.iter().flat_map(|(a, b)| [a, b]));
-                children.push(otherwise);
-            }
-            K::Block { bindings, value } => {
-                for (pattern, initializer) in bindings {
+            K::Block { bindings, .. } => {
+                for (pattern, _) in bindings {
                     zirql::pattern_names(pattern, budget).map_err(pipeline::core_error)?;
-                    children.push(initializer);
                 }
-                children.push(value);
             }
-            K::ValueMatch { subject, arms } => {
-                children.push(subject);
+            K::ValueMatch { arms, .. } => {
                 for arm in arms {
                     zirql::pattern_names(&arm.pattern, budget).map_err(pipeline::core_error)?;
-                    children.extend(arm.guard.iter());
-                    children.push(&arm.value);
                 }
             }
-            K::Dictionary(entries) => children.extend(entries.iter().flat_map(|(a, b)| [a, b])),
-            K::KeyedArray {
-                declared_axis_sources,
-                entries,
-                ..
-            } => {
-                children.extend(declared_axis_sources.iter().flatten());
-                children.extend(entries.iter().flat_map(|(a, b)| [a, b]));
-            }
-            K::Comprehension { clauses, head, .. }
-            | K::DictionaryComprehension { clauses, head, .. }
-            | K::KeyedComprehension { clauses, head, .. } => {
-                children.push(head);
-                if let K::DictionaryComprehension { key, .. } = &value.value {
-                    children.push(key);
-                }
-                if let K::KeyedComprehension {
-                    key,
-                    declared_axis_sources,
-                    empty_axis_sources,
-                    ..
-                } = &value.value
-                {
-                    children.extend(declared_axis_sources.iter().flatten());
-                    children.push(key);
-                    children.extend(empty_axis_sources.iter().flatten());
-                }
+            K::Comprehension { clauses, .. }
+            | K::DictionaryComprehension { clauses, .. }
+            | K::KeyedComprehension { clauses, .. } => {
                 for clause in clauses {
                     match &clause.value {
-                        zirql::ValueGenerator::In {
-                            binders,
-                            source,
-                            filter,
-                        } => {
+                        zirql::ValueGenerator::In { binders, .. } => {
                             for pattern in binders {
                                 zirql::pattern_names(pattern, budget)
                                     .map_err(pipeline::core_error)?;
                             }
-                            children.push(source);
-                            children.extend(filter.iter());
                         }
-                        zirql::ValueGenerator::Bind {
-                            binder,
-                            value,
-                            filter,
-                        } => {
+                        zirql::ValueGenerator::Bind { binder, .. } => {
                             zirql::pattern_names(binder, budget).map_err(pipeline::core_error)?;
-                            children.push(value);
-                            children.extend(filter.iter());
                         }
                     }
                 }
             }
+            _ => {}
         }
-        pending.extend(children.into_iter().map(|value| (value, depth + 1)));
+        if let K::Default { value, .. } = &value.value
+            && eager
+        {
+            // Native discovery deliberately leaves this deferred fallback alone.
+            children.push(value.as_ref());
+        } else {
+            zirql::for_each_value_child(value, |child| children.push(child));
+        }
+        pending.extend(children.into_iter().rev().map(|value| (value, depth + 1)));
     }
     Ok((natives, needs_runtime))
 }

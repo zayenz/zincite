@@ -63,6 +63,43 @@ evaluator. Natural MiniZinc records retain the forms below. The
 common dictionary and typed empty forms are read-only report syntax. Data edits
 retain the closed MiniZinc subset and serialization checks below.
 
+## Transform report rows
+
+The development checkout pins Zirql
+[`967eb05c80fd122fb5a91cd9056cce124f844150`](https://github.com/zayenz/zirql/commit/967eb05c80fd122fb5a91cd9056cce124f844150).
+The following report forms require that checkout; the published Zirql 0.2.0
+integration predates them.
+
+`map(pattern => expression)` transforms each positional item. `flat_map` uses
+the same body and joins its positional results by one level. A `case` generator
+skips pattern mismatches; an ordinary generator still fails on a mismatch.
+`windows(n)` produces complete overlapping windows with stride one and positive
+size. `runs_by("field")` groups consecutive equal keys into `key`/`items`
+records. A record followed by `with {field: value}` replaces existing fields
+without changing their order. `align(before, after, by="field")` requires unique
+present keys on each side and returns `key`, optional `before` and optional
+`after`, in left order followed by right-only keys.
+
+For example, run this from the development checkout:
+
+```sh
+printf 'x = 1;\n' | cargo run --locked --bin zincite-query -- \
+  --stdin-filepath data.dzn --program 'report {
+    "pairs": [n for case present(n) in [null, 1, 2]] | map(n => n + 1) | windows(2),
+    "sizes": [{"id": 1}, {"id": 1}, {"id": 2}] | runs_by("id") | map(length(_.items)),
+    "changed": {"id": 1, "amount": 2} with {amount: 3},
+    "keys": align([{"id": 1}], [{"id": 2}], by="id") | map(_.key)
+  };'
+```
+
+`Program::from_values` accepts the corresponding shared `ValueExpression`
+variants, including nested native selections beside scalar fields. Zirql owns
+payload mapping, child enumeration and report evaluation; Zincite supplies
+native record construction, MiniZinc facts and source coordinates. Written
+admission includes every fallback and branch. Eager native discovery leaves
+`default` fallbacks deferred. These operations and selective generators remain
+report-only, including in unused bindings and unselected Data branches.
+
 ## Predicate subjects and patterns
 
 `rows | filter(row => row.weight > limit)` and

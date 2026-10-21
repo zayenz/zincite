@@ -29,7 +29,6 @@ enum Stage {
     FunctionValue(zirql::ValueExpression<Expression>),
     FunctionSource(zirql::ValueExpression<Expression>),
     PatternBinding(zirql::Pattern, zirql::ValueExpression<Expression>),
-    RecordValue(Vec<(Located<String>, zirql::ValueExpression<Expression>)>),
     Primitive(
         functions::Primitive,
         Vec<zirql::ValueExpression<Expression>>,
@@ -68,11 +67,6 @@ impl Drop for Stage {
                     Located::new(zirql::PatternKind::Wildcard, 0..0),
                 ));
                 zirql::dispose_native_value(std::mem::replace(value, empty()));
-            }
-            Self::RecordValue(fields) => {
-                for (_, value) in std::mem::take(fields) {
-                    zirql::dispose_native_value(value);
-                }
             }
             Self::Primitive(_, values) => {
                 for value in std::mem::take(values) {
@@ -1970,7 +1964,7 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
                         .bind(expression, bindings, &value, context, budget)
                         .map_err(zirql::EvaluationError::Host);
                 }
-                Stage::RecordValue(_) | Stage::Primitive(_, _) => {
+                Stage::Primitive(_, _) => {
                     return Err(zirql::QueryError::query(
                         range.clone(),
                         "native function primitive requires its active argument runner",
@@ -3530,9 +3524,6 @@ fn admit_written_members<'v, 'a>(
                         Stage::FunctionValue(value)
                         | Stage::FunctionSource(value)
                         | Stage::PatternBinding(_, value) => values.push(value),
-                        Stage::RecordValue(fields) => {
-                            values.extend(fields.iter().map(|(_, value)| value))
-                        }
                         Stage::Primitive(_, arguments) => values.extend(arguments),
                         Stage::Query(_, arguments) => {
                             values.extend(arguments.iter().map(|argument| &argument.expression))

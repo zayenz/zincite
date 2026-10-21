@@ -197,6 +197,17 @@ Include nodes expose their path literal as a child. Output nodes expose an optio
 item; `SolveMinimize` and `SolveMaximize` expose direct solve annotations followed
 by the objective expression. Each node retains its precise source range.
 
+## Development report transformations
+
+The development query adapter pins Zirql Git revision
+`967eb05c80fd122fb5a91cd9056cce124f844150`. It supports positional `map` and
+`flat_map`, selective `case` generators, `windows`, `runs_by`, record updates
+with `with`, and full `align` by a unique field. The
+[report transformation example](query-comprehension-contract.md#transform-report-rows)
+shows their syntax and required checkout. Text programs and
+`Program::from_values` use the same evaluator and retain native selections
+inside report records. Data edits keep their closed expression subset.
+
 ## Query library
 
 `zincite-query` selects top-level items from one model or assignment-only data

@@ -2009,3 +2009,27 @@ fn source_copy_program_emits_one_complete_candidate() {
     assert!(output.stdout.is_empty());
     std::fs::remove_dir_all(library).unwrap();
 }
+
+#[test]
+fn adopted_report_suffixes_agree_inline_and_in_files() {
+    let source = "report [n for case present(n) in [null,1,2]] | map(n => n+1) | windows(2);";
+    let path = std::env::temp_dir().join(format!("zincite-adopted-{}.zirql", std::process::id()));
+    std::fs::write(&path, source).unwrap();
+    let inline = run(
+        &["--program", source, "--stdin-filepath", "data.dzn"],
+        b"x=1;",
+    );
+    let file = run(
+        &[
+            "--program-file",
+            path.to_str().unwrap(),
+            "--stdin-filepath",
+            "data.dzn",
+        ],
+        b"x=1;",
+    );
+    std::fs::remove_file(path).unwrap();
+    assert!(inline.status.success(), "{inline:?}");
+    assert!(file.status.success(), "{file:?}");
+    assert_eq!(inline.stdout, file.stdout);
+}

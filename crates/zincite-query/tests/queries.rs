@@ -5193,6 +5193,7 @@ mod worklists {
     fn reach_report(target: &str) -> ProgramValue {
         let clause = |name: &str, source| {
             l(zirql::ValueGenerator::In {
+                case: false,
                 binders: vec![l(zirql::PatternKind::Name(l(name.into())))],
                 source,
                 filter: None,
@@ -7030,6 +7031,7 @@ fn typed_indexed_reports_retain_declared_domains_and_empty_nominal_identity() {
     let comprehension = e(K::KeyedComprehension {
         clauses: vec![L::new(
             zirql::ValueGenerator::In {
+                case: false,
                 binders: vec![L::new(
                     zirql::PatternKind::Name(L::new("g".into(), 10..20)),
                     10..20,
@@ -7617,4 +7619,112 @@ fn enum_scaling_refuses_missing_coverage_and_unsupported_sources() {
         .unwrap();
     let report: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(report["result"]["value"], 2);
+}
+
+#[test]
+fn adopted_report_extensions_keep_order_and_native_builder_values() {
+    use zincite_query::{Program, ProgramLimits, ProgramNative, ProgramValue, ReportValue};
+    use zirql::{ConstructedValue as V, Located, ValueExpressionKind as K};
+    let limits = ProgramLimits::default();
+    let input = Input::parse(b"x=1;".to_vec(), FileMode::Data).unwrap();
+    let source = r#"report {
+        "mapped": [1,2] | map(n => n * 2),
+        "flat": [1,2] | flat_map(n => [n,n+10]),
+        "selected": [n for case present(n) in [null,2]],
+        "windows": [1,2,3] | windows(2),
+        "runs": [{"id":1},{"id":1},{"id":2}] | runs_by("id") | map(length(_.items)),
+        "updated": {"id":1,"n":2} with {n:3},
+        "aligned": align([{"id":1}], [{"id":2}], by="id") | map(_.key)
+    };"#;
+    let result = Program::parse(source, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let ReportValue::Constructed(value) = result.emissions()[0].value() else {
+        panic!("constructed report")
+    };
+    let ints = |items: &[i64]| V::Array(items.iter().copied().map(V::Integer).collect());
+    assert_eq!(
+        value.data(),
+        &V::Record(vec![
+            ("mapped".into(), ints(&[2, 4])),
+            ("flat".into(), ints(&[1, 11, 2, 12])),
+            ("selected".into(), ints(&[2])),
+            (
+                "windows".into(),
+                V::Array(vec![ints(&[1, 2]), ints(&[2, 3])])
+            ),
+            ("runs".into(), ints(&[2, 1])),
+            (
+                "updated".into(),
+                V::Record(vec![
+                    ("id".into(), V::Integer(1)),
+                    ("n".into(), V::Integer(3))
+                ])
+            ),
+            ("aligned".into(), ints(&[1, 2])),
+        ])
+    );
+    fn e(kind: K<zirql::Expression<ProgramNative, zirql::NativeSetOperator, ()>>) -> ProgramValue {
+        Located::new(kind, 10..20)
+    }
+    let native = Located::new(
+        zirql::ExpressionKind::Sequence {
+            input: Box::new(Located::new(zirql::ExpressionKind::Input, 10..20)),
+            steps: vec![Located::new(
+                zirql::ExpressionStep::Stage(ProgramNative::Query(
+                    Query::parse("items", Limits::default()).unwrap(),
+                )),
+                10..20,
+            )],
+        },
+        10..20,
+    );
+    let row = e(K::Record(vec![
+        (
+            Located::new("node".into(), 10..20),
+            e(K::NativeValue(Box::new(native))),
+        ),
+        (
+            Located::new("count".into(), 10..20),
+            e(K::Literal(V::Integer(1))),
+        ),
+    ]));
+    let value = e(K::Map {
+        array: Box::new(e(K::Array(vec![row]))),
+        argument: zirql::PredicateArgument {
+            argument: Some(Located::new(
+                zirql::PatternKind::Name(Located::new("row".into(), 10..20)),
+                10..20,
+            )),
+            body: Box::new(e(K::With {
+                record: Box::new(e(K::Name("row".into()))),
+                fields: vec![(
+                    Located::new("count".into(), 10..20),
+                    e(K::Literal(V::Integer(2))),
+                )],
+            })),
+        },
+    });
+    let program = Program::from_values(vec![], vec![], value, limits).unwrap();
+    let result = program.evaluate(&input, limits).unwrap();
+    let ReportValue::Sequence(rows) = result.emissions()[0].value() else {
+        panic!("native rows")
+    };
+    let fields = rows.values()[0].fields().unwrap();
+    assert!(fields[0].1.stream().is_some());
+    let count = match &fields[1].1 {
+        ReportValue::Constructed(value) => value,
+        ReportValue::SharedConstructed(value) => value.as_ref(),
+        _ => panic!("scalar field"),
+    };
+    assert_eq!(count.data(), &V::Integer(2));
+    for source in [
+        "let unused=[n | case n in [1]]; create changed=1; emit;",
+        "create changed=if false then [n | case n in [1]] else [1] endif; emit;",
+        "let unused=[1] | map(n => n); create changed=1; emit;",
+    ] {
+        let error = Program::parse(source, limits).unwrap_err();
+        assert!(error.message.contains("report-only"), "{source}: {error:?}");
+    }
 }
