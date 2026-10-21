@@ -29,7 +29,7 @@
     },
     {
       "name": "keyword.control.zirql",
-      "match": "(?<![\\w.])\\b(?:let|param|report|fn|if|then|elseif|else|endif|for|in|match|from|bind|where)\\b(?!\\s*:)"
+      "match": "(?<![\\w.])\\b(?:let|param|report|fn|if|then|elseif|else|endif|for|in|match|from|bind|where|case|with|loop|break|continue)\\b(?!\\s*:)"
     },
     {
       "name": "keyword.operator.word.zirql",
